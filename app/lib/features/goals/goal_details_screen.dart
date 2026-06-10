@@ -9,6 +9,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../common/vault_widget.dart';
+import 'goal_form_screen.dart';
 import 'goals_providers.dart';
 
 class GoalDetailsScreen extends ConsumerWidget {
@@ -16,12 +17,106 @@ class GoalDetailsScreen extends ConsumerWidget {
 
   final String goalId;
 
+  static Future<void> showSheet(BuildContext context, String goalId) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _GoalDetailsSheet(goalId: goalId),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('تفاصيل الهدف')),
+      body: _GoalDetailsContent(goalId: goalId),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showAddContributionSheet(context, ref, goalId),
+        label: const Text('أضف للهدف'),
+        icon: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class _GoalDetailsSheet extends StatelessWidget {
+  const _GoalDetailsSheet({required this.goalId});
+
+  final String goalId;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final media = MediaQuery.of(context);
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Material(
+        color: c.bg,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.cardLg),
+        ),
+        child: Container(
+        height: media.size.height * 0.86,
+        decoration: BoxDecoration(
+          color: c.bg,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.cardLg),
+          ),
+          border: Border.all(color: c.primary.withValues(alpha: 0.22)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: AppSpacing.s3),
+            Container(
+              width: 44,
+              height: 5,
+              decoration: BoxDecoration(
+                color: c.border,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s4,
+                AppSpacing.gutter,
+                AppSpacing.s2,
+              ),
+              child: Row(
+                children: [
+                  Text('تفاصيل الهدف', style: AppTypography.title2(c.textMain)),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: _GoalDetailsContent(goalId: goalId, sheetMode: true)),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
+}
+
+class _GoalDetailsContent extends ConsumerWidget {
+  const _GoalDetailsContent({
+    required this.goalId,
+    this.sheetMode = false,
+  });
+
+  final String goalId;
+  final bool sheetMode;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(goalDetailsProvider(goalId));
-    return Scaffold(
-      appBar: AppBar(title: const Text('تفاصيل الهدف')),
-      body: async.when(
+    return async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('حدث خطأ: $error')),
         data: (data) {
@@ -34,7 +129,7 @@ class GoalDetailsScreen extends ConsumerWidget {
               AppSpacing.gutter,
               AppSpacing.s4,
               AppSpacing.gutter,
-              120,
+              140,
             ),
             children: [
               Center(child: VaultWidget(progress: data.progress, size: 220)),
@@ -68,6 +163,43 @@ class GoalDetailsScreen extends ConsumerWidget {
                   style: AppTypography.bodyStrong(c.primary),
                 ),
               ),
+              if (sheetMode) ...[
+                const SizedBox(height: AppSpacing.s5),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () =>
+                            _showAddContributionSheet(context, ref, goalId),
+                        icon: const Icon(Icons.add),
+                        label: const Text('أضف للهدف'),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s2),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => GoalFormScreen.showSheet(
+                          context,
+                          goal: data.goal,
+                        ),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('تعديل'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.s2),
+                OutlinedButton.icon(
+                  onPressed: () => _confirmDeleteGoal(context, ref, goalId),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.danger,
+                    side: BorderSide(color: c.danger),
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('حذف الهدف'),
+                ),
+              ],
               const SizedBox(height: AppSpacing.s6),
               Text('المساهمات', style: AppTypography.title2(c.textMain)),
               const SizedBox(height: AppSpacing.s3),
@@ -91,16 +223,48 @@ class GoalDetailsScreen extends ConsumerWidget {
             ],
           );
         },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddContributionSheet(context, ref),
-        label: const Text('أضف للهدف'),
-        icon: const Icon(Icons.add),
-      ),
     );
   }
+}
 
-  Future<void> _showAddContributionSheet(BuildContext context, WidgetRef ref) async {
+Future<void> _confirmDeleteGoal(
+  BuildContext context,
+  WidgetRef ref,
+  String goalId,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('حذف الهدف؟'),
+      content: const Text('سيتم حذف الهدف ومساهماته نهائياً.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('حذف'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) {
+    return;
+  }
+  await ref.read(deleteGoalUseCaseProvider).call(goalId);
+  refreshGoals(ref);
+  ref.invalidate(goalDetailsProvider(goalId));
+  if (context.mounted) {
+    Navigator.of(context).pop();
+  }
+}
+
+Future<void> _showAddContributionSheet(
+  BuildContext context,
+  WidgetRef ref,
+  String goalId,
+) async {
     final controller = TextEditingController();
     final noteController = TextEditingController();
     await showModalBottomSheet<void>(
@@ -163,5 +327,4 @@ class GoalDetailsScreen extends ConsumerWidget {
     );
     controller.dispose();
     noteController.dispose();
-  }
 }

@@ -5,6 +5,7 @@ import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/usecases/correct_category_usecase.dart';
 import '../../common/category_catalog.dart';
@@ -95,7 +96,11 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
             spacing: AppSpacing.s3,
             runSpacing: AppSpacing.s3,
             children: [
-              for (final cat in widget.catalog.all)
+              for (final cat in widget.catalog.all.where(
+                (it) =>
+                    it.key != 'income' &&
+                    it.key != BudgetEntity.allExpensesCategoryKey,
+              ))
                 GestureDetector(
                   onTap: () => setState(() => _selectedKey = cat.key),
                   child: Column(

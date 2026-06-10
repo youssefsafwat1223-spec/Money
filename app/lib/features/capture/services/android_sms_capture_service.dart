@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:another_telephony/telephony.dart';
 
+import '../../../engine/parser/bank_sender_filter.dart';
 import '../capture_runtime.dart';
 import '../sms_background_handler.dart';
 import 'captured_message_processor.dart';
@@ -52,6 +53,11 @@ class AndroidSmsCaptureService {
   Future<void> _onForegroundMessage(SmsMessage message) async {
     final body = message.body?.trim();
     if (body == null || body.isEmpty) {
+      return;
+    }
+
+    // نقرأ من البنوك فقط — نتجاهل الرسائل الشخصية.
+    if (!BankSenderFilter.isLikelyBank(message.address, text: body)) {
       return;
     }
 

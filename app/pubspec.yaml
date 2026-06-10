@@ -26,8 +26,6 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   path: ^1.9.1
   path_provider: ^2.1.4
-  sqlite3_flutter_libs: ^0.5.24
-  sqlcipher_flutter_libs: ^0.6.4
   flutter_local_notifications: ^22.0.0
   another_telephony: ^0.4.1
   timezone: ^0.11.0
@@ -46,10 +44,20 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   build_runner: ^2.4.11
   drift_dev: ^2.18.0
+  flutter_launcher_icons: ^0.13.1
   # ── codegen (يُفعّل عند تحويل الموديلات إلى freezed) ──
-  # freezed: ^2.5.0
-  # json_serializable: ^6.8.0
-  # mocktail: ^1.0.0
+  build_verify: ^3.1.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo/logo_light.png
+    - assets/logo/logo_dark.png
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc
+
+  # json_serializable: ^6.8.0
+  # mocktail: ^1.0.0

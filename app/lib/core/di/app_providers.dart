@@ -156,3 +156,11 @@ final saveNotificationPreferencesUseCaseProvider =
     ref.watch(userSettingsRepositoryProvider),
   );
 });
+
+final loadUserSettingsUseCaseProvider = Provider<LoadUserSettingsUseCase>((ref) {
+  return LoadUserSettingsUseCase(ref.watch(userSettingsRepositoryProvider));
+});
+
+final saveThemeModeUseCaseProvider = Provider<SaveThemeModeUseCase>((ref) {
+  return SaveThemeModeUseCase(ref.watch(userSettingsRepositoryProvider));
+});

@@ -17,6 +17,21 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+
+    // وحّد Kotlin على JVM 17 لكل الإضافات.
+    plugins.withType<org.jetbrains.kotlin.gradle.plugin.KotlinBasePluginWrapper> {
+        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+            compilerOptions {
+                jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+            }
+        }
+    }
+
+    // وحّد Java على 17 أيضاً (يحل تعارض JVM target مع إضافات مثل another_telephony).
+    tasks.withType<JavaCompile>().configureEach {
+        sourceCompatibility = JavaVersion.VERSION_11.toString()
+        targetCompatibility = JavaVersion.VERSION_11.toString()
+    }
 }
 
 tasks.register<Delete>("clean") {

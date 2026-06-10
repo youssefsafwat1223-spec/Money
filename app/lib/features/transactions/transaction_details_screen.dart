@@ -32,79 +32,143 @@ class TransactionDetailsScreen extends ConsumerWidget {
     TransactionSourceEntity.unknown: 'غير محدد',
   };
 
+  static Future<void> showSheet(BuildContext context, String transactionId) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _TransactionDetailsSheet(transactionId: transactionId),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      body: SafeArea(child: _TransactionDetailsContent(transactionId: transactionId)),
+    );
+  }
+}
+
+class _TransactionDetailsSheet extends StatelessWidget {
+  const _TransactionDetailsSheet({required this.transactionId});
+
+  final String transactionId;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.92,
+      ),
+      decoration: BoxDecoration(
+        color: c.bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: _TransactionDetailsContent(transactionId: transactionId),
+    );
+  }
+}
+
+class _TransactionDetailsContent extends ConsumerWidget {
+  const _TransactionDetailsContent({required this.transactionId});
+
+  final String transactionId;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final txAsync = ref.watch(transactionByIdProvider(transactionId));
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('تفاصيل العملية')),
-      body: txAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('حدث خطأ: $e')),
-        data: (tx) {
-          if (tx == null) {
-            return const Center(child: Text('العملية غير موجودة'));
-          }
-          final category = catalog?.byId(tx.categoryId);
-          return ListView(
-            padding: const EdgeInsets.all(AppSpacing.gutter),
-            children: [
-              Center(
-                child: Column(
-                  children: [
-                    CategoryAvatar(category: category, size: 64),
-                    const SizedBox(height: AppSpacing.s3),
-                    Text('${Formatters.amount(tx.amount)} ${tx.currency}',
-                        style: AppTypography.amountHero(c.textMain)),
-                    if (tx.rawMerchant != null)
-                      Text(tx.rawMerchant!,
-                          style: AppTypography.headline(c.textMain)),
-                  ],
+    return txAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+      data: (tx) {
+        if (tx == null) {
+          return const Center(child: Text('العملية غير موجودة'));
+        }
+        final category = catalog?.byId(tx.categoryId);
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s4,
+            AppSpacing.gutter,
+            AppSpacing.s6,
+          ),
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.close),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.s6),
-              _row(context, 'التصنيف', category?.nameAr ?? 'غير مصنّف',
-                  trailing: TextButton(
-                    onPressed: catalog == null
-                        ? null
-                        : () => showChangeCategorySheet(context, tx, catalog),
-                    child:
-                        Text('تغيير', style: AppTypography.subhead(c.primary)),
-                  )),
-              _row(context, 'النوع', _typeLabels[tx.type] ?? '—'),
-              _row(context, 'المصدر',
-                  '${_sourceLabels[tx.source] ?? '—'}${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}'),
-              _row(context, 'التاريخ',
-                  '${Formatters.fullDate(tx.occurredAt)} · ${Formatters.time(tx.occurredAt)}'),
-              if (tx.balanceAfter != null)
-                _row(context, 'الرصيد بعد',
-                    '${Formatters.amount(tx.balanceAfter!)} ${tx.currency}'),
-              if (tx.status == TransactionStatus.pending)
-                _row(context, 'الحالة', 'غير مؤكدة'),
-              const SizedBox(height: AppSpacing.s4),
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: Text('النص الأصلي',
-                    style: AppTypography.subhead(c.textLight)),
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(AppSpacing.s3),
-                    decoration: BoxDecoration(
-                      color: c.surface2,
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                    child: Text(tx.rawMessage,
-                        style: AppTypography.footnote(c.textMain)),
+                Expanded(
+                  child: Text(
+                    'تفاصيل العملية',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.headline(c.textMain),
                   ),
+                ),
+                const SizedBox(width: 48),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            Center(
+              child: Column(
+                children: [
+                  CategoryAvatar(category: category, size: 78),
+                  const SizedBox(height: AppSpacing.s3),
+                  Text('${Formatters.amount(tx.amount)} ${tx.currency}',
+                      style: AppTypography.amountHero(c.textMain)),
+                  if (tx.rawMerchant != null)
+                    Text(tx.rawMerchant!,
+                        textAlign: TextAlign.center,
+                        style: AppTypography.headline(c.textMain)),
                 ],
               ),
-            ],
-          );
-        },
-      ),
+            ),
+            const SizedBox(height: AppSpacing.s6),
+            _row(context, 'التصنيف', category?.nameAr ?? 'غير مصنّف',
+                trailing: TextButton(
+                  onPressed: catalog == null
+                      ? null
+                      : () => showChangeCategorySheet(context, tx, catalog),
+                  child: Text('تغيير', style: AppTypography.subhead(c.primary)),
+                )),
+            _row(context, 'النوع',
+                TransactionDetailsScreen._typeLabels[tx.type] ?? '—'),
+            _row(context, 'المصدر',
+                '${TransactionDetailsScreen._sourceLabels[tx.source] ?? '—'}${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}'),
+            _row(context, 'التاريخ',
+                '${Formatters.fullDate(tx.occurredAt)} · ${Formatters.time(tx.occurredAt)}'),
+            if (tx.balanceAfter != null)
+              _row(context, 'الرصيد بعد',
+                  '${Formatters.amount(tx.balanceAfter!)} ${tx.currency}'),
+            if (tx.status == TransactionStatus.pending)
+              _row(context, 'الحالة', 'غير مؤكدة'),
+            const SizedBox(height: AppSpacing.s4),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title:
+                  Text('النص الأصلي', style: AppTypography.subhead(c.textLight)),
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSpacing.s3),
+                  decoration: BoxDecoration(
+                    color: c.surface2,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child:
+                      Text(tx.rawMessage, style: AppTypography.footnote(c.textMain)),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -119,9 +183,7 @@ class TransactionDetailsScreen extends ConsumerWidget {
             width: 96,
             child: Text(label, style: AppTypography.subhead(c.textLight)),
           ),
-          Expanded(
-            child: Text(value, style: AppTypography.body(c.textMain)),
-          ),
+          Expanded(child: Text(value, style: AppTypography.body(c.textMain))),
           if (trailing != null) trailing,
         ],
       ),

@@ -47,8 +47,8 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       return;
     }
     await AppSession.instance
-        .completeOnboarding(method: identity.method, email: identity.email);
-    if (mounted) context.go('/');
+        .setIdentity(method: identity.method, email: identity.email);
+    if (mounted) context.push('/onboarding/method');
   }
 
   @override

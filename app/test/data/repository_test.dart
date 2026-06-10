@@ -72,7 +72,12 @@ void main() {
 
   test('first launch seeds categories, merchant mappings, and suggested goals',
       () async {
-    expect(await db.count('categories'), 20);
+    expect(await db.count('categories'), 21);
+    final allExpensesCategory = await db.customSelect(
+      'SELECT id FROM categories WHERE key = ? LIMIT 1;',
+      variables: [Variable.withString(BudgetEntity.allExpensesCategoryKey)],
+    ).getSingleOrNull();
+    expect(allExpensesCategory?.read<String>('id'), BudgetEntity.allExpensesCategoryId);
     expect(await db.count('merchant_category_map'), greaterThan(10));
     expect(await db.count('goals'), 3);
   });

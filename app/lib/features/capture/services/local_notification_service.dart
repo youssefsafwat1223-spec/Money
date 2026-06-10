@@ -67,10 +67,16 @@ class LocalNotificationService {
       requestBadgePermission: false,
       requestSoundPermission: false,
     );
+    const windows = WindowsInitializationSettings(
+      appName: 'Money Companion',
+      appUserModelId: 'MoneyCompanion.App',
+      guid: '2a4f4ea2-1d7f-4c7d-9c6f-f0fdf6e44e34',
+    );
     const settings = InitializationSettings(
       android: android,
       iOS: darwin,
       macOS: darwin,
+      windows: windows,
     );
 
     await _plugin.initialize(

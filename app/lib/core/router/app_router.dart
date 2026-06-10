@@ -5,6 +5,8 @@ import '../../features/achievements/achievements_screen.dart';
 import '../../features/app/app_shell.dart';
 import '../../features/backup/backup_screen.dart';
 import '../../features/onboarding/auth_screen.dart';
+import '../../features/onboarding/ios_shortcut_screen.dart';
+import '../../features/onboarding/method_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/onboarding/otp_screen.dart';
 import '../../features/reports/reports_screen.dart';
@@ -50,6 +52,16 @@ final appRouter = GoRouter(
       path: '/onboarding/auth',
       name: 'onboarding-auth',
       builder: (context, state) => const AuthScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/method',
+      name: 'onboarding-method',
+      builder: (context, state) => const OnboardingMethodScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/ios-shortcut',
+      name: 'onboarding-ios-shortcut',
+      builder: (context, state) => const IosShortcutScreen(),
     ),
     GoRoute(
       path: '/onboarding/otp',

@@ -32,3 +32,22 @@ class SaveNotificationPreferencesUseCase {
     );
   }
 }
+
+class LoadUserSettingsUseCase {
+  LoadUserSettingsUseCase(this._repository);
+
+  final UserSettingsRepository _repository;
+
+  Future<UserSettingsEntity> call() => _repository.getSettings();
+}
+
+class SaveThemeModeUseCase {
+  SaveThemeModeUseCase(this._repository);
+
+  final UserSettingsRepository _repository;
+
+  Future<UserSettingsEntity> call(String theme) async {
+    final settings = await _repository.getSettings();
+    return _repository.saveSettings(settings.copyWith(theme: theme));
+  }
+}

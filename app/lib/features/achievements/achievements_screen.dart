@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/section_hero_header.dart';
 import 'achievements_providers.dart';
 
 class AchievementsScreen extends ConsumerWidget {
@@ -24,8 +25,22 @@ class AchievementsScreen extends ConsumerWidget {
           return RefreshIndicator(
             onRefresh: () async => refreshAchievements(ref),
             child: ListView(
-              padding: const EdgeInsets.all(AppSpacing.gutter),
+              padding: EdgeInsets.zero,
               children: [
+                SectionHeroHeader(
+                  title: 'الإنجازات',
+                  subtitle: 'شارات ومستويات تشجعك تكمل عادة المتابعة.',
+                  metrics: [
+                    SectionHeroMetric(value: '${data.xpLevel.level}', label: 'المستوى'),
+                    SectionHeroMetric(value: '${data.xpLevel.totalXp}', label: 'XP'),
+                    SectionHeroMetric(value: '${data.streak.currentStreak}', label: 'السلسلة'),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.gutter),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                 Text('المستوى الحالي', style: AppTypography.callout(c.textLight)),
                 const SizedBox(height: AppSpacing.s1),
                 Text(
@@ -71,34 +86,90 @@ class AchievementsScreen extends ConsumerWidget {
                     return Container(
                       padding: const EdgeInsets.all(AppSpacing.s4),
                       decoration: BoxDecoration(
-                        color: unlocked ? c.surface : c.surface2,
+                        color: unlocked
+                            ? c.primary.withValues(alpha: 0.08)
+                            : c.surface.withValues(alpha: 0.45),
                         borderRadius: BorderRadius.circular(AppRadius.card),
                         border: Border.all(
-                          color: unlocked ? c.primary : c.border,
+                          color: unlocked
+                              ? c.primary.withValues(alpha: 0.4)
+                              : c.border.withValues(alpha: 0.15),
+                          width: unlocked ? 1.5 : 1,
                         ),
+                        boxShadow: unlocked
+                            ? [
+                                BoxShadow(
+                                  color: c.primary.withValues(alpha: 0.1),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : [],
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: Stack(
                         children: [
-                          Icon(
-                            unlocked ? Icons.verified_outlined : Icons.lock_outline,
-                            color: unlocked ? c.primary : c.textLight,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: unlocked
+                                      ? c.accent.withValues(alpha: 0.15)
+                                      : c.surface2.withValues(alpha: 0.5),
+                                  border: Border.all(
+                                    color: unlocked
+                                        ? c.accent.withValues(alpha: 0.3)
+                                        : c.border.withValues(alpha: 0.1),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Icon(
+                                  unlocked ? Icons.emoji_events_rounded : Icons.lock_outline,
+                                  color: unlocked ? c.accent : c.textLight,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.s3),
+                              Text(
+                                item.nameAr,
+                                style: AppTypography.subhead(unlocked ? c.textMain : c.textLight).copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                unlocked ? 'تم الفتح' : 'قيد التقدّم',
+                                style: AppTypography.caption(unlocked ? c.success : c.textLight.withValues(alpha: 0.7)),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: AppSpacing.s2),
-                          Text(
-                            item.nameAr,
-                            style: AppTypography.subhead(c.textMain),
-                          ),
-                          const SizedBox(height: AppSpacing.s1),
-                          Text(
-                            unlocked ? 'تم الفتح' : 'قيد التقدّم',
-                            style: AppTypography.caption(c.textLight),
-                          ),
+                          // إضاءة خلفية ذهبية خفيفة للشارات المفتوحة كعلامة مائية
+                          if (unlocked)
+                            Positioned(
+                              top: -20,
+                              left: -20,
+                              child: Opacity(
+                                opacity: 0.12,
+                                child: Transform.rotate(
+                                  angle: 0.25,
+                                  child: Icon(
+                                    Icons.emoji_events_rounded,
+                                    size: 80,
+                                    color: c.accent,
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     );
                   },
+                ),
+                    ],
+                  ),
                 ),
               ],
             ),

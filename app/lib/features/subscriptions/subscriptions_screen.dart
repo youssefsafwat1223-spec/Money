@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/entities/report_models.dart';
 import 'subscriptions_providers.dart';
 
 class SubscriptionsScreen extends ConsumerWidget {
@@ -12,79 +14,331 @@ class SubscriptionsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.colors;
     final async = ref.watch(subscriptionsProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('الاشتراكات')),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('حدث خطأ: $e')),
-        data: (items) {
-          if (items.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.gutter),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.repeat, size: 44, color: c.textLight),
-                    const SizedBox(height: AppSpacing.s3),
-                    Text('لم نكتشف اشتراكات متكررة بعد',
-                        textAlign: TextAlign.center,
-                        style: AppTypography.headline(c.textMain)),
-                    const SizedBox(height: AppSpacing.s2),
-                    Text('تظهر هنا تلقائياً عند تكرار نفس المبلغ شهرياً.',
-                        textAlign: TextAlign.center,
-                        style: AppTypography.callout(c.textLight)),
-                  ],
-                ),
-              ),
-            );
-          }
-          return ListView(
-            padding: const EdgeInsets.all(AppSpacing.gutter),
-            children: [
-              Text('اكتشفنا عمليات متكررة:',
-                  style: AppTypography.subhead(c.textLight)),
-              const SizedBox(height: AppSpacing.s3),
-              for (final item in items)
-                Container(
-                  margin: const EdgeInsets.only(bottom: AppSpacing.s3),
-                  padding: const EdgeInsets.all(AppSpacing.s4),
-                  decoration: BoxDecoration(
-                    color: c.surface,
-                    borderRadius: BorderRadius.circular(AppRadius.card),
-                    border: Border.all(color: c.border),
-                  ),
-                  child: Row(
+    final c = context.colors;
+    return async.when(
+      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(body: Center(child: Text('حدث خطأ: $e'))),
+      data: (items) {
+        final monthly = items.fold<double>(
+          0,
+          (sum, item) => sum + item.averageAmount,
+        );
+        return DefaultTabController(
+          length: 2,
+          child: Scaffold(
+            body: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _BillsHeader(monthly: monthly, activeCount: items.length),
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.gutter),
+                  child: Column(
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        height: 48,
+                        padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: c.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          color: c.surface2,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
                         ),
-                        child: Icon(Icons.repeat, color: c.primary),
+                        child: TabBar(
+                          indicatorSize: TabBarIndicatorSize.tab,
+                          dividerColor: Colors.transparent,
+                          labelColor: Colors.white,
+                          unselectedLabelColor: c.textLight,
+                          indicator: BoxDecoration(
+                            color: c.primary,
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                          tabs: const [
+                            Tab(text: 'الاشتراكات'),
+                            Tab(text: 'الأقساط'),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: AppSpacing.s3),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(height: AppSpacing.s5),
+                      SizedBox(
+                        height: 470,
+                        child: TabBarView(
                           children: [
-                            Text(item.name,
-                                style: AppTypography.bodyStrong(c.textMain)),
-                            Text('~${Formatters.amount(item.averageAmount)} ريال/شهر · ${item.monthsSeen} أشهر',
-                                style: AppTypography.caption(c.textLight)),
+                            _SubscriptionsTab(items: items),
+                            const _InstallmentsTab(),
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
+              ],
+            ),
+            floatingActionButton: FloatingActionButton.extended(
+              onPressed: () => _showManualComingSoon(context),
+              icon: const Icon(AppLucideIcons.plus),
+              label: const Text('إضافة اشتراك'),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showManualComingSoon(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('إضافة اشتراك يدوياً'),
+        content: const Text(
+          'الاكتشاف التلقائي يعمل الآن. الإضافة اليدوية ستكون الخطوة التالية مع تاريخ التجديد والتنبيه.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('تمام'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BillsHeader extends StatelessWidget {
+  const _BillsHeader({required this.monthly, required this.activeCount});
+
+  final double monthly;
+  final int activeCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        56,
+        AppSpacing.gutter,
+        AppSpacing.s6,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [c.primary, c.gradB, c.success],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('الفواتير',
+                    style: AppTypography.title1(Colors.white)
+                        .copyWith(fontWeight: FontWeight.bold)),
+              ),
+              const _HeaderIcon(icon: AppLucideIcons.alertTriangle),
+              const SizedBox(width: AppSpacing.s2),
+              const _HeaderIcon(icon: AppLucideIcons.receipt),
             ],
-          );
-        },
+          ),
+          const SizedBox(height: AppSpacing.s5),
+          Text('الصرف الشهري', style: AppTypography.subhead(Colors.white70)),
+          const SizedBox(height: AppSpacing.s2),
+          Text('${Formatters.amount(monthly)} ريال',
+              style: AppTypography.amountHero(Colors.white)),
+          const SizedBox(height: AppSpacing.s4),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.s4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            ),
+            child: Row(
+              children: [
+                _HeaderMetric(label: 'نشط', value: '$activeCount'),
+                const _Divider(),
+                _HeaderMetric(
+                  label: 'سنوياً',
+                  value: '${Formatters.amount(monthly * 12)} ريال',
+                ),
+                const _Divider(),
+                const _HeaderMetric(label: 'هذا الأسبوع', value: '0'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderIcon extends StatelessWidget {
+  const _HeaderIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, color: Colors.white, size: 20),
+    );
+  }
+}
+
+class _HeaderMetric extends StatelessWidget {
+  const _HeaderMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(value,
+              textAlign: TextAlign.center,
+              style: AppTypography.bodyStrong(Colors.white)),
+          const SizedBox(height: 4),
+          Text(label, style: AppTypography.caption(Colors.white70)),
+        ],
+      ),
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  const _Divider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 42,
+      color: Colors.white.withValues(alpha: 0.20),
+    );
+  }
+}
+
+class _SubscriptionsTab extends StatelessWidget {
+  const _SubscriptionsTab({required this.items});
+
+  final List<RecurringCandidate> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    if (items.isEmpty) {
+      return const _EmptyBillsState(
+        icon: AppLucideIcons.repeat,
+        title: 'فواتيرك تتكشف تلقائياً',
+        body: 'لما تتكرر عملية بنفس المبلغ عبر أكثر من شهر، هنقترحها هنا كاشتراك.',
+      );
+    }
+    return ListView.builder(
+      padding: EdgeInsets.zero,
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: AppSpacing.s3),
+          padding: const EdgeInsets.all(AppSpacing.s4),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: c.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: c.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Icon(AppLucideIcons.repeat, color: c.primary),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.name, style: AppTypography.bodyStrong(c.textMain)),
+                    Text('تكرر ${item.monthsSeen} أشهر',
+                        style: AppTypography.caption(c.textLight)),
+                  ],
+                ),
+              ),
+              Text('${Formatters.amount(item.averageAmount)} ريال/شهر',
+                  style: AppTypography.bodyStrong(c.textMain)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _InstallmentsTab extends StatelessWidget {
+  const _InstallmentsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _EmptyBillsState(
+      icon: AppLucideIcons.repeat,
+      title: 'الأقساط قريباً',
+      body: 'هنفصل الأقساط عن الاشتراكات ونضيف تاريخ الاستحقاق والتنبيهات.',
+    );
+  }
+}
+
+class _EmptyBillsState extends StatelessWidget {
+  const _EmptyBillsState({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              color: c.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(26),
+            ),
+            child: Icon(icon, color: c.primary, size: 34),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          Text(title,
+              textAlign: TextAlign.center,
+              style:
+                  AppTypography.title2(c.textMain).copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            style: AppTypography.callout(c.textLight),
+          ),
+        ],
       ),
     );
   }
