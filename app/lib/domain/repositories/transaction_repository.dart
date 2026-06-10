@@ -37,6 +37,21 @@ abstract class TransactionRepository {
     required DateTime to,
   });
 
+  /// إجمالي الدخل خلال فترة — يعرض في Dashboard ولا يستهلك الميزانيات.
+  Future<double> incomeTotalBetween({
+    required DateTime from,
+    required DateTime to,
+  });
+
+  /// آخر رصيد معروف من رسائل البنك، إن وُجد.
+  Future<double?> latestBalanceAfter();
+
+  /// صرف يومي خلال فترة — يستخدم للرسم البياني في Insights.
+  Future<List<DailySpend>> dailyExpenseTotals({
+    required DateTime from,
+    required DateTime to,
+  });
+
   /// تفصيل الإنفاق لكل تصنيف خلال فترة — لـ «أين ذهبت أموالك».
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,

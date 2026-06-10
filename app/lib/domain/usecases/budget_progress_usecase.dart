@@ -29,11 +29,7 @@ class BudgetProgressUseCase {
     for (final budget in budgets) {
       final normalizedBudget = await _rollBudgetIfNeeded(budget, current);
       final period = _currentPeriodFor(normalizedBudget.period, current);
-      final spent = await _transactionRepository.categoryExpenseTotalBetween(
-        categoryId: normalizedBudget.categoryId,
-        from: period.$1,
-        to: period.$2,
-      );
+      final spent = await _spentForBudget(normalizedBudget, period);
       final ratio = normalizedBudget.amount == 0
           ? 0.0
           : spent / normalizedBudget.amount;
@@ -93,11 +89,7 @@ class BudgetProgressUseCase {
     }
 
     final previousPeriod = _periodForStart(budget.period, budget.startDate);
-    final previousSpent = await _transactionRepository.categoryExpenseTotalBetween(
-      categoryId: budget.categoryId,
-      from: previousPeriod.$1,
-      to: previousPeriod.$2,
-    );
+    final previousSpent = await _spentForBudget(budget, previousPeriod);
 
     if (budget.period == BudgetPeriod.daily &&
         previousSpent <= budget.amount &&
@@ -139,5 +131,22 @@ class BudgetProgressUseCase {
             .subtract(RiyadhTime.offset);
         return (start, end);
     }
+  }
+
+  Future<double> _spentForBudget(
+    BudgetEntity budget,
+    (DateTime, DateTime) period,
+  ) {
+    if (budget.isAllExpenses) {
+      return _transactionRepository.expenseTotalBetween(
+        from: period.$1,
+        to: period.$2,
+      );
+    }
+    return _transactionRepository.categoryExpenseTotalBetween(
+      categoryId: budget.categoryId,
+      from: period.$1,
+      to: period.$2,
+    );
   }
 }

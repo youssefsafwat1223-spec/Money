@@ -1,6 +1,9 @@
 enum BudgetPeriod { daily, weekly, monthly }
 
 class BudgetEntity {
+  static const allExpensesCategoryId = '__all_expenses__';
+  static const allExpensesCategoryKey = 'all_expenses';
+
   const BudgetEntity({
     required this.id,
     required this.categoryId,
@@ -20,6 +23,8 @@ class BudgetEntity {
   final bool isActive;
   final bool alert80Sent;
   final bool alert100Sent;
+
+  bool get isAllExpenses => categoryId == allExpensesCategoryId;
 
   BudgetEntity copyWith({
     String? id,

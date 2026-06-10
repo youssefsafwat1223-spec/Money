@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/riyadh_time.dart';
+import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../achievements/achievements_providers.dart';
 import '../achievements/achievements_screen.dart';
@@ -32,6 +34,8 @@ import '../transactions/transactions_screen.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 import 'celebration_runtime.dart';
 
+final shellIndexProvider = StateProvider<int>((ref) => 0);
+
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
@@ -40,20 +44,10 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  int _index = 0;
   late final AppLifecycleListener _lifecycleListener;
   StreamSubscription<String>? _confirmSubscription;
   CelebrationEvent? _activeCelebration;
   Timer? _celebrationTimer;
-
-  static const _titles = [
-    '',
-    'العمليات',
-    'الميزانيات',
-    'الأهداف',
-    'الإنجازات',
-    'الإعدادات',
-  ];
 
   @override
   void initState() {
@@ -118,7 +112,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     final catalog = await ref.read(categoryCatalogProvider.future);
     for (final alert in snapshot.alerts) {
       final category = catalog.byId(alert.budget.categoryId);
-      final label = category?.nameAr ?? 'ميزانية';
+      final label = alert.budget.categoryId == BudgetEntity.allExpensesCategoryId
+          ? 'كل المصروفات'
+          : category?.nameAr ?? 'ميزانية';
       if (alert.kind == BudgetAlertKind.warning80) {
         await LocalNotificationService.instance.showBudgetAlert(
           title: 'اقتربت من ميزانية $label',
@@ -208,9 +204,48 @@ class _AppShellState extends ConsumerState<AppShell> {
     _drainCelebrations();
   }
 
+  IconData _getIconForIndex(int index) {
+    switch (index) {
+      case 0:
+        return AppLucideIcons.home;
+      case 1:
+        return AppLucideIcons.receipt;
+      case 2:
+        return AppLucideIcons.wallet;
+      case 3:
+        return AppLucideIcons.target;
+      case 4:
+        return AppLucideIcons.medal;
+      case 5:
+        return AppLucideIcons.wrench;
+      default:
+        return AppLucideIcons.home;
+    }
+  }
+
+  String _getLabelForIndex(int index) {
+    switch (index) {
+      case 0:
+        return 'الرئيسية';
+      case 1:
+        return 'العمليات';
+      case 2:
+        return 'الميزانيات';
+      case 3:
+        return 'الأهداف';
+      case 4:
+        return 'الإنجازات';
+      case 5:
+        return 'الإعدادات';
+      default:
+        return '';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final index = ref.watch(shellIndexProvider);
     const pages = [
       DashboardScreen(),
       TransactionsScreen(),
@@ -220,11 +255,60 @@ class _AppShellState extends ConsumerState<AppShell> {
       SettingsScreen(),
     ];
 
+    final isFabVisible = index <= 1;
+
     return Scaffold(
-      appBar: _index == 0 ? null : AppBar(title: Text(_titles[_index])),
+      extendBody: true,
+      appBar: null,
       body: Stack(
         children: [
-          SafeArea(child: IndexedStack(index: _index, children: pages)),
+          // الخلفية الأساسية مع التوهج الملون (Ambient Glows) لتعميق الإحساس البصري
+          Positioned.fill(
+            child: Container(
+              color: c.bg,
+            ),
+          ),
+          // توهج بنفسجي علوي يمين
+          Positioned(
+            top: -150,
+            right: -150,
+            child: Container(
+              width: 400,
+              height: 400,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    c.primary.withValues(alpha: 0.12),
+                    c.primary.withValues(alpha: 0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // توهج بنفسجي غامق سفلي يسار
+          Positioned(
+            bottom: 100,
+            left: -150,
+            child: Container(
+              width: 350,
+              height: 350,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    c.gradA.withValues(alpha: 0.08),
+                    c.gradA.withValues(alpha: 0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // محتوى الصفحة الرئيسي
+          SafeArea(
+            bottom: false,
+            child: IndexedStack(index: index, children: pages),
+          ),
           if (_activeCelebration != null)
             Positioned(
               top: AppSpacing.s5,
@@ -234,44 +318,139 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
         ],
       ),
-      floatingActionButton: _index <= 1
-          ? FloatingActionButton(
-              onPressed: () => showCaptureEntrySheet(context),
-              backgroundColor: c.primary,
-              child: const Icon(AppLucideIcons.plus, color: Colors.white),
-            )
-          : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        backgroundColor: c.surface,
-        indicatorColor: c.primary.withValues(alpha: 0.14),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(AppLucideIcons.home),
-            label: 'الرئيسية',
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Row(
+            textDirection: TextDirection.ltr,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Liquid Glass Navigation Bar
+              Expanded(
+                child: Container(
+                  height: 64,
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: c.surface.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: c.primary.withValues(alpha: 0.25),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Directionality(
+                          textDirection: TextDirection.rtl,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: List.generate(6, (i) {
+                              final isSelected = index == i;
+                              return GestureDetector(
+                                onTap: () => ref.read(shellIndexProvider.notifier).state = i,
+                                behavior: HitTestBehavior.opaque,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.easeInOut,
+                                  padding: isSelected
+                                      ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
+                                      : const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? c.primary.withValues(alpha: 0.16)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? c.primary.withValues(alpha: 0.25)
+                                          : Colors.transparent,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        _getIconForIndex(i),
+                                        color: isSelected ? c.primary : c.textLight,
+                                        size: 20,
+                                      ),
+                                      if (isSelected) ...[
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _getLabelForIndex(i),
+                                          style: AppTypography.bodyStrong(c.primary).copyWith(
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Animated Floating Action Button
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                width: isFabVisible ? 68 : 0,
+                child: AnimatedScale(
+                  scale: isFabVisible ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOutBack,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 10),
+                    child: GestureDetector(
+                      onTap: () => showCaptureEntrySheet(context),
+                      child: Container(
+                        height: 58,
+                        width: 58,
+                        decoration: BoxDecoration(
+                          gradient: c.primaryGradient,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: c.primary.withValues(alpha: 0.35),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          AppLucideIcons.plus,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(AppLucideIcons.receipt),
-            label: 'العمليات',
-          ),
-          NavigationDestination(
-            icon: Icon(AppLucideIcons.wallet),
-            label: 'الميزانيات',
-          ),
-          NavigationDestination(
-            icon: Icon(AppLucideIcons.target),
-            label: 'الأهداف',
-          ),
-          NavigationDestination(
-            icon: Icon(AppLucideIcons.medal),
-            label: 'الإنجازات',
-          ),
-          NavigationDestination(
-            icon: Icon(AppLucideIcons.wrench),
-            label: 'الإعدادات',
-          ),
-        ],
+        ),
       ),
     );
   }

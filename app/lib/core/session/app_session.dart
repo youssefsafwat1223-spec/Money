@@ -31,13 +31,24 @@ class AppSession extends ValueNotifier<SessionStatus> {
         : SessionStatus.needsOnboarding;
   }
 
-  Future<void> completeOnboarding({required String method, String? email}) async {
-    await _storage.write(key: _kDone, value: '1');
+  /// يخزّن هوية الدخول دون إنهاء الـ onboarding (تبقى خطوة الطريقة بعدها).
+  Future<void> setIdentity({required String method, String? email}) async {
     await _storage.write(key: _kMethod, value: method);
     if (email != null) await _storage.write(key: _kEmail, value: email);
     authMethod = method;
     this.email = email;
+  }
+
+  /// ينهي الـ onboarding بالكامل → ينتقل للتطبيق.
+  Future<void> finishOnboarding() async {
+    await _storage.write(key: _kDone, value: '1');
     value = SessionStatus.authenticated;
+  }
+
+  /// (توافق) دخول كامل في خطوة واحدة.
+  Future<void> completeOnboarding({required String method, String? email}) async {
+    await setIdentity(method: method, email: email);
+    await finishOnboarding();
   }
 
   Future<void> signOut() async {

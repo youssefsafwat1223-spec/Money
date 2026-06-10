@@ -7,6 +7,7 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/mali_logo.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -30,8 +31,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     setState(() => _busy = true);
     final identity = await signIn();
     await AppSession.instance
-        .completeOnboarding(method: identity.method, email: identity.email);
-    if (mounted) context.go('/');
+        .setIdentity(method: identity.method, email: identity.email);
+    if (mounted) context.push('/onboarding/method');
   }
 
   Future<void> _emailContinue() async {
@@ -56,6 +57,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Spacer(),
+            const Center(child: MaliLogo(size: 84)),
+            const SizedBox(height: AppSpacing.s4),
             Text('سجّل دخولك للبدء',
                 textAlign: TextAlign.center,
                 style: AppTypography.title1(c.textMain)),

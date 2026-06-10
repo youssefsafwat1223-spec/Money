@@ -85,7 +85,7 @@ class _FoundationHomeScreenState extends ConsumerState<FoundationHomeScreen> {
                   ),
                   IconButton(
                     onPressed: () =>
-                        ref.read(themeModeProvider.notifier).state =
+                        ref.read(themeModeOverrideProvider.notifier).state =
                             mode == ThemeMode.dark
                                 ? ThemeMode.light
                                 : ThemeMode.dark,

@@ -11,16 +11,31 @@ class ReportSection {
     required this.prevTotal,
     required this.topCategories,
     required this.topMerchants,
+    required this.dailySpend,
   });
 
   final double total;
   final double prevTotal;
   final List<CategorySlice> topCategories;
   final List<MerchantSpend> topMerchants;
+  final List<DailySpend> dailySpend;
 
   /// نسبة التغيّر مقابل الفترة السابقة (null إذا لا توجد فترة سابقة).
   double? get deltaPercent =>
       prevTotal == 0 ? null : (total - prevTotal) / prevTotal;
+
+  double get averageDaily {
+    if (dailySpend.isEmpty) return 0;
+    return dailySpend.fold<double>(0, (sum, day) => sum + day.total) /
+        dailySpend.length;
+  }
+
+  double get highestDaily {
+    if (dailySpend.isEmpty) return 0;
+    return dailySpend
+        .map((day) => day.total)
+        .reduce((a, b) => a > b ? a : b);
+  }
 }
 
 class ReportsBundle {
@@ -59,11 +74,13 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
     }
     final topMerchants =
         await txRepo.merchantBreakdown(from: from, to: now, limit: 3);
+    final dailySpend = await txRepo.dailyExpenseTotals(from: from, to: now);
     return ReportSection(
       total: total,
       prevTotal: prevTotal,
       topCategories: topCategories,
       topMerchants: topMerchants,
+      dailySpend: dailySpend,
     );
   }
 

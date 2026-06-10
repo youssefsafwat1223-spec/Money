@@ -4,7 +4,6 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
@@ -78,20 +77,17 @@ class AppDatabase extends GeneratedDatabase {
     final file = File(p.join(directory.path, 'money_companion.sqlite'));
     return NativeDatabase.createBackgroundConnection(
       file,
-      isolateSetup: () async {
-        if (Platform.isAndroid) {
-          await applyWorkaroundToOpenSqlCipherOnOldAndroidVersions();
-        }
-      },
       setup: (database) {
-        database.execute("PRAGMA key = '${escapeSqlString(key)}';");
-        database.execute('PRAGMA foreign_keys = ON;');
-        final cipherVersion = database.select('PRAGMA cipher_version;');
-        if (cipherVersion.isEmpty) {
+        database.execute("PRAGMA cipher = 'sqlcipher';");
+        final cipher = database.select('PRAGMA cipher;');
+        if (cipher.isEmpty) {
           throw StateError(
-            'SQLCipher library is not available. The database would not be encrypted.',
+            'SQLite encryption extension is not available. The database would not be encrypted.',
           );
         }
+        database.execute("PRAGMA key = '${escapeSqlString(key)}';");
+        database.select('SELECT count(*) FROM sqlite_master;');
+        database.execute('PRAGMA foreign_keys = ON;');
       },
     );
   }
@@ -289,6 +285,7 @@ class AppDatabase extends GeneratedDatabase {
         );
       }
     }
+    await _ensureInternalCategories();
 
     if (await count('merchants') == 0 &&
         await count('merchant_category_map') == 0) {
@@ -391,6 +388,26 @@ class AppDatabase extends GeneratedDatabase {
         variables: [
           Variable.withString(IdGenerator.next()),
           Variable.withString(keyRef),
+        ],
+      );
+    }
+  }
+
+  Future<void> _ensureInternalCategories() async {
+    for (final category in DatabaseSeed.categories.where((it) => it.sort < 0)) {
+      await customInsert(
+        '''
+          INSERT OR IGNORE INTO categories(id, key, name_ar, icon, color, is_income, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?);
+        ''',
+        variables: [
+          Variable.withString(category.id),
+          Variable.withString(category.key),
+          Variable.withString(category.nameAr),
+          Variable.withString(category.icon),
+          Variable.withString(category.color),
+          Variable.withInt(boolToSql(category.isIncome)),
+          Variable.withInt(category.sort),
         ],
       );
     }

@@ -15,11 +15,108 @@ class BudgetFormScreen extends ConsumerStatefulWidget {
 
   final String? budgetId;
 
+  static Future<void> showSheet(BuildContext context, {String? budgetId}) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _BudgetFormSheet(budgetId: budgetId),
+    );
+  }
+
   @override
   ConsumerState<BudgetFormScreen> createState() => _BudgetFormScreenState();
 }
 
 class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return _BudgetFormContent(budgetId: widget.budgetId, fullScreen: true);
+  }
+}
+
+class _BudgetFormSheet extends StatelessWidget {
+  const _BudgetFormSheet({this.budgetId});
+
+  final String? budgetId;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Material(
+        color: c.bg,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.cardLg),
+        ),
+        child: Container(
+        height: MediaQuery.of(context).size.height * 0.88,
+        decoration: BoxDecoration(
+          color: c.bg,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.cardLg),
+          ),
+          border: Border.all(color: c.primary.withValues(alpha: 0.22)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: AppSpacing.s3),
+            Container(
+              width: 44,
+              height: 5,
+              decoration: BoxDecoration(
+                color: c.border,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s4,
+                AppSpacing.gutter,
+                AppSpacing.s2,
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية',
+                    style: AppTypography.title2(c.textMain),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _BudgetFormContent(budgetId: budgetId, fullScreen: false),
+            ),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
+}
+
+class _BudgetFormContent extends ConsumerStatefulWidget {
+  const _BudgetFormContent({
+    required this.fullScreen,
+    this.budgetId,
+  });
+
+  final String? budgetId;
+  final bool fullScreen;
+
+  @override
+  ConsumerState<_BudgetFormContent> createState() => _BudgetFormContentState();
+}
+
+class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   BudgetPeriod _period = BudgetPeriod.monthly;
@@ -40,11 +137,7 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
         : ref.watch(budgetByIdProvider(widget.budgetId!));
     final categoriesAsync = ref.watch(categoryCatalogProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية'),
-      ),
-      body: budgetAsync.when(
+    final body = budgetAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('حدث خطأ: $error')),
         data: (budget) {
@@ -61,7 +154,15 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
                     DropdownButtonFormField<String>(
                       value: _categoryId,
                       items: [
-                        for (final category in catalog.all.where((it) => it.key != 'income'))
+                        const DropdownMenuItem<String>(
+                          value: BudgetEntity.allExpensesCategoryId,
+                          child: Text('كل المصروفات'),
+                        ),
+                        for (final category in catalog.all.where(
+                          (it) =>
+                              it.key != 'income' &&
+                              it.key != BudgetEntity.allExpensesCategoryKey,
+                        ))
                           DropdownMenuItem<String>(
                             value: category.id,
                             child: Text(category.nameAr),
@@ -109,25 +210,35 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
                       onPressed: () => _submit(context, budget),
                       child: const Text('حفظ الميزانية'),
                     ),
+                    if (budget != null) ...[
+                      const SizedBox(height: AppSpacing.s3),
+                      OutlinedButton(
+                        onPressed: () => _confirmDelete(context, budget.id),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: context.colors.danger,
+                          side: BorderSide(color: context.colors.danger),
+                        ),
+                        child: const Text('حذف الميزانية'),
+                      ),
+                    ],
                   ],
                 ),
               );
             },
           );
         },
-      ),
-    );
-  }
+      );
 
-  void _seedInitialState(BudgetEntity? budget) {
-    if (budget == null || _amountController.text.isNotEmpty) {
-      return;
+    if (!widget.fullScreen) {
+      return body;
     }
-    _amountController.text = budget.amount.toStringAsFixed(0);
-    _period = budget.period;
-    _categoryId = budget.categoryId;
-    _alert80 = !budget.alert80Sent;
-    _alert100 = !budget.alert100Sent;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية'),
+      ),
+      body: body,
+    );
   }
 
   Future<void> _submit(BuildContext context, BudgetEntity? existing) async {
@@ -160,6 +271,47 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
     }
     refreshBudgets(ref);
     navigator.pop();
+  }
+
+  Future<void> _confirmDelete(BuildContext context, String budgetId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('حذف الميزانية؟'),
+        content: const Text('سيتم حذف هذه الميزانية نهائياً.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final navigator = Navigator.of(context);
+    await ref.read(deleteBudgetUseCaseProvider).call(budgetId);
+    if (!mounted) {
+      return;
+    }
+    refreshBudgets(ref);
+    navigator.pop();
+  }
+
+  void _seedInitialState(BudgetEntity? budget) {
+    if (budget == null || _amountController.text.isNotEmpty) {
+      return;
+    }
+    _amountController.text = budget.amount.toStringAsFixed(0);
+    _period = budget.period;
+    _categoryId = budget.categoryId;
+    _alert80 = !budget.alert80Sent;
+    _alert100 = !budget.alert100Sent;
   }
 }
 

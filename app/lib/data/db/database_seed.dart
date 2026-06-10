@@ -1,5 +1,6 @@
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/achievement_catalog.dart';
+import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/supporting_entities.dart';
@@ -22,6 +23,15 @@ class DatabaseSeed {
   DatabaseSeed._();
 
   static final List<CategoryEntity> categories = [
+    const CategoryEntity(
+      id: BudgetEntity.allExpensesCategoryId,
+      key: BudgetEntity.allExpensesCategoryKey,
+      nameAr: 'كل المصروفات',
+      icon: 'wallet-cards',
+      color: '#AB47BC',
+      isIncome: false,
+      sort: -1,
+    ),
     for (var index = 0; index < Categories.all.length; index++)
       CategoryEntity(
         id: IdGenerator.next(),

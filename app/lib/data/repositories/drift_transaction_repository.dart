@@ -199,6 +199,72 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<double> incomeTotalBetween({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final row = await _db.customSelect(
+      '''
+        SELECT CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
+        FROM transactions
+        WHERE type = 'income'
+          AND status != 'ignored'
+          AND occurred_at BETWEEN ? AND ?;
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(from.toUtc())),
+        Variable.withString(dateTimeToSql(to.toUtc())),
+      ],
+    ).getSingle();
+    return row.read<double>('total');
+  }
+
+  @override
+  Future<double?> latestBalanceAfter() async {
+    final row = await _db.customSelect(
+      '''
+        SELECT CAST(balance_after AS REAL) AS balance
+        FROM transactions
+        WHERE status != 'ignored'
+          AND balance_after IS NOT NULL
+        ORDER BY occurred_at DESC
+        LIMIT 1;
+      ''',
+    ).getSingleOrNull();
+    return row?.read<double>('balance');
+  }
+
+  @override
+  Future<List<DailySpend>> dailyExpenseTotals({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT date(occurred_at) AS day, CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
+        FROM transactions
+        WHERE type IN ('payment', 'withdrawal')
+          AND status != 'ignored'
+          AND occurred_at BETWEEN ? AND ?
+        GROUP BY date(occurred_at)
+        ORDER BY day ASC;
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(from.toUtc())),
+        Variable.withString(dateTimeToSql(to.toUtc())),
+      ],
+    ).get();
+    return rows
+        .map(
+          (r) => DailySpend(
+            day: DateTime.parse(r.read<String>('day')),
+            total: r.read<double>('total'),
+          ),
+        )
+        .toList();
+  }
+
+  @override
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,
     required DateTime to,

@@ -19,6 +19,7 @@ build/
 
 # Platform build artifacts (تُولَّد بـ flutter create)
 android/.gradle/
+android/.kotlin/
 android/local.properties
 ios/Pods/
 ios/.symlinks/

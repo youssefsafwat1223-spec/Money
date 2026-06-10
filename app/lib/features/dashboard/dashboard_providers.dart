@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
@@ -21,6 +22,12 @@ class CategorySlice {
 class DashboardData {
   const DashboardData({
     required this.savedThisMonth,
+    required this.spentThisMonth,
+    required this.incomeThisMonth,
+    required this.balance,
+    required this.monthlyBudgetLimit,
+    required this.monthlyBudgetRatio,
+    required this.budgetPeriod,
     required this.streak,
     required this.topCategories,
     required this.recent,
@@ -29,6 +36,14 @@ class DashboardData {
   });
 
   final double savedThisMonth;
+  final double spentThisMonth;
+  final double incomeThisMonth;
+  final double? balance;
+  final double monthlyBudgetLimit;
+  final double monthlyBudgetRatio;
+
+  /// دورة ميزانية «كل المصروفات» النشطة (null إن لم تُنشأ بعد).
+  final BudgetPeriod? budgetPeriod;
   final StreakEntity streak;
   final List<CategorySlice> topCategories;
   final List<TransactionEntity> recent;
@@ -36,11 +51,20 @@ class DashboardData {
   final GoalEntity? activeGoal;
 
   bool get isEmpty => recent.isEmpty;
+
+  /// تسمية الفترة للعرض: «اليوم» / «الأسبوع» / «الشهر».
+  String get budgetPeriodLabel => switch (budgetPeriod) {
+        BudgetPeriod.daily => 'اليوم',
+        BudgetPeriod.weekly => 'الأسبوع',
+        BudgetPeriod.monthly => 'الشهر',
+        null => 'الشهر',
+      };
 }
 
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final txRepo = ref.watch(transactionRepositoryProvider);
   final goalRepo = ref.watch(goalRepositoryProvider);
+  final budgetRepo = ref.watch(budgetRepositoryProvider);
   final gamificationRepo = ref.watch(gamificationRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
 
@@ -53,11 +77,34 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // «وفّرت» = مصروفات نفس الفترة من الشهر السابق − مصروفات الشهر الحالي (same-period).
   final thisMonthExpenses =
       await txRepo.expenseTotalBetween(from: monthStart, to: now);
+  final thisMonthIncome =
+      await txRepo.incomeTotalBetween(from: monthStart, to: now);
+  final balance = await txRepo.latestBalanceAfter();
   final prevMonthExpenses = await txRepo.expenseTotalBetween(
     from: prevMonthStart,
     to: prevSamePoint,
   );
   final saved = prevMonthExpenses - thisMonthExpenses;
+  // ميزانية «كل المصروفات» (الكلية) — تظهر في الـ Dashboard عند إنشائها فقط،
+  // أياً كانت دورتها (يومي/أسبوعي/شهري) بحساب صرف دورتها الحالية.
+  final allExpensesBudget = (await budgetRepo.getAll())
+      .where((budget) => budget.isActive && budget.isAllExpenses)
+      .fold<BudgetEntity?>(null, (prev, budget) => budget);
+  double monthlyBudgetLimit = 0;
+  double monthlyBudgetRatio = 0;
+  if (allExpensesBudget != null) {
+    monthlyBudgetLimit = allExpensesBudget.amount;
+    final today = DateTime(now.year, now.month, now.day);
+    final periodStart = switch (allExpensesBudget.period) {
+      BudgetPeriod.daily => today,
+      BudgetPeriod.weekly =>
+        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7)),
+      BudgetPeriod.monthly => monthStart,
+    };
+    final spent = await txRepo.expenseTotalBetween(from: periodStart, to: now);
+    monthlyBudgetRatio =
+        monthlyBudgetLimit == 0 ? 0.0 : spent / monthlyBudgetLimit;
+  }
 
   final breakdown = await txRepo.categoryBreakdown(from: monthStart, to: now);
   final totalSpend = breakdown.fold<double>(0, (sum, item) => sum + item.total);
@@ -89,6 +136,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   return DashboardData(
     savedThisMonth: saved,
+    spentThisMonth: thisMonthExpenses,
+    incomeThisMonth: thisMonthIncome,
+    balance: balance,
+    monthlyBudgetLimit: monthlyBudgetLimit,
+    monthlyBudgetRatio: monthlyBudgetRatio,
+    budgetPeriod: allExpensesBudget?.period,
     streak: streak,
     topCategories: topCategories,
     recent: recent,

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/mali_logo.dart';
 import '../common/vault_widget.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -31,7 +32,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       return;
     }
     _controller.nextPage(
-      duration: const Duration(milliseconds: 280),
+      duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
     );
   }
@@ -44,7 +45,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: Column(
           children: [
             Align(
-              alignment: AlignmentDirectional.centerStart,
+              alignment: AlignmentDirectional.centerEnd,
               child: TextButton(
                 onPressed: () => context.push('/onboarding/auth'),
                 child: Text('تخطّي', style: AppTypography.subhead(c.textLight)),
@@ -55,25 +56,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 controller: _controller,
                 onPageChanged: (i) => setState(() => _index = i),
                 children: const [
-                  _IntroPage(
-                    icon: Icons.search_off_rounded,
-                    kicker: 'المشكلة',
-                    title: 'ما تعرف وين\nراحت فلوسك؟',
-                    subtitle: 'نهاية الشهر دايماً مفاجأة. إحنا نخلّيها واضحة.',
-                  ),
+                  _WelcomePage(),
                   _IntroPage(
                     icon: Icons.sms_outlined,
-                    kicker: 'الحل',
+                    kicker: 'بدون مجهود',
                     title: 'لا تكتب —\nإحنا نفهمها لك',
                     subtitle:
-                        'نقرأ رسائل بنكك على جهازك ونصنّفها تلقائياً.',
+                        'نقرأ رسائل بنكك على جهازك، ونطلّع المبلغ والمتجر ونصنّفها تلقائياً.',
                   ),
-                  _IntroPage(
-                    vault: true,
-                    kicker: 'التحفيز',
-                    title: 'وفّر وكأنها\nلعبة يومية',
-                    subtitle: 'حدّد هدفك، وشوف خزنتك تمتلئ مع كل ريال.',
-                  ),
+                  _VaultPage(),
                   _CountryPage(),
                   _PrivacyPage(),
                 ],
@@ -109,17 +100,49 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
+class _WelcomePage extends StatelessWidget {
+  const _WelcomePage();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const MaliLogo(size: 148, glow: true),
+          const SizedBox(height: AppSpacing.s6),
+          ShaderMask(
+            shaderCallback: (rect) => LinearGradient(
+              colors: [c.gradA, c.gradB],
+            ).createShader(rect),
+            child: Text('مالي',
+                style: AppTypography.display(Colors.white)
+                    .copyWith(fontSize: 44, fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Text('صاحبك في فلوسك',
+              style: AppTypography.title2(c.textMain)),
+          const SizedBox(height: AppSpacing.s3),
+          Text('اعرف وين راحت فلوسك، ووفّر وكأنها لعبة يومية.',
+              textAlign: TextAlign.center,
+              style: AppTypography.body(c.textLight)),
+        ],
+      ),
+    );
+  }
+}
+
 class _IntroPage extends StatelessWidget {
   const _IntroPage({
-    this.icon,
-    this.vault = false,
+    required this.icon,
     required this.kicker,
     required this.title,
     required this.subtitle,
   });
 
-  final IconData? icon;
-  final bool vault;
+  final IconData icon;
   final String kicker;
   final String title;
   final String subtitle;
@@ -132,19 +155,23 @@ class _IntroPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          if (vault)
-            const VaultWidget(progress: 0.68, size: 168)
-          else
-            Container(
-              width: 128,
-              height: 128,
-              decoration: BoxDecoration(
-                color: c.surface2,
-                borderRadius: BorderRadius.circular(AppRadius.cardLg),
-                border: Border.all(color: c.border),
+          Container(
+            width: 132,
+            height: 132,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+                colors: [
+                  c.primary.withValues(alpha: 0.18),
+                  c.accent.withValues(alpha: 0.16),
+                ],
               ),
-              child: Icon(icon, size: 58, color: c.primary),
+              borderRadius: BorderRadius.circular(AppRadius.cardLg),
+              border: Border.all(color: c.border),
             ),
+            child: Icon(icon, size: 60, color: c.primary),
+          ),
           const SizedBox(height: AppSpacing.s6),
           Text(kicker, style: AppTypography.subhead(c.primary)),
           const SizedBox(height: AppSpacing.s2),
@@ -153,6 +180,34 @@ class _IntroPage extends StatelessWidget {
               style: AppTypography.title1(c.textMain)),
           const SizedBox(height: AppSpacing.s3),
           Text(subtitle,
+              textAlign: TextAlign.center,
+              style: AppTypography.body(c.textLight)),
+        ],
+      ),
+    );
+  }
+}
+
+class _VaultPage extends StatelessWidget {
+  const _VaultPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const VaultWidget(progress: 0.68, size: 168),
+          const SizedBox(height: AppSpacing.s6),
+          Text('التحفيز', style: AppTypography.subhead(c.primary)),
+          const SizedBox(height: AppSpacing.s2),
+          Text('وفّر وكأنها\nلعبة يومية',
+              textAlign: TextAlign.center,
+              style: AppTypography.title1(c.textMain)),
+          const SizedBox(height: AppSpacing.s3),
+          Text('حدّد هدفك، وشوف خزنتك تمتلئ مع كل ريال توفّره.',
               textAlign: TextAlign.center,
               style: AppTypography.body(c.textLight)),
         ],
@@ -171,8 +226,8 @@ class _CountryPage extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpacing.gutter),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox(height: AppSpacing.s4),
           Text('وين مكانك؟', style: AppTypography.title2(c.textMain)),
           const SizedBox(height: AppSpacing.s2),
           Text('نضبط العملة والبنوك المدعومة لك.',
@@ -216,7 +271,7 @@ class _PrivacyPage extends StatelessWidget {
 
   static const _points = [
     'كل المعالجة على جهازك',
-    'نقرأ فقط الرسائل المسموحة',
+    'نقرأ فقط رسائل البنوك',
     'ما نبيع بياناتك أبداً',
     'تحذف كل شيء وقت ما تبي',
   ];

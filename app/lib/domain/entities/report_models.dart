@@ -20,3 +20,11 @@ class RecurringCandidate {
   final double averageAmount;
   final int monthsSeen;
 }
+
+/// إجمالي الصرف في يوم واحد، يستخدم لرسم Insights اليومي.
+class DailySpend {
+  const DailySpend({required this.day, required this.total});
+
+  final DateTime day;
+  final double total;
+}

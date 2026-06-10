@@ -84,6 +84,30 @@ class _FakeTransactionRepository implements TransactionRepository {
   Future<double> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
+  }) async {
+    if (from.day == 12) {
+      return previousSpend;
+    }
+    return currentSpend;
+  }
+
+  @override
+  Future<double> incomeTotalBetween({
+    required DateTime from,
+    required DateTime to,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<double?> latestBalanceAfter() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<DailySpend>> dailyExpenseTotals({
+    required DateTime from,
+    required DateTime to,
   }) {
     throw UnimplementedError();
   }
@@ -176,5 +200,33 @@ void main() {
     final secondSnapshot =
         await useCase.call(now: DateTime.utc(2026, 6, 14, 12));
     expect(secondSnapshot.alerts, isEmpty);
+  });
+
+  test('BudgetProgress يحسب الميزانية العامة من كل المصروفات', () async {
+    final repo = _FakeBudgetRepository([
+      BudgetEntity(
+        id: 'budget-all',
+        categoryId: BudgetEntity.allExpensesCategoryId,
+        amount: 300,
+        period: BudgetPeriod.daily,
+        startDate: DateTime.utc(2026, 6, 14, 0),
+        isActive: true,
+        alert80Sent: false,
+        alert100Sent: false,
+      ),
+    ]);
+    final useCase = BudgetProgressUseCase(
+      budgetRepository: repo,
+      transactionRepository: _FakeTransactionRepository(
+        currentSpend: 150,
+        previousSpend: 20,
+      ),
+    );
+
+    final snapshot = await useCase.call(now: DateTime.utc(2026, 6, 14, 10));
+
+    expect(snapshot.entries.single.spent, 150);
+    expect(snapshot.entries.single.ratio, 0.5);
+    expect(snapshot.entries.single.budget.isAllExpenses, isTrue);
   });
 }
