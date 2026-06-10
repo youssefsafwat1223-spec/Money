@@ -1,0 +1,55 @@
+name: money_companion
+description: "تطبيق عربي لتتبع المصاريف تلقائياً من رسائل البنك — Arabic-first, on-device."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State & DI
+  flutter_riverpod: ^2.5.1
+  # Routing
+  go_router: ^14.2.0
+  # Fonts & Icons (Design System)
+  google_fonts: ^6.2.1
+  lucide_icons: ^0.257.0
+  # i18n
+  intl: 0.20.2
+  drift: ^2.18.0
+  flutter_secure_storage: ^9.2.2
+  path: ^1.9.1
+  path_provider: ^2.1.4
+  sqlite3_flutter_libs: ^0.5.24
+  sqlcipher_flutter_libs: ^0.6.4
+  flutter_local_notifications: ^22.0.0
+  another_telephony: ^0.4.1
+  timezone: ^0.11.0
+  # another_telephony: ^0.4.0
+  # google_sign_in: ^6.2.1
+  # sign_in_with_apple: ^6.1.0
+  # dio: ^5.5.0
+  # flutter_local_notifications: ^17.2.0
+  # timezone: ^0.9.4
+  # rive: ^0.13.0
+  # cryptography: ^2.7.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.11
+  drift_dev: ^2.18.0
+  # ── codegen (يُفعّل عند تحويل الموديلات إلى freezed) ──
+  # freezed: ^2.5.0
+  # json_serializable: ^6.8.0
+  # mocktail: ^1.0.0
+
+flutter:
+  uses-material-design: true

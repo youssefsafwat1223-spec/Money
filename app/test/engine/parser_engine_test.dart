@@ -1,0 +1,99 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/engine/models/transaction_source.dart';
+import 'package:money_companion/engine/models/transaction_type.dart';
+import 'package:money_companion/engine/parser/parser_engine.dart';
+
+import 'fixtures/sample_messages.dart';
+
+void main() {
+  const engine = ParserEngine();
+
+  group('ParserEngine — استخراج العمليات', () {
+    test('دفع ببطاقة (عربي): كل الحقول', () {
+      final r = engine.parse(SampleMessages.cardPaymentAr);
+      expect(r.isTransaction, isTrue);
+      final t = r.transaction!;
+      expect(t.amount, 45.00);
+      expect(t.currency, 'SAR');
+      expect(t.rawMerchant, 'BURGER BOUTIQUE');
+      expect(t.type, TransactionType.payment);
+      expect(t.source, TransactionSource.card);
+      expect(t.cardLast4, '4521');
+      expect(t.balanceAfter, 2310.50);
+      expect(t.occurredAt, DateTime(2026, 4, 8, 12, 45));
+      expect(t.parseConfidence, greaterThanOrEqualTo(0.9));
+    });
+
+    test('دفع ببطاقة (إنجليزي مختلط)', () {
+      final r = engine.parse(SampleMessages.cardPaymentEn);
+      expect(r.isTransaction, isTrue);
+      final t = r.transaction!;
+      expect(t.amount, 45.00);
+      expect(t.rawMerchant, 'BURGER BOUTIQUE');
+      expect(t.cardLast4, '4521');
+      expect(t.type, TransactionType.payment);
+    });
+
+    test('سحب نقدي من الصراف', () {
+      final t = engine.parse(SampleMessages.atmWithdrawal).transaction!;
+      expect(t.amount, 500.00);
+      expect(t.type, TransactionType.withdrawal);
+      expect(t.cardLast4, '4521');
+      expect(t.balanceAfter, 1810.50);
+    });
+
+    test('تحويل صادر', () {
+      final t = engine.parse(SampleMessages.transfer).transaction!;
+      expect(t.amount, 300.00);
+      expect(t.type, TransactionType.transfer);
+    });
+
+    test('إيداع راتب (دخل)', () {
+      final t = engine.parse(SampleMessages.salaryIncome).transaction!;
+      expect(t.amount, 9500.00);
+      expect(t.type, TransactionType.income);
+    });
+
+    test('استرداد مبلغ', () {
+      final t = engine.parse(SampleMessages.refund).transaction!;
+      expect(t.amount, 45.00);
+      expect(t.type, TransactionType.refund);
+      expect(t.rawMerchant, 'BURGER BOUTIQUE');
+    });
+
+    test('STC Pay — العملة بعد الرقم + محفظة (عبر senderId)', () {
+      final t =
+          engine.parse(SampleMessages.stcPay, senderId: 'STCPay').transaction!;
+      expect(t.amount, 30.00);
+      expect(t.rawMerchant, 'JARIR');
+      expect(t.type, TransactionType.payment);
+      expect(t.source, TransactionSource.wallet);
+    });
+
+    test('أرقام هندية تُطبَّع وتُستخرج', () {
+      final t = engine.parse(SampleMessages.arabicIndicDigits).transaction!;
+      expect(t.amount, 250.75);
+      expect(t.rawMerchant, 'بنده');
+      expect(t.occurredAt, DateTime(2026, 4, 8, 14, 30));
+    });
+  });
+
+  group('ParserEngine — تجاهل غير المالي (§24.6)', () {
+    test('رسالة OTP تُتجاهَل', () {
+      expect(engine.parse(SampleMessages.otpMessage).isTransaction, isFalse);
+    });
+
+    test('رسالة عرض ترويجي تُتجاهَل', () {
+      expect(engine.parse(SampleMessages.promoMessage).isTransaction, isFalse);
+    });
+  });
+
+  group('ParserEngine — كشف البنك', () {
+    test('STC Pay يُكتشف كـ stcpay عبر senderId', () {
+      expect(
+        engine.parse(SampleMessages.stcPay, senderId: 'STCPay').bankKey,
+        'stcpay',
+      );
+    });
+  });
+}

@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — Vibrant Fintech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+/* ================= VIBRANT TOKENS ================= */
+:root, [data-theme="light"] {
+  --bg-app: #F4F5F7;
+  --bg-gradient: linear-gradient(145deg, #4F00BC 0%, #9B27B0 100%);
+  
+  --surface: #FFFFFF;
+  --surface-2: #F8F9FA;
+  --surface-3: #F0F2F5;
+  --surface-icon: #F0F2F5;
+  
+  --primary: #8E24AA;
+  --primary-2: #6A1B9A;
+  --accent: #FFD54F;
+  --success: #00C853;
+  --danger: #FF3D00;
+  
+  --text-main: #1a1a1a;
+  --text-dark: #121212;
+  --text-gray: #5F6368;
+  --text-light: #9AA0A6;
+  
+  --border: #E0E0E0;
+  --shadow-lg: 0 16px 32px rgba(79, 0, 188, 0.15);
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --shadow-fab: 0 8px 24px rgba(142, 36, 170, 0.4);
+}
+
+[data-theme="dark"] {
+  --bg-app: #0A0A0C;
+  --bg-gradient: linear-gradient(145deg, #2A0066 0%, #5E146E 100%);
+  
+  --surface: #1C1C1E;
+  --surface-2: #2C2C2E;
+  --surface-3: #3A3A3C;
+  --surface-icon: #2C2C2E;
+  
+  --primary: #AB47BC;
+  --primary-2: #8E24AA;
+  --success: #00E676;
+  --danger: #FF5252;
+  
+  --text-main: #FFFFFF;
+  --text-dark: #FFFFFF;
+  --text-gray: #A1A1A6;
+  --text-light: #6E6E73;
+  
+  --border: #38383A;
+  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-fab: 0 8px 24px rgba(171, 71, 188, 0.3);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { font-family: "IBM Plex Sans Arabic", system-ui, sans-serif; background: var(--bg-app); color: var(--text-main); transition: background 0.4s ease; }
+
+/* header */
+.head { max-width: 1280px; margin: 40px auto; padding: 0 24px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 20px; }
+.head-text h1 { font-size: 28px; font-weight: 700; color: var(--text-main); }
+.head-text p { color: var(--text-gray); font-size: 15px; margin-top: 8px; max-width: 600px; line-height: 1.6; }
+
+/* Theme Toggle */
+.toggle { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); padding: 5px; border-radius: 999px; box-shadow: var(--shadow-sm); }
+.toggle button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: var(--text-gray); font-weight: 600; font-size: 13px; padding: 9px 17px; border-radius: 999px; display: flex; gap: 7px; align-items: center; transition: 0.2s; }
+.toggle button.active { background: var(--surface-3); color: var(--text-main); }
+
+/* Phone Frame */
+.grid { max-width: 1280px; margin: 0 auto 80px; display: grid; justify-items: center; padding: 0 24px; }
+.phone { width: 375px; height: 812px; border-radius: 40px; background: #000; padding: 8px; box-shadow: 0 40px 80px -20px rgba(0,0,0,0.3); position: relative; }
+.phone::after { content: ""; position: absolute; top: 16px; left: 50%; transform: translateX(-50%); width: 120px; height: 26px; background: #000; border-radius: 999px; z-index: 30; }
+.scr { position: absolute; inset: 8px; border-radius: 32px; overflow: hidden; background: var(--surface-2); display: flex; flex-direction: column; transition: 0.4s ease; }
+
+/* Status Bar */
+.sb { height: 50px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; flex: none; padding: 6px 24px 0; color: white; position: absolute; top: 0; left: 0; right: 0; z-index: 20; }
+.sb .r { display: flex; gap: 7px; align-items: center; }
+
+/* Header BG (Gradient) */
+.header-bg { position: absolute; top: 0; left: 0; right: 0; height: 280px; background: var(--bg-gradient); border-radius: 0 0 32px 32px; z-index: 1; }
+.header-bg::before { content: ""; position: absolute; inset: 0; opacity: 0.1; mix-blend-mode: overlay; background-image: radial-gradient(circle at 10% 20%, #fff 1px, transparent 1px), radial-gradient(circle at 90% 80%, #fff 1px, transparent 1px); background-size: 20px 20px; }
+
+/* Scrollable Content */
+.content { position: relative; z-index: 2; flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: 100px; }
+.content::-webkit-scrollbar { width: 0px; } /* Hide scrollbar for mobile look */
+
+/* Top Navigation */
+.topnav { display: flex; justify-content: space-between; align-items: center; padding: 50px 20px 20px; color: white; }
+.user-info { display: flex; align-items: center; gap: 12px; }
+.avatar { width: 44px; height: 44px; border-radius: 14px; background: rgba(255,255,255,0.2); backdrop-filter: blur(10px); display: grid; place-items: center; font-weight: 700; font-size: 18px; color: white; overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.greeting { font-size: 13px; opacity: 0.8; margin-bottom: 2px; }
+.name { font-size: 16px; font-weight: 700; }
+.bell { width: 44px; height: 44px; border-radius: 14px; background: rgba(255,255,255,0.15); display: grid; place-items: center; cursor: pointer; position: relative; backdrop-filter: blur(10px); }
+.bell::after { content: ""; position: absolute; top: 12px; right: 12px; width: 8px; height: 8px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 0 2px var(--primary); }
+
+/* Main Balances / Streak */
+.hero-section { padding: 0 20px 24px; color: white; text-align: center; }
+.streak-pill { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.15); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 16px; backdrop-filter: blur(10px); }
+.saved-label { font-size: 14px; opacity: 0.85; margin-bottom: 4px; }
+.saved-amount { font-size: 36px; font-weight: 700; color: var(--success); text-shadow: 0 2px 10px rgba(0,200,83,0.3); font-variant-numeric: tabular-nums; }
+.saved-amount span { font-size: 16px; opacity: 0.8; font-weight: 500; color: white; text-shadow: none; }
+
+/* The 3D Vault Card */
+.vault-card { background: var(--surface); border-radius: 24px; margin: 0 20px 24px; padding: 20px; box-shadow: var(--shadow-lg); display: flex; gap: 16px; align-items: center; transition: 0.3s; position: relative; overflow: hidden; }
+.vault-card::before { content: ""; position: absolute; top: -50%; right: -20%; width: 150px; height: 150px; background: var(--accent-soft); border-radius: 50%; filter: blur(30px); pointer-events: none; }
+.vault-icon { width: 72px; height: 72px; border-radius: 18px; background: linear-gradient(135deg, #FFD54F, #FFB300); display: grid; place-items: center; box-shadow: inset 0 4px 10px rgba(255,255,255,0.4), 0 8px 16px rgba(255, 179, 0, 0.3); color: #5B3E00; flex: none; position: relative; }
+.vault-icon svg { width: 32px; height: 32px; }
+.vault-info { flex: 1; }
+.vault-title { font-weight: 700; font-size: 16px; color: var(--text-dark); margin-bottom: 4px; }
+.vault-sub { font-size: 13px; color: var(--text-light); margin-bottom: 12px; }
+.progress-bg { height: 8px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #FFD54F, #FFB300); width: 65%; border-radius: 999px; }
+
+/* Smart Insight */
+.insight { margin: 0 20px 24px; background: rgba(142, 36, 170, 0.08); border: 1px solid rgba(142, 36, 170, 0.15); border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: center; }
+[data-theme="dark"] .insight { background: rgba(171, 71, 188, 0.1); border-color: rgba(171, 71, 188, 0.2); }
+.insight-icon { color: var(--primary); flex: none; }
+.insight-text { font-size: 13.5px; font-weight: 600; color: var(--text-main); line-height: 1.5; }
+
+/* Section Titles */
+.section-header { display: flex; justify-content: space-between; align-items: flex-end; padding: 0 24px; margin-bottom: 16px; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text-dark); }
+.section-link { font-size: 13px; font-weight: 600; color: var(--primary); text-decoration: none; }
+
+/* Categories Bar Chart */
+.categories { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 16px; }
+.cat-row { display: flex; align-items: center; gap: 12px; }
+.cat-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-sm); display: grid; place-items: center; color: var(--text-gray); flex: none; font-size: 16px; }
+.cat-details { flex: 1; }
+.cat-top { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: var(--text-dark); margin-bottom: 6px; }
+.cat-amt { color: var(--text-gray); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cat-bar-bg { height: 6px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+.cat-bar-fill { height: 100%; border-radius: 999px; }
+
+/* Transactions */
+.transactions { padding: 0 20px; display: flex; flex-direction: column; gap: 12px; }
+.tx-card { display: flex; align-items: center; gap: 14px; background: var(--surface); padding: 14px 16px; border-radius: 16px; border: 1px solid var(--border); transition: 0.2s; }
+.tx-card:active { transform: scale(0.98); }
+.tx-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--surface-icon); display: grid; place-items: center; flex: none; font-size: 20px; }
+.tx-info { flex: 1; }
+.tx-title { font-size: 15px; font-weight: 600; color: var(--text-dark); margin-bottom: 4px; }
+.tx-sub { font-size: 12px; color: var(--text-light); }
+.tx-amount { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: left; }
+.tx-amount.neg { color: var(--text-dark); }
+.tx-amount.pos { color: var(--success); }
+.tx-badge { display: inline-flex; background: var(--accent-soft); color: #B08D00; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-right: 6px; }
+[data-theme="dark"] .tx-badge { color: #FFD54F; }
+
+/* Floating Glass Bottom Nav */
+.bottom-nav { position: absolute; bottom: 20px; left: 20px; right: 20px; height: 72px; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 24px; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; box-shadow: 0 16px 32px rgba(0,0,0,0.1); z-index: 10; border: 1px solid rgba(255,255,255,0.4); }
+[data-theme="dark"] .bottom-nav { background: rgba(28, 28, 30, 0.85); border-color: rgba(255,255,255,0.05); box-shadow: 0 16px 32px rgba(0,0,0,0.4); }
+.nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-light); font-size: 11px; font-weight: 600; cursor: pointer; transition: 0.2s; min-width: 48px; }
+.nav-item.active { color: var(--primary); }
+.nav-item svg { width: 22px; height: 22px; transition: 0.2s; }
+.nav-item.active svg { transform: translateY(-2px); }
+
+/* Integrated FAB */
+.nav-fab { width: 52px; height: 52px; border-radius: 18px; background: var(--primary); color: white; display: grid; place-items: center; box-shadow: var(--shadow-fab); margin: 0 4px; transition: 0.2s; cursor: pointer; }
+.nav-fab:active { transform: scale(0.92); }
+.nav-fab svg { width: 24px; height: 24px; }
+
+/* Animations */
+.fade-in { animation: fadeIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; opacity: 0; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div class="head-text">
+    <h1>الرئيسية (Dashboard)</h1>
+    <p>واجهة المستخدم اليومية. تركز على الإنجاز الإيجابي (التوفير/الخزنة) بدلاً من الجلد الذاتي (المصاريف). مساحات نظيفة، حيوية، وتدعم الـ Dark Mode.</p>
+  </div>
+  <div class="toggle" id="tg">
+    <button data-t="light" class="active"><i data-lucide="sun"></i> فاتح</button>
+    <button data-t="dark"><i data-lucide="moon"></i> غامق</button>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="phone">
+    <div class="scr">
+      <div class="sb"><span style="color: white;">9:41</span><span class="r" style="color: white;"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+      
+      <div class="header-bg"></div>
+      
+      <div class="content">
+        <!-- Top Nav -->
+        <div class="topnav fade-in">
+          <div class="user-info">
+            <div class="avatar"><i data-lucide="user" style="width: 24px; height: 24px;"></i></div>
+            <div>
+              <div class="greeting">مرحباً سارة،</div>
+              <div class="name">مساء الخير 👋</div>
+            </div>
+          </div>
+          <div class="bell">
+            <i data-lucide="bell" style="color: white; width: 20px; height: 20px;"></i>
+          </div>
+        </div>
+        
+        <!-- Hero: Saved Amount & Streak -->
+        <div class="hero-section fade-in stagger-1">
+          <div class="streak-pill">
+            <span style="font-size: 16px;">🔥</span> 12 يوم متتالي
+          </div>
+          <div class="saved-label">وفّرت هذا الشهر</div>
+          <div class="saved-amount">+1,240 <span>SAR</span></div>
+        </div>
+        
+        <!-- Vault Card -->
+        <div class="vault-card fade-in stagger-2">
+          <div class="vault-icon">
+            <i data-lucide="vault"></i>
+          </div>
+          <div class="vault-info">
+            <div class="vault-title">رحلة أوروبا ✈️</div>
+            <div class="vault-sub">تم إنجاز 65% من هدفك</div>
+            <div class="progress-bg">
+              <div class="progress-fill"></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Smart Insight -->
+        <div class="insight fade-in stagger-3">
+          <i data-lucide="lightbulb" class="insight-icon"></i>
+          <div class="insight-text">مصاريف القهوة أقل بـ 15% هذا الأسبوع. كفو، استمري! ☕</div>
+        </div>
+        
+        <!-- Top Categories -->
+        <div class="section-header fade-in stagger-3">
+          <div class="section-title">أين ذهبت أموالك؟</div>
+          <a href="#" class="section-link">التفاصيل</a>
+        </div>
+        
+        <div class="categories fade-in stagger-3">
+          <!-- Row 1 -->
+          <div class="cat-row">
+            <div class="cat-icon" style="background: rgba(255, 122, 89, 0.1); color: #FF7A59;">🍔</div>
+            <div class="cat-details">
+              <div class="cat-top"><span>مطاعم وكافيهات</span> <span class="cat-amt">1,450 SAR</span></div>
+              <div class="cat-bar-bg"><div class="cat-bar-fill" style="background: #FF7A59; width: 85%;"></div></div>
+            </div>
+          </div>
+          <!-- Row 2 -->
+          <div class="cat-row">
+            <div class="cat-icon" style="background: rgba(0, 188, 212, 0.1); color: #00BCD4;">🛍️</div>
+            <div class="cat-details">
+              <div class="cat-top"><span>تسوق</span> <span class="cat-amt">820 SAR</span></div>
+              <div class="cat-bar-bg"><div class="cat-bar-fill" style="background: #00BCD4; width: 50%;"></div></div>
+            </div>
+          </div>
+          <!-- Row 3 -->
+          <div class="cat-row">
+            <div class="cat-icon" style="background: rgba(139, 195, 74, 0.1); color: #8BC34A;">🛒</div>
+            <div class="cat-details">
+              <div class="cat-top"><span>بقالة</span> <span class="cat-amt">430 SAR</span></div>
+              <div class="cat-bar-bg"><div class="cat-bar-fill" style="background: #8BC34A; width: 25%;"></div></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Recent Transactions -->
+        <div class="section-header fade-in stagger-4">
+          <div class="section-title">آخر العمليات</div>
+          <a href="#" class="section-link">عرض الكل</a>
+        </div>
+        
+        <div class="transactions fade-in stagger-4">
+          <!-- Tx 1 (Needs Confirmation) -->
+          <div class="tx-card">
+            <div class="tx-icon">☕</div>
+            <div class="tx-info">
+              <div class="tx-title">STARBUCKS RIYADH</div>
+              <div class="tx-sub">اليوم، 08:30 ص</div>
+            </div>
+            <div class="tx-amount neg">- 35.00</div>
+          </div>
+          
+          <!-- Tx 2 (Confirmed) -->
+          <div class="tx-card">
+            <div class="tx-icon">🛒</div>
+            <div class="tx-info">
+              <div class="tx-title">PANDA SUPERMARKET</div>
+              <div class="tx-sub">أمس، 09:15 م</div>
+            </div>
+            <div class="tx-amount neg">- 142.50</div>
+          </div>
+          
+          <!-- Tx 3 (Income) -->
+          <div class="tx-card">
+            <div class="tx-icon" style="background: rgba(0, 200, 83, 0.1); color: var(--success);"><i data-lucide="arrow-down-left"></i></div>
+            <div class="tx-info">
+              <div class="tx-title">إيداع راتب</div>
+              <div class="tx-sub">25 أبريل، 07:00 ص</div>
+            </div>
+            <div class="tx-amount pos">+ 9,500</div>
+          </div>
+        </div>
+        
+      </div>
+      
+      <!-- Floating Glass Bottom Navigation -->
+      <div class="bottom-nav">
+        <div class="nav-item active"><i data-lucide="home"></i> الرئيسية</div>
+        <div class="nav-item"><i data-lucide="list"></i> السجل</div>
+        <div class="nav-fab"><i data-lucide="plus"></i></div>
+        <div class="nav-item"><i data-lucide="pie-chart"></i> الميزانية</div>
+        <div class="nav-item"><i data-lucide="user"></i> حسابي</div>
+      </div>
+      
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('tg').addEventListener('click', e => {
+  const b = e.target.closest('[data-t]');
+  if (!b) return;
+  document.documentElement.setAttribute('data-theme', b.dataset.t);
+  document.querySelectorAll('#tg button').forEach(x => x.classList.toggle('active', x === b));
+});
+
+lucide.createIcons();
+</script>
+</body>
+</html>

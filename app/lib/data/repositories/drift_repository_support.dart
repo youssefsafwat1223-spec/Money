@@ -1,0 +1,195 @@
+import 'package:drift/drift.dart';
+
+import '../../domain/entities/budget_entity.dart';
+import '../../domain/entities/supporting_entities.dart';
+import '../../domain/entities/goal_entity.dart';
+import '../../domain/entities/transaction_entity.dart';
+import '../db/sql_value_codec.dart';
+
+BudgetPeriod budgetPeriodFromSql(String value) {
+  switch (value) {
+    case 'daily':
+      return BudgetPeriod.daily;
+    case 'weekly':
+      return BudgetPeriod.weekly;
+    case 'monthly':
+      return BudgetPeriod.monthly;
+    default:
+      throw ArgumentError.value(value, 'value', 'Unknown budget period.');
+  }
+}
+
+String budgetPeriodToSql(BudgetPeriod value) => value.name;
+
+TransactionStatus transactionStatusFromSql(String value) {
+  switch (value) {
+    case 'confirmed':
+      return TransactionStatus.confirmed;
+    case 'pending':
+      return TransactionStatus.pending;
+    case 'ignored':
+      return TransactionStatus.ignored;
+    default:
+      throw ArgumentError.value(value, 'value', 'Unknown transaction status.');
+  }
+}
+
+TransactionTypeEntity transactionTypeFromSql(String value) {
+  switch (value) {
+    case 'payment':
+      return TransactionTypeEntity.payment;
+    case 'withdrawal':
+      return TransactionTypeEntity.withdrawal;
+    case 'transfer':
+      return TransactionTypeEntity.transfer;
+    case 'refund':
+      return TransactionTypeEntity.refund;
+    case 'income':
+      return TransactionTypeEntity.income;
+    case 'unknown':
+      return TransactionTypeEntity.unknown;
+    default:
+      throw ArgumentError.value(value, 'value', 'Unknown transaction type.');
+  }
+}
+
+TransactionSourceEntity transactionSourceFromSql(String value) {
+  switch (value) {
+    case 'bank':
+      return TransactionSourceEntity.bank;
+    case 'card':
+      return TransactionSourceEntity.card;
+    case 'wallet':
+      return TransactionSourceEntity.wallet;
+    case 'unknown':
+      return TransactionSourceEntity.unknown;
+    default:
+      throw ArgumentError.value(value, 'value', 'Unknown transaction source.');
+  }
+}
+
+TransactionEntity transactionFromRow(QueryRow row) {
+  final balance = row.readNullable<double>('balance_after');
+  final amount = row.read<double>('amount');
+  final currency = row.read<String>('currency');
+  final merchantId = row.readNullable<String>('merchant_id');
+  final rawMerchant = row.readNullable<String>('raw_merchant');
+  final categoryId = row.readNullable<String>('category_id');
+  final type = row.read<String>('type');
+  final source = row.read<String>('source');
+  final cardLast4 = row.readNullable<String>('card_last4');
+  final occurredAt = row.read<String>('occurred_at');
+  final rawMessage = row.read<String>('raw_message');
+  final parseConfidence = row.read<double>('parse_confidence');
+  final status = row.read<String>('status');
+  final createdAt = row.read<String>('created_at');
+  final updatedAt = row.read<String>('updated_at');
+  return TransactionEntity(
+    id: row.read<String>('id'),
+    amount: amount,
+    currency: currency,
+    merchantId: merchantId,
+    rawMerchant: rawMerchant,
+    categoryId: categoryId,
+    type: transactionTypeFromSql(type),
+    source: transactionSourceFromSql(source),
+    cardLast4: cardLast4,
+    balanceAfter: balance?.toDouble(),
+    occurredAt: dateTimeFromSql(occurredAt),
+    rawMessage: rawMessage,
+    parseConfidence: parseConfidence,
+    status: transactionStatusFromSql(status),
+    createdAt: dateTimeFromSql(createdAt),
+    updatedAt: dateTimeFromSql(updatedAt),
+  );
+}
+
+BudgetEntity budgetFromRow(QueryRow row) {
+  final amount = row.read<double>('amount');
+  final period = row.read<String>('period');
+  final startDate = row.read<String>('start_date');
+  return BudgetEntity(
+    id: row.read<String>('id'),
+    categoryId: row.read<String>('category_id'),
+    amount: amount,
+    period: budgetPeriodFromSql(period),
+    startDate: dateTimeFromSql(startDate),
+    isActive: sqlToBool(row.read<int>('is_active')),
+    alert80Sent: sqlToBool(row.read<int>('alert_80_sent')),
+    alert100Sent: sqlToBool(row.read<int>('alert_100_sent')),
+  );
+}
+
+GoalEntity goalFromRow(QueryRow row) {
+  final deadlineValue = row.readNullable<String>('deadline');
+  final targetAmount = row.read<double>('target_amount');
+  final savedAmount = row.read<double>('saved_amount');
+  final vaultSkin = row.read<String>('vault_skin');
+  final status = row.read<String>('status');
+  final createdAt = row.read<String>('created_at');
+  return GoalEntity(
+    id: row.read<String>('id'),
+    name: row.read<String>('name'),
+    targetAmount: targetAmount,
+    savedAmount: savedAmount,
+    deadline: deadlineValue == null ? null : dateTimeFromSql(deadlineValue),
+    vaultSkin: vaultSkin,
+    status: status,
+    createdAt: dateTimeFromSql(createdAt),
+  );
+}
+
+GoalContributionEntity goalContributionFromRow(QueryRow row) {
+  final amount = row.read<double>('amount');
+  final createdAt = row.read<String>('created_at');
+  return GoalContributionEntity(
+    id: row.read<String>('id'),
+    goalId: row.read<String>('goal_id'),
+    amount: amount,
+    createdAt: dateTimeFromSql(createdAt),
+    note: row.readNullable<String>('note'),
+  );
+}
+
+AchievementEntity achievementFromRow(QueryRow row) {
+  final unlockedAt = row.readNullable<String>('unlocked_at');
+  return AchievementEntity(
+    id: row.read<String>('id'),
+    key: row.read<String>('key'),
+    nameAr: row.read<String>('name_ar'),
+    unlockedAt: unlockedAt == null ? null : dateTimeFromSql(unlockedAt),
+    progress: row.read<double>('progress'),
+  );
+}
+
+StreakEntity streakFromRow(QueryRow row) {
+  return StreakEntity(
+    id: row.read<String>('id'),
+    currentStreak: row.read<int>('current_streak'),
+    longestStreak: row.read<int>('longest_streak'),
+    lastActiveDate: dateTimeFromSql(row.read<String>('last_active_date')),
+    freezesAvailable: row.read<int>('freezes_available'),
+  );
+}
+
+XpLevelEntity xpLevelFromRow(QueryRow row) {
+  return XpLevelEntity(
+    id: row.read<String>('id'),
+    totalXp: row.read<int>('total_xp'),
+    level: row.read<int>('level'),
+    levelKey: row.read<String>('level_key'),
+  );
+}
+
+UserSettingsEntity userSettingsFromRow(QueryRow row) {
+  return UserSettingsEntity(
+    id: row.read<String>('id'),
+    country: row.read<String>('country'),
+    currency: row.read<String>('currency'),
+    language: row.read<String>('language'),
+    theme: row.read<String>('theme'),
+    inputMethod: row.read<String>('input_method'),
+    notificationsJson: row.read<String>('notifications_json'),
+    dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
+  );
+}

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>النموذج التفاعلي — Onboarding & Auth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+  /* ============ TOKENS ============ */
+  :root, [data-theme="dark"]{
+    --bg:#0D1117; --surface:#161B22; --surface-2:#1E252E; --surface-3:#283039;
+    --hairline:#2A323C; --primary:#2FD27A; --primary-press:#25B869; --primary-tint:#122A20;
+    --gold:#F2C14E; --gold-deep:#D9A431; --danger:#FF5C5C; --warning:#FFB23E; --info:#4DA3FF;
+    --text:#F5F7FA; --text-2:#A8B3C2; --text-muted:#6B7686; --on-primary:#07130D;
+    --shadow:0 18px 50px rgba(0,0,0,.45); --glow:0 0 40px rgba(47,210,122,.18);
+    --frame-edge:#000;
+  }
+  [data-theme="light"]{
+    --bg:#F6F8FA; --surface:#FFFFFF; --surface-2:#EEF1F5; --surface-3:#E6EAF0;
+    --hairline:#E3E7EC; --primary:#16A968; --primary-press:#128A55; --primary-tint:#E6F7EF;
+    --gold:#C9912B; --gold-deep:#A87A22; --danger:#E14B4B; --warning:#C9821F; --info:#2A7FE0;
+    --text:#0E1116; --text-2:#4A5563; --text-muted:#8A94A3; --on-primary:#FFFFFF;
+    --shadow:0 18px 50px rgba(16,17,22,.12); --glow:0 0 40px rgba(22,169,104,.14);
+    --frame-edge:#d4d9e0;
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html,body{font-family:"IBM Plex Sans Arabic",sans-serif;}
+  body{
+    background:
+      radial-gradient(900px 600px at 80% -5%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 60%),
+      radial-gradient(700px 500px at 0% 100%, color-mix(in srgb, var(--gold) 8%, transparent), transparent 55%),
+      var(--bg);
+    color:var(--text); min-height:100vh; padding:48px 24px 80px; transition:background .4s,color .4s;
+  }
+  .lab-head{max-width:1240px; margin:0 auto 36px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;}
+  .lab-title h1{font-size:24px; font-weight:700; letter-spacing:-.3px;}
+  .lab-title p{color:var(--text-2); font-size:14px; margin-top:6px;}
+  .lab-title .tag{display:inline-flex; gap:6px; align-items:center; font-size:12px; font-weight:600; color:var(--primary);
+    background:var(--primary-tint); padding:5px 12px; border-radius:999px; margin-top:10px;}
+  .toggle{display:flex; gap:4px; background:var(--surface); border:1px solid var(--hairline); padding:5px; border-radius:999px;}
+  .toggle button{font-family:inherit; cursor:pointer; border:0; background:transparent; color:var(--text-2);
+    font-weight:600; font-size:13px; padding:8px 16px; border-radius:999px; display:flex; gap:7px; align-items:center; transition:.2s;}
+  .toggle button.active{background:var(--surface-3); color:var(--text);}
+  .toggle button svg{width:16px;height:16px;}
+
+  .grid{max-width:1240px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:40px 28px; justify-items:center;}
+  .cell{display:flex; flex-direction:column; align-items:center; gap:14px;}
+  .cell .cap{font-size:12.5px; color:var(--text-muted); font-weight:500;}
+
+  /* ============ PHONE ============ */
+  .phone{
+    width:300px; height:650px; border-radius:42px; background:var(--surface); position:relative; overflow:hidden;
+    border:9px solid var(--frame-edge); box-shadow:var(--shadow); flex:none;
+  }
+  .scr{position:absolute; inset:0; display:flex; flex-direction:column; padding:0 22px;
+    background:
+      radial-gradient(420px 280px at 85% -8%, color-mix(in srgb, var(--primary) 9%, transparent), transparent 60%),
+      var(--surface);}
+  .statusbar{height:46px; display:flex; align-items:center; justify-content:space-between; font-size:12px; font-weight:600; color:var(--text); flex:none;}
+  .statusbar .sb-r{display:flex; gap:6px; align-items:center;}
+  .statusbar svg{width:15px;height:15px;}
+  .nav-top{display:flex; align-items:center; gap:10px; height:34px; flex:none; color:var(--text-2);}
+  .nav-top .back{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;background:var(--surface-2);border:1px solid var(--hairline);cursor:pointer;}
+  .nav-top .back svg{width:18px;height:18px;}
+
+  .body{flex:1; display:flex; flex-direction:column; overflow:hidden;}
+  .grow{flex:1;}
+  .center{justify-content:center; text-align:center; align-items:center;}
+
+  h2.title{font-size:22px; font-weight:700; letter-spacing:-.3px; line-height:1.3;}
+  h2.big{font-size:26px; font-weight:700; line-height:1.25; letter-spacing:-.4px;}
+  p.sub{color:var(--text-2); font-size:14px; line-height:1.65; margin-top:10px;}
+  .muted{color:var(--text-muted);}
+
+  /* dots */
+  .dots{display:flex; gap:7px;}
+  .dots i{width:7px;height:7px;border-radius:50%;background:var(--surface-3);transition:.3s;}
+  .dots i.on{width:22px;border-radius:999px;background:var(--primary);}
+
+  /* buttons */
+  .btn{font-family:inherit;font-weight:600;font-size:15.5px;border:0;border-radius:13px;height:52px;width:100%;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px;transition:.15s; flex:none;}
+  .btn svg{width:19px;height:19px;}
+  .btn-primary{background:var(--primary);color:var(--on-primary);box-shadow:var(--glow);}
+  .btn-primary:active{background:var(--primary-press);transform:translateY(1px);}
+  .btn-secondary{background:var(--surface-2);color:var(--text);border:1px solid var(--hairline);}
+  .btn-ghost{background:transparent;color:var(--text-2);}
+  .btn-dark{background:#000;color:#fff;}
+  [data-theme="light"] .btn-dark{background:#000;color:#fff;}
+  .btn-line{background:var(--surface-2);color:var(--text);border:1px solid var(--hairline);}
+  .stack{display:flex;flex-direction:column;gap:11px;}
+
+  .skip{position:absolute; top:52px; inset-inline-start:22px; z-index:5; background:transparent;border:0;color:var(--text-muted);font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;}
+
+  /* brand mark */
+  .brandmark{width:96px;height:96px;border-radius:28px;background:linear-gradient(150deg,var(--primary),var(--primary-press));
+    display:grid;place-items:center;box-shadow:var(--glow);}
+  .brandmark svg{width:46px;height:46px;color:var(--on-primary);}
+  .wordmark{font-weight:700;font-size:21px;letter-spacing:-.3px;}
+  .wordmark .ph{color:var(--text-muted);font-weight:500;font-size:12px;display:block;margin-top:4px;}
+
+  /* illustration tile */
+  .illus{width:170px;height:170px;border-radius:32px;background:
+    radial-gradient(circle at 50% 35%, color-mix(in srgb,var(--primary) 22%,transparent), transparent 70%),
+    var(--surface-2); border:1px solid var(--hairline); display:grid;place-items:center;}
+  .illus svg{width:74px;height:74px;color:var(--primary);}
+  .illus.gold svg{color:var(--gold);}
+
+  /* ===== VAULT 2D ===== */
+  .vault{position:relative;width:172px;height:172px;animation:breathe 3.6s ease-in-out infinite;}
+  @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.012)}}
+  .vault .body{position:absolute;inset:0;border-radius:34px;
+    background:linear-gradient(160deg,var(--surface-3),var(--surface-2));
+    border:2px solid var(--hairline);box-shadow:inset 0 2px 10px rgba(0,0,0,.25);overflow:hidden;}
+  .vault .coins{position:absolute;left:0;right:0;bottom:0;height:58%;
+    background:linear-gradient(180deg,var(--gold),var(--gold-deep));
+    border-radius:0 0 32px 32px;opacity:.92;}
+  .vault .coins::before,.vault .coins::after{content:"";position:absolute;border-radius:50%;
+    background:color-mix(in srgb,var(--gold) 70%,#fff);opacity:.55;}
+  .vault .coins::before{width:26px;height:26px;top:-9px;right:30px;box-shadow:0 0 0 transparent;}
+  .vault .coins::after{width:20px;height:20px;top:-4px;right:74px;}
+  .vault .dial{position:absolute;top:24px;right:24px;width:46px;height:46px;border-radius:50%;
+    border:3px solid var(--gold);background:var(--surface);display:grid;place-items:center;z-index:2;}
+  .vault .dial::after{content:"";width:4px;height:18px;background:var(--gold);border-radius:2px;transform:rotate(35deg);}
+  .vault .shine{position:absolute;inset:0;border-radius:34px;
+    background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.18) 50%,transparent 60%);
+    animation:shine 4.5s ease-in-out infinite;z-index:3;}
+  @keyframes shine{0%,70%{transform:translateX(-120%)}85%,100%{transform:translateX(120%)}}
+  .vault .pct{position:absolute;inset:0;display:grid;place-items:center;z-index:4;
+    font-weight:700;font-size:30px;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.4);}
+  .vault.sm{width:96px;height:96px}
+  .vault.sm .dial{width:30px;height:30px;top:14px;right:14px}
+  .vault.sm .dial::after{height:11px}
+  .vault.sm .pct{font-size:18px}
+
+  /* feature rows */
+  .frow{display:flex;gap:13px;align-items:flex-start;text-align:start;}
+  .frow .ic{width:40px;height:40px;border-radius:12px;background:var(--primary-tint);display:grid;place-items:center;flex:none;}
+  .frow .ic svg{width:20px;height:20px;color:var(--primary);}
+  .frow h4{font-size:14.5px;font-weight:600;}
+  .frow p{font-size:12.5px;color:var(--text-2);line-height:1.5;margin-top:3px;}
+
+  /* list select */
+  .opt{display:flex;align-items:center;gap:12px;padding:14px 15px;border-radius:15px;background:var(--surface-2);
+    border:1.5px solid var(--hairline);cursor:pointer;transition:.15s;}
+  .opt.sel{border-color:var(--primary);background:var(--primary-tint);}
+  .opt .flag{font-size:0;width:30px;height:30px;border-radius:8px;background:var(--surface-3);display:grid;place-items:center;flex:none;overflow:hidden;}
+  .opt .flag b{font-size:15px;}
+  .opt .nm{font-weight:600;font-size:14.5px;flex:1;}
+  .opt .rd{width:21px;height:21px;border-radius:50%;border:2px solid var(--text-muted);flex:none;display:grid;place-items:center;}
+  .opt.sel .rd{border-color:var(--primary);}
+  .opt.sel .rd::after{content:"";width:11px;height:11px;border-radius:50%;background:var(--primary);}
+  .opt svg.lic{width:20px;height:20px;color:var(--text-2);}
+
+  .field-label{font-size:12.5px;color:var(--text-2);font-weight:500;margin:0 2px 7px;}
+  .pill-info{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--hairline);
+    border-radius:13px;padding:13px 15px;font-size:13.5px;color:var(--text-2);}
+  .pill-info svg{width:17px;height:17px;color:var(--primary);}
+
+  /* auth */
+  .divider{display:flex;align-items:center;gap:12px;color:var(--text-muted);font-size:12px;}
+  .divider::before,.divider::after{content:"";height:1px;flex:1;background:var(--hairline);}
+  .input{width:100%;height:50px;border-radius:13px;background:var(--surface-3);border:1px solid var(--hairline);
+    color:var(--text);font-family:inherit;font-size:14.5px;padding:0 15px;outline:none;text-align:start;}
+  .input::placeholder{color:var(--text-muted);}
+  .input:focus{border-color:var(--primary);}
+  .otp{display:flex;gap:9px;direction:ltr;justify-content:center;}
+  .otp .d{width:40px;height:52px;border-radius:12px;background:var(--surface-3);border:1.5px solid var(--hairline);
+    display:grid;place-items:center;font-size:22px;font-weight:700;}
+  .otp .d.f{border-color:var(--primary);color:var(--text);}
+  .otp .d.e{color:var(--text-muted);}
+  .legal{font-size:11px;color:var(--text-muted);line-height:1.6;text-align:center;}
+  .legal a{color:var(--text-2);text-decoration:underline;}
+  .resend{font-size:12.5px;color:var(--text-muted);text-align:center;}
+  .resend b{color:var(--text-2);}
+
+  /* trust list */
+  .trust{display:flex;gap:11px;align-items:center;padding:3px 0;}
+  .trust .ck{width:26px;height:26px;border-radius:50%;background:var(--primary-tint);display:grid;place-items:center;flex:none;}
+  .trust .ck svg{width:15px;height:15px;color:var(--primary);}
+  .trust span{font-size:13.5px;font-weight:500;}
+
+  /* budget mini */
+  .seg{display:flex;background:var(--surface-2);border:1px solid var(--hairline);border-radius:13px;padding:4px;gap:4px;}
+  .seg button{flex:1;font-family:inherit;font-weight:600;font-size:12.5px;border:0;background:transparent;color:var(--text-2);
+    padding:9px 0;border-radius:9px;cursor:pointer;}
+  .seg button.on{background:var(--surface-3);color:var(--text);}
+  .amount-in{display:flex;align-items:center;background:var(--surface-3);border:1px solid var(--hairline);border-radius:13px;padding:0 15px;height:54px;}
+  .amount-in input{flex:1;border:0;background:transparent;color:var(--text);font-family:inherit;font-size:24px;font-weight:700;outline:none;font-variant-numeric:tabular-nums;}
+  .amount-in span{color:var(--text-muted);font-size:14px;font-weight:500;}
+
+  .recovery{font-variant-numeric:tabular-nums;letter-spacing:3px;font-weight:700;font-size:18px;text-align:center;
+    background:var(--surface-3);border:1px dashed var(--hairline);border-radius:13px;padding:15px;direction:ltr;}
+  .warnbox{display:flex;gap:9px;align-items:flex-start;background:var(--warning-tint,rgba(255,178,62,.12));
+    border:1px solid color-mix(in srgb,var(--warning) 35%,transparent);border-radius:12px;padding:12px;font-size:12px;color:var(--text-2);line-height:1.5;}
+  .warnbox svg{width:16px;height:16px;color:var(--warning);flex:none;margin-top:1px;}
+  .chk{display:flex;gap:9px;align-items:center;font-size:12.5px;color:var(--text-2);}
+  .chk .box{width:20px;height:20px;border-radius:6px;border:2px solid var(--primary);background:var(--primary);display:grid;place-items:center;flex:none;}
+  .chk .box svg{width:13px;height:13px;color:var(--on-primary);}
+
+  .pad-b{padding-bottom:20px;}
+  .gap-s{gap:9px;} .mt-a{margin-top:auto;}
+  .row-amt{font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+
+<div class="lab-head">
+  <div class="lab-title">
+    <h1>النموذج التفاعلي — التسجيل والدخول</h1>
+    <p>Onboarding &amp; Auth · RTL · IBM Plex Sans Arabic · Lucide · بدون إيموجي</p>
+    <span class="tag"><i data-lucide="check-circle-2"></i> مبني على Design System المعتمد</span>
+  </div>
+  <div class="toggle" id="themeToggle">
+    <button data-theme-btn="dark" class="active"><i data-lucide="moon"></i> غامق</button>
+    <button data-theme-btn="light"><i data-lucide="sun"></i> فاتح</button>
+  </div>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<script>
+/* status bar helper */
+const SB = `<div class="statusbar"><span>9:41</span><span class="sb-r"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>`;
+const back = `<div class="nav-top"><div class="back"><i data-lucide="chevron-right"></i></div></div>`;
+
+const screens = [
+/* 1 SPLASH */
+{cap:"١ — Splash", html:`
+${SB}
+<div class="body center grow">
+  <div class="brandmark"><i data-lucide="vault"></i></div>
+  <div style="height:18px"></div>
+  <div class="wordmark">رفيقك المالي<span class="ph">[اسم مؤقت]</span></div>
+  <div style="height:30px"></div>
+  <div class="dots"><i class="on"></i><i></i><i></i></div>
+</div>`},
+
+/* 2 INTRO 1 */
+{cap:"٢ — تعريف ١: المشكلة", html:`
+${SB}
+<button class="skip">تخطّي</button>
+<div class="body center grow">
+  <div class="illus"><i data-lucide="search-x"></i></div>
+  <div style="height:26px"></div>
+  <h2 class="big">ما تعرف وين<br>راحت فلوسك؟</h2>
+  <p class="sub">نهاية الشهر دايماً مفاجأة. إحنا نخلّيها واضحة.</p>
+</div>
+<div class="pad-b">
+  <div style="display:flex;justify-content:center;margin-bottom:18px"><div class="dots"><i class="on"></i><i></i><i></i></div></div>
+  <button class="btn btn-primary">التالي</button>
+</div>`},
+
+/* 3 INTRO 2 */
+{cap:"٣ — تعريف ٢: الحل", html:`
+${SB}
+<button class="skip">تخطّي</button>
+<div class="body center grow">
+  <div class="illus"><i data-lucide="message-square-text"></i></div>
+  <div style="height:26px"></div>
+  <h2 class="big">لا تكتب —<br>إحنا نفهمها لك</h2>
+  <p class="sub">نقرأ رسائل بنكك على جهازك، نطلّع المبلغ والمتجر، ونصنّفها تلقائياً.</p>
+</div>
+<div class="pad-b">
+  <div style="display:flex;justify-content:center;margin-bottom:18px"><div class="dots"><i></i><i class="on"></i><i></i></div></div>
+  <button class="btn btn-primary">التالي</button>
+</div>`},
+
+/* 4 INTRO 3 — VAULT */
+{cap:"٤ — تعريف ٣: الخزنة", html:`
+${SB}
+<button class="skip">تخطّي</button>
+<div class="body center grow">
+  <div class="vault"><div class="body"><div class="coins"></div></div><div class="dial"></div><div class="shine"></div></div>
+  <div style="height:24px"></div>
+  <h2 class="big">وفّر وكأنها<br>لعبة يومية</h2>
+  <p class="sub">حدّد هدفك، وشوف خزنتك تمتلئ مع كل ريال توفّره.</p>
+</div>
+<div class="pad-b">
+  <div style="display:flex;justify-content:center;margin-bottom:18px"><div class="dots"><i></i><i></i><i class="on"></i></div></div>
+  <button class="btn btn-primary"><i data-lucide="sparkles"></i> يلا نبدأ</button>
+</div>`},
+
+/* 5 COUNTRY */
+{cap:"٥ — الدولة والعملة", html:`
+${SB}${back}
+<div class="body grow">
+  <h2 class="title">وين مكانك؟</h2>
+  <p class="sub">نضبط العملة والبنوك المدعومة لك.</p>
+  <div style="height:22px"></div>
+  <div class="stack gap-s">
+    <div class="opt sel"><div class="flag"><b>🇸🇦</b></div><span class="nm">السعودية</span><div class="rd"></div></div>
+    <div class="opt"><div class="flag"><b>🇦🇪</b></div><span class="nm">الإمارات</span><div class="rd"></div></div>
+    <div class="opt"><div class="flag"><b>🇪🇬</b></div><span class="nm">مصر</span><div class="rd"></div></div>
+    <div class="opt"><div class="flag"><b>🇮🇶</b></div><span class="nm">العراق</span><div class="rd"></div></div>
+  </div>
+  <div style="height:18px"></div>
+  <div class="pill-info"><i data-lucide="wallet"></i> العملة: ريال سعودي (SAR)</div>
+</div>
+<div class="pad-b"><button class="btn btn-primary">متابعة</button></div>`},
+
+/* 6 PRIVACY */
+{cap:"٦ — الخصوصية", html:`
+${SB}${back}
+<div class="body grow">
+  <div class="illus gold" style="width:84px;height:84px;border-radius:24px;margin-bottom:20px"><i data-lucide="shield-check"></i></div>
+  <h2 class="title">فلوسك تبقى عندك</h2>
+  <p class="sub">خصوصيتك أساس المنتج، مش إضافة.</p>
+  <div style="height:22px"></div>
+  <div class="stack" style="gap:16px">
+    <div class="trust"><div class="ck"><i data-lucide="check"></i></div><span>كل المعالجة على جهازك</span></div>
+    <div class="trust"><div class="ck"><i data-lucide="check"></i></div><span>نقرأ فقط الرسائل المسموحة</span></div>
+    <div class="trust"><div class="ck"><i data-lucide="check"></i></div><span>ما نبيع بياناتك أبداً</span></div>
+    <div class="trust"><div class="ck"><i data-lucide="check"></i></div><span>تحذف كل شيء وقت ما تبي</span></div>
+  </div>
+</div>
+<div class="pad-b stack">
+  <button class="btn btn-ghost"><i data-lucide="file-text"></i> سياسة الخصوصية</button>
+  <button class="btn btn-primary">فهمت، متابعة</button>
+</div>`},
+
+/* 7 AUTH */
+{cap:"٧ — الدخول (iOS)", html:`
+${SB}${back}
+<div class="body grow center" style="justify-content:flex-start">
+  <div style="height:8px"></div>
+  <div class="brandmark" style="width:64px;height:64px;border-radius:20px"><i data-lucide="vault"></i></div>
+  <div style="height:18px"></div>
+  <h2 class="title">سجّل دخولك للبدء</h2>
+  <p class="sub" style="max-width:240px">الدخول لتحديد هويتك فقط. بياناتك المالية تبقى على جهازك.</p>
+</div>
+<div class="pad-b stack">
+  <button class="btn btn-dark"><i data-lucide="apple"></i> المتابعة مع Apple</button>
+  <button class="btn btn-line"><i data-lucide="chrome"></i> المتابعة مع Google</button>
+  <div class="divider">أو</div>
+  <input class="input" placeholder="البريد الإلكتروني" />
+  <button class="btn btn-primary">إرسال رمز الدخول</button>
+  <p class="legal">بالمتابعة توافق على <a>الشروط</a> و <a>الخصوصية</a></p>
+</div>`},
+
+/* 8 OTP */
+{cap:"٨ — رمز التحقق (OTP)", html:`
+${SB}${back}
+<div class="body grow">
+  <div style="height:6px"></div>
+  <h2 class="title">أدخل رمز التحقق</h2>
+  <p class="sub">أرسلنا كوداً إلى <b style="color:var(--text)">name@example.com</b></p>
+  <div style="height:30px"></div>
+  <div class="otp">
+    <div class="d f">4</div><div class="d f">9</div><div class="d f">2</div>
+    <div class="d e">•</div><div class="d e">•</div><div class="d e">•</div>
+  </div>
+  <div style="height:24px"></div>
+  <p class="resend">إعادة الإرسال خلال <b>0:27</b></p>
+  <div style="height:10px"></div>
+  <p class="resend"><a style="color:var(--text-2);text-decoration:underline">تغيير البريد</a></p>
+</div>
+<div class="pad-b"><button class="btn btn-primary">تأكيد</button></div>`},
+
+/* 9 METHOD iOS */
+{cap:"٩ — طريقة الإدخال (iOS)", html:`
+${SB}${back}
+<div class="body grow">
+  <h2 class="title">على iPhone، أنت تتحكّم</h2>
+  <p class="sub">اختر طريقة إضافة عملياتك.</p>
+  <div style="height:20px"></div>
+  <div class="stack gap-s">
+    <div class="opt"><div class="flag"><i data-lucide="share" class="lic"></i></div><div style="flex:1"><div class="nm" style="margin-bottom:2px">مشاركة الرسالة</div><div style="font-size:11.5px;color:var(--text-muted)">Share من تطبيق الرسائل</div></div><i data-lucide="chevron-left" class="lic"></i></div>
+    <div class="opt"><div class="flag"><i data-lucide="zap" class="lic"></i></div><div style="flex:1"><div class="nm" style="margin-bottom:2px">اختصار Siri</div><div style="font-size:11.5px;color:var(--text-muted)">Shortcut تلقائي</div></div><i data-lucide="chevron-left" class="lic"></i></div>
+    <div class="opt"><div class="flag"><i data-lucide="clipboard-paste" class="lic"></i></div><div style="flex:1"><div class="nm" style="margin-bottom:2px">لصق الرسالة يدوياً</div><div style="font-size:11.5px;color:var(--text-muted)">انسخ والصق بسرعة</div></div><i data-lucide="chevron-left" class="lic"></i></div>
+  </div>
+</div>
+<div class="pad-b"><button class="btn btn-primary"><i data-lucide="clipboard-paste"></i> جرّب الآن: ألصق رسالة</button></div>`},
+
+/* 10 FIRST BUDGET */
+{cap:"١٠ — أول ميزانية (اختياري)", html:`
+${SB}
+<button class="skip">تخطّي</button>
+<div class="body grow">
+  <div style="height:30px"></div>
+  <h2 class="title">نبدأ بميزانية بسيطة؟</h2>
+  <p class="sub">تقدر تعدّلها أو تضيف غيرها في أي وقت.</p>
+  <div style="height:24px"></div>
+  <div class="field-label">التصنيف</div>
+  <div class="opt sel" style="margin-bottom:18px"><div class="flag" style="background:color-mix(in srgb,#FF7A59 22%,transparent)"><i data-lucide="utensils" class="lic" style="color:#FF7A59"></i></div><span class="nm">مطاعم</span><i data-lucide="chevron-down" class="lic"></i></div>
+  <div class="field-label">المبلغ</div>
+  <div class="amount-in" style="margin-bottom:18px"><input value="50" /><span>ريال / يومياً</span></div>
+  <div class="field-label">الفترة</div>
+  <div class="seg"><button class="on">يومي</button><button>أسبوعي</button><button>شهري</button></div>
+</div>
+<div class="pad-b"><button class="btn btn-primary">أنشئ الميزانية</button></div>`},
+
+/* 11 RESTORE (new device) */
+{cap:"١١ — استعادة (جهاز جديد)", html:`
+${SB}
+<div class="body grow center" style="justify-content:flex-start">
+  <div style="height:14px"></div>
+  <div class="vault sm"><div class="body"><div class="coins"></div></div><div class="dial"></div></div>
+  <div style="height:20px"></div>
+  <h2 class="title">وجدنا نسخة احتياطية</h2>
+  <p class="sub" style="max-width:240px">استعادة بياناتك المشفّرة؟ (عمليات، أهداف، streak)</p>
+  <div style="height:24px;width:100%"></div>
+  <div style="width:100%;text-align:start" class="field-label">كلمة مرور التشفير (passphrase)</div>
+  <input class="input" type="password" placeholder="••••••••" />
+  <div style="height:12px"></div>
+  <button class="btn btn-ghost" style="height:auto"><i data-lucide="key-round"></i> استخدام رمز الاسترداد</button>
+</div>
+<div class="pad-b stack">
+  <button class="btn btn-primary"><i data-lucide="cloud-download"></i> استعادة</button>
+  <button class="btn btn-ghost">ابدأ جديد</button>
+</div>`},
+
+/* 12 BACKUP ENABLE (settings) */
+{cap:"١٢ — تفعيل النسخ المشفّر (إعدادات)", html:`
+${SB}${back}
+<div class="body grow">
+  <h2 class="title">النسخ الاحتياطي المشفّر</h2>
+  <p class="sub">اختياري — نسخة مشفّرة لا نقدر نقرأها، ترجّع بياناتك على أي جهاز.</p>
+  <div style="height:20px"></div>
+  <div class="field-label">رمز الاسترداد (Recovery Code)</div>
+  <div class="recovery">XK4P - 9R2M - 7TQA</div>
+  <div style="height:10px"></div>
+  <button class="btn btn-line" style="height:44px"><i data-lucide="copy"></i> نسخ الرمز</button>
+  <div style="height:16px"></div>
+  <div class="warnbox"><i data-lucide="alert-triangle"></i><span>لو فقدت كلمة المرور والرمز معاً، لن نتمكّن من استعادة نسختك (لأنها مشفّرة لدينا بلا مفتاح).</span></div>
+  <div style="height:16px"></div>
+  <div class="chk"><div class="box"><i data-lucide="check"></i></div> حفظت الرمز وأفهم ذلك</div>
+</div>
+<div class="pad-b"><button class="btn btn-primary"><i data-lucide="shield-check"></i> تفعيل</button></div>`},
+];
+
+const grid = document.getElementById('grid');
+screens.forEach(s=>{
+  const cell=document.createElement('div'); cell.className='cell';
+  cell.innerHTML=`<div class="phone"><div class="scr">${s.html}</div></div><div class="cap">${s.cap}</div>`;
+  grid.appendChild(cell);
+});
+
+/* theme toggle */
+document.getElementById('themeToggle').addEventListener('click',e=>{
+  const b=e.target.closest('[data-theme-btn]'); if(!b)return;
+  document.documentElement.setAttribute('data-theme', b.dataset.themeBtn);
+  document.querySelectorAll('[data-theme-btn]').forEach(x=>x.classList.toggle('active', x===b));
+});
+
+lucide.createIcons();
+</script>
+</body>
+</html>

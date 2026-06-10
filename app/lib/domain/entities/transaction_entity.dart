@@ -1,0 +1,127 @@
+enum TransactionTypeEntity {
+  payment,
+  withdrawal,
+  transfer,
+  refund,
+  income,
+  unknown,
+}
+
+enum TransactionSourceEntity {
+  bank,
+  card,
+  wallet,
+  unknown,
+}
+
+enum TransactionStatus { confirmed, pending, ignored }
+
+class TransactionEntity {
+  const TransactionEntity({
+    required this.id,
+    required this.amount,
+    required this.currency,
+    required this.type,
+    required this.source,
+    required this.occurredAt,
+    required this.rawMessage,
+    required this.parseConfidence,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+    this.merchantId,
+    this.rawMerchant,
+    this.categoryId,
+    this.cardLast4,
+    this.balanceAfter,
+  });
+
+  final String id;
+  final double amount;
+  final String currency;
+  final String? merchantId;
+  final String? rawMerchant;
+  final String? categoryId;
+  final TransactionTypeEntity type;
+  final TransactionSourceEntity source;
+  final String? cardLast4;
+  final double? balanceAfter;
+  final DateTime occurredAt;
+  final String rawMessage;
+  final double parseConfidence;
+  final TransactionStatus status;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  TransactionEntity copyWith({
+    String? id,
+    double? amount,
+    String? currency,
+    String? merchantId,
+    String? rawMerchant,
+    String? categoryId,
+    TransactionTypeEntity? type,
+    TransactionSourceEntity? source,
+    String? cardLast4,
+    double? balanceAfter,
+    DateTime? occurredAt,
+    String? rawMessage,
+    double? parseConfidence,
+    TransactionStatus? status,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return TransactionEntity(
+      id: id ?? this.id,
+      amount: amount ?? this.amount,
+      currency: currency ?? this.currency,
+      merchantId: merchantId ?? this.merchantId,
+      rawMerchant: rawMerchant ?? this.rawMerchant,
+      categoryId: categoryId ?? this.categoryId,
+      type: type ?? this.type,
+      source: source ?? this.source,
+      cardLast4: cardLast4 ?? this.cardLast4,
+      balanceAfter: balanceAfter ?? this.balanceAfter,
+      occurredAt: occurredAt ?? this.occurredAt,
+      rawMessage: rawMessage ?? this.rawMessage,
+      parseConfidence: parseConfidence ?? this.parseConfidence,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class MerchantEntity {
+  const MerchantEntity({
+    required this.id,
+    required this.rawName,
+    required this.normalizedName,
+    required this.firstSeenAt,
+    required this.lastSeenAt,
+  });
+
+  final String id;
+  final String rawName;
+  final String normalizedName;
+  final DateTime firstSeenAt;
+  final DateTime lastSeenAt;
+}
+
+class MerchantCategoryMappingEntity {
+  const MerchantCategoryMappingEntity({
+    required this.id,
+    required this.merchantId,
+    required this.categoryId,
+    required this.isUserConfirmed,
+    required this.confidence,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String merchantId;
+  final String categoryId;
+  final bool isUserConfirmed;
+  final double confidence;
+  final DateTime updatedAt;
+}

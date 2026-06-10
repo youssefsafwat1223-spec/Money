@@ -1,0 +1,13 @@
+cd D:\english-platform\money
+
+git init           # لو لسه
+
+git add .
+
+git commit -m "foundation + engine + Sprint 2 (DB)"
+
+# اربط الريبو على GitHub وادفع:
+
+git remote add origin https://github.com/youssefsafwat1223-spec/Money.git
+
+git push -u origin main

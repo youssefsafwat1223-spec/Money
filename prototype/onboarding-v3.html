@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Onboarding v3.1 — Vibrant Fintech (Polished)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+/* ================= VIBRANT TOKENS ================= */
+:root, [data-theme="light"] {
+  --bg-app: #F4F5F7;
+  --bg-gradient: linear-gradient(145deg, #4F00BC 0%, #9B27B0 100%);
+  --surface: #FFFFFF;
+  --surface-2: #F8F9FA;
+  --surface-3: #F0F2F5;
+  --surface-icon: white;
+  --surface-input: #FFFFFF;
+  
+  --primary: #8E24AA;
+  --primary-2: #6A1B9A;
+  --accent: #FFD54F;
+  --accent-soft: rgba(255, 213, 79, 0.2);
+  
+  --text-main: #1a1a1a;
+  --text-dark: #121212;
+  --text-gray: #5F6368;
+  --text-light: #9AA0A6;
+  --text-white: #FFFFFF;
+  --text-white-dim: rgba(255, 255, 255, 0.7);
+  
+  --border: #E0E0E0;
+  --shadow-lg: 0 24px 48px -12px rgba(79, 0, 188, 0.25);
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 0 4px rgba(142, 36, 170, 0.1);
+  --radius-md: 16px;
+}
+
+[data-theme="dark"] {
+  --bg-app: #0A0A0C;
+  --bg-gradient: linear-gradient(145deg, #2A0066 0%, #5E146E 100%);
+  --surface: #1C1C1E;
+  --surface-2: #2C2C2E;
+  --surface-3: #3A3A3C;
+  --surface-icon: #2C2C2E;
+  --surface-input: #1C1C1E;
+  
+  --primary: #AB47BC;
+  --primary-2: #8E24AA;
+  
+  --text-main: #FFFFFF;
+  --text-dark: #FFFFFF;
+  --text-gray: #A1A1A6;
+  --text-light: #6E6E73;
+  
+  --border: #38383A;
+  --shadow-lg: 0 24px 48px -12px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-glow: 0 0 0 4px rgba(171, 71, 188, 0.2);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { font-family: "IBM Plex Sans Arabic", system-ui, sans-serif; background: var(--bg-app); color: var(--text-main); transition: background 0.4s ease; }
+
+/* header */
+.head { max-width: 1280px; margin: 40px auto; padding: 0 24px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 20px; }
+.head-text h1 { font-size: 28px; font-weight: 700; color: var(--text-main); }
+.head-text p { color: var(--text-gray); font-size: 15px; margin-top: 8px; max-width: 600px; line-height: 1.6; }
+
+/* Theme Toggle */
+.toggle { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); padding: 5px; border-radius: 999px; box-shadow: var(--shadow-sm); }
+.toggle button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: var(--text-gray); font-weight: 600; font-size: 13px; padding: 9px 17px; border-radius: 999px; display: flex; gap: 7px; align-items: center; transition: 0.2s; }
+.toggle button.active { background: var(--surface-3); color: var(--text-main); }
+
+/* Grid */
+.grid { max-width: 1280px; margin: 0 auto 80px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 50px 30px; justify-items: center; padding: 0 24px; }
+.cell { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.cap { font-size: 14px; color: var(--text-gray); font-weight: 600; background: var(--surface); padding: 8px 16px; border-radius: 999px; box-shadow: var(--shadow-sm); transition: 0.3s; }
+
+/* ============ PHONE CONTAINER ============ */
+.phone { width: 320px; height: 690px; border-radius: 40px; background: #000; padding: 8px; box-shadow: 0 40px 80px -20px rgba(0,0,0,0.3); position: relative; flex: none; }
+.phone::after { content: ""; position: absolute; top: 16px; left: 50%; transform: translateX(-50%); width: 100px; height: 24px; background: #000; border-radius: 999px; z-index: 30; }
+.scr { position: absolute; inset: 8px; border-radius: 32px; overflow: hidden; background: var(--bg-gradient); display: flex; flex-direction: column; transition: 0.4s ease; }
+.scr::before { content: ""; position: absolute; inset: 0; opacity: 0.1; mix-blend-mode: overlay; background-image: radial-gradient(circle at 10% 20%, #fff 1px, transparent 1px), radial-gradient(circle at 90% 80%, #fff 1px, transparent 1px); background-size: 20px 20px; pointer-events: none; }
+.inner { position: relative; z-index: 2; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+/* Status Bar & Topbar */
+.sb { height: 50px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; flex: none; padding: 6px 24px 0; color: white; }
+.sb .r { display: flex; gap: 7px; align-items: center; }
+.topbar { display: flex; align-items: center; justify-content: space-between; height: 44px; flex: none; padding: 0 20px; }
+.iconbtn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.2); border: 0; display: grid; place-items: center; cursor: pointer; color: white; backdrop-filter: blur(10px); transition: 0.2s; }
+.iconbtn:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
+.linkbtn { background: none; border: 0; font-family: inherit; font-weight: 600; font-size: 15px; color: white; cursor: pointer; padding: 8px; opacity: 0.8; transition: 0.2s; }
+.linkbtn:hover { opacity: 1; }
+
+/* Content Areas */
+.content-top { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px 24px; color: white; }
+.content-bottom { background: var(--surface); border-radius: 32px 32px 0 0; padding: 32px 24px; display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,0.1); transition: 0.4s ease; }
+.content-full { flex: 1; background: var(--surface); display: flex; flex-direction: column; padding: 24px; overflow-y: auto; border-radius: 32px 32px 0 0; margin-top: 16px; transition: 0.4s ease; }
+.content-full::-webkit-scrollbar { width: 4px; }
+.content-full::-webkit-scrollbar-track { background: transparent; }
+.content-full::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* Progress */
+.prog { display: flex; gap: 6px; justify-content: center; margin-bottom: 24px; }
+.prog i { height: 6px; width: 24px; border-radius: 999px; background: rgba(255,255,255,0.3); transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.prog i.on { background: white; width: 40px; }
+
+/* Typography */
+.kicker { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.5px; margin-bottom: 12px; text-transform: uppercase; background: var(--accent-soft); padding: 6px 12px; border-radius: 999px; display: inline-block; }
+.lg-title { font-size: 28px; font-weight: 700; line-height: 1.3; color: white; margin-bottom: 12px; }
+.title-dark { font-size: 24px; font-weight: 700; color: var(--text-dark); margin-bottom: 8px; transition: 0.3s; }
+.sub-white { color: var(--text-white-dim); font-size: 15px; line-height: 1.6; }
+.sub-dark { color: var(--text-gray); font-size: 15px; line-height: 1.6; transition: 0.3s; }
+
+/* Illustrations */
+.illu { width: 140px; height: 140px; position: relative; display: grid; place-items: center; margin-bottom: 30px; }
+.illu-circle { position: absolute; inset: 0; border-radius: 50%; background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); display: grid; place-items: center; transition: 0.3s; }
+.illu-circle::after { content: ""; position: absolute; inset: 15px; border-radius: 50%; background: rgba(255,255,255,0.15); }
+.illu svg { width: 64px; height: 64px; color: white; position: relative; z-index: 2; }
+
+/* Buttons */
+.btn { font-family: inherit; font-weight: 700; font-size: 16px; border: 0; border-radius: var(--radius-md); height: 56px; width: 100%; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--primary); color: white; box-shadow: 0 8px 24px rgba(142, 36, 170, 0.3); }
+.btn-primary:active { box-shadow: 0 4px 12px rgba(142, 36, 170, 0.2); }
+.btn-outline { background: transparent; color: var(--text-dark); border: 2px solid var(--border); transition: 0.3s; }
+.btn-text { background: transparent; color: var(--text-gray); font-weight: 600; }
+
+/* Options / Selection */
+.opt { display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: var(--radius-md); background: var(--surface-2); border: 2px solid transparent; cursor: pointer; transition: 0.2s; margin-bottom: 12px; }
+.opt:hover { background: var(--surface-3); transform: translateY(-1px); }
+.opt:active { transform: scale(0.98); }
+.opt.sel { border-color: var(--primary); background: rgba(142, 36, 170, 0.05); }
+[data-theme="dark"] .opt.sel { background: rgba(171, 71, 188, 0.15); }
+.opt-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--surface-icon); display: grid; place-items: center; box-shadow: var(--shadow-sm); flex: none; color: var(--primary); transition: 0.3s; }
+.opt-text { flex: 1; text-align: start; }
+.opt-title { font-weight: 600; font-size: 16px; color: var(--text-dark); margin-bottom: 4px; transition: 0.3s; }
+.opt-sub { font-size: 13px; color: var(--text-light); transition: 0.3s; }
+.radio { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; transition: 0.3s; }
+.opt.sel .radio { border-color: var(--primary); }
+.opt.sel .radio::after { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); animation: scaleIn 0.2s ease-out forwards; }
+
+/* Flags */
+.flagtile { width: 44px; height: 44px; border-radius: 12px; overflow: hidden; flex: none; display: flex; flex-direction: column; border: 1px solid var(--border); box-shadow: var(--shadow-sm); transition: 0.3s; }
+.flagtile span { flex: 1; }
+.opt:hover .flagtile { transform: scale(1.05); }
+
+/* Inputs */
+.input-group { margin-bottom: 20px; text-align: start; }
+.label { display: block; font-size: 14px; font-weight: 600; color: var(--text-dark); margin-bottom: 8px; transition: 0.3s; }
+.input { width: 100%; height: 56px; border-radius: var(--radius-md); background: var(--surface-2); border: 1.5px solid var(--border); color: var(--text-dark); font-family: inherit; font-size: 16px; padding: 0 16px; outline: none; transition: 0.2s; }
+.input:focus { border-color: var(--primary); background: var(--surface-input); box-shadow: var(--shadow-glow); }
+
+/* OTP */
+.otp { display: flex; gap: 10px; direction: ltr; justify-content: center; margin-bottom: 24px; }
+.otp .d { width: 44px; height: 56px; border-radius: 12px; background: var(--surface-2); border: 1.5px solid var(--border); display: grid; place-items: center; font-size: 24px; font-weight: 700; color: var(--text-dark); transition: 0.3s; }
+.otp .d.f { border-color: var(--primary); background: var(--surface-input); box-shadow: var(--shadow-glow); color: var(--primary); }
+
+/* Trust items */
+.trust-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 30px; }
+.trust-item { display: flex; align-items: center; gap: 12px; }
+.trust-icon { width: 32px; height: 32px; border-radius: 50%; background: rgba(142, 36, 170, 0.1); color: var(--primary); display: grid; place-items: center; flex: none; transition: 0.3s; }
+.trust-text { font-size: 15px; font-weight: 500; color: var(--text-dark); transition: 0.3s; }
+
+/* Animations */
+.fade-in { animation: fadeIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; opacity: 0; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes scaleIn { from { transform: scale(0); } to { transform: scale(1); } }
+
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+
+.floating { animation: float 4s ease-in-out infinite; }
+.floating-delayed { animation: float 4.5s ease-in-out infinite 0.5s; }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div class="head-text">
+    <h1>النموذج الحيوي (Vibrant Fintech) — v3.1</h1>
+    <p>تمت إضافة تحسينات شاملة: حركات دقيقة (Micro-animations)، تأثيرات عند اللمس (Tactile feedback)، وشاشة التحقق المفقودة (OTP).</p>
+  </div>
+  <div class="toggle" id="tg">
+    <button data-t="light" class="active"><i data-lucide="sun"></i> فاتح</button>
+    <button data-t="dark"><i data-lucide="moon"></i> غامق</button>
+  </div>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<script>
+const SB = `<div class="sb"><span>9:41</span><span class="r"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>`;
+const topBack = `<div class="topbar"><button class="iconbtn"><i data-lucide="chevron-right"></i></button><span></span></div>`;
+const topSkip = `<div class="topbar"><span></span><button class="linkbtn">تخطّي</button></div>`;
+const prog = (n) => `<div class="prog">${[0,1,2].map(i => `<i class="${i===n ? 'on' : ''}"></i>`).join('')}</div>`;
+
+const flag = (type) => {
+  if(type==='sa') return `<div class="flagtile"><span style="background:#0E5C2F"></span><span style="background:#0E5C2F"></span><span style="background:#0E5C2F"></span></div>`;
+  if(type==='eg') return `<div class="flagtile"><span style="background:#ce1126"></span><span style="background:#fff"></span><span style="background:#000"></span></div>`;
+  if(type==='ae') return `<div class="flagtile" style="position:relative"><span style="background:#00732f"></span><span style="background:#fff"></span><span style="background:#000"></span><div style="position:absolute; top:0; bottom:0; right:0; width:14px; background:#ff0000"></div></div>`;
+  return '';
+};
+
+const screens = [
+{cap: "١ — البداية (Splash)", html: `${SB}
+<div class="inner fade-in" style="justify-content: center; align-items: center;">
+  <div class="floating" style="background: white; width: 80px; height: 80px; border-radius: 24px; display: grid; place-items: center; box-shadow: 0 16px 32px rgba(0,0,0,0.2);">
+    <i data-lucide="vault" style="width: 40px; height: 40px; color: var(--primary);"></i>
+  </div>
+  <h2 class="fade-in stagger-1" style="color: white; font-size: 24px; font-weight: 700; margin-top: 24px;">المساعد المالي</h2>
+</div>`},
+
+{cap: "٢ — المشكلة", html: `${SB}${topSkip}
+<div class="inner">
+  <div class="content-top fade-in">
+    <div class="illu floating"><div class="illu-circle"></div><i data-lucide="search-x"></i></div>
+    <div class="kicker fade-in stagger-1">وضوح تام</div>
+    <h2 class="lg-title fade-in stagger-2">وين راحت فلوسك؟</h2>
+    <p class="sub-white fade-in stagger-3">نهاية الشهر ما راح تكون مفاجأة. إحنا نوضح لك الصورة كاملة بكل بساطة.</p>
+  </div>
+  <div class="content-bottom fade-in stagger-4">
+    ${prog(0)}
+    <button class="btn btn-primary">التالي</button>
+  </div>
+</div>`},
+
+{cap: "٣ — الحل السحري", html: `${SB}${topSkip}
+<div class="inner">
+  <div class="content-top fade-in">
+    <div class="illu floating-delayed"><div class="illu-circle"></div><i data-lucide="zap"></i></div>
+    <div class="kicker fade-in stagger-1">بدون مجهود</div>
+    <h2 class="lg-title fade-in stagger-2">لا تكتب شيء،<br>إحنا نفهمها</h2>
+    <p class="sub-white fade-in stagger-3">نقرأ رسائل البنك مباشرة من جهازك ونصنف عملياتك تلقائياً في ثوانٍ.</p>
+  </div>
+  <div class="content-bottom fade-in stagger-4">
+    ${prog(1)}
+    <button class="btn btn-primary">التالي</button>
+  </div>
+</div>`},
+
+{cap: "٤ — التحفيز", html: `${SB}${topSkip}
+<div class="inner">
+  <div class="content-top fade-in">
+    <div class="illu floating" style="color: var(--accent);"><div class="illu-circle" style="background: rgba(255, 213, 79, 0.2);"></div><i data-lucide="trophy"></i></div>
+    <div class="kicker fade-in stagger-1" style="color: #5B3E00; background: var(--accent);">توفيرك متعة</div>
+    <h2 class="lg-title fade-in stagger-2">خلّي التوفير لعبة</h2>
+    <p class="sub-white fade-in stagger-3">حدد أهدافك المالية، وراقب خزنتك تمتلئ يومياً مع كل توفير تحققه.</p>
+  </div>
+  <div class="content-bottom fade-in stagger-4">
+    ${prog(2)}
+    <button class="btn btn-primary">ابدأ رحلتك</button>
+  </div>
+</div>`},
+
+{cap: "٥ — اختيار الدولة", html: `${SB}${topBack}
+<div class="inner">
+  <div class="content-full fade-in" style="margin-top: 20px;">
+    <h2 class="title-dark">من وين أنت؟</h2>
+    <p class="sub-dark" style="margin-bottom: 24px;">علشان نضبط العملة والبنوك لك.</p>
+    
+    <div class="opt sel fade-in stagger-1">
+      ${flag('sa')}
+      <div class="opt-text"><div class="opt-title">السعودية</div><div class="opt-sub">ريال سعودي (SAR)</div></div>
+      <div class="radio"></div>
+    </div>
+    
+    <div class="opt fade-in stagger-2">
+      ${flag('eg')}
+      <div class="opt-text"><div class="opt-title">مصر</div><div class="opt-sub">جنيه مصري (EGP)</div></div>
+      <div class="radio"></div>
+    </div>
+    
+    <div class="opt fade-in stagger-3">
+      ${flag('ae')}
+      <div class="opt-text"><div class="opt-title">الإمارات</div><div class="opt-sub">درهم إماراتي (AED)</div></div>
+      <div class="radio"></div>
+    </div>
+    
+    <div style="flex: 1;"></div>
+    <button class="btn btn-primary fade-in stagger-4">متابعة</button>
+  </div>
+</div>`},
+
+{cap: "٦ — الخصوصية (أولوية)", html: `${SB}${topBack}
+<div class="inner">
+  <div class="content-full fade-in">
+    <div class="floating" style="width: 56px; height: 56px; border-radius: 16px; background: rgba(142, 36, 170, 0.1); color: var(--primary); display: grid; place-items: center; margin-bottom: 20px;">
+      <i data-lucide="shield-check" style="width: 28px; height: 28px;"></i>
+    </div>
+    <h2 class="title-dark">بياناتك لك وحدك</h2>
+    <p class="sub-dark" style="margin-bottom: 30px;">تصميمنا مبني على حماية خصوصيتك بالكامل.</p>
+    
+    <div class="trust-list">
+      <div class="trust-item fade-in stagger-1"><div class="trust-icon"><i data-lucide="cpu" style="width: 16px; height: 16px;"></i></div><span class="trust-text">المعالجة كلها على جهازك</span></div>
+      <div class="trust-item fade-in stagger-2"><div class="trust-icon"><i data-lucide="eye-off" style="width: 16px; height: 16px;"></i></div><span class="trust-text">لا نرفع بياناتك لأي سيرفر</span></div>
+      <div class="trust-item fade-in stagger-3"><div class="trust-icon"><i data-lucide="lock" style="width: 16px; height: 16px;"></i></div><span class="trust-text">لا نشارك بياناتك مع جهات خارجية</span></div>
+    </div>
+    
+    <div style="flex: 1;"></div>
+    <button class="btn btn-primary fade-in stagger-4" style="margin-bottom: 12px;">موافق، استمر</button>
+    <button class="btn btn-text fade-in stagger-4">قراءة سياسة الخصوصية</button>
+  </div>
+</div>`},
+
+{cap: "٧ — تسجيل الدخول", html: `${SB}${topBack}
+<div class="inner">
+  <div class="content-full fade-in">
+    <h2 class="title-dark" style="margin-bottom: 40px;">سجل دخولك</h2>
+    
+    <div class="input-group fade-in stagger-1">
+      <label class="label">رقم الجوال أو البريد الإلكتروني</label>
+      <input type="text" class="input" placeholder="أدخل هنا..." />
+    </div>
+    
+    <button class="btn btn-primary fade-in stagger-2" style="margin-bottom: 24px;">إرسال الرمز</button>
+    
+    <div class="fade-in stagger-3" style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+      <div style="flex: 1; height: 1px; background: var(--border);"></div>
+      <span style="color: var(--text-light); font-size: 14px; font-weight: 500;">أو</span>
+      <div style="flex: 1; height: 1px; background: var(--border);"></div>
+    </div>
+    
+    <button class="btn btn-outline fade-in stagger-4" style="margin-bottom: 12px;"><svg width="20" height="20" viewBox="0 0 384 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg> الدخول باستخدام Apple</button>
+    <button class="btn btn-outline fade-in stagger-4"><svg width="20" height="20" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg> الدخول باستخدام Google</button>
+  </div>
+</div>`},
+
+{cap: "٨ — رمز التحقق (OTP)", html: `${SB}${topBack}
+<div class="inner">
+  <div class="content-full fade-in">
+    <h2 class="title-dark">أدخل رمز التحقق</h2>
+    <p class="sub-dark" style="margin-bottom: 30px;">أرسلنا كوداً إلى <b style="color: var(--text-main);">name@example.com</b></p>
+    
+    <div class="otp fade-in stagger-1">
+      <div class="d f">4</div>
+      <div class="d f">9</div>
+      <div class="d">2</div>
+      <div class="d" style="color: transparent;">•</div>
+      <div class="d" style="color: transparent;">•</div>
+      <div class="d" style="color: transparent;">•</div>
+    </div>
+    
+    <p class="fade-in stagger-2" style="text-align: center; color: var(--text-light); font-size: 14px; margin-bottom: 8px;">إعادة الإرسال خلال <b style="color: var(--text-main);">0:27</b></p>
+    <p class="fade-in stagger-2" style="text-align: center;"><a href="#" style="color: var(--primary); text-decoration: none; font-size: 14px; font-weight: 600;">تغيير البريد</a></p>
+    
+    <div style="flex: 1;"></div>
+    <button class="btn btn-primary fade-in stagger-3">تأكيد</button>
+  </div>
+</div>`},
+
+{cap: "٩ — طرق الإدخال (iOS)", html: `${SB}${topBack}
+<div class="inner">
+  <div class="content-full fade-in">
+    <h2 class="title-dark">كيف تبي تضيف عملياتك؟</h2>
+    <p class="sub-dark" style="margin-bottom: 24px;">على الآيفون، أنت تختار الطريقة الأنسب لك.</p>
+    
+    <div class="opt sel fade-in stagger-1">
+      <div class="opt-icon"><i data-lucide="share"></i></div>
+      <div class="opt-text"><div class="opt-title">مشاركة الرسالة</div><div class="opt-sub">من تطبيق الرسائل مباشرة</div></div>
+    </div>
+    
+    <div class="opt fade-in stagger-2">
+      <div class="opt-icon" style="color: #5F6368;"><i data-lucide="clipboard-paste"></i></div>
+      <div class="opt-text"><div class="opt-title">النسخ واللصق</div><div class="opt-sub">انسخ الرسالة والصقها هنا</div></div>
+    </div>
+    
+    <div style="flex: 1;"></div>
+    <button class="btn btn-primary fade-in stagger-3"><i data-lucide="plus"></i> جرّب الآن</button>
+  </div>
+</div>`},
+
+{cap: "١٠ — ميزانية سريعة", html: `${SB}${topSkip}
+<div class="inner">
+  <div class="content-full fade-in">
+    <h2 class="title-dark">نبدأ بميزانية المطاعم؟</h2>
+    <p class="sub-dark" style="margin-bottom: 30px;">تقدر تعدلها بأي وقت.</p>
+    
+    <div class="input-group fade-in stagger-1">
+      <label class="label">المبلغ (ريال)</label>
+      <input type="number" class="input" value="1000" style="font-size: 24px; font-weight: 700;" />
+    </div>
+    
+    <div class="input-group fade-in stagger-2">
+      <label class="label">الفترة</label>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-outline" style="flex: 1; color: var(--text-gray);">يومي</button>
+        <button class="btn btn-outline" style="flex: 1; color: var(--text-gray);">أسبوعي</button>
+        <button class="btn btn-primary" style="flex: 1; box-shadow: none;">شهري</button>
+      </div>
+    </div>
+    
+    <div style="flex: 1;"></div>
+    <button class="btn btn-primary fade-in stagger-3">حفظ الميزانية</button>
+  </div>
+</div>`},
+];
+
+const grid = document.getElementById('grid');
+screens.forEach(s => {
+  const c = document.createElement('div'); c.className = 'cell';
+  c.innerHTML = `<div class="phone"><div class="scr">${s.html}</div></div><div class="cap">${s.cap}</div>`;
+  grid.appendChild(c);
+});
+
+document.getElementById('tg').addEventListener('click', e => {
+  const b = e.target.closest('[data-t]');
+  if (!b) return;
+  document.documentElement.setAttribute('data-theme', b.dataset.t);
+  document.querySelectorAll('#tg button').forEach(x => x.classList.toggle('active', x === b));
+});
+
+lucide.createIcons();
+</script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+import 'package:go_router/go_router.dart';
+
+import '../session/app_session.dart';
+import '../../features/achievements/achievements_screen.dart';
+import '../../features/app/app_shell.dart';
+import '../../features/backup/backup_screen.dart';
+import '../../features/onboarding/auth_screen.dart';
+import '../../features/onboarding/onboarding_screen.dart';
+import '../../features/onboarding/otp_screen.dart';
+import '../../features/reports/reports_screen.dart';
+import '../../features/settings/privacy_screen.dart';
+import '../../features/subscriptions/subscriptions_screen.dart';
+import '../../features/budgets/budget_form_screen.dart';
+import '../../features/budgets/budgets_screen.dart';
+import '../../features/capture/manual_paste_screen.dart';
+import '../../features/capture/sms_permission_screen.dart';
+import '../../features/goals/goal_details_screen.dart';
+import '../../features/goals/goal_form_screen.dart';
+import '../../features/goals/goals_screen.dart';
+import '../../features/settings/settings_screen.dart';
+import '../../features/transactions/transaction_details_screen.dart';
+
+/// موجّه التطبيق (go_router).
+final appRouter = GoRouter(
+  initialLocation: '/',
+  refreshListenable: AppSession.instance,
+  redirect: (context, state) {
+    final status = AppSession.instance.status;
+    final inOnboarding = state.matchedLocation.startsWith('/onboarding');
+    if (status == SessionStatus.needsOnboarding && !inOnboarding) {
+      return '/onboarding';
+    }
+    if (status == SessionStatus.authenticated && inOnboarding) {
+      return '/';
+    }
+    return null;
+  },
+  routes: [
+    GoRoute(
+      path: '/',
+      name: 'home',
+      builder: (context, state) => const AppShell(),
+    ),
+    GoRoute(
+      path: '/onboarding',
+      name: 'onboarding',
+      builder: (context, state) => const OnboardingScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/auth',
+      name: 'onboarding-auth',
+      builder: (context, state) => const AuthScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/otp',
+      name: 'onboarding-otp',
+      builder: (context, state) =>
+          OtpScreen(email: state.extra as String? ?? ''),
+    ),
+    GoRoute(
+      path: '/backup',
+      name: 'backup',
+      builder: (context, state) => const BackupScreen(),
+    ),
+    GoRoute(
+      path: '/privacy',
+      name: 'privacy',
+      builder: (context, state) => const PrivacyScreen(),
+    ),
+    GoRoute(
+      path: '/reports',
+      name: 'reports',
+      builder: (context, state) => const ReportsScreen(),
+    ),
+    GoRoute(
+      path: '/subscriptions',
+      name: 'subscriptions',
+      builder: (context, state) => const SubscriptionsScreen(),
+    ),
+    GoRoute(
+      path: '/paste',
+      name: 'paste',
+      builder: (context, state) => const ManualPasteScreen(),
+    ),
+    GoRoute(
+      path: '/capture/sms-permission',
+      name: 'sms-permission',
+      builder: (context, state) => const SmsPermissionScreen(),
+    ),
+    GoRoute(
+      path: '/transaction/:id',
+      name: 'transaction',
+      builder: (context, state) =>
+          TransactionDetailsScreen(transactionId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/budgets',
+      name: 'budgets',
+      builder: (context, state) => const BudgetsScreen(),
+    ),
+    GoRoute(
+      path: '/budgets/new',
+      name: 'budget-new',
+      builder: (context, state) => const BudgetFormScreen(),
+    ),
+    GoRoute(
+      path: '/budgets/:id/edit',
+      name: 'budget-edit',
+      builder: (context, state) => BudgetFormScreen(
+        budgetId: state.pathParameters['id'],
+      ),
+    ),
+    GoRoute(
+      path: '/goals',
+      name: 'goals',
+      builder: (context, state) => const GoalsScreen(),
+    ),
+    GoRoute(
+      path: '/goals/new',
+      name: 'goal-new',
+      builder: (context, state) => const GoalFormScreen(),
+    ),
+    GoRoute(
+      path: '/goals/:id',
+      name: 'goal-details',
+      builder: (context, state) => GoalDetailsScreen(
+        goalId: state.pathParameters['id']!,
+      ),
+    ),
+    GoRoute(
+      path: '/achievements',
+      name: 'achievements',
+      builder: (context, state) => const AchievementsScreen(),
+    ),
+    GoRoute(
+      path: '/settings',
+      name: 'settings',
+      builder: (context, state) => const SettingsScreen(),
+    ),
+  ],
+);
