@@ -144,6 +144,600 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'أمس'**
   String get yesterday;
+
+  /// No description provided for @welcomeDescription.
+  ///
+  /// In ar, this message translates to:
+  /// **'اعرف وين راحت فلوسك، ووفّر أوتوماتيكياً بطريقة ذكية وسهلة.'**
+  String get welcomeDescription;
+
+  /// No description provided for @secureOnDevice.
+  ///
+  /// In ar, this message translates to:
+  /// **'آمن · على جهازك'**
+  String get secureOnDevice;
+
+  /// No description provided for @effortless.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون مجهود'**
+  String get effortless;
+
+  /// No description provided for @noTyping.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا تكتب — إحنا نفهمها لك'**
+  String get noTyping;
+
+  /// No description provided for @smsReadingDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقرأ رسائل بنكك على جهازك، ونطلّع المبلغ والمتجر ونصنّفها تلقائياً.'**
+  String get smsReadingDesc;
+
+  /// No description provided for @now.
+  ///
+  /// In ar, this message translates to:
+  /// **'الآن'**
+  String get now;
+
+  /// No description provided for @snbSmsText.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية مدى شراء بـ '**
+  String get snbSmsText;
+
+  /// No description provided for @snbSmsSuffix.
+  ///
+  /// In ar, this message translates to:
+  /// **' لدى هاف مليون.'**
+  String get snbSmsSuffix;
+
+  /// No description provided for @alrajhi.
+  ///
+  /// In ar, this message translates to:
+  /// **'الراجحي'**
+  String get alrajhi;
+
+  /// No description provided for @oneMinuteAgo.
+  ///
+  /// In ar, this message translates to:
+  /// **'قبل دقيقة'**
+  String get oneMinuteAgo;
+
+  /// No description provided for @alrajhiSmsText.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم خصم '**
+  String get alrajhiSmsText;
+
+  /// No description provided for @alrajhiSmsSuffix.
+  ///
+  /// In ar, this message translates to:
+  /// **' لدى مطعم هامبرغيني.'**
+  String get alrajhiSmsSuffix;
+
+  /// No description provided for @localProcessing.
+  ///
+  /// In ar, this message translates to:
+  /// **'معالجة محلية بالكامل'**
+  String get localProcessing;
+
+  /// No description provided for @privacyFirst.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخصوصية أولاً'**
+  String get privacyFirst;
+
+  /// No description provided for @howItWorks.
+  ///
+  /// In ar, this message translates to:
+  /// **'كيف يعمل؟'**
+  String get howItWorks;
+
+  /// No description provided for @smsToTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'من رسالة بنك إلى عملية واضحة'**
+  String get smsToTx;
+
+  /// No description provided for @howItWorksDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'مالي يلتقط المعنى من الرسالة، ويحوّلها لتصنيف ومبلغ ومتجر بدون إدخال يدوي.'**
+  String get howItWorksDesc;
+
+  /// No description provided for @howItWorksNote1.
+  ///
+  /// In ar, this message translates to:
+  /// **'مش محتاج تختار بنكك — مالي يتعرّف عليه من نص الرسالة.'**
+  String get howItWorksNote1;
+
+  /// No description provided for @howItWorksNote2.
+  ///
+  /// In ar, this message translates to:
+  /// **'لو ظهرت بطاقة جديدة، مالي يضيفها تلقائياً من آخر 4 أرقام.'**
+  String get howItWorksNote2;
+
+  /// No description provided for @howItWorksNote3.
+  ///
+  /// In ar, this message translates to:
+  /// **'تقدر تراجع وتعدل أي عملية أو بطاقة من داخل التطبيق.'**
+  String get howItWorksNote3;
+
+  /// No description provided for @messageFromBank.
+  ///
+  /// In ar, this message translates to:
+  /// **'رسالة من البنك'**
+  String get messageFromBank;
+
+  /// No description provided for @burgerBoutiqueSms.
+  ///
+  /// In ar, this message translates to:
+  /// **'شراء 45 ريال لدى BURGER BOUTIQUE'**
+  String get burgerBoutiqueSms;
+
+  /// No description provided for @burgerBoutiqueSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'مطاعم · الآن · مدى'**
+  String get burgerBoutiqueSub;
+
+  /// No description provided for @burgerBoutiqueAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'-45 ريال'**
+  String get burgerBoutiqueAmount;
+
+  /// No description provided for @financialMotivation.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحفيز المالي'**
+  String get financialMotivation;
+
+  /// No description provided for @saveLikeGame.
+  ///
+  /// In ar, this message translates to:
+  /// **'وفّر وكأنها لعبة يومية'**
+  String get saveLikeGame;
+
+  /// No description provided for @saveLikeGameDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد أهدافك المالية ووفّر الفروقات يومًا بعد يوم بطابع تشجيعي ذكي.'**
+  String get saveLikeGameDesc;
+
+  /// No description provided for @totalSavings.
+  ///
+  /// In ar, this message translates to:
+  /// **'مجموع الادخار المتراكم'**
+  String get totalSavings;
+
+  /// No description provided for @sar.
+  ///
+  /// In ar, this message translates to:
+  /// **'ر.س'**
+  String get sar;
+
+  /// No description provided for @travelVault.
+  ///
+  /// In ar, this message translates to:
+  /// **'خزنة السفر'**
+  String get travelVault;
+
+  /// No description provided for @completedPercent.
+  ///
+  /// In ar, this message translates to:
+  /// **'75% مكتمل'**
+  String get completedPercent;
+
+  /// No description provided for @goalLimit.
+  ///
+  /// In ar, this message translates to:
+  /// **'الهدف: 15,000 ر.س'**
+  String get goalLimit;
+
+  /// No description provided for @remainingAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'متبقي: 3,750 ر.س'**
+  String get remainingAmount;
+
+  /// No description provided for @easyToUse.
+  ///
+  /// In ar, this message translates to:
+  /// **'سهل الاستخدام'**
+  String get easyToUse;
+
+  /// No description provided for @selectCountryCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختَر بلدك وعملتك'**
+  String get selectCountryCurrency;
+
+  /// No description provided for @selectCountryDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'نعرض الأعلام الرسمية، ونضبط العملة الأساسية، وتقدر تضيف عملات ثانية لو عندك بطاقات أو اشتراكات خارجية.'**
+  String get selectCountryDesc;
+
+  /// No description provided for @mainCountryCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'البلد والعملة الأساسية'**
+  String get mainCountryCurrency;
+
+  /// No description provided for @additionalCurrencies.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملات الإضافية'**
+  String get additionalCurrencies;
+
+  /// No description provided for @activeSubscriptions.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات النشطة'**
+  String get activeSubscriptions;
+
+  /// No description provided for @none.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد'**
+  String get none;
+
+  /// No description provided for @noActiveSubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد اشتراكات نشطة'**
+  String get noActiveSubs;
+
+  /// No description provided for @selectCountryTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر بلدك وعملتك الأساسية'**
+  String get selectCountryTitle;
+
+  /// No description provided for @searchCountryPlaceholder.
+  ///
+  /// In ar, this message translates to:
+  /// **'البحث عن بلد أو عملة...'**
+  String get searchCountryPlaceholder;
+
+  /// No description provided for @additionalCurrenciesTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملات الإضافية'**
+  String get additionalCurrenciesTitle;
+
+  /// No description provided for @additionalCurrenciesDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختياري، اختر العملات التي تتعامل بها بجانب عملتك الأساسية.'**
+  String get additionalCurrenciesDesc;
+
+  /// No description provided for @expectedSubscriptions.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات المتوقعة'**
+  String get expectedSubscriptions;
+
+  /// No description provided for @expectedSubscriptionsDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدد الاشتراكات النشطة لديك وسنقوم بالتعرف عليها تلقائياً.'**
+  String get expectedSubscriptionsDesc;
+
+  /// No description provided for @completePrivacy.
+  ///
+  /// In ar, this message translates to:
+  /// **'خصوصية تامّة'**
+  String get completePrivacy;
+
+  /// No description provided for @dataStaysOnDevice.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك تبقى في جهازك'**
+  String get dataStaysOnDevice;
+
+  /// No description provided for @privacyPrinciples.
+  ///
+  /// In ar, this message translates to:
+  /// **'مبادئ الأمان والخصوصية لدينا تعني أنك المتحكم الوحيد ببياناتك المالية.'**
+  String get privacyPrinciples;
+
+  /// No description provided for @privacyRule1.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل المعالجة والذكاء يتم على هاتفك بدون إنترنت'**
+  String get privacyRule1;
+
+  /// No description provided for @privacyRule2.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقرأ فقط رسائل البنوك ونستبعد أي رسائل شخصية'**
+  String get privacyRule2;
+
+  /// No description provided for @privacyRule3.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما نبيع بياناتك أبداً، ولك كامل الحرية في حذفها'**
+  String get privacyRule3;
+
+  /// No description provided for @enableAutoTracking.
+  ///
+  /// In ar, this message translates to:
+  /// **'فعّل التتبّع التلقائي'**
+  String get enableAutoTracking;
+
+  /// No description provided for @setupAppleShortcut.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعداد اختصار Apple'**
+  String get setupAppleShortcut;
+
+  /// No description provided for @autoTrackingSubtitleAndroid.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقرأ رسائل بنكك ونحلّلها على جهازك فقط — ونقرأ من البنوك فقط.'**
+  String get autoTrackingSubtitleAndroid;
+
+  /// No description provided for @autoTrackingSubtitleIos.
+  ///
+  /// In ar, this message translates to:
+  /// **'اتبع الخطوات مرة واحدة، وبعدها يمرّر iPhone رسائل البنك إلى مالي بأمان.'**
+  String get autoTrackingSubtitleIos;
+
+  /// No description provided for @smsActivationSnack.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم يتم التفعيل — تقدر تلصق الرسائل يدوياً.'**
+  String get smsActivationSnack;
+
+  /// No description provided for @howWillActivationWork.
+  ///
+  /// In ar, this message translates to:
+  /// **'كيف سيتم التفعيل؟'**
+  String get howWillActivationWork;
+
+  /// No description provided for @allowSmsReading.
+  ///
+  /// In ar, this message translates to:
+  /// **'السماح بقراءة الرسائل'**
+  String get allowSmsReading;
+
+  /// No description provided for @gotIt.
+  ///
+  /// In ar, this message translates to:
+  /// **'تمام، فهمت'**
+  String get gotIt;
+
+  /// No description provided for @laterAddManually.
+  ///
+  /// In ar, this message translates to:
+  /// **'لاحقاً، سأقوم بالإضافة يدوياً'**
+  String get laterAddManually;
+
+  /// No description provided for @shortcutSetupGuide.
+  ///
+  /// In ar, this message translates to:
+  /// **'دليل إعداد الاختصار'**
+  String get shortcutSetupGuide;
+
+  /// No description provided for @doStepsOnceFromShortcuts.
+  ///
+  /// In ar, this message translates to:
+  /// **'اعمل الخطوات دي مرة واحدة من تطبيق Apple Shortcuts.'**
+  String get doStepsOnceFromShortcuts;
+
+  /// No description provided for @signInToStart.
+  ///
+  /// In ar, this message translates to:
+  /// **'سجّل دخولك للبدء'**
+  String get signInToStart;
+
+  /// No description provided for @signInSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدخول لتحديد هويتك ومزامنة إعداداتك فقط. بياناتك المالية تبقى آمنة على جهازك.'**
+  String get signInSubtitle;
+
+  /// No description provided for @noPassword.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون كلمة مرور'**
+  String get noPassword;
+
+  /// No description provided for @continueWithApple.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتابعة مع Apple'**
+  String get continueWithApple;
+
+  /// No description provided for @continueWithGoogle.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتابعة مع Google'**
+  String get continueWithGoogle;
+
+  /// No description provided for @or.
+  ///
+  /// In ar, this message translates to:
+  /// **'أو'**
+  String get or;
+
+  /// No description provided for @continueWithEmail.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتابعة بالبريد الإلكتروني'**
+  String get continueWithEmail;
+
+  /// No description provided for @email.
+  ///
+  /// In ar, this message translates to:
+  /// **'البريد الإلكتروني'**
+  String get email;
+
+  /// No description provided for @sendOtpCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'إرسال رمز الدخول الآمن'**
+  String get sendOtpCode;
+
+  /// No description provided for @byContinuingAgree.
+  ///
+  /// In ar, this message translates to:
+  /// **'بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ مالي.'**
+  String get byContinuingAgree;
+
+  /// No description provided for @enterOtpCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل رمز التحقق'**
+  String get enterOtpCode;
+
+  /// No description provided for @otpSentTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'أرسلنا رمز التحقق المكون من 6 أرقام إلى البريد الإلكتروني:'**
+  String get otpSentTo;
+
+  /// No description provided for @verifyCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد الرمز'**
+  String get verifyCode;
+
+  /// No description provided for @demoOtpCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'للتجربة: الرمز 123456'**
+  String get demoOtpCode;
+
+  /// No description provided for @invalidOtpCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرمز غير صحيح'**
+  String get invalidOtpCode;
+
+  /// No description provided for @enterPasswordOrRecoveryCodeError.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب كلمة مرور النسخة أو رمز الاسترداد.'**
+  String get enterPasswordOrRecoveryCodeError;
+
+  /// No description provided for @recoveryCodeIncorrect.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز الاسترداد غير صحيح أو لا يطابق النسخة.'**
+  String get recoveryCodeIncorrect;
+
+  /// No description provided for @backupPasswordIncorrect.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة مرور النسخة الاحتياطية غير صحيحة.'**
+  String get backupPasswordIncorrect;
+
+  /// No description provided for @backupFound.
+  ///
+  /// In ar, this message translates to:
+  /// **'وجدنا نسخة احتياطية لحسابك'**
+  String get backupFound;
+
+  /// No description provided for @restoreDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'استعادة بياناتك المشفّرة تتم على جهازك فقط. كلمة المرور لا تخرج من هاتفك.'**
+  String get restoreDesc;
+
+  /// No description provided for @recoveryCodeLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز الاسترداد'**
+  String get recoveryCodeLabel;
+
+  /// No description provided for @backupPasswordLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة مرور النسخة الاحتياطية'**
+  String get backupPasswordLabel;
+
+  /// No description provided for @recoveryCodeHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'XXXX-XXXX-XXXX'**
+  String get recoveryCodeHint;
+
+  /// No description provided for @backupPasswordHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب كلمة المرور التي اخترتها'**
+  String get backupPasswordHint;
+
+  /// No description provided for @useBackupPassword.
+  ///
+  /// In ar, this message translates to:
+  /// **'استخدام كلمة مرور النسخة'**
+  String get useBackupPassword;
+
+  /// No description provided for @useRecoveryCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'استخدام رمز الاسترداد'**
+  String get useRecoveryCode;
+
+  /// No description provided for @restore.
+  ///
+  /// In ar, this message translates to:
+  /// **'استعادة'**
+  String get restore;
+
+  /// No description provided for @startFresh.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ جديد'**
+  String get startFresh;
+
+  /// No description provided for @notNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'ليس الآن'**
+  String get notNow;
+
+  /// No description provided for @restoreNotEnabled.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاستعادة السحابية غير مفعّلة في هذا البناء.'**
+  String get restoreNotEnabled;
+
+  /// No description provided for @appleSecuritySteps.
+  ///
+  /// In ar, this message translates to:
+  /// **'خطوات الأمان لآبل'**
+  String get appleSecuritySteps;
+
+  /// No description provided for @iosShortcutSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ مالي تلقائياً وبأمان تام.'**
+  String get iosShortcutSubtitle;
+
+  /// No description provided for @stepsLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخطوات:'**
+  String get stepsLabel;
+
+  /// No description provided for @multipleCurrenciesQuestion.
+  ///
+  /// In ar, this message translates to:
+  /// **'تتعامل بأكثر من عملة؟'**
+  String get multipleCurrenciesQuestion;
+
+  /// No description provided for @multipleCurrenciesDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة.'**
+  String get multipleCurrenciesDesc;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

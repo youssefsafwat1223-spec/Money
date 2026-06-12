@@ -95,23 +95,31 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _consumeSharedInput() async {
-    final sharedInput = await NativeCaptureBridge.consumePendingSharedInput();
-    if (sharedInput == null || sharedInput.isEmpty) {
+    final messages =
+        await NativeCaptureBridge.consumePendingSharedMessages();
+    if (messages.isEmpty) {
       return;
     }
 
-    final result = await CapturedMessageProcessor.process(
-      rawMessage: sharedInput,
-      showNotifications: false,
-    );
+    String? pendingConfirmationId;
+    for (final message in messages) {
+      final result = await CapturedMessageProcessor.process(
+        rawMessage: message.text,
+        senderId: message.sender,
+        showNotifications: false,
+      );
+      if (result.transactionId != null &&
+          result.addTransactionResult.requiresConfirmation) {
+        pendingConfirmationId = result.transactionId;
+      }
+    }
     if (!mounted) {
       return;
     }
 
     _refreshAll();
-    if (result.transactionId != null &&
-        result.addTransactionResult.requiresConfirmation) {
-      await _openConfirmSheet(result.transactionId!);
+    if (pendingConfirmationId != null) {
+      await _openConfirmSheet(pendingConfirmationId);
     }
   }
 

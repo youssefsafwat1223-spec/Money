@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../common/mali_logo.dart';
 import 'onboarding_options.dart';
 import 'widgets/premium_ui.dart';
@@ -115,7 +116,7 @@ class _TopFrame extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               ),
               child: Text(
-                'تخطي',
+                context.l10n.skip,
                 style: _alex(12, FontWeight.w700, 1.2, c.textLight),
               ),
             )
@@ -187,12 +188,14 @@ class _BottomBar extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      isLast ? 'التسجيل والبدء' : 'التالي',
+                      isLast ? context.l10n.registerAndStart : context.l10n.next,
                       style: _alex(15, FontWeight.w800, 1.2, actionForeground),
                     ),
                     const SizedBox(width: 6),
                     Icon(
-                      Icons.chevron_left_rounded, 
+                      Directionality.of(context) == TextDirection.rtl
+                          ? Icons.chevron_left_rounded
+                          : Icons.chevron_right_rounded, 
                       color: actionForeground, 
                       size: 20,
                     ),
@@ -224,13 +227,13 @@ class _WelcomePage extends StatelessWidget {
         const Center(child: MaliLogo(size: 90, glow: false)),
         const SizedBox(height: 32),
         Text(
-          'مساعدك المالي اليومي',
+          context.l10n.welcomeTitle,
           textAlign: TextAlign.center,
           style: _alex(28, FontWeight.w800, 1.3, c.textMain),
         ),
         const SizedBox(height: 8),
         Text(
-          'صاحبك في فلوسك',
+          context.l10n.welcomeSubtitle,
           textAlign: TextAlign.center,
           style: _alex(16, FontWeight.w600, 1.4, c.textLight),
         ),
@@ -249,7 +252,7 @@ class _WelcomePage extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Text(
-            'اعرف وين راحت فلوسك، ووفّر أوتوماتيكياً بطريقة ذكية وسهلة.',
+            context.l10n.welcomeDescription,
             textAlign: TextAlign.center,
             style: _alex(14, FontWeight.w500, 1.6, c.textLight),
           ),
@@ -269,7 +272,7 @@ class _WelcomePage extends StatelessWidget {
                 Icon(AppLucideIcons.wrench, size: 14, color: c.success),
                 const SizedBox(width: 8),
                 Text(
-                  'آمن · على جهازك',
+                  context.l10n.secureOnDevice,
                   style: _alex(12, FontWeight.w800, 1.2, c.success),
                 ),
               ],
@@ -295,17 +298,17 @@ class _SmsPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'بدون مجهود',
+              context.l10n.effortless,
               style: _alex(12, FontWeight.w800, 1.2, c.accent),
             ),
             const SizedBox(height: 4),
             Text(
-              'لا تكتب — إحنا نفهمها لك',
+              context.l10n.noTyping,
               style: _alex(24, FontWeight.w800, 1.3, c.textMain),
             ),
             const SizedBox(height: 8),
             Text(
-              'نقرأ رسائل بنكك على جهازك، ونطلّع المبلغ والمتجر ونصنّفها تلقائياً.',
+              context.l10n.smsReadingDesc,
               style: _alex(14, FontWeight.w500, 1.5, c.textLight),
             ),
           ],
@@ -317,16 +320,16 @@ class _SmsPage extends StatelessWidget {
             children: [
               _SmsTile(
                 bank: 'SNB',
-                time: 'الآن',
+                time: context.l10n.now,
                 content: Text.rich(
                   TextSpan(
                     children: [
-                      const TextSpan(text: 'عملية مدى شراء بـ '),
+                      TextSpan(text: context.l10n.snbSmsText),
                       TextSpan(
-                        text: '18.50 ر.س',
+                        text: '18.50 ${context.l10n.sar}',
                         style: _alex(12, FontWeight.w800, 1.4, c.accent),
                       ),
-                      const TextSpan(text: ' لدى هاف مليون.'),
+                      TextSpan(text: context.l10n.snbSmsSuffix),
                     ],
                   ),
                   style: _alex(12, FontWeight.w500, 1.4, c.textLight),
@@ -335,17 +338,17 @@ class _SmsPage extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _SmsTile(
-                bank: 'الراجحي',
-                time: 'قبل دقيقة',
+                bank: context.l10n.alrajhi,
+                time: context.l10n.oneMinuteAgo,
                 content: Text.rich(
                   TextSpan(
                     children: [
-                      const TextSpan(text: 'تم خصم '),
+                      TextSpan(text: context.l10n.alrajhiSmsText),
                       TextSpan(
-                        text: '126.00 ر.س',
+                        text: '126.00 ${context.l10n.sar}',
                         style: _alex(12, FontWeight.w800, 1.4, c.success),
                       ),
-                      const TextSpan(text: ' لدى مطعم هامبرغيني.'),
+                      TextSpan(text: context.l10n.alrajhiSmsSuffix),
                     ],
                   ),
                   style: _alex(12, FontWeight.w500, 1.4, c.textLight),
@@ -363,13 +366,13 @@ class _SmsPage extends StatelessWidget {
                       Icon(Icons.memory_rounded, size: 14, color: c.success),
                       const SizedBox(width: 4),
                       Text(
-                        'معالجة محلية بالكامل',
+                        context.l10n.localProcessing,
                         style: _alex(11, FontWeight.w700, 1.2, c.success),
                       ),
                     ],
                   ),
                   Text(
-                    'الخصوصية أولاً',
+                    context.l10n.privacyFirst,
                     style: _alex(11, FontWeight.w700, 1.2, c.textLight),
                   ),
                 ],
@@ -466,17 +469,17 @@ class _HowItWorksPage extends StatelessWidget {
       children: [
         const SizedBox(height: 16),
         Text(
-          'كيف يعمل؟',
+          context.l10n.howItWorks,
           style: _alex(12, FontWeight.w800, 1.2, c.accent),
         ),
         const SizedBox(height: 4),
         Text(
-          'من رسالة بنك إلى عملية واضحة',
+          context.l10n.smsToTx,
           style: _alex(24, FontWeight.w800, 1.3, c.textMain),
         ),
         const SizedBox(height: 8),
         Text(
-          'مالي يلتقط المعنى من الرسالة، ويحوّلها لتصنيف ومبلغ ومتجر بدون إدخال يدوي.',
+          context.l10n.howItWorksDesc,
           style: _alex(14, FontWeight.w500, 1.5, c.textLight),
         ),
         const SizedBox(height: 24),
@@ -505,10 +508,10 @@ class _HowItWorksNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    const items = [
-      'مش محتاج تختار بنكك — مالي يتعرّف عليه من نص الرسالة.',
-      'لو ظهرت بطاقة جديدة، مالي يضيفها تلقائياً من آخر 4 أرقام.',
-      'تقدر تراجع وتعدل أي عملية أو بطاقة من داخل التطبيق.',
+    final items = [
+      context.l10n.howItWorksNote1,
+      context.l10n.howItWorksNote2,
+      context.l10n.howItWorksNote3,
     ];
     return Container(
       width: double.infinity,
@@ -572,10 +575,10 @@ class _MessageBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('رسالة من البنك', style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
+                Text(context.l10n.messageFromBank, style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
                 const SizedBox(height: 5),
                 Text(
-                  'شراء 45 ريال لدى BURGER BOUTIQUE',
+                  context.l10n.burgerBoutiqueSms,
                   style: _alex(12, FontWeight.w600, 1.4, c.textLight, tabular: true),
                 ),
               ],
@@ -642,12 +645,12 @@ class _ClassifiedTransactionCard extends StatelessWidget {
               children: [
                 Text('BURGER BOUTIQUE', style: _alex(13, FontWeight.w800, 1.2, Colors.white)),
                 const SizedBox(height: 5),
-                Text('مطاعم · الآن · مدى', style: _alex(11, FontWeight.w600, 1.2, Colors.white.withValues(alpha: 0.72))),
+                Text(context.l10n.burgerBoutiqueSub, style: _alex(11, FontWeight.w600, 1.2, Colors.white.withValues(alpha: 0.72))),
               ],
             ),
           ),
           Text(
-            '-45 ريال',
+            context.l10n.burgerBoutiqueAmount,
             style: _alex(14, FontWeight.w800, 1.2, Colors.white, tabular: true),
           ),
         ],
@@ -670,17 +673,17 @@ class _VaultPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'التحفيز المالي',
+              context.l10n.financialMotivation,
               style: _alex(12, FontWeight.w800, 1.2, c.accent),
             ),
             const SizedBox(height: 4),
             Text(
-              'وفّر وكأنها لعبة يومية',
+              context.l10n.saveLikeGame,
               style: _alex(24, FontWeight.w800, 1.3, c.textMain),
             ),
             const SizedBox(height: 8),
             Text(
-              'حدّد أهدافك المالية ووفّر الفروقات يومًا بعد يوم بطابع تشجيعي ذكي.',
+              context.l10n.saveLikeGameDesc,
               style: _alex(14, FontWeight.w500, 1.5, c.textLight),
             ),
           ],
@@ -698,7 +701,7 @@ class _VaultPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'مجموع الادخار المتراكم',
+                        context.l10n.totalSavings,
                         style: _alex(13, FontWeight.w700, 1.2, c.textLight),
                       ),
                       const SizedBox(height: 6),
@@ -707,7 +710,7 @@ class _VaultPage extends StatelessWidget {
                           children: [
                             const TextSpan(text: '11,250 '),
                             TextSpan(
-                              text: 'ر.س',
+                              text: context.l10n.sar,
                               style: _alex(14, FontWeight.w600, 1, c.textMain),
                             ),
                           ],
@@ -744,13 +747,13 @@ class _VaultPage extends StatelessWidget {
                             Icon(Icons.flight_takeoff_rounded, size: 16, color: c.textMain),
                             const SizedBox(width: 8),
                             Text(
-                              'خزنة السفر',
+                              context.l10n.travelVault,
                               style: _alex(13, FontWeight.w800, 1.2, c.textMain),
                             ),
                           ],
                         ),
                         Text(
-                          '75% مكتمل',
+                          context.l10n.completedPercent,
                           style: _alex(12, FontWeight.w800, 1.2, c.success),
                         ),
                       ],
@@ -770,11 +773,11 @@ class _VaultPage extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'الهدف: 15,000 ر.س',
+                          context.l10n.goalLimit,
                           style: _alex(11, FontWeight.w600, 1.2, c.textLight),
                         ),
                         Text(
-                          'متبقي: 3,750 ر.س',
+                          context.l10n.remainingAmount,
                           style: _alex(11, FontWeight.w600, 1.2, c.textLight),
                         ),
                       ],
@@ -842,7 +845,7 @@ class _CountryPageState extends State<_CountryPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'اختر بلدك وعملتك الأساسية',
+                      context.l10n.selectCountryTitle,
                       style: _alex(16, FontWeight.w800, 1.2, c.textMain),
                     ),
                     const SizedBox(height: 12),
@@ -852,7 +855,7 @@ class _CountryPageState extends State<_CountryPage> {
                         onChanged: (val) => setModalState(() => searchQuery = val),
                         style: _alex(13, FontWeight.w600, 1.2, c.textMain),
                         decoration: InputDecoration(
-                          hintText: 'البحث عن بلد أو عملة...',
+                          hintText: context.l10n.searchCountryPlaceholder,
                           hintStyle: _alex(12, FontWeight.w500, 1.2, c.textLight),
                           prefixIcon: Icon(Icons.search_rounded, color: c.textLight, size: 18),
                           filled: true,
@@ -932,14 +935,14 @@ class _CountryPageState extends State<_CountryPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'العملات الإضافية',
+                      context.l10n.additionalCurrenciesTitle,
                       style: _alex(16, FontWeight.w800, 1.2, c.textMain),
                     ),
                     const SizedBox(height: 4),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Text(
-                        'اختياري، اختر العملات التي تتعامل بها بجانب عملتك الأساسية.',
+                        context.l10n.additionalCurrenciesDesc,
                         textAlign: TextAlign.center,
                         style: _alex(11, FontWeight.w600, 1.4, c.textLight),
                       ),
@@ -1011,14 +1014,14 @@ class _CountryPageState extends State<_CountryPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'الاشتراكات المتوقعة',
+                      context.l10n.expectedSubscriptions,
                       style: _alex(16, FontWeight.w800, 1.2, c.textMain),
                     ),
                     const SizedBox(height: 4),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Text(
-                        'حدد الاشتراكات النشطة لديك وسنقوم بالتعرف عليها تلقائياً.',
+                        context.l10n.expectedSubscriptionsDesc,
                         textAlign: TextAlign.center,
                         style: _alex(11, FontWeight.w600, 1.4, c.textLight),
                       ),
@@ -1065,7 +1068,7 @@ class _CountryPageState extends State<_CountryPage> {
     final selectedCountry = onboardingCountries[_selectedCountryIndex];
     
     final extraCurrenciesText = _selectedExtraCurrencies.isEmpty 
-        ? 'لا توجد' 
+        ? context.l10n.none 
         : _selectedExtraCurrencies.join('، ');
 
     final activeSubsNames = subscriptionShowcase
@@ -1073,7 +1076,7 @@ class _CountryPageState extends State<_CountryPage> {
         .map((sub) => sub.name)
         .toList();
     final subscriptionsText = activeSubsNames.isEmpty 
-        ? 'لا توجد اشتراكات نشطة' 
+        ? context.l10n.noActiveSubs 
         : activeSubsNames.join('، ');
 
     return ListView(
@@ -1084,17 +1087,17 @@ class _CountryPageState extends State<_CountryPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'سهل الاستخدام',
+              context.l10n.easyToUse,
               style: _alex(12, FontWeight.w800, 1.2, c.accent),
             ),
             const SizedBox(height: 4),
             Text(
-              'اختَر بلدك وعملتك',
+              context.l10n.selectCountryCurrency,
               style: _alex(24, FontWeight.w800, 1.3, c.textMain),
             ),
             const SizedBox(height: 8),
             Text(
-              'نعرض الأعلام الرسمية، ونضبط العملة الأساسية، وتقدر تضيف عملات ثانية لو عندك بطاقات أو اشتراكات خارجية.',
+              context.l10n.selectCountryDesc,
               style: _alex(14, FontWeight.w500, 1.5, c.textLight),
             ),
           ],
@@ -1106,14 +1109,14 @@ class _CountryPageState extends State<_CountryPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _SelectionTile(
-                title: 'البلد والعملة الأساسية',
-                subtitle: '${selectedCountry.name} · ${selectedCountry.currencyCode} (${selectedCountry.currency})',
+                title: context.l10n.mainCountryCurrency,
+                subtitle: '${selectedCountry.localizedName(context)} · ${selectedCountry.currencyCode} (${selectedCountry.localizedCurrency(context)})',
                 icon: _FlagAvatar(code: selectedCountry.code, size: 36),
                 onTap: () => _showCountryPicker(context),
               ),
               const SizedBox(height: 12),
               _SelectionTile(
-                title: 'العملات الإضافية',
+                title: context.l10n.additionalCurrencies,
                 subtitle: extraCurrenciesText,
                 icon: Container(
                   width: 36,
@@ -1128,7 +1131,7 @@ class _CountryPageState extends State<_CountryPage> {
               ),
               const SizedBox(height: 12),
               _SelectionTile(
-                title: 'الاشتراكات النشطة',
+                title: context.l10n.activeSubscriptions,
                 subtitle: subscriptionsText,
                 icon: Container(
                   width: 36,
@@ -1197,7 +1200,9 @@ class _SelectionTile extends StatelessWidget {
               ),
             ),
             Icon(
-              Icons.chevron_left_rounded,
+              Directionality.of(context) == TextDirection.rtl
+                  ? Icons.chevron_left_rounded
+                  : Icons.chevron_right_rounded,
               color: c.textLight,
               size: 20,
             ),
@@ -1261,7 +1266,7 @@ class _SubscriptionSelectionTile extends StatelessWidget {
                 children: [
                   Text(option.name, style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
                   const SizedBox(height: 4),
-                  Text(option.price, style: _alex(10, FontWeight.w700, 1.2, c.textLight, tabular: true)),
+                  Text(option.localizedPrice(context), style: _alex(10, FontWeight.w700, 1.2, c.textLight, tabular: true)),
                 ],
               ),
             ),
@@ -1352,9 +1357,9 @@ class _CountryTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(option.name, style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
+                  Text(option.localizedName(context), style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
                   const SizedBox(height: 4),
-                  Text(option.currency, style: _alex(10, FontWeight.w700, 1.2, c.textLight)),
+                  Text(option.localizedCurrency(context), style: _alex(10, FontWeight.w700, 1.2, c.textLight)),
                 ],
               ),
             ),
@@ -1411,7 +1416,7 @@ class _CurrencyTile extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(option.name, style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
+              child: Text(option.localizedName(context), style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
             ),
             Text(
               option.code,
@@ -1447,37 +1452,37 @@ class _PrivacyPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'خصوصية تامّة',
+              context.l10n.completePrivacy,
               style: _alex(12, FontWeight.w800, 1.2, c.accent),
             ),
             const SizedBox(height: 4),
             Text(
-              'بياناتك تبقى في جهازك',
+              context.l10n.dataStaysOnDevice,
               style: _alex(24, FontWeight.w800, 1.3, c.textMain),
             ),
             const SizedBox(height: 8),
             Text(
-              'مبادئ الأمان والخصوصية لدينا تعني أنك المتحكم الوحيد ببياناتك المالية.',
+              context.l10n.privacyPrinciples,
               style: _alex(14, FontWeight.w500, 1.5, c.textLight),
             ),
           ],
         ),
         const SizedBox(height: 24),
-        const Column(
+        Column(
           children: [
             _PrivacyTile(
               icon: Icons.memory_rounded,
-              text: 'كل المعالجة والذكاء يتم على هاتفك بدون إنترنت',
+              text: context.l10n.privacyRule1,
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             _PrivacyTile(
               icon: Icons.visibility_off_rounded,
-              text: 'نقرأ فقط رسائل البنوك ونستبعد أي رسائل شخصية',
+              text: context.l10n.privacyRule2,
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             _PrivacyTile(
               icon: Icons.delete_forever_rounded,
-              text: 'ما نبيع بياناتك أبداً، ولك كامل الحرية في حذفها',
+              text: context.l10n.privacyRule3,
             ),
           ],
         ),

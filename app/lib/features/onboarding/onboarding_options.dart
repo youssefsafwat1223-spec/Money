@@ -12,6 +12,108 @@ class OnboardingCountry {
   final String name;
   final String currency;
   final String currencyCode;
+
+  String localizedName(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return _enNames[code] ?? name;
+    }
+    return name;
+  }
+
+  String localizedCurrency(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return _enCurrencies[currencyCode] ?? currency;
+    }
+    return currency;
+  }
+
+  static const Map<String, String> _enNames = {
+    'sa': 'Saudi Arabia',
+    'ae': 'United Arab Emirates',
+    'eg': 'Egypt',
+    'kw': 'Kuwait',
+    'qa': 'Qatar',
+    'bh': 'Bahrain',
+    'om': 'Oman',
+    'jo': 'Jordan',
+    'ps': 'Palestine',
+    'lb': 'Lebanon',
+    'ly': 'Libya',
+    'sy': 'Syria',
+    'ma': 'Morocco',
+    'mr': 'Mauritania',
+    'dz': 'Algeria',
+    'tn': 'Tunisia',
+    'sd': 'Sudan',
+    'iq': 'Iraq',
+    'ye': 'Yemen',
+    'so': 'Somalia',
+    'dj': 'Djibouti',
+    'km': 'Comoros',
+    'tr': 'Turkey',
+    'us': 'United States',
+    'gb': 'United Kingdom',
+    'eu': 'Eurozone',
+    'in': 'India',
+    'pk': 'Pakistan',
+    'bd': 'Bangladesh',
+    'ph': 'Philippines',
+    'id': 'Indonesia',
+    'my': 'Malaysia',
+    'sg': 'Singapore',
+    'ng': 'Nigeria',
+    'ke': 'Kenya',
+    'za': 'South Africa',
+    'et': 'Ethiopia',
+    'gh': 'Ghana',
+    'ug': 'Uganda',
+    'tz': 'Tanzania',
+  };
+
+  static const Map<String, String> _enCurrencies = {
+    'SAR': 'Saudi Riyal',
+    'AED': 'UAE Dirham',
+    'EGP': 'Egyptian Pound',
+    'KWD': 'Kuwaiti Dinar',
+    'QAR': 'Qatari Riyal',
+    'BHD': 'Bahraini Dinar',
+    'OMR': 'Omani Riyal',
+    'JOD': 'Jordanian Dinar',
+    'ILS': 'Israeli Shekel',
+    'LBP': 'Lebanese Pound',
+    'LYD': 'Libyan Dinar',
+    'SYP': 'Syrian Pound',
+    'MAD': 'Moroccan Dirham',
+    'MRU': 'Mauritanian Ouguiya',
+    'DZD': 'Algerian Dinar',
+    'TND': 'Tunisian Dinar',
+    'SDG': 'Sudanese Pound',
+    'IQD': 'Iraqi Dinar',
+    'YER': 'Yemeni Rial',
+    'SOS': 'Somali Shilling',
+    'DJF': 'Djiboutian Franc',
+    'KMF': 'Comorian Franc',
+    'TRY': 'Turkish Lira',
+    'USD': 'US Dollar',
+    'GBP': 'British Pound',
+    'EUR': 'Euro',
+    'INR': 'Indian Rupee',
+    'PKR': 'Pakistani Rupee',
+    'BDT': 'Bangladeshi Taka',
+    'PHP': 'Philippine Peso',
+    'IDR': 'Indonesian Rupiah',
+    'MYR': 'Malaysian Ringgit',
+    'SGD': 'Singapore Dollar',
+    'NGN': 'Nigerian Naira',
+    'KES': 'Kenyan Shilling',
+    'ZAR': 'South African Rand',
+    'ETB': 'Ethiopian Birr',
+    'GHS': 'Ghanaian Cedi',
+    'UGX': 'Ugandan Shilling',
+    'TZS': 'Tanzanian Shilling',
+  };
 }
 
 class OnboardingCurrency {
@@ -22,20 +124,52 @@ class OnboardingCurrency {
 
   final String code;
   final String name;
+
+  String localizedName(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return _enNames[code] ?? name;
+    }
+    return name;
+  }
+
+  static const Map<String, String> _enNames = {
+    'USD': 'US Dollar',
+    'EUR': 'Euro',
+    'GBP': 'British Pound',
+    'AED': 'UAE Dirham',
+    'SAR': 'Saudi Riyal',
+    'EGP': 'Egyptian Pound',
+    'KWD': 'Kuwaiti Dinar',
+    'QAR': 'Qatari Riyal',
+    'BHD': 'Bahraini Dinar',
+    'OMR': 'Omani Riyal',
+    'JOD': 'Jordanian Dinar',
+    'TRY': 'Turkish Lira',
+    'INR': 'Indian Rupee',
+    'PHP': 'Philippine Peso',
+  };
 }
 
 class SubscriptionShowcase {
   const SubscriptionShowcase({
     required this.name,
     required this.asset,
-    required this.price,
+    required this.priceAr,
+    required this.priceEn,
     required this.brandColor,
   });
 
   final String name;
   final String asset;
-  final String price;
+  final String priceAr;
+  final String priceEn;
   final Color brandColor;
+
+  String localizedPrice(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    return locale == 'en' ? priceEn : priceAr;
+  }
 }
 
 const onboardingCountries = [
@@ -102,25 +236,29 @@ const subscriptionShowcase = [
   SubscriptionShowcase(
     name: 'Netflix',
     asset: 'netflix',
-    price: '39 ريال شهرياً',
+    priceAr: '39 ريال شهرياً',
+    priceEn: '39 SAR / month',
     brandColor: Color(0xFFE50914),
   ),
   SubscriptionShowcase(
     name: 'Spotify',
     asset: 'spotify',
-    price: '22 ريال شهرياً',
+    priceAr: '22 ريال شهرياً',
+    priceEn: '22 SAR / month',
     brandColor: Color(0xFF1DB954),
   ),
   SubscriptionShowcase(
     name: 'YouTube',
     asset: 'youtube',
-    price: '24 ريال شهرياً',
+    priceAr: '24 ريال شهرياً',
+    priceEn: '24 SAR / month',
     brandColor: Color(0xFFFF0000),
   ),
   SubscriptionShowcase(
     name: 'Apple',
     asset: 'apple',
-    price: '19 ريال شهرياً',
+    priceAr: '19 ريال شهرياً',
+    priceEn: '19 SAR / month',
     brandColor: Color(0xFF111111),
   ),
 ];

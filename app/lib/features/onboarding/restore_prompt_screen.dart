@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/backend/supabase_config.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/backup/backup_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
@@ -39,7 +40,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
   Future<void> _restore() async {
     final passphrase = _passphrase.text.trim();
     if (_busy || passphrase.length < 6) {
-      setState(() => _error = 'اكتب كلمة مرور النسخة أو رمز الاسترداد.');
+      setState(() => _error = context.l10n.enterPasswordOrRecoveryCodeError);
       return;
     }
     setState(() {
@@ -61,8 +62,8 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
       setState(() {
         _busy = false;
         _error = _useRecoveryCode
-            ? 'رمز الاسترداد غير صحيح أو لا يطابق النسخة.'
-            : 'كلمة مرور النسخة الاحتياطية غير صحيحة.';
+            ? context.l10n.recoveryCodeIncorrect
+            : context.l10n.backupPasswordIncorrect;
       });
     }
   }
@@ -155,13 +156,13 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'وجدنا نسخة احتياطية لحسابك',
+                          context.l10n.backupFound,
                           textAlign: TextAlign.center,
                           style: AppTypography.title2(Colors.white),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'استعادة بياناتك المشفّرة تتم على جهازك فقط. كلمة المرور لا تخرج من هاتفك.',
+                          context.l10n.restoreDesc,
                           textAlign: TextAlign.center,
                           style: AppTypography.footnote(
                             Colors.white.withValues(alpha: 0.84),
@@ -173,8 +174,8 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                   const SizedBox(height: AppSpacing.s5),
                   Text(
                     _useRecoveryCode
-                        ? 'رمز الاسترداد'
-                        : 'كلمة مرور النسخة الاحتياطية',
+                        ? context.l10n.recoveryCodeLabel
+                        : context.l10n.backupPasswordLabel,
                     style: AppTypography.subhead(c.textLight),
                   ),
                   const SizedBox(height: AppSpacing.s2),
@@ -186,8 +187,8 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                       errorText: _error,
                       errorStyle: AppTypography.footnote(c.danger),
                       hintText: _useRecoveryCode
-                          ? 'XXXX-XXXX-XXXX'
-                          : 'اكتب كلمة المرور التي اخترتها',
+                          ? context.l10n.recoveryCodeHint
+                          : context.l10n.backupPasswordHint,
                       hintStyle: AppTypography.callout(
                         c.textLight.withValues(alpha: 0.55),
                       ),
@@ -224,8 +225,8 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                       },
                       child: Text(
                         _useRecoveryCode
-                            ? 'استخدام كلمة مرور النسخة'
-                            : 'استخدام رمز الاسترداد',
+                            ? context.l10n.useBackupPassword
+                            : context.l10n.useRecoveryCode,
                         style: AppTypography.caption(c.primary),
                       ),
                     ),
@@ -264,7 +265,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                                 ),
                               )
                             : Text(
-                                'استعادة',
+                                context.l10n.restore,
                                 style:
                                     AppTypography.bodyStrong(actionForeground),
                               ),
@@ -275,14 +276,14 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                   TextButton(
                     onPressed: _busy ? null : _startFresh,
                     child: Text(
-                      widget.onboardingFlow ? 'ابدأ جديد' : 'ليس الآن',
+                      widget.onboardingFlow ? context.l10n.startFresh : context.l10n.notNow,
                       style: AppTypography.subhead(c.textLight),
                     ),
                   ),
                   if (!SupabaseConfig.isConfigured) ...[
                     const SizedBox(height: AppSpacing.s2),
                     Text(
-                      'الاستعادة السحابية غير مفعّلة في هذا البناء.',
+                      context.l10n.restoreNotEnabled,
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textLight),
                     ),

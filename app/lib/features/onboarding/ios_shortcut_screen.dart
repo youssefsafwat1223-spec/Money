@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/app_spacing.dart';
 import 'widgets/premium_ui.dart';
 
@@ -20,20 +21,36 @@ TextStyle _alex(double size, FontWeight weight, double height, Color color, {boo
 class IosShortcutScreen extends StatelessWidget {
   const IosShortcutScreen({super.key});
 
-  static const _steps = <_Step>[
-    _Step('احذف القديم', 'افتح تطبيق Shortcuts وروح لتبويب Automation. لو فيه Automation قديم للتطبيق، احذفه.', Icons.delete_outline_rounded),
-    _Step('جديد (+)', 'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».', Icons.add_circle_outline_rounded),
-    _Step('حدّد الرسائل', 'اضغط على «Message Contents» واكتب رمز عملة البنك (مثال: SAR).', Icons.filter_alt_outlined),
-    _Step('بدون تأكيد', 'فعّل «Run Immediately» واضغط Next.', Icons.bolt_rounded),
-    _Step('اختصار فارغ', 'اضغط «New Blank Automation».', Icons.insert_drive_file_outlined),
-    _Step('إرسال للتطبيق', 'ابحث عن «Post Bank Status»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.', Icons.send_rounded),
-    _Step('تشغيل صامت', 'أوقف «Show When Run» ليشتغل بالخلفية.', Icons.volume_off_rounded),
-    _Step('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.', Icons.check_circle_outline_rounded),
-  ];
+  static List<_Step> _getSteps(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return const [
+        _Step('Delete Old', 'Open Shortcuts app and go to Automation tab. If there is an old automation for the app, delete it.', Icons.delete_outline_rounded),
+        _Step('New (+)', 'Press New Automation (+) and scroll down to "Message".', Icons.add_circle_outline_rounded),
+        _Step('Filter Messages', 'Press "Message Contents" and type the bank currency code (e.g. SAR).', Icons.filter_alt_outlined),
+        _Step('Run Immediately', 'Enable "Run Immediately" and press Next.', Icons.bolt_rounded),
+        _Step('Blank Automation', 'Press "New Blank Automation".', Icons.insert_drive_file_outlined),
+        _Step('Send to App', 'Search for "Post Bank Status", choose the "Shortcut Input" variable and ensure it is correct.', Icons.send_rounded),
+        _Step('Silent Run', 'Disable "Show When Run" to run in the background.', Icons.volume_off_rounded),
+        _Step('Save', 'Press Save in the top and setup is completed.', Icons.check_circle_outline_rounded),
+      ];
+    }
+    return const [
+      _Step('احذف القديم', 'افتح تطبيق Shortcuts وروح لتبويب Automation. لو فيه Automation قديم للتطبيق، احذفه.', Icons.delete_outline_rounded),
+      _Step('جديد (+)', 'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».', Icons.add_circle_outline_rounded),
+      _Step('حدّد الرسائل', 'اضغط على «Message Contents» واكتب رمز عملة البنك (مثال: SAR).', Icons.filter_alt_outlined),
+      _Step('بدون تأكيد', 'فعّل «Run Immediately» واضغط Next.', Icons.bolt_rounded),
+      _Step('اختصار فارغ', 'اضغط «New Blank Automation».', Icons.insert_drive_file_outlined),
+      _Step('إرسال للتطبيق', 'ابحث عن «Post Bank Status»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.', Icons.send_rounded),
+      _Step('تشغيل صامت', 'أوقف «Show When Run» ليشتغل بالخلفية.', Icons.volume_off_rounded),
+      _Step('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.', Icons.check_circle_outline_rounded),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final steps = _getSteps(context);
     return PremiumBackground(
       child: Column(
         children: [
@@ -48,7 +65,13 @@ class IosShortcutScreen extends StatelessWidget {
                   ),
                   child: IconButton(
                     onPressed: () => context.pop(),
-                    icon: Icon(Icons.arrow_forward_rounded, color: c.textMain, size: 20),
+                    icon: Icon(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? Icons.arrow_forward_rounded
+                          : Icons.arrow_back_rounded,
+                      color: c.textMain,
+                      size: 20,
+                    ),
                   ),
                 ),
               ],
@@ -66,23 +89,23 @@ class IosShortcutScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                Text('خطوات الأمان لآبل', textAlign: TextAlign.center, style: _alex(24, FontWeight.w800, 1.2, c.textMain)),
+                Text(context.l10n.appleSecuritySteps, textAlign: TextAlign.center, style: _alex(24, FontWeight.w800, 1.2, c.textMain)),
                 const SizedBox(height: 8),
                 Text(
-                  'بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ مالي تلقائياً وبأمان تام.',
+                  context.l10n.iosShortcutSubtitle,
                   textAlign: TextAlign.center,
                   style: _alex(13, FontWeight.w500, 1.5, c.textLight),
                 ),
                 const SizedBox(height: 32),
                 
-                Text('الخطوات:', style: _alex(15, FontWeight.w800, 1.2, c.textMain)),
+                Text(context.l10n.stepsLabel, style: _alex(15, FontWeight.w800, 1.2, c.textMain)),
                 const SizedBox(height: 20),
                 GlassCard(
                   padding: const EdgeInsets.all(20),
                   child: ListView.separated(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _steps.length,
+                    itemCount: steps.length,
                     separatorBuilder: (context, index) => Padding(
                       padding: const EdgeInsets.only(right: 14.0, top: 4, bottom: 4),
                       child: Container(
@@ -93,7 +116,7 @@ class IosShortcutScreen extends StatelessWidget {
                       ),
                     ),
                     itemBuilder: (context, index) {
-                      final step = _steps[index];
+                      final step = steps[index];
                       return Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -150,10 +173,10 @@ class IosShortcutScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('تتعامل بأكثر من عملة؟', style: _alex(14, FontWeight.w800, 1.2, c.accent)),
+                            Text(context.l10n.multipleCurrenciesQuestion, style: _alex(14, FontWeight.w800, 1.2, c.accent)),
                             const SizedBox(height: 4),
                             Text(
-                              'إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة.',
+                              context.l10n.multipleCurrenciesDesc,
                               style: _alex(12, FontWeight.w600, 1.5, c.accent.withValues(alpha: 0.8)),
                             ),
                           ],

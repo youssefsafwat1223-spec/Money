@@ -37,6 +37,8 @@ import UIKit
       switch call.method {
       case "consumePendingSharedInput":
         result(SharedCaptureStore.consumePendingText())
+      case "consumePendingSharedMessages":
+        result(SharedCaptureStore.consumePendingPayloadsJSON())
       case "hasSmsPermission":
         result(false)
       case "openAppSettings":

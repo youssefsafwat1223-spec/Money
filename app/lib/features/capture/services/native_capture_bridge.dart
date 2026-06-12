@@ -1,6 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+
+/// A single bank message drained from the iOS shared App Group queue.
+class SharedCapturedMessage {
+  const SharedCapturedMessage({required this.text, this.sender});
+
+  final String text;
+  final String? sender;
+}
 
 class NativeCaptureBridge {
   NativeCaptureBridge._();
@@ -31,5 +40,43 @@ class NativeCaptureBridge {
       return null;
     }
     return text;
+  }
+
+  /// Drains the full FIFO queue of bank messages captured by the iOS Share
+  /// Extension and the "Post Bank Status" App Intent. Returns them in arrival
+  /// order, each with its optional sender. The native side clears the queue.
+  static Future<List<SharedCapturedMessage>> consumePendingSharedMessages() async {
+    if (!Platform.isIOS) {
+      return const [];
+    }
+    final json =
+        await _channel.invokeMethod<String>('consumePendingSharedMessages');
+    if (json == null || json.trim().isEmpty) {
+      return const [];
+    }
+    final List<dynamic> decoded;
+    try {
+      decoded = jsonDecode(json) as List<dynamic>;
+    } on FormatException {
+      return const [];
+    }
+    final messages = <SharedCapturedMessage>[];
+    for (final item in decoded) {
+      if (item is! Map) {
+        continue;
+      }
+      final text = (item['text'] as String?)?.trim() ?? '';
+      if (text.isEmpty) {
+        continue;
+      }
+      final rawSender = (item['sender'] as String?)?.trim();
+      messages.add(
+        SharedCapturedMessage(
+          text: text,
+          sender: (rawSender == null || rawSender.isEmpty) ? null : rawSender,
+        ),
+      );
+    }
+    return messages;
   }
 }
