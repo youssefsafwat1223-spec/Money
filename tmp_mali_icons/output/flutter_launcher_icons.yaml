@@ -1,0 +1,37 @@
+# flutter_launcher_icons configuration for Mali app
+#
+# Usage:
+#   1. Copy master_1024/app_icon_light.png  → assets/icon/app_icon.png
+#   2. Copy master_1024/app_icon_dark.png   → assets/icon/app_icon_dark.png (optional)
+#   3. Add this section to your pubspec.yaml (or use this file with -f flag)
+#   4. Run: dart run flutter_launcher_icons
+#
+# Install the package first:
+#   flutter pub add --dev flutter_launcher_icons
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/icon/app_icon.png"
+
+  # Adaptive icon (Android 8+)
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  adaptive_icon_monochrome: "assets/icon/app_icon_foreground.png"
+
+  # Web (if you ever ship a web build)
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    background_color: "#FFFFFF"
+    theme_color: "#005F3D"
+
+  # Windows / macOS (optional)
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon.png"

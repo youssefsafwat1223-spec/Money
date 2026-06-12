@@ -237,6 +237,33 @@ class AppDatabase extends GeneratedDatabase {
         FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
       );
     ''');
+    await _ensureColumn('subscriptions', 'name', "TEXT NOT NULL DEFAULT ''");
+    await _ensureColumn(
+      'subscriptions',
+      'type',
+      "TEXT NOT NULL DEFAULT 'subscription'",
+    );
+    await _ensureColumn(
+      'subscriptions',
+      'currency',
+      "TEXT NOT NULL DEFAULT 'SAR'",
+    );
+    await _ensureColumn(
+      'subscriptions',
+      'frequency',
+      "TEXT NOT NULL DEFAULT 'monthly'",
+    );
+    await _ensureColumn(
+      'subscriptions',
+      'custom_interval_days',
+      'INTEGER NULL',
+    );
+    await _ensureColumn('subscriptions', 'note', 'TEXT NULL');
+    await _ensureColumn(
+      'subscriptions',
+      'created_at',
+      "TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'",
+    );
 
     await customStatement('''
       CREATE TABLE IF NOT EXISTS parsing_rules(
@@ -263,6 +290,19 @@ class AppDatabase extends GeneratedDatabase {
         db_encryption_key_ref TEXT NOT NULL
       );
     ''');
+  }
+
+  Future<void> _ensureColumn(
+    String table,
+    String column,
+    String definition,
+  ) async {
+    final rows = await customSelect('PRAGMA table_info($table);').get();
+    final exists = rows.any((row) => row.read<String>('name') == column);
+    if (!exists) {
+      await customStatement(
+          'ALTER TABLE $table ADD COLUMN $column $definition;');
+    }
   }
 
   Future<void> _seedIfNeeded() async {
@@ -383,7 +423,7 @@ class AppDatabase extends GeneratedDatabase {
           INSERT INTO user_settings(
             id, country, currency, language, theme, input_method, notifications_json, db_encryption_key_ref
           )
-          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"quietHoursStartHour":23,"quietHoursEndHour":8}', ?);
+          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', ?);
         ''',
         variables: [
           Variable.withString(IdGenerator.next()),

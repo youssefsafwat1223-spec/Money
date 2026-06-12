@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session.dart';
@@ -9,11 +10,13 @@ import '../../features/onboarding/ios_shortcut_screen.dart';
 import '../../features/onboarding/method_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/onboarding/otp_screen.dart';
+import '../../features/onboarding/restore_prompt_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/settings/privacy_screen.dart';
 import '../../features/subscriptions/subscriptions_screen.dart';
 import '../../features/budgets/budget_form_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
+import '../../features/cards/card_details_screen.dart';
 import '../../features/capture/manual_paste_screen.dart';
 import '../../features/capture/sms_permission_screen.dart';
 import '../../features/goals/goal_details_screen.dart';
@@ -56,7 +59,59 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/onboarding/method',
       name: 'onboarding-method',
-      builder: (context, state) => const OnboardingMethodScreen(),
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: const OnboardingMethodScreen(),
+        opaque: false,
+        barrierDismissible: false,
+        barrierColor: Colors.black26,
+        transitionDuration: const Duration(milliseconds: 380),
+        reverseTransitionDuration: const Duration(milliseconds: 280),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(curved),
+            child: FadeTransition(
+              opacity: curved,
+              child: child,
+            ),
+          );
+        },
+      ),
+    ),
+    GoRoute(
+      path: '/onboarding/restore',
+      name: 'onboarding-restore',
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: const RestorePromptScreen(onboardingFlow: true),
+        opaque: false,
+        barrierDismissible: false,
+        barrierColor: Colors.black26,
+        transitionDuration: const Duration(milliseconds: 380),
+        reverseTransitionDuration: const Duration(milliseconds: 280),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(curved),
+            child: FadeTransition(opacity: curved, child: child),
+          );
+        },
+      ),
     ),
     GoRoute(
       path: '/onboarding/ios-shortcut',
@@ -73,6 +128,12 @@ final appRouter = GoRouter(
       path: '/backup',
       name: 'backup',
       builder: (context, state) => const BackupScreen(),
+    ),
+    GoRoute(
+      path: '/backup/restore',
+      name: 'backup-restore',
+      builder: (context, state) =>
+          const RestorePromptScreen(onboardingFlow: false),
     ),
     GoRoute(
       path: '/privacy',
@@ -104,6 +165,12 @@ final appRouter = GoRouter(
       name: 'transaction',
       builder: (context, state) =>
           TransactionDetailsScreen(transactionId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/card/:last4',
+      name: 'card',
+      builder: (context, state) =>
+          CardDetailsScreen(last4: state.pathParameters['last4']!),
     ),
     GoRoute(
       path: '/budgets',
@@ -147,6 +214,11 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/settings',
       name: 'settings',
+      builder: (context, state) => const SettingsScreen(),
+    ),
+    GoRoute(
+      path: '/profile',
+      name: 'profile',
       builder: (context, state) => const SettingsScreen(),
     ),
   ],

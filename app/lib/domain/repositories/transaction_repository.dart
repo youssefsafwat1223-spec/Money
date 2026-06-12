@@ -1,3 +1,4 @@
+import '../entities/card_summary.dart';
 import '../entities/category_spend.dart';
 import '../entities/report_models.dart';
 import '../entities/transaction_entity.dart';
@@ -73,4 +74,10 @@ abstract class TransactionRepository {
 
   /// اشتراكات متكررة مُكتشَفة (نفس المتجر بمبلغ متقارب عبر ≥2 أشهر).
   Future<List<RecurringCandidate>> recurringCandidates();
+
+  /// ملخّص لكل بطاقة (آخر 4 أرقام + الشبكة + الداخل/الخارج).
+  Future<List<CardSummary>> getCardSummaries();
+
+  /// عمليات بطاقة محددة (بآخر 4 أرقام) مرتّبة بالأحدث.
+  Future<List<TransactionEntity>> getByCard(String last4);
 }

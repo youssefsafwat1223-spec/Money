@@ -6,20 +6,24 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../../domain/entities/engagement_entities.dart';
+import '../../../domain/services/notification_planner.dart';
 import '../capture_runtime.dart';
 
 class CaptureNotificationPayload {
   const CaptureNotificationPayload({
     required this.kind,
     this.transactionId,
+    this.route,
   });
 
   final String kind;
   final String? transactionId;
+  final String? route;
 
   String encode() => jsonEncode({
         'kind': kind,
         'transactionId': transactionId,
+        'route': route,
       });
 
   static CaptureNotificationPayload? tryDecode(String? raw) {
@@ -33,6 +37,7 @@ class CaptureNotificationPayload {
     return CaptureNotificationPayload(
       kind: decoded['kind'] as String? ?? '',
       transactionId: decoded['transactionId'] as String?,
+      route: decoded['route'] as String?,
     );
   }
 }
@@ -46,7 +51,11 @@ class LocalNotificationService {
   static const String _budgetChannelId = 'budget_alerts';
   static const String _achievementChannelId = 'achievement_alerts';
   static const String _streakChannelId = 'streak_reminders';
+  static const String _weeklyReportChannelId = 'weekly_reports';
+  static const String _billReminderChannelId = 'bill_reminders';
+  static const String _goalMilestoneChannelId = 'goal_milestones';
   static const int _streakReminderId = 88008;
+  static const int _weeklyReportId = 91001;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -81,18 +90,19 @@ class LocalNotificationService {
 
     await _plugin.initialize(
       settings: settings,
-      onDidReceiveNotificationResponse: (response) {
-        final transactionId = _extractTransactionId(response.payload);
-        if (transactionId != null) {
-          CaptureRuntime.instance.requestConfirmation(transactionId);
-        }
-      },
+      onDidReceiveNotificationResponse: (response) =>
+          _handleNotificationPayload(response.payload),
       onDidReceiveBackgroundNotificationResponse: _backgroundTapHandler,
     );
     _initialized = true;
 
     final details = await _plugin.getNotificationAppLaunchDetails();
-    return _extractTransactionId(details?.notificationResponse?.payload);
+    final initialPayload = details?.notificationResponse?.payload;
+    final initialRoute = _extractRoute(initialPayload);
+    if (initialRoute != null) {
+      CaptureRuntime.instance.seedInitialNavigation(initialRoute);
+    }
+    return _extractTransactionId(initialPayload);
   }
 
   Future<void> requestPermissionsIfNeeded() async {
@@ -284,6 +294,66 @@ class LocalNotificationService {
     );
   }
 
+  Future<void> schedulePlannedNotifications(
+    List<PlannedLocalNotification> notifications,
+  ) async {
+    if (!_initialized) {
+      await initialize();
+    }
+    await _plugin.cancel(id: _weeklyReportId);
+    final pending = await _plugin.pendingNotificationRequests();
+    for (final request in pending) {
+      if (request.id >= 92000 && request.id < 992000) {
+        await _plugin.cancel(id: request.id);
+      }
+    }
+    for (final notification in notifications) {
+      await _plugin.zonedSchedule(
+        id: notification.id,
+        title: notification.title,
+        body: notification.body,
+        scheduledDate: _riyadhDate(notification.scheduledAtRiyadh),
+        notificationDetails: _detailsFor(notification.kind),
+        payload: CaptureNotificationPayload(
+          kind: notification.payload ?? notification.kind.name,
+          route: _routeFor(notification.payload),
+        ).encode(),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+    }
+  }
+
+  Future<void> showGoalMilestoneNotification({
+    required GoalMilestoneNotification notification,
+    required NotificationPreferences preferences,
+  }) async {
+    await _show(
+      id: 93000 + notification.goalId.hashCode.abs().remainder(900000),
+      title: notification.title,
+      body: notification.body,
+      notificationType: NotificationType.goalMilestone,
+      preferences: preferences,
+      details: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _goalMilestoneChannelId,
+          'احتفالات الأهداف',
+          channelDescription: 'تنبيهات لطيفة عند الوصول لمراحل الأهداف',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: false,
+          presentSound: true,
+        ),
+      ),
+      payload: const CaptureNotificationPayload(
+        kind: 'goals',
+        route: '/budgets',
+      ).encode(),
+    );
+  }
+
   Future<void> _show({
     required int id,
     required String title,
@@ -358,6 +428,76 @@ class LocalNotificationService {
 
   String? _extractTransactionId(String? payload) =>
       CaptureNotificationPayload.tryDecode(payload)?.transactionId;
+
+  String? _extractRoute(String? payload) =>
+      CaptureNotificationPayload.tryDecode(payload)?.route;
+
+  void _handleNotificationPayload(String? payload) {
+    final transactionId = _extractTransactionId(payload);
+    if (transactionId != null) {
+      CaptureRuntime.instance.requestConfirmation(transactionId);
+      return;
+    }
+    final route = _extractRoute(payload);
+    if (route != null) {
+      CaptureRuntime.instance.requestNavigation(route);
+    }
+  }
+
+  NotificationDetails _detailsFor(PlannedNotificationKind kind) {
+    switch (kind) {
+      case PlannedNotificationKind.weeklyReport:
+        return const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _weeklyReportChannelId,
+            'التقارير الأسبوعية',
+            channelDescription: 'تذكير أسبوعي لطيف لقراءة التقرير',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: false,
+            presentSound: false,
+          ),
+        );
+      case PlannedNotificationKind.subscriptionReminder:
+        return const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _billReminderChannelId,
+            'تذكير الفواتير',
+            channelDescription: 'تذكير محلي بمواعيد الاشتراكات والأقساط',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: false,
+            presentSound: false,
+          ),
+        );
+    }
+  }
+
+  tz.TZDateTime _riyadhDate(DateTime dateTime) {
+    return tz.TZDateTime(
+      tz.local,
+      dateTime.year,
+      dateTime.month,
+      dateTime.day,
+      dateTime.hour,
+      dateTime.minute,
+      dateTime.second,
+    );
+  }
+
+  String? _routeFor(String? payload) {
+    return switch (payload) {
+      'reports' => '/reports',
+      'bills' => '/',
+      _ => null,
+    };
+  }
 
   @pragma('vm:entry-point')
   static void _backgroundTapHandler(NotificationResponse response) {}

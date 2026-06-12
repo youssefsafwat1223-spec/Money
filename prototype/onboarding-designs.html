@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>معاينة تصاميم شاشات التمهيد لـ «مالي»</title>
+    
+    <!-- Google Fonts: IBM Plex Sans Arabic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons via CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* CSS Variables - Default to Palette 9 (Charcoal & Volt) Dark Mode */
+        :root {
+            --bg: #0B0F19;
+            --surface: #151B26;
+            --surface-2: #202938;
+            --surface-3: #2D394C;
+            --hairline: #2D394C;
+            --primary: #ADF00D;
+            --primary-press: #84CC16;
+            --primary-tint: rgba(173, 240, 13, 0.12);
+            --accent: #ADF00D;
+            --danger: #F87171;
+            --success: #34D399;
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #4E5E75;
+            --on-primary: #0B0F19;
+            
+            --grad-start: #030712;
+            --grad-end: #151B26;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+            --glow: 0 0 25px rgba(173, 240, 13, 0.15);
+            --transition: all 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        /* Light Mode Variables */
+        [data-theme="light"] {
+            --bg: #F8FAFC;
+            --surface: #FFFFFF;
+            --surface-2: #E2E8F0;
+            --surface-3: #CBD5E1;
+            --hairline: #CBD5E1;
+            --primary: #84CC16;
+            --primary-press: #65A30D;
+            --primary-tint: rgba(132, 204, 22, 0.08);
+            --accent: #84CC16;
+            --danger: #EF4444;
+            --success: #059669;
+            --text-primary: #0F172A;
+            --text-secondary: #475569;
+            --text-muted: #94A3B8;
+            --on-primary: #FFFFFF;
+            
+            --grad-start: #0F172A;
+            --grad-end: #334155;
+            --shadow: 0 10px 30px rgba(30, 41, 59, 0.06);
+            --glow: 0 0 20px rgba(132, 204, 22, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'IBM Plex Sans Arabic', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-primary);
+            transition: var(--transition);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            max-width: 800px;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        header p {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Controls Panel */
+        .controls-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+            background: var(--surface);
+            padding: 20px 24px;
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--hairline);
+            margin-bottom: 40px;
+            width: 100%;
+            max-width: 900px;
+            transition: var(--transition);
+        }
+
+        .control-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .control-label {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            min-width: 130px;
+        }
+
+        .toggle-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: 16px;
+            gap: 4px;
+        }
+
+        .toggle-btn {
+            background: none;
+            border: none;
+            outline: none;
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toggle-btn.active {
+            background: var(--surface);
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Mockup Split View */
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 40px;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        @media (min-width: 768px) {
+            .preview-grid {
+                grid-template-columns: 320px 1fr;
+            }
+        }
+
+        /* Sidebar Info Panel */
+        .design-info {
+            background: var(--surface);
+            border-radius: 28px;
+            padding: 24px;
+            border: 1px solid var(--hairline);
+            box-shadow: var(--shadow);
+            align-self: start;
+            transition: var(--transition);
+        }
+
+        .design-info h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--surface-2);
+            padding-bottom: 8px;
+        }
+
+        .design-info p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .feature-bullet {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .feature-bullet i {
+            color: var(--primary);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        /* Phone Mockup Frame */
+        .phone-wrapper {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .phone-mockup {
+            width: 100%;
+            max-width: 375px;
+            height: 750px;
+            background: var(--bg);
+            border-radius: 40px;
+            border: 8px solid #1a1a1a;
+            box-shadow: 0 25px 70px rgba(0,0,0,0.3);
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            transition: var(--transition);
+        }
+
+        /* Top Notch / Status Bar */
+        .mockup-status-bar {
+            height: 44px;
+            padding: 0 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            z-index: 10;
+        }
+
+        /* Action bar for Onboarding */
+        .mockup-action-bar {
+            padding: 0 24px;
+            display: flex;
+            justify-content: flex-end;
+            z-index: 10;
+        }
+
+        .skip-btn {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .skip-btn:hover {
+            color: var(--primary);
+        }
+
+        /* Dynamic Onboarding Body Container */
+        .onboarding-body {
+            flex: 1;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 5;
+            position: relative;
+        }
+
+        /* Page Content Classes */
+        .page-content {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            animation: fadeIn 0.4s ease-out;
+            width: 100%;
+        }
+
+        .page-content.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* SVG Showcase Container styling */
+        .svg-container {
+            width: 100%;
+            height: 180px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 24px;
+            position: relative;
+        }
+
+        .svg-container svg {
+            width: 100%;
+            max-width: 180px;
+            height: 100%;
+            transition: var(--transition);
+        }
+
+        /* DESIGN SPECIFIC OVERLAYS */
+        /* Design 1: Dark Neon Glowing elements */
+        .design-neon .glowing-aura {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle, var(--primary-tint) 0%, rgba(173, 240, 13, 0) 70%);
+            z-index: -1;
+            filter: blur(10px);
+            pointer-events: none;
+        }
+
+        .design-neon .logo-container {
+            width: 130px;
+            height: 130px;
+            border-radius: 36px;
+            background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-3) 100%);
+            border: 2px solid var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: var(--glow);
+            margin-bottom: 30px;
+        }
+
+        .design-neon .logo-title {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(120deg, #FFFFFF 30%, var(--primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        /* Design 2: Minimalist card design */
+        .design-minimal .logo-container {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: var(--surface-2);
+            border: 1px solid var(--hairline);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .design-minimal .logo-title {
+            font-size: 2.6rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .design-minimal .showcase-card {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 20px;
+            padding: 16px;
+            width: 100%;
+            max-width: 290px;
+            box-shadow: var(--shadow);
+            margin-bottom: 24px;
+            text-align: right;
+        }
+
+        .design-minimal .sms-mock {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            border-bottom: 1px dashed var(--hairline);
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            direction: ltr;
+        }
+
+        .design-minimal .parsed-result {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .design-minimal .category-badge {
+            background: var(--primary-tint);
+            color: var(--primary);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Design 3: Gamified Vault Focus */
+        .design-gamified .vault-hero {
+            width: 150px;
+            height: 150px;
+            background: radial-gradient(circle, var(--surface-3) 0%, var(--surface-2) 100%);
+            border: 2px solid var(--hairline);
+            border-radius: 32px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            margin-bottom: 30px;
+            box-shadow: var(--shadow);
+            animation: breathe 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes breathe {
+            0% { transform: translateY(0) scale(1); }
+            100% { transform: translateY(-8px) scale(1.03); }
+        }
+
+        .design-gamified .vault-door {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            border: 4px solid var(--primary);
+            background: var(--surface);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: var(--shadow);
+        }
+
+        .design-gamified .xp-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: var(--primary);
+            color: var(--on-primary);
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 4px 8px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .design-gamified .logo-title {
+            font-size: 2.8rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 8px;
+        }
+
+        /* Design 4: Elegant SVG Illustrations Styling */
+        .design-svg .logo-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .design-svg .page-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        /* Commonalities */
+        .kicker {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 8px;
+        }
+
+        .page-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.4;
+            margin-bottom: 12px;
+        }
+
+        .page-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            max-width: 280px;
+        }
+
+        /* Large circular icon representation for intro */
+        .icon-circle {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: var(--primary-tint);
+            color: var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 30px;
+            box-shadow: var(--glow);
+        }
+
+        /* Country card selection */
+        .country-card {
+            width: 100%;
+            max-width: 280px;
+            padding: 16px;
+            background: var(--surface);
+            border: 2px solid var(--primary);
+            border-radius: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .country-sub {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            background: var(--surface-2);
+            padding: 8px 12px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 280px;
+        }
+
+        /* Privacy checklist */
+        .check-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 280px;
+            text-align: right;
+            margin-top: 16px;
+        }
+
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .check-item i {
+            color: var(--primary);
+        }
+
+        /* Bottom Controls Frame Area */
+        .mockup-bottom-controls {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 10;
+        }
+
+        .dots-container {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        /* Dots indicator animations */
+        .dot {
+            height: 6px;
+            width: 6px;
+            background: var(--hairline);
+            border-radius: 50%;
+            transition: var(--transition);
+        }
+
+        .dot.active {
+            background: var(--primary);
+            width: 18px;
+            border-radius: 10px;
+            box-shadow: var(--glow);
+        }
+
+        /* Neon specific dots */
+        .design-neon .dot.active {
+            background: var(--primary);
+            box-shadow: var(--glow);
+            width: 24px;
+        }
+
+        .next-btn {
+            width: 100%;
+            height: 52px;
+            background: var(--primary);
+            color: var(--on-primary);
+            border: none;
+            outline: none;
+            font-size: 0.95rem;
+            font-weight: 700;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .next-btn:hover {
+            opacity: 0.9;
+        }
+
+        .design-neon .next-btn {
+            box-shadow: var(--glow);
+            border-radius: 16px;
+        }
+
+        .design-minimal .next-btn {
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body data-design="1" data-theme="dark">
+
+    <header>
+        <h1>معاينة تصاميم شاشات التمهيد لـ «مالي»</h1>
+        <p>تفاعل مع الخيارات التصميمية الـ 4 المقترحة لشاشات الترحيب والتمهيد تحت لوحة ألوان <b>الفحمي والفسفوري</b>.</p>
+    </header>
+
+    <!-- Interactive Control Panel -->
+    <div class="controls-container">
+        <div class="control-group" style="margin-bottom: 6px;">
+            <span class="control-label">خيار التصميم:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn active" onclick="setDesign('1')">
+                    <i data-lucide="sparkles" style="width:14px;height:14px;"></i>
+                    1. النيون الفاخر
+                </button>
+                <button class="toggle-btn" onclick="setDesign('2')">
+                    <i data-lucide="layout" style="width:14px;height:14px;"></i>
+                    2. النظيف البسيط
+                </button>
+                <button class="toggle-btn" onclick="setDesign('3')">
+                    <i data-lucide="gamepad-2" style="width:14px;height:14px;"></i>
+                    3. تركيز الخزنة
+                </button>
+                <button class="toggle-btn" onclick="setDesign('4')">
+                    <i data-lucide="image" style="width:14px;height:14px;"></i>
+                    4. الرسوم التوضيحية SVG
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group" style="margin-bottom: 6px;">
+            <span class="control-label">تنقل الصفحات:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn page-nav active" onclick="setPage(0)">1. الترحيب</button>
+                <button class="toggle-btn page-nav" onclick="setPage(1)">2. التلقائية</button>
+                <button class="toggle-btn page-nav" onclick="setPage(2)">3. التوفير</button>
+                <button class="toggle-btn page-nav" onclick="setPage(3)">4. البلد</button>
+                <button class="toggle-btn page-nav" onclick="setPage(4)">5. الخصوصية</button>
+            </div>
+        </div>
+
+        <div class="control-group" style="border-top: 1px solid var(--hairline); padding-top: 16px;">
+            <span class="control-label">وضع المظهر:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn active" id="btn-dark" onclick="setTheme('dark')">
+                    <i data-lucide="moon" style="width:14px;height:14px;"></i>
+                    داكن (Dark)
+                </button>
+                <button class="toggle-btn" id="btn-light" onclick="setTheme('light')">
+                    <i data-lucide="sun" style="width:14px;height:14px;"></i>
+                    فاتح (Light)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Preview Workspace -->
+    <div class="preview-grid">
+        
+        <!-- Sidebar Design details description -->
+        <div class="design-info">
+            <h3 id="design-title">النيون التفاعلي الفاخر</h3>
+            <p id="design-desc">مظهر يعتمد على التوهج النبضي والعمق اللوني الداكن ليمنح شعوراً مستقبلياً فائق التطور.</p>
+            
+            <div id="design-bullets">
+                <div class="feature-bullet">
+                    <i data-lucide="check-circle" style="width:16px;height:16px;"></i>
+                    <span>توهج فسفوري مشع خلف شعار الترحيب.</span>
+                </div>
+                <div class="feature-bullet">
+                    <i data-lucide="check-circle" style="width:16px;height:16px;"></i>
+                    <span>تدرج لوني للنص من الأبيض إلى الفسفوري.</span>
+                </div>
+                <div class="feature-bullet">
+                    <i data-lucide="check-circle" style="width:16px;height:16px;"></i>
+                    <span>مؤشرات سفلية على هيئة كبسولات متمددة أنيقة.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Phone Mockup Frame -->
+        <div class="phone-wrapper">
+            <div class="phone-mockup design-neon" id="phone-container">
+                
+                <!-- Status bar -->
+                <div class="mockup-status-bar">
+                    <span>12:30 م</span>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <i data-lucide="signal" style="width:14px; height:14px;"></i>
+                        <i data-lucide="battery" style="width:16px; height:16px;"></i>
+                    </div>
+                </div>
+
+                <!-- Action Skip -->
+                <div class="mockup-action-bar">
+                    <span class="skip-btn">تخطّي</span>
+                </div>
+
+                <!-- Onboarding Screen Body -->
+                <div class="onboarding-body" id="onboarding-body-id">
+                    
+                    <!-- SVG Illustrations Container (Design 4 only) -->
+                    <div class="svg-container" id="svg-showcase-box" style="display: none;">
+                        <!-- SVGs are loaded dynamically via JS -->
+                    </div>
+
+                    <!-- PAGE 0: Welcome Page -->
+                    <div class="page-content active" id="page-0">
+                        <div class="glowing-aura" id="glow-welcome"></div>
+                        <div class="logo-container" id="logo-holder">
+                            <i data-lucide="wallet" style="width:48px;height:48px;color:var(--primary)" id="welcome-logo-icon"></i>
+                        </div>
+                        <h2 class="logo-title" id="logo-text">مالي</h2>
+                        <h3 style="font-size: 1.15rem; font-weight: 600; margin-bottom: 12px; color: var(--text-primary)" id="welcome-subhead">صاحبك في فلوسك</h3>
+                        <p class="page-desc">اعرف وين راحت فلوسك، ووفّر وكأنها لعبة يومية ممتعة.</p>
+                    </div>
+
+                    <!-- PAGE 1: Auto Parse Intro -->
+                    <div class="page-content" id="page-1">
+                        <div class="icon-circle" id="intro-icon-holder">
+                            <i data-lucide="message-square" style="width:40px;height:40px;"></i>
+                        </div>
+                        <span class="kicker">بدون مجهود</span>
+                        <h2 class="page-title">لا تكتب —<br>إحنا نفهمها لك</h2>
+                        <p class="page-desc">نقرأ رسائل بنكك على جهازك بشكل آمن، ونحدد المبلغ والمتجر ونصنفها تلقائياً.</p>
+                    </div>
+
+                    <!-- PAGE 2: Saving Vault Game -->
+                    <div class="page-content" id="page-2">
+                        <div class="vault-hero" id="vault-holder" style="display:none;">
+                            <div class="xp-badge">+50 XP</div>
+                            <div class="vault-door">
+                                <i data-lucide="key" style="width:24px;height:24px;color:var(--primary)"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="icon-circle" id="vault-icon-fallback">
+                            <i data-lucide="target" style="width:40px;height:40px;"></i>
+                        </div>
+
+                        <span class="kicker">التحفيز المالي</span>
+                        <h2 class="page-title">وفّر وكأنها<br>لعبة يومية</h2>
+                        <p class="page-desc">حدد هدفك للادخار، وشوف خزنتك تمتلئ بالذهب مع كل ريال تقوم بتوفيره.</p>
+                    </div>
+
+                    <!-- PAGE 3: Country Selection -->
+                    <div class="page-content" id="page-3">
+                        <div class="icon-circle" id="country-icon-holder">
+                            <i data-lucide="globe" style="width:40px;height:40px;"></i>
+                        </div>
+                        <h2 class="page-title" style="margin-bottom: 20px;">وين مكانك؟</h2>
+                        
+                        <div class="country-card">
+                            <span>السعودية</span>
+                            <i data-lucide="check-circle" style="color:var(--primary)"></i>
+                        </div>
+                        
+                        <div class="country-sub">
+                            <span>العملة الافتراضية: ريال سعودي (SAR)</span>
+                        </div>
+                    </div>
+
+                    <!-- PAGE 4: Privacy Statement -->
+                    <div class="page-content" id="page-4">
+                        <div class="icon-circle" id="privacy-icon-holder">
+                            <i data-lucide="shield" style="width:40px;height:40px;"></i>
+                        </div>
+                        <h2 class="page-title">بياناتك تبقى عندك</h2>
+                        
+                        <div class="check-list">
+                            <div class="check-item">
+                                <i data-lucide="check"></i>
+                                <span>معالجة مالية كاملة محلياً على جهازك</span>
+                            </div>
+                            <div class="check-item">
+                                <i data-lucide="check"></i>
+                                <span>نقرأ فقط رسائل الخصم والإيداع البنكية</span>
+                            </div>
+                            <div class="check-item">
+                                <i data-lucide="check"></i>
+                                <span>لا نرفع أو نشارك بياناتك المالية أبداً</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Bottom Frame Controls -->
+                <div class="mockup-bottom-controls">
+                    <div class="dots-container">
+                        <div class="dot active"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+
+                    <button class="next-btn" onclick="nextPage()">
+                        <span id="next-btn-text">التالي</span>
+                        <i data-lucide="arrow-left" style="width:16px;height:16px;"></i>
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        let currentPage = 0;
+        let activeDesign = "1";
+
+        // Definition of inline SVGs for Option 4
+        const svgIllustrations = {
+            // Welcome Page: Glowing Vault Safe
+            "0": `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <radialGradient id="volt-glow" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stop-color="var(--primary)" stop-opacity="0.3"/>
+                            <stop offset="100%" stop-color="var(--primary)" stop-opacity="0"/>
+                        </radialGradient>
+                    </defs>
+                    <circle cx="60" cy="60" r="50" fill="url(#volt-glow)" />
+                    <!-- Safe body -->
+                    <rect x="25" y="25" width="70" height="70" rx="16" fill="var(--surface-2)" stroke="var(--primary)" stroke-width="3" />
+                    <!-- Safe outer ring -->
+                    <circle cx="60" cy="60" r="22" fill="var(--surface)" stroke="var(--hairline)" stroke-width="2" />
+                    <!-- Safe lock combination -->
+                    <circle cx="60" cy="60" r="14" fill="none" stroke="var(--primary)" stroke-dasharray="3 3" stroke-width="2" />
+                    <!-- Center knob -->
+                    <circle cx="60" cy="60" r="6" fill="var(--primary)" />
+                    <line x1="60" y1="54" x2="60" y2="46" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" />
+                    <line x1="60" y1="66" x2="60" y2="74" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" />
+                    <line x1="54" y1="60" x2="46" y2="60" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" />
+                    <line x1="66" y1="60" x2="74" y2="60" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" />
+                  </svg>`,
+            
+            // Auto Capture Page: Mobile Phone and Chat Bubbles converting to parsed transactions
+            "1": `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Phone shape -->
+                    <rect x="40" y="15" width="40" height="85" rx="10" fill="var(--surface-2)" stroke="var(--hairline)" stroke-width="2" />
+                    <!-- Notch -->
+                    <rect x="53" y="15" width="14" height="4" rx="2" fill="var(--hairline)" />
+                    <!-- Message Bubble from right -->
+                    <rect x="15" y="30" width="45" height="24" rx="8" fill="var(--surface-3)" stroke="var(--hairline)" stroke-width="1.5" />
+                    <path d="M 50,54 L 54,58 L 54,50 Z" fill="var(--surface-3)" />
+                    <text x="37" y="45" font-size="6" font-weight="700" fill="var(--text-secondary)" text-anchor="middle" font-family="monospace">SAR 120.00</text>
+                    <!-- Classified result with Volt checkmark -->
+                    <circle cx="90" cy="65" r="16" fill="var(--primary-tint)" stroke="var(--primary)" stroke-width="2" />
+                    <!-- Receipt icon inside -->
+                    <path d="M 85,58 L 95,58 L 95,72 L 92,70 L 90,72 L 88,70 L 85,72 Z" fill="none" stroke="var(--primary)" stroke-width="1.5" />
+                    <path d="M 88,62 L 92,62 M 88,66 L 91,66" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round" />
+                    <!-- Connecting arrow line -->
+                    <path d="M 55,75 Q 70,80 80,75" fill="none" stroke="var(--primary)" stroke-width="2" stroke-dasharray="3 3" />
+                  </svg>`,
+
+            // Vault/Savings Page: Treasure Box/Safe overflowing with glowing gold coins
+            "2": `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Base glow -->
+                    <circle cx="60" cy="65" r="30" fill="var(--primary-tint)" />
+                    <!-- Safe body -->
+                    <rect x="35" y="45" width="50" height="50" rx="10" fill="var(--surface-2)" stroke="var(--primary)" stroke-width="2.5" />
+                    <!-- Open door showing gold coins inside -->
+                    <rect x="42" y="52" width="36" height="36" rx="6" fill="var(--surface-3)" />
+                    <!-- Coins stack inside -->
+                    <ellipse cx="60" cy="78" rx="14" ry="5" fill="var(--primary)" />
+                    <ellipse cx="60" cy="74" rx="14" ry="5" fill="var(--primary)" />
+                    <ellipse cx="60" cy="70" rx="12" ry="4" fill="var(--primary)" />
+                    <!-- Sparkles -->
+                    <path d="M 85,35 L 87,40 L 92,42 L 87,44 L 85,49 L 83,44 L 78,42 L 83,40 Z" fill="var(--primary)" />
+                    <path d="M 35,30 L 36,33 L 39,34 L 36,35 L 35,38 L 34,35 L 31,34 L 34,33 Z" fill="var(--primary)" />
+                  </svg>`,
+
+            // Country Page: Middle East Globe pointing to KSA
+            "3": `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Outer Globe -->
+                    <circle cx="60" cy="60" r="45" fill="none" stroke="var(--hairline)" stroke-width="2" />
+                    <!-- Longitude / Latitude lines -->
+                    <ellipse cx="60" cy="60" rx="45" ry="16" fill="none" stroke="var(--hairline)" stroke-width="1.5" stroke-dasharray="2 2" />
+                    <ellipse cx="60" cy="60" rx="16" ry="45" fill="none" stroke="var(--hairline)" stroke-width="1.5" stroke-dasharray="2 2" />
+                    <!-- Saudi Arabia Peninsula shape stylized -->
+                    <path d="M 45,55 C 50,53 58,58 64,56 C 70,54 75,60 78,65 C 75,70 65,75 58,74 C 52,73 44,68 45,55 Z" fill="var(--primary-tint)" stroke="var(--primary)" stroke-width="2" />
+                    <!-- Volt Pin on Riyadh location -->
+                    <circle cx="60" cy="63" r="5" fill="var(--primary)" />
+                    <path d="M 60,63 L 60,53" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" />
+                    <circle cx="60" cy="53" r="2" fill="var(--on-primary)" />
+                  </svg>`,
+
+            // Privacy Page: Shield Lock representing E2E security
+            "4": `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Shield outline -->
+                    <path d="M 60,20 C 75,20 85,25 85,38 C 85,65 65,85 60,95 C 55,85 35,65 35,38 C 35,25 45,20 60,20 Z" fill="var(--primary-tint)" stroke="var(--primary)" stroke-width="3" />
+                    <!-- Inner lock padlock -->
+                    <rect x="48" y="54" width="24" height="18" rx="4" fill="var(--surface)" stroke="var(--primary)" stroke-width="2" />
+                    <path d="M 53,54 L 53,46 C 53,42 67,42 67,46 L 67,54" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" />
+                    <!-- Keyhole -->
+                    <circle cx="60" cy="61" r="3" fill="var(--primary)" />
+                    <line x1="60" y1="64" x2="60" y2="69" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" />
+                  </svg>`
+        };
+
+        const designDetails = {
+            "1": {
+                title: "النيون التفاعلي الفاخر (Dark Neon)",
+                desc: "تصميم يتميز بالتوهج النبضي المضيء مع لوحات زجاجية مصنفرة وعناوين ذات تدرجات لونية تمنح إحساساً فائق التطور.",
+                bullets: [
+                    "توهج فسفوري مشع خلف شعار الترحيب.",
+                    "عناوين عريضة بنصوص متدرجة معدنية مضيئة.",
+                    "مؤشرات صفحات سفلية متمددة وديناميكية.",
+                    "أزرار ذات زوايا دائرية كبيرة بظلال فسفورية متوهجة."
+                ],
+                className: "design-neon"
+            },
+            "2": {
+                title: "التصميم النظيف البسيط (Minimalist Slate)",
+                desc: "تصميم يركز على المحاذاة النظيفة والهوامش الواسعة مع إظهار بطاقة تفاعلية عائمة توضح طريقة عمل المحلل المالي التلقائي.",
+                bullets: [
+                    "شعار دائري محايد وبسيط بدون توهج.",
+                    "بطاقة محاكاة تفاعلية عائمة تظهر معالجة رسالة البنك.",
+                    "بساطة بصرية مطلقة بظلال ناعمة خفيفة.",
+                    "أزرار رياضية بزوايا دائرية كلاسيكية معتدلة."
+                ],
+                className: "design-minimal"
+            },
+            "3": {
+                title: "تركيز الخزنة واللعب (Gamified Vault)",
+                desc: "تصميم يضع عنصر الخزنة كبطل للتجربة منذ اللحظة الأولى مع حركة نبض صعودية لإبراز جوانب التحفيز ومكافآت الـ XP.",
+                bullets: [
+                    "الخزنة هي العنصر المركزي المطفو في شاشة الترحيب.",
+                    "إبراز شارة مكافآت الـ XP (+50 XP) الملفتة بصرياً.",
+                    "معادلة الألوان لإظهار التقدم المالي كحلقة متكاملة.",
+                    "التركيز النفسي على كسب Streaks والإنجازات."
+                ],
+                className: "design-gamified"
+            },
+            "4": {
+                title: "الرسوم التوضيحية الأنيقة (SVG Illustrations)",
+                desc: "تصميم يستخدم رسوم فيكتور متجهة مخصصة وراقية لكل صفحة بصرية للتطبيق لتشرح المفاهيم بمحاكاة رسومية مذهلة وجميلة.",
+                bullets: [
+                    "رسمة فيكتور مخصصة بالكامل لكل صفحة من الصفحات الخمس.",
+                    "الألوان تتبع الفحمي والفسفوري والذهبي بدقة ووضوح.",
+                    "مظهر أنيق وودود يدعم الشرح التوضيحي البصري الممتاز.",
+                    "تحسين تجربة القراءة وتوضيح طريقة تتبع الرسائل الآمنة والخصوصية."
+                ],
+                className: "design-svg"
+            }
+        };
+
+        function setDesign(designId) {
+            activeDesign = designId;
+            
+            // Update control buttons
+            const buttons = document.querySelectorAll('.controls-container .control-group:first-child .toggle-btn');
+            buttons.forEach((btn, index) => {
+                btn.classList.toggle('active', index === parseInt(designId) - 1);
+            });
+
+            // Update details sidebar
+            const details = designDetails[designId];
+            document.getElementById('design-title').innerText = details.title;
+            document.getElementById('design-desc').innerText = details.desc;
+            
+            const bulletsContainer = document.getElementById('design-bullets');
+            bulletsContainer.innerHTML = '';
+            details.bullets.forEach(bullet => {
+                bulletsContainer.innerHTML += `
+                    <div class="feature-bullet">
+                        <i data-lucide="check-circle" style="width:16px;height:16px;"></i>
+                        <span>${bullet}</span>
+                    </div>
+                `;
+            });
+            lucide.createIcons();
+
+            // Update mockup classes
+            const phone = document.getElementById('phone-container');
+            phone.className = "phone-mockup " + details.className;
+            
+            // Render specific components based on design choice
+            renderDesignSpecifics();
+        }
+
+        function renderDesignSpecifics() {
+            const aura = document.getElementById('glow-welcome');
+            const logoHolder = document.getElementById('logo-holder');
+            const welcomeSubhead = document.getElementById('welcome-subhead');
+            const logoText = document.getElementById('logo-text');
+            const vaultHolder = document.getElementById('vault-holder');
+            const vaultFallback = document.getElementById('vault-icon-fallback');
+            const onboardingBody = document.getElementById('onboarding-body-id');
+            const svgBox = document.getElementById('svg-showcase-box');
+
+            // Reset dynamic structures
+            if (document.getElementById('minimal-card')) {
+                document.getElementById('minimal-card').remove();
+            }
+
+            // Default visible setup
+            svgBox.style.display = 'none';
+            document.getElementById('page-0').style.display = currentPage === 0 ? 'flex' : 'none';
+            document.getElementById('intro-icon-holder').style.display = 'flex';
+            document.getElementById('vault-icon-fallback').style.display = (currentPage === 2 && activeDesign !== "3") ? 'flex' : 'none';
+            document.getElementById('country-icon-holder').style.display = 'flex';
+            document.getElementById('privacy-icon-holder').style.display = 'flex';
+
+            // Design 4: SVG Illustrations Setup
+            if (activeDesign === "4") {
+                aura.style.display = 'none';
+                logoHolder.style.display = 'none';
+                vaultHolder.style.display = 'none';
+                vaultFallback.style.display = 'none';
+                
+                // Hide standard circles
+                document.getElementById('intro-icon-holder').style.display = 'none';
+                document.getElementById('country-icon-holder').style.display = 'none';
+                document.getElementById('privacy-icon-holder').style.display = 'none';
+                
+                // Render SVG corresponding to current page
+                svgBox.style.display = 'flex';
+                svgBox.innerHTML = svgIllustrations[currentPage.toString()];
+                
+                // If welcome page, we only show text inside page-0 and place SVG above it
+                if (currentPage === 0) {
+                    welcomeSubhead.style.display = 'block';
+                    logoText.style.display = 'block';
+                }
+            } 
+            // Design 1: Neon Glowing Setup
+            else if (activeDesign === "1") {
+                aura.style.display = currentPage === 0 ? 'block' : 'none';
+                logoHolder.style.display = currentPage === 0 ? 'flex' : 'none';
+                vaultHolder.style.display = 'none';
+            } 
+            // Design 2: Minimal Card Setup
+            else if (activeDesign === "2") {
+                aura.style.display = 'none';
+                logoHolder.style.display = currentPage === 0 ? 'flex' : 'none';
+                vaultHolder.style.display = 'none';
+
+                // Insert mock message card on page 1 (Intro Page)
+                if (currentPage === 1) {
+                    const card = document.createElement('div');
+                    card.id = 'minimal-card';
+                    card.className = 'showcase-card';
+                    card.innerHTML = `
+                        <div class="sms-mock">شراء بقيمة 45.00 ر.س في Barnes Cafe...</div>
+                        <div class="parsed-result">
+                            <span style="font-size:0.8rem; font-weight:700;">تم التحليل والتصنيف</span>
+                            <div class="category-badge">
+                                <i data-lucide="coffee" style="width:12px;height:12px;"></i>
+                                كافيهات
+                            </div>
+                        </div>
+                    `;
+                    onboardingBody.insertBefore(card, document.getElementById('page-1').nextSibling);
+                    lucide.createIcons();
+                }
+            } 
+            // Design 3: Gamified Vault setup
+            else if (activeDesign === "3") {
+                aura.style.display = 'none';
+                logoHolder.style.display = 'none'; 
+                vaultHolder.style.display = currentPage === 2 ? 'flex' : 'none';
+                
+                // If welcome page, we show vault illustration as welcome logo
+                if (currentPage === 0) {
+                    vaultHolder.style.display = 'flex';
+                    // Hide original text so vault takes charge
+                    logoText.innerText = "مالي";
+                    logoText.style.display = 'block';
+                } else {
+                    logoText.innerText = "مالي";
+                }
+            }
+        }
+
+        function setPage(pageIdx) {
+            currentPage = pageIdx;
+            
+            // Update navigation indicator buttons
+            const navButtons = document.querySelectorAll('.controls-container .control-group .page-nav');
+            navButtons.forEach((btn, index) => {
+                btn.classList.toggle('active', index === pageIdx);
+            });
+
+            // Toggle active screen content
+            for (let i = 0; i < 5; i++) {
+                document.getElementById(`page-${i}`).classList.toggle('active', i === pageIdx);
+            }
+
+            // Update dots
+            const dots = document.querySelectorAll('.dots-container .dot');
+            dots.forEach((dot, index) => {
+                dot.classList.toggle('active', index === pageIdx);
+            });
+
+            // Update next button text
+            const btnText = document.getElementById('next-btn-text');
+            btnText.innerText = (pageIdx === 4) ? "يلا نبدأ" : "التالي";
+
+            // Refresh design specifics
+            renderDesignSpecifics();
+        }
+
+        function nextPage() {
+            if (currentPage < 4) {
+                setPage(currentPage + 1);
+            } else {
+                alert("جاهز للانتقال للخطوة التالية!");
+                setPage(0);
+            }
+        }
+
+        function setTheme(themeName) {
+            document.getElementById('btn-dark').classList.toggle('active', themeName === 'dark');
+            document.getElementById('btn-light').classList.toggle('active', themeName === 'light');
+            document.body.setAttribute('data-theme', themeName);
+        }
+
+        // Initial render
+        setDesign("1");
+    </script>
+</body>
+</html>

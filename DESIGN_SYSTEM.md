@@ -15,28 +15,29 @@
 يجب تعريف هذه الألوان في `ThemeData` أو كفئة `AppColors` في Flutter. التطبيق يدعم الوضعين الفاتح (Light) والداكن (Dark).
 
 ### ☀️ الوضع الفاتح (Light Mode)
-* **Background (الخلفية العامة):** `#F4F5F7`
+* **Background (الخلفية العامة):** `#F8FAFC`
 * **Surface (البطاقات):** `#FFFFFF`
-* **Surface 2 (الخيارات / حقول الإدخال):** `#F8F9FA`
-* **Primary (اللون الرئيسي):** `#8E24AA` (Deep Magenta)
-* **Primary Gradient:** `LinearGradient(colors: [Color(0xFF4F00BC), Color(0xFF9B27B0)], begin: Alignment.topLeft, end: Alignment.bottomRight)`
-* **Accent (التمييز / التحفيز):** `#FFD54F`
-* **Success (الإيجابي / الإيداع):** `#00C853`
-* **Danger (السلبي / السحب):** `#FF3D00`
-* **Text Main:** `#1a1a1a`
-* **Text Light (رمادي):** `#9AA0A6`
-* **Borders:** `#E0E0E0`
+* **Surface 2 (الخيارات / حقول الإدخال):** `#F1F5F9`
+* **Primary (اللون الرئيسي):** `#7C3AED` (Royal Purple)
+* **Primary Gradient:** `LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFFFF6B4A)], begin: Alignment.topRight, end: Alignment.bottomLeft)`
+* **Accent (التمييز / التحفيز):** `#FF6B4A` (Sunset Coral)
+* **Success (الإيجابي / الإيداع):** `#10B981` (Emerald Green)
+* **Danger (السلبي / السحب):** `#EF4444` (Coral Red)
+* **Text Main:** `#0F172A`
+* **Text Light (رمادي):** `#64748B`
+* **Borders:** `#E2E8F0`
 
 ### 🌙 الوضع الداكن (Dark Mode)
-* **Background (الخلفية العامة):** `#0A0A0C` (أسود عميق)
-* **Surface (البطاقات):** `#1C1C1E` (رمادي داكن جداً - Apple Style)
-* **Surface 2 (الخيارات / حقول الإدخال):** `#2C2C2E`
-* **Primary:** `#AB47BC` (أفتح قليلاً ليتناسب مع الظلام)
-* **Primary Gradient:** `LinearGradient(colors: [Color(0xFF2A0066), Color(0xFF5E146E)])`
-* **Success:** `#00E676`
-* **Text Main:** `#FFFFFF`
-* **Text Light (رمادي):** `#6E6E73`
-* **Borders:** `#38383A`
+* **Background (الخلفية العامة):** `#0B0F19` (فحمي)
+* **Surface (البطاقات):** `#131924` (فحمي داكن)
+* **Surface 2 (الخيارات / حقول الإدخال):** `#1E2535`
+* **Primary:** `#818CF8` (Amethyst Purple)
+* **Primary Gradient:** `LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFFFF7D66)])`
+* **Accent (التمييز / التحفيز):** `#FF7D66` (Soft Sunset Coral)
+* **Success:** `#34D399`
+* **Text Main:** `#F8FAFC`
+* **Text Light (رمادي):** `#8295A5`
+* **Borders:** `#2A3347`
 
 ---
 

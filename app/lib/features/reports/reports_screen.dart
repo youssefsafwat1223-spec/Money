@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,6 +6,9 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
+import '../common/charts/spending_charts.dart';
+import '../common/motion.dart';
+import '../common/premium_loading.dart';
 import '../common/widgets.dart';
 import '../common/section_hero_header.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
@@ -23,35 +24,32 @@ class ReportsScreen extends ConsumerWidget {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        appBar: AppBar(
-          toolbarHeight: 0,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
         body: async.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const PremiumSkeletonPage(cardCount: 4),
           error: (e, _) => Center(child: Text('حدث خطأ: $e')),
           data: (bundle) {
             final section = bundle.monthly;
             return Column(
               children: [
-                SectionHeroHeader(
-                  title: 'الرؤى',
-                  subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
-                  metrics: [
-                    SectionHeroMetric(
-                      value: '${Formatters.amount(section.total)} ر',
-                      label: 'مصروف الشهر',
-                    ),
-                    SectionHeroMetric(
-                      value: '${Formatters.amount(section.averageDaily)} ر',
-                      label: 'متوسط يومي',
-                    ),
-                    SectionHeroMetric(
-                      value: '${Formatters.amount(section.highestDaily)} ر',
-                      label: 'أعلى يوم',
-                    ),
-                  ],
+                PremiumMotion(
+                  child: SectionHeroHeader(
+                    title: 'الرؤى',
+                    subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
+                    metrics: [
+                      SectionHeroMetric(
+                        value: '${Formatters.amount(section.total)} ر',
+                        label: 'مصروف الشهر',
+                      ),
+                      SectionHeroMetric(
+                        value: '${Formatters.amount(section.averageDaily)} ر',
+                        label: 'متوسط يومي',
+                      ),
+                      SectionHeroMetric(
+                        value: '${Formatters.amount(section.highestDaily)} ر',
+                        label: 'أعلى يوم',
+                      ),
+                    ],
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.gutter),
@@ -105,16 +103,35 @@ class _OverviewTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final chartSlices = [
+      for (final slice in section.topCategories)
+        SpendingChartSlice(
+          category: slice.category,
+          total: slice.total,
+          percent: slice.percent,
+        ),
+    ];
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
-        _PeriodCard(section: section),
+        PremiumMotion(child: _PeriodCard(section: section)),
         const SizedBox(height: AppSpacing.s5),
-        _DailySpendCard(section: section),
+        PremiumMotion(
+          delay: const Duration(milliseconds: 70),
+          child: _DailySpendCard(section: section),
+        ),
         if (section.topCategories.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.s5),
           Text('أكثر التصنيفات', style: AppTypography.title2(c.textMain)),
           const SizedBox(height: AppSpacing.s3),
+          PremiumMotion(
+            delay: const Duration(milliseconds: 120),
+            child: CategoryDonutChart(
+              slices: chartSlices,
+              centerLabel: 'توزيع التصنيفات',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s4),
           for (final slice in section.topCategories) ...[
             _CategoryBar(slice: slice),
             const SizedBox(height: AppSpacing.s3),
@@ -279,12 +296,8 @@ class _DailySpendCard extends StatelessWidget {
           SizedBox(
             height: 180,
             width: double.infinity,
-            child: CustomPaint(
-              painter: _DailySpendPainter(
-                values: section.dailySpend.map((day) => day.total).toList(),
-                lineColor: c.primary,
-                gridColor: c.border,
-              ),
+            child: DailySpendBarChart(
+              values: section.dailySpend.map((day) => day.total).toList(),
             ),
           ),
           const Divider(height: AppSpacing.s6),
@@ -430,84 +443,4 @@ class _InsightCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _DailySpendPainter extends CustomPainter {
-  const _DailySpendPainter({
-    required this.values,
-    required this.lineColor,
-    required this.gridColor,
-  });
-
-  final List<double> values;
-  final Color lineColor;
-  final Color gridColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1;
-    for (var i = 1; i <= 4; i++) {
-      final y = size.height * i / 5;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    if (values.isEmpty) {
-      final zeroPaint = Paint()
-        ..color = lineColor.withValues(alpha: 0.75)
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round;
-      canvas.drawLine(
-        Offset(0, size.height * 0.82),
-        Offset(size.width, size.height * 0.82),
-        zeroPaint,
-      );
-      return;
-    }
-
-    final maxValue = math.max(values.reduce(math.max), 1);
-    final step = values.length == 1 ? size.width : size.width / (values.length - 1);
-    final path = Path();
-    for (var i = 0; i < values.length; i++) {
-      final x = i * step;
-      final y = size.height - (values[i] / maxValue * size.height * 0.82) - 8;
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-
-    final fill = Path.from(path)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(
-      fill,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            lineColor.withValues(alpha: 0.20),
-            lineColor.withValues(alpha: 0),
-          ],
-        ).createShader(Offset.zero & size),
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = lineColor
-        ..strokeWidth = 3
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _DailySpendPainter oldDelegate) =>
-      oldDelegate.values != values ||
-      oldDelegate.lineColor != lineColor ||
-      oldDelegate.gridColor != gridColor;
 }

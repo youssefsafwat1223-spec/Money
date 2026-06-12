@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>معاينة لوحات الألوان المتنوعة لمساعد «مالي»</title>
+    
+    <!-- Google Fonts: IBM Plex Sans Arabic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons via CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* CSS Variables for 10 Palette Switcher */
+        :root {
+            /* Palette 1: Electric Blue */
+            --bg: #F4F7FC;
+            --surface: #FFFFFF;
+            --surface-2: #EEF3FB;
+            --surface-3: #E1EAF7;
+            --hairline: #E2E8F0;
+            --primary: #1E50FF;
+            --primary-press: #1132A6;
+            --primary-tint: rgba(30, 80, 255, 0.08);
+            --accent: #00D4EC;
+            --danger: #FF5C5C;
+            --danger-tint: #FDECEC;
+            --success: #00C853;
+            --text-primary: #0F131D;
+            --text-secondary: #707E94;
+            --text-muted: #9AA6B8;
+            --on-primary: #FFFFFF;
+            
+            --grad-start: #1E50FF;
+            --grad-end: #00CFFF;
+            --shadow: 0 10px 30px rgba(30, 80, 255, 0.08);
+            --glow: 0 0 20px rgba(0, 212, 236, 0.2);
+            --transition: all 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        /* Palette 1 Dark Mode */
+        [data-palette="1"][data-theme="dark"] {
+            --bg: #080B11;
+            --surface: #111622;
+            --surface-2: #192131;
+            --surface-3: #222C41;
+            --hairline: #222B3E;
+            --primary: #4D7CFF;
+            --primary-press: #2D59F5;
+            --primary-tint: rgba(77, 124, 255, 0.12);
+            --accent: #00E5FF;
+            --danger: #FF5C5C;
+            --danger-tint: #2A1517;
+            --success: #00E676;
+            --text-primary: #F5F8FF;
+            --text-secondary: #6B7C96;
+            --text-muted: #4B5A70;
+            --on-primary: #080B11;
+            --grad-start: #1132A6;
+            --grad-end: #2D59F5;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            --glow: 0 0 25px rgba(0, 229, 255, 0.15);
+        }
+
+        /* Palette 2: Ocean Blue & Mint */
+        [data-palette="2"][data-theme="light"] {
+            --bg: #F5F8FA;
+            --surface: #FFFFFF;
+            --surface-2: #EBF1F7;
+            --surface-3: #DEE6F0;
+            --hairline: #DFE5EB;
+            --primary: #0066FF;
+            --primary-press: #0052D4;
+            --primary-tint: rgba(0, 102, 255, 0.08);
+            --accent: #00BFA5;
+            --danger: #E14B4B;
+            --danger-tint: #FDECEC;
+            --success: #16A968;
+            --text-primary: #0B0E14;
+            --text-secondary: #627285;
+            --text-muted: #8E9EAF;
+            --on-primary: #FFFFFF;
+            --grad-start: #0052D4;
+            --grad-end: #4364F7;
+            --shadow: 0 10px 30px rgba(0, 102, 255, 0.06);
+            --glow: 0 0 20px rgba(0, 191, 165, 0.15);
+        }
+
+        [data-palette="2"][data-theme="dark"] {
+            --bg: #0A0D14;
+            --surface: #141923;
+            --surface-2: #1C2331;
+            --surface-3: #263044;
+            --hairline: #20293A;
+            --primary: #3385FF;
+            --primary-press: #1A4CB0;
+            --primary-tint: rgba(51, 133, 255, 0.12);
+            --accent: #00F5D4;
+            --danger: #FF5C5C;
+            --danger-tint: #2A1517;
+            --success: #00E676;
+            --text-primary: #F0F4F8;
+            --text-secondary: #7C8B9E;
+            --text-muted: #536275;
+            --on-primary: #0A0D14;
+            --grad-start: #003B99;
+            --grad-end: #1A4CB0;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+            --glow: 0 0 25px rgba(0, 245, 212, 0.15);
+        }
+
+        /* Palette 3: Midnight Sky & Gold */
+        [data-palette="3"][data-theme="light"] {
+            --bg: #F0F4F8;
+            --surface: #FFFFFF;
+            --surface-2: #E3EAF2;
+            --surface-3: #D5DFEB;
+            --hairline: #D3DFEE;
+            --primary: #0A2540;
+            --primary-press: #051527;
+            --primary-tint: rgba(10, 37, 64, 0.08);
+            --accent: #FFB300;
+            --danger: #E14B4B;
+            --danger-tint: #FDECEC;
+            --success: #16A968;
+            --text-primary: #0A2540;
+            --text-secondary: #6B7A8A;
+            --text-muted: #94A3B3;
+            --on-primary: #FFFFFF;
+            --grad-start: #0A2540;
+            --grad-end: #4A90E2;
+            --shadow: 0 10px 30px rgba(10, 37, 64, 0.06);
+            --glow: 0 0 20px rgba(255, 179, 0, 0.15);
+        }
+
+        [data-palette="3"][data-theme="dark"] {
+            --bg: #05080E;
+            --surface: #0E1420;
+            --surface-2: #161F30;
+            --surface-3: #202B41;
+            --hairline: #1A2436;
+            --primary: #639BFF;
+            --primary-press: #004B8F;
+            --primary-tint: rgba(99, 155, 255, 0.12);
+            --accent: #F2C14E;
+            --danger: #E14B4B;
+            --danger-tint: #200E10;
+            --success: #00E676;
+            --text-primary: #FFFFFF;
+            --text-secondary: #8295A5;
+            --text-muted: #536475;
+            --on-primary: #05080E;
+            --grad-start: #001C3D;
+            --grad-end: #004B8F;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --glow: 0 0 25px rgba(242, 193, 78, 0.15);
+        }
+
+        /* Palette 4: Royal Indigo & Rose */
+        [data-palette="4"][data-theme="light"] {
+            --bg: #F8FAFC;
+            --surface: #FFFFFF;
+            --surface-2: #F1F5F9;
+            --surface-3: #E2E8F0;
+            --hairline: #E2E8F0;
+            --primary: #4F46E5;
+            --primary-press: #3730A3;
+            --primary-tint: rgba(79, 70, 229, 0.08);
+            --accent: #F43F5E;
+            --danger: #EF4444;
+            --danger-tint: #FEE2E2;
+            --success: #10B981;
+            --text-primary: #1E293B;
+            --text-secondary: #64748B;
+            --text-muted: #94A3B8;
+            --on-primary: #FFFFFF;
+            --grad-start: #4F46E5;
+            --grad-end: #EC4899;
+            --shadow: 0 10px 30px rgba(79, 70, 229, 0.06);
+            --glow: 0 0 20px rgba(244, 63, 94, 0.15);
+        }
+
+        [data-palette="4"][data-theme="dark"] {
+            --bg: #0B0C10;
+            --surface: #161722;
+            --surface-2: #1E2030;
+            --surface-3: #282B40;
+            --hairline: #282B40;
+            --primary: #818CF8;
+            --primary-press: #4F46E5;
+            --primary-tint: rgba(129, 140, 248, 0.12);
+            --accent: #FB7185;
+            --danger: #F87171;
+            --danger-tint: #2D1418;
+            --success: #34D399;
+            --text-primary: #F1F5F9;
+            --text-secondary: #808BA0;
+            --text-muted: #505869;
+            --on-primary: #0B0C10;
+            --grad-start: #312E81;
+            --grad-end: #4F46E5;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --glow: 0 0 25px rgba(251, 113, 133, 0.15);
+        }
+
+        /* Palette 5: Nordic Steel & Sky */
+        [data-palette="5"][data-theme="light"] {
+            --bg: #F1F5F9;
+            --surface: #FFFFFF;
+            --surface-2: #E2E8F0;
+            --surface-3: #CBD5E1;
+            --hairline: #CBD5E1;
+            --primary: #475569;
+            --primary-press: #1E293B;
+            --primary-tint: rgba(71, 85, 105, 0.08);
+            --accent: #0EA5E9;
+            --danger: #EF4444;
+            --danger-tint: #FEE2E2;
+            --success: #059669;
+            --text-primary: #0F172A;
+            --text-secondary: #475569;
+            --text-muted: #94A3B8;
+            --on-primary: #FFFFFF;
+            --grad-start: #334155;
+            --grad-end: #64748B;
+            --shadow: 0 10px 30px rgba(71, 85, 105, 0.06);
+            --glow: 0 0 20px rgba(14, 165, 233, 0.15);
+        }
+
+        [data-palette="5"][data-theme="dark"] {
+            --bg: #0F172A;
+            --surface: #1E293B;
+            --surface-2: #334155;
+            --surface-3: #475569;
+            --hairline: #475569;
+            --primary: #94A3B8;
+            --primary-press: #475569;
+            --primary-tint: rgba(148, 163, 184, 0.12);
+            --accent: #38BDF8;
+            --danger: #F87171;
+            --danger-tint: #2A1517;
+            --success: #34D399;
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #536475;
+            --on-primary: #0F172A;
+            --grad-start: #0F172A;
+            --grad-end: #1E293B;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+            --glow: 0 0 25px rgba(56, 189, 248, 0.15);
+        }
+
+        /* Palette 6: Deep Petrol Teal & Mint */
+        [data-palette="6"][data-theme="light"] {
+            --bg: #F0F9FF;
+            --surface: #FFFFFF;
+            --surface-2: #E0F2FE;
+            --surface-3: #BAE6FD;
+            --hairline: #BAE6FD;
+            --primary: #0891B2;
+            --primary-press: #155E75;
+            --primary-tint: rgba(8, 145, 178, 0.08);
+            --accent: #10B981;
+            --danger: #EF4444;
+            --danger-tint: #FEE2E2;
+            --success: #059669;
+            --text-primary: #0369A1;
+            --text-secondary: #475569;
+            --text-muted: #8E9EAF;
+            --on-primary: #FFFFFF;
+            --grad-start: #083344;
+            --grad-end: #0E7490;
+            --shadow: 0 10px 30px rgba(8, 145, 178, 0.06);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.15);
+        }
+
+        [data-palette="6"][data-theme="dark"] {
+            --bg: #04151F;
+            --surface: #0B2535;
+            --surface-2: #11354A;
+            --surface-3: #1C4E68;
+            --hairline: #1C4E68;
+            --primary: #22D3EE;
+            --primary-press: #0891B2;
+            --primary-tint: rgba(34, 211, 238, 0.12);
+            --accent: #34D399;
+            --danger: #FF5C5C;
+            --danger-tint: #1C0C10;
+            --success: #34D399;
+            --text-primary: #E0F2FE;
+            --text-secondary: #7DD3FC;
+            --text-muted: #3B6F8E;
+            --on-primary: #04151F;
+            --grad-start: #04151F;
+            --grad-end: #0B2535;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+            --glow: 0 0 25px rgba(52, 211, 153, 0.15);
+        }
+
+        /* Palette 7: Emerald & Gold */
+        [data-palette="7"][data-theme="light"] {
+            --bg: #F4FBF7;
+            --surface: #FFFFFF;
+            --surface-2: #E6F4ED;
+            --surface-3: #C2E7D5;
+            --hairline: #C2E7D5;
+            --primary: #064E3B;
+            --primary-press: #022C22;
+            --primary-tint: rgba(6, 78, 59, 0.08);
+            --accent: #D97706;
+            --danger: #DC2626;
+            --danger-tint: #FEE2E2;
+            --success: #10B981;
+            --text-primary: #064E3B;
+            --text-secondary: #3B7A57;
+            --text-muted: #7E9E8C;
+            --on-primary: #FFFFFF;
+            --grad-start: #064E3B;
+            --grad-end: #10B981;
+            --shadow: 0 10px 30px rgba(6, 78, 59, 0.05);
+            --glow: 0 0 20px rgba(217, 119, 6, 0.15);
+        }
+
+        [data-palette="7"][data-theme="dark"] {
+            --bg: #050B08;
+            --surface: #0C1813;
+            --surface-2: #142820;
+            --surface-3: #1D3E31;
+            --hairline: #1D3E31;
+            --primary: #34D399;
+            --primary-press: #059669;
+            --primary-tint: rgba(52, 211, 153, 0.12);
+            --accent: #F59E0B;
+            --danger: #EF4444;
+            --danger-tint: #2A1517;
+            --success: #34D399;
+            --text-primary: #E6F4ED;
+            --text-secondary: #A7D5C0;
+            --text-muted: #496F5D;
+            --on-primary: #050B08;
+            --grad-start: #041B12;
+            --grad-end: #0C1813;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --glow: 0 0 25px rgba(245, 158, 11, 0.15);
+        }
+
+        /* Palette 8: Sunset Violet & Peach */
+        [data-palette="8"][data-theme="light"] {
+            --bg: #FAF5FF;
+            --surface: #FFFFFF;
+            --surface-2: #F3E8FF;
+            --surface-3: #E9D5FF;
+            --hairline: #E9D5FF;
+            --primary: #7C3AED;
+            --primary-press: #5B21B6;
+            --primary-tint: rgba(124, 58, 237, 0.08);
+            --accent: #F97316;
+            --danger: #EF4444;
+            --danger-tint: #FEE2E2;
+            --success: #10B981;
+            --text-primary: #5B21B6;
+            --text-secondary: #8B5CF6;
+            --text-muted: #A78BFA;
+            --on-primary: #FFFFFF;
+            --grad-start: #7C3AED;
+            --grad-end: #EC4899;
+            --shadow: 0 10px 30px rgba(124, 58, 237, 0.06);
+            --glow: 0 0 20px rgba(249, 115, 22, 0.15);
+        }
+
+        [data-palette="8"][data-theme="dark"] {
+            --bg: #08050C;
+            --surface: #120E1A;
+            --surface-2: #1E162B;
+            --surface-3: #2D223F;
+            --hairline: #2D223F;
+            --primary: #A78BFA;
+            --primary-press: #7C3AED;
+            --primary-tint: rgba(167, 139, 250, 0.12);
+            --accent: #FB923C;
+            --danger: #F87171;
+            --danger-tint: #2D1418;
+            --success: #34D399;
+            --text-primary: #F3E8FF;
+            --text-secondary: #C084FC;
+            --text-muted: #6D5B80;
+            --on-primary: #08050C;
+            --grad-start: #2E1065;
+            --grad-end: #120E1A;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --glow: 0 0 25px rgba(251, 146, 60, 0.15);
+        }
+
+        /* Palette 9: Charcoal & Neon Volt */
+        [data-palette="9"][data-theme="light"] {
+            --bg: #F8FAFC;
+            --surface: #FFFFFF;
+            --surface-2: #E2E8F0;
+            --surface-3: #CBD5E1;
+            --hairline: #CBD5E1;
+            --primary: #1E293B;
+            --primary-press: #0F172A;
+            --primary-tint: rgba(30, 41, 59, 0.08);
+            --accent: #84CC16;
+            --danger: #EF4444;
+            --danger-tint: #FEE2E2;
+            --success: #059669;
+            --text-primary: #0F172A;
+            --text-secondary: #475569;
+            --text-muted: #94A3B8;
+            --on-primary: #FFFFFF;
+            --grad-start: #0F172A;
+            --grad-end: #334155;
+            --shadow: 0 10px 30px rgba(30, 41, 59, 0.06);
+            --glow: 0 0 20px rgba(132, 204, 22, 0.15);
+        }
+
+        [data-palette="9"][data-theme="dark"] {
+            --bg: #0B0F19;
+            --surface: #151B26;
+            --surface-2: #202938;
+            --surface-3: #2D394C;
+            --hairline: #2D394C;
+            --primary: #E2E8F0;
+            --primary-press: #CBD5E1;
+            --primary-tint: rgba(226, 232, 240, 0.12);
+            --accent: #ADF00D;
+            --danger: #F87171;
+            --danger-tint: #2A1517;
+            --success: #34D399;
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #4E5E75;
+            --on-primary: #0B0F19;
+            --grad-start: #030712;
+            --grad-end: #151B26;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+            --glow: 0 0 25px rgba(173, 240, 13, 0.15);
+        }
+
+        /* Palette 10: Navy & Rose Gold */
+        [data-palette="10"][data-theme="light"] {
+            --bg: #F8FAFC;
+            --surface: #FFFFFF;
+            --surface-2: #F1F5F9;
+            --surface-3: #E2E8F0;
+            --hairline: #E2E8F0;
+            --primary: #0F172A;
+            --primary-press: #020617;
+            --primary-tint: rgba(15, 23, 42, 0.08);
+            --accent: #FDA4AF;
+            --danger: #E11D48;
+            --danger-tint: #FFE4E6;
+            --success: #10B981;
+            --text-primary: #0F172A;
+            --text-secondary: #475569;
+            --text-muted: #94A3B8;
+            --on-primary: #FFFFFF;
+            --grad-start: #0F172A;
+            --grad-end: #FDA4AF;
+            --shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+            --glow: 0 0 20px rgba(253, 164, 175, 0.15);
+        }
+
+        [data-palette="10"][data-theme="dark"] {
+            --bg: #090D16;
+            --surface: #131924;
+            --surface-2: #1E2535;
+            --surface-3: #2A3347;
+            --hairline: #2A3347;
+            --primary: #94A3B8;
+            --primary-press: #64748B;
+            --primary-tint: rgba(148, 163, 184, 0.12);
+            --accent: #FECDD3;
+            --danger: #FB7185;
+            --danger-tint: #2B1519;
+            --success: #34D399;
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #4F5A6E;
+            --on-primary: #090D16;
+            --grad-start: #030712;
+            --grad-end: #131924;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --glow: 0 0 25px rgba(254, 205, 211, 0.15);
+        }
+
+        /* Basic Setup */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'IBM Plex Sans Arabic', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-primary);
+            transition: var(--transition);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            max-width: 800px;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+            transition: var(--transition);
+        }
+
+        header p {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            transition: var(--transition);
+        }
+
+        /* Selector Bar Styles */
+        .controls-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+            background: var(--surface);
+            padding: 20px 24px;
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--hairline);
+            margin-bottom: 40px;
+            transition: var(--transition);
+            z-index: 10;
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .control-label {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            min-width: 130px;
+        }
+
+        .toggle-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: 16px;
+            gap: 4px;
+        }
+
+        .toggle-btn {
+            background: none;
+            border: none;
+            outline: none;
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toggle-btn.active {
+            background: var(--surface);
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Mockup Grid */
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 40px;
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        @media (min-width: 768px) {
+            .preview-grid {
+                grid-template-columns: 320px 1fr;
+            }
+        }
+
+        /* Sidebar Color Info */
+        .palette-info {
+            background: var(--surface);
+            border-radius: 28px;
+            padding: 24px;
+            border: 1px solid var(--hairline);
+            box-shadow: var(--shadow);
+            align-self: start;
+            transition: var(--transition);
+        }
+
+        .palette-info h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--surface-2);
+            padding-bottom: 10px;
+        }
+
+        .color-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .color-dot {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+            flex-shrink: 0;
+            transition: var(--transition);
+        }
+
+        .color-details {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .color-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .color-hex {
+            font-size: 0.75rem;
+            font-family: monospace;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        /* Main Phone Mockup View */
+        .phone-wrapper {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .phone-mockup {
+            width: 100%;
+            max-width: 390px;
+            height: 800px;
+            background: var(--bg);
+            border-radius: 44px;
+            border: 10px solid #1a1a1a;
+            box-shadow: 0 25px 70px rgba(0,0,0,0.3);
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            transition: var(--transition);
+        }
+
+        /* Screen Header Area */
+        .screen-header {
+            background: linear-gradient(135deg, var(--grad-start) 0%, var(--grad-end) 100%);
+            padding: 20px 20px 24px 20px;
+            border-bottom-left-radius: 28px;
+            border-bottom-right-radius: 28px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+            color: #FFFFFF;
+            transition: var(--transition);
+            position: relative;
+        }
+
+        .screen-header::before {
+            content: '';
+            position: absolute;
+            top: -80px;
+            right: -80px;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 70%);
+            pointer-events: none;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            font-weight: 600;
+            opacity: 0.85;
+            margin-bottom: 20px;
+        }
+
+        .user-greet {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .user-name {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+
+        .streak-pill {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .streak-pill i {
+            color: var(--accent);
+            filter: drop-shadow(0 0 4px rgba(255,255,255,0.5));
+            transition: var(--transition);
+        }
+
+        .wallet-card {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-radius: 20px;
+            padding: 16px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+        }
+
+        .wallet-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            opacity: 0.75;
+            text-align: center;
+        }
+
+        .wallet-amount {
+            font-size: 1.85rem;
+            font-weight: 700;
+            margin: 6px 0 12px 0;
+            text-align: center;
+            letter-spacing: -0.5px;
+        }
+
+        .wallet-substats {
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            padding-top: 10px;
+        }
+
+        .substat {
+            text-align: center;
+            flex: 1;
+        }
+
+        .substat:first-child {
+            border-left: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .substat-label {
+            font-size: 0.7rem;
+            opacity: 0.7;
+        }
+
+        .substat-val {
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+
+        .substat-val.gain {
+            color: var(--accent);
+        }
+
+        /* Screen Body Area */
+        .screen-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Component Card Layouts */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 20px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+        }
+
+        .card h4 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        /* Sparkline Visualization via SVG */
+        .sparkline-container {
+            width: 100%;
+            height: 50px;
+            margin-top: 4px;
+            position: relative;
+        }
+
+        .sparkline-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Vault Goal Widget */
+        .vault-card-content {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .vault-illustration {
+            width: 68px;
+            height: 68px;
+            background: var(--surface-2);
+            border: 1px solid var(--hairline);
+            border-radius: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.02);
+        }
+
+        .vault-illustration i {
+            color: var(--primary);
+            transition: var(--transition);
+        }
+
+        .vault-progress-circle {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 65%; /* simulated 65% progress */
+            background: var(--primary-tint);
+            border-top: 2px solid var(--primary);
+            opacity: 0.7;
+            transition: var(--transition);
+        }
+
+        .vault-info {
+            flex: 1;
+        }
+
+        .vault-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .vault-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin: 2px 0 6px 0;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: var(--surface-2);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--primary);
+            border-radius: 10px;
+            width: 65%;
+            transition: var(--transition);
+        }
+
+        /* Categories Progress Bar styling */
+        .category-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .category-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .category-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background: var(--primary-tint);
+            color: var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: var(--transition);
+        }
+
+        .category-details {
+            flex: 1;
+        }
+
+        .category-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        /* Transactions Lists */
+        .tx-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--surface-2);
+        }
+
+        .tx-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .tx-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tx-merchant {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .tx-date {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .tx-amount {
+            font-size: 0.95rem;
+            font-weight: 700;
+        }
+
+        .tx-amount.expense {
+            color: var(--text-primary);
+        }
+
+        .tx-amount.income {
+            color: var(--success);
+        }
+
+        /* Bottom Floating Bar mockup style */
+        .nav-bar-mock {
+            height: 64px;
+            background: var(--surface);
+            border-top: 1px solid var(--hairline);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 12px;
+            transition: var(--transition);
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            color: var(--text-secondary);
+            font-size: 0.65rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .nav-item.active {
+            color: var(--primary);
+        }
+
+        .nav-item i {
+            font-size: 1.15rem;
+        }
+
+        .nav-fab {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--grad-start) 0%, var(--grad-end) 100%);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #FFFFFF;
+            box-shadow: 0 4px 12px rgba(30, 80, 255, 0.2);
+            margin-top: -12px;
+            transition: var(--transition);
+        }
+
+        /* Animated Interactions */
+        .phone-mockup:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 30px 80px rgba(0,0,0,0.35);
+        }
+
+        .toggle-btn:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body data-palette="1" data-theme="dark">
+
+    <header>
+        <h1>معاينة لوحات الألوان المتنوعة لمساعد «مالي»</h1>
+        <p>تصفح وتفاعل مع 10 لوحات ألوان حيوية وبديلة لمعرفة تأثيرها على واجهة التطبيق الرئيسية (الوضع الداكن والفاتح).</p>
+    </header>
+
+    <!-- Interactive Control Panel -->
+    <div class="controls-container">
+        
+        <div class="control-group" style="margin-bottom: 6px;">
+            <span class="control-label">الألوان الحيوية:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn active" onclick="setPalette('1')">
+                    <i data-lucide="zap" style="width:14px;height:14px;"></i>
+                    1. الأزرق الكهربائي
+                </button>
+                <button class="toggle-btn" onclick="setPalette('2')">
+                    <i data-lucide="droplet" style="width:14px;height:14px;"></i>
+                    2. أزرق المحيط والنعناع
+                </button>
+                <button class="toggle-btn" onclick="setPalette('3')">
+                    <i data-lucide="sun" style="width:14px;height:14px;"></i>
+                    3. أزرق الليل والذهب
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group" style="margin-bottom: 6px;">
+            <span class="control-label">الدرجات البديلة:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn" onclick="setPalette('4')">
+                    <i data-lucide="sparkles" style="width:14px;height:14px;"></i>
+                    4. الأزرق النيلي والوردي
+                </button>
+                <button class="toggle-btn" onclick="setPalette('5')">
+                    <i data-lucide="anchor" style="width:14px;height:14px;"></i>
+                    5. الأزرق الفولاذي
+                </button>
+                <button class="toggle-btn" onclick="setPalette('6')">
+                    <i data-lucide="compass" style="width:14px;height:14px;"></i>
+                    6. الأزرق البترولي والسيان
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group" style="margin-bottom: 6px;">
+            <span class="control-label">خيارات غير زرقاء:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn" onclick="setPalette('7')">
+                    <i data-lucide="gem" style="width:14px;height:14px;"></i>
+                    7. الأخضر الزمردي والذهب
+                </button>
+                <button class="toggle-btn" onclick="setPalette('8')">
+                    <i data-lucide="sunset" style="width:14px;height:14px;"></i>
+                    8. الغروب الأرجواني والدراق
+                </button>
+                <button class="toggle-btn" onclick="setPalette('9')">
+                    <i data-lucide="skull" style="width:14px;height:14px;"></i>
+                    9. الفحمي والفسفوري
+                </button>
+                <button class="toggle-btn" onclick="setPalette('10')">
+                    <i data-lucide="heart" style="width:14px;height:14px;"></i>
+                    10. الكحلي والوردي المذهب
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group" style="border-top: 1px solid var(--hairline); padding-top: 16px; margin-top: 8px;">
+            <span class="control-label">وضع المظهر:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn active" id="btn-dark" onclick="setTheme('dark')">
+                    <i data-lucide="moon" style="width:14px;height:14px;"></i>
+                    داكن (Dark)
+                </button>
+                <button class="toggle-btn" id="btn-light" onclick="setTheme('light')">
+                    <i data-lucide="sun" style="width:14px;height:14px;"></i>
+                    فاتح (Light)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Preview Workspace -->
+    <div class="preview-grid">
+        
+        <!-- Sidebar Palette Details -->
+        <div class="palette-info">
+            <h3 id="palette-title">اللوحة الأولى: الأزرق الكهربائي</h3>
+            
+            <div class="color-row">
+                <div class="color-dot" id="dot-primary" style="background-color: var(--primary);"></div>
+                <div class="color-details">
+                    <span class="color-name">اللون الأساسي (Primary)</span>
+                    <span class="color-hex" id="hex-primary">#4D7CFF</span>
+                </div>
+            </div>
+
+            <div class="color-row">
+                <div class="color-dot" id="dot-accent" style="background-color: var(--accent);"></div>
+                <div class="color-details">
+                    <span class="color-name">اللون المساعد (Accent)</span>
+                    <span class="color-hex" id="hex-accent">#00E5FF</span>
+                </div>
+            </div>
+
+            <div class="color-row">
+                <div class="color-dot" id="dot-success" style="background-color: var(--success);"></div>
+                <div class="color-details">
+                    <span class="color-name">النجاح / الإيداع (Success)</span>
+                    <span class="color-hex" id="hex-success">#00E676</span>
+                </div>
+            </div>
+
+            <div class="color-row">
+                <div class="color-dot" id="dot-bg" style="background-color: var(--bg); border: 1px solid var(--hairline);"></div>
+                <div class="color-details">
+                    <span class="color-name">الخلفية العامة (Background)</span>
+                    <span class="color-hex" id="hex-bg">#080B11</span>
+                </div>
+            </div>
+
+            <div class="color-row">
+                <div class="color-dot" id="dot-surface" style="background-color: var(--surface); border: 1px solid var(--hairline);"></div>
+                <div class="color-details">
+                    <span class="color-name">البطاقات (Surface)</span>
+                    <span class="color-hex" id="hex-surface">#111622</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Phone UI Mockup Showcase -->
+        <div class="phone-wrapper">
+            <div class="phone-mockup">
+                
+                <!-- Mockup Status + Header -->
+                <div class="screen-header">
+                    <div class="status-bar">
+                        <span>12:30 م</span>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <i data-lucide="signal" style="width:14px; height:14px;"></i>
+                            <i data-lucide="battery" style="width:16px; height:16px;"></i>
+                        </div>
+                    </div>
+
+                    <div class="user-greet">
+                        <span class="user-name">مساء الخير، يوسف</span>
+                        <div class="streak-pill">
+                            <i data-lucide="flame" style="width:14px; height:14px; fill:currentColor;"></i>
+                            <span>12 يوم</span>
+                        </div>
+                    </div>
+
+                    <div class="wallet-card">
+                        <div class="wallet-label">مجموع مصروفات يونيو</div>
+                        <div class="wallet-amount">1,480.00 ر.س</div>
+                        <div class="wallet-substats">
+                            <div class="substat">
+                                <div class="substat-label">الميزانية المستخدمة</div>
+                                <div class="substat-val">42%</div>
+                            </div>
+                            <div class="substat">
+                                <div class="substat-label">صافي التوفير</div>
+                                <div class="substat-val gain" id="savings-val">+840 ريال</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mockup Scrollable Screen Body -->
+                <div class="screen-body">
+                    
+                    <!-- Spending Trend Card -->
+                    <div class="card">
+                        <h4>اتجاه الصرف اليومي</h4>
+                        <div class="sparkline-container">
+                            <svg class="sparkline-svg" viewBox="0 0 100 30" preserveAspectRatio="none">
+                                <defs>
+                                    <linearGradient id="sparkline-gradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.3"/>
+                                        <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+                                    </linearGradient>
+                                </defs>
+                                <path d="M 0,25 Q 15,10 30,22 T 60,8 T 80,18 T 100,5" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"></path>
+                                <path d="M 0,25 Q 15,10 30,22 T 60,8 T 80,18 T 100,5 L 100,30 L 0,30 Z" fill="url(#sparkline-gradient)"></path>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <!-- Active Savings Goal Card -->
+                    <div class="card">
+                        <div class="vault-card-content">
+                            <div class="vault-illustration">
+                                <i data-lucide="target" style="width:24px; height:24px; z-index:2;"></i>
+                                <div class="vault-progress-circle"></div>
+                            </div>
+                            <div class="vault-info">
+                                <div class="vault-title">رحلة الصيف 🏝️</div>
+                                <div class="vault-desc">تم توفير 1,300 من 2,000 ريال</div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Budget Limit Progress -->
+                    <div class="card">
+                        <h4>الميزانيات الأكبر</h4>
+                        <div class="category-row">
+                            <div class="category-icon">
+                                <i data-lucide="utensils" style="width:16px; height:16px;"></i>
+                            </div>
+                            <div class="category-details">
+                                <div class="category-header">
+                                    <span>المطاعم والكافيهات</span>
+                                    <span>340 / 500 ريال</span>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" style="width: 68%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="category-row">
+                            <div class="category-icon">
+                                <i data-lucide="shopping-bag" style="width:16px; height:16px;"></i>
+                            </div>
+                            <div class="category-details">
+                                <div class="category-header">
+                                    <span>التسوق والملابس</span>
+                                    <span>150 / 600 ريال</span>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" style="width: 25%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Transactions -->
+                    <div class="card" style="margin-bottom: 20px;">
+                        <h4>آخر العمليات</h4>
+                        <div class="tx-item">
+                            <div class="tx-left">
+                                <div class="category-icon">
+                                    <i data-lucide="coffee" style="width:14px; height:14px;"></i>
+                                </div>
+                                <div>
+                                    <div class="tx-merchant">بارنز كافيه</div>
+                                    <div class="tx-date">اليوم، 09:15 ص</div>
+                                </div>
+                            </div>
+                            <span class="tx-amount expense">18.00 ر.س</span>
+                        </div>
+                        <div class="tx-item">
+                            <div class="tx-left">
+                                <div class="category-icon">
+                                    <i data-lucide="shopping-basket" style="width:14px; height:14px;"></i>
+                                </div>
+                                <div>
+                                    <div class="tx-merchant">أسواق التميمي</div>
+                                    <div class="tx-date">أمس، 08:30 م</div>
+                                </div>
+                            </div>
+                            <span class="tx-amount expense">124.50 ر.س</span>
+                        </div>
+                        <div class="tx-item">
+                            <div class="tx-left">
+                                <div class="category-icon" style="background-color: rgba(0, 200, 83, 0.08); color: var(--success);">
+                                    <i data-lucide="trending-up" style="width:14px; height:14px;"></i>
+                                </div>
+                                <div>
+                                    <div class="tx-merchant">تحويل وارد - علي</div>
+                                    <div class="tx-date">5 يونيو، 02:15 م</div>
+                                </div>
+                            </div>
+                            <span class="tx-amount income">+500.00 ر.س</span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Bottom Floating Glass Tab Bar -->
+                <div class="nav-bar-mock">
+                    <div class="nav-item active">
+                        <i data-lucide="home"></i>
+                        <span>الرئيسية</span>
+                    </div>
+                    <div class="nav-item">
+                        <i data-lucide="receipt"></i>
+                        <span>العمليات</span>
+                    </div>
+                    <div class="nav-fab">
+                        <i data-lucide="plus" style="width:20px; height:20px;"></i>
+                    </div>
+                    <div class="nav-item">
+                        <i data-lucide="target"></i>
+                        <span>الأهداف</span>
+                    </div>
+                    <div class="nav-item">
+                        <i data-lucide="settings"></i>
+                        <span>حسابي</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // Hex Code Configurations for 10 Palettes
+        const hexCodes = {
+            "1": {
+                light: { primary: "#1E50FF", accent: "#00D4EC", success: "#00C853", bg: "#F4F7FC", surface: "#FFFFFF" },
+                dark:  { primary: "#4D7CFF", accent: "#00E5FF", success: "#00E676", bg: "#080B11", surface: "#111622" }
+            },
+            "2": {
+                light: { primary: "#0066FF", accent: "#00BFA5", success: "#16A968", bg: "#F5F8FA", surface: "#FFFFFF" },
+                dark:  { primary: "#3385FF", accent: "#00F5D4", success: "#00E676", bg: "#0A0D14", surface: "#141923" }
+            },
+            "3": {
+                light: { primary: "#0A2540", accent: "#FFB300", success: "#16A968", bg: "#F0F4F8", surface: "#FFFFFF" },
+                dark:  { primary: "#639BFF", accent: "#F2C14E", success: "#00E676", bg: "#05080E", surface: "#0E1420" }
+            },
+            "4": {
+                light: { primary: "#4F46E5", accent: "#F43F5E", success: "#10B981", bg: "#F8FAFC", surface: "#FFFFFF" },
+                dark:  { primary: "#818CF8", accent: "#FB7185", success: "#34D399", bg: "#0B0C10", surface: "#161722" }
+            },
+            "5": {
+                light: { primary: "#475569", accent: "#0EA5E9", success: "#059669", bg: "#F1F5F9", surface: "#FFFFFF" },
+                dark:  { primary: "#94A3B8", accent: "#38BDF8", success: "#34D399", bg: "#0F172A", surface: "#1E293B" }
+            },
+            "6": {
+                light: { primary: "#0891B2", accent: "#10B981", success: "#059669", bg: "#F0F9FF", surface: "#FFFFFF" },
+                dark:  { primary: "#22D3EE", accent: "#34D399", success: "#34D399", bg: "#04151F", surface: "#0B2535" }
+            },
+            "7": {
+                light: { primary: "#064E3B", accent: "#D97706", success: "#10B981", bg: "#F4FBF7", surface: "#FFFFFF" },
+                dark:  { primary: "#34D399", accent: "#F59E0B", success: "#34D399", bg: "#050B08", surface: "#0C1813" }
+            },
+            "8": {
+                light: { primary: "#7C3AED", accent: "#F97316", success: "#10B981", bg: "#FAF5FF", surface: "#FFFFFF" },
+                dark:  { primary: "#A78BFA", accent: "#FB923C", success: "#34D399", bg: "#08050C", surface: "#120E1A" }
+            },
+            "9": {
+                light: { primary: "#1E293B", accent: "#84CC16", success: "#059669", bg: "#F8FAFC", surface: "#FFFFFF" },
+                dark:  { primary: "#E2E8F0", accent: "#ADF00D", success: "#34D399", bg: "#0B0F19", surface: "#151B26" }
+            },
+            "10": {
+                light: { primary: "#0F172A", accent: "#FDA4AF", success: "#10B981", bg: "#F8FAFC", surface: "#FFFFFF" },
+                dark:  { primary: "#94A3B8", accent: "#FECDD3", success: "#34D399", bg: "#090D16", surface: "#131924" }
+            }
+        };
+
+        const titles = {
+            "1": "1. الأزرق الكهربائي (Electric Blue)",
+            "2": "2. أزرق المحيط والنعناع (Ocean Mint)",
+            "3": "3. أزرق الليل والذهب (Midnight Gold)",
+            "4": "4. الأزرق النيلي والوردي (Royal Indigo)",
+            "5": "5. الأزرق الفولاذي (Nordic Steel)",
+            "6": "6. الأزرق البترولي والسيان (Deep Petrol)",
+            "7": "7. الأخضر الزمردي والذهب (Emerald & Gold)",
+            "8": "8. الغروب الأرجواني والدراق (Sunset Violet)",
+            "9": "9. الفحمي والفسفوري (Charcoal Volt)",
+            "10": "10. الكحلي والوردي المذهب (Navy Rose Gold)"
+        };
+
+        function setPalette(paletteId) {
+            // Update active state in all palette buttons
+            const buttons = document.querySelectorAll('.controls-container .toggle-btn');
+            buttons.forEach((btn) => {
+                const btnText = btn.innerText.trim();
+                if (btnText.startsWith(paletteId + ".")) {
+                    btn.classList.add('active');
+                } else if (!btnText.includes("داكن") && !btnText.includes("فاتح") && 
+                           !Object.keys(titles).some(p => btnText.startsWith(p + ".") && p !== paletteId)) {
+                    // Do nothing for themes
+                } else if (Object.keys(titles).some(p => btnText.startsWith(p + "."))) {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Set data attribute on body
+            document.body.setAttribute('data-palette', paletteId);
+            
+            // Update hex values in details panel
+            updateHexValues(paletteId, document.body.getAttribute('data-theme'));
+        }
+
+        function setTheme(themeName) {
+            // Update active state in buttons
+            document.getElementById('btn-dark').classList.toggle('active', themeName === 'dark');
+            document.getElementById('btn-light').classList.toggle('active', themeName === 'light');
+
+            // Set data attribute on body
+            document.body.setAttribute('data-theme', themeName);
+
+            // Update hex values in details panel
+            updateHexValues(document.body.getAttribute('data-palette'), themeName);
+        }
+
+        function updateHexValues(paletteId, themeName) {
+            const currentConfig = hexCodes[paletteId][themeName];
+            
+            document.getElementById('palette-title').innerText = titles[paletteId];
+            document.getElementById('hex-primary').innerText = currentConfig.primary.toUpperCase();
+            document.getElementById('hex-accent').innerText = currentConfig.accent.toUpperCase();
+            document.getElementById('hex-success').innerText = currentConfig.success.toUpperCase();
+            document.getElementById('hex-bg').innerText = currentConfig.bg.toUpperCase();
+            document.getElementById('hex-surface').innerText = currentConfig.surface.toUpperCase();
+
+            // Refresh savings indicator color dynamically
+            const savingsText = document.getElementById('savings-val');
+            if (themeName === 'light' && (paletteId === '3' || paletteId === '5' || paletteId === '7')) {
+                savingsText.style.color = (paletteId === '3' || paletteId === '7') ? '#C9912B' : '#059669';
+            } else {
+                savingsText.style.color = '';
+            }
+        }
+
+        // Initial setup
+        updateHexValues("1", "dark");
+    </script>
+</body>
+</html>

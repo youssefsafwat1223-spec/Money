@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحسين شاشة الخصوصية لـ «مالي»</title>
+    
+    <!-- Google Fonts: IBM Plex Sans Arabic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons via CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* CSS Variables - Palette 3: Midnight Sky & Gold */
+        :root {
+            --bg: #05080E;
+            --surface: #0E1420;
+            --surface-2: #161F30;
+            --surface-3: #202B41;
+            --hairline: #1A2436;
+            --primary: #639BFF;
+            --primary-press: #004B8F;
+            --primary-tint: rgba(99, 155, 255, 0.12);
+            --accent: #F2C14E;
+            --danger: #E14B4B;
+            --success: #00E676;
+            --text-primary: #FFFFFF;
+            --text-secondary: #8295A5;
+            --text-muted: #536475;
+            --on-primary: #05080E;
+            
+            --grad-start: #001C3D;
+            --grad-end: #004B8F;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --glow: 0 0 25px rgba(242, 193, 78, 0.15);
+            --transition: all 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        [data-theme="light"] {
+            --bg: #F0F4F8;
+            --surface: #FFFFFF;
+            --surface-2: #E3EAF2;
+            --surface-3: #D5DFEB;
+            --hairline: #D3DFEE;
+            --primary: #0A2540;
+            --primary-press: #051527;
+            --primary-tint: rgba(10, 37, 64, 0.08);
+            --accent: #FFB300;
+            --danger: #E14B4B;
+            --success: #16A968;
+            --text-primary: #0A2540;
+            --text-secondary: #6B7A8A;
+            --text-muted: #94A3B3;
+            --on-primary: #FFFFFF;
+            --grad-start: #0A2540;
+            --grad-end: #4A90E2;
+            --shadow: 0 10px 30px rgba(10, 37, 64, 0.06);
+            --glow: 0 0 20px rgba(255, 179, 0, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'IBM Plex Sans Arabic', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-primary);
+            transition: var(--transition);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            max-width: 800px;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        header p {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Controls Panel */
+        .controls-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+            background: var(--surface);
+            padding: 20px 24px;
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--hairline);
+            margin-bottom: 40px;
+            width: 100%;
+            max-width: 900px;
+            transition: var(--transition);
+        }
+
+        .control-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .control-label {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            min-width: 140px;
+        }
+
+        .toggle-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: 16px;
+            gap: 4px;
+        }
+
+        .toggle-btn {
+            background: none;
+            border: none;
+            outline: none;
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toggle-btn.active {
+            background: var(--surface);
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Mockup Split View */
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 40px;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        @media (min-width: 768px) {
+            .preview-grid {
+                grid-template-columns: 340px 1fr;
+            }
+        }
+
+        /* Sidebar Info Panel */
+        .design-info {
+            background: var(--surface);
+            border-radius: 28px;
+            padding: 24px;
+            border: 1px solid var(--hairline);
+            box-shadow: var(--shadow);
+            align-self: start;
+            transition: var(--transition);
+        }
+
+        .design-info h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--surface-2);
+            padding-bottom: 8px;
+        }
+
+        .design-info p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .feature-bullet {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .feature-bullet i {
+            color: var(--accent);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        /* Phone Mockup Frame */
+        .phone-wrapper {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .phone-mockup {
+            width: 100%;
+            max-width: 375px;
+            height: 750px;
+            background: var(--bg);
+            border-radius: 40px;
+            border: 8px solid #1a1a1a;
+            box-shadow: 0 25px 70px rgba(0,0,0,0.3);
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            transition: var(--transition);
+        }
+
+        /* Top Notch / Status Bar */
+        .mockup-status-bar {
+            height: 44px;
+            padding: 0 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            z-index: 10;
+        }
+
+        /* Clean app header */
+        .mockup-app-header {
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 40px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .logo-text-mini {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .logo-icon-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+        }
+
+        /* Body container */
+        .screen-body {
+            flex: 1;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 5;
+            overflow-y: auto;
+        }
+
+        /* SVG container */
+        .svg-illustration {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .svg-illustration svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Text Styles */
+        .screen-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.4;
+            margin-bottom: 10px;
+        }
+
+        .screen-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 30px;
+            max-width: 290px;
+        }
+
+        /* Layout Designs */
+        .privacy-layout {
+            display: none;
+            width: 100%;
+            flex-direction: column;
+            align-items: center;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .privacy-layout.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* OPTION 1: Glassmorphic Card */
+        .glass-card {
+            background: rgba(22, 31, 48, 0.5);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 24px;
+            width: 100%;
+            max-width: 310px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+            text-align: right;
+        }
+
+        [data-theme="light"] .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.05);
+        }
+
+        .glass-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .glass-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .glass-icon-box {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            background: var(--primary-tint);
+            color: var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .glass-content {
+            flex: 1;
+        }
+
+        .glass-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .glass-desc {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        /* OPTION 2: Minimalist Visual Grid */
+        .visual-item-card {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 16px;
+            padding: 16px;
+            width: 100%;
+            max-width: 310px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+        }
+
+        .visual-item-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+
+        .visual-item-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-align: right;
+        }
+
+        .visual-item-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            background: var(--primary-tint);
+            color: var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .visual-item-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .visual-checkmark {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: var(--success);
+            color: #FFFFFF;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.8rem;
+        }
+
+        /* OPTION 3: Bold Editorial Statement */
+        .statement-badge {
+            background: var(--primary-tint);
+            color: var(--primary);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            border: 1px solid var(--primary);
+        }
+
+        .statement-title {
+            font-size: 2.1rem;
+            font-weight: 800;
+            line-height: 1.3;
+            letter-spacing: -0.5px;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+
+        .statement-desc {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 30px;
+            max-width: 280px;
+        }
+
+        .statement-footer-tag {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--surface-2);
+            padding: 10px 16px;
+            border-radius: 14px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--success);
+            border: 1px solid var(--hairline);
+        }
+
+        /* OPTION 4: Swipeable Carousel Card */
+        .carousel-card {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 24px;
+            padding: 24px;
+            width: 100%;
+            max-width: 310px;
+            box-shadow: var(--shadow);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 220px;
+            justify-content: center;
+        }
+
+        .carousel-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 16px;
+            background: var(--primary-tint);
+            color: var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 16px;
+            font-size: 1.4rem;
+        }
+
+        .carousel-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .carousel-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .carousel-indicators {
+            display: flex;
+            gap: 4px;
+            margin-top: 20px;
+        }
+
+        .carousel-indicator-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--surface-3);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .carousel-indicator-dot.active {
+            background: var(--primary);
+            width: 12px;
+            border-radius: 6px;
+        }
+
+        /* OPTION 5: Bento Box Grid Layout */
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            width: 100%;
+            max-width: 320px;
+        }
+
+        .bento-box {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 18px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            text-align: right;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+        }
+
+        .bento-box:hover {
+            border-color: var(--primary);
+        }
+
+        .bento-box.full-width {
+            grid-column: span 2;
+            flex-direction: row;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .bento-icon-box {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: var(--primary-tint);
+            color: var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .bento-box.full-width .bento-icon-box {
+            margin-bottom: 0;
+        }
+
+        .bento-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .bento-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        /* Bottom Controls Frame Area */
+        .mockup-bottom-controls {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 10;
+        }
+
+        .dots-container {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .dot {
+            height: 6px;
+            width: 6px;
+            background: var(--hairline);
+            border-radius: 50%;
+            transition: var(--transition);
+        }
+
+        .dot.active {
+            background: var(--accent);
+            width: 22px;
+            border-radius: 10px;
+            box-shadow: var(--glow);
+        }
+
+        .next-btn {
+            width: 100%;
+            height: 54px;
+            background: var(--primary);
+            color: var(--on-primary);
+            border: none;
+            outline: none;
+            font-size: 1rem;
+            font-weight: 700;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .next-btn:hover {
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+<body data-design="1" data-theme="dark">
+
+    <header>
+        <h1>تحسين شاشة الخصوصية لـ «مالي»</h1>
+        <p>مقارنة وتصميم تفاعلي لـ 5 حلول مقترحة لحل مشكلة الازدحام والتكرار البصري، باستخدام درجات <b>أزرق الليل والذهب (#0A2540)</b>.</p>
+    </header>
+
+    <!-- Interactive Control Panel -->
+    <div class="controls-container">
+        
+        <div class="control-group" style="margin-bottom: 6px;">
+            <span class="control-label">الخيارات الأساسية:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn active" onclick="setDesign('1')">
+                    <i data-lucide="sparkles" style="width:14px;height:14px;"></i>
+                    1. الكارت الزجاجي الفاخر
+                </button>
+                <button class="toggle-btn" onclick="setDesign('2')">
+                    <i data-lucide="list" style="width:14px;height:14px;"></i>
+                    2. القائمة المنظمة
+                </button>
+                <button class="toggle-btn" onclick="setDesign('3')">
+                    <i data-lucide="quote" style="width:14px;height:14px;"></i>
+                    3. العبارة الجريئة
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <span class="control-label">الخيارات البصرية الحديثة:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn" onclick="setDesign('4')">
+                    <i data-lucide="sliders" style="width:14px;height:14px;"></i>
+                    4. الشرائح الدوارة (Carousel)
+                </button>
+                <button class="toggle-btn" onclick="setDesign('5')">
+                    <i data-lucide="grid" style="width:14px;height:14px;"></i>
+                    5. شبكة بينتو (Bento Grid)
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group" style="border-top: 1px solid var(--hairline); padding-top: 16px; margin-top: 8px;">
+            <span class="control-label">وضع المظهر:</span>
+            <div class="toggle-buttons">
+                <button class="toggle-btn active" id="btn-dark" onclick="setTheme('dark')">
+                    <i data-lucide="moon" style="width:14px;height:14px;"></i>
+                    داكن (Dark)
+                </button>
+                <button class="toggle-btn" id="btn-light" onclick="setTheme('light')">
+                    <i data-lucide="sun" style="width:14px;height:14px;"></i>
+                    فاتح (Light)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Preview Workspace -->
+    <div class="preview-grid">
+        
+        <!-- Sidebar Design details description -->
+        <div class="design-info">
+            <h3 id="design-title">1. الكارت الزجاجي الفاخر</h3>
+            <p id="design-desc">ينظم المعلومات داخل بطاقة زجاجية واحدة مصنفرة بمستوى عمق مذهل، مما يمنع التشتت ويزيل كافة العناصر المكررة.</p>
+            
+            <div id="design-bullets">
+                <div class="feature-bullet">
+                    <i data-lucide="check" style="width:16px;height:16px;"></i>
+                    <span>تجميع النقاط الأربعة المشتتة في 3 معلومات متكاملة بصرياً.</span>
+                </div>
+                <div class="feature-bullet">
+                    <i data-lucide="check" style="width:16px;height:16px;"></i>
+                    <span>إخفاء كلي لزر تخطي التكراري في نهاية رحلة التمهيد.</span>
+                </div>
+                <div class="feature-bullet">
+                    <i data-lucide="check" style="width:16px;height:16px;"></i>
+                    <span>مزامنة نقاط التقدم لتظهر كرمز الصفحة الأخيرة (5/5) بشكل صحيح.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Phone Mockup Frame -->
+        <div class="phone-wrapper">
+            <div class="phone-mockup">
+                
+                <!-- Status bar -->
+                <div class="mockup-status-bar">
+                    <span>12:30 م</span>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <i data-lucide="signal" style="width:14px; height:14px;"></i>
+                        <i data-lucide="battery" style="width:16px; height:16px;"></i>
+                    </div>
+                </div>
+
+                <!-- App Header without Skip (Hidden because it's the final page) -->
+                <div class="mockup-app-header">
+                    <div class="logo-text-mini">
+                        <div class="logo-icon-dot"></div>
+                        <span>مالي</span>
+                    </div>
+                </div>
+
+                <!-- Onboarding Screen Body -->
+                <div class="screen-body">
+                    
+                    <!-- SVG Illustration -->
+                    <div class="svg-illustration" id="illustration-box">
+                        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="50" cy="50" r="45" fill="var(--primary-tint)" />
+                            <path d="M50 22C62 22 70 26 70 36C70 58 54 74 50 82C46 74 30 58 30 36C30 26 38 22 50 22Z" stroke="var(--primary)" stroke-width="2.5" stroke-linejoin="round" />
+                            <rect x="42" y="46" width="16" height="12" rx="3" fill="var(--surface)" stroke="var(--primary)" stroke-width="2" />
+                            <path d="M46 46V40C46 37 54 37 54 40V46" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                    </div>
+
+                    <!-- Layout 1: Glassmorphic Card -->
+                    <div class="privacy-layout active" id="layout-1">
+                        <h2 class="screen-title">فلوسك تبقى عندك</h2>
+                        <p class="screen-subtitle">كل البيانات تُعالج محلياً على هاتفك فقط، لنوفر لك أعلى مستويات الأمان والخصوصية.</p>
+                        
+                        <div class="glass-card">
+                            <div class="glass-item">
+                                <div class="glass-icon-box">
+                                    <i data-lucide="cpu" style="width:18px;height:18px;"></i>
+                                </div>
+                                <div class="glass-content">
+                                    <div class="glass-title">معالجة محلية بالكامل</div>
+                                    <div class="glass-desc">محرك الذكاء الاصطناعي يحلل بياناتك على هاتفك دون رفعها للإنترنت.</div>
+                                </div>
+                            </div>
+
+                            <div class="glass-item">
+                                <div class="glass-icon-box">
+                                    <i data-lucide="message-square" style="width:18px;height:18px;"></i>
+                                </div>
+                                <div class="glass-content">
+                                    <div class="glass-title">قراءة رسائل البنوك فقط</div>
+                                    <div class="glass-desc">نلتقط فقط رسائل العمليات المالية الواردة من البنوك ونستبعد أي شيء آخر.</div>
+                                </div>
+                            </div>
+
+                            <div class="glass-item">
+                                <div class="glass-icon-box">
+                                    <i data-lucide="lock" style="width:18px;height:18px;"></i>
+                                </div>
+                                <div class="glass-content">
+                                    <div class="glass-title">أنت المتحكم بالكامل</div>
+                                    <div class="glass-desc">قاعدة البيانات مشفرة، ويمكنك حذف حسابك وكل بياناتك بلمسة واحدة.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Layout 2: Simple Minimalist List -->
+                    <div class="privacy-layout" id="layout-2">
+                        <h2 class="screen-title">خصوصية بلا تنازلات</h2>
+                        <p class="screen-subtitle">مبني محلياً في السعودية لتتبع مصاريفك بكل أمان ووضوح.</p>
+                        
+                        <div class="visual-item-card">
+                            <div class="visual-item-left">
+                                <div class="visual-item-icon"><i data-lucide="shield-check" style="width:18px;height:18px;"></i></div>
+                                <span class="visual-item-title">كل المعالجة على جهازك</span>
+                            </div>
+                            <div class="visual-checkmark"><i data-lucide="check" style="width:14px;height:14px;color:white;"></i></div>
+                        </div>
+
+                        <div class="visual-item-card">
+                            <div class="visual-item-left">
+                                <div class="visual-item-icon"><i data-lucide="mail" style="width:18px;height:18px;"></i></div>
+                                <span class="visual-item-title">نقرأ فقط رسائل البنوك</span>
+                            </div>
+                            <div class="visual-checkmark"><i data-lucide="check" style="width:14px;height:14px;color:white;"></i></div>
+                        </div>
+
+                        <div class="visual-item-card">
+                            <div class="visual-item-left">
+                                <div class="visual-item-icon"><i data-lucide="eye-off" style="width:18px;height:18px;"></i></div>
+                                <span class="visual-item-title">لا نبيع بياناتك الماليّة أبداً</span>
+                            </div>
+                            <div class="visual-checkmark"><i data-lucide="check" style="width:14px;height:14px;color:white;"></i></div>
+                        </div>
+
+                        <div class="visual-item-card">
+                            <div class="visual-item-left">
+                                <div class="visual-item-icon"><i data-lucide="trash-2" style="width:18px;height:18px;"></i></div>
+                                <span class="visual-item-title">امسح كل شيء في أي وقت</span>
+                            </div>
+                            <div class="visual-checkmark"><i data-lucide="check" style="width:14px;height:14px;color:white;"></i></div>
+                        </div>
+                    </div>
+
+                    <!-- Layout 3: Bold Statement -->
+                    <div class="privacy-layout" id="layout-3">
+                        <div class="statement-badge">محمي 100%</div>
+                        <h2 class="statement-title">خصوصيتك خط أحمر</h2>
+                        <p class="statement-desc">تطبيق «مالي» مصمم ليعمل بالكامل دون مشاركة أي أرقام أو جهات اتصال. بياناتك المالية ملكك، وتبقى على هاتفك فقط.</p>
+                        
+                        <div class="statement-footer-tag">
+                            <i data-lucide="shield" style="width:18px;height:18px;"></i>
+                            <span>تشفير أمان محلي كامل (SQLCipher)</span>
+                        </div>
+                    </div>
+
+                    <!-- Layout 4: Swipeable Carousel -->
+                    <div class="privacy-layout" id="layout-4">
+                        <h2 class="screen-title" style="margin-bottom: 20px;">حماية متكاملة لبياناتك</h2>
+                        
+                        <div class="carousel-card">
+                            <div class="carousel-icon" id="carousel-icon-box">
+                                <i data-lucide="cpu"></i>
+                            </div>
+                            <div class="carousel-title" id="carousel-title-box">معالجة محلية بالكامل</div>
+                            <div class="carousel-desc" id="carousel-desc-box">محرك مالي متكامل يعمل بالكامل داخل هاتفك لتحليل وتصنيف المصروفات دون إرسالها لأي خادم خارجي.</div>
+                            
+                            <div class="carousel-indicators">
+                                <div class="carousel-indicator-dot active" onclick="setCarouselSlide(0)"></div>
+                                <div class="carousel-indicator-dot" onclick="setCarouselSlide(1)"></div>
+                                <div class="carousel-indicator-dot" onclick="setCarouselSlide(2)"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Layout 5: Bento Box Grid -->
+                    <div class="privacy-layout" id="layout-5">
+                        <h2 class="screen-title">شفافية مطلقة وأمان</h2>
+                        <p class="screen-subtitle">تخطيط بأسلوب Bento Box لتلخيص فلسفة الأمان في التطبيق.</p>
+                        
+                        <div class="bento-grid">
+                            <div class="bento-box full-width">
+                                <div class="bento-icon-box">
+                                    <i data-lucide="cpu" style="width:20px;height:20px;"></i>
+                                </div>
+                                <div>
+                                    <div class="bento-title">معالجة محلية بالكامل على جهازك</div>
+                                    <div class="bento-desc">نحن لا نقوم برفع أو قراءة بياناتك في أي خوادم خارجية إطلاقاً.</div>
+                                </div>
+                            </div>
+                            
+                            <div class="bento-box">
+                                <div class="bento-icon-box">
+                                    <i data-lucide="eye-off" style="width:18px;height:18px;"></i>
+                                </div>
+                                <div class="bento-title">بدون أي إعلانات</div>
+                                <div class="bento-desc">التطبيق مجاني وخالٍ تماماً من أي إعلانات مزعجة.</div>
+                            </div>
+
+                            <div class="bento-box">
+                                <div class="bento-icon-box">
+                                    <i data-lucide="trash-2" style="width:18px;height:18px;"></i>
+                                </div>
+                                <div class="bento-title">حذف فوري كامل</div>
+                                <div class="bento-desc">امسح حسابك وكل بياناتك المحلية بلمسة زر واحدة.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Bottom Frame Controls -->
+                <div class="mockup-bottom-controls">
+                    <div class="dots-container">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot active"></div>
+                    </div>
+
+                    <button class="next-btn">
+                        <span>يلا نبدأ</span>
+                        <i data-lucide="arrow-left" style="width:18px;height:18px;"></i>
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        let currentPage = 0;
+        let activeDesign = "1";
+
+        const designDetails = {
+            "1": {
+                title: "1. الكارت الزجاجي الفاخر (Glassmorphism)",
+                desc: "يجمع كل نقاط الخصوصية المكررة في بطاقة زجاجية واحدة مصنفرة بأسلوب حديث، مما يمنح الشاشة مظهراً مريحاً للعين وتصميماً عصرياً فائق الفخامة.",
+                bullets: [
+                    "تجميع النقاط الأربعة المشتتة في 3 معلومات متكاملة بصرياً.",
+                    "تنسيق الألوان متطابق مع باليت (كحلي منتصف الليل والذهب).",
+                    "إخفاء كلي لزر تخطي التكراري في نهاية رحلة التمهيد.",
+                    "توهج ناعم بلون الفلتر الفسفوري/الذهبي المختار."
+                ]
+            },
+            "2": {
+                title: "2. القائمة البسيطة المنظمة (Structured List)",
+                desc: "يعتمد على تنظيم النقاط الأربعة على هيئة بطاقات مستقلة ونظيفة، تعطي انطباعاً رسمياً وجاداً حول الخصوصية بشكل سهل القراءة.",
+                bullets: [
+                    "فصل النقاط ببطاقات بيضاء ناصعة ذات زوايا ناعمة.",
+                    "أيقونات واضحة ومعبرة لكل بند خصوصية.",
+                    "إزالة الكروت المزدحمة المكررة.",
+                    "مساحات واسعة لقراءة مريحة وهادئة."
+                ]
+            },
+            "3": {
+                title: "3. العبارة الافتتاحية الجريئة (Editorial Bold)",
+                desc: "تصميم يتميز بالجرأة البصرية، حيث تسيطر الخطوط العريضة والنصوص الكبيرة لشرح سياسة الأمان كقصة مبسطة بدلاً من القوائم التقليدية.",
+                bullets: [
+                    "عبارة افتتاحية كبيرة الحجم وجريئة تجذب الانتباه فورياً.",
+                    "شرح نصي موجز بليغ ومخاطبة مباشرة دافئة.",
+                    "ختم أمان سفلي يؤكد استخدام تقنيات تشفير قوية.",
+                    "تخفيف الازدحام البصري وتقليص عدد الأزرار والبطاقات كلياً."
+                ]
+            },
+            "4": {
+                title: "4. الشرائح الدوارة للخصوصية (Carousel)",
+                desc: "يعرض نقطة واحدة هامة فقط من الخصوصية في كل شريحة مع أيقونة مستقلة وشرح بسيط، مما يمنع تكدس المعلومات على الشاشة.",
+                bullets: [
+                    "تنسيق تفاعلي ممتع بالمرور والتمرير بين الشرائح.",
+                    "تركيز كامل للمستخدم على بند أمان واحد في كل مرة.",
+                    "إخفاء الازدحام تماماً وجعل التصميم بسيطاً وفخماً.",
+                    "مؤشرات دوارة داخل بطاقة المحتوى للتنقل السهل."
+                ]
+            },
+            "5": {
+                title: "5. شبكة بينتو الحديثة (Bento Grid)",
+                desc: "الستايل البصري المفضل لشركات مثل Apple و Linear، حيث يتم توزيع الميزات على شبكة مربعة غير متماثلة تعطي شكلاً هندسياً فائق الجاذبية والترتيب.",
+                bullets: [
+                    "توزيع هرمي مميز للميزات: ميزة المعالجة المحلية تأخذ المساحة الأكبر (العرض الكامل).",
+                    "ميزتا خلو التطبيق من الإعلانات والحذف تأخذان مربعين متساويين في الأسفل.",
+                    "مظهر عصري حديث يظهر جودة واحترافية التطبيق من أول نظرة.",
+                    "إمكانية دمج رسوم ورموز وتفاصيل دقيقة داخل كل مربع."
+                ]
+            }
+        };
+
+        const carouselSlides = [
+            {
+                icon: "cpu",
+                title: "معالجة محلية بالكامل",
+                desc: "محرك مالي متكامل يعمل بالكامل داخل هاتفك لتحليل وتصنيف المصروفات دون إرسالها لأي خادم خارجي."
+            },
+            {
+                icon: "mail",
+                title: "رسائل البنوك فقط",
+                desc: "نحن نقرأ رسائل البنوك المشفرة الخاصة بالمعاملات فقط، ونستبعد تماماً الرسائل الشخصية ورموز التحقق الثنائية."
+            },
+            {
+                icon: "trash-2",
+                title: "تحكم كامل وحذف فوري",
+                desc: "أنت المالك الوحيد لبياناتك. يمكنك حذف حسابك، ومسح قاعدة البيانات المشفرة على هاتفك كلياً في أي وقت."
+            }
+        ];
+
+        function setDesign(designId) {
+            activeDesign = designId;
+            // Update active state in design buttons
+            const buttons = document.querySelectorAll('.controls-container .toggle-btn');
+            buttons.forEach((btn) => {
+                const btnText = btn.innerText.trim();
+                if (btnText.includes(designId + ".")) {
+                    btn.classList.add('active');
+                } else if (!btnText.includes("داكن") && !btnText.includes("فاتح") && 
+                           !Object.keys(designDetails).some(p => btnText.includes(p + ".") && p !== designId)) {
+                    // Do nothing for themes
+                } else if (Object.keys(designDetails).some(p => btnText.includes(p + "."))) {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Update details sidebar
+            const details = designDetails[designId];
+            document.getElementById('design-title').innerText = details.title;
+            document.getElementById('design-desc').innerText = details.desc;
+            
+            const bulletsContainer = document.getElementById('design-bullets');
+            bulletsContainer.innerHTML = '';
+            details.bullets.forEach(bullet => {
+                bulletsContainer.innerHTML += `
+                    <div class="feature-bullet">
+                        <i data-lucide="check" style="width:16px;height:16px;"></i>
+                        <span>${bullet}</span>
+                    </div>
+                `;
+            });
+            lucide.createIcons();
+
+            // Toggle active screen layout
+            for (let i = 1; i <= 5; i++) {
+                document.getElementById(`layout-${i}`).classList.toggle('active', i === parseInt(designId));
+            }
+
+            // Hide/Show Illustration based on design
+            const illBox = document.getElementById('illustration-box');
+            illBox.style.display = (designId === "3" || designId === "4" || designId === "5") ? 'none' : 'flex';
+        }
+
+        function setCarouselSlide(slideIdx) {
+            const slide = carouselSlides[slideIdx];
+            
+            // Fade out, update and fade in
+            const card = document.querySelector('.carousel-card');
+            card.style.opacity = 0;
+            
+            setTimeout(() => {
+                document.getElementById('carousel-icon-box').innerHTML = `<i data-lucide="${slide.icon}"></i>`;
+                document.getElementById('carousel-title-box').innerText = slide.title;
+                document.getElementById('carousel-desc-box').innerText = slide.desc;
+                
+                // Update dots active class
+                const dots = document.querySelectorAll('.carousel-indicator-dot');
+                dots.forEach((dot, idx) => {
+                    dot.classList.toggle('active', idx === slideIdx);
+                });
+                
+                lucide.createIcons();
+                card.style.opacity = 1;
+            }, 150);
+        }
+
+        function setTheme(themeName) {
+            document.getElementById('btn-dark').classList.toggle('active', themeName === 'dark');
+            document.getElementById('btn-light').classList.toggle('active', themeName === 'light');
+            document.body.setAttribute('data-theme', themeName);
+        }
+    </script>
+</body>
+</html>

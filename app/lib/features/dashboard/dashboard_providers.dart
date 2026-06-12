@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../common/category_catalog.dart';
+import '../transactions/transactions_providers.dart';
 
 class CategorySlice {
   const CategorySlice({
@@ -28,10 +30,20 @@ class DashboardData {
     required this.monthlyBudgetLimit,
     required this.monthlyBudgetRatio,
     required this.budgetPeriod,
+    required this.currency,
     required this.streak,
     required this.topCategories,
+    required this.dailySpendTrend,
     required this.recent,
     required this.catalog,
+    required this.pendingReview,
+    required this.pendingReviewTotal,
+    required this.weekSpend,
+    required this.previousWeekSpend,
+    required this.projectedMonthSpend,
+    required this.subscriptions,
+    required this.subscriptionsMonthlyTotal,
+    required this.range,
     this.activeGoal,
   });
 
@@ -41,16 +53,33 @@ class DashboardData {
   final double? balance;
   final double monthlyBudgetLimit;
   final double monthlyBudgetRatio;
+  final String currency;
 
   /// دورة ميزانية «كل المصروفات» النشطة (null إن لم تُنشأ بعد).
   final BudgetPeriod? budgetPeriod;
   final StreakEntity streak;
   final List<CategorySlice> topCategories;
+  final List<double> dailySpendTrend;
   final List<TransactionEntity> recent;
   final CategoryCatalog catalog;
+  final List<TransactionEntity> pendingReview;
+  final double pendingReviewTotal;
+  final double weekSpend;
+  final double previousWeekSpend;
+  final double projectedMonthSpend;
+  final List<RecurringCandidate> subscriptions;
+  final double subscriptionsMonthlyTotal;
+  final TransactionsDateRange range;
   final GoalEntity? activeGoal;
 
   bool get isEmpty => recent.isEmpty;
+  int get pendingReviewCount => pendingReview.length;
+  int get subscriptionsCount => subscriptions.length;
+
+  double get weekChangeRatio {
+    if (previousWeekSpend == 0) return weekSpend == 0 ? 0 : 1;
+    return (weekSpend - previousWeekSpend) / previousWeekSpend;
+  }
 
   /// تسمية الفترة للعرض: «اليوم» / «الأسبوع» / «الشهر».
   String get budgetPeriodLabel => switch (budgetPeriod) {
@@ -66,24 +95,44 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final goalRepo = ref.watch(goalRepositoryProvider);
   final budgetRepo = ref.watch(budgetRepositoryProvider);
   final gamificationRepo = ref.watch(gamificationRepositoryProvider);
+  final userSettingsRepo = ref.watch(userSettingsRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
+  final range = ref.watch(transactionsDateRangeProvider);
 
   final now = DateTime.now();
-  final monthStart = DateTime(now.year, now.month);
-  final elapsed = now.difference(monthStart);
-  final prevMonthStart = DateTime(now.year, now.month - 1);
-  final prevSamePoint = prevMonthStart.add(elapsed);
+  final rangeStart = DateTime(range.from.year, range.from.month, range.from.day);
+  final rangeEnd = range.to.isAfter(now) ? now : range.to;
+  final daysInRange =
+      rangeEnd.difference(rangeStart).inDays.abs().clamp(1, 3660) + 1;
+  final previousStart = rangeStart.subtract(Duration(days: daysInRange));
+  final previousEnd = rangeStart.subtract(const Duration(seconds: 1));
+  final today = DateTime(now.year, now.month, now.day);
+  final weekStart =
+      today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
+  final prevWeekStart = weekStart.subtract(const Duration(days: 7));
 
-  // «وفّرت» = مصروفات نفس الفترة من الشهر السابق − مصروفات الشهر الحالي (same-period).
+  // «وفّرت» = مصروفات الفترة السابقة بنفس طول الفترة المختارة − الفترة الحالية.
   final thisMonthExpenses =
-      await txRepo.expenseTotalBetween(from: monthStart, to: now);
+      await txRepo.expenseTotalBetween(from: rangeStart, to: rangeEnd);
   final thisMonthIncome =
-      await txRepo.incomeTotalBetween(from: monthStart, to: now);
+      await txRepo.incomeTotalBetween(from: rangeStart, to: rangeEnd);
   final balance = await txRepo.latestBalanceAfter();
   final prevMonthExpenses = await txRepo.expenseTotalBetween(
-    from: prevMonthStart,
-    to: prevSamePoint,
+    from: previousStart,
+    to: previousEnd,
   );
+  final weekSpend = await txRepo.expenseTotalBetween(from: weekStart, to: now);
+  final previousWeekSpend = await txRepo.expenseTotalBetween(
+    from: prevWeekStart,
+    to: weekStart,
+  );
+  final allTransactions = await txRepo.getAll();
+  final pendingReview = allTransactions
+      .where((tx) => tx.status == TransactionStatus.pending)
+      .take(3)
+      .toList(growable: false);
+  final pendingReviewTotal =
+      pendingReview.fold<double>(0, (sum, tx) => sum + tx.amount);
   final saved = prevMonthExpenses - thisMonthExpenses;
   // ميزانية «كل المصروفات» (الكلية) — تظهر في الـ Dashboard عند إنشائها فقط،
   // أياً كانت دورتها (يومي/أسبوعي/شهري) بحساب صرف دورتها الحالية.
@@ -94,19 +143,18 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   double monthlyBudgetRatio = 0;
   if (allExpensesBudget != null) {
     monthlyBudgetLimit = allExpensesBudget.amount;
-    final today = DateTime(now.year, now.month, now.day);
     final periodStart = switch (allExpensesBudget.period) {
       BudgetPeriod.daily => today,
       BudgetPeriod.weekly =>
         today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7)),
-      BudgetPeriod.monthly => monthStart,
+      BudgetPeriod.monthly => rangeStart,
     };
     final spent = await txRepo.expenseTotalBetween(from: periodStart, to: now);
     monthlyBudgetRatio =
         monthlyBudgetLimit == 0 ? 0.0 : spent / monthlyBudgetLimit;
   }
 
-  final breakdown = await txRepo.categoryBreakdown(from: monthStart, to: now);
+  final breakdown = await txRepo.categoryBreakdown(from: rangeStart, to: rangeEnd);
   final totalSpend = breakdown.fold<double>(0, (sum, item) => sum + item.total);
   final topCategories = <CategorySlice>[];
   for (final item in breakdown.take(3)) {
@@ -120,9 +168,23 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       ),
     );
   }
+  final dailySpendTrend =
+      (await txRepo.dailyExpenseTotals(from: rangeStart, to: rangeEnd))
+          .map((day) => day.total)
+          .toList(growable: false);
 
   final recent = await txRepo.getRecent(limit: 5);
   final streak = await gamificationRepo.getStreak();
+  final settings = await userSettingsRepo.getSettings();
+  final subscriptions =
+      (await txRepo.recurringCandidates()).take(3).toList(growable: false);
+  final subscriptionsMonthlyTotal = subscriptions.fold<double>(
+    0,
+    (sum, item) => sum + item.averageAmount,
+  );
+  final projectedMonthSpend = daysInRange == 0
+      ? thisMonthExpenses
+      : (thisMonthExpenses / daysInRange) * 30;
 
   final goals = await goalRepo.getAll();
   final activeGoal = goals
@@ -142,10 +204,20 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     monthlyBudgetLimit: monthlyBudgetLimit,
     monthlyBudgetRatio: monthlyBudgetRatio,
     budgetPeriod: allExpensesBudget?.period,
+    currency: settings.currency,
     streak: streak,
     topCategories: topCategories,
+    dailySpendTrend: dailySpendTrend,
     recent: recent,
     catalog: catalog,
+    pendingReview: pendingReview,
+    pendingReviewTotal: pendingReviewTotal,
+    weekSpend: weekSpend,
+    previousWeekSpend: previousWeekSpend,
+    projectedMonthSpend: projectedMonthSpend,
+    subscriptions: subscriptions,
+    subscriptionsMonthlyTotal: subscriptionsMonthlyTotal,
+    range: range,
     activeGoal: activeGoal,
   );
 });

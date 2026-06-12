@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,8 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/report_models.dart';
+import '../cards/brand_mark.dart';
+import '../common/premium_loading.dart';
 import 'subscriptions_providers.dart';
 
 class SubscriptionsScreen extends ConsumerWidget {
@@ -17,8 +20,18 @@ class SubscriptionsScreen extends ConsumerWidget {
     final async = ref.watch(subscriptionsProvider);
     final c = context.colors;
     return async.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) => Scaffold(body: Center(child: Text('حدث خطأ: $e'))),
+      loading: () => Scaffold(
+        appBar: Navigator.of(context).canPop()
+            ? AppBar(title: const Text('الاشتراكات والفواتير'))
+            : null,
+        body: const PremiumSkeletonPage(cardCount: 4),
+      ),
+      error: (e, _) => Scaffold(
+        appBar: Navigator.of(context).canPop()
+            ? AppBar(title: const Text('الاشتراكات والفواتير'))
+            : null,
+        body: Center(child: Text('حدث خطأ: $e')),
+      ),
       data: (items) {
         final monthly = items.fold<double>(
           0,
@@ -84,19 +97,73 @@ class SubscriptionsScreen extends ConsumerWidget {
   }
 
   void _showManualComingSoon(BuildContext context) {
-    showDialog<void>(
+    final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('إضافة اشتراك يدوياً'),
-        content: const Text(
-          'الاكتشاف التلقائي يعمل الآن. الإضافة اليدوية ستكون الخطوة التالية مع تاريخ التجديد والتنبيه.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('تمام'),
+      backgroundColor: Colors.transparent,
+      builder: (context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s3,
+                AppSpacing.gutter,
+                AppSpacing.s6,
+              ),
+              decoration: BoxDecoration(
+                color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: c.textLight.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s3),
+                  Text('إضافة اشتراك يدوياً', style: AppTypography.title2(c.textMain)),
+                  const SizedBox(height: AppSpacing.s2),
+                  Text(
+                    'الاكتشاف التلقائي يعمل الآن. الإضافة اليدوية ستكون الخطوة التالية مع تاريخ التجديد والتنبيه.',
+                    style: AppTypography.callout(c.textLight),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: c.primary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: Text('تمام', style: AppTypography.bodyStrong(Colors.white)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -131,8 +198,12 @@ class _BillsHeader extends StatelessWidget {
         children: [
           Row(
             children: [
+              if (Navigator.of(context).canPop()) ...[
+                const BackButton(color: Colors.white),
+                const SizedBox(width: AppSpacing.s2),
+              ],
               Expanded(
-                child: Text('الفواتير',
+                child: Text('الاشتراكات والفواتير',
                     style: AppTypography.title1(Colors.white)
                         .copyWith(fontWeight: FontWeight.bold)),
               ),
@@ -257,15 +328,7 @@ class _SubscriptionsTab extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: c.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: Icon(AppLucideIcons.repeat, color: c.primary),
-              ),
+              BrandMark(name: item.name, size: 48),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
                 child: Column(

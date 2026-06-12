@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+
+<g stroke-linecap="round" stroke-linejoin="round">
+  <path d="M 302 442 Q 347 757 607 722" fill="none" stroke="#09A568" stroke-width="78"/>
+  <line x1="272" y1="752" x2="752" y2="272" stroke="#09A568" stroke-width="78"/>
+  <path d="M 828.4 433.2 L 865.1 158.9 L 590.8 195.6 Z" fill="#09A568"/>
+  <circle cx="272" cy="752" r="54" fill="#F9AA0F"/>
+</g>
+</svg>

@@ -63,10 +63,12 @@ class AddTransactionUseCase {
     required MerchantCategoryRepository merchantCategoryRepository,
     ParserEngine? parserEngine,
     RecordEngagementUseCase? recordEngagementUseCase,
+    Future<void> Function(String key, {String? dimension})? logMetric,
   })  : _transactionRepository = transactionRepository,
         _merchantCategoryRepository = merchantCategoryRepository,
         _parserEngine = parserEngine ?? const ParserEngine(),
-        _recordEngagementUseCase = recordEngagementUseCase;
+        _recordEngagementUseCase = recordEngagementUseCase,
+        _logMetric = logMetric;
 
   static const double autoConfirmThreshold = 0.8;
 
@@ -74,6 +76,7 @@ class AddTransactionUseCase {
   final MerchantCategoryRepository _merchantCategoryRepository;
   final ParserEngine _parserEngine;
   final RecordEngagementUseCase? _recordEngagementUseCase;
+  final Future<void> Function(String key, {String? dimension})? _logMetric;
 
   Future<AddTransactionResult> call({
     required String rawMessage,
@@ -83,6 +86,7 @@ class AddTransactionUseCase {
     if (!parseResult.isTransaction || parseResult.transaction == null) {
       return AddTransactionResult.notTransaction(parseResult);
     }
+    await _logMetric?.call('parse_success', dimension: parseResult.bankKey);
 
     final parsed = parseResult.transaction!;
     final occurredAt = parsed.occurredAt ?? DateTime.now().toUtc();
@@ -141,6 +145,7 @@ class AddTransactionUseCase {
         occurredAt: saved.occurredAt,
       );
     }
+    await _logMetric?.call('first_transaction_captured');
     return AddTransactionResult.added(
       saved,
       parseResult,

@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>معاينة مالي — Balanced Mobile View</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;600;700;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      /* Palette */
+      --primary: #0A2540;
+      --primary-rgb: 10, 37, 64;
+      --accent: #FFB300;
+      --accent-rgb: 255, 179, 0;
+      --success: #16A968;
+      --success-rgb: 22, 169, 104;
+      --bg-studio: #0F172A; /* Studio dark background */
+      
+      /* Inside Phone (Light Mode default) */
+      --app-bg: #F8FAFC;
+      --app-surface: #FFFFFF;
+      --app-border: #E2E8F0;
+      --app-text: #0F172A;
+      --app-text-light: #64748B;
+      --app-card-bg: #FFFFFF;
+      --app-card-shadow: 0 4px 20px rgba(10, 37, 64, 0.03);
+      --app-glass-bg: rgba(255, 255, 255, 0.85);
+      
+      --gradient-primary: linear-gradient(135deg, #0A2540 0%, #103B66 100%);
+      --gradient-accent: linear-gradient(135deg, #FFB300 0%, #FFC107 100%);
+      --gradient-success: linear-gradient(135deg, #16A968 0%, #10B981 100%);
+      
+      --radius-lg: 24px;
+      --radius-md: 16px;
+      --radius-sm: 10px;
+      --transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    [data-theme="dark"] {
+      --app-bg: #030E1A;
+      --app-surface: #071626;
+      --app-border: #13273D;
+      --app-text: #F8FAFC;
+      --app-text-light: #94A3B8;
+      --app-card-bg: #071626;
+      --app-card-shadow: 0 10px 25px -10px rgba(0, 0, 0, 0.4);
+      --app-glass-bg: rgba(7, 22, 38, 0.9);
+      --gradient-primary: linear-gradient(135deg, #071626 0%, #0D233A 100%);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Alexandria', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg-studio);
+      color: #F8FAFC;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top Studio Header */
+    .studio-header {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid #334155;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .studio-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .studio-logo {
+      width: 36px;
+      height: 36px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #0A2540;
+      font-weight: 800;
+    }
+
+    .studio-title {
+      font-weight: 700;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+
+    .studio-controls {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .theme-toggle-btn {
+      background: #1E293B;
+      border: 1px solid #475569;
+      color: #FFFFFF;
+      padding: 0.5rem 1rem;
+      border-radius: 99px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: var(--transition);
+    }
+    
+    .theme-toggle-btn:hover {
+      border-color: var(--accent);
+      background: #334155;
+    }
+
+    /* Workspace Layout */
+    .studio-workspace {
+      flex-grow: 1;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      padding: 2rem;
+      max-width: 1300px;
+      margin: 0 auto;
+      width: 100%;
+      gap: 3rem;
+      align-items: center;
+    }
+
+    @media (max-width: 1000px) {
+      .studio-workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto;
+        gap: 2rem;
+      }
+    }
+
+    /* Steps Navigator */
+    .step-navigator {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      background: #1E293B;
+      border: 1px solid #334155;
+      padding: 1.5rem;
+      border-radius: 20px;
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+    }
+
+    @media (max-width: 1000px) {
+      .step-navigator {
+        flex-direction: row;
+        overflow-x: auto;
+        padding: 1rem;
+      }
+    }
+
+    .nav-btn {
+      background: #0F172A;
+      border: 1px solid #334155;
+      color: #94A3B8;
+      padding: 0.9rem 1rem;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-align: right;
+      transition: var(--transition);
+      flex-shrink: 0;
+    }
+
+    .nav-btn:hover {
+      color: #FFFFFF;
+      border-color: #475569;
+    }
+
+    .nav-btn.active {
+      background: var(--gradient-primary);
+      border-color: transparent;
+      color: #FFFFFF;
+      box-shadow: 0 4px 15px rgba(10, 37, 64, 0.2);
+    }
+
+    .nav-btn.active i {
+      color: var(--accent);
+    }
+
+    .nav-indicator {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.75rem;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.1rem 0.4rem;
+      border-radius: 99px;
+      margin-inline-start: auto;
+    }
+
+    /* PHONE CONTAINER DEVICE MOCKUP */
+    .phone-mockup-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      perspective: 1000px;
+    }
+
+    .smartphone-device {
+      width: 375px;
+      height: 812px;
+      background: #000000;
+      border-radius: 50px;
+      padding: 12px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.9), 
+                  0 0 0 4px #2D3748, 
+                  0 0 0 10px #1A202C;
+      position: relative;
+      transition: var(--transition);
+    }
+
+    /* Notch */
+    .device-notch {
+      position: absolute;
+      top: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 110px;
+      height: 30px;
+      background: #000000;
+      border-radius: 20px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding: 0 10px;
+    }
+
+    .notch-camera {
+      width: 8px;
+      height: 8px;
+      background: #111;
+      border-radius: 50%;
+      box-shadow: inset 0 1px 2px rgba(255,255,255,0.2);
+    }
+
+    /* Inner Screen */
+    .phone-screen {
+      width: 100%;
+      height: 100%;
+      background-color: var(--app-bg);
+      border-radius: 40px;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      color: var(--app-text);
+      transition: var(--transition);
+      user-select: none;
+    }
+
+    /* App Status Bar */
+    .app-status-bar {
+      height: 44px;
+      padding: 0 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--app-text);
+      z-index: 90;
+      direction: ltr;
+    }
+
+    .status-left {
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .status-right {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+
+    /* App Content Area */
+    .app-body {
+      flex-grow: 1;
+      overflow-y: auto;
+      padding: 0.5rem 1.25rem 1.25rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      scrollbar-width: none;
+    }
+
+    .app-body::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* Bottom App Controls (Dock) */
+    .app-dock {
+      background: var(--app-glass-bg);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--app-border);
+      padding: 1rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      z-index: 10;
+      border-bottom-left-radius: 40px;
+      border-bottom-right-radius: 40px;
+      transition: var(--transition);
+    }
+
+    .app-indicators {
+      display: flex;
+      justify-content: center;
+      gap: 0.35rem;
+    }
+
+    .app-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--app-border);
+      transition: var(--transition);
+      cursor: pointer;
+    }
+
+    .app-dot.active {
+      width: 18px;
+      border-radius: 99px;
+      background: var(--accent);
+    }
+
+    .app-buttons {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .app-btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--radius-md);
+      font-weight: 700;
+      font-size: 0.85rem;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: var(--transition);
+    }
+
+    .app-btn.skip {
+      background: transparent;
+      color: var(--app-text-light);
+    }
+
+    .app-btn.next {
+      background: var(--gradient-primary);
+      color: #FFFFFF;
+      box-shadow: 0 4px 10px rgba(10, 37, 64, 0.12);
+      flex-grow: 1;
+      justify-content: center;
+    }
+
+    [data-theme="dark"] .app-btn.next {
+      background: var(--gradient-accent);
+      color: #0A2540;
+      box-shadow: 0 4px 10px rgba(255, 179, 0, 0.15);
+    }
+
+    /* Screen Views */
+    .screen-view {
+      display: none;
+      flex-direction: column;
+      gap: 1.25rem;
+      flex-grow: 1;
+      animation: screenFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .screen-view.active {
+      display: flex;
+    }
+
+    @keyframes screenFade {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* App Header (Clean & standard, no box) */
+    .app-top-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .app-top-header .badge {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: rgba(var(--accent-rgb), 0.15);
+      color: var(--accent);
+      padding: 0.2rem 0.6rem;
+      border-radius: 99px;
+    }
+
+    .app-top-header .skip-action {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--app-text-light);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    
+    .app-top-header .skip-action:hover {
+      color: var(--app-text);
+    }
+
+    /* Typography inside app screen */
+    .screen-title {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--app-text);
+      line-height: 1.3;
+      margin-bottom: 0.35rem;
+    }
+
+    .screen-subtitle {
+      font-size: 0.85rem;
+      color: var(--app-text-light);
+      line-height: 1.6;
+    }
+
+    .section-header {
+      margin-bottom: 0.5rem;
+    }
+
+    /* Brand Logo graphics */
+    .brand-hero-logo {
+      position: relative;
+      width: 90px;
+      height: 90px;
+      margin: 1.5rem auto;
+    }
+
+    .logo-lines-wrapper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .brand-hero-logo .l-line {
+      position: absolute;
+      border-radius: 99px;
+    }
+
+    .brand-hero-logo .l-line-1 {
+      left: 16%;
+      top: 44%;
+      width: 76%;
+      height: 12%;
+      background-color: var(--success);
+      transform: rotate(-48deg);
+      transform-origin: left center;
+    }
+
+    .brand-hero-logo .l-line-2 {
+      right: 2%;
+      top: 1%;
+      width: 22%;
+      height: 12%;
+      background-color: var(--success);
+      transform: rotate(45deg);
+    }
+
+    .brand-hero-logo .l-line-3 {
+      left: 18%;
+      top: 36%;
+      width: 34%;
+      height: 11%;
+      background-color: #0A7A4F;
+      transform: rotate(72deg);
+    }
+
+    .brand-hero-logo .l-line-4 {
+      left: 12%;
+      bottom: 18%;
+      width: 44%;
+      height: 14%;
+      background-color: #0A7A4F;
+    }
+
+    .brand-hero-logo .l-circle {
+      left: 9%;
+      bottom: 18%;
+      width: 16%;
+      height: 16%;
+      background-color: var(--accent);
+      border-radius: 50%;
+      position: absolute;
+    }
+
+    /* Core Hero visual panel (Unified feature showcase, replacing separate bento blocks) */
+    .unified-hero-panel {
+      background: var(--app-card-bg);
+      border: 1px solid var(--app-border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      box-shadow: var(--app-card-shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .unified-hero-panel.theme-dark {
+      background: var(--gradient-primary);
+      color: white;
+      border-color: transparent;
+    }
+
+    /* SMS simulation elements inside unified panel */
+    .sms-simulation-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+
+    .sms-card {
+      background: var(--app-bg);
+      border: 1px solid var(--app-border);
+      border-radius: var(--radius-md);
+      padding: 0.8rem;
+      display: flex;
+      gap: 0.65rem;
+      align-items: start;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+      transition: var(--transition);
+    }
+
+    [data-theme="dark"] .sms-card {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .sms-card.active {
+      border-color: var(--accent);
+      background: rgba(255, 179, 0, 0.04);
+      box-shadow: 0 4px 15px rgba(var(--accent-rgb), 0.08);
+    }
+
+    .sms-icon {
+      background: var(--gradient-primary);
+      color: white;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      flex-shrink: 0;
+    }
+
+    .sms-body {
+      flex-grow: 1;
+      font-size: 0.75rem;
+    }
+
+    .sms-header {
+      display: flex;
+      justify-content: space-between;
+      font-weight: 700;
+      margin-bottom: 0.15rem;
+    }
+
+    .sms-text {
+      color: var(--app-text-light);
+      line-height: 1.4;
+    }
+
+    [data-theme="dark"] .sms-text {
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    /* Savings Goal progress card inside unified panel */
+    .savings-card-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .savings-header-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .savings-amount-label {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 800;
+    }
+
+    .savings-amount-label span {
+      font-family: 'Alexandria';
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .savings-progress-box {
+      background: var(--app-bg);
+      border: 1px solid var(--app-border);
+      border-radius: var(--radius-md);
+      padding: 0.75rem;
+    }
+
+    [data-theme="dark"] .savings-progress-box {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .progress-bar-container {
+      height: 8px;
+      background: var(--app-border);
+      border-radius: 99px;
+      overflow: hidden;
+      margin: 0.35rem 0;
+    }
+
+    [data-theme="dark"] .progress-bar-container {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--gradient-success);
+      width: 75%;
+      border-radius: 99px;
+    }
+
+    /* Saudi Arabia flag card content */
+    .saudi-card-content {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      background: rgba(var(--success-rgb), 0.08);
+      border-radius: var(--radius-md);
+      padding: 0.75rem;
+    }
+
+    .saudi-flag-circle {
+      width: 40px;
+      height: 40px;
+      background: #006C35;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid white;
+      box-shadow: 0 4px 10px rgba(0, 108, 53, 0.2);
+    }
+
+    .bank-chips-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.45rem;
+      margin-top: 0.5rem;
+    }
+
+    .bank-chip {
+      background: var(--app-bg);
+      border: 1px solid var(--app-border);
+      border-radius: var(--radius-sm);
+      padding: 0.5rem;
+      text-align: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--app-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25rem;
+      transition: var(--transition);
+    }
+
+    [data-theme="dark"] .bank-chip {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .bank-chip i {
+      color: var(--success);
+    }
+
+    /* Privacy protection list rows (Elegant list, no grids) */
+    .privacy-feature-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+
+    .privacy-list-item {
+      background: var(--app-bg);
+      border: 1px solid var(--app-border);
+      border-radius: var(--radius-md);
+      padding: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: var(--transition);
+    }
+
+    [data-theme="dark"] .privacy-list-item {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .privacy-icon-badge {
+      background: rgba(var(--success-rgb), 0.15);
+      color: var(--success);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .privacy-item-text {
+      font-size: 0.75rem;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+
+    /* Shield Graphic */
+    .shield-badge {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: var(--success);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 15px rgba(var(--success-rgb), 0.3);
+      margin: 0 auto;
+    }
+
+    /* Auth Screens: Completely clean, no bento boxes */
+    .auth-form-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      margin-top: 1rem;
+    }
+
+    .auth-providers-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+
+    .auth-btn-pill {
+      height: 48px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--app-border);
+      background: var(--app-surface);
+      color: var(--app-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      transition: var(--transition);
+    }
+
+    .auth-btn-pill:hover {
+      background: var(--app-bg);
+      border-color: var(--accent);
+    }
+
+    .auth-btn-pill.apple-black {
+      background: #000000;
+      color: white;
+      border-color: transparent;
+    }
+
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 0.25rem 0;
+    }
+
+    .auth-divider span {
+      font-size: 0.75rem;
+      color: var(--app-text-light);
+    }
+
+    .auth-divider-line {
+      flex-grow: 1;
+      height: 1px;
+      background: var(--app-border);
+    }
+
+    .form-group-input {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .form-group-input label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--app-text-light);
+    }
+
+    .form-input-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .form-input-container i {
+      position: absolute;
+      right: 0.9rem;
+      color: var(--app-text-light);
+    }
+
+    .clean-text-input {
+      width: 100%;
+      height: 46px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--app-border);
+      background: var(--app-surface);
+      color: var(--app-text);
+      padding: 0 2.5rem 0 1rem;
+      font-size: 0.85rem;
+      outline: none;
+      transition: var(--transition);
+    }
+
+    [data-theme="dark"] .clean-text-input {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .clean-text-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
+    }
+
+    .clean-cta-submit {
+      height: 48px;
+      border-radius: var(--radius-md);
+      background: var(--gradient-primary);
+      color: white;
+      border: none;
+      font-weight: 700;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: var(--transition);
+      box-shadow: 0 4px 15px rgba(10,37,64,0.15);
+    }
+
+    [data-theme="dark"] .clean-cta-submit {
+      background: var(--gradient-accent);
+      color: #0A2540;
+    }
+
+    .clean-cta-submit:hover {
+      transform: translateY(-1px);
+    }
+
+    .auth-disclaimer {
+      font-size: 0.65rem;
+      color: var(--app-text-light);
+      text-align: center;
+      line-height: 1.4;
+      margin-top: 0.5rem;
+    }
+
+    .auth-disclaimer a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Studio Header -->
+  <div class="studio-header">
+    <div class="studio-brand">
+      <div class="studio-logo">م</div>
+      <div class="studio-title">معاينة واجهات «مالي» المتوازنة</div>
+    </div>
+    
+    <div class="studio-controls">
+      <button class="theme-toggle-btn" onclick="toggleThemeInsidePhone()">
+        <i data-lucide="moon" style="width: 16px; height: 16px;"></i>
+        <span id="themeToggleText">الوضع الداكن للتطبيق</span>
+      </button>
+      <div style="font-size: 0.85rem; color: #94A3B8; font-weight: 600;">
+        تصميم مريح وأصيل (Balanced RTL View)
+      </div>
+    </div>
+  </div>
+
+  <!-- Workspace -->
+  <div class="studio-workspace">
+    
+    <!-- Selector Navigation -->
+    <div class="step-navigator">
+      <div style="margin-bottom: 0.75rem;">
+        <h3 style="font-size: 1.05rem; font-weight: 800; color: white; margin-bottom: 0.25rem;">خطوات الرحلة</h3>
+        <p style="font-size: 0.8rem; color: #94A3B8; line-height: 1.4;">اختر الشاشة لمعاينتها داخل الهاتف. تم تقليل المربعات المفرطة لصالح تصميم موحد وأنيق.</p>
+      </div>
+
+      <button class="nav-btn active" onclick="switchPhoneStep(0)">
+        <i data-lucide="sparkles"></i>
+        <span>1. الترحيب والتعريف</span>
+        <span class="nav-indicator">1 / 6</span>
+      </button>
+      
+      <button class="nav-btn" onclick="switchPhoneStep(1)">
+        <i data-lucide="message-square-text"></i>
+        <span>2. قراءة الرسائل</span>
+        <span class="nav-indicator">2 / 6</span>
+      </button>
+
+      <button class="nav-btn" onclick="switchPhoneStep(2)">
+        <i data-lucide="trending-up"></i>
+        <span>3. أهداف الادخار</span>
+        <span class="nav-indicator">3 / 6</span>
+      </button>
+
+      <button class="nav-btn" onclick="switchPhoneStep(3)">
+        <i data-lucide="map-pin"></i>
+        <span>4. التوطين والبلد</span>
+        <span class="nav-indicator">4 / 6</span>
+      </button>
+
+      <button class="nav-btn" onclick="switchPhoneStep(4)">
+        <i data-lucide="shield-alert"></i>
+        <span>5. الخصوصية والبيانات</span>
+        <span class="nav-indicator">5 / 6</span>
+      </button>
+
+      <button class="nav-btn" onclick="switchPhoneStep(5)">
+        <i data-lucide="unlock"></i>
+        <span>6. التوثيق والتسجيل</span>
+        <span class="nav-indicator">6 / 6</span>
+      </button>
+    </div>
+
+    <!-- Mobile Device Frame -->
+    <div class="phone-mockup-wrapper">
+      <div class="smartphone-device">
+        <!-- Notch -->
+        <div class="device-notch">
+          <div class="notch-camera"></div>
+          <div style="width: 4px; height: 4px; background: #222; border-radius: 50%;"></div>
+        </div>
+
+        <!-- App Screen -->
+        <div class="phone-screen" id="phoneAppContainer">
+          
+          <!-- Status Bar -->
+          <div class="app-status-bar">
+            <div class="status-left">09:41</div>
+            <div class="status-right">
+              <i data-lucide="wifi" style="width: 12px; height: 12px;"></i>
+              <i data-lucide="signal" style="width: 12px; height: 12px;"></i>
+              <i data-lucide="battery" style="width: 14px; height: 14px;"></i>
+            </div>
+          </div>
+
+          <!-- App Screen Body -->
+          <div class="app-body">
+            
+            <!-- Standard Header -->
+            <div class="app-top-header" id="appTopHeader">
+              <span class="badge" id="appStepBadge">1 / 6</span>
+              <button class="skip-action" id="appSkipAction" onclick="switchPhoneStep(5)">تخطي</button>
+            </div>
+
+            <!-- ================= SCREEN 1: WELCOME ================= -->
+            <div class="screen-view active" id="p-view-0">
+              <div class="brand-hero-logo">
+                <div class="logo-lines-wrapper">
+                  <div class="l-line l-line-1"></div>
+                  <div class="l-line l-line-2"></div>
+                  <div class="l-line l-line-3"></div>
+                  <div class="l-line l-line-4"></div>
+                  <div class="l-circle"></div>
+                </div>
+              </div>
+              
+              <div style="text-align: center; margin-top: 1rem;">
+                <h1 class="screen-title" style="font-size: 1.85rem; font-weight: 800;">مساعدك المالي اليومي</h1>
+                <p class="screen-subtitle" style="font-size: 0.95rem; margin-top: 0.5rem; font-weight: 600;">صاحبك في فلوسك</p>
+                
+                <div style="height: 4px; width: 44px; background: var(--accent); border-radius: 99px; margin: 1.25rem auto;"></div>
+                
+                <p style="font-size: 0.85rem; color: var(--app-text-light); line-height: 1.6; max-width: 280px; margin: 0 auto;">
+                  اعرف وين راحت فلوسك، ووفّر أوتوماتيكياً بطريقة ذكية وسهلة.
+                </p>
+              </div>
+            </div>
+
+            <!-- ================= SCREEN 2: SMS ================= -->
+            <div class="screen-view" id="p-view-1">
+              <div class="section-header">
+                <span style="font-size: 0.75rem; font-weight: 800; color: var(--accent); text-transform: uppercase;">بدون مجهود</span>
+                <h2 class="screen-title" style="margin-top: 0.15rem;">لا تكتب — إحنا نفهمها لك</h2>
+                <p class="screen-subtitle">نقرأ رسائل بنكك على جهازك، ونطلّع المبلغ والمتجر ونصنّفها تلقائياً.</p>
+              </div>
+
+              <!-- Compact, beautiful interactive simulation container -->
+              <div class="unified-hero-panel">
+                <div class="sms-simulation-container">
+                  <div class="sms-card">
+                    <div class="sms-icon"><i data-lucide="message-square" style="width: 12px; height: 12px;"></i></div>
+                    <div class="sms-body">
+                      <div class="sms-header">
+                        <strong>SNB</strong>
+                        <span style="color:var(--app-text-light);">الآن</span>
+                      </div>
+                      <div class="sms-text">عملية مدى شراء بـ <strong style="color:var(--accent);">18.50 ر.س</strong> لدى هاف مليون.</div>
+                    </div>
+                  </div>
+
+                  <div class="sms-card active">
+                    <div class="sms-icon"><i data-lucide="message-square" style="width: 12px; height: 12px;"></i></div>
+                    <div class="sms-body">
+                      <div class="sms-header">
+                        <strong>الراجحي</strong>
+                        <span style="color:var(--app-text-light);">قبل دقيقة</span>
+                      </div>
+                      <div class="sms-text">تم خصم <strong style="color:var(--success);">126.00 ر.س</strong> لدى مطعم هامبرغيني.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid var(--app-border); padding-top: 0.75rem; font-size: 0.7rem; color: var(--app-text-light);">
+                  <span><i data-lucide="cpu" style="width: 12px; height: 12px; display:inline-block; vertical-align:middle; margin-inline-end: 0.25rem; color: var(--success);"></i>معالجة محلية بالكامل</span>
+                  <span>الخصوصية أولاً</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- ================= SCREEN 3: SAVINGS ================= -->
+            <div class="screen-view" id="p-view-2">
+              <div class="section-header">
+                <span style="font-size: 0.75rem; font-weight: 800; color: var(--accent);">التحفيز المالي</span>
+                <h2 class="screen-title" style="margin-top: 0.15rem;">وفّر وكأنها لعبة يومية</h2>
+                <p class="screen-subtitle">حدّد أهدافك المالية ووفّر الفروقات يومًا بعد يوم بطابع تشجيعي ذكي.</p>
+              </div>
+
+              <!-- Unified Savings Panel (No split cards) -->
+              <div class="unified-hero-panel">
+                <div class="savings-card-content">
+                  <div class="savings-header-info">
+                    <div style="font-size:0.75rem; font-weight: 700; color: var(--app-text-light);">مجموع الادخار المتراكم</div>
+                    <i data-lucide="piggy-bank" style="color: var(--success); width: 22px; height: 22px;"></i>
+                  </div>
+                  <div class="savings-amount-label">
+                    11,250 <span>ر.س</span>
+                  </div>
+                  
+                  <div class="savings-progress-box">
+                    <div style="display:flex; justify-content:space-between; font-size:0.7rem; font-weight:700; margin-bottom: 0.25rem;">
+                      <span><i data-lucide="plane" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-inline-end:0.25rem;"></i>خزنة السفر</span>
+                      <span style="color:var(--success);">75% مكتمل</span>
+                    </div>
+                    <div class="progress-bar-container">
+                      <div class="progress-bar-fill"></div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; font-size: 0.65rem; color:var(--app-text-light); margin-top:0.25rem;">
+                      <span>الهدف: 15,000 ر.س</span>
+                      <span>متبقي: 3,750 ر.س</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ================= SCREEN 4: COUNTRY ================= -->
+            <div class="screen-view" id="p-view-3">
+              <div class="section-header">
+                <span style="font-size: 0.75rem; font-weight: 800; color: var(--accent);">سهل الاستخدام</span>
+                <h2 class="screen-title" style="margin-top: 0.15rem;">مهيأ للسوق السعودي</h2>
+                <p class="screen-subtitle">نضبط العملة والبنوك وتتبع الرسائل بما يتطابق مع السوق المحلي تلقائياً.</p>
+              </div>
+
+              <div class="unified-hero-panel">
+                <div class="saudi-card-content">
+                  <div class="saudi-flag-circle">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M0 0H24V24H0V0Z" fill="#006C35"/>
+                      <path d="M4 14.5C8 14.5 12 12.5 20 12.5" stroke="#FFFFFF" stroke-width="2"/>
+                      <path d="M7 8.5L9 11L11 8.5" stroke="#FFFFFF" stroke-width="1.5"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div style="font-weight: 800; font-size: 0.85rem;">المملكة العربية السعودية</div>
+                    <div style="font-size: 0.75rem; color: var(--app-text-light);">العملة: ريال سعودي (SAR)</div>
+                  </div>
+                </div>
+
+                <div class="bank-chips-grid">
+                  <div class="bank-chip"><i data-lucide="check" style="width:12px; height:12px;"></i>الراجحي</div>
+                  <div class="bank-chip"><i data-lucide="check" style="width:12px; height:12px;"></i>الأهلي SNB</div>
+                  <div class="bank-chip"><i data-lucide="check" style="width:12px; height:12px;"></i>الرياض</div>
+                  <div class="bank-chip"><i data-lucide="check" style="width:12px; height:12px;"></i>الإنماء</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ================= SCREEN 5: PRIVACY ================= -->
+            <div class="screen-view" id="p-view-4">
+              <div class="section-header">
+                <span style="font-size: 0.75rem; font-weight: 800; color: var(--accent);">خصوصية تامّة</span>
+                <h2 class="screen-title" style="margin-top: 0.15rem;">بياناتك تبقى في جهازك</h2>
+                <p class="screen-subtitle">مبادئ الأمان والخصوصية لدينا تعني أنك المتحكم الوحيد ببياناتك المالية.</p>
+              </div>
+
+              <!-- List features (Clean unified container, no grids) -->
+              <div class="privacy-feature-list">
+                <div class="privacy-list-item">
+                  <div class="privacy-icon-badge"><i data-lucide="cpu" style="width: 16px; height: 16px;"></i></div>
+                  <div class="privacy-item-text">كل المعالجة والذكاء يتم على هاتفك بدون إنترنت</div>
+                </div>
+                <div class="privacy-list-item">
+                  <div class="privacy-icon-badge"><i data-lucide="eye-off" style="width: 16px; height: 16px;"></i></div>
+                  <div class="privacy-item-text">نقرأ فقط رسائل البنوك ونستبعد أي رسائل شخصية</div>
+                </div>
+                <div class="privacy-list-item">
+                  <div class="privacy-icon-badge"><i data-lucide="trash-2" style="width: 16px; height: 16px;"></i></div>
+                  <div class="privacy-item-text">ما نبيع بياناتك أبداً، ولك كامل الحرية في حذفها</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ================= SCREEN 6: AUTHENTICATION ================= -->
+            <div class="screen-view" id="p-view-5">
+              <div style="text-align: center; margin-top: 0.5rem; margin-bottom: 0.75rem;">
+                <div class="brand-hero-logo" style="width: 48px; height: 48px; margin: 0.5rem auto; transform: scale(0.65);">
+                  <div class="logo-lines-wrapper">
+                    <div class="l-line l-line-1"></div>
+                    <div class="l-line l-line-2"></div>
+                    <div class="l-line l-line-3"></div>
+                    <div class="l-line l-line-4"></div>
+                    <div class="l-circle"></div>
+                  </div>
+                </div>
+                <h2 class="screen-title" style="font-size: 1.3rem;">سجّل دخولك للبدء</h2>
+                <p class="screen-subtitle" style="font-size: 0.75rem;">الدخول لتحديد هويتك ومزامنة إعداداتك فقط. بياناتك المالية تبقى آمنة على جهازك.</p>
+              </div>
+
+              <!-- Authentication form structure (Standard visual, clean styling) -->
+              <div class="auth-form-container">
+                <div class="auth-providers-stack">
+                  <button class="auth-btn-pill apple-black">
+                    <i data-lucide="apple" style="width: 16px; height: 16px; fill: white;"></i>
+                    <span>المتابعة مع Apple</span>
+                  </button>
+                  <button class="auth-btn-pill">
+                    <!-- Google SVG -->
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M22.56 12.25C22.56 11.52 22.5 10.83 22.38 10.16H12V14.12H17.92C17.67 15.48 16.9 16.63 15.75 17.4V19.97H21.28C24.52 17 26.39 12.62 26.39 12.25H22.56Z" fill="#4285F4"/>
+                      <path d="M12 23C14.97 23 17.47 22.02 19.28 20.33L15.75 17.76C14.77 18.42 13.5 18.82 12 18.82C9.13 18.82 6.7 16.88 5.83 14.28H0.16V18.67C1.97 22.28 5.7 23 12 23Z" fill="#34A853"/>
+                      <path d="M5.83 14.28C5.6 13.58 5.47 12.83 5.47 12.06C5.47 11.29 5.6 10.54 5.83 9.84V5.45H0.16C-0.62 7.02 -1.06 8.78 -1.06 10.63C-1.06 12.48 -0.62 14.24 0.16 15.81L5.83 14.28Z" fill="#FBBC05"/>
+                      <path d="M12 5.18C13.62 5.18 15.07 5.74 16.21 6.83L19.36 3.68C17.46 1.91 14.96 0.82 12 0.82C5.7 0.82 1.97 1.54 0.16 5.15L5.83 9.54C6.7 6.94 9.13 5.18 12 5.18Z" fill="#EA4335"/>
+                    </svg>
+                    <span>المتابعة مع Google</span>
+                  </button>
+                </div>
+
+                <div class="auth-divider">
+                  <div class="auth-divider-line"></div>
+                  <span>أو</span>
+                  <div class="auth-divider-line"></div>
+                </div>
+
+                <div class="form-group-input">
+                  <label for="user-email">المتابعة بالبريد</label>
+                  <div class="form-input-container">
+                    <i data-lucide="mail" style="width:16px; height:16px;"></i>
+                    <input type="email" id="user-email" class="clean-text-input" placeholder="البريد الإلكتروني">
+                  </div>
+                </div>
+
+                <button class="clean-cta-submit" onclick="alert('تم إرسال الرمز بنجاح!')">
+                  <span>إرسال رمز الدخول الآمن</span>
+                </button>
+
+                <p class="auth-disclaimer">
+                  بالمتابعة توافق على <a href="#">شروط الخدمة</a> و<a href="#">سياسة الخصوصية</a> الخاصة بـ مالي.
+                </p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Dock (Clean Bottom Buttons) -->
+          <div class="app-dock" id="appDock">
+            <div class="app-indicators">
+              <div class="app-dot active" onclick="switchPhoneStep(0)"></div>
+              <div class="app-dot" onclick="switchPhoneStep(1)"></div>
+              <div class="app-dot" onclick="switchPhoneStep(2)"></div>
+              <div class="app-dot" onclick="switchPhoneStep(3)"></div>
+              <div class="app-dot" onclick="switchPhoneStep(4)"></div>
+              <div class="app-dot" onclick="switchPhoneStep(5)"></div>
+            </div>
+
+            <div class="app-buttons">
+              <button class="app-btn skip" id="phoneSkipBtn" onclick="switchPhoneStep(5)">تخطي</button>
+              <button class="app-btn next" id="phoneNextBtn" onclick="phoneGoNext()">
+                <span id="phoneNextBtnText">التالي</span>
+                <i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script>
+    lucide.createIcons();
+
+    let activePhoneStep = 0;
+    const totalPhoneSteps = 6;
+
+    function switchPhoneStep(stepIdx) {
+      activePhoneStep = stepIdx;
+
+      // Update sidebar nav items
+      const navBtns = document.querySelectorAll('.nav-btn');
+      navBtns.forEach((btn, idx) => {
+        if (idx === stepIdx) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
+      // Update screen views
+      const views = document.querySelectorAll('.screen-view');
+      views.forEach((view, idx) => {
+        if (idx === stepIdx) {
+          view.classList.add('active');
+        } else {
+          view.classList.remove('active');
+        }
+      });
+
+      // Update dots indicator
+      const dots = document.querySelectorAll('.app-dot');
+      dots.forEach((dot, idx) => {
+        if (idx === stepIdx) {
+          dot.classList.add('active');
+        } else {
+          dot.classList.remove('active');
+        }
+      });
+
+      // Sync top header step count
+      const badge = document.getElementById('appStepBadge');
+      badge.innerText = `${stepIdx + 1} / 6`;
+
+      // Hide/Show skip actions on auth or late screens
+      const skipActionHeader = document.getElementById('appSkipAction');
+      const phoneSkipBtnDock = document.getElementById('phoneSkipBtn');
+      if (stepIdx >= 4) {
+        skipActionHeader.style.visibility = 'hidden';
+        phoneSkipBtnDock.style.visibility = 'hidden';
+      } else {
+        skipActionHeader.style.visibility = 'visible';
+        phoneSkipBtnDock.style.visibility = 'visible';
+      }
+
+      // Next button label sync
+      const nextBtnText = document.getElementById('phoneNextBtnText');
+      if (stepIdx === 4) {
+        nextBtnText.innerText = 'التسجيل';
+      } else if (stepIdx === 5) {
+        nextBtnText.innerText = 'دخول التطبيق';
+      } else {
+        nextBtnText.innerText = 'التالي';
+      }
+    }
+
+    function phoneGoNext() {
+      if (activePhoneStep < totalPhoneSteps - 1) {
+        switchPhoneStep(activePhoneStep + 1);
+      } else {
+        alert('تم محاكاة الدخول بنجاح! سيتم نقلك لشاشات تطبيق مالي الرئيسية.');
+      }
+    }
+
+    function toggleThemeInsidePhone() {
+      const container = document.getElementById('phoneAppContainer');
+      const currentTheme = container.getAttribute('data-theme');
+      const textSpan = document.getElementById('themeToggleText');
+      const themeBtn = document.querySelector('.theme-toggle-btn');
+      
+      if (currentTheme === 'dark') {
+        container.removeAttribute('data-theme');
+        textSpan.innerText = 'الوضع الداكن للتطبيق';
+        themeBtn.innerHTML = '<i data-lucide="moon" style="width: 16px; height: 16px;"></i> <span>الوضع الداكن للتطبيق</span>';
+      } else {
+        container.setAttribute('data-theme', 'dark');
+        textSpan.innerText = 'الوضع الفاتح للتطبيق';
+        themeBtn.innerHTML = '<i data-lucide="sun" style="width: 16px; height: 16px;"></i> <span>الوضع الفاتح للتطبيق</span>';
+      }
+      lucide.createIcons();
+    }
+  </script>
+</body>
+</html>

@@ -9,7 +9,7 @@ class SectionHeroHeader extends StatelessWidget {
     super.key,
     required this.title,
     required this.subtitle,
-    required this.metrics,
+    this.metrics = const [],
     this.action,
   });
 
@@ -49,37 +49,49 @@ class SectionHeroHeader extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: AppTypography.title1(Colors.white)
-                  .copyWith(fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                if (Navigator.of(context).canPop()) ...[
+                  const BackButton(color: Colors.white),
+                  const SizedBox(width: AppSpacing.s2),
+                ],
+                Expanded(
+                  child: Text(
+                    title,
+                    style: AppTypography.title1(Colors.white)
+                        .copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.s2),
             Text(subtitle, style: AppTypography.callout(Colors.white70)),
-            const SizedBox(height: AppSpacing.s5),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.s4),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(AppRadius.card),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.20),
+            if (metrics.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.s5),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.s4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.card),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.20),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < metrics.length; i++) ...[
+                      Expanded(child: _MetricView(metric: metrics[i])),
+                      if (i != metrics.length - 1)
+                        Container(
+                          height: 42,
+                          width: 1,
+                          color: Colors.white.withValues(alpha: 0.20),
+                        ),
+                    ],
+                  ],
                 ),
               ),
-              child: Row(
-                children: [
-                  for (var i = 0; i < metrics.length; i++) ...[
-                    Expanded(child: _MetricView(metric: metrics[i])),
-                    if (i != metrics.length - 1)
-                      Container(
-                        height: 42,
-                        width: 1,
-                        color: Colors.white.withValues(alpha: 0.20),
-                      ),
-                  ],
-                ],
-              ),
-            ),
+            ],
             if (action != null) ...[
               const SizedBox(height: AppSpacing.s4),
               Center(child: action),

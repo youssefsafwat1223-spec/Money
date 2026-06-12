@@ -1,10 +1,12 @@
 import 'package:drift/drift.dart';
 
 import '../../core/utils/id_generator.dart';
+import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/category_spend.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
+import '../../engine/parser/card_network.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
@@ -354,6 +356,46 @@ class DriftTransactionRepository implements TransactionRepository {
               total: r.read<double>('total'),
             ))
         .toList();
+  }
+
+  @override
+  Future<List<CardSummary>> getCardSummaries() async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT card_last4 AS last4,
+               CAST(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END) AS REAL) AS out_total,
+               CAST(SUM(CASE WHEN type IN ('income','refund') THEN amount ELSE 0 END) AS REAL) AS in_total,
+               COUNT(*) AS cnt,
+               MAX(raw_message) AS sample
+        FROM transactions
+        WHERE card_last4 IS NOT NULL AND status != 'ignored'
+        GROUP BY card_last4
+        ORDER BY (out_total + in_total) DESC;
+      ''',
+    ).get();
+    return rows
+        .map((r) => CardSummary(
+              last4: r.read<String>('last4'),
+              network: CardNetworkDetector.detect(
+                  r.readNullable<String>('sample') ?? ''),
+              totalOut: r.read<double>('out_total'),
+              totalIn: r.read<double>('in_total'),
+              count: r.read<int>('cnt'),
+            ))
+        .toList();
+  }
+
+  @override
+  Future<List<TransactionEntity>> getByCard(String last4) async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM transactions
+        WHERE card_last4 = ? AND status != 'ignored'
+        ORDER BY occurred_at DESC;
+      ''',
+      variables: [Variable.withString(last4)],
+    ).get();
+    return rows.map(transactionFromRow).toList();
   }
 
   @override

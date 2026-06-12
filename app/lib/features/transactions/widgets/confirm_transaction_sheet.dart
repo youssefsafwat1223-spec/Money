@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -20,6 +21,7 @@ Future<void> showConfirmTransactionSheet(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _ConfirmSheet(transactionId: transactionId),
   );
@@ -33,6 +35,7 @@ class _ConfirmSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final txAsync = ref.watch(transactionByIdProvider(transactionId));
     final catalogAsync = ref.watch(categoryCatalogProvider);
 
@@ -45,97 +48,117 @@ class _ConfirmSheet extends ConsumerWidget {
     final category = catalog.byId(tx.categoryId);
     final isNewMerchant = tx.rawMerchant != null;
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, AppSpacing.s6),
-      decoration: BoxDecoration(
-        color: c.surface,
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-                color: c.border, borderRadius: BorderRadius.circular(2)),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          Text('عملية جديدة', style: AppTypography.subhead(c.textLight)),
-          const SizedBox(height: AppSpacing.s2),
-          Text('${Formatters.amount(tx.amount)} ${tx.currency}',
-              style: AppTypography.amountHero(c.textMain)),
-          if (tx.rawMerchant != null) ...[
-            const SizedBox(height: 4),
-            Text(tx.rawMerchant!, style: AppTypography.headline(c.textMain)),
-          ],
-          const SizedBox(height: AppSpacing.s4),
-          // التصنيف المقترح (قابل للتغيير)
-          InkWell(
-            onTap: () => showChangeCategorySheet(context, tx, catalog),
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            child: Container(
-              padding: const EdgeInsets.all(AppSpacing.s3),
-              decoration: BoxDecoration(
-                color: c.surface2,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: c.border),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Material(
+            color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
+            shape: RoundedRectangleBorder(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              side: BorderSide(
+                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
+                width: 1.5,
               ),
-              child: Row(
+            ),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, AppSpacing.s6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  CategoryAvatar(category: category, size: 40),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: Text(category?.nameAr ?? 'غير مصنّف',
-                        style: AppTypography.bodyStrong(c.textMain)),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: c.textLight.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
                   ),
-                  Text('تغيير', style: AppTypography.subhead(c.primary)),
+                  const SizedBox(height: AppSpacing.s4),
+                  Text('عملية جديدة', style: AppTypography.subhead(c.textLight)),
+                  const SizedBox(height: AppSpacing.s2),
+                  Text('${Formatters.amount(tx.amount)} ${tx.currency}',
+                      style: AppTypography.amountHero(c.textMain)),
+                  if (tx.rawMerchant != null) ...[
+                    const SizedBox(height: 4),
+                    Text(tx.rawMerchant!, style: AppTypography.headline(c.textMain)),
+                  ],
+                  const SizedBox(height: AppSpacing.s4),
+                  // التصنيف المقترح (قابل للتغيير)
+                  InkWell(
+                    onTap: () => showChangeCategorySheet(context, tx, catalog),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.s3),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          CategoryAvatar(category: category, size: 40),
+                          const SizedBox(width: AppSpacing.s3),
+                          Expanded(
+                            child: Text(category?.nameAr ?? 'غير مصنّف',
+                                style: AppTypography.bodyStrong(c.textMain)),
+                          ),
+                          Text('تغيير', style: AppTypography.subhead(c.primary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s3),
+                  Text(
+                    '${Formatters.fullDate(tx.occurredAt)} · ${Formatters.time(tx.occurredAt)}'
+                    '${tx.cardLast4 != null ? ' · بطاقة ${tx.cardLast4}' : ''}',
+                    style: AppTypography.footnote(c.textLight),
+                  ),
+                  if (isNewMerchant) ...[
+                    const SizedBox(height: AppSpacing.s3),
+                    Text('متجر جديد — سنتذكّره لك',
+                        style: AppTypography.caption(c.primary)),
+                  ],
+                  const SizedBox(height: AppSpacing.s5),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 52,
+                          child: FilledButton(
+                            onPressed: () async {
+                              if (tx.status == TransactionStatus.pending) {
+                                await ref
+                                    .read(confirmTransactionUseCaseProvider)(tx.id);
+                              }
+                              refreshTransactions(ref);
+                              ref.invalidate(dashboardDataProvider);
+                              if (context.mounted) Navigator.of(context).pop();
+                            },
+                            style: FilledButton.styleFrom(
+                              backgroundColor: c.primary,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
+                            ),
+                            child: Text('تأكيد',
+                                style: AppTypography.bodyStrong(Colors.white)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.s3),
-          Text(
-            '${Formatters.fullDate(tx.occurredAt)} · ${Formatters.time(tx.occurredAt)}'
-            '${tx.cardLast4 != null ? ' · بطاقة ${tx.cardLast4}' : ''}',
-            style: AppTypography.footnote(c.textLight),
-          ),
-          if (isNewMerchant) ...[
-            const SizedBox(height: AppSpacing.s3),
-            Text('متجر جديد — سنتذكّره لك',
-                style: AppTypography.caption(c.primary)),
-          ],
-          const SizedBox(height: AppSpacing.s5),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 54,
-                  child: FilledButton(
-                    onPressed: () async {
-                      if (tx.status == TransactionStatus.pending) {
-                        await ref
-                            .read(confirmTransactionUseCaseProvider)(tx.id);
-                      }
-                      refreshTransactions(ref);
-                      ref.invalidate(dashboardDataProvider);
-                      if (context.mounted) Navigator.of(context).pop();
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: c.primary,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.md)),
-                    ),
-                    child: Text('تأكيد',
-                        style: AppTypography.bodyStrong(Colors.white)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
 }
+

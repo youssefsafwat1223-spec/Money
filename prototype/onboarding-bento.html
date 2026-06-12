@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>مالي — لوحة Bento لرحلة البدء والتوثيق</title>
+  <!-- Google Fonts for premium Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;600;700;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons for premium illustrations -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      /* Palette: Midnight Navy & Gold (#0A2540 & #FFB300) with Emerald Green (#16A968) */
+      --primary: #0A2540;
+      --primary-rgb: 10, 37, 64;
+      --accent: #FFB300;
+      --accent-rgb: 255, 179, 0;
+      --success: #16A968;
+      --success-rgb: 22, 169, 104;
+      --bg: #F0F4F8;
+      --surface: #FFFFFF;
+      --border: #E2E8F0;
+      --text-main: #0F172A;
+      --text-light: #64748B;
+      --card-bg: #FFFFFF;
+      --card-shadow: 0 10px 30px -5px rgba(10, 37, 64, 0.05), 0 1px 3px rgba(10, 37, 64, 0.03);
+      --glass-bg: rgba(255, 255, 255, 0.8);
+      --gradient-primary: linear-gradient(135deg, #0A2540 0%, #103B66 100%);
+      --gradient-accent: linear-gradient(135deg, #FFB300 0%, #FFC107 100%);
+      --gradient-success: linear-gradient(135deg, #16A968 0%, #10B981 100%);
+      --radius-lg: 24px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
+      --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    [data-theme="dark"] {
+      --primary: #FFB300;
+      --primary-rgb: 255, 179, 0;
+      --accent: #FFB300;
+      --accent-rgb: 255, 179, 0;
+      --bg: #030E1A;
+      --surface: #071626;
+      --border: #13273D;
+      --text-main: #F8FAFC;
+      --text-light: #94A3B8;
+      --card-bg: #071626;
+      --card-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
+      --glass-bg: rgba(7, 22, 38, 0.85);
+      --gradient-primary: linear-gradient(135deg, #071626 0%, #0D233A 100%);
+      --radius-lg: 24px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Alexandria', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      transition: var(--transition);
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Core Layout */
+    header {
+      background-color: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: var(--transition);
+    }
+
+    .brand-logo-area {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-logo-mark {
+      position: relative;
+      width: 42px;
+      height: 42px;
+    }
+
+    .brand-logo-text {
+      font-weight: 800;
+      font-size: 1.5rem;
+      color: #0A2540;
+      background: linear-gradient(135deg, var(--text-main) 0%, #0A2540 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    [data-theme="dark"] .brand-logo-text {
+      background: linear-gradient(135deg, #FFFFFF 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    /* Theme Switcher Button */
+    .btn-toggle-theme {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 0.6rem;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+    }
+    .btn-toggle-theme:hover {
+      transform: scale(1.05);
+      border-color: var(--accent);
+    }
+
+    .main-container {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      width: 100%;
+      flex-grow: 1;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 900px) {
+      .main-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Sidebar Navigation */
+    .onboarding-steps-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      position: sticky;
+      top: 6rem;
+      height: fit-content;
+    }
+
+    @media (max-width: 900px) {
+      .onboarding-steps-nav {
+        position: static;
+        flex-direction: row;
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+
+    .step-nav-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-light);
+      padding: 1rem;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 600;
+      text-align: right;
+      transition: var(--transition);
+      box-shadow: var(--card-shadow);
+      flex-shrink: 0;
+    }
+
+    .step-nav-btn i {
+      transition: var(--transition);
+    }
+
+    .step-nav-btn:hover {
+      color: var(--text-main);
+      border-color: var(--accent);
+    }
+
+    .step-nav-btn.active {
+      background: var(--gradient-primary);
+      border-color: transparent;
+      color: #FFFFFF;
+    }
+
+    [data-theme="dark"] .step-nav-btn.active {
+      background: linear-gradient(135deg, #13273D 0%, #1B3654 100%);
+      border: 1px solid var(--accent);
+      color: #FFFFFF;
+    }
+
+    .step-nav-btn.active i {
+      color: var(--accent);
+    }
+
+    .step-nav-badge {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.8rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 99px;
+      background: rgba(var(--accent-rgb), 0.15);
+      color: var(--accent);
+      margin-inline-start: auto;
+    }
+
+    .step-nav-btn.active .step-nav-badge {
+      background: rgba(255,255,255,0.15);
+      color: var(--accent);
+    }
+
+    /* Bento Box Design Container */
+    .bento-container {
+      display: none;
+      grid-template-columns: repeat(4, 1fr);
+      grid-auto-rows: minmax(130px, auto);
+      gap: 1.25rem;
+      animation: fadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .bento-container.active {
+      display: grid;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(15px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .bento-container {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .bento-container {
+        grid-template-columns: 1fr;
+        grid-auto-rows: auto;
+      }
+    }
+
+    /* Bento Cards */
+    .bento-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      box-shadow: var(--card-shadow);
+      transition: var(--transition);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bento-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(var(--accent-rgb), 0.4);
+      box-shadow: 0 15px 35px -5px rgba(var(--primary-rgb), 0.08);
+    }
+
+    /* Col & Row Span Configurations */
+    .span-1 { grid-column: span 1; }
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    
+    .row-2 { grid-row: span 2; }
+    .row-3 { grid-row: span 3; }
+
+    @media (max-width: 768px) {
+      .span-1, .span-2, .span-3, .span-4 { grid-column: span 2; }
+      .row-2, .row-3 { grid-row: span 1; }
+    }
+    @media (max-width: 480px) {
+      .span-1, .span-2, .span-3, .span-4 { grid-column: span 1; }
+    }
+
+    /* Card Themes */
+    .bento-card.theme-dark {
+      background: var(--gradient-primary);
+      border-color: transparent;
+      color: #FFFFFF;
+    }
+    
+    .bento-card.theme-accent {
+      background: var(--gradient-accent);
+      border-color: transparent;
+      color: #0A2540;
+    }
+
+    .bento-card.theme-success {
+      background: var(--gradient-success);
+      border-color: transparent;
+      color: #FFFFFF;
+    }
+
+    .bento-card.theme-glass {
+      background: var(--glass-bg);
+      backdrop-filter: blur(16px);
+    }
+
+    /* Card Content Styling */
+    .card-kicker {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    .theme-dark .card-kicker {
+      color: var(--accent);
+    }
+
+    .theme-accent .card-kicker {
+      color: rgba(10, 37, 64, 0.7);
+    }
+
+    .card-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      line-height: 1.35;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-title.large {
+      font-size: 1.85rem;
+      font-weight: 800;
+    }
+
+    .card-desc {
+      font-size: 0.95rem;
+      color: var(--text-light);
+      line-height: 1.6;
+    }
+
+    .theme-dark .card-desc {
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .theme-accent .card-desc {
+      color: rgba(10, 37, 64, 0.8);
+    }
+
+    .card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--radius-sm);
+      background: rgba(var(--primary-rgb), 0.05);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .theme-dark .card-icon {
+      background: rgba(255, 255, 255, 0.1);
+      color: #FFFFFF;
+    }
+
+    .theme-accent .card-icon {
+      background: rgba(10, 37, 64, 0.08);
+      color: #0A2540;
+    }
+
+    /* Mini Visual Elements */
+    
+    /* Mali Logo representation */
+    .mali-custom-logo {
+      position: relative;
+      width: 100px;
+      height: 100px;
+      margin: 0 auto;
+    }
+
+    .mali-custom-logo .logo-line {
+      position: absolute;
+      border-radius: 99px;
+    }
+
+    .mali-custom-logo .line-1 {
+      left: 16%;
+      top: 44%;
+      width: 76%;
+      height: 12%;
+      background-color: var(--success);
+      transform: rotate(-48deg);
+      transform-origin: left center;
+    }
+
+    .mali-custom-logo .line-2 {
+      right: 2%;
+      top: 1%;
+      width: 22%;
+      height: 12%;
+      background-color: var(--success);
+      transform: rotate(45deg);
+    }
+
+    .mali-custom-logo .line-3 {
+      left: 18%;
+      top: 36%;
+      width: 34%;
+      height: 11%;
+      background-color: #0A7A4F;
+      transform: rotate(72deg);
+    }
+
+    .mali-custom-logo .line-4 {
+      left: 12%;
+      bottom: 18%;
+      width: 44%;
+      height: 14%;
+      background-color: #0A7A4F;
+    }
+
+    .mali-custom-logo .circle {
+      left: 9%;
+      bottom: 18%;
+      width: 16%;
+      height: 16%;
+      background-color: var(--accent);
+      border-radius: 50%;
+      position: absolute;
+    }
+
+    /* Typing cursor */
+    .typing-container {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 2.5rem;
+      font-weight: 800;
+    }
+    .typing-cursor {
+      width: 4px;
+      height: 38px;
+      background-color: var(--accent);
+      animation: blink 0.8s infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    /* Notification feed */
+    .notification-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      width: 100%;
+    }
+
+    .phone-notification {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0.9rem;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+      display: flex;
+      gap: 0.75rem;
+      align-items: start;
+      transform: scale(0.98);
+      transition: var(--transition);
+    }
+
+    [data-theme="dark"] .phone-notification {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.05);
+    }
+
+    .phone-notification.highlighted {
+      border-color: var(--accent);
+      box-shadow: 0 4px 20px rgba(var(--accent-rgb), 0.1);
+      transform: scale(1);
+    }
+
+    .notif-icon {
+      background: rgba(var(--primary-rgb), 0.06);
+      color: var(--primary);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    [data-theme="dark"] .notif-icon {
+      background: rgba(255,255,255,0.1);
+      color: var(--accent);
+    }
+
+    .notif-body {
+      flex-grow: 1;
+    }
+
+    .notif-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-light);
+      margin-bottom: 0.25rem;
+    }
+
+    .notif-title {
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: var(--text-main);
+      margin-bottom: 0.15rem;
+    }
+
+    .notif-text {
+      font-size: 0.8rem;
+      color: var(--text-light);
+      line-height: 1.4;
+    }
+
+    /* Savings Goal elements */
+    .savings-summary-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(var(--success-rgb), 0.15);
+      color: var(--success);
+      padding: 0.35rem 0.75rem;
+      border-radius: 99px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .savings-total {
+      font-size: 1.85rem;
+      font-weight: 800;
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.25rem;
+    }
+
+    .savings-total span {
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: 'Alexandria';
+    }
+
+    .savings-goal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+    }
+
+    [data-theme="dark"] .savings-goal-card {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .goal-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .goal-progress-bar {
+      height: 8px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+    
+    [data-theme="dark"] .goal-progress-bar {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .goal-progress-fill {
+      height: 100%;
+      background: var(--gradient-success);
+      width: 75%;
+      border-radius: 99px;
+      animation: fillBar 1.5s ease-out forwards;
+    }
+
+    @keyframes fillBar {
+      from { width: 0; }
+    }
+
+    .goal-stats {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-light);
+    }
+
+    .goal-stats span {
+      font-family: 'Outfit', sans-serif;
+    }
+
+    /* Country selection visual */
+    .saudi-map-visual {
+      height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      background: rgba(var(--success-rgb), 0.08);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      position: relative;
+    }
+    .saudi-flag-circle {
+      width: 48px;
+      height: 48px;
+      background: #006C35;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid #FFFFFF;
+      box-shadow: 0 4px 10px rgba(0, 108, 53, 0.25);
+    }
+    .saudi-flag-circle img {
+      width: 24px;
+    }
+
+    .bank-logos-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .bank-item-pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem;
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    [data-theme="dark"] .bank-item-pill {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .bank-item-pill i {
+      color: var(--success);
+    }
+
+    /* Privacy Visuals */
+    .privacy-shield-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 1rem;
+    }
+
+    .shield-pulse {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .shield-icon-glow {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: rgba(var(--success-rgb), 0.15);
+      animation: pulseGlow 2s infinite ease-in-out;
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% { transform: scale(1); opacity: 0.4; }
+      50% { transform: scale(1.25); opacity: 0.8; }
+    }
+
+    .shield-inner-icon {
+      z-index: 2;
+      width: 50px;
+      height: 50px;
+      background: var(--success);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 15px rgba(var(--success-rgb), 0.3);
+    }
+
+    /* Authentication designs */
+    .auth-provider-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      width: 100%;
+    }
+
+    .btn-provider {
+      height: 54px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: var(--transition);
+      background: var(--surface);
+      color: var(--text-main);
+      width: 100%;
+      font-size: 0.95rem;
+    }
+
+    .btn-provider:hover {
+      background: var(--bg);
+      border-color: var(--accent);
+    }
+
+    .btn-provider.apple {
+      background: #000000;
+      color: #FFFFFF;
+      border-color: transparent;
+    }
+
+    .btn-provider.apple:hover {
+      background: #1a1a1a;
+    }
+
+    .form-group-email {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .form-group-email label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-light);
+    }
+
+    .email-input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .email-input-wrapper i {
+      position: absolute;
+      right: 1rem;
+      color: var(--text-light);
+    }
+
+    .email-input {
+      width: 100%;
+      height: 54px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      padding: 0 3rem 0 1rem;
+      font-size: 0.95rem;
+      transition: var(--transition);
+    }
+
+    [data-theme="dark"] .email-input {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .email-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+    }
+
+    .btn-submit-otp {
+      height: 54px;
+      border-radius: var(--radius-md);
+      background: var(--gradient-primary);
+      color: #FFFFFF;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      box-shadow: 0 4px 15px rgba(var(--primary-rgb), 0.2);
+      transition: var(--transition);
+    }
+    
+    [data-theme="dark"] .btn-submit-otp {
+      background: var(--gradient-accent);
+      color: #0A2540;
+      box-shadow: 0 4px 15px rgba(var(--accent-rgb), 0.25);
+    }
+
+    .btn-submit-otp:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(var(--primary-rgb), 0.3);
+    }
+    
+    [data-theme="dark"] .btn-submit-otp:hover {
+      box-shadow: 0 6px 20px rgba(var(--accent-rgb), 0.4);
+    }
+
+    /* Screen Preview Control bar at the bottom */
+    .onboarding-controls {
+      background-color: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      transition: var(--transition);
+    }
+
+    .step-dots {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .dot.active {
+      width: 24px;
+      border-radius: 99px;
+      background: var(--accent);
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .btn-action {
+      padding: 0.75rem 1.75rem;
+      border-radius: var(--radius-md);
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: var(--transition);
+      border: 1px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-action.skip {
+      background: transparent;
+      color: var(--text-light);
+    }
+
+    .btn-action.skip:hover {
+      color: var(--text-main);
+    }
+
+    .btn-action.next {
+      background: var(--primary);
+      color: #FFFFFF;
+      box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.15);
+    }
+    
+    [data-theme="dark"] .btn-action.next {
+      background: var(--accent);
+      color: #0A2540;
+      box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.2);
+    }
+
+    .btn-action.next:hover {
+      transform: translateY(-1px);
+    }
+
+    /* Banner info */
+    .bento-banner {
+      background: rgba(var(--accent-rgb), 0.06);
+      border: 1px dashed var(--accent);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .bento-banner i {
+      color: var(--accent);
+    }
+
+    .bento-banner-content h4 {
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 0.15rem;
+    }
+
+    .bento-banner-content p {
+      font-size: 0.85rem;
+      color: var(--text-light);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Premium Header -->
+  <header>
+    <div class="brand-logo-area">
+      <div class="brand-logo-mark">
+        <!-- Built Mali Mark embedded -->
+        <div class="mali-custom-logo" style="width: 42px; height: 42px; transform: scale(0.4); transform-origin: top right;">
+          <div class="logo-line line-1"></div>
+          <div class="logo-line line-2"></div>
+          <div class="logo-line line-3"></div>
+          <div class="logo-line line-4"></div>
+          <div class="circle"></div>
+        </div>
+      </div>
+      <div class="brand-logo-text">مـالـي</div>
+    </div>
+    
+    <div class="header-actions">
+      <!-- Theme Switcher Button -->
+      <button class="btn-toggle-theme" id="themeToggler" onclick="toggleTheme()" title="تغيير المظهر">
+        <i data-lucide="moon"></i>
+      </button>
+      <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-light);">
+        تصميم شبكة Bento
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Grid Workspace -->
+  <div class="main-container">
+    
+    <!-- Sidebar Navigation -->
+    <div class="onboarding-steps-nav">
+      <button class="step-nav-btn active" onclick="switchStep(0)">
+        <i data-lucide="home"></i>
+        <span>1. الترحيب</span>
+        <span class="step-nav-badge">ابدأ</span>
+      </button>
+      <button class="step-nav-btn" onclick="switchStep(1)">
+        <i data-lucide="message-square"></i>
+        <span>2. قراءة الرسائل</span>
+        <span class="step-nav-badge">تلقائي</span>
+      </button>
+      <button class="step-nav-btn" onclick="switchStep(2)">
+        <i data-lucide="piggy-bank"></i>
+        <span>3. أهداف الادخار</span>
+        <span class="step-nav-badge">تحفيز</span>
+      </button>
+      <button class="step-nav-btn" onclick="switchStep(3)">
+        <i data-lucide="globe"></i>
+        <span>4. التوطين</span>
+        <span class="step-nav-badge">السعودية</span>
+      </button>
+      <button class="step-nav-btn" onclick="switchStep(4)">
+        <i data-lucide="shield-check"></i>
+        <span>5. خصوصية تامّة</span>
+        <span class="step-nav-badge">محلي</span>
+      </button>
+      <button class="step-nav-btn" onclick="switchStep(5)">
+        <i data-lucide="key-round"></i>
+        <span>6. التوثيق والتسجيل</span>
+        <span class="step-nav-badge">أمان</span>
+      </button>
+    </div>
+
+    <!-- Right-side dynamic Bento layouts -->
+    <div class="bento-workspace">
+      
+      <div class="bento-banner">
+        <i data-lucide="sparkles"></i>
+        <div class="bento-banner-content">
+          <h4>مفهوم Bento Box للتطبيق المالي</h4>
+          <p>ترتيب المحتوى في وحدات متناسقة مرئية تمنح الواجهة طابعًا حديثًا وفاخرًا، وتوزع المحتوى بطريقة مريحة للعين.</p>
+        </div>
+      </div>
+
+      <!-- ================= PAGE 1: WELCOME BENTO ================= -->
+      <div class="bento-container active" id="bento-step-0">
+        
+        <!-- Large visual card: Rotating Brand Hero -->
+        <div class="bento-card span-2 row-2 theme-dark" style="justify-content: center; align-items: center; text-align: center;">
+          <div class="mali-custom-logo">
+            <div class="logo-line line-1"></div>
+            <div class="logo-line line-2"></div>
+            <div class="logo-line line-3"></div>
+            <div class="logo-line line-4"></div>
+            <div class="circle"></div>
+          </div>
+          <div style="margin-top: 1.5rem;">
+            <div style="font-weight: 800; font-size: 1.6rem; color: #FFFFFF;">مالي</div>
+            <div style="color: var(--accent); font-weight: 600; font-size: 0.95rem; margin-top: 0.25rem;">مساعدك المالي الذكي على جهازك</div>
+          </div>
+        </div>
+
+        <!-- Card: Typing Text -->
+        <div class="bento-card span-2 theme-glass" style="justify-content: center;">
+          <span class="card-kicker">الهوية الذكية</span>
+          <div class="typing-container">
+            <span>مـالـي</span>
+            <span class="typing-cursor"></span>
+          </div>
+          <span class="card-desc" style="margin-top: 0.5rem; font-weight: 600;">صاحبك في فلوسك</span>
+        </div>
+
+        <!-- Card: Brand Message Tagline -->
+        <div class="bento-card span-2 theme-accent" style="justify-content: space-between;">
+          <i data-lucide="rocket" style="width: 32px; height: 32px; opacity: 0.85;"></i>
+          <div>
+            <div class="card-title" style="font-size: 1.25rem; font-weight: 800; margin-bottom: 0.25rem;">ابسط مما تتخيل</div>
+            <p class="card-desc">اعرف وين راحت فلوسك، ووفّر وكأنها لعبة يومية ممتعة.</p>
+          </div>
+        </div>
+
+        <!-- Card: Micro detail -->
+        <div class="bento-card span-2 theme-glass">
+          <div>
+            <div class="card-kicker">دعم فوري</div>
+            <div class="card-title" style="font-size: 1.1rem; font-weight: 700;">دائماً معك</div>
+            <p class="card-desc" style="font-size: 0.85rem;">كل حساباتك، مصاريفك، وأهدافك مجمّعة في مكان واحد وبتصميم عربي أصيل.</p>
+          </div>
+        </div>
+
+        <!-- Card: Quick Stat -->
+        <div class="bento-card span-2 theme-dark" style="background: linear-gradient(135deg, #16A968 0%, #0A7A4F 100%);">
+          <div style="display: flex; justify-content: space-between; align-items: start;">
+            <i data-lucide="shield-check" style="color: white; width: 32px; height: 32px;"></i>
+            <span style="font-size: 0.75rem; background: rgba(255,255,255,0.2); padding: 0.25rem 0.5rem; border-radius: 99px; font-weight: 600;">تشفير تام</span>
+          </div>
+          <div style="margin-top: 1rem;">
+            <div style="font-weight: 800; font-size: 1.3rem;">حماية 100%</div>
+            <p style="font-size: 0.85rem; opacity: 0.9; margin-top: 0.25rem;">لا نرفع بياناتك لأي خادم خارجي. معالجة محلية بالكامل.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= PAGE 2: SMS TRACKING BENTO ================= -->
+      <div class="bento-container" id="bento-step-1">
+        
+        <!-- Live Notifications visual card -->
+        <div class="bento-card span-2 row-2 theme-glass" style="justify-content: start;">
+          <div class="card-kicker">تنبيهات حية وسريعة</div>
+          <div class="card-title">قراءة رسائل البنوك تلقائياً</div>
+          
+          <div class="notification-feed" style="margin-top: 1rem;">
+            <!-- Notification 1 -->
+            <div class="phone-notification">
+              <div class="notif-icon"><i data-lucide="message-square-text" style="width: 16px; height: 16px;"></i></div>
+              <div class="notif-body">
+                <div class="notif-header">
+                  <strong>SNB</strong>
+                  <span>الآن</span>
+                </div>
+                <div class="notif-title">خصم من بطاقة مدى</div>
+                <div class="notif-text">شراء بقيمة <span style="color:var(--accent); font-weight:700;">18.50 ر.س</span> من كوفي هاف مليون.</div>
+              </div>
+            </div>
+            <!-- Notification 2 -->
+            <div class="phone-notification highlighted">
+              <div class="notif-icon"><i data-lucide="message-square-text" style="width: 16px; height: 16px;"></i></div>
+              <div class="notif-body">
+                <div class="notif-header">
+                  <strong>مصرف الراجحي</strong>
+                  <span>قبل دقيقة</span>
+                </div>
+                <div class="notif-title">عملية شراء مدى</div>
+                <div class="notif-text">تم خصم <span style="color:var(--success); font-weight:700;">126.00 ر.س</span> لدى مطعم هامبرغيني.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Headline card -->
+        <div class="bento-card span-2 theme-dark">
+          <i data-lucide="wand-2" class="card-icon" style="color: var(--accent);"></i>
+          <div>
+            <div class="card-title large">لا تكتب — إحنا نفهمها لك</div>
+            <p class="card-desc">نقرأ رسائل بنكك على جهازك، ونستخلص المبلغ والمتجر ونصنفها تلقائياً.</p>
+          </div>
+        </div>
+
+        <!-- Micro process card -->
+        <div class="bento-card span-1 theme-glass" style="text-align: center; justify-content: center; align-items: center;">
+          <div class="card-icon" style="margin-bottom: 0.5rem; background: rgba(22, 169, 104, 0.1); color: var(--success);">
+            <i data-lucide="cpu"></i>
+          </div>
+          <div style="font-weight: 700; font-size: 0.95rem; margin-top: 0.25rem;">معالجة بالجهاز</div>
+          <p class="card-desc" style="font-size: 0.75rem; margin-top: 0.15rem;">محلي بدون إنترنت</p>
+        </div>
+
+        <!-- Micro stat card -->
+        <div class="bento-card span-1 theme-accent" style="justify-content: center; align-items: center; text-align: center;">
+          <div style="font-family: 'Outfit'; font-size: 2.2rem; font-weight: 800; color: #0A2540; line-height: 1;">0</div>
+          <div style="font-weight: 700; font-size: 0.85rem; color: #0A2540; margin-top: 0.25rem;">تسجيل يدوي للمصاريف</div>
+        </div>
+
+        <!-- Bottom bar card -->
+        <div class="bento-card span-2 theme-glass">
+          <div>
+            <div class="card-kicker">دعم البنوك</div>
+            <div class="card-title" style="font-size: 1.15rem; font-weight: 700;">كل البنوك السعودية مدعومة</div>
+            <p class="card-desc" style="font-size: 0.85rem;">نظام ذكي متجدد يفهم صياغة كافة الرسائل البنكية تلقائياً.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= PAGE 3: SAVINGS BENTO ================= -->
+      <div class="bento-container" id="bento-step-2">
+        
+        <!-- Large vault visualization card -->
+        <div class="bento-card span-2 row-2 theme-glass">
+          <div>
+            <div class="savings-summary-badge">
+              <i data-lucide="sparkles" style="width: 14px; height: 14px;"></i>
+              <span>المدخرات الكلية</span>
+            </div>
+            <div class="savings-total">
+              11,250 <span>ر.س</span>
+            </div>
+          </div>
+
+          <div class="savings-goal-card" style="margin-top: 0.5rem;">
+            <div class="goal-meta">
+              <span style="color: var(--text-main);"><i data-lucide="plane" style="width: 16px; height: 16px; display: inline; vertical-align: middle; margin-inline-end: 0.25rem;"></i>خزنة السفر</span>
+              <span style="color: var(--success);">75%</span>
+            </div>
+            <div class="goal-progress-bar">
+              <div class="goal-progress-fill"></div>
+            </div>
+            <div class="goal-stats">
+              <span>الهدف: 15,000 ر.س</span>
+              <span>المتبقي: 3,750 ر.س</span>
+            </div>
+          </div>
+
+          <p class="card-desc" style="margin-top: 1rem; font-size: 0.85rem;">تتحقق الأهداف بسرعة وسلاسة مع التوفير التلقائي الفوري.</p>
+        </div>
+
+        <!-- Headline card -->
+        <div class="bento-card span-2 theme-dark" style="background: linear-gradient(135deg, #0A2540 0%, #153C66 100%);">
+          <i data-lucide="gamepad-2" class="card-icon" style="color: var(--accent);"></i>
+          <div>
+            <div class="card-title large">وفّر وكأنها لعبة يومية</div>
+            <p class="card-desc">حدّد أهدافك المالية، وراقب خزنتك الافتراضية تمتلئ مع كل خطوة توفير تقوم بها.</p>
+          </div>
+        </div>
+
+        <!-- Achievement badging card -->
+        <div class="bento-card span-1 theme-accent" style="justify-content: center; align-items: center; text-align: center;">
+          <div style="background: rgba(10,37,64,0.08); width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 0.5rem;">
+            <i data-lucide="trophy" style="color: #0A2540;"></i>
+          </div>
+          <div style="font-weight: 800; font-size: 0.9rem; color: #0A2540;">موفّر ذهبي</div>
+          <div style="font-size: 0.75rem; color: rgba(10,37,64,0.7); margin-top: 0.15rem;">وسام هذا الأسبوع</div>
+        </div>
+
+        <!-- Actionable Tip Card -->
+        <div class="bento-card span-1 theme-glass" style="justify-content: center; align-items: center; text-align: center;">
+          <div class="card-kicker">تلميحة توفير</div>
+          <div style="font-weight: 700; font-size: 0.85rem; color: var(--success);">وفرت 18 ر.س اليوم</div>
+          <p class="card-desc" style="font-size: 0.75rem; margin-top: 0.25rem;">عن طريق استبدال كافيه اليوم</p>
+        </div>
+
+        <!-- Micro stats -->
+        <div class="bento-card span-2 theme-glass">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 800; font-size: 1.1rem;">مكافآت التوفير</div>
+              <p class="card-desc" style="font-size: 0.8rem;">كلما ادخرت أكثر، حصلت على نقاط وجوائز رقمية تشجعك للاستمرار.</p>
+            </div>
+            <i data-lucide="award" style="width: 38px; height: 38px; color: var(--accent);"></i>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= PAGE 4: COUNTRY BENTO ================= -->
+      <div class="bento-container" id="bento-step-3">
+        
+        <!-- Large Saudi Flag & Map card -->
+        <div class="bento-card span-2 row-2 theme-dark" style="justify-content: space-between;">
+          <div>
+            <span class="card-kicker">تهيئة محلية كاملة</span>
+            <div class="card-title">جاهز ومخصص للسوق السعودي</div>
+            <p class="card-desc" style="font-size: 0.9rem;">يدعم العملة المحلية وصيغ البنوك المحلية لتسهيل تجربتك بشكل تام.</p>
+          </div>
+          
+          <div class="saudi-map-visual" style="margin-top: 1rem;">
+            <div class="saudi-flag-circle">
+              <!-- Flag icon -->
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0 0H24V24H0V0Z" fill="#006C35"/>
+                <path d="M4 14.5C8 14.5 12 12.5 20 12.5" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+                <path d="M7 8.5L9 11L11 8.5" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-weight: 800; font-size: 0.95rem; color: #FFFFFF;">المملكة العربية السعودية</div>
+              <div style="font-size: 0.75rem; color: var(--accent); font-weight: 600;">العملة الافتراضية: ريال سعودي (ر.س)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bank selection box -->
+        <div class="bento-card span-2 theme-glass">
+          <div class="card-kicker">بنوك مدعومة للرسائل</div>
+          <div class="bank-logos-grid" style="margin-top: 0.5rem;">
+            <div class="bank-item-pill">
+              <i data-lucide="check-circle-2" style="width: 14px; height: 14px;"></i>
+              <span>مصرف الراجحي</span>
+            </div>
+            <div class="bank-item-pill">
+              <i data-lucide="check-circle-2" style="width: 14px; height: 14px;"></i>
+              <span>البنك الأهلي SNB</span>
+            </div>
+            <div class="bank-item-pill">
+              <i data-lucide="check-circle-2" style="width: 14px; height: 14px;"></i>
+              <span>بنك الرياض</span>
+            </div>
+            <div class="bank-item-pill">
+              <i data-lucide="check-circle-2" style="width: 14px; height: 14px;"></i>
+              <span>مصرف الإنماء</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Currency conversion micro card -->
+        <div class="bento-card span-1 theme-accent" style="justify-content: center; align-items: center; text-align: center;">
+          <span style="font-weight: 700; font-size: 0.8rem; opacity: 0.8;">العملة الرئيسية</span>
+          <div style="font-family: 'Outfit'; font-size: 2rem; font-weight: 800; line-height: 1; margin: 0.25rem 0;">ر.س</div>
+          <span style="font-weight: 600; font-size: 0.75rem; opacity: 0.8;">SAR (ريال)</span>
+        </div>
+
+        <!-- Auto detect card -->
+        <div class="bento-card span-1 theme-glass" style="justify-content: center; align-items: center; text-align: center;">
+          <div class="card-icon" style="margin-bottom: 0.5rem; background: rgba(255, 179, 0, 0.1); color: var(--accent);"><i data-lucide="compass"></i></div>
+          <div style="font-weight: 700; font-size: 0.85rem;">تحديد المنطقة تلقائيًا</div>
+        </div>
+
+        <!-- General desc card -->
+        <div class="bento-card span-2 theme-glass">
+          <div>
+            <div class="card-kicker">لماذا التوطين؟</div>
+            <div class="card-title" style="font-size: 1.1rem; font-weight: 700;">فهم كامل لخصوصية مدفوعاتك</div>
+            <p class="card-desc" style="font-size: 0.85rem;">المصاريف اليومية، القيمة المضافة، والتحويلات المحلية مبرمجة لتبسيط الأرقام لك.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= PAGE 5: PRIVACY BENTO ================= -->
+      <div class="bento-container" id="bento-step-4">
+        
+        <!-- Large animated shield card -->
+        <div class="bento-card span-2 row-2 theme-dark" style="justify-content: space-between; background: linear-gradient(135deg, #0A2540 0%, #0F355C 100%);">
+          <div>
+            <span class="card-kicker">خصوصية كاملة وأمان</span>
+            <div class="card-title">فلوسك وبياناتك.. تبقى عندك</div>
+            <p class="card-desc" style="font-size: 0.85rem;">نظام تشفير شامل للبيانات المالية والشخصية محليًا دون اتصال بالخوادم.</p>
+          </div>
+
+          <div class="privacy-shield-container" style="margin-top: 1rem;">
+            <div class="shield-pulse">
+              <div class="shield-icon-glow"></div>
+              <div class="shield-inner-icon">
+                <i data-lucide="lock" style="width: 24px; height: 24px;"></i>
+              </div>
+            </div>
+            <div style="font-weight: 700; font-size: 0.85rem; color: var(--success);">
+              <i data-lucide="check-circle" style="width: 14px; height: 14px; display: inline; vertical-align: middle; margin-inline-end: 0.25rem;"></i>معالجة محلية مشفرة
+            </div>
+          </div>
+        </div>
+
+        <!-- Privacy points Grid Cards -->
+        <div class="bento-card span-2 theme-glass">
+          <div class="card-kicker">مبادئ مالي الثلاثة</div>
+          <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+              <div style="color: var(--success); background: rgba(22, 169, 104, 0.1); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"><i data-lucide="eye-off" style="width: 14px; height: 14px;"></i></div>
+              <span style="font-size: 0.85rem; font-weight: 700;">لا نبيع أو نشارك بياناتك المالية أبدًا.</span>
+            </div>
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+              <div style="color: var(--success); background: rgba(22, 169, 104, 0.1); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"><i data-lucide="database-backup" style="width: 14px; height: 14px;"></i></div>
+              <span style="font-size: 0.85rem; font-weight: 700;">نقرأ فقط رسائل البنوك ونستثني الرسائل الشخصية.</span>
+            </div>
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+              <div style="color: var(--success); background: rgba(22, 169, 104, 0.1); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i></div>
+              <span style="font-size: 0.85rem; font-weight: 700;">تحذف كل شيء بضغطة زر من داخل التطبيق متى أردت.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Micro stats -->
+        <div class="bento-card span-1 theme-accent" style="justify-content: center; align-items: center; text-align: center;">
+          <div style="font-family: 'Outfit'; font-size: 2.2rem; font-weight: 800; color: #0A2540; line-height: 1;">100%</div>
+          <div style="font-weight: 700; font-size: 0.85rem; color: #0A2540; margin-top: 0.25rem;">تحكم تام وحرّ</div>
+        </div>
+
+        <!-- Encryption badge -->
+        <div class="bento-card span-1 theme-glass" style="justify-content: center; align-items: center; text-align: center;">
+          <div class="card-icon" style="margin-bottom: 0.5rem; background: rgba(22, 169, 104, 0.1); color: var(--success);"><i data-lucide="key"></i></div>
+          <div style="font-weight: 700; font-size: 0.85rem;">تشفير AES-256</div>
+        </div>
+
+        <!-- Security commitment -->
+        <div class="bento-card span-2 theme-glass">
+          <div>
+            <div class="card-kicker">خصوصيتك فوق كل اعتبار</div>
+            <div class="card-title" style="font-size: 1.15rem; font-weight: 700;">لا سحابة، لا تتبع خارجي</div>
+            <p class="card-desc" style="font-size: 0.85rem;">تأكيد كامل بأن كل ما يتم تحليله يبقى داخل مساحتك المشفرة الخاصة بالهاتف.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= PAGE 6: AUTHENTICATION BENTO ================= -->
+      <div class="bento-container" id="bento-step-5">
+        
+        <!-- Welcome back & security statement (Large Card) -->
+        <div class="bento-card span-2 row-2 theme-dark" style="justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="mali-custom-logo" style="width: 48px; height: 48px; transform: scale(0.45); transform-origin: top right;">
+              <div class="logo-line line-1"></div>
+              <div class="logo-line line-2"></div>
+              <div class="logo-line line-3"></div>
+              <div class="logo-line line-4"></div>
+              <div class="circle"></div>
+            </div>
+            <div style="font-weight: 800; font-size: 1.25rem;">مـالـي</div>
+          </div>
+
+          <div style="margin: 1.5rem 0;">
+            <div class="card-title large" style="margin-bottom: 0.5rem;">سجّل دخولك للبدء</div>
+            <p class="card-desc" style="font-size: 0.9rem;">الدخول لتحديد هويتك فقط. بياناتك المالية والمعالجة الذكية تبقى على جهازك دائمًا.</p>
+          </div>
+
+          <div style="font-size: 0.75rem; color: var(--accent); font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+            <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i>
+            <span>تشفير عالي الأمان وحماية للخصوصية</span>
+          </div>
+        </div>
+
+        <!-- Social Providers Buttons Card -->
+        <div class="bento-card span-2 theme-glass" style="justify-content: center; gap: 1rem;">
+          <span class="card-kicker">التسجيل السريع بلمسة</span>
+          <div class="auth-provider-buttons">
+            <button class="btn-provider apple">
+              <i data-lucide="apple" style="width: 20px; height: 20px; fill: white;"></i>
+              <span>المتابعة مع Apple</span>
+            </button>
+            <button class="btn-provider">
+              <!-- Custom colored Google icon -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-inline-end: 0.25rem;">
+                <path d="M22.56 12.25C22.56 11.52 22.5 10.83 22.38 10.16H12V14.12H17.92C17.67 15.48 16.9 16.63 15.75 17.4V19.97H21.28C24.52 17 26.39 12.62 26.39 12.25H22.56Z" fill="#4285F4"/>
+                <path d="M12 23C14.97 23 17.47 22.02 19.28 20.33L15.75 17.76C14.77 18.42 13.5 18.82 12 18.82C9.13 18.82 6.7 16.88 5.83 14.28H0.16V18.67C1.97 22.28 5.7 23 12 23Z" fill="#34A853"/>
+                <path d="M5.83 14.28C5.6 13.58 5.47 12.83 5.47 12.06C5.47 11.29 5.6 10.54 5.83 9.84V5.45H0.16C-0.62 7.02 -1.06 8.78 -1.06 10.63C-1.06 12.48 -0.62 14.24 0.16 15.81L5.83 14.28Z" fill="#FBBC05"/>
+                <path d="M12 5.18C13.62 5.18 15.07 5.74 16.21 6.83L19.36 3.68C17.46 1.91 14.96 0.82 12 0.82C5.7 0.82 1.97 1.54 0.16 5.15L5.83 9.54C6.7 6.94 9.13 5.18 12 5.18Z" fill="#EA4335"/>
+              </svg>
+              <span>المتابعة مع Google</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Form Email Login (Bento Card Large 2x2) -->
+        <div class="bento-card span-2 row-2 theme-glass" style="justify-content: space-between;">
+          <div>
+            <span class="card-kicker">طرق الدخول البديلة</span>
+            <div class="card-title">المتابعة عبر البريد الإلكتروني</div>
+            <p class="card-desc" style="font-size: 0.85rem; margin-bottom: 1.25rem;">أدخل بريدك الإلكتروني لنرسل لك رمز تسجيل دخول سري وآمن (OTP).</p>
+          </div>
+
+          <div class="form-group-email">
+            <label for="user-email-input">البريد الإلكتروني</label>
+            <div class="email-input-wrapper">
+              <i data-lucide="mail"></i>
+              <input type="email" id="user-email-input" class="email-input" placeholder="name@example.com" style="direction: ltr; text-align: right;">
+            </div>
+          </div>
+
+          <button class="btn-submit-otp" style="margin-top: 1rem;" onclick="simulateOtpSend()">
+            <span>إرسال رمز الدخول الآمن</span>
+          </button>
+        </div>
+
+        <!-- Security standard card -->
+        <div class="bento-card span-1 theme-accent" style="justify-content: center; align-items: center; text-align: center;">
+          <div style="background: rgba(10,37,64,0.08); width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 0.5rem;">
+            <i data-lucide="shield-check" style="color: #0A2540;"></i>
+          </div>
+          <div style="font-weight: 800; font-size: 0.95rem; color: #0A2540;">معيار SAMA</div>
+          <div style="font-size: 0.75rem; color: rgba(10,37,64,0.7); margin-top: 0.15rem;">مطابق لأنظمة البنك</div>
+        </div>
+
+        <!-- Privacy agreement disclaimer -->
+        <div class="bento-card span-1 theme-glass" style="justify-content: center; align-items: center; text-align: center;">
+          <p class="card-desc" style="font-size: 0.75rem; line-height: 1.5;">
+            بالمتابعة فإنك توافق على <a href="#" style="color: var(--accent); font-weight: 700; text-decoration: none;">شروط الخدمة</a> و<a href="#" style="color: var(--accent); font-weight: 700; text-decoration: none;">سياسة الخصوصية</a>.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Persistent Bottom Control Bar -->
+  <div class="onboarding-controls">
+    <div class="step-dots">
+      <div class="dot active" onclick="switchStep(0)"></div>
+      <div class="dot" onclick="switchStep(1)"></div>
+      <div class="dot" onclick="switchStep(2)"></div>
+      <div class="dot" onclick="switchStep(3)"></div>
+      <div class="dot" onclick="switchStep(4)"></div>
+      <div class="dot" onclick="switchStep(5)"></div>
+    </div>
+
+    <div class="action-buttons">
+      <button class="btn-action skip" id="skipButton" onclick="switchStep(5)">تخطي</button>
+      <button class="btn-action next" id="nextButton" onclick="goToNextStep()">
+        <span id="nextButtonText">التالي</span>
+        <i data-lucide="chevron-left" style="width: 18px; height: 18px;"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Lucide icons activator -->
+  <script>
+    lucide.createIcons();
+
+    let currentStep = 0;
+    const totalSteps = 6;
+
+    function switchStep(stepIndex) {
+      currentStep = stepIndex;
+
+      // Update Active Sidebar Items
+      const navButtons = document.querySelectorAll('.step-nav-btn');
+      navButtons.forEach((btn, idx) => {
+        if (idx === stepIndex) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
+      // Update active Bento Grid
+      const grids = document.querySelectorAll('.bento-container');
+      grids.forEach((grid, idx) => {
+        if (idx === stepIndex) {
+          grid.classList.add('active');
+        } else {
+          grid.classList.remove('active');
+        }
+      });
+
+      // Update dots
+      const dots = document.querySelectorAll('.dot');
+      dots.forEach((dot, idx) => {
+        if (idx === stepIndex) {
+          dot.classList.add('active');
+        } else {
+          dot.classList.remove('active');
+        }
+      });
+
+      // Show/hide Skip button
+      const skipButton = document.getElementById('skipButton');
+      if (stepIndex >= 4) {
+        skipButton.style.visibility = 'hidden';
+      } else {
+        skipButton.style.visibility = 'visible';
+      }
+
+      // Update CTA Next button
+      const nextButtonText = document.getElementById('nextButtonText');
+      if (stepIndex === 4) {
+        nextButtonText.innerText = 'التسجيل';
+      } else if (stepIndex === 5) {
+        nextButtonText.innerText = 'دخول التطبيق';
+      } else {
+        nextButtonText.innerText = 'التالي';
+      }
+    }
+
+    function goToNextStep() {
+      if (currentStep < totalSteps - 1) {
+        switchStep(currentStep + 1);
+      } else {
+        alert('تم تسجيل الدخول بنجاح! سيتم نقلك للواجهة الرئيسية للتطبيق المالي.');
+      }
+    }
+
+    function toggleTheme() {
+      const body = document.body;
+      const themeToggler = document.getElementById('themeToggler');
+      const isDark = body.getAttribute('data-theme') === 'dark';
+      
+      if (isDark) {
+        body.removeAttribute('data-theme');
+        themeToggler.innerHTML = '<i data-lucide="moon"></i>';
+      } else {
+        body.setAttribute('data-theme', 'dark');
+        themeToggler.innerHTML = '<i data-lucide="sun"></i>';
+      }
+      lucide.createIcons();
+    }
+
+    function simulateOtpSend() {
+      const email = document.getElementById('user-email-input').value;
+      if (!email) {
+        alert('الرجاء إدخال بريد إلكتروني صالح.');
+        return;
+      }
+      alert('تم إرسال رمز تسجيل الدخول المكون من 4 أرقام لبريدك الإلكتروني بنجاح!');
+    }
+  </script>
+</body>
+</html>

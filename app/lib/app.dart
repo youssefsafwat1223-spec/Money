@@ -21,6 +21,7 @@ class MoneyApp extends ConsumerWidget {
       darkTheme: AppTheme.dark,
       themeMode: themeMode,
       routerConfig: appRouter,
+      scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
 
       // العربية أولاً + RTL (يُضبط تلقائياً من الـ locale).
       locale: const Locale('ar'),
@@ -30,6 +31,18 @@ class MoneyApp extends ConsumerWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      builder: (context, child) {
+        final mediaQuery = MediaQuery.of(context);
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: mediaQuery.textScaler.clamp(
+              minScaleFactor: 0.8,
+              maxScaleFactor: 1.25,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
   }
 }

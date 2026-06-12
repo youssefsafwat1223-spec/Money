@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>مالي — تصميم التطبيق (Combo of Best Fintech UIs)</title>
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --navy:#0A2540; --navy2:#173A5E; --amber:#FFB300; --success:#16A968; --danger:#E5484D;
+    --bg:#F0F4F8; --surface:#FFFFFF; --surface2:#E9EFF5;
+    --text:#0A2540; --tl:#5C6B7C; --border:#DDE6EF;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Alexandria",sans-serif;background:#d6dfe9;color:var(--text);padding:44px 24px 80px}
+  .head{max-width:1400px;margin:0 auto 34px}
+  .head h1{font-size:24px;font-weight:800;color:var(--navy)}
+  .head p{font-size:13.5px;color:var(--tl);margin-top:8px;line-height:1.6;max-width:680px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .chip{font-size:11.5px;font-weight:600;background:#fff;border:1px solid var(--border);padding:6px 12px;border-radius:999px}
+  .grid{max-width:1400px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:46px 30px;justify-items:center}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .cap{font-size:13px;color:#48586a;font-weight:700}
+  .note{font-size:11px;color:#7a8aa0;text-align:center;max-width:280px}
+
+  .phone{width:310px;height:670px;border-radius:48px;background:#0a1622;padding:6px;box-shadow:0 34px 70px -22px rgba(10,37,64,.45);position:relative;flex:none}
+  .phone::after{content:"";position:absolute;top:14px;left:50%;transform:translateX(-50%);width:100px;height:24px;background:#0a1622;border-radius:999px;z-index:30}
+  .scr{position:absolute;inset:6px;border-radius:42px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column}
+  .sb{height:42px;display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;padding:8px 22px 0;flex:none;color:var(--navy)}
+  .scroll{flex:1;overflow-y:auto;padding:4px 16px 90px}
+  .scroll::-webkit-scrollbar{width:0}
+
+  /* nav */
+  .nav{position:absolute;bottom:0;left:0;right:0;height:74px;background:#fff;border-top:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-around;padding:0 8px 10px;z-index:20}
+  .nav .it{display:flex;flex-direction:column;align-items:center;gap:3px;color:#aab6c4;font-size:10px;font-weight:600}
+  .nav .it.on{color:var(--navy)}
+  .nav .it svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8}
+  .fab{width:50px;height:50px;border-radius:16px;background:linear-gradient(150deg,var(--navy),var(--navy2));
+    display:grid;place-items:center;margin-top:-18px;box-shadow:0 8px 18px -5px rgba(10,37,64,.5)}
+  .fab svg{width:24px;height:24px;stroke:#fff;stroke-width:2.2;fill:none}
+
+  /* generic */
+  .card{background:var(--surface);border-radius:22px;padding:16px;box-shadow:0 10px 24px -16px rgba(10,37,64,.18);margin-top:14px}
+  .row{display:flex;align-items:center;justify-content:space-between}
+  .muted{color:var(--tl)} .tab{font-variant-numeric:tabular-nums}
+  .h2{font-size:18px;font-weight:800;color:var(--navy);margin:18px 2px 2px}
+
+  /* greeting + streak */
+  .greet{display:flex;align-items:center;justify-content:space-between;padding:10px 2px 4px}
+  .greet .g{font-size:19px;font-weight:800;color:var(--navy)}
+  .streak{display:flex;align-items:center;gap:6px;background:rgba(255,179,0,.16);color:#9a6b00;font-weight:800;font-size:12.5px;padding:7px 12px;border-radius:999px}
+  .streak svg{width:15px;height:15px;fill:var(--amber);stroke:none}
+
+  /* hero balance */
+  .hero{background:linear-gradient(150deg,var(--navy),var(--navy2));border-radius:24px;padding:18px;color:#fff;position:relative;overflow:hidden;margin-top:12px;box-shadow:0 18px 36px -16px rgba(10,37,64,.5)}
+  .hero::before{content:"";position:absolute;top:-50px;left:-30px;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,rgba(255,179,0,.22),transparent 70%)}
+  .hero .lab{font-size:12.5px;color:rgba(255,255,255,.7);font-weight:600}
+  .hero .big{font-size:34px;font-weight:800;margin-top:4px}
+  .hero .split{display:flex;gap:18px;margin-top:14px}
+  .hero .split .b{flex:1}
+  .hero .split .t{font-size:11px;color:rgba(255,255,255,.65)}
+  .hero .split .v{font-size:15px;font-weight:800;margin-top:2px}
+  .hero .v.up{color:#7BE0B0} .hero .v.down{color:#FFC95C}
+  .spark{position:absolute;bottom:0;left:0;right:0;height:42px;opacity:.5}
+
+  /* budget ring */
+  .ring-card{display:flex;align-items:center;gap:16px}
+  .ring{width:84px;height:84px;flex:none}
+  .ring .pct{font-size:18px;font-weight:800;fill:var(--navy)}
+  .ring-info .t{font-size:13px;color:var(--tl);font-weight:600}
+  .ring-info .v{font-size:20px;font-weight:800;color:var(--navy)}
+  .ring-info .s{font-size:12px;color:var(--success);font-weight:700;margin-top:2px}
+
+  /* donut */
+  .donut-wrap{display:flex;align-items:center;gap:14px}
+  .legend .lg{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:13px;font-weight:600}
+  .legend .dot{width:10px;height:10px;border-radius:3px}
+  .legend .amt{margin-inline-start:auto;color:var(--tl);font-weight:700;font-size:12px}
+
+  /* insight */
+  .insight{background:rgba(255,179,0,.12);border:1px solid rgba(255,179,0,.3);border-radius:18px;padding:14px;display:flex;gap:11px;align-items:flex-start;margin-top:14px}
+  .insight .ic{width:34px;height:34px;border-radius:10px;background:var(--amber);display:grid;place-items:center;flex:none}
+  .insight .ic svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2}
+  .insight p{font-size:13.5px;font-weight:600;line-height:1.5}
+
+  /* tx row */
+  .tx{display:flex;align-items:center;gap:12px;padding:10px 0}
+  .av{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;flex:none}
+  .av svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:1.9}
+  .tx .nm{font-weight:700;font-size:14.5px}
+  .tx .mt{font-size:11.5px;color:var(--tl);margin-top:2px}
+  .tx .amt{margin-inline-start:auto;font-weight:800;font-size:14.5px}
+  .tx .amt.exp{color:var(--navy)} .tx .amt.inc{color:var(--success)}
+  .date-h{font-size:12px;font-weight:700;color:var(--tl);margin:14px 2px 2px}
+  .pend{font-size:9px;font-weight:800;color:var(--amber);background:rgba(255,179,0,.15);padding:2px 7px;border-radius:999px;margin-inline-start:6px}
+
+  /* goal vault */
+  .vault{width:130px;height:130px;position:relative;margin:6px auto}
+  .vault .door{position:absolute;inset:0;border-radius:26px;background:linear-gradient(160deg,#1d3a57,#16314a);overflow:hidden;border:1.5px solid rgba(255,255,255,.1)}
+  .vault .fill{position:absolute;left:0;right:0;bottom:0;height:68%;background:linear-gradient(180deg,#FFD66B,var(--amber))}
+  .vault .dial{position:absolute;top:18px;right:18px;width:38px;height:38px;border-radius:50%;background:#fff;border:3px solid var(--amber);z-index:2}
+  .vault .pct{position:absolute;inset:0;display:grid;place-items:center;z-index:3;font-size:24px;font-weight:800;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+
+  /* search + chips */
+  .search{height:46px;background:#fff;border:1px solid var(--border);border-radius:14px;display:flex;align-items:center;gap:10px;padding:0 14px;color:var(--tl);font-size:14px;font-weight:500;margin-top:10px}
+  .search svg{width:18px;height:18px;stroke:var(--tl);fill:none;stroke-width:1.9}
+  .fchips{display:flex;gap:8px;margin-top:12px;overflow:auto}
+  .fchip{font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid var(--border);color:var(--tl);white-space:nowrap}
+  .fchip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+
+  /* segmented */
+  .seg{display:flex;background:var(--surface2);border-radius:999px;padding:4px;margin-top:12px}
+  .seg div{flex:1;text-align:center;font-size:13px;font-weight:700;padding:9px 0;border-radius:999px;color:var(--tl)}
+  .seg div.on{background:var(--navy);color:#fff}
+
+  /* bars chart */
+  .bars{display:flex;align-items:flex-end;gap:7px;height:120px;margin-top:8px;padding:0 2px}
+  .bars .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+  .bars .bar{width:100%;border-radius:6px 6px 0 0;background:linear-gradient(180deg,var(--navy),var(--navy2))}
+  .bars .bar.hi{background:linear-gradient(180deg,var(--amber),#E89C00)}
+  .bars .lb{font-size:9px;color:var(--tl);font-weight:600}
+
+  /* budget item with ring */
+  .bgt{display:flex;align-items:center;gap:14px;padding:6px 0}
+  .bgt .mini{width:54px;height:54px;flex:none}
+</style>
+</head>
+<body>
+<div class="head">
+  <h1>مالي — تصميم التطبيق «Combo» من أفضل تطبيقات الـ Fintech</h1>
+  <p>دمج أقوى patterns من Revolut (أرقام بطلة + عمق) · Apple Fitness (حلقات التقدّم) · Wallet/BudgetBakers (charts + drill-down) · Monzo (timeline ملوّن) · Emma/Cleo (insights بشخصية) · SAY (streak) — بهوية مالي Navy + Amber.</p>
+  <div class="chips">
+    <span class="chip">Navy #0A2540 · Amber #FFB300 · Success #16A968</span>
+    <span class="chip">Alexandria · RTL · بدون إيموجي</span>
+    <span class="chip">Charts: donut + rings + sparkline + bars</span>
+  </div>
+</div>
+<div class="grid" id="grid"></div>
+
+<script>
+const SB = `<div class="sb"><span>9:41</span><span>● ▮ ▰</span></div>`;
+const I = {
+  home:`<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
+  list:`<svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>`,
+  target:`<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>`,
+  chart:`<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+  user:`<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>`,
+  plus:`<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  flame:`<svg viewBox="0 0 24 24"><path d="M12 2s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 1-3s0 2 2 2c2 0 1-4-0-6 3 1 2-2 2-4z"/></svg>`,
+  food:`<svg viewBox="0 0 24 24"><path d="M4 3v7a3 3 0 0 0 6 0V3M7 3v18M17 3c-2 0-3 3-3 6s1 4 3 4v8"/></svg>`,
+  cart:`<svg viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2 3h3l2.5 13h11l2-9H6"/></svg>`,
+  car:`<svg viewBox="0 0 24 24"><path d="M5 13l2-5h10l2 5M5 13h14v5H5z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/></svg>`,
+  coffee:`<svg viewBox="0 0 24 24"><path d="M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 9h2a2 2 0 0 1 0 5h-2"/></svg>`,
+  search:`<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16" y2="16"/></svg>`,
+  bolt:`<svg viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 19 10 13 10"/></svg>`,
+  trend:`<svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>`,
+};
+const nav = on => `<div class="nav">
+  <div class="it ${on==0?'on':''}">${I.home}الرئيسية</div>
+  <div class="it ${on==1?'on':''}">${I.list}العمليات</div>
+  <div class="fab">${I.plus}</div>
+  <div class="it ${on==2?'on':''}">${I.target}الأهداف</div>
+  <div class="it ${on==4?'on':''}">${I.user}حسابي</div>
+</div>`;
+
+// donut svg
+function donut(segs){ // segs:[{c,pct}]
+  let off=25, r=15.9155, parts='';
+  segs.forEach(s=>{ parts+=`<circle cx="18" cy="18" r="${r}" fill="none" stroke="${s.c}" stroke-width="5" stroke-dasharray="${s.pct} ${100-s.pct}" stroke-dashoffset="${off}"/>`; off-=s.pct; });
+  return `<svg viewBox="0 0 36 36" width="120" height="120">${parts}<text x="18" y="17" text-anchor="middle" font-size="3.6" font-weight="800" fill="#0A2540">الصرف</text><text x="18" y="21.5" text-anchor="middle" font-size="3" font-weight="700" fill="#5C6B7C">3,180 ر</text></svg>`;
+}
+function ring(pct,color){
+  const r=15.9155;
+  return `<svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="${r}" fill="none" stroke="#E9EFF5" stroke-width="4"/><circle cx="18" cy="18" r="${r}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${pct} ${100-pct}" stroke-dashoffset="25" transform="rotate(-90 18 18)"/><text class="pct" x="18" y="19.5" text-anchor="middle">${pct}%</text></svg>`;
+}
+function miniRing(pct,color){return `<svg class="mini" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#E9EFF5" stroke-width="5"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${pct} ${100-pct}" stroke-dashoffset="25" transform="rotate(-90 18 18)"/></svg>`}
+const spark = `<svg class="spark" viewBox="0 0 300 42" preserveAspectRatio="none"><polyline fill="none" stroke="#FFB300" stroke-width="2.5" points="0,30 40,22 80,28 120,12 160,20 200,8 240,18 300,6"/></svg>`;
+
+function av(c,svg){return `<div class="av" style="background:${c}">${svg}</div>`}
+
+const screens=[
+/* DASHBOARD */
+{cap:"الرئيسية (Dashboard)", note:"hero رقم بطل + sparkline + حلقة ميزانية + donut + insight + timeline", html:`${SB}
+<div class="scroll">
+  <div class="greet"><div class="g">صباح الخير يوسف</div><div class="streak">${I.flame} 17 يوم</div></div>
+
+  <div class="hero">
+    <div class="lab">صافي هذا الشهر</div>
+    <div class="big tab">+ 1,240 <span style="font-size:18px">ريال</span></div>
+    <div class="split">
+      <div class="b"><div class="t">الدخل</div><div class="v up tab">12,500</div></div>
+      <div class="b"><div class="t">الصرف</div><div class="v down tab">3,180</div></div>
+    </div>
+    ${spark}
+  </div>
+
+  <div class="card ring-card">
+    ${ring(64,'#16A968')}
+    <div class="ring-info">
+      <div class="t">ميزانية الشهر</div>
+      <div class="v tab">باقي 1,820 ريال</div>
+      <div class="s">في المسار الصحيح ✓</div>
+    </div>
+  </div>
+
+  <div class="insight">
+    <div class="ic">${I.trend}</div>
+    <p>أنفقت على المطاعم أقل 18% من الشهر اللي طاف. استمر!</p>
+  </div>
+
+  <div class="h2">أين ذهبت أموالك؟</div>
+  <div class="card donut-wrap">
+    ${donut([{c:'#FF7A59',pct:38},{c:'#16A968',pct:26},{c:'#4DA3FF',pct:18},{c:'#C89B6B',pct:18}])}
+    <div class="legend" style="flex:1">
+      <div class="lg"><span class="dot" style="background:#FF7A59"></span> مطاعم <span class="amt tab">1,210 ر</span></div>
+      <div class="lg"><span class="dot" style="background:#16A968"></span> بقالة <span class="amt tab">830 ر</span></div>
+      <div class="lg"><span class="dot" style="background:#4DA3FF"></span> مواصلات <span class="amt tab">570 ر</span></div>
+      <div class="lg"><span class="dot" style="background:#C89B6B"></span> كافيهات <span class="amt tab">570 ر</span></div>
+    </div>
+  </div>
+
+  <div class="row" style="margin:18px 2px 0"><div class="h2" style="margin:0">آخر العمليات</div><div class="muted" style="font-size:12px;font-weight:700">عرض الكل</div></div>
+  <div class="card" style="padding:6px 16px">
+    <div class="tx">${av('#FF7A59',I.food)}<div><div class="nm">BURGER BOUTIQUE</div><div class="mt">مطاعم · 12:45</div></div><div class="amt exp tab">−45.00</div></div>
+    <div class="tx">${av('#16A968',I.cart)}<div><div class="nm">بنده <span class="pend">مراجعة</span></div><div class="mt">بقالة · 11:10</div></div><div class="amt exp tab">−210.00</div></div>
+    <div class="tx">${av('#C89B6B',I.coffee)}<div><div class="nm">بارنز</div><div class="mt">كافيهات · 09:30</div></div><div class="amt exp tab">−22.00</div></div>
+  </div>
+</div>
+${nav(0)}`},
+
+/* TRANSACTIONS */
+{cap:"العمليات (Timeline)", note:"بحث + فلاتر + timeline مجمّع بأيقونات ملوّنة (Monzo)", html:`${SB}
+<div class="scroll">
+  <div class="h2" style="margin-top:6px">العمليات</div>
+  <div class="search">${I.search} ابحث عن متجر أو مبلغ...</div>
+  <div class="fchips">
+    <div class="fchip on">الكل</div><div class="fchip">مطاعم</div><div class="fchip">بقالة</div><div class="fchip">مواصلات</div><div class="fchip">دخل</div>
+  </div>
+  <div class="date-h">اليوم</div>
+  <div class="card" style="padding:6px 16px">
+    <div class="tx">${av('#FF7A59',I.food)}<div><div class="nm">BURGER BOUTIQUE</div><div class="mt">مطاعم · 12:45 · مدى 4521</div></div><div class="amt exp tab">−45.00</div></div>
+    <div class="tx">${av('#16A968',I.cart)}<div><div class="nm">بنده <span class="pend">مراجعة</span></div><div class="mt">بقالة · 11:10</div></div><div class="amt exp tab">−210.00</div></div>
+  </div>
+  <div class="date-h">أمس</div>
+  <div class="card" style="padding:6px 16px">
+    <div class="tx">${av('#4DA3FF',I.car)}<div><div class="nm">كريم</div><div class="mt">مواصلات · 18:30</div></div><div class="amt exp tab">−32.00</div></div>
+    <div class="tx">${av('#16A968',I.trend)}<div><div class="nm">إيداع راتب</div><div class="mt">دخل · 09:00</div></div><div class="amt inc tab">+9,500</div></div>
+    <div class="tx">${av('#C89B6B',I.coffee)}<div><div class="nm">% Arabica</div><div class="mt">كافيهات · 08:15</div></div><div class="amt exp tab">−28.00</div></div>
+  </div>
+</div>
+${nav(1)}`},
+
+/* REPORTS */
+{cap:"الرؤى (Charts)", note:"segmented + bar chart اتجاه يومي + مقارنة + أكثر المتاجر", html:`${SB}
+<div class="scroll">
+  <div class="hero" style="margin-top:8px">
+    <div class="lab">مصروف هذا الشهر</div>
+    <div class="big tab">3,180 <span style="font-size:18px">ريال</span></div>
+    <div class="split">
+      <div class="b"><div class="t">متوسط يومي</div><div class="v tab">106 ر</div></div>
+      <div class="b"><div class="t">أعلى يوم</div><div class="v tab">410 ر</div></div>
+    </div>
+  </div>
+  <div class="seg"><div class="on">الاتجاهات</div><div>التصنيفات</div><div>المتاجر</div></div>
+
+  <div class="card">
+    <div class="row"><b style="font-size:14px">الصرف اليومي</b><span class="muted" style="font-size:12px;font-weight:700">آخر ٧ أيام</span></div>
+    <div class="bars">
+      ${[40,65,30,80,55,100,48].map((h,i)=>`<div class="col"><div class="bar ${i==5?'hi':''}" style="height:${h}%"></div><div class="lb">${['س','ح','ن','ث','ر','خ','ج'][i]}</div></div>`).join('')}
+    </div>
+  </div>
+
+  <div class="insight" style="background:rgba(22,169,104,.12);border-color:rgba(22,169,104,.3)">
+    <div class="ic" style="background:var(--success)">${I.trend}</div>
+    <p>صرفك أقل 12% من نفس الفترة الشهر اللي طاف. أداء ممتاز.</p>
+  </div>
+
+  <div class="h2">أكثر المتاجر</div>
+  <div class="card" style="padding:6px 16px">
+    <div class="tx">${av('#16A968',I.cart)}<div><div class="nm">بنده</div><div class="mt">٤ عمليات</div></div><div class="amt exp tab">830 ر</div></div>
+    <div class="tx">${av('#FF7A59',I.food)}<div><div class="nm">البيك</div><div class="mt">٦ عمليات</div></div><div class="amt exp tab">340 ر</div></div>
+    <div class="tx">${av('#4DA3FF',I.car)}<div><div class="nm">ساسكو</div><div class="mt">٣ عمليات</div></div><div class="amt exp tab">270 ر</div></div>
+  </div>
+</div>
+${nav(3)}`},
+
+/* BUDGETS */
+{cap:"الميزانيات (Rings)", note:"حلقات تقدّم ملوّنة بالحالة (Apple Fitness)", html:`${SB}
+<div class="scroll">
+  <div class="row" style="margin:8px 2px 0"><div class="h2" style="margin:0">الميزانيات</div><div class="fab" style="width:38px;height:38px;margin:0;border-radius:12px">${I.plus}</div></div>
+
+  <div class="card">
+    <div class="row"><b style="font-size:14px">كل المصروفات · شهري</b><span style="font-size:12px;font-weight:800;color:var(--success)">آمن</span></div>
+    <div class="bgt" style="margin-top:6px">${miniRing(64,'#16A968')}<div style="flex:1"><div class="muted" style="font-size:12px;font-weight:700">3,180 من 5,000 ريال</div><div style="font-size:18px;font-weight:800;margin-top:2px">باقي 1,820</div></div></div>
+  </div>
+
+  <div class="card bgt">${miniRing(35,'#16A968')}<div style="flex:1"><div style="font-weight:800;font-size:14px">مطاعم</div><div class="muted" style="font-size:12px;font-weight:700;margin-top:2px">35 من 100 · يومي</div></div><span style="font-size:12px;font-weight:800;color:var(--success)">آمن</span></div>
+
+  <div class="card bgt">${miniRing(90,'#FFB300')}<div style="flex:1"><div style="font-weight:800;font-size:14px">وقود</div><div class="muted" style="font-size:12px;font-weight:700;margin-top:2px">360 من 400 · شهري</div></div><span style="font-size:12px;font-weight:800;color:#B97900">اقتربت</span></div>
+
+  <div class="card bgt">${miniRing(110,'#E5484D')}<div style="flex:1"><div style="font-weight:800;font-size:14px">بقالة</div><div class="muted" style="font-size:12px;font-weight:700;margin-top:2px">880 من 800 · أسبوعي</div></div><span style="font-size:12px;font-weight:800;color:var(--danger)">تجاوزت</span></div>
+</div>
+${nav(2)}`},
+
+/* GOAL */
+{cap:"تفاصيل الهدف (Vault)", note:"الخزنة + حلقة + مساهمات + زر أضف (Pots)", html:`${SB}
+<div class="scroll">
+  <div class="h2" style="margin-top:8px">رحلة الصيف</div>
+  <div class="card" style="text-align:center;padding:20px 16px">
+    <div class="vault"><div class="door"><div class="fill"></div></div><div class="dial"></div><div class="pct">68%</div></div>
+    <div style="font-size:22px;font-weight:800;margin-top:12px" class="tab">3,400 <span class="muted" style="font-size:15px">من 5,000 ريال</span></div>
+    <div class="muted" style="font-size:13px;font-weight:600;margin-top:4px">باقي 1,600 · 45 يوم · موصى 36 ريال/يوم</div>
+  </div>
+  <div class="h2">آخر المساهمات</div>
+  <div class="card" style="padding:6px 16px">
+    <div class="tx">${av('#FFB300',I.plus)}<div><div class="nm">إضافة للهدف</div><div class="mt">اليوم</div></div><div class="amt inc tab">+200</div></div>
+    <div class="tx">${av('#FFB300',I.plus)}<div><div class="nm">إضافة للهدف</div><div class="mt">قبل 3 أيام</div></div><div class="amt inc tab">+500</div></div>
+  </div>
+  <div style="height:14px"></div>
+  <div class="hero" style="padding:0;height:54px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px">أضف للهدف</div>
+</div>
+${nav(2)}`},
+];
+
+const grid=document.getElementById('grid');
+screens.forEach(s=>{
+  const c=document.createElement('div');c.className='cell';
+  c.innerHTML=`<div class="phone"><div class="scr">${s.html}</div></div><div class="cap">${s.cap}</div><div class="note">${s.note}</div>`;
+  grid.appendChild(c);
+});
+</script>
+</body>
+</html>
