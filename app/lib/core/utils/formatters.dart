@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 /// تنسيق المبالغ والتواريخ — أرقام غربية (tabular)، نبرة عربية.
 class Formatters {
@@ -23,6 +24,21 @@ class Formatters {
     'ديسمبر',
   ];
 
+  static const List<String> _enMonths = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
   /// "45.00"
   static String amount(double value) => _money.format(value);
 
@@ -35,10 +51,24 @@ class Formatters {
     return isExpense ? '−$formatted' : '+$formatted';
   }
 
-  /// "8 أبريل 2026"
-  static String fullDate(DateTime dt) {
+  /// "8 أبريل 2026" or "April 8, 2026"
+  static String fullDate(DateTime dt, BuildContext context) {
     final d = dt.toLocal();
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return '${_enMonths[d.month - 1]} ${d.day}, ${d.year}';
+    }
     return '${d.day} ${_arMonths[d.month - 1]} ${d.year}';
+  }
+
+  /// "أبريل 2026" or "April 2026"
+  static String monthYear(DateTime dt, BuildContext context) {
+    final d = dt.toLocal();
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return '${_enMonths[d.month - 1]} ${d.year}';
+    }
+    return '${_arMonths[d.month - 1]} ${d.year}';
   }
 
   /// "12:45"
@@ -48,14 +78,21 @@ class Formatters {
   }
 
   /// عنوان مجموعة التاريخ: اليوم / أمس / "8 أبريل".
-  static String dateGroupLabel(DateTime dt) {
+  static String dateGroupLabel(DateTime dt, BuildContext context) {
     final now = DateTime.now();
     final d = dt.toLocal();
     final today = DateTime(now.year, now.month, now.day);
     final that = DateTime(d.year, d.month, d.day);
     final diff = today.difference(that).inDays;
-    if (diff == 0) return 'اليوم';
-    if (diff == 1) return 'أمس';
+    
+    final l10n = AppL10n.of(context);
+    if (diff == 0) return l10n.today;
+    if (diff == 1) return l10n.yesterday;
+    
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return '${_enMonths[d.month - 1]} ${d.day}';
+    }
     return '${d.day} ${_arMonths[d.month - 1]}';
   }
 

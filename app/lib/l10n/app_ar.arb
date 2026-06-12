@@ -5,5 +5,7 @@
   "skip": "تخطي",
   "registerAndStart": "التسجيل والبدء",
   "welcomeTitle": "مساعدك المالي اليومي",
-  "welcomeSubtitle": "صاحبك في فلوسك"
+  "welcomeSubtitle": "صاحبك في فلوسك",
+  "today": "اليوم",
+  "yesterday": "أمس"
 }

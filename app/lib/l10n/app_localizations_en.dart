@@ -25,4 +25,10 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get welcomeSubtitle => 'Your buddy with your money';
+
+  @override
+  String get today => 'Today';
+
+  @override
+  String get yesterday => 'Yesterday';
 }

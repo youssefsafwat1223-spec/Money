@@ -208,7 +208,7 @@ class DashboardScreen extends ConsumerWidget {
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: const Text('من'),
-                              subtitle: Text(Formatters.fullDate(from)),
+                              subtitle: Text(Formatters.fullDate(from, context)),
                               trailing:
                                   const Icon(Icons.calendar_month_outlined),
                               onTap: () async {
@@ -227,7 +227,7 @@ class DashboardScreen extends ConsumerWidget {
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: const Text('إلى'),
-                              subtitle: Text(Formatters.fullDate(to)),
+                              subtitle: Text(Formatters.fullDate(to, context)),
                               trailing:
                                   const Icon(Icons.calendar_month_outlined),
                               onTap: () async {
@@ -322,31 +322,17 @@ class DashboardScreen extends ConsumerWidget {
         .join(' ');
   }
 
-  String _monthLabel(DateTime date) {
-    const months = [
-      'يناير',
-      'فبراير',
-      'مارس',
-      'أبريل',
-      'مايو',
-      'يونيو',
-      'يوليو',
-      'أغسطس',
-      'سبتمبر',
-      'أكتوبر',
-      'نوفمبر',
-      'ديسمبر',
-    ];
-    return '${months[date.month - 1]} ${date.year}';
+  String _monthLabel(DateTime date, BuildContext context) {
+    return Formatters.monthYear(date, context);
   }
 
-  String _rangeLabel(TransactionsDateRange range) {
+  String _rangeLabel(TransactionsDateRange range, BuildContext context) {
     if (range.preset == TransactionsDatePreset.thisMonth ||
         (range.from.year == range.to.year && range.from.month == range.to.month)) {
-      return _monthLabel(range.from);
+      return _monthLabel(range.from, context);
     }
     if (range.preset != TransactionsDatePreset.custom) return range.label;
-    return '${Formatters.fullDate(range.from)} - ${Formatters.fullDate(range.to)}';
+    return '${Formatters.fullDate(range.from, context)} - ${Formatters.fullDate(range.to, context)}';
   }
 
   String _currencyLabel(String currency) => switch (currency.toUpperCase()) {
@@ -462,7 +448,7 @@ class DashboardScreen extends ConsumerWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_rangeLabel(data.range),
+                  Text(_rangeLabel(data.range, context),
                       style: AppTypography.subhead(Colors.white)
                           .copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(width: 6),

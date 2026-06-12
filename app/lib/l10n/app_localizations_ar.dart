@@ -25,4 +25,10 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get welcomeSubtitle => 'صاحبك في فلوسك';
+
+  @override
+  String get today => 'اليوم';
+
+  @override
+  String get yesterday => 'أمس';
 }
