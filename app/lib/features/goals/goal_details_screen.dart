@@ -248,7 +248,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                       style: AppTypography.subhead(c.textMain),
                     ),
                     subtitle: Text(
-                      contribution.note ?? Formatters.fullDate(contribution.createdAt),
+                      contribution.note ?? Formatters.fullDate(contribution.createdAt, context),
                     ),
                   ),
             ],

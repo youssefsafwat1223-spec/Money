@@ -5,5 +5,7 @@
   "skip": "Skip",
   "registerAndStart": "Register and Start",
   "welcomeTitle": "Your Daily Financial Companion",
-  "welcomeSubtitle": "Your buddy with your money"
+  "welcomeSubtitle": "Your buddy with your money",
+  "today": "Today",
+  "yesterday": "Yesterday"
 }

@@ -115,7 +115,7 @@ class _ConfirmSheet extends ConsumerWidget {
                   ),
                   const SizedBox(height: AppSpacing.s3),
                   Text(
-                    '${Formatters.fullDate(tx.occurredAt)} · ${Formatters.time(tx.occurredAt)}'
+                    '${Formatters.fullDate(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}'
                     '${tx.cardLast4 != null ? ' · بطاقة ${tx.cardLast4}' : ''}',
                     style: AppTypography.footnote(c.textLight),
                   ),

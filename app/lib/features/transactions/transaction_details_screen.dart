@@ -238,7 +238,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                         _buildDetailRow(
                           context,
                           'التاريخ',
-                          '${Formatters.fullDate(tx.occurredAt)} · ${Formatters.time(tx.occurredAt)}',
+                          '${Formatters.fullDate(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
                         ),
                         if (tx.balanceAfter != null) ...[
                           _divider(c),

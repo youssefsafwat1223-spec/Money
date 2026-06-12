@@ -64,7 +64,7 @@ class _EnabledView extends ConsumerWidget {
         Text(
           status.lastBackupAt == null
               ? 'لم تُنشأ نسخة بعد'
-              : 'آخر نسخة: ${Formatters.fullDate(status.lastBackupAt!)} · ${Formatters.time(status.lastBackupAt!)}',
+              : 'آخر نسخة: ${Formatters.fullDate(status.lastBackupAt!, context)} · ${Formatters.time(status.lastBackupAt!)}',
           style: AppTypography.body(c.textLight),
         ),
         const SizedBox(height: AppSpacing.s5),

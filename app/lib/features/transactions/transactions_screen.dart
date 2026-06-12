@@ -31,7 +31,7 @@ class TransactionsScreen extends ConsumerWidget {
       data: (view) {
         final groups = <String, List<TransactionEntity>>{};
         for (final tx in view.transactions) {
-          final label = Formatters.dateGroupLabel(tx.occurredAt);
+          final label = Formatters.dateGroupLabel(tx.occurredAt, context);
           groups.putIfAbsent(label, () => []).add(tx);
         }
 
@@ -210,7 +210,7 @@ class _DateRangeChips extends ConsumerWidget {
                 ),
                 ListTile(
                   title: const Text('من'),
-                  subtitle: Text(Formatters.fullDate(from)),
+                  subtitle: Text(Formatters.fullDate(from, context)),
                   onTap: () async {
                     final picked = await showDatePicker(
                       context: context,
@@ -223,7 +223,7 @@ class _DateRangeChips extends ConsumerWidget {
                 ),
                 ListTile(
                   title: const Text('إلى'),
-                  subtitle: Text(Formatters.fullDate(to)),
+                  subtitle: Text(Formatters.fullDate(to, context)),
                   onTap: () async {
                     final picked = await showDatePicker(
                       context: context,
@@ -729,7 +729,7 @@ class _BillCard extends StatelessWidget {
                 children: [
                   Text(bill.name, style: AppTypography.bodyStrong(c.textMain)),
                   Text(
-                    '${bill.type == BillType.subscription ? 'اشتراك' : 'قسط'} · ${_frequencyLabel(bill.frequency)} · ${Formatters.fullDate(bill.nextDueDate)}',
+                    '${bill.type == BillType.subscription ? 'اشتراك' : 'قسط'} · ${_frequencyLabel(bill.frequency)} · ${Formatters.fullDate(bill.nextDueDate, context)}',
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],

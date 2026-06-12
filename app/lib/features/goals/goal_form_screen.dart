@@ -235,7 +235,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
               title: Text('الموعد النهائي', style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
               subtitle: Text(
-                _deadline == null ? 'اختياري' : Formatters.fullDate(_deadline!),
+                _deadline == null ? 'اختياري' : Formatters.fullDate(_deadline!, context),
                 style: _alex(12, FontWeight.w500, 1.2, c.textLight),
               ),
               trailing: Icon(Icons.calendar_today_outlined, color: c.textLight, size: 20),

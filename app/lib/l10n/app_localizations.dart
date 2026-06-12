@@ -132,6 +132,18 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'صاحبك في فلوسك'**
   String get welcomeSubtitle;
+
+  /// No description provided for @today.
+  ///
+  /// In ar, this message translates to:
+  /// **'اليوم'**
+  String get today;
+
+  /// No description provided for @yesterday.
+  ///
+  /// In ar, this message translates to:
+  /// **'أمس'**
+  String get yesterday;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
