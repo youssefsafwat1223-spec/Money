@@ -1,0 +1,134 @@
+# Codemagic CI/CD — Mali (money_companion)
+#
+# The Flutter project lives in ./app, so every workflow sets
+# `working_directory: app`. Two workflows are provided:
+#
+#   1. ios-unsigned-sideload  -> builds an UNSIGNED .ipa for Sideloadly / iLoader.
+#                                No Apple Developer account needed at build time;
+#                                Sideloadly re-signs with your free Apple ID.
+#   2. ios-signed-release     -> builds a SIGNED .ipa via Codemagic code signing
+#                                (needs an Apple Developer Program account).
+#
+# Supabase: SUPABASE_URL and SUPABASE_ANON_KEY are injected as --dart-define.
+# If they are empty/unset, SupabaseConfig.isConfigured == false and the app
+# runs in fallback STUB mode (see lib/core/backend/supabase_config.dart).
+
+workflows:
+  # ---------------------------------------------------------------------------
+  # 1) UNSIGNED IPA for sideloading (Sideloadly / iLoader). Recommended default.
+  # ---------------------------------------------------------------------------
+  ios-unsigned-sideload:
+    name: iOS Unsigned IPA (Sideload)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - supabase            # define SUPABASE_URL + SUPABASE_ANON_KEY here (optional)
+      vars:
+        BUNDLE_ID: "com.example.moneyCompanion"
+    scripts:
+      - name: Flutter pub get
+        working_directory: app
+        script: flutter pub get
+
+      - name: Regenerate localizations
+        working_directory: app
+        script: flutter gen-l10n
+
+      - name: Flutter analyze
+        working_directory: app
+        script: flutter analyze
+
+      - name: Flutter test
+        working_directory: app
+        script: flutter test
+
+      - name: Build unsigned iOS (.app)
+        working_directory: app
+        script: |
+          # SUPABASE_* come from the "supabase" group; default to "" => stub mode.
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
+            --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}"
+
+      - name: Package .app into unsigned .ipa
+        working_directory: app
+        script: |
+          set -e
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Runner.app not found at $APP_PATH" && exit 1
+          fi
+          rm -rf Payload money_companion-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r -q money_companion-unsigned.ipa Payload
+          rm -rf Payload
+          echo "Built $(pwd)/money_companion-unsigned.ipa"
+    artifacts:
+      - app/money_companion-unsigned.ipa
+      - app/build/ios/iphoneos/Runner.app
+      - app/build/**/outputs/**/*.log
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - youssefsafwat1223@gmail.com   # change as needed
+        notify:
+          success: true
+          failure: true
+
+  # ---------------------------------------------------------------------------
+  # 2) SIGNED IPA via Codemagic code signing (needs Apple Developer Program).
+  # ---------------------------------------------------------------------------
+  ios-signed-release:
+    name: iOS Signed IPA (Ad Hoc / App Store)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: codemagic_asc_api_key   # name of the ASC API key in Codemagic
+    environment:
+      ios_signing:
+        distribution_type: ad_hoc                 # or: app_store / development / enterprise
+        bundle_identifier: com.example.moneyCompanion
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - supabase
+    scripts:
+      - name: Flutter pub get
+        working_directory: app
+        script: flutter pub get
+
+      - name: Set up provisioning profiles
+        script: |
+          xcode-project use-profiles
+
+      - name: Flutter analyze & test
+        working_directory: app
+        script: |
+          flutter gen-l10n
+          flutter analyze
+          flutter test
+
+      - name: Build signed IPA
+        working_directory: app
+        script: |
+          flutter build ipa --release \
+            --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
+            --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - app/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - youssefsafwat1223@gmail.com
+        notify:
+          success: true
+          failure: true
