@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/auth/auth_service.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -55,7 +56,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     if (identity == null) {
       setState(() {
         _busy = false;
-        _error = 'الرمز غير صحيح';
+        _error = context.l10n.invalidOtpCode;
       });
       return;
     }
@@ -106,13 +107,13 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'أدخل رمز التحقق',
+                    context.l10n.enterOtpCode,
                     textAlign: TextAlign.center,
                     style: _alex(24, FontWeight.w800, 1.3, c.textMain),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'أرسلنا رمز التحقق المكون من 6 أرقام إلى البريد الإلكتروني:',
+                    context.l10n.otpSentTo,
                     textAlign: TextAlign.center,
                     style: _alex(14, FontWeight.w500, 1.5, c.textLight),
                   ),
@@ -208,7 +209,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                                         ),
                                       )
                                     : Text(
-                                        'تأكيد الرمز',
+                                        context.l10n.verifyCode,
                                         style: _alex(15, FontWeight.w800, 1.2, actionForeground),
                                       ),
                               ),
@@ -229,7 +230,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                         border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                       ),
                       child: Text(
-                        'للتجربة: الرمز 123456',
+                        context.l10n.demoOtpCode,
                         style: _alex(12, FontWeight.w700, 1.2, c.textLight),
                       ),
                     ),

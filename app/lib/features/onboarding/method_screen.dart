@@ -12,6 +12,7 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../capture/services/android_sms_capture_service.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
@@ -66,7 +67,7 @@ class _OnboardingMethodScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'لم يتم التفعيل — تقدر تلصق الرسائل يدوياً.',
+            context.l10n.smsActivationSnack,
             style: _alex(12, FontWeight.w500, 1.3, Colors.white),
           ),
           backgroundColor: context.colors.primary,
@@ -84,16 +85,22 @@ class _OnboardingMethodScreenState
     final c = context.colors;
     final actionForeground = maliPrimaryActionForeground(context);
     final isAndroid = Platform.isAndroid;
-    final title = isAndroid ? 'فعّل التتبّع التلقائي' : 'إعداد اختصار Apple';
+    final title = isAndroid ? context.l10n.enableAutoTracking : context.l10n.setupAppleShortcut;
     final subtitle = isAndroid
-        ? 'نقرأ رسائل بنكك ونحلّلها على جهازك فقط — ونقرأ من البنوك فقط.'
-        : 'اتبع الخطوات مرة واحدة، وبعدها يمرّر iPhone رسائل البنك إلى مالي بأمان.';
+        ? context.l10n.autoTrackingSubtitleAndroid
+        : context.l10n.autoTrackingSubtitleIos;
     final steps = isAndroid
-        ? const [
-            'اضغط «السماح بقراءة الرسائل».',
-            'وافق على الإذن من النافذة.',
-            'نلتقط عمليات بنكك تلقائياً ونصنّفها.',
-          ]
+        ? (Localizations.localeOf(context).languageCode == 'en'
+            ? const [
+                'Click "Allow message reading".',
+                'Approve the permission from the dialog.',
+                'We capture your bank transactions automatically and classify them.',
+              ]
+            : const [
+                'اضغط «السماح بقراءة الرسائل».',
+                'وافق على الإذن من النافذة.',
+                'نلتقط عمليات بنكك تلقائياً ونصنّفها.',
+              ])
         : const <String>[];
 
     return Scaffold(
@@ -187,7 +194,7 @@ class _OnboardingMethodScreenState
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'كيف سيتم التفعيل؟',
+                                context.l10n.howWillActivationWork,
                                 style:
                                     _alex(15, FontWeight.w800, 1.3, c.textMain),
                               ),
@@ -237,8 +244,8 @@ class _OnboardingMethodScreenState
                               )
                             : Text(
                                 isAndroid
-                                    ? 'السماح بقراءة الرسائل'
-                                    : 'تمام، فهمت',
+                                    ? context.l10n.allowSmsReading
+                                    : context.l10n.gotIt,
                                 style: _alex(
                                     15, FontWeight.w800, 1.2, actionForeground),
                               ),
@@ -249,7 +256,7 @@ class _OnboardingMethodScreenState
                   TextButton(
                     onPressed: _finish,
                     child: Text(
-                      'لاحقاً، سأقوم بالإضافة يدوياً',
+                      context.l10n.laterAddManually,
                       style: _alex(13, FontWeight.w700, 1.2, c.textLight),
                     ),
                   ),
@@ -266,68 +273,52 @@ class _OnboardingMethodScreenState
 class _InlineIosShortcutGuide extends StatelessWidget {
   const _InlineIosShortcutGuide();
 
-  static const _steps = [
-    _ShortcutStep(
-      'افتح تطبيق الاختصارات',
-      'ادخل على Shortcuts ثم تبويب Automation من الأسفل.',
-      Icons.auto_awesome_motion_rounded,
-    ),
-    _ShortcutStep(
-      'أنشئ Automation جديد',
-      'اضغط New Automation أو علامة +، ثم اختر Message.',
-      Icons.add_circle_outline_rounded,
-    ),
-    _ShortcutStep(
-      'حدّد رسائل البنك',
-      'في Message Contents اكتب رمز العملة مثل SAR، وكرّر لاحقاً لأي عملة إضافية.',
-      Icons.filter_alt_outlined,
-    ),
-    _ShortcutStep(
-      'خلّيه يعمل فوراً',
-      'اختَر Run Immediately ثم اضغط Next.',
-      Icons.bolt_rounded,
-    ),
-    _ShortcutStep(
-      'اختَر اختصار مالي',
-      'اضغط New Blank Automation، وابحث عن Post Bank Status.',
-      Icons.send_rounded,
-    ),
-    _ShortcutStep(
-      'مرّر نص الرسالة',
-      'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.',
-      Icons.text_snippet_outlined,
-    ),
-    _ShortcutStep(
-      'شغّله في الخلفية',
-      'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.',
-      Icons.volume_off_rounded,
-    ),
-    _ShortcutStep(
-      'احفظ الاختصار',
-      'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.',
-      Icons.check_circle_outline_rounded,
-    ),
-  ];
+  static List<_ShortcutStep> _getSteps(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    if (locale == 'en') {
+      return const [
+        _ShortcutStep('Open Shortcuts app', 'Go to Shortcuts then Automation tab at the bottom.', Icons.auto_awesome_motion_rounded),
+        _ShortcutStep('Create new Automation', 'Press New Automation or +, then select Message.', Icons.add_circle_outline_rounded),
+        _ShortcutStep('Select bank messages', 'In Message Contents type currency code e.g. SAR, repeat later for additional currencies.', Icons.filter_alt_outlined),
+        _ShortcutStep('Run Immediately', 'Select Run Immediately then press Next.', Icons.bolt_rounded),
+        _ShortcutStep('Choose Mali Shortcut', 'Press New Blank Automation, and search for Post Bank Status.', Icons.send_rounded),
+        _ShortcutStep('Pass message text', 'Select Shortcut Input as input to the shortcut so Mali receives the bank message text.', Icons.text_snippet_outlined),
+        _ShortcutStep('Run in background', 'Disable Show When Run so the addition happens silently.', Icons.volume_off_rounded),
+        _ShortcutStep('Save shortcut', 'Press Done. Then any matching bank message will be converted to a transaction inside Mali.', Icons.check_circle_outline_rounded),
+      ];
+    }
+    return const [
+      _ShortcutStep('افتح تطبيق الاختصارات', 'ادخل على Shortcuts ثم تبويب Automation من الأسفل.', Icons.auto_awesome_motion_rounded),
+      _ShortcutStep('أنشئ Automation جديد', 'اضغط New Automation أو علامة +، ثم اختر Message.', Icons.add_circle_outline_rounded),
+      _ShortcutStep('حدّد رسائل البنك', 'في Message Contents اكتب رمز العملة مثل SAR، وكرّر لاحقاً لأي عملة إضافية.', Icons.filter_alt_outlined),
+      _ShortcutStep('خلّيه يعمل فوراً', 'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
+      _ShortcutStep('اختَر اختصار مالي', 'اضغط New Blank Automation، وابحث عن Post Bank Status.', Icons.send_rounded),
+      _ShortcutStep('مرّر نص الرسالة', 'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.', Icons.text_snippet_outlined),
+      _ShortcutStep('شغّله في الخلفية', 'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.', Icons.volume_off_rounded),
+      _ShortcutStep('احفظ الاختصار', 'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.', Icons.check_circle_outline_rounded),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final steps = _getSteps(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'دليل إعداد الاختصار',
+          context.l10n.shortcutSetupGuide,
           style: _alex(15, FontWeight.w800, 1.3, c.textMain),
         ),
         const SizedBox(height: 6),
         Text(
-          'اعمل الخطوات دي مرة واحدة من تطبيق Apple Shortcuts.',
+          context.l10n.doStepsOnceFromShortcuts,
           style: _alex(11, FontWeight.w600, 1.45, c.textLight),
         ),
         const SizedBox(height: 16),
-        for (var i = 0; i < _steps.length; i++) ...[
-          _ShortcutStepRow(index: i + 1, step: _steps[i]),
-          if (i != _steps.length - 1) const SizedBox(height: 12),
+        for (var i = 0; i < steps.length; i++) ...[
+          _ShortcutStepRow(index: i + 1, step: steps[i]),
+          if (i != steps.length - 1) const SizedBox(height: 12),
         ],
       ],
     );

@@ -10,7 +10,7 @@ final class ShareViewController: SLComposeServiceViewController {
   override func didSelectPost() {
     extractSharedText { text in
       if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        SharedCaptureStore.store(text: text)
+        SharedCaptureStore.enqueue(text: text, sender: nil)
       }
       self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }

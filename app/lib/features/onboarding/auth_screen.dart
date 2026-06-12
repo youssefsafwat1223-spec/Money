@@ -9,6 +9,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../common/mali_logo.dart';
 import '../common/motion.dart';
 import 'widgets/premium_ui.dart';
@@ -102,13 +103,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   const Center(child: MaliLogo(size: 64, glow: false)),
                   const SizedBox(height: 20),
                   Text(
-                    'سجّل دخولك للبدء', 
+                    context.l10n.signInToStart, 
                     textAlign: TextAlign.center, 
                     style: _alex(24, FontWeight.w800, 1.2, c.textMain),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'الدخول لتحديد هويتك ومزامنة إعداداتك فقط. بياناتك المالية تبقى آمنة على جهازك.',
+                    context.l10n.signInSubtitle,
                     textAlign: TextAlign.center,
                     style: _alex(13, FontWeight.w500, 1.5, c.textLight),
                   ),
@@ -130,7 +131,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 border: Border.all(color: c.accent.withValues(alpha: 0.22)),
                               ),
                               child: Text(
-                                'بدون كلمة مرور',
+                                context.l10n.noPassword,
                                 style: _alex(12, FontWeight.w800, 1.2, c.accent),
                               ),
                             ),
@@ -141,7 +142,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             height: 50,
                             child: SignInWithAppleButton(
                               onPressed: _busy ? () {} : () => _provider(auth.signInWithApple),
-                              text: 'المتابعة مع Apple',
+                              text: context.l10n.continueWithApple,
                               style: SignInWithAppleButtonStyle.black,
                               borderRadius: BorderRadius.circular(16),
                             ),
@@ -149,7 +150,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           const SizedBox(height: 12),
                           _providerButton(
                             iconWidget: const _GoogleMark(size: 20),
-                            label: 'المتابعة مع Google',
+                            label: context.l10n.continueWithGoogle,
                             background: c.surface,
                             foreground: c.textMain,
                             border: true,
@@ -161,14 +162,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               Expanded(child: Divider(color: c.border.withValues(alpha: 0.3))),
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text('أو', style: _alex(12, FontWeight.w600, 1.2, c.textLight)),
+                                child: Text(context.l10n.or, style: _alex(12, FontWeight.w600, 1.2, c.textLight)),
                               ),
                               Expanded(child: Divider(color: c.border.withValues(alpha: 0.3))),
                             ],
                           ),
                           const SizedBox(height: 20),
                           Text(
-                            'المتابعة بالبريد الإلكتروني',
+                            context.l10n.continueWithEmail,
                             style: _alex(12, FontWeight.w700, 1.2, c.textLight),
                           ),
                           const SizedBox(height: 8),
@@ -178,7 +179,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             style: _alex(15, FontWeight.w600, 1.4, c.textMain),
                             textDirection: TextDirection.ltr,
                             decoration: InputDecoration(
-                              hintText: 'البريد الإلكتروني',
+                              hintText: context.l10n.email,
                               hintTextDirection: TextDirection.rtl,
                               hintStyle: _alex(14, FontWeight.w400, 1.4, c.textLight.withValues(alpha: 0.4)),
                               prefixIcon: Icon(Icons.mail_outline_rounded, color: c.textLight),
@@ -228,7 +229,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   ),
                                 ),
                                 child: Text(
-                                  'إرسال رمز الدخول الآمن',
+                                  context.l10n.sendOtpCode,
                                   style: _alex(15, FontWeight.w800, 1.2, actionForeground),
                                 ),
                               ),
@@ -242,7 +243,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   const SizedBox(height: 32),
                   Center(
                     child: Text(
-                      'بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ مالي.',
+                      context.l10n.byContinuingAgree,
                       textAlign: TextAlign.center,
                       style: _alex(11, FontWeight.w500, 1.5, c.textLight),
                     ),
