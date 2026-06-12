@@ -1,13 +1,28 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../core/auth/auth_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
 import '../common/mali_logo.dart';
+import '../common/motion.dart';
+import 'widgets/premium_ui.dart';
+
+TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false, List<Shadow>? shadows}) {
+  return GoogleFonts.alexandria(
+    fontSize: size,
+    fontWeight: weight,
+    height: height,
+    color: color,
+    shadows: shadows,
+    fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  );
+}
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -48,92 +63,203 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final auth = ref.read(authServiceProvider);
+    final actionForeground = maliPrimaryActionForeground(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(),
-      body: Padding(
-        padding: const EdgeInsets.all(AppSpacing.gutter),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Spacer(),
-            const Center(child: MaliLogo(size: 84)),
-            const SizedBox(height: AppSpacing.s4),
-            Text('سجّل دخولك للبدء',
-                textAlign: TextAlign.center,
-                style: AppTypography.title1(c.textMain)),
-            const SizedBox(height: AppSpacing.s2),
-            Text('الدخول لتحديد هويتك فقط. بياناتك المالية تبقى على جهازك.',
-                textAlign: TextAlign.center,
-                style: AppTypography.body(c.textLight)),
-            const Spacer(),
-            _providerButton(
-              icon: Icons.apple,
-              label: 'المتابعة مع Apple',
-              background: Colors.black,
-              foreground: Colors.white,
-              onTap: () => _provider(auth.signInWithApple),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            _providerButton(
-              icon: Icons.account_circle_outlined,
-              label: 'المتابعة مع Google',
-              background: c.surface2,
-              foreground: c.textMain,
-              border: true,
-              onTap: () => _provider(auth.signInWithGoogle),
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            Row(children: [
-              Expanded(child: Divider(color: c.border)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
-                child: Text('أو', style: AppTypography.caption(c.textLight)),
-              ),
-              Expanded(child: Divider(color: c.border)),
-            ]),
-            const SizedBox(height: AppSpacing.s4),
-            TextField(
-              controller: _email,
-              keyboardType: TextInputType.emailAddress,
-              style: AppTypography.body(c.textMain),
-              decoration: InputDecoration(
-                hintText: 'البريد الإلكتروني',
-                filled: true,
-                fillColor: c.surface2,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  borderSide: BorderSide(color: c.border),
+    return PremiumBackground(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter, vertical: 8.0),
+            child: Row(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: c.surface.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed: () {
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/onboarding');
+                      }
+                    },
+                    icon: Icon(Icons.arrow_forward_rounded, color: c.textMain, size: 20),
+                  ),
                 ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  const Center(child: MaliLogo(size: 64, glow: false)),
+                  const SizedBox(height: 20),
+                  Text(
+                    'سجّل دخولك للبدء', 
+                    textAlign: TextAlign.center, 
+                    style: _alex(24, FontWeight.w800, 1.2, c.textMain),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'الدخول لتحديد هويتك ومزامنة إعداداتك فقط. بياناتك المالية تبقى آمنة على جهازك.',
+                    textAlign: TextAlign.center,
+                    style: _alex(13, FontWeight.w500, 1.5, c.textLight),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  PremiumMotion(
+                    delay: const Duration(milliseconds: 100),
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: c.accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: c.accent.withValues(alpha: 0.22)),
+                              ),
+                              child: Text(
+                                'بدون كلمة مرور',
+                                style: _alex(12, FontWeight.w800, 1.2, c.accent),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          
+                          SizedBox(
+                            height: 50,
+                            child: SignInWithAppleButton(
+                              onPressed: _busy ? () {} : () => _provider(auth.signInWithApple),
+                              text: 'المتابعة مع Apple',
+                              style: SignInWithAppleButtonStyle.black,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _providerButton(
+                            iconWidget: const _GoogleMark(size: 20),
+                            label: 'المتابعة مع Google',
+                            background: c.surface,
+                            foreground: c.textMain,
+                            border: true,
+                            onTap: () => _provider(auth.signInWithGoogle),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(child: Divider(color: c.border.withValues(alpha: 0.3))),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text('أو', style: _alex(12, FontWeight.w600, 1.2, c.textLight)),
+                              ),
+                              Expanded(child: Divider(color: c.border.withValues(alpha: 0.3))),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'المتابعة بالبريد الإلكتروني',
+                            style: _alex(12, FontWeight.w700, 1.2, c.textLight),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _email,
+                            keyboardType: TextInputType.emailAddress,
+                            style: _alex(15, FontWeight.w600, 1.4, c.textMain),
+                            textDirection: TextDirection.ltr,
+                            decoration: InputDecoration(
+                              hintText: 'البريد الإلكتروني',
+                              hintTextDirection: TextDirection.rtl,
+                              hintStyle: _alex(14, FontWeight.w400, 1.4, c.textLight.withValues(alpha: 0.4)),
+                              prefixIcon: Icon(Icons.mail_outline_rounded, color: c.textLight),
+                              filled: true,
+                              fillColor: c.surface.withValues(alpha: isDark ? 0.06 : 0.45),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.s4,
+                                vertical: 16,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(color: isDark ? c.accent : c.primary, width: 1.5),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            height: 52,
+                            width: double.infinity,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: maliPrimaryActionGradient(context),
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: c.accent.withValues(alpha: 0.25),
+                                    blurRadius: 15,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: ElevatedButton(
+                                onPressed: _busy ? null : _emailContinue,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: Text(
+                                  'إرسال رمز الدخول الآمن',
+                                  style: _alex(15, FontWeight.w800, 1.2, actionForeground),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 32),
+                  Center(
+                    child: Text(
+                      'بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ مالي.',
+                      textAlign: TextAlign.center,
+                      style: _alex(11, FontWeight.w500, 1.5, c.textLight),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
               ),
             ),
-            const SizedBox(height: AppSpacing.s3),
-            SizedBox(
-              height: 56,
-              child: FilledButton(
-                onPressed: _busy ? null : _emailContinue,
-                style: FilledButton.styleFrom(
-                  backgroundColor: c.primary,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md)),
-                ),
-                child: Text('إرسال رمز الدخول',
-                    style: AppTypography.bodyStrong(Colors.white)),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            Text('بالمتابعة توافق على الشروط وسياسة الخصوصية',
-                textAlign: TextAlign.center,
-                style: AppTypography.caption(c.textLight)),
-            const SizedBox(height: AppSpacing.s4),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _providerButton({
-    required IconData icon,
+    IconData? icon,
+    Widget? iconWidget,
     required String label,
     required Color background,
     required Color foreground,
@@ -142,19 +268,101 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }) {
     final c = context.colors;
     return SizedBox(
-      height: 56,
-      child: FilledButton.icon(
+      height: 50,
+      child: OutlinedButton(
         onPressed: _busy ? null : onTap,
-        icon: Icon(icon, color: foreground),
-        label: Text(label, style: AppTypography.bodyStrong(foreground)),
-        style: FilledButton.styleFrom(
+        style: OutlinedButton.styleFrom(
           backgroundColor: background,
+          side: border ? BorderSide(color: c.border.withValues(alpha: 0.2)) : BorderSide.none,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            side: border ? BorderSide(color: c.border) : BorderSide.none,
+            borderRadius: BorderRadius.circular(16),
           ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            iconWidget ?? Icon(icon, color: foreground, size: 22),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: _alex(14, FontWeight.w800, 1.2, foreground),
+            ),
+          ],
         ),
       ),
     );
+  }
+}
+
+class _GoogleMark extends StatelessWidget {
+  const _GoogleMark({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final stroke = size * 0.18;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CustomPaint(
+            size: Size.square(size),
+            painter: _GoogleMarkPainter(strokeWidth: stroke),
+          ),
+          Positioned(
+            right: size * 0.08,
+            child: Container(
+              width: size * 0.34,
+              height: stroke,
+              decoration: BoxDecoration(
+                color: const Color(0xFF4285F4),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoogleMarkPainter extends CustomPainter {
+  const _GoogleMarkPainter({required this.strokeWidth});
+
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final center = rect.center;
+    final radius = (size.shortestSide - strokeWidth) / 2;
+
+    void drawArc(Color color, double startAngle, double sweepAngle) {
+      final paint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        false,
+        paint,
+      );
+    }
+
+    drawArc(const Color(0xFFEA4335), 2.45, 1.25);
+    drawArc(const Color(0xFFFBBC05), 3.75, 1.0);
+    drawArc(const Color(0xFF34A853), 4.8, 1.2);
+    drawArc(const Color(0xFF4285F4), 6.05, 1.55);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GoogleMarkPainter oldDelegate) {
+    return oldDelegate.strokeWidth != strokeWidth;
   }
 }

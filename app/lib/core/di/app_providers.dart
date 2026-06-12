@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../backend/metrics_client.dart';
+import '../backend/rules_client.dart';
 import '../../data/db/app_database.dart';
+import '../../data/repositories/drift_bill_repository.dart';
 import '../../data/repositories/drift_budget_repository.dart';
 import '../../data/repositories/drift_category_repository.dart';
 import '../../data/repositories/drift_gamification_repository.dart';
@@ -9,6 +12,7 @@ import '../../data/repositories/drift_merchant_category_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
+import '../../domain/repositories/bill_repository.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../../domain/repositories/gamification_repository.dart';
 import '../../domain/repositories/goal_repository.dart';
@@ -26,13 +30,27 @@ import '../../domain/usecases/save_budget_usecase.dart';
 import '../../domain/usecases/save_goal_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/app/celebration_runtime.dart';
+import '../../features/capture/services/local_notification_service.dart';
+import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   throw UnimplementedError('AppDatabase must be provided from main().');
 });
 
+final metricsClientProvider = Provider<MetricsClient>((ref) {
+  return MetricsClient();
+});
+
+final rulesClientProvider = Provider<RulesClient>((ref) {
+  return RulesClient(database: ref.watch(appDatabaseProvider));
+});
+
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
   return DriftTransactionRepository(ref.watch(appDatabaseProvider));
+});
+
+final billRepositoryProvider = Provider<BillRepository>((ref) {
+  return DriftBillRepository(ref.watch(appDatabaseProvider));
 });
 
 final merchantCategoryRepositoryProvider =
@@ -60,7 +78,8 @@ final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
   return DriftCategoryRepository(ref.watch(appDatabaseProvider));
 });
 
-final recordEngagementUseCaseProvider = Provider<RecordEngagementUseCase>((ref) {
+final recordEngagementUseCaseProvider =
+    Provider<RecordEngagementUseCase>((ref) {
   return RecordEngagementUseCase(
     gamificationRepository: ref.watch(gamificationRepositoryProvider),
     transactionRepository: ref.watch(transactionRepositoryProvider),
@@ -75,15 +94,16 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     transactionRepository: ref.watch(transactionRepositoryProvider),
     merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
+    logMetric: ref.watch(metricsClientProvider).logEvent,
   );
 });
 
 final ingestCapturedMessageUseCaseProvider =
     Provider<IngestCapturedMessageUseCase>((ref) {
-      return IngestCapturedMessageUseCase(
-        ref.watch(addTransactionUseCaseProvider),
-      );
-    });
+  return IngestCapturedMessageUseCase(
+    ref.watch(addTransactionUseCaseProvider),
+  );
+});
 
 final confirmTransactionUseCaseProvider =
     Provider<ConfirmTransactionUseCase>((ref) {
@@ -128,8 +148,32 @@ final addGoalContributionUseCaseProvider =
   return AddGoalContributionUseCase(
     ref.watch(goalRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
+    notifyGoalMilestone: (goal, beforeProgress, afterProgress) async {
+      final loadPrefs = ref.read(loadNotificationPreferencesUseCaseProvider);
+      final savePrefs = ref.read(saveNotificationPreferencesUseCaseProvider);
+      final preferences = await loadPrefs();
+      final notification = const NotificationPlanner().planGoalMilestone(
+        preferences: preferences,
+        goal: goal,
+        beforeProgress: beforeProgress,
+        afterProgress: afterProgress,
+      );
+      if (notification == null) return;
+      await LocalNotificationService.instance.showGoalMilestoneNotification(
+        notification: notification,
+        preferences: preferences,
+      );
+      await savePrefs(
+        preferences.copyWith(
+          notifiedGoalMilestones: {
+            ...preferences.notifiedGoalMilestones,
+            goal.id: notification.milestone,
+          },
+        ),
+      );
+    },
   );
-    });
+});
 
 final budgetProgressUseCaseProvider = Provider<BudgetProgressUseCase>((ref) {
   return BudgetProgressUseCase(
@@ -157,7 +201,8 @@ final saveNotificationPreferencesUseCaseProvider =
   );
 });
 
-final loadUserSettingsUseCaseProvider = Provider<LoadUserSettingsUseCase>((ref) {
+final loadUserSettingsUseCaseProvider =
+    Provider<LoadUserSettingsUseCase>((ref) {
   return LoadUserSettingsUseCase(ref.watch(userSettingsRepositoryProvider));
 });
 

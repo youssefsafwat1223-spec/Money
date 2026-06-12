@@ -29,14 +29,18 @@ dependencies:
   flutter_local_notifications: ^22.0.0
   another_telephony: ^0.4.1
   timezone: ^0.11.0
+  fl_chart: ^0.69.0
+  flutter_animate: ^4.5.0
+  flutter_svg: ^2.0.17
+  supabase_flutter: ^2.8.3
+  cryptography: ^2.7.0
+  google_sign_in: ^6.2.2
   # another_telephony: ^0.4.0
-  # google_sign_in: ^6.2.1
-  # sign_in_with_apple: ^6.1.0
+  sign_in_with_apple: ^6.1.0
   # dio: ^5.5.0
   # flutter_local_notifications: ^17.2.0
   # timezone: ^0.9.4
   # rive: ^0.13.0
-  # cryptography: ^2.7.0
 
 dev_dependencies:
   flutter_test:
@@ -53,6 +57,12 @@ flutter:
   assets:
     - assets/logo/logo_light.png
     - assets/logo/logo_dark.png
+    - assets/brand/branding_light_1024.png
+    - assets/brand/branding_dark_1024.png
+    - assets/brand/symbol_green_light.png
+    - assets/brand/symbol_green_dark.png
+    - assets/flags/
+    - assets/brands/
 
 hooks:
   user_defines:

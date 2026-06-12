@@ -1,99 +1,170 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
+import 'widgets/premium_ui.dart';
 
-/// شرح خطوة بخطوة لإعداد Automation في تطبيق Shortcuts على iPhone،
-/// بحيث تُرسَل رسائل البنك للتطبيق تلقائياً.
+TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false}) {
+  return GoogleFonts.alexandria(
+    fontSize: size,
+    fontWeight: weight,
+    height: height,
+    color: color,
+    fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  );
+}
+
 class IosShortcutScreen extends StatelessWidget {
   const IosShortcutScreen({super.key});
 
   static const _steps = <_Step>[
-    _Step('احذف أي Automation قديم',
-        'افتح تطبيق Shortcuts ← تبويب Automation. لو فيه Automation قديم للتطبيق، اسحب عليه لليسار واضغط Delete.'),
-    _Step('أنشئ Automation جديد',
-        'اضغط New Automation (+)، ومرّر للأسفل حتى تجد «Message» (تحت Email) واضغط عليه.'),
-    _Step('حدّد الرسائل البنكية',
-        'اضغط على «Message Contents» واكتب كلمة موجودة في كل رسائل بنكك — غالباً رمز العملة مثل SAR أو EGP أو AED — ثم اضغط Done.'),
-    _Step('التشغيل التلقائي',
-        'فعّل «Run Immediately» ثم اضغط Next في أعلى الشاشة.'),
-    _Step('إنشاء الاختصار',
-        'اضغط «New Blank Automation» (بدون البحث عن أي شيء قبلها).'),
-    _Step('إرسال الرسالة للتطبيق',
-        'ابحث عن «Post Bank Status» واضغط عليه. اضغط حقل «SMS Status» واختر المتغير «Message» من الأسفل، وتأكّد أنه المتغير المحدد.'),
-    _Step('التشغيل الصامت',
-        'أوقف «Show When Run» حتى يعمل في الخلفية بدون نوافذ.'),
-    _Step('الحفظ',
-        'اضغط زر الحفظ في أعلى الشاشة. تم الإعداد بنجاح.'),
+    _Step('احذف القديم', 'افتح تطبيق Shortcuts وروح لتبويب Automation. لو فيه Automation قديم للتطبيق، احذفه.', Icons.delete_outline_rounded),
+    _Step('جديد (+)', 'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».', Icons.add_circle_outline_rounded),
+    _Step('حدّد الرسائل', 'اضغط على «Message Contents» واكتب رمز عملة البنك (مثال: SAR).', Icons.filter_alt_outlined),
+    _Step('بدون تأكيد', 'فعّل «Run Immediately» واضغط Next.', Icons.bolt_rounded),
+    _Step('اختصار فارغ', 'اضغط «New Blank Automation».', Icons.insert_drive_file_outlined),
+    _Step('إرسال للتطبيق', 'ابحث عن «Post Bank Status»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.', Icons.send_rounded),
+    _Step('تشغيل صامت', 'أوقف «Show When Run» ليشتغل بالخلفية.', Icons.volume_off_rounded),
+    _Step('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.', Icons.check_circle_outline_rounded),
   ];
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Scaffold(
-      appBar: AppBar(title: const Text('إعداد اختصار iPhone')),
-      body: ListView(
-        padding: const EdgeInsets.all(AppSpacing.gutter),
+    return PremiumBackground(
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter, vertical: 8.0),
+            child: Row(
               children: [
-                Text('ليه الخطوات دي؟',
-                    style: AppTypography.headline(Colors.white)),
-                const SizedBox(height: AppSpacing.s2),
-                Text(
-                  'بسبب قيود iOS، التطبيق ما يقدرش يقرأ الرسائل مباشرة. نستخدم تطبيق Shortcuts لإرسال رسائل البنك للتطبيق تلقائياً.',
-                  style: AppTypography.callout(
-                      Colors.white.withValues(alpha: 0.9)),
+                Container(
+                  decoration: BoxDecoration(
+                    color: c.surface.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed: () => context.pop(),
+                    icon: Icon(Icons.arrow_forward_rounded, color: c.textMain, size: 20),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: AppSpacing.s5),
-          for (var i = 0; i < _steps.length; i++) ...[
-            _StepCard(index: i + 1, step: _steps[i]),
-            const SizedBox(height: AppSpacing.s3),
-          ],
-          const SizedBox(height: AppSpacing.s3),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: c.surface2,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.border),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
               children: [
-                Text('أكثر من عملة؟',
-                    style: AppTypography.bodyStrong(c.textMain)),
-                const SizedBox(height: AppSpacing.s2),
-                Text(
-                  'لو الرسائل تجيك بعملات مختلفة (مثلاً SAR و USD)، كرّر نفس الـ Automation وغيّر الكلمة في «Message Contents» للعملة الثانية.',
-                  style: AppTypography.callout(c.textLight),
+                Center(
+                  child: GlowingIcon(
+                    icon: Icons.apple_rounded,
+                    color: c.primary,
+                    size: 40,
+                  ),
                 ),
+                const SizedBox(height: 20),
+                Text('خطوات الأمان لآبل', textAlign: TextAlign.center, style: _alex(24, FontWeight.w800, 1.2, c.textMain)),
+                const SizedBox(height: 8),
+                Text(
+                  'بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ مالي تلقائياً وبأمان تام.',
+                  textAlign: TextAlign.center,
+                  style: _alex(13, FontWeight.w500, 1.5, c.textLight),
+                ),
+                const SizedBox(height: 32),
+                
+                Text('الخطوات:', style: _alex(15, FontWeight.w800, 1.2, c.textMain)),
+                const SizedBox(height: 20),
+                GlassCard(
+                  padding: const EdgeInsets.all(20),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _steps.length,
+                    separatorBuilder: (context, index) => Padding(
+                      padding: const EdgeInsets.only(right: 14.0, top: 4, bottom: 4),
+                      child: Container(
+                        height: 16,
+                        width: 1.5,
+                        color: c.border.withValues(alpha: 0.3),
+                        alignment: Alignment.centerRight,
+                      ),
+                    ),
+                    itemBuilder: (context, index) {
+                      final step = _steps[index];
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: c.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text('${index + 1}', style: _alex(12, FontWeight.w800, 1.0, Colors.white)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(step.title, style: _alex(14, FontWeight.w800, 1.2, c.textMain)),
+                                      const SizedBox(width: 8),
+                                      Icon(step.icon, color: c.textLight, size: 14),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(step.body, style: _alex(12, FontWeight.w500, 1.5, c.textLight)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                
+                const SizedBox(height: 32),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: c.accent.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: c.accent.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.currency_exchange_rounded, size: 24, color: c.accent),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('تتعامل بأكثر من عملة؟', style: _alex(14, FontWeight.w800, 1.2, c.accent)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة.',
+                              style: _alex(12, FontWeight.w600, 1.5, c.accent.withValues(alpha: 0.8)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
               ],
             ),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: [
-              Icon(Icons.lock_outline, size: 18, color: c.primary),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Text(
-                  'التطبيق ما يقرأش كل رسائلك — بس الرسائل اللي فيها الكلمات/العملات اللي حدّدتها.',
-                  style: AppTypography.caption(c.textLight),
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -102,54 +173,8 @@ class IosShortcutScreen extends StatelessWidget {
 }
 
 class _Step {
-  const _Step(this.title, this.body);
+  const _Step(this.title, this.body, this.icon);
   final String title;
   final String body;
-}
-
-class _StepCard extends StatelessWidget {
-  const _StepCard({required this.index, required this.step});
-
-  final int index;
-  final _Step step;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text('$index',
-                style: AppTypography.bodyStrong(Colors.white)),
-          ),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(step.title, style: AppTypography.bodyStrong(c.textMain)),
-                const SizedBox(height: 4),
-                Text(step.body, style: AppTypography.callout(c.textLight)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  final IconData icon;
 }

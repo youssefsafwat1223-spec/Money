@@ -69,53 +69,51 @@
 
 ### 6.1 الخام (Brand / Raw)
 ```
-brand-green        #2FD27A   (الادخار/النجاح/النمو — لون العلامة)
-brand-green-press  #25B869
-brand-gold         #F2C14E   (عملات الخزنة/الاحتفال)
-brand-gold-deep    #D9A431
+brand-purple       #7C3AED   (اللون الأساسي للأرجواني)
+brand-coral        #FF6B4A   (اللون المساعد المرجاني - التوفير/النمو)
 ```
 
 ### 6.2 Dark (الأساسي)
 ```
---bg               #0D1117
---surface          #161B22
---surface-2        #1E252E
---surface-3        #283039   (عناصر مرتفعة/inputs)
---hairline         #2A323C   (حدود خفيفة)
---primary          #2FD27A
---primary-press    #25B869
---primary-tint     #122A20   (خلفية خضراء خفيفة)
---accent-gold      #F2C14E
---danger           #FF5C5C
---danger-tint      #2A1517
---warning          #FFB23E
---warning-tint     #2A2113
---info             #4DA3FF
---text-primary     #F5F7FA
---text-secondary   #A8B3C2
---text-muted       #6B7686
---on-primary       #07130D   (نص فوق الأخضر)
+--bg               #0B0F19
+--surface          #131924
+--surface-2        #1E2535
+--surface-3        #2A3347   (عناصر مرتفعة/inputs)
+--hairline         #2A3347   (حدود خفيفة)
+--primary          #818CF8
+--primary-press    #6366F1
+--primary-tint     #1E2535   (خلفية خفيفة)
+--accent-gold      #FF7D66
+--danger           #F87171
+--danger-tint      #2B1519
+--warning          #F59E0B
+--warning-tint     #2D2012
+--info             #38BDF8
+--text-primary     #F8FAFC
+--text-secondary   #8295A5
+--text-muted       #4F5A6E
+--on-primary       #0B0F19
 ```
 
 ### 6.3 Light
 ```
---bg               #F6F8FA
+--bg               #F8FAFC
 --surface          #FFFFFF
---surface-2        #EEF1F5
---surface-3        #E6EAF0
---hairline         #E3E7EC
---primary          #16A968   (أغمق قليلاً لتباين AA على الفاتح)
---primary-press    #128A55
---primary-tint     #E6F7EF
---accent-gold      #C9912B   (نسخة فاتحة للتباين)
---danger           #E14B4B
---danger-tint      #FDECEC
---warning          #C9821F
---warning-tint     #FBF1E0
---info             #2A7FE0
---text-primary     #0E1116
---text-secondary   #4A5563
---text-muted       #8A94A3
+--surface-2        #F1F5F9
+--surface-3        #E2E8F0
+--hairline         #E2E8F0
+--primary          #7C3AED
+--primary-press    #5B21B6
+--primary-tint     #F1F5F9
+--accent-gold      #FF6B4A
+--danger           #EF4444
+--danger-tint      #FEE2E2
+--warning          #D97706
+--warning-tint     #FEF3C7
+--info             #0EA5E9
+--text-primary     #0F172A
+--text-secondary   #475569
+--text-muted       #94A3B8
 --on-primary       #FFFFFF
 ```
 

@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../common/premium_loading.dart';
 import '../common/section_hero_header.dart';
 import 'goal_details_screen.dart';
 import 'goal_form_screen.dart';
@@ -19,7 +20,7 @@ class GoalsScreen extends ConsumerWidget {
     final async = ref.watch(goalsListProvider);
 
     return async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const PremiumSkeletonPage(cardCount: 4),
         error: (error, _) => Center(child: Text('حدث خطأ: $error')),
         data: (goals) {
           final saved = goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);

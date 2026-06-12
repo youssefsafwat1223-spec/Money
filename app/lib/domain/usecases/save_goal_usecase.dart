@@ -39,12 +39,19 @@ class AddGoalContributionUseCase {
   AddGoalContributionUseCase(
     this._goalRepository, {
     this.recordEngagementUseCase,
+    this.notifyGoalMilestone,
   });
 
   final GoalRepository _goalRepository;
   final RecordEngagementUseCase? recordEngagementUseCase;
+  final Future<void> Function(
+    GoalEntity goal,
+    double beforeProgress,
+    double afterProgress,
+  )? notifyGoalMilestone;
 
-  Future<GoalContributionEntity> call(GoalContributionEntity contribution) async {
+  Future<GoalContributionEntity> call(
+      GoalContributionEntity contribution) async {
     final goal = await _goalRepository.getById(contribution.goalId);
     final beforeProgress = goal == null || goal.targetAmount == 0
         ? 0.0
@@ -62,11 +69,19 @@ class AddGoalContributionUseCase {
         goalProgressAfter: afterProgress,
       );
     }
+    if (updatedGoal != null) {
+      await notifyGoalMilestone?.call(
+        updatedGoal,
+        beforeProgress,
+        afterProgress,
+      );
+    }
     return saved;
   }
 
   bool _crossedMilestone(double before, double after) {
     const checkpoints = [0.25, 0.5, 0.75, 1.0];
-    return checkpoints.any((checkpoint) => before < checkpoint && after >= checkpoint);
+    return checkpoints
+        .any((checkpoint) => before < checkpoint && after >= checkpoint);
   }
 }

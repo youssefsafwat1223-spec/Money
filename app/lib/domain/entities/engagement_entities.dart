@@ -75,6 +75,9 @@ enum NotificationType {
   budgetOver,
   achievements,
   streakReminder,
+  weeklyReport,
+  subscriptionReminder,
+  goalMilestone,
 }
 
 class NotificationPreferences {
@@ -85,12 +88,16 @@ class NotificationPreferences {
     this.budgetOver = true,
     this.achievements = true,
     this.streakReminder = true,
+    this.weeklyReport = true,
+    this.subscriptionReminder = true,
+    this.goalMilestone = true,
     this.quietHoursStartHour = 23,
     this.quietHoursEndHour = 8,
     this.lastDailyBudgetRewardDate,
     this.lastSaved500MonthKey,
     this.lastRestaurantReductionMonthKey,
     this.lastMonthWithoutOverrunKey,
+    this.notifiedGoalMilestones = const {},
   });
 
   final bool captureReview;
@@ -99,12 +106,16 @@ class NotificationPreferences {
   final bool budgetOver;
   final bool achievements;
   final bool streakReminder;
+  final bool weeklyReport;
+  final bool subscriptionReminder;
+  final bool goalMilestone;
   final int quietHoursStartHour;
   final int quietHoursEndHour;
   final String? lastDailyBudgetRewardDate;
   final String? lastSaved500MonthKey;
   final String? lastRestaurantReductionMonthKey;
   final String? lastMonthWithoutOverrunKey;
+  final Map<String, int> notifiedGoalMilestones;
 
   bool isEnabled(NotificationType type) {
     switch (type) {
@@ -120,6 +131,12 @@ class NotificationPreferences {
         return achievements;
       case NotificationType.streakReminder:
         return streakReminder;
+      case NotificationType.weeklyReport:
+        return weeklyReport;
+      case NotificationType.subscriptionReminder:
+        return subscriptionReminder;
+      case NotificationType.goalMilestone:
+        return goalMilestone;
     }
   }
 
@@ -130,12 +147,16 @@ class NotificationPreferences {
     bool? budgetOver,
     bool? achievements,
     bool? streakReminder,
+    bool? weeklyReport,
+    bool? subscriptionReminder,
+    bool? goalMilestone,
     int? quietHoursStartHour,
     int? quietHoursEndHour,
     String? lastDailyBudgetRewardDate,
     String? lastSaved500MonthKey,
     String? lastRestaurantReductionMonthKey,
     String? lastMonthWithoutOverrunKey,
+    Map<String, int>? notifiedGoalMilestones,
   }) {
     return NotificationPreferences(
       captureReview: captureReview ?? this.captureReview,
@@ -144,16 +165,20 @@ class NotificationPreferences {
       budgetOver: budgetOver ?? this.budgetOver,
       achievements: achievements ?? this.achievements,
       streakReminder: streakReminder ?? this.streakReminder,
+      weeklyReport: weeklyReport ?? this.weeklyReport,
+      subscriptionReminder: subscriptionReminder ?? this.subscriptionReminder,
+      goalMilestone: goalMilestone ?? this.goalMilestone,
       quietHoursStartHour: quietHoursStartHour ?? this.quietHoursStartHour,
       quietHoursEndHour: quietHoursEndHour ?? this.quietHoursEndHour,
       lastDailyBudgetRewardDate:
           lastDailyBudgetRewardDate ?? this.lastDailyBudgetRewardDate,
-      lastSaved500MonthKey:
-          lastSaved500MonthKey ?? this.lastSaved500MonthKey,
+      lastSaved500MonthKey: lastSaved500MonthKey ?? this.lastSaved500MonthKey,
       lastRestaurantReductionMonthKey: lastRestaurantReductionMonthKey ??
           this.lastRestaurantReductionMonthKey,
       lastMonthWithoutOverrunKey:
           lastMonthWithoutOverrunKey ?? this.lastMonthWithoutOverrunKey,
+      notifiedGoalMilestones:
+          notifiedGoalMilestones ?? this.notifiedGoalMilestones,
     );
   }
 
@@ -165,12 +190,16 @@ class NotificationPreferences {
       'budgetOver': budgetOver,
       'achievements': achievements,
       'streakReminder': streakReminder,
+      'weeklyReport': weeklyReport,
+      'subscriptionReminder': subscriptionReminder,
+      'goalMilestone': goalMilestone,
       'quietHoursStartHour': quietHoursStartHour,
       'quietHoursEndHour': quietHoursEndHour,
       'lastDailyBudgetRewardDate': lastDailyBudgetRewardDate,
       'lastSaved500MonthKey': lastSaved500MonthKey,
       'lastRestaurantReductionMonthKey': lastRestaurantReductionMonthKey,
       'lastMonthWithoutOverrunKey': lastMonthWithoutOverrunKey,
+      'notifiedGoalMilestones': notifiedGoalMilestones,
     };
   }
 
@@ -185,15 +214,29 @@ class NotificationPreferences {
       budgetOver: json['budgetOver'] as bool? ?? true,
       achievements: json['achievements'] as bool? ?? true,
       streakReminder: json['streakReminder'] as bool? ?? true,
+      weeklyReport: json['weeklyReport'] as bool? ?? true,
+      subscriptionReminder: json['subscriptionReminder'] as bool? ?? true,
+      goalMilestone: json['goalMilestone'] as bool? ?? true,
       quietHoursStartHour: json['quietHoursStartHour'] as int? ?? 23,
       quietHoursEndHour: json['quietHoursEndHour'] as int? ?? 8,
-      lastDailyBudgetRewardDate:
-          json['lastDailyBudgetRewardDate'] as String?,
+      lastDailyBudgetRewardDate: json['lastDailyBudgetRewardDate'] as String?,
       lastSaved500MonthKey: json['lastSaved500MonthKey'] as String?,
       lastRestaurantReductionMonthKey:
           json['lastRestaurantReductionMonthKey'] as String?,
-      lastMonthWithoutOverrunKey:
-          json['lastMonthWithoutOverrunKey'] as String?,
+      lastMonthWithoutOverrunKey: json['lastMonthWithoutOverrunKey'] as String?,
+      notifiedGoalMilestones: _readGoalMilestones(
+        json['notifiedGoalMilestones'],
+      ),
+    );
+  }
+
+  static Map<String, int> _readGoalMilestones(Object? value) {
+    if (value is! Map) return const {};
+    return value.map(
+      (key, milestone) => MapEntry(
+        key.toString(),
+        milestone is int ? milestone : int.tryParse('$milestone') ?? 0,
+      ),
     );
   }
 }

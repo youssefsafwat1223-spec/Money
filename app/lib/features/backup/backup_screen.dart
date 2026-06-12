@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/backup/backup_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
+import '../common/section_hero_header.dart';
 
 class BackupScreen extends ConsumerWidget {
   const BackupScreen({super.key});
@@ -14,14 +16,26 @@ class BackupScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(backupStatusProvider);
+    final c = context.colors;
     return Scaffold(
-      appBar: AppBar(title: const Text('النسخ الاحتياطي والاستعادة')),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('حدث خطأ: $e')),
-        data: (status) => status.enabled
-            ? _EnabledView(status: status)
-            : const _EnableFlow(),
+      backgroundColor: c.bg,
+      body: Column(
+        children: [
+          const SectionHeroHeader(
+            title: 'النسخ الاحتياطي والاستعادة',
+            subtitle:
+                'احفظ بياناتك المالية واسترجعها بأمان وسرية تامة في أي وقت.',
+          ),
+          Expanded(
+            child: async.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+              data: (status) => status.enabled
+                  ? _EnabledView(status: status)
+                  : const _EnableFlow(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -62,13 +76,15 @@ class _EnabledView extends ConsumerWidget {
           child: const Text('نسخ احتياطي الآن'),
         ),
         const SizedBox(height: AppSpacing.s3),
+        const _RestoreBackupButton(),
+        const SizedBox(height: AppSpacing.s3),
         OutlinedButton(
           onPressed: () async {
             await ref.read(backupServiceProvider).disable();
             ref.invalidate(backupStatusProvider);
           },
-          child: Text('إيقاف النسخ الاحتياطي',
-              style: TextStyle(color: c.danger)),
+          child:
+              Text('إيقاف النسخ الاحتياطي', style: TextStyle(color: c.danger)),
         ),
         const SizedBox(height: AppSpacing.s3),
         Text('بياناتك المحلية تبقى عند الإيقاف.',
@@ -100,8 +116,9 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
   Future<void> _generate() async {
     if (_passphrase.text.length < 6 || _busy) return;
     setState(() => _busy = true);
-    final code =
-        await ref.read(backupServiceProvider).enable(passphrase: _passphrase.text);
+    final code = await ref
+        .read(backupServiceProvider)
+        .enable(passphrase: _passphrase.text);
     setState(() {
       _busy = false;
       _recoveryCode = code;
@@ -111,6 +128,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
@@ -130,29 +148,42 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
           TextField(
             controller: _passphrase,
             obscureText: true,
+            style: AppTypography.body(c.textMain),
             decoration: InputDecoration(
               filled: true,
-              fillColor: c.surface2,
+              fillColor: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : c.surface2.withValues(alpha: 0.5),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide(color: c.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: c.border.withValues(alpha: 0.5)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: c.primary, width: 2),
               ),
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
           SizedBox(
-            height: 56,
+            height: 52,
             child: FilledButton(
               onPressed: _busy ? null : _generate,
               style: FilledButton.styleFrom(
                 backgroundColor: c.primary,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.md)),
+                    borderRadius: BorderRadius.circular(16)),
               ),
-              child: Text('متابعة',
-                  style: AppTypography.bodyStrong(Colors.white)),
+              child:
+                  Text('متابعة', style: AppTypography.bodyStrong(Colors.white)),
             ),
           ),
+          const SizedBox(height: AppSpacing.s3),
+          const _RestoreBackupButton(),
         ] else ...[
           Text('رمز الاسترداد (Recovery Code)',
               style: AppTypography.subhead(c.textLight)),
@@ -171,7 +202,8 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
           ),
           const SizedBox(height: AppSpacing.s2),
           OutlinedButton.icon(
-            onPressed: () => Clipboard.setData(ClipboardData(text: _recoveryCode!)),
+            onPressed: () =>
+                Clipboard.setData(ClipboardData(text: _recoveryCode!)),
             icon: const Icon(Icons.copy, size: 18),
             label: const Text('نسخ الرمز'),
           ),
@@ -207,7 +239,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
           ),
           const SizedBox(height: AppSpacing.s3),
           SizedBox(
-            height: 56,
+            height: 52,
             child: FilledButton(
               onPressed: _saved
                   ? () {
@@ -218,14 +250,39 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
               style: FilledButton.styleFrom(
                 backgroundColor: c.primary,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.md)),
+                    borderRadius: BorderRadius.circular(16)),
               ),
-              child: Text('تفعيل',
-                  style: AppTypography.bodyStrong(Colors.white)),
+              child:
+                  Text('تفعيل', style: AppTypography.bodyStrong(Colors.white)),
             ),
           ),
         ],
       ],
+    );
+  }
+}
+
+class _RestoreBackupButton extends StatelessWidget {
+  const _RestoreBackupButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return OutlinedButton.icon(
+      onPressed: () => context.push('/backup/restore'),
+      icon: const Icon(Icons.restore_rounded, size: 18),
+      label: Text(
+        'استعادة من نسخة احتياطية',
+        style: AppTypography.bodyStrong(c.primary),
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: c.primary,
+        side: BorderSide(color: c.primary.withValues(alpha: 0.35)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+      ),
     );
   }
 }

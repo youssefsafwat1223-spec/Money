@@ -7,6 +7,7 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/section_hero_header.dart';
 
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
@@ -15,55 +16,52 @@ class PrivacyScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     return Scaffold(
-      appBar: AppBar(title: const Text('الخصوصية والبيانات')),
-      body: ListView(
-        padding: const EdgeInsets.all(AppSpacing.gutter),
+      backgroundColor: c.bg,
+      body: Column(
         children: [
-          Row(
-            children: [
-              Icon(Icons.lock_outline, color: c.primary),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: Text(
-                  'بياناتك المالية على جهازك. النسخ الاحتياطي اختياري ومشفّر E2E. نجمع إحصاءات مجهولة فقط.',
-                  style: AppTypography.body(c.textLight),
+          const SectionHeroHeader(
+            title: 'الخصوصية والبيانات',
+            subtitle: 'بياناتك المالية على جهازك. النسخ الاحتياطي اختياري ومشفّر E2E. نجمع إحصاءات مجهولة فقط.',
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(AppSpacing.gutter),
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.description_outlined),
+                  title: const Text('سياسة الخصوصية'),
+                  onTap: () {},
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.description_outlined),
-            title: const Text('سياسة الخصوصية'),
-            onTap: () {},
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.download_outlined),
-            title: const Text('تصدير بياناتي'),
-            onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('التصدير سيتوفّر قريباً.')),
-            ),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.cloud_outlined),
-            title: const Text('النسخ الاحتياطي'),
-            onTap: () => context.push('/backup'),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Text('منطقة خطرة',
-              style: AppTypography.subhead(c.danger)),
-          const SizedBox(height: AppSpacing.s2),
-          OutlinedButton.icon(
-            onPressed: () => _confirmDelete(context, ref),
-            icon: Icon(Icons.delete_outline, color: c.danger),
-            label: Text('حذف الحساب وكل بياناتي',
-                style: TextStyle(color: c.danger)),
-            style: OutlinedButton.styleFrom(
-              side: BorderSide(color: c.danger),
-              minimumSize: const Size.fromHeight(52),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('تصدير بياناتي'),
+                  onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('التصدير سيتوفّر قريباً.')),
+                  ),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.cloud_outlined),
+                  title: const Text('النسخ الاحتياطي'),
+                  onTap: () => context.push('/backup'),
+                ),
+                const SizedBox(height: AppSpacing.s5),
+                Text('منطقة خطرة',
+                    style: AppTypography.subhead(c.danger)),
+                const SizedBox(height: AppSpacing.s2),
+                OutlinedButton.icon(
+                  onPressed: () => _confirmDelete(context, ref),
+                  icon: Icon(Icons.delete_outline, color: c.danger),
+                  label: Text('حذف الحساب وكل بياناتي',
+                      style: TextStyle(color: c.danger)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: c.danger),
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

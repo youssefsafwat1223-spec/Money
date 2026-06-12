@@ -6,9 +6,11 @@ import 'package:money_companion/core/utils/id_generator.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
+import 'package:money_companion/data/repositories/drift_bill_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/data/repositories/drift_merchant_category_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
@@ -31,6 +33,7 @@ void main() {
   late DriftTransactionRepository transactionRepository;
   late DriftMerchantCategoryRepository merchantCategoryRepository;
   late DriftBudgetRepository budgetRepository;
+  late DriftBillRepository billRepository;
   late DriftGoalRepository goalRepository;
   late AddTransactionUseCase addTransaction;
   late ConfirmTransactionUseCase confirmTransaction;
@@ -49,6 +52,7 @@ void main() {
     transactionRepository = DriftTransactionRepository(db);
     merchantCategoryRepository = DriftMerchantCategoryRepository(db);
     budgetRepository = DriftBudgetRepository(db);
+    billRepository = DriftBillRepository(db);
     goalRepository = DriftGoalRepository(db);
     addTransaction = AddTransactionUseCase(
       transactionRepository: transactionRepository,
@@ -213,5 +217,57 @@ void main() {
 
     await deleteGoal(savedGoal.id);
     expect(await goalRepository.getById(savedGoal.id), isNull);
+  });
+
+  test('bill CRUD supports subscriptions, installments, reminders, and due range',
+      () async {
+    final subscription = BillEntity(
+      id: IdGenerator.next(),
+      name: 'Netflix',
+      amount: 49,
+      currency: 'SAR',
+      type: BillType.subscription,
+      frequency: BillFrequency.monthly,
+      nextDueDate: DateTime.utc(2026, 6, 15),
+      reminderOn: true,
+      isConfirmed: true,
+      createdAt: DateTime.utc(2026, 6, 1),
+    );
+    final installment = BillEntity(
+      id: IdGenerator.next(),
+      name: 'قسط جوال',
+      amount: 250,
+      currency: 'SAR',
+      type: BillType.installment,
+      frequency: BillFrequency.monthly,
+      nextDueDate: DateTime.utc(2026, 7, 1),
+      reminderOn: false,
+      isConfirmed: true,
+      createdAt: DateTime.utc(2026, 6, 1),
+    );
+
+    final savedSubscription = await billRepository.save(subscription);
+    final savedInstallment = await billRepository.save(installment);
+    expect(savedSubscription.type, BillType.subscription);
+    expect(savedInstallment.type, BillType.installment);
+
+    final updated = await billRepository.save(
+      savedSubscription.copyWith(
+        frequency: BillFrequency.yearly,
+        reminderOn: false,
+      ),
+    );
+    expect(updated.frequency, BillFrequency.yearly);
+    expect(updated.reminderOn, isFalse);
+
+    final juneBills = await billRepository.getDueBetween(
+      from: DateTime.utc(2026, 6, 1),
+      to: DateTime.utc(2026, 6, 30),
+    );
+    expect(juneBills.map((bill) => bill.id), contains(savedSubscription.id));
+    expect(juneBills.map((bill) => bill.id), isNot(contains(savedInstallment.id)));
+
+    await billRepository.delete(savedSubscription.id);
+    expect(await billRepository.getById(savedSubscription.id), isNull);
   });
 }

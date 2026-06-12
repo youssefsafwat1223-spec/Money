@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../backend/supabase_config.dart';
+import 'supabase_auth_service.dart';
+
 /// هوية المستخدم بعد الدخول.
 class AuthIdentity {
   const AuthIdentity({required this.method, this.email});
@@ -55,4 +58,7 @@ class StubAuthService implements AuthService {
   }
 }
 
-final authServiceProvider = Provider<AuthService>((ref) => StubAuthService());
+final authServiceProvider = Provider<AuthService>((ref) {
+  if (SupabaseConfig.isConfigured) return SupabaseAuthService();
+  return StubAuthService();
+});

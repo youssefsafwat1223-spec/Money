@@ -48,36 +48,36 @@ class AppColors extends ThemeExtension<AppColors> {
     return success;
   }
 
-  // ☀️ الوضع الفاتح
+  // ☀️ الوضع الفاتح — Navy + Amber (الهوية المعتمدة)
   static const AppColors light = AppColors(
-    bg: Color(0xFFF4F5F7),
+    bg: Color(0xFFEEF2F7),
     surface: Color(0xFFFFFFFF),
-    surface2: Color(0xFFF8F9FA),
-    primary: Color(0xFF8E24AA),
-    gradA: Color(0xFF4F00BC),
-    gradB: Color(0xFF9B27B0),
-    accent: Color(0xFFFFD54F),
-    success: Color(0xFF00C853),
-    danger: Color(0xFFFF3D00),
-    textMain: Color(0xFF1A1A1A),
-    textLight: Color(0xFF9AA0A6),
-    border: Color(0xFFE0E0E0),
+    surface2: Color(0xFFEAF0F6),
+    primary: Color(0xFF0A2540),
+    gradA: Color(0xFF0A2540),
+    gradB: Color(0xFF1A3F66),
+    accent: Color(0xFFFFB300),
+    success: Color(0xFF16A968),
+    danger: Color(0xFFE5484D),
+    textMain: Color(0xFF0A2540),
+    textLight: Color(0xFF67768A),
+    border: Color(0xFFE2EAF2),
   );
 
-  // 🌙 الوضع الداكن
+  // 🌙 الوضع الداكن — Dark premium Mali tokens.
   static const AppColors dark = AppColors(
-    bg: Color(0xFF0A0A0C),
-    surface: Color(0xFF1C1C1E),
-    surface2: Color(0xFF2C2C2E),
-    primary: Color(0xFFAB47BC),
-    gradA: Color(0xFF2A0066),
-    gradB: Color(0xFF5E146E),
-    accent: Color(0xFFFFD54F),
-    success: Color(0xFF00E676),
-    danger: Color(0xFFFF3D00),
-    textMain: Color(0xFFFFFFFF),
-    textLight: Color(0xFF6E6E73),
-    border: Color(0xFF38383A),
+    bg: Color(0xFF0A1421),
+    surface: Color(0xFF121F31),
+    surface2: Color(0xFF1A2A40),
+    primary: Color(0xFF388DF8),
+    gradA: Color(0xFF388DF8),
+    gradB: Color(0xFF0A2540),
+    accent: Color(0xFFFFB300),
+    success: Color(0xFF22C57E),
+    danger: Color(0xFFFF6166),
+    textMain: Color(0xFFEAF1F8),
+    textLight: Color(0xFF8A9CB0),
+    border: Color(0x14FFFFFF),
   );
 
   @override

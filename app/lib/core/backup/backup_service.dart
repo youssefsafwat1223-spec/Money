@@ -3,6 +3,10 @@ import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../backend/supabase_config.dart';
+import '../di/app_providers.dart';
+import 'encrypted_backup_service.dart';
+
 class BackupStatus {
   const BackupStatus({required this.enabled, this.lastBackupAt});
 
@@ -18,10 +22,14 @@ class BackupStatus {
 abstract class BackupService {
   Future<BackupStatus> status();
 
+  Future<bool> hasRemoteBackup();
+
   /// يفعّل النسخ ويُرجع recovery code للعرض مرة واحدة.
   Future<String> enable({required String passphrase});
 
   Future<void> backupNow();
+
+  Future<void> restoreFromBackup({required String passphrase});
 
   Future<void> disable();
 }
@@ -43,19 +51,27 @@ class StubBackupService implements BackupService {
   }
 
   @override
+  Future<bool> hasRemoteBackup() async => false;
+
+  @override
   Future<String> enable({required String passphrase}) async {
     // stub: تشفير حقيقي لاحقاً. هنا نولّد recovery code ونسجّل التفعيل فقط.
     final code = _generateRecoveryCode();
     await _storage.write(key: _kEnabled, value: '1');
     await _storage.write(key: _kRecovery, value: code);
-    await _storage.write(key: _kLast, value: DateTime.now().toUtc().toIso8601String());
+    await _storage.write(
+        key: _kLast, value: DateTime.now().toUtc().toIso8601String());
     return code;
   }
 
   @override
   Future<void> backupNow() async {
-    await _storage.write(key: _kLast, value: DateTime.now().toUtc().toIso8601String());
+    await _storage.write(
+        key: _kLast, value: DateTime.now().toUtc().toIso8601String());
   }
+
+  @override
+  Future<void> restoreFromBackup({required String passphrase}) async {}
 
   @override
   Future<void> disable() async {
@@ -73,7 +89,12 @@ class StubBackupService implements BackupService {
   }
 }
 
-final backupServiceProvider = Provider<BackupService>((ref) => StubBackupService());
+final backupServiceProvider = Provider<BackupService>((ref) {
+  if (SupabaseConfig.isConfigured) {
+    return EncryptedBackupService(database: ref.watch(appDatabaseProvider));
+  }
+  return StubBackupService();
+});
 
 final backupStatusProvider = FutureProvider<BackupStatus>((ref) {
   return ref.watch(backupServiceProvider).status();
