@@ -6,6 +6,7 @@ import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/currency.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../common/category_catalog.dart';
@@ -124,6 +125,52 @@ class _ConfirmSheet extends ConsumerWidget {
                     Text('متجر جديد — سنتذكّره لك',
                         style: AppTypography.caption(c.primary)),
                   ],
+                  ref.watch(accountsProvider).maybeWhen(
+                        data: (accounts) {
+                          if (accounts.length < 2) {
+                            return const SizedBox.shrink();
+                          }
+                          final value =
+                              accounts.any((a) => a.id == tx.accountId)
+                                  ? tx.accountId
+                                  : accounts.first.id;
+                          return Padding(
+                            padding:
+                                const EdgeInsets.only(top: AppSpacing.s4),
+                            child: DropdownButtonFormField<String>(
+                              value: value,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'الحساب',
+                                prefixIcon: Icon(
+                                    Icons.account_balance_wallet_outlined),
+                              ),
+                              items: [
+                                for (final account in accounts)
+                                  DropdownMenuItem(
+                                    value: account.id,
+                                    child: Text(
+                                      '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                                    ),
+                                  ),
+                              ],
+                              onChanged: (id) async {
+                                if (id == null) return;
+                                await ref
+                                    .read(transactionRepositoryProvider)
+                                    .updateAccount(
+                                      transactionId: tx.id,
+                                      accountId: id,
+                                    );
+                                ref.invalidate(
+                                    transactionByIdProvider(transactionId));
+                                ref.invalidate(dashboardDataProvider);
+                              },
+                            ),
+                          );
+                        },
+                        orElse: () => const SizedBox.shrink(),
+                      ),
                   const SizedBox(height: AppSpacing.s5),
                   Row(
                     children: [

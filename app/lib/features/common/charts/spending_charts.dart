@@ -28,11 +28,13 @@ class CategoryDonutChart extends StatelessWidget {
     required this.slices,
     this.height = 210,
     this.centerLabel = 'التصنيفات',
+    this.currencyLabel = 'ريال',
   });
 
   final List<SpendingChartSlice> slices;
   final double height;
   final String centerLabel;
+  final String currencyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -99,7 +101,10 @@ class CategoryDonutChart extends StatelessWidget {
                 for (final slice in slices)
                   Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                    child: _LegendRow(slice: slice),
+                    child: _LegendRow(
+                      slice: slice,
+                      currencyLabel: currencyLabel,
+                    ),
                   ),
               ],
             ),
@@ -256,9 +261,10 @@ class CompactSparkline extends StatelessWidget {
 }
 
 class _LegendRow extends StatelessWidget {
-  const _LegendRow({required this.slice});
+  const _LegendRow({required this.slice, required this.currencyLabel});
 
   final SpendingChartSlice slice;
+  final String currencyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -275,7 +281,7 @@ class _LegendRow extends StatelessWidget {
                   style: AppTypography.caption(c.textMain)),
               const SizedBox(height: 2),
               Text(
-                '${Formatters.amount(slice.total)} ريال',
+                '${Formatters.amount(slice.total)} $currencyLabel',
                 style: AppTypography.caption(c.textLight),
               ),
             ],

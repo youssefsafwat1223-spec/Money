@@ -117,6 +117,14 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<void> updateAccount({
+    required String transactionId,
+    required String accountId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
     required DateTime to,

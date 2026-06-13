@@ -7,6 +7,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
@@ -154,6 +155,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     final c = context.colors;
     _seedInitialState();
     final recommended = _recommendedDailyAmount();
+    final cur = Currency.arabicLabel(
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
     return Form(
       key: _formKey,
       child: ListView(
@@ -197,7 +200,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
             decoration: InputDecoration(
               labelText: 'المبلغ المستهدف',
               labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
-              suffixText: 'ريال',
+              suffixText: cur,
               suffixStyle: _alex(14, FontWeight.w800, 1.2, c.textMain),
               filled: true,
               fillColor: c.surface.withValues(alpha: 0.15),
@@ -262,7 +265,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                   child: Text(
                     recommended == null
                         ? 'المبلغ الموصى به يظهر بعد اختيار التاريخ.'
-                        : 'المبلغ الموصى به: ${Formatters.integer(recommended)} ريال يوميًا لـ ${((_deadline!.difference(DateTime.now()).inDays))} يوم.',
+                        : 'المبلغ الموصى به: ${Formatters.integer(recommended)} $cur يوميًا لـ ${((_deadline!.difference(DateTime.now()).inDays))} يوم.',
                     style: _alex(12, FontWeight.w700, 1.4, recommended == null ? c.textLight : c.success),
                   ),
                 ),

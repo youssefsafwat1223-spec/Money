@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/di/app_providers.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/report_models.dart';
 import '../cards/brand_mark.dart';
@@ -19,6 +21,8 @@ class SubscriptionsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(subscriptionsProvider);
     final c = context.colors;
+    final cur = Currency.arabicLabel(
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
     return async.when(
       loading: () => Scaffold(
         appBar: Navigator.of(context).canPop()
@@ -43,7 +47,11 @@ class SubscriptionsScreen extends ConsumerWidget {
             body: ListView(
               padding: EdgeInsets.zero,
               children: [
-                _BillsHeader(monthly: monthly, activeCount: items.length),
+                _BillsHeader(
+                  monthly: monthly,
+                  activeCount: items.length,
+                  currency: cur,
+                ),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.gutter),
                   child: Column(
@@ -75,7 +83,7 @@ class SubscriptionsScreen extends ConsumerWidget {
                         height: 470,
                         child: TabBarView(
                           children: [
-                            _SubscriptionsTab(items: items),
+                            _SubscriptionsTab(items: items, currency: cur),
                             const _InstallmentsTab(),
                           ],
                         ),
@@ -170,10 +178,15 @@ class SubscriptionsScreen extends ConsumerWidget {
 }
 
 class _BillsHeader extends StatelessWidget {
-  const _BillsHeader({required this.monthly, required this.activeCount});
+  const _BillsHeader({
+    required this.monthly,
+    required this.activeCount,
+    required this.currency,
+  });
 
   final double monthly;
   final int activeCount;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -215,7 +228,7 @@ class _BillsHeader extends StatelessWidget {
           const SizedBox(height: AppSpacing.s5),
           Text('الصرف الشهري', style: AppTypography.subhead(Colors.white70)),
           const SizedBox(height: AppSpacing.s2),
-          Text('${Formatters.amount(monthly)} ريال',
+          Text('${Formatters.amount(monthly)} $currency',
               style: AppTypography.amountHero(Colors.white)),
           const SizedBox(height: AppSpacing.s4),
           Container(
@@ -231,7 +244,7 @@ class _BillsHeader extends StatelessWidget {
                 const _Divider(),
                 _HeaderMetric(
                   label: 'سنوياً',
-                  value: '${Formatters.amount(monthly * 12)} ريال',
+                  value: '${Formatters.amount(monthly * 12)} $currency',
                 ),
                 const _Divider(),
                 const _HeaderMetric(label: 'هذا الأسبوع', value: '0'),
@@ -299,9 +312,10 @@ class _Divider extends StatelessWidget {
 }
 
 class _SubscriptionsTab extends StatelessWidget {
-  const _SubscriptionsTab({required this.items});
+  const _SubscriptionsTab({required this.items, required this.currency});
 
   final List<RecurringCandidate> items;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -340,7 +354,7 @@ class _SubscriptionsTab extends StatelessWidget {
                   ],
                 ),
               ),
-              Text('${Formatters.amount(item.averageAmount)} ريال/شهر',
+              Text('${Formatters.amount(item.averageAmount)} $currency/شهر',
                   style: AppTypography.bodyStrong(c.textMain)),
             ],
           ),

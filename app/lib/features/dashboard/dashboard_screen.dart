@@ -1472,7 +1472,10 @@ class DashboardScreen extends ConsumerWidget {
       children: [
         Text('أين ذهبت أموالك؟', style: AppTypography.title2(c.textMain)),
         const SizedBox(height: AppSpacing.s3),
-        CategoryDonutChart(slices: chartSlices),
+        CategoryDonutChart(
+          slices: chartSlices,
+          currencyLabel: _currencyLabel(data.currency),
+        ),
         const SizedBox(height: AppSpacing.s4),
         for (final slice in data.topCategories) ...[
           _categoryBar(context, slice),

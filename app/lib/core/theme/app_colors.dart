@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// رموز الألوان (Color Tokens) — من DESIGN_SYSTEM.md ("Vibrant Fintech").
-///
-/// تُقرأ في الواجهة عبر `context.colors`. مُنفّذة كـ [ThemeExtension] حتى
-/// تتبدّل تلقائياً بين الوضعين Light/Dark دون كود إضافي.
+/// رموز الألوان (Color Tokens) — Premium Minimalist Fintech.
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
@@ -11,74 +8,77 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.surface,
     required this.surface2,
     required this.primary,
-    required this.gradA,
-    required this.gradB,
     required this.accent,
     required this.success,
+    required this.warning,
     required this.danger,
     required this.textMain,
     required this.textLight,
     required this.border,
+    required this.gradA,
+    required this.gradB,
   });
 
   final Color bg;
   final Color surface;
   final Color surface2;
   final Color primary;
-  final Color gradA;
-  final Color gradB;
   final Color accent;
   final Color success;
+  final Color warning;
   final Color danger;
   final Color textMain;
   final Color textLight;
   final Color border;
+  
+  // Kept for backward compatibility with older components until they are migrated
+  final Color gradA;
+  final Color gradB;
 
-  /// التدرّج الرئيسي للـ headers/الأزرار (الطاقة الحيوية).
   LinearGradient get primaryGradient => LinearGradient(
         colors: [gradA, gradB],
         begin: Alignment.topRight,
         end: Alignment.bottomLeft,
       );
 
-  /// لون حالة الميزانية حسب نسبة الاستخدام (0..1+).
   Color budgetState(double ratio) {
     if (ratio >= 1.0) return danger;
-    if (ratio >= 0.8) return accent;
+    if (ratio >= 0.8) return warning;
     return success;
   }
 
-  // ☀️ الوضع الفاتح — Navy + Amber (الهوية المعتمدة)
+  // ☀️ Light Mode — Premium Minimalist
   static const AppColors light = AppColors(
-    bg: Color(0xFFEEF2F7),
-    surface: Color(0xFFFFFFFF),
-    surface2: Color(0xFFEAF0F6),
-    primary: Color(0xFF0A2540),
-    gradA: Color(0xFF0A2540),
-    gradB: Color(0xFF1A3F66),
-    accent: Color(0xFFFFB300),
+    bg: Color(0xFFF7F9FA), // Soft off-white
+    surface: Color(0xFFFFFFFF), // Pure white cards
+    surface2: Color(0xFFF0F2F5),
+    primary: Color(0xFF0A1128), // Deep ink black
+    accent: Color(0xFFFFB300), // Gold/Amber CTA
     success: Color(0xFF16A968),
-    danger: Color(0xFFE5484D),
-    textMain: Color(0xFF0A2540),
-    textLight: Color(0xFF67768A),
-    border: Color(0xFFE2EAF2),
+    warning: Color(0xFFFF9500),
+    danger: Color(0xFFFF3B30),
+    textMain: Color(0xFF0A1128),
+    textLight: Color(0xFF8E8E93),
+    border: Color(0xFFEBEBEB),
+    gradA: Color(0xFF0A1128), // Mapped to primary for now
+    gradB: Color(0xFF111C3D), // Mapped to primary variant
   );
 
-  // 🌙 الوضع الداكن — Dark premium Mali tokens.
-  // أزرق أهدأ وأعمق (أقل سطوعًا/إجهادًا) مع خلفية أعمق وتباين أوضح.
+  // 🌙 Dark Mode — Premium Minimalist
   static const AppColors dark = AppColors(
-    bg: Color(0xFF080F1A),
-    surface: Color(0xFF111C2C),
-    surface2: Color(0xFF18293D),
-    primary: Color(0xFF3D7CC4),
-    gradA: Color(0xFF2F5F9C),
-    gradB: Color(0xFF0B1B30),
-    accent: Color(0xFFF5A623),
-    success: Color(0xFF22C57E),
-    danger: Color(0xFFE8606B),
-    textMain: Color(0xFFEAF1F8),
-    textLight: Color(0xFF93A4B8),
-    border: Color(0x1FFFFFFF),
+    bg: Color(0xFF000000), // True black
+    surface: Color(0xFF151515), // Deep dark cards
+    surface2: Color(0xFF1C1C1E),
+    primary: Color(0xFFFFFFFF), // Crisp white text/icons
+    accent: Color(0xFFFFB300), // Gold/Amber CTA
+    success: Color(0xFF34C759),
+    warning: Color(0xFFFF9F0A),
+    danger: Color(0xFFFF453A),
+    textMain: Color(0xFFFFFFFF),
+    textLight: Color(0xFF98989D),
+    border: Color(0xFF2C2C2E),
+    gradA: Color(0xFF1C1C1E), // Mapped to dark surface
+    gradB: Color(0xFF2C2C2E),
   );
 
   @override
@@ -87,28 +87,30 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? surface,
     Color? surface2,
     Color? primary,
-    Color? gradA,
-    Color? gradB,
     Color? accent,
     Color? success,
+    Color? warning,
     Color? danger,
     Color? textMain,
     Color? textLight,
     Color? border,
+    Color? gradA,
+    Color? gradB,
   }) {
     return AppColors(
       bg: bg ?? this.bg,
       surface: surface ?? this.surface,
       surface2: surface2 ?? this.surface2,
       primary: primary ?? this.primary,
-      gradA: gradA ?? this.gradA,
-      gradB: gradB ?? this.gradB,
       accent: accent ?? this.accent,
       success: success ?? this.success,
+      warning: warning ?? this.warning,
       danger: danger ?? this.danger,
       textMain: textMain ?? this.textMain,
       textLight: textLight ?? this.textLight,
       border: border ?? this.border,
+      gradA: gradA ?? this.gradA,
+      gradB: gradB ?? this.gradB,
     );
   }
 
@@ -120,19 +122,19 @@ class AppColors extends ThemeExtension<AppColors> {
       surface: Color.lerp(surface, other.surface, t)!,
       surface2: Color.lerp(surface2, other.surface2, t)!,
       primary: Color.lerp(primary, other.primary, t)!,
-      gradA: Color.lerp(gradA, other.gradA, t)!,
-      gradB: Color.lerp(gradB, other.gradB, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
       success: Color.lerp(success, other.success, t)!,
+      warning: Color.lerp(warning, other.warning, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
       textMain: Color.lerp(textMain, other.textMain, t)!,
       textLight: Color.lerp(textLight, other.textLight, t)!,
       border: Color.lerp(border, other.border, t)!,
+      gradA: Color.lerp(gradA, other.gradA, t)!,
+      gradB: Color.lerp(gradB, other.gradB, t)!,
     );
   }
 }
 
-/// وصول سريع للألوان من الـ context.
 extension AppColorsX on BuildContext {
   AppColors get colors => Theme.of(this).extension<AppColors>()!;
 }

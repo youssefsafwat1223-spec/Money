@@ -38,6 +38,12 @@ abstract class TransactionRepository {
 
   Future<void> deleteTransaction(String id);
 
+  /// يعيد ربط العملية بحساب آخر (بدون تغيير باقي الحقول).
+  Future<void> updateAccount({
+    required String transactionId,
+    required String accountId,
+  });
+
   // ── قراءة (Sprint 3) ──
 
   /// أحدث العمليات (تتجاهل المُلغاة) — للـ Dashboard.

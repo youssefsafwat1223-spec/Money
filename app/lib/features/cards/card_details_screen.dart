@@ -2,9 +2,11 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/card_summary.dart';
 import '../common/category_catalog.dart';
@@ -128,6 +130,9 @@ class _CardDetailsContent extends ConsumerWidget {
             network: summary?.network ?? CardNetwork.unknown,
             totalIn: summary?.totalIn ?? 0,
             totalOut: summary?.totalOut ?? 0,
+            currency: (txAsync.valueOrNull?.isNotEmpty ?? false)
+                ? txAsync.valueOrNull!.first.currency
+                : (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR'),
           ),
           const SizedBox(height: AppSpacing.s5),
           Text('عمليات هذه البطاقة', style: AppTypography.title2(c.textMain)),
@@ -165,12 +170,14 @@ class _CardHeader extends StatelessWidget {
     required this.network,
     required this.totalIn,
     required this.totalOut,
+    required this.currency,
   });
 
   final String last4;
   final CardNetwork network;
   final double totalIn;
   final double totalOut;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -229,7 +236,7 @@ class _CardHeader extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 2),
-        Text('${Formatters.amount(value)} ريال',
+        Text('${Formatters.amount(value)} ${Currency.arabicLabel(currency)}',
             style: TextStyle(
                 color: color, fontSize: 17, fontWeight: FontWeight.w800)),
       ],

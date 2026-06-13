@@ -216,6 +216,21 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<void> updateAccount({
+    required String transactionId,
+    required String accountId,
+  }) async {
+    await _db.customUpdate(
+      'UPDATE transactions SET account_id = ?, updated_at = ? WHERE id = ?;',
+      variables: [
+        Variable.withString(accountId),
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(transactionId),
+      ],
+    );
+  }
+
+  @override
   Future<void> deleteTransaction(String id) async {
     await _db.customUpdate(
       '''

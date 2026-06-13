@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
@@ -134,6 +135,8 @@ class _GoalDetailsContent extends ConsumerWidget {
             return const Center(child: Text('الهدف غير موجود'));
           }
           final c = context.colors;
+          final cur = Currency.arabicLabel(
+              ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
           return ListView(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter,
@@ -153,7 +156,7 @@ class _GoalDetailsContent extends ConsumerWidget {
               const SizedBox(height: AppSpacing.s2),
               Center(
                 child: Text(
-                  'وفّرت ${Formatters.integer(data.goal.savedAmount)} من ${Formatters.integer(data.goal.targetAmount)} ريال',
+                  'وفّرت ${Formatters.integer(data.goal.savedAmount)} من ${Formatters.integer(data.goal.targetAmount)} $cur',
                   style: AppTypography.subhead(c.textMain),
                 ),
               ),
@@ -161,7 +164,7 @@ class _GoalDetailsContent extends ConsumerWidget {
               Center(
                 child: Text(
                   data.daysRemaining == null
-                      ? 'باقي ${Formatters.integer(data.remainingAmount)} ريال'
+                      ? 'باقي ${Formatters.integer(data.remainingAmount)} $cur'
                       : 'باقي ${Formatters.integer(data.remainingAmount)} · ${data.daysRemaining} يوم',
                   style: AppTypography.callout(c.textLight),
                 ),
@@ -169,7 +172,7 @@ class _GoalDetailsContent extends ConsumerWidget {
               const SizedBox(height: AppSpacing.s2),
               Center(
                 child: Text(
-                  'موصى: ${Formatters.integer(data.recommendedDailyAmount)} ريال يوميًا',
+                  'موصى: ${Formatters.integer(data.recommendedDailyAmount)} $cur يوميًا',
                   style: AppTypography.bodyStrong(c.primary),
                 ),
               ),
@@ -244,7 +247,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(
-                      '${Formatters.integer(contribution.amount)} ريال',
+                      '${Formatters.integer(contribution.amount)} $cur',
                       style: AppTypography.subhead(c.textMain),
                     ),
                     subtitle: Text(
@@ -299,6 +302,8 @@ Future<void> _showAddContributionSheet(
     final controller = TextEditingController();
     final noteController = TextEditingController();
     final c = context.colors;
+    final cur = Currency.arabicLabel(
+        ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     await showModalBottomSheet<void>(
@@ -360,7 +365,7 @@ Future<void> _showAddContributionSheet(
                       style: AppTypography.body(c.textMain),
                       decoration: InputDecoration(
                         labelText: 'المبلغ',
-                        suffixText: 'ريال',
+                        suffixText: cur,
                         filled: true,
                         fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
                         border: OutlineInputBorder(

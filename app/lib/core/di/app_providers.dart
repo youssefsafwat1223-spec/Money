@@ -61,6 +61,15 @@ final accountsProvider = FutureProvider<List<AccountEntity>>((ref) async {
   return ref.watch(accountRepositoryProvider).getAll();
 });
 
+/// عملة الأساس للعرض في الشاشات العامة (الأهداف/التقارير) — من الحساب
+/// الافتراضي وإلا إعدادات المستخدم.
+final baseCurrencyProvider = FutureProvider<String>((ref) async {
+  final account = await ref.watch(accountRepositoryProvider).getDefault();
+  if (account != null) return account.currency;
+  final settings = await ref.watch(userSettingsRepositoryProvider).getSettings();
+  return settings.currency;
+});
+
 final billRepositoryProvider = Provider<BillRepository>((ref) {
   return DriftBillRepository(ref.watch(appDatabaseProvider));
 });
