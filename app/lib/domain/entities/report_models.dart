@@ -21,10 +21,24 @@ class RecurringCandidate {
   final int monthsSeen;
 }
 
-/// إجمالي الصرف في يوم واحد، يستخدم لرسم Insights اليومي.
+/// إجمالي الصرف في يوم واحد, يستخدم لرسم Insights اليومي.
 class DailySpend {
   const DailySpend({required this.day, required this.total});
 
   final DateTime day;
   final double total;
+}
+
+/// إجمالي المصروف والدخل لعملة واحدة — لعرض «كل الحسابات» بعملات منفصلة
+/// (بدون جمع عملات مختلفة في رقم واحد).
+class CurrencyTotal {
+  const CurrencyTotal({
+    required this.currency,
+    required this.expense,
+    required this.income,
+  });
+
+  final String currency;
+  final double expense;
+  final double income;
 }

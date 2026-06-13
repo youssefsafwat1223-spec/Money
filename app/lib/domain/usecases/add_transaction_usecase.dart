@@ -230,6 +230,7 @@ class SaveManualTransactionUseCase {
     required String categoryKey,
     String? merchant,
     String? note,
+    String? accountId,
   }) async {
     final now = DateTime.now().toUtc();
     final normalizedMerchant = merchant?.trim();
@@ -238,6 +239,7 @@ class SaveManualTransactionUseCase {
       id: IdGenerator.next(),
       amount: amount,
       currency: currency.toUpperCase(),
+      accountId: accountId,
       merchantId: null,
       rawMerchant: normalizedMerchant == null || normalizedMerchant.isEmpty
           ? null

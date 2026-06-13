@@ -47,6 +47,7 @@ class DashboardData {
     required this.subscriptions,
     required this.subscriptionsMonthlyTotal,
     required this.range,
+    required this.currencyTotals,
     this.activeGoal,
   });
 
@@ -76,7 +77,11 @@ class DashboardData {
   final List<RecurringCandidate> subscriptions;
   final double subscriptionsMonthlyTotal;
   final TransactionsDateRange range;
+  final List<CurrencyTotal> currencyTotals;
   final GoalEntity? activeGoal;
+
+  /// عرض إجماليات منفصلة لكل عملة (عند تعدّد العملات في «كل الحسابات»).
+  bool get hasMultipleCurrencies => currencyTotals.length > 1;
 
   bool get isEmpty => recent.isEmpty;
   int get pendingReviewCount => pendingReview.length;
@@ -96,14 +101,24 @@ class DashboardData {
       };
 }
 
+/// الحساب المختار في الـ dashboard (null = كل الحسابات).
+final dashboardAccountProvider = StateProvider<String?>((ref) => null);
+
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final txRepo = ref.watch(transactionRepositoryProvider);
   final goalRepo = ref.watch(goalRepositoryProvider);
   final budgetRepo = ref.watch(budgetRepositoryProvider);
   final gamificationRepo = ref.watch(gamificationRepositoryProvider);
   final userSettingsRepo = ref.watch(userSettingsRepositoryProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
   final range = ref.watch(transactionsDateRangeProvider);
+  final selectedAccountId = ref.watch(dashboardAccountProvider);
+  final selectedAccount = selectedAccountId == null
+      ? null
+      : await accountRepo.getById(selectedAccountId);
+  // الحساب المختار غير موجود (حُذف) → ارجع لكل الحسابات.
+  final accountId = selectedAccount?.id;
 
   final now = DateTime.now();
   final rangeStart =
@@ -119,22 +134,28 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final prevWeekStart = weekStart.subtract(const Duration(days: 7));
 
   // «وفّرت» = مصروفات الفترة السابقة بنفس طول الفترة المختارة − الفترة الحالية.
-  final thisMonthExpenses =
-      await txRepo.expenseTotalBetween(from: rangeStart, to: rangeEnd);
-  final thisMonthIncome =
-      await txRepo.incomeTotalBetween(from: rangeStart, to: rangeEnd);
-  final balance = await txRepo.latestBalanceAfter();
+  final thisMonthExpenses = await txRepo.expenseTotalBetween(
+      from: rangeStart, to: rangeEnd, accountId: accountId);
+  final thisMonthIncome = await txRepo.incomeTotalBetween(
+      from: rangeStart, to: rangeEnd, accountId: accountId);
+  final balance = await txRepo.latestBalanceAfter(accountId: accountId);
   final prevMonthExpenses = await txRepo.expenseTotalBetween(
     from: previousStart,
     to: previousEnd,
+    accountId: accountId,
   );
-  final weekSpend = await txRepo.expenseTotalBetween(from: weekStart, to: now);
-  final todaySpend = await txRepo.expenseTotalBetween(from: today, to: now);
-  final todayIncome = await txRepo.incomeTotalBetween(from: today, to: now);
-  final weekIncome = await txRepo.incomeTotalBetween(from: weekStart, to: now);
+  final weekSpend = await txRepo.expenseTotalBetween(
+      from: weekStart, to: now, accountId: accountId);
+  final todaySpend = await txRepo.expenseTotalBetween(
+      from: today, to: now, accountId: accountId);
+  final todayIncome = await txRepo.incomeTotalBetween(
+      from: today, to: now, accountId: accountId);
+  final weekIncome = await txRepo.incomeTotalBetween(
+      from: weekStart, to: now, accountId: accountId);
   final previousWeekSpend = await txRepo.expenseTotalBetween(
     from: prevWeekStart,
     to: weekStart,
+    accountId: accountId,
   );
   final allTransactions = await txRepo.getAll();
   final pendingReview = allTransactions
@@ -159,13 +180,14 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
         today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7)),
       BudgetPeriod.monthly => rangeStart,
     };
-    final spent = await txRepo.expenseTotalBetween(from: periodStart, to: now);
+    final spent = await txRepo.expenseTotalBetween(
+        from: periodStart, to: now, accountId: accountId);
     monthlyBudgetRatio =
         monthlyBudgetLimit == 0 ? 0.0 : spent / monthlyBudgetLimit;
   }
 
-  final breakdown =
-      await txRepo.categoryBreakdown(from: rangeStart, to: rangeEnd);
+  final breakdown = await txRepo.categoryBreakdown(
+      from: rangeStart, to: rangeEnd, accountId: accountId);
   final totalSpend = breakdown.fold<double>(0, (sum, item) => sum + item.total);
   final topCategories = <CategorySlice>[];
   for (final item in breakdown.take(3)) {
@@ -179,12 +201,16 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       ),
     );
   }
-  final dailySpendTrend =
-      (await txRepo.dailyExpenseTotals(from: rangeStart, to: rangeEnd))
-          .map((day) => day.total)
-          .toList(growable: false);
+  final dailySpendTrend = (await txRepo.dailyExpenseTotals(
+          from: rangeStart, to: rangeEnd, accountId: accountId))
+      .map((day) => day.total)
+      .toList(growable: false);
 
-  final recent = await txRepo.getRecent(limit: 5);
+  final recent = await txRepo.getRecent(limit: 5, accountId: accountId);
+  // إجماليات منفصلة لكل عملة — فقط في وضع «كل الحسابات».
+  final currencyTotals = accountId == null
+      ? await txRepo.currencyTotalsBetween(from: rangeStart, to: rangeEnd)
+      : const <CurrencyTotal>[];
   final streak = await gamificationRepo.getStreak();
   final settings = await userSettingsRepo.getSettings();
   final subscriptions =
@@ -218,7 +244,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     monthlyBudgetLimit: monthlyBudgetLimit,
     monthlyBudgetRatio: monthlyBudgetRatio,
     budgetPeriod: allExpensesBudget?.period,
-    currency: settings.currency,
+    currency: selectedAccount?.currency ?? settings.currency,
     streak: streak,
     topCategories: topCategories,
     dailySpendTrend: dailySpendTrend,
@@ -232,6 +258,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     subscriptions: subscriptions,
     subscriptionsMonthlyTotal: subscriptionsMonthlyTotal,
     range: range,
+    currencyTotals: currencyTotals,
     activeGoal: activeGoal,
   );
 });

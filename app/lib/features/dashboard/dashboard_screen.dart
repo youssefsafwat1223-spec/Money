@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../budgets/budget_form_screen.dart';
 import '../cards/brand_mark.dart';
@@ -99,7 +101,9 @@ class DashboardScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       PremiumMotion(child: _greeting(context, data)),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
+                      const PremiumMotion(child: _AccountSwitcher()),
+                      const SizedBox(height: 16),
                       PremiumMotion(
                         delay: const Duration(milliseconds: 80),
                         child: _walletSummary(
@@ -124,6 +128,16 @@ class DashboardScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (data.hasMultipleCurrencies) ...[
+                    PremiumMotion(
+                      child: _currencyTotalsCard(
+                        context,
+                        data,
+                        privacyMode: privacyMode,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s5),
+                  ],
                   if (data.activeGoal != null) ...[
                     PremiumMotion(
                       child: _goalCard(
@@ -1257,6 +1271,75 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  Widget _currencyTotalsCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: BoxDecoration(
+        color: c.surface.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: c.primary.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(AppLucideIcons.wallet, size: 18, color: c.primary),
+              const SizedBox(width: 8),
+              Text('إجماليات حسب العملة',
+                  style: AppTypography.bodyStrong(c.textMain)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'عندك عملات مختلفة، فبنعرضها منفصلة (من غير تحويل).',
+            style: AppTypography.caption(c.textLight),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          for (final total in data.currencyTotals) ...[
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: c.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Text(total.currency,
+                      style: AppTypography.caption(c.primary)
+                          .copyWith(fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(width: 8),
+                Text(Currency.arabicLabel(total.currency),
+                    style: AppTypography.caption(c.textLight)),
+                const Spacer(),
+                Text(
+                  privacyMode
+                      ? '•••• ${Currency.arabicLabel(total.currency)}'
+                      : 'صرف ${_money(total.expense, total.currency)}',
+                  style: AppTypography.subhead(c.textMain)
+                      .copyWith(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            if (total != data.currencyTotals.last)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.s2),
+                child: SizedBox(height: 0),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _goalCard(
     BuildContext context,
     DashboardData data, {
@@ -1612,6 +1695,91 @@ class DashboardScreen extends ConsumerWidget {
         const SizedBox(width: AppSpacing.s2),
         Expanded(child: Text(text, style: AppTypography.caption(c.textLight))),
       ],
+    );
+  }
+}
+
+/// مبدّل الحساب أعلى الـ Dashboard — «كل الحسابات» + شريحة لكل حساب بعملته.
+class _AccountSwitcher extends ConsumerWidget {
+  const _AccountSwitcher();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final accountsAsync = ref.watch(accountsProvider);
+    final selectedId = ref.watch(dashboardAccountProvider);
+    return accountsAsync.maybeWhen(
+      data: (accounts) {
+        // شريحة واحدة فقط لا تستحق مبدّلاً.
+        if (accounts.length < 2) return const SizedBox.shrink();
+        return SizedBox(
+          height: 34,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              _AccountChip(
+                label: 'كل الحسابات',
+                selected: selectedId == null,
+                onTap: () =>
+                    ref.read(dashboardAccountProvider.notifier).state = null,
+              ),
+              for (final account in accounts)
+                _AccountChip(
+                  label: '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                  selected: selectedId == account.id,
+                  onTap: () => ref
+                      .read(dashboardAccountProvider.notifier)
+                      .state = account.id,
+                ),
+            ],
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _AccountChip extends StatelessWidget {
+  const _AccountChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: selected ? 0 : 0.28),
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: AppTypography.caption(
+              selected ? const Color(0xFF0A2540) : Colors.white,
+            ).copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+      ),
     );
   }
 }

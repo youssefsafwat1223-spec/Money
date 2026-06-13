@@ -166,21 +166,24 @@ class DriftTransactionRepository implements TransactionRepository {
     required String? rawMerchant,
     required String? categoryId,
     required String? note,
+    String? accountId,
   }) async {
     final trimmedMerchant = rawMerchant?.trim();
     final merchantId = trimmedMerchant == null || trimmedMerchant.isEmpty
         ? null
         : await _resolveOrCreateMerchantId(trimmedMerchant);
     final normalizedNote = note?.trim();
+    final accountClause = accountId == null ? '' : 'account_id = ?, ';
     await _db.customUpdate(
       '''
         UPDATE transactions
-        SET amount = ?, currency = ?, type = ?, occurred_at = ?,
+        SET ${accountClause}amount = ?, currency = ?, type = ?, occurred_at = ?,
             merchant_id = ?, raw_merchant = ?, category_id = ?, note = ?,
             raw_message = ?, status = 'confirmed', updated_at = ?
         WHERE id = ?;
       ''',
       variables: [
+        if (accountId != null) Variable.withString(accountId),
         Variable.withReal(amount),
         Variable.withString(currency),
         Variable.withString(type.name),
@@ -227,16 +230,26 @@ class DriftTransactionRepository implements TransactionRepository {
     );
   }
 
+  // بند تصفية الحساب: فارغ عند null، وإلا شرط account_id.
+  static String _accountClause(String? accountId) =>
+      accountId == null ? '' : ' AND account_id = ?';
+
+  static List<Variable> _accountVars(String? accountId) =>
+      accountId == null ? const [] : [Variable.withString(accountId)];
+
   @override
-  Future<List<TransactionEntity>> getRecent({int limit = 5}) async {
+  Future<List<TransactionEntity>> getRecent({
+    int limit = 5,
+    String? accountId,
+  }) async {
     final rows = await _db.customSelect(
       '''
         SELECT * FROM transactions
-        WHERE status != 'ignored'
+        WHERE status != 'ignored'${_accountClause(accountId)}
         ORDER BY occurred_at DESC
         LIMIT ?;
       ''',
-      variables: [Variable.withInt(limit)],
+      variables: [..._accountVars(accountId), Variable.withInt(limit)],
     ).get();
     return rows.map(transactionFromRow).toList();
   }
@@ -257,6 +270,7 @@ class DriftTransactionRepository implements TransactionRepository {
   Future<double> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   }) async {
     final row = await _db.customSelect(
       '''
@@ -264,11 +278,12 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
           AND status != 'ignored'
-          AND occurred_at BETWEEN ? AND ?;
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
       ],
     ).getSingle();
     return row.read<double>('total');
@@ -278,6 +293,7 @@ class DriftTransactionRepository implements TransactionRepository {
   Future<double> incomeTotalBetween({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   }) async {
     final row = await _db.customSelect(
       '''
@@ -285,35 +301,68 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE type = 'income'
           AND status != 'ignored'
-          AND occurred_at BETWEEN ? AND ?;
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
       ],
     ).getSingle();
     return row.read<double>('total');
   }
 
   @override
-  Future<double?> latestBalanceAfter() async {
+  Future<double?> latestBalanceAfter({String? accountId}) async {
     final row = await _db.customSelect(
       '''
         SELECT CAST(balance_after AS REAL) AS balance
         FROM transactions
         WHERE status != 'ignored'
-          AND balance_after IS NOT NULL
+          AND balance_after IS NOT NULL${_accountClause(accountId)}
         ORDER BY occurred_at DESC
         LIMIT 1;
       ''',
+      variables: _accountVars(accountId),
     ).getSingleOrNull();
     return row?.read<double>('balance');
+  }
+
+  @override
+  Future<List<CurrencyTotal>> currencyTotalsBetween({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT currency,
+          CAST(COALESCE(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END), 0) AS REAL) AS expense,
+          CAST(COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS REAL) AS income
+        FROM transactions
+        WHERE status != 'ignored'
+          AND occurred_at BETWEEN ? AND ?
+        GROUP BY currency
+        ORDER BY expense DESC;
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(from.toUtc())),
+        Variable.withString(dateTimeToSql(to.toUtc())),
+      ],
+    ).get();
+    return rows
+        .map((r) => CurrencyTotal(
+              currency: r.read<String>('currency'),
+              expense: r.read<double>('expense'),
+              income: r.read<double>('income'),
+            ))
+        .toList();
   }
 
   @override
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   }) async {
     final rows = await _db.customSelect(
       '''
@@ -321,13 +370,14 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
           AND status != 'ignored'
-          AND occurred_at BETWEEN ? AND ?
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
         GROUP BY date(occurred_at)
         ORDER BY day ASC;
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
       ],
     ).get();
     return rows
@@ -344,6 +394,7 @@ class DriftTransactionRepository implements TransactionRepository {
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   }) async {
     final rows = await _db.customSelect(
       '''
@@ -352,13 +403,14 @@ class DriftTransactionRepository implements TransactionRepository {
         WHERE type IN ('payment', 'withdrawal')
           AND status != 'ignored'
           AND category_id IS NOT NULL
-          AND occurred_at BETWEEN ? AND ?
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
         GROUP BY category_id
         ORDER BY total DESC;
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
       ],
     ).get();
     return rows

@@ -8,6 +8,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/currency.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../engine/parser/normalizer.dart';
 import '../achievements/achievements_providers.dart';
@@ -49,6 +50,7 @@ class _ManualTransactionSheetState
   TransactionTypeEntity _type = TransactionTypeEntity.payment;
   String? _categoryKey;
   String? _categoryId;
+  String? _accountId;
   DateTime _occurredAt = DateTime.now();
   bool _busy = false;
 
@@ -63,14 +65,20 @@ class _ManualTransactionSheetState
       _merchant.text = tx.rawMerchant ?? '';
       _note.text = tx.note ?? '';
       _currency.text = tx.currency;
+      _accountId = tx.accountId;
       _type = tx.type;
       _categoryId = tx.categoryId;
       _occurredAt = tx.occurredAt.toLocal();
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final settings = await ref.read(loadUserSettingsUseCaseProvider).call();
-        if (mounted && _currency.text == 'SAR') {
-          setState(() => _currency.text = settings.currency);
+        // الحساب الافتراضي يحدّد العملة المبدئية.
+        final account =
+            await ref.read(accountRepositoryProvider).getDefault();
+        if (mounted && account != null && _accountId == null) {
+          setState(() {
+            _accountId = account.id;
+            _currency.text = account.currency;
+          });
         }
       });
     }
@@ -139,6 +147,7 @@ class _ManualTransactionSheetState
               rawMerchant: _merchant.text,
               categoryId: categoryId,
               note: _note.text,
+              accountId: _accountId,
             );
       } else {
         await ref.read(saveManualTransactionUseCaseProvider)(
@@ -149,6 +158,7 @@ class _ManualTransactionSheetState
               categoryKey: categoryKey!,
               merchant: _merchant.text,
               note: _note.text,
+              accountId: _accountId,
             );
       }
       if (!mounted) return;
@@ -325,15 +335,40 @@ class _ManualTransactionSheetState
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
-        TextField(
-          controller: _currency,
-          textDirection: TextDirection.ltr,
-          textCapitalization: TextCapitalization.characters,
-          decoration: const InputDecoration(
-            labelText: 'العملة',
-            prefixIcon: Icon(Icons.currency_exchange),
-          ),
-        ),
+        ref.watch(accountsProvider).maybeWhen(
+              data: (accounts) {
+                if (accounts.isEmpty) return const SizedBox.shrink();
+                final value = accounts.any((a) => a.id == _accountId)
+                    ? _accountId
+                    : accounts.first.id;
+                return DropdownButtonFormField<String>(
+                  value: value,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'الحساب',
+                    prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                  ),
+                  items: [
+                    for (final account in accounts)
+                      DropdownMenuItem(
+                        value: account.id,
+                        child: Text(
+                          '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                        ),
+                      ),
+                  ],
+                  onChanged: (id) {
+                    if (id == null) return;
+                    final account = accounts.firstWhere((a) => a.id == id);
+                    setState(() {
+                      _accountId = id;
+                      _currency.text = account.currency;
+                    });
+                  },
+                );
+              },
+              orElse: () => const SizedBox.shrink(),
+            ),
         const SizedBox(height: AppSpacing.s3),
         DropdownButtonFormField<String>(
           value: _categoryKey ?? catalog.byId(_categoryId)?.key,

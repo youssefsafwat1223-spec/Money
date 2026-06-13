@@ -33,6 +33,7 @@ abstract class TransactionRepository {
     required String? rawMerchant,
     required String? categoryId,
     required String? note,
+    String? accountId,
   });
 
   Future<void> deleteTransaction(String id);
@@ -40,7 +41,8 @@ abstract class TransactionRepository {
   // ── قراءة (Sprint 3) ──
 
   /// أحدث العمليات (تتجاهل المُلغاة) — للـ Dashboard.
-  Future<List<TransactionEntity>> getRecent({int limit = 5});
+  /// [accountId] لتصفية حساب محدد (null = كل الحسابات).
+  Future<List<TransactionEntity>> getRecent({int limit = 5, String? accountId});
 
   /// كل العمليات (تتجاهل المُلغاة) مرتّبة بالأحدث — لشاشة العمليات.
   Future<List<TransactionEntity>> getAll();
@@ -49,27 +51,37 @@ abstract class TransactionRepository {
   Future<double> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   });
 
   /// إجمالي الدخل خلال فترة — يعرض في Dashboard ولا يستهلك الميزانيات.
   Future<double> incomeTotalBetween({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   });
 
   /// آخر رصيد معروف من رسائل البنك، إن وُجد.
-  Future<double?> latestBalanceAfter();
+  Future<double?> latestBalanceAfter({String? accountId});
+
+  /// إجمالي المصروف والدخل مجمّعاً حسب العملة خلال فترة — لعرض «كل الحسابات».
+  Future<List<CurrencyTotal>> currencyTotalsBetween({
+    required DateTime from,
+    required DateTime to,
+  });
 
   /// صرف يومي خلال فترة — يستخدم للرسم البياني في Insights.
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   });
 
   /// تفصيل الإنفاق لكل تصنيف خلال فترة — لـ «أين ذهبت أموالك».
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,
     required DateTime to,
+    String? accountId,
   });
 
   Future<double> categoryExpenseTotalBetween({
