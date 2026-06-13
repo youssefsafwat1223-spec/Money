@@ -28,7 +28,7 @@ workflows:
       groups:
         - supabase            # define SUPABASE_URL + SUPABASE_ANON_KEY here (optional)
       vars:
-        BUNDLE_ID: "com.example.moneyCompanion"
+        BUNDLE_ID: "com.youssefsafwat.mali"
     scripts:
       - name: Flutter pub get
         working_directory: app
@@ -93,7 +93,7 @@ workflows:
     environment:
       ios_signing:
         distribution_type: ad_hoc                 # or: app_store / development / enterprise
-        bundle_identifier: com.example.moneyCompanion
+        bundle_identifier: com.youssefsafwat.mali
       flutter: stable
       xcode: latest
       cocoapods: default

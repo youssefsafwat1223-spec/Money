@@ -12,9 +12,11 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
 
   @override
   Future<UserSettingsEntity> getSettings() async {
-    final row = await _db.customSelect(
-      'SELECT * FROM user_settings LIMIT 1;',
-    ).getSingle();
+    final row = await _db
+        .customSelect(
+          'SELECT * FROM user_settings LIMIT 1;',
+        )
+        .getSingle();
     return userSettingsFromRow(row);
   }
 
@@ -24,7 +26,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       '''
         UPDATE user_settings
         SET country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
-            notifications_json = ?, db_encryption_key_ref = ?
+            notifications_json = ?, db_encryption_key_ref = ?, privacy_mode_enabled = ?
         WHERE id = ?;
       ''',
       variables: [
@@ -35,6 +37,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
         Variable.withString(settings.inputMethod),
         Variable.withString(settings.notificationsJson),
         Variable.withString(settings.dbEncryptionKeyRef),
+        Variable.withInt(settings.privacyModeEnabled ? 1 : 0),
         Variable.withString(settings.id),
       ],
     );

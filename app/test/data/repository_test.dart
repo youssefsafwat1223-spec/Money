@@ -81,9 +81,13 @@ void main() {
       'SELECT id FROM categories WHERE key = ? LIMIT 1;',
       variables: [Variable.withString(BudgetEntity.allExpensesCategoryKey)],
     ).getSingleOrNull();
-    expect(allExpensesCategory?.read<String>('id'), BudgetEntity.allExpensesCategoryId);
+    expect(allExpensesCategory?.read<String>('id'),
+        BudgetEntity.allExpensesCategoryId);
     expect(await db.count('merchant_category_map'), greaterThan(10));
     expect(await db.count('goals'), 3);
+    final userVersion =
+        await db.customSelect('PRAGMA user_version;').getSingle();
+    expect(userVersion.read<int>('user_version'), db.schemaVersion);
   });
 
   test(
@@ -219,7 +223,8 @@ void main() {
     expect(await goalRepository.getById(savedGoal.id), isNull);
   });
 
-  test('bill CRUD supports subscriptions, installments, reminders, and due range',
+  test(
+      'bill CRUD supports subscriptions, installments, reminders, and due range',
       () async {
     final subscription = BillEntity(
       id: IdGenerator.next(),
@@ -265,7 +270,8 @@ void main() {
       to: DateTime.utc(2026, 6, 30),
     );
     expect(juneBills.map((bill) => bill.id), contains(savedSubscription.id));
-    expect(juneBills.map((bill) => bill.id), isNot(contains(savedInstallment.id)));
+    expect(
+        juneBills.map((bill) => bill.id), isNot(contains(savedInstallment.id)));
 
     await billRepository.delete(savedSubscription.id);
     expect(await billRepository.getById(savedSubscription.id), isNull);

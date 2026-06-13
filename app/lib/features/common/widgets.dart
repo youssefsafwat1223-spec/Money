@@ -45,18 +45,20 @@ class TransactionRow extends StatelessWidget {
     required this.transaction,
     required this.category,
     this.onTap,
+    this.hideAmount = false,
   });
 
   final TransactionEntity transaction;
   final CategoryView? category;
   final VoidCallback? onTap;
+  final bool hideAmount;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final isIncome = transaction.type == TransactionTypeEntity.income ||
         transaction.type == TransactionTypeEntity.refund;
-    
+
     // استخدام اللون الأحمر للمصاريف والأخضر للأرباح لتسهيل التمييز البصري
     final amountColor = isIncome ? c.success : c.danger;
     final pending = transaction.status == TransactionStatus.pending;
@@ -99,7 +101,8 @@ class TransactionRow extends StatelessWidget {
                               transaction.rawMerchant ??
                                   category?.nameAr ??
                                   'عملية',
-                              style: AppTypography.bodyStrong(c.textMain).copyWith(
+                              style:
+                                  AppTypography.bodyStrong(c.textMain).copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
                               maxLines: 1,
@@ -109,7 +112,8 @@ class TransactionRow extends StatelessWidget {
                           if (pending) ...[
                             const SizedBox(width: 6),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
                                 color: c.accent.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(6),
@@ -139,7 +143,9 @@ class TransactionRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  '${Formatters.signed(transaction.amount, isExpense: !isIncome)} ${transaction.currency}',
+                  hideAmount
+                      ? '•••• ${transaction.currency}'
+                      : '${Formatters.signed(transaction.amount, isExpense: !isIncome)} ${transaction.currency}',
                   style: AppTypography.bodyStrong(amountColor).copyWith(
                     fontWeight: FontWeight.bold,
                     letterSpacing: -0.2,

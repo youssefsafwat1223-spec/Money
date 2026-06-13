@@ -20,6 +20,7 @@ import '../common/vault_widget.dart';
 import '../common/widgets.dart';
 import '../goals/goal_details_screen.dart';
 import '../goals/goal_form_screen.dart';
+import '../settings/settings_providers.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
@@ -30,16 +31,41 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(dashboardDataProvider);
+    final privacyMode = ref.watch(userSettingsProvider).maybeWhen(
+          data: (settings) => settings.privacyModeEnabled,
+          orElse: () => false,
+        );
     final c = context.colors;
 
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(dashboardDataProvider),
       child: async.when(
         loading: () => const PremiumSkeletonPage(cardCount: 5),
-        error: (e, _) => ListView(
+        error: (error, stackTrace) => ListView(
           children: [
             Padding(
-                padding: const EdgeInsets.all(24), child: Text('حدث خطأ: $e'))
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'تعذر تحميل لوحة التحكم الآن.',
+                    style: AppTypography.title2(c.textMain),
+                  ),
+                  const SizedBox(height: AppSpacing.s2),
+                  Text(
+                    'تحقق من البيانات أو حاول التحديث مرة أخرى.',
+                    style: AppTypography.body(c.textLight),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  OutlinedButton.icon(
+                    onPressed: () => ref.invalidate(dashboardDataProvider),
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('إعادة المحاولة'),
+                  ),
+                ],
+              ),
+            )
           ],
         ),
         data: (data) => ListView(
@@ -76,7 +102,12 @@ class DashboardScreen extends ConsumerWidget {
                       const SizedBox(height: 20),
                       PremiumMotion(
                         delay: const Duration(milliseconds: 80),
-                        child: _walletSummary(context, ref, data),
+                        child: _walletSummary(
+                          context,
+                          ref,
+                          data,
+                          privacyMode: privacyMode,
+                        ),
                       ),
                     ],
                   ),
@@ -94,19 +125,44 @@ class DashboardScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (data.activeGoal != null) ...[
-                    PremiumMotion(child: _goalCard(context, data)),
+                    PremiumMotion(
+                      child: _goalCard(
+                        context,
+                        data,
+                        privacyMode: privacyMode,
+                      ),
+                    ),
                     const SizedBox(height: AppSpacing.s5),
                   ],
                   if (data.isEmpty)
                     _emptyState(context)
                   else ...[
                     if (data.pendingReviewCount > 0) ...[
-                      PremiumMotion(child: _reviewCard(context, data)),
+                      PremiumMotion(
+                        child: _reviewCard(
+                          context,
+                          data,
+                          privacyMode: privacyMode,
+                        ),
+                      ),
                       const SizedBox(height: AppSpacing.s5),
                     ],
                     PremiumMotion(
                       delay: const Duration(milliseconds: 40),
-                      child: _smartInsightCard(context, data),
+                      child: _smartInsightCard(
+                        context,
+                        data,
+                        privacyMode: privacyMode,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s5),
+                    PremiumMotion(
+                      delay: const Duration(milliseconds: 55),
+                      child: _periodSnapshotCard(
+                        context,
+                        data,
+                        privacyMode: privacyMode,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.s5),
                     PremiumMotion(
@@ -117,14 +173,25 @@ class DashboardScreen extends ConsumerWidget {
                     const CardsCarousel(),
                     const SizedBox(height: AppSpacing.s5),
                     if (data.subscriptions.isNotEmpty) ...[
-                      PremiumMotion(child: _subscriptionsPreview(context, data)),
+                      PremiumMotion(
+                        child: _subscriptionsPreview(
+                          context,
+                          data,
+                          privacyMode: privacyMode,
+                        ),
+                      ),
                       const SizedBox(height: AppSpacing.s5),
                     ],
                     PremiumMotion(child: _whereMoneyWent(context, data)),
                     const SizedBox(height: AppSpacing.s5),
                     PremiumMotion(
                       delay: const Duration(milliseconds: 80),
-                      child: _recent(context, ref, data),
+                      child: _recent(
+                        context,
+                        ref,
+                        data,
+                        privacyMode: privacyMode,
+                      ),
                     ),
                   ],
                 ],
@@ -208,7 +275,8 @@ class DashboardScreen extends ConsumerWidget {
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: const Text('من'),
-                              subtitle: Text(Formatters.fullDate(from, context)),
+                              subtitle:
+                                  Text(Formatters.fullDate(from, context)),
                               trailing:
                                   const Icon(Icons.calendar_month_outlined),
                               onTap: () async {
@@ -328,7 +396,8 @@ class DashboardScreen extends ConsumerWidget {
 
   String _rangeLabel(TransactionsDateRange range, BuildContext context) {
     if (range.preset == TransactionsDatePreset.thisMonth ||
-        (range.from.year == range.to.year && range.from.month == range.to.month)) {
+        (range.from.year == range.to.year &&
+            range.from.month == range.to.month)) {
       return _monthLabel(range.from, context);
     }
     if (range.preset != TransactionsDatePreset.custom) return range.label;
@@ -348,8 +417,14 @@ class DashboardScreen extends ConsumerWidget {
         _ => currency.toUpperCase(),
       };
 
-  String _money(double amount, String currency) =>
-      '${Formatters.amount(amount)} ${_currencyLabel(currency)}';
+  String _money(
+    double amount,
+    String currency, {
+    bool privacyMode = false,
+  }) =>
+      privacyMode
+          ? '•••• ${_currencyLabel(currency)}'
+          : '${Formatters.amount(amount)} ${_currencyLabel(currency)}';
 
   Widget _greeting(BuildContext context, DashboardData data) {
     final c = context.colors;
@@ -403,7 +478,11 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _walletSummary(
-      BuildContext context, WidgetRef ref, DashboardData data) {
+    BuildContext context,
+    WidgetRef ref,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     final positive = data.savedThisMonth >= 0;
     final budgetSet = data.monthlyBudgetLimit > 0;
@@ -465,6 +544,8 @@ class DashboardScreen extends ConsumerWidget {
                 child: _heroMetric(
                   label: 'المصروف',
                   amount: data.spentThisMonth,
+                  privacyMode: privacyMode,
+                  currency: data.currency,
                 ),
               ),
               Container(
@@ -476,6 +557,8 @@ class DashboardScreen extends ConsumerWidget {
                 child: _heroMetric(
                   label: 'الدخل',
                   amount: data.incomeThisMonth,
+                  privacyMode: privacyMode,
+                  currency: data.currency,
                 ),
               ),
             ],
@@ -522,7 +605,11 @@ class DashboardScreen extends ConsumerWidget {
                   title: data.balance == null ? 'عمليات الشهر' : 'كل الحسابات',
                   value: data.balance == null
                       ? '${data.recent.length} عمليات حديثة'
-                      : _money(data.balance!, data.currency),
+                      : _money(
+                          data.balance!,
+                          data.currency,
+                          privacyMode: privacyMode,
+                        ),
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
@@ -530,8 +617,13 @@ class DashboardScreen extends ConsumerWidget {
                 child: _glassPill(
                   icon: AppLucideIcons.arrowLeftRight,
                   title: positive ? 'وفّرت' : 'زيادة صرف',
-                  value:
-                      '${positive ? '+' : '−'}${_money(data.savedThisMonth.abs(), data.currency)}',
+                  value: privacyMode
+                      ? _money(
+                          data.savedThisMonth.abs(),
+                          data.currency,
+                          privacyMode: true,
+                        )
+                      : '${positive ? '+' : '−'}${_money(data.savedThisMonth.abs(), data.currency)}',
                   valueColor: positive ? c.success : c.accent,
                 ),
               ),
@@ -575,7 +667,12 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _heroMetric({required String label, required double amount}) {
+  Widget _heroMetric({
+    required String label,
+    required double amount,
+    required bool privacyMode,
+    required String currency,
+  }) {
     return Column(
       children: [
         Text(
@@ -584,10 +681,16 @@ class DashboardScreen extends ConsumerWidget {
               .copyWith(letterSpacing: 1.2, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
-        AnimatedAmountText(
-          amount: amount,
-          color: Colors.white,
-        ),
+        privacyMode
+            ? Text(
+                '••••',
+                style: AppTypography.amountHero(Colors.white),
+              )
+            : AnimatedAmountText(
+                amount: amount,
+                color: Colors.white,
+                suffix: ' ${_currencyLabel(currency)}',
+              ),
       ],
     );
   }
@@ -630,14 +733,19 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _reviewCard(BuildContext context, DashboardData data) {
+  Widget _reviewCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.card),
       onTap: () {
         HapticFeedback.selectionClick();
         if (data.pendingReview.isNotEmpty) {
-          TransactionDetailsScreen.showSheet(context, data.pendingReview.first.id);
+          TransactionDetailsScreen.showSheet(
+              context, data.pendingReview.first.id);
         }
       },
       child: Container(
@@ -683,7 +791,7 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'إجماليها ${_money(data.pendingReviewTotal, data.currency)}. راجعها لتبقى تقاريرك أدق.',
+                    'إجماليها ${_money(data.pendingReviewTotal, data.currency, privacyMode: privacyMode)}. راجعها لتبقى تقاريرك أدق.',
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],
@@ -696,7 +804,11 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _smartInsightCard(BuildContext context, DashboardData data) {
+  Widget _smartInsightCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     final ratio = data.weekChangeRatio;
     final isUp = ratio > 0.05;
@@ -711,7 +823,7 @@ class DashboardScreen extends ConsumerWidget {
         ? 'صرفك أقل بـ $percent% عن الأسبوع الماضي. استمر بنفس الهدوء.'
         : isUp
             ? 'زاد بـ $percent%. راقب أكثر تصنيف صرف قبل نهاية الأسبوع.'
-            : 'صرفك قريب من الأسبوع الماضي، والتوقع الشهري ${_money(data.projectedMonthSpend, data.currency)}.';
+            : 'صرفك قريب من الأسبوع الماضي، والتوقع الشهري ${_money(data.projectedMonthSpend, data.currency, privacyMode: privacyMode)}.';
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -757,6 +869,146 @@ class DashboardScreen extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _periodSnapshotCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: BoxDecoration(
+        color: c.surface.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: c.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: c.primary.withValues(alpha: 0.11),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.calendar_month_outlined,
+                  color: c.primary,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: Text(
+                  'لمحة سريعة',
+                  style: AppTypography.bodyStrong(c.textMain),
+                ),
+              ),
+              Text(
+                'اليوم / الأسبوع',
+                style: AppTypography.caption(c.textLight),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          Row(
+            children: [
+              Expanded(
+                child: _snapshotMetric(
+                  context,
+                  title: 'صرف اليوم',
+                  value: _money(
+                    data.todaySpend,
+                    data.currency,
+                    privacyMode: privacyMode,
+                  ),
+                  tone: c.danger,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: _snapshotMetric(
+                  context,
+                  title: 'دخل اليوم',
+                  value: _money(
+                    data.todayIncome,
+                    data.currency,
+                    privacyMode: privacyMode,
+                  ),
+                  tone: c.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          Row(
+            children: [
+              Expanded(
+                child: _snapshotMetric(
+                  context,
+                  title: 'صرف الأسبوع',
+                  value: _money(
+                    data.weekSpend,
+                    data.currency,
+                    privacyMode: privacyMode,
+                  ),
+                  tone: c.accent,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: _snapshotMetric(
+                  context,
+                  title: 'دخل الأسبوع',
+                  value: _money(
+                    data.weekIncome,
+                    data.currency,
+                    privacyMode: privacyMode,
+                  ),
+                  tone: c.primary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _snapshotMetric(
+    BuildContext context, {
+    required String title,
+    required String value,
+    required Color tone,
+  }) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: tone.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppTypography.caption(c.textLight)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.bodyStrong(tone),
+          ),
+        ],
       ),
     );
   }
@@ -825,11 +1077,19 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _subscriptionsPreview(BuildContext context, DashboardData data) {
+  Widget _subscriptionsPreview(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.card),
-      onTap: () => _showSubscriptionsSheet(context, data),
+      onTap: () => _showSubscriptionsSheet(
+        context,
+        data,
+        privacyMode: privacyMode,
+      ),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s4),
         decoration: BoxDecoration(
@@ -849,7 +1109,11 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ),
                 Text(
-                  _money(data.subscriptionsMonthlyTotal, data.currency),
+                  _money(
+                    data.subscriptionsMonthlyTotal,
+                    data.currency,
+                    privacyMode: privacyMode,
+                  ),
                   style: AppTypography.bodyStrong(c.primary),
                 ),
               ],
@@ -869,7 +1133,7 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                   ),
                   Text(
-                    '${_money(item.averageAmount, data.currency)} / شهر',
+                    '${_money(item.averageAmount, data.currency, privacyMode: privacyMode)} / شهر',
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],
@@ -890,8 +1154,9 @@ class DashboardScreen extends ConsumerWidget {
 
   Future<void> _showSubscriptionsSheet(
     BuildContext context,
-    DashboardData data,
-  ) {
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     return showModalBottomSheet<void>(
       context: context,
@@ -944,7 +1209,7 @@ class DashboardScreen extends ConsumerWidget {
                   ],
                 ),
                 Text(
-                  'إجمالي متوقع ${_money(data.subscriptionsMonthlyTotal, data.currency)} شهرياً.',
+                  'إجمالي متوقع ${_money(data.subscriptionsMonthlyTotal, data.currency, privacyMode: privacyMode)} شهرياً.',
                   style: AppTypography.callout(c.textLight),
                 ),
                 const SizedBox(height: AppSpacing.s4),
@@ -972,7 +1237,11 @@ class DashboardScreen extends ConsumerWidget {
                           ),
                         ),
                         Text(
-                          _money(item.averageAmount, data.currency),
+                          _money(
+                            item.averageAmount,
+                            data.currency,
+                            privacyMode: privacyMode,
+                          ),
                           style: AppTypography.bodyStrong(c.primary),
                         ),
                       ],
@@ -988,7 +1257,11 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _goalCard(BuildContext context, DashboardData data) {
+  Widget _goalCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     final goal = data.activeGoal!;
     final progress =
@@ -1013,65 +1286,80 @@ class DashboardScreen extends ConsumerWidget {
           ],
         ),
         child: Row(
-        children: [
-          // اليسار: مجسم الخزنة الزجاجية المتوهجة
-          VaultWidget(progress: progress, size: 110),
-          const SizedBox(width: AppSpacing.s4),
-          // اليمين: معلومات الهدف بتنسيق نظيف
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: (Theme.of(context).brightness == Brightness.dark ? c.accent : c.primary).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: (Theme.of(context).brightness == Brightness.dark ? c.accent : c.primary).withValues(alpha: 0.2), width: 1),
+          children: [
+            // اليسار: مجسم الخزنة الزجاجية المتوهجة
+            VaultWidget(progress: progress, size: 110),
+            const SizedBox(width: AppSpacing.s4),
+            // اليمين: معلومات الهدف بتنسيق نظيف
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: (Theme.of(context).brightness == Brightness.dark
+                              ? c.accent
+                              : c.primary)
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                          color:
+                              (Theme.of(context).brightness == Brightness.dark
+                                      ? c.accent
+                                      : c.primary)
+                                  .withValues(alpha: 0.2),
+                          width: 1),
+                    ),
+                    child: Text(
+                      'الهدف الحالي',
+                      style: AppTypography.caption(
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? c.accent
+                                  : c.primary)
+                          .copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                  child: Text(
-                    'الهدف الحالي',
-                    style: AppTypography.caption(Theme.of(context).brightness == Brightness.dark ? c.accent : c.primary).copyWith(
+                  const SizedBox(height: 8),
+                  Text(
+                    goal.name,
+                    style: AppTypography.title2(c.textMain).copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  goal.name,
-                  style: AppTypography.title2(c.textMain).copyWith(
-                    fontWeight: FontWeight.bold,
+                  const SizedBox(height: 8),
+                  Text(
+                    'المبلغ الموفر:',
+                    style: AppTypography.caption(c.textLight),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'المبلغ الموفر:',
-                  style: AppTypography.caption(c.textLight),
-                ),
-                const SizedBox(height: 2),
-                RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${Formatters.integer(goal.savedAmount)} ',
-                        style: AppTypography.headline(c.accent).copyWith(
-                          fontWeight: FontWeight.bold,
+                  const SizedBox(height: 2),
+                  RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: privacyMode
+                              ? '•••• '
+                              : '${Formatters.integer(goal.savedAmount)} ',
+                          style: AppTypography.headline(c.accent).copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      TextSpan(
-                        text:
-                            'من ${Formatters.integer(goal.targetAmount)} ${_currencyLabel(data.currency)}',
-                        style: AppTypography.body(c.textMain),
-                      ),
-                    ],
+                        TextSpan(
+                          text: privacyMode
+                              ? 'من •••• ${_currencyLabel(data.currency)}'
+                              : 'من ${Formatters.integer(goal.targetAmount)} ${_currencyLabel(data.currency)}',
+                          style: AppTypography.body(c.textMain),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
         ),
       ),
     );
@@ -1148,7 +1436,12 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _recent(BuildContext context, WidgetRef ref, DashboardData data) {
+  Widget _recent(
+    BuildContext context,
+    WidgetRef ref,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1159,6 +1452,7 @@ class DashboardScreen extends ConsumerWidget {
           TransactionRow(
             transaction: tx,
             category: data.catalog.byId(tx.categoryId),
+            hideAmount: privacyMode,
             onTap: () {
               HapticFeedback.selectionClick();
               TransactionDetailsScreen.showSheet(context, tx.id);

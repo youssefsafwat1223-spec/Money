@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -7,7 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
-import 'services/android_sms_capture_service.dart';
+import 'manual_paste_screen.dart';
 
 class SmsPermissionScreen extends StatefulWidget {
   const SmsPermissionScreen({super.key});
@@ -30,27 +29,6 @@ class SmsPermissionScreen extends StatefulWidget {
 }
 
 class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
-  bool _busy = false;
-
-  Future<void> _request() async {
-    if (_busy || !Platform.isAndroid) {
-      return;
-    }
-    setState(() => _busy = true);
-    final granted = await AndroidSmsCaptureService.instance.requestPermissions();
-    if (!mounted) {
-      return;
-    }
-    setState(() => _busy = false);
-    if (granted) {
-      Navigator.of(context).pop(true);
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('لم يتم تفعيل قراءة الرسائل حتى الآن.')),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -119,13 +97,13 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                 ),
                 const SizedBox(height: AppSpacing.s4),
                 Text(
-                  'فعّل التتبّع التلقائي',
+                  'شارك رسالة البنك مع مالي',
                   textAlign: TextAlign.center,
                   style: AppTypography.title1(c.textMain),
                 ),
                 const SizedBox(height: AppSpacing.s2),
                 Text(
-                  'نقرأ رسائل بنكك ونحلّلها على جهازك فقط.',
+                  'بدون إذن قراءة SMS: افتح رسالة البنك، اضغط مشاركة، واختر مالي. سنحلّل النص على جهازك فقط.',
                   textAlign: TextAlign.center,
                   style: AppTypography.callout(c.textLight),
                 ),
@@ -148,7 +126,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                       ),
                       const SizedBox(height: AppSpacing.s2),
                       Text(
-                        'نضيفها ونصنّفها لك، وإن احتاجت مراجعة سنطلب منك التأكيد فقط.',
+                        'لو لم يظهر زر المشاركة في تطبيق الرسائل، استخدم اللصق اليدوي كبديل سريع.',
                         textAlign: TextAlign.center,
                         style: AppTypography.callout(c.textLight),
                       ),
@@ -159,26 +137,20 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                 SizedBox(
                   height: 52,
                   child: FilledButton(
-                    onPressed: _busy ? null : _request,
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      ManualPasteScreen.showSheet(context);
+                    },
                     style: FilledButton.styleFrom(
                       backgroundColor: c.primary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    child: _busy
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Text(
-                            'السماح بقراءة الرسائل',
-                            style: AppTypography.bodyStrong(Colors.white),
-                          ),
+                    child: Text(
+                      'لصق رسالة يدويًا',
+                      style: AppTypography.bodyStrong(Colors.white),
+                    ),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s2),

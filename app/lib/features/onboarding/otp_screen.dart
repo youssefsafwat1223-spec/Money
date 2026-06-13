@@ -60,9 +60,13 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       });
       return;
     }
+    final wasAuthenticated =
+        AppSession.instance.status == SessionStatus.authenticated;
     await AppSession.instance
         .setIdentity(method: identity.method, email: identity.email);
-    if (mounted) context.push('/onboarding/method');
+    if (mounted) {
+      wasAuthenticated ? context.go('/backup') : context.push('/onboarding/method');
+    }
   }
 
   @override

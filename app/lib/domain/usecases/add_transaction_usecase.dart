@@ -3,10 +3,12 @@ import '../../engine/categorization/categorizer.dart';
 import '../../engine/categorization/merchant_category_map.dart';
 import '../../engine/models/transaction_source.dart';
 import '../../engine/models/transaction_type.dart';
+import '../../engine/parser/bank_profile.dart';
 import '../../engine/parser/parser_engine.dart';
 import '../../engine/parser/parse_result.dart';
 import '../entities/engagement_entities.dart';
 import '../entities/transaction_entity.dart';
+import '../repositories/account_repository.dart';
 import '../repositories/merchant_category_repository.dart';
 import '../repositories/transaction_repository.dart';
 import 'engagement_usecase.dart';
@@ -20,10 +22,9 @@ class AddTransactionResult {
   });
 
   const AddTransactionResult.added(
-    TransactionEntity transaction,
-    ParseResult parseResult,
-    {bool isNewMerchant = false}
-  ) : this._(
+      TransactionEntity transaction, ParseResult parseResult,
+      {bool isNewMerchant = false})
+      : this._(
           outcome: AddTransactionOutcome.added,
           transaction: transaction,
           parseResult: parseResult,
@@ -64,11 +65,15 @@ class AddTransactionUseCase {
     ParserEngine? parserEngine,
     RecordEngagementUseCase? recordEngagementUseCase,
     Future<void> Function(String key, {String? dimension})? logMetric,
+    Future<List<BankProfile>> Function()? loadBankProfiles,
+    AccountRepository? accountRepository,
   })  : _transactionRepository = transactionRepository,
         _merchantCategoryRepository = merchantCategoryRepository,
         _parserEngine = parserEngine ?? const ParserEngine(),
         _recordEngagementUseCase = recordEngagementUseCase,
-        _logMetric = logMetric;
+        _logMetric = logMetric,
+        _loadBankProfiles = loadBankProfiles,
+        _accountRepository = accountRepository;
 
   static const double autoConfirmThreshold = 0.8;
 
@@ -77,12 +82,21 @@ class AddTransactionUseCase {
   final ParserEngine _parserEngine;
   final RecordEngagementUseCase? _recordEngagementUseCase;
   final Future<void> Function(String key, {String? dimension})? _logMetric;
+  final Future<List<BankProfile>> Function()? _loadBankProfiles;
+  final AccountRepository? _accountRepository;
 
   Future<AddTransactionResult> call({
     required String rawMessage,
     String? senderId,
   }) async {
-    final parseResult = _parserEngine.parse(rawMessage, senderId: senderId);
+    final bankProfiles = await _safeLoadBankProfiles();
+    final defaultAccount = await _accountRepository?.getDefault();
+    final parseResult = _parserEngine.parse(
+      rawMessage,
+      senderId: senderId,
+      bankProfiles: bankProfiles,
+      defaultCurrency: defaultAccount?.currency ?? 'SAR',
+    );
     if (!parseResult.isTransaction || parseResult.transaction == null) {
       return AddTransactionResult.notTransaction(parseResult);
     }
@@ -116,6 +130,7 @@ class AddTransactionUseCase {
       id: IdGenerator.next(),
       amount: parsed.amount,
       currency: parsed.currency,
+      accountId: defaultAccount?.id,
       merchantId: null,
       rawMerchant: parsed.rawMerchant,
       categoryId: null,
@@ -153,6 +168,16 @@ class AddTransactionUseCase {
     );
   }
 
+  Future<List<BankProfile>> _safeLoadBankProfiles() async {
+    final loader = _loadBankProfiles;
+    if (loader == null) return const [];
+    try {
+      return await loader();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   static TransactionSourceEntity _mapSource(TransactionSource source) {
     switch (source) {
       case TransactionSource.bank:
@@ -181,5 +206,71 @@ class AddTransactionUseCase {
       case TransactionType.unknown:
         return TransactionTypeEntity.unknown;
     }
+  }
+}
+
+class SaveManualTransactionUseCase {
+  SaveManualTransactionUseCase({
+    required TransactionRepository transactionRepository,
+    RecordEngagementUseCase? recordEngagementUseCase,
+    Future<void> Function(String key, {String? dimension})? logMetric,
+  })  : _transactionRepository = transactionRepository,
+        _recordEngagementUseCase = recordEngagementUseCase,
+        _logMetric = logMetric;
+
+  final TransactionRepository _transactionRepository;
+  final RecordEngagementUseCase? _recordEngagementUseCase;
+  final Future<void> Function(String key, {String? dimension})? _logMetric;
+
+  Future<TransactionEntity> call({
+    required double amount,
+    required String currency,
+    required TransactionTypeEntity type,
+    required DateTime occurredAt,
+    required String categoryKey,
+    String? merchant,
+    String? note,
+  }) async {
+    final now = DateTime.now().toUtc();
+    final normalizedMerchant = merchant?.trim();
+    final normalizedNote = note?.trim();
+    final transaction = TransactionEntity(
+      id: IdGenerator.next(),
+      amount: amount,
+      currency: currency.toUpperCase(),
+      merchantId: null,
+      rawMerchant: normalizedMerchant == null || normalizedMerchant.isEmpty
+          ? null
+          : normalizedMerchant,
+      categoryId: null,
+      type: type,
+      source: TransactionSourceEntity.unknown,
+      cardLast4: null,
+      balanceAfter: null,
+      note: normalizedNote == null || normalizedNote.isEmpty
+          ? null
+          : normalizedNote,
+      occurredAt: occurredAt.toUtc(),
+      rawMessage: normalizedNote == null || normalizedNote.isEmpty
+          ? 'Manual transaction'
+          : normalizedNote,
+      parseConfidence: 1,
+      status: TransactionStatus.confirmed,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final saved = await _transactionRepository.saveTransaction(
+      transaction: transaction,
+      categoryKey: categoryKey,
+    );
+    if (_recordEngagementUseCase != null) {
+      await _recordEngagementUseCase(
+        action: EngagementAction.transactionConfirmed,
+        occurredAt: saved.occurredAt,
+      );
+    }
+    await _logMetric?.call('manual_transaction_added');
+    return saved;
   }
 }

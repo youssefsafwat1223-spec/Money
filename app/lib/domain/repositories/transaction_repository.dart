@@ -24,6 +24,19 @@ abstract class TransactionRepository {
     required String categoryKey,
   });
 
+  Future<TransactionEntity> updateTransaction({
+    required String transactionId,
+    required double amount,
+    required String currency,
+    required TransactionTypeEntity type,
+    required DateTime occurredAt,
+    required String? rawMerchant,
+    required String? categoryId,
+    required String? note,
+  });
+
+  Future<void> deleteTransaction(String id);
+
   // ── قراءة (Sprint 3) ──
 
   /// أحدث العمليات (تتجاهل المُلغاة) — للـ Dashboard.

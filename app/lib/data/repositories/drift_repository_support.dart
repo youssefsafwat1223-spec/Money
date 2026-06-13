@@ -72,12 +72,14 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final balance = row.readNullable<double>('balance_after');
   final amount = row.read<double>('amount');
   final currency = row.read<String>('currency');
+  final accountId = row.readNullable<String>('account_id');
   final merchantId = row.readNullable<String>('merchant_id');
   final rawMerchant = row.readNullable<String>('raw_merchant');
   final categoryId = row.readNullable<String>('category_id');
   final type = row.read<String>('type');
   final source = row.read<String>('source');
   final cardLast4 = row.readNullable<String>('card_last4');
+  final note = row.readNullable<String>('note');
   final occurredAt = row.read<String>('occurred_at');
   final rawMessage = row.read<String>('raw_message');
   final parseConfidence = row.read<double>('parse_confidence');
@@ -88,6 +90,7 @@ TransactionEntity transactionFromRow(QueryRow row) {
     id: row.read<String>('id'),
     amount: amount,
     currency: currency,
+    accountId: accountId,
     merchantId: merchantId,
     rawMerchant: rawMerchant,
     categoryId: categoryId,
@@ -95,6 +98,7 @@ TransactionEntity transactionFromRow(QueryRow row) {
     source: transactionSourceFromSql(source),
     cardLast4: cardLast4,
     balanceAfter: balance?.toDouble(),
+    note: note,
     occurredAt: dateTimeFromSql(occurredAt),
     rawMessage: rawMessage,
     parseConfidence: parseConfidence,
@@ -191,5 +195,6 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     inputMethod: row.read<String>('input_method'),
     notificationsJson: row.read<String>('notifications_json'),
     dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
+    privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
   );
 }

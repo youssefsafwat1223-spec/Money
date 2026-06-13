@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
 import '../../data/db/app_database.dart';
+import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_bill_repository.dart';
 import '../../data/repositories/drift_budget_repository.dart';
 import '../../data/repositories/drift_category_repository.dart';
@@ -11,6 +12,8 @@ import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_merchant_category_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
+import '../../domain/entities/account_entity.dart';
+import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
 import '../../domain/repositories/bill_repository.dart';
 import '../../domain/repositories/category_repository.dart';
@@ -47,6 +50,15 @@ final rulesClientProvider = Provider<RulesClient>((ref) {
 
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
   return DriftTransactionRepository(ref.watch(appDatabaseProvider));
+});
+
+final accountRepositoryProvider = Provider<AccountRepository>((ref) {
+  return DriftAccountRepository(ref.watch(appDatabaseProvider));
+});
+
+/// قائمة الحسابات (تتحدّث عند الإضافة/التعديل عبر invalidate).
+final accountsProvider = FutureProvider<List<AccountEntity>>((ref) async {
+  return ref.watch(accountRepositoryProvider).getAll();
 });
 
 final billRepositoryProvider = Provider<BillRepository>((ref) {
@@ -93,6 +105,17 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
   return AddTransactionUseCase(
     transactionRepository: ref.watch(transactionRepositoryProvider),
     merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
+    recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
+    logMetric: ref.watch(metricsClientProvider).logEvent,
+    loadBankProfiles: ref.watch(rulesClientProvider).localBankProfiles,
+    accountRepository: ref.watch(accountRepositoryProvider),
+  );
+});
+
+final saveManualTransactionUseCaseProvider =
+    Provider<SaveManualTransactionUseCase>((ref) {
+  return SaveManualTransactionUseCase(
+    transactionRepository: ref.watch(transactionRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
     logMetric: ref.watch(metricsClientProvider).logEvent,
   );

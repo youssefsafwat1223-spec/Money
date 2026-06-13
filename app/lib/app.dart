@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 
 import 'core/router/app_router.dart';
+import 'core/security/app_lock_gate.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
 import 'core/i18n/locale_provider.dart';
@@ -24,7 +25,8 @@ class MoneyApp extends ConsumerWidget {
       darkTheme: AppTheme.dark,
       themeMode: themeMode,
       routerConfig: appRouter,
-      scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
+      scrollBehavior:
+          const MaterialScrollBehavior().copyWith(scrollbars: false),
 
       // تدويل اللغة والاتجاهات ديناميكياً
       locale: activeLocale,
@@ -44,7 +46,7 @@ class MoneyApp extends ConsumerWidget {
               maxScaleFactor: 1.25,
             ),
           ),
-          child: child!,
+          child: AppLockGate(child: child!),
         );
       },
     );

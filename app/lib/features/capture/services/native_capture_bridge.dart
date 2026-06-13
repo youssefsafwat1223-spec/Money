@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-/// A single bank message drained from the iOS shared App Group queue.
+/// A single bank message drained from the native share queue.
 class SharedCapturedMessage {
   const SharedCapturedMessage({required this.text, this.sender});
 
@@ -42,11 +42,10 @@ class NativeCaptureBridge {
     return text;
   }
 
-  /// Drains the full FIFO queue of bank messages captured by the iOS Share
-  /// Extension and the "Post Bank Status" App Intent. Returns them in arrival
-  /// order, each with its optional sender. The native side clears the queue.
+  /// Drains the full FIFO queue of bank messages captured by native sharing
+  /// surfaces: iOS Share Extension/App Intent and Android ACTION_SEND.
   static Future<List<SharedCapturedMessage>> consumePendingSharedMessages() async {
-    if (!Platform.isIOS) {
+    if (!Platform.isIOS && !Platform.isAndroid) {
       return const [];
     }
     final json =

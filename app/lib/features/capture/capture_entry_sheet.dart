@@ -8,7 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import 'manual_paste_screen.dart';
-import 'sms_permission_screen.dart';
+import '../transactions/manual_transaction_sheet.dart';
 
 Future<void> showCaptureEntrySheet(BuildContext context) {
   final c = context.colors;
@@ -53,6 +53,16 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
                 Text('طريقة الإدخال', style: AppTypography.title2(c.textMain)),
                 const SizedBox(height: AppSpacing.s4),
                 _ActionTile(
+                  icon: Icons.edit_note_rounded,
+                  title: 'إضافة عملية يدويًا',
+                  subtitle: 'اكتب المبلغ والتصنيف والتاريخ في أقل من دقيقة.',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    ManualTransactionSheet.show(context);
+                  },
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                _ActionTile(
                   icon: AppLucideIcons.clipboardPaste,
                   title: 'ألصق رسالة بنك',
                   subtitle: 'المسار اليدوي الحالي لإضافة عملية جديدة.',
@@ -65,11 +75,11 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
                   const SizedBox(height: AppSpacing.s3),
                   _ActionTile(
                     icon: AppLucideIcons.receipt,
-                    title: 'فعّل قراءة الرسائل',
-                    subtitle: 'نقطة دخول مؤقتة حتى ربط onboarding في Sprint 5.',
+                    title: 'شارك رسالة من تطبيق الرسائل',
+                    subtitle: 'افتح رسالة البنك، اضغط مشاركة، واختر مالي لإضافتها بدون أذونات SMS.',
                     onTap: () {
                       Navigator.of(context).pop();
-                      SmsPermissionScreen.showSheet(context);
+                      ManualPasteScreen.showSheet(context);
                     },
                   ),
                 ],
@@ -137,4 +147,3 @@ class _ActionTile extends StatelessWidget {
     );
   }
 }
-

@@ -172,7 +172,7 @@ abstract class AppL10n {
   /// No description provided for @smsReadingDesc.
   ///
   /// In ar, this message translates to:
-  /// **'نقرأ رسائل بنكك على جهازك، ونطلّع المبلغ والمتجر ونصنّفها تلقائياً.'**
+  /// **'شارك رسالة البنك مع مالي، ونطلّع المبلغ والمتجر ونصنّفها على جهازك.'**
   String get smsReadingDesc;
 
   /// No description provided for @now.
@@ -454,7 +454,7 @@ abstract class AppL10n {
   /// No description provided for @privacyRule2.
   ///
   /// In ar, this message translates to:
-  /// **'نقرأ فقط رسائل البنوك ونستبعد أي رسائل شخصية'**
+  /// **'نعالج فقط رسائل البنك التي تشاركها أو تلصقها بنفسك'**
   String get privacyRule2;
 
   /// No description provided for @privacyRule3.
@@ -466,7 +466,7 @@ abstract class AppL10n {
   /// No description provided for @enableAutoTracking.
   ///
   /// In ar, this message translates to:
-  /// **'فعّل التتبّع التلقائي'**
+  /// **'شارك رسائل البنك مع مالي'**
   String get enableAutoTracking;
 
   /// No description provided for @setupAppleShortcut.
@@ -478,7 +478,7 @@ abstract class AppL10n {
   /// No description provided for @autoTrackingSubtitleAndroid.
   ///
   /// In ar, this message translates to:
-  /// **'نقرأ رسائل بنكك ونحلّلها على جهازك فقط — ونقرأ من البنوك فقط.'**
+  /// **'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى مالي. سنحللها على جهازك ونضيف العملية.'**
   String get autoTrackingSubtitleAndroid;
 
   /// No description provided for @autoTrackingSubtitleIos.
@@ -490,7 +490,7 @@ abstract class AppL10n {
   /// No description provided for @smsActivationSnack.
   ///
   /// In ar, this message translates to:
-  /// **'لم يتم التفعيل — تقدر تلصق الرسائل يدوياً.'**
+  /// **'تقدر تشارك رسالة البنك مع مالي أو تلصقها يدويًا.'**
   String get smsActivationSnack;
 
   /// No description provided for @howWillActivationWork.
@@ -502,7 +502,7 @@ abstract class AppL10n {
   /// No description provided for @allowSmsReading.
   ///
   /// In ar, this message translates to:
-  /// **'السماح بقراءة الرسائل'**
+  /// **'فهمت'**
   String get allowSmsReading;
 
   /// No description provided for @gotIt.

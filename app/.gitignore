@@ -25,6 +25,9 @@ ios/Pods/
 ios/.symlinks/
 .DS_Store
 
+# Local backups (لا تُرفَع)
+ios_backup_before_flutter_create/
+
 # Secrets / local env
 *.env
 key.properties

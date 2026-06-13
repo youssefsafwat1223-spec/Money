@@ -12,7 +12,8 @@ import '../../domain/entities/budget_entity.dart';
 import '../common/category_catalog.dart';
 import 'budgets_providers.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false}) {
+TextStyle _alex(double size, FontWeight weight, double height, Color color,
+    {bool tabular = false}) {
   return GoogleFonts.alexandria(
     fontSize: size,
     fontWeight: weight,
@@ -46,7 +47,8 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية'),
+        title:
+            Text(widget.budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية'),
       ),
       body: _BudgetFormContent(budgetId: widget.budgetId, fullScreen: true),
     );
@@ -72,8 +74,11 @@ class _BudgetFormSheet extends StatelessWidget {
           child: Container(
             height: MediaQuery.of(context).size.height * 0.85,
             decoration: BoxDecoration(
-              color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              color: isDark
+                  ? c.surface.withValues(alpha: 0.9)
+                  : Colors.white.withValues(alpha: 0.92),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
               border: Border.all(
                 color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
                 width: 1.5,
@@ -110,7 +115,8 @@ class _BudgetFormSheet extends StatelessWidget {
                   ),
                 ),
                 Expanded(
-                  child: _BudgetFormContent(budgetId: budgetId, fullScreen: false),
+                  child:
+                      _BudgetFormContent(budgetId: budgetId, fullScreen: false),
                 ),
               ],
             ),
@@ -141,6 +147,10 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   String? _categoryId;
   bool _alert80 = true;
   bool _alert100 = true;
+  bool _didSeedInitialState = false;
+  bool _suggestionLoading = false;
+  double? _suggestedAmount;
+  String? _suggestionKey;
 
   @override
   void dispose() {
@@ -168,7 +178,8 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
             return Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.gutter, vertical: 8),
                 children: [
                   DropdownButtonFormField<String>(
                     value: _categoryId,
@@ -187,34 +198,40 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                           child: Text(category.nameAr),
                         ),
                     ],
-                    onChanged: (value) => setState(() => _categoryId = value),
+                    onChanged: (value) {
+                      setState(() => _categoryId = value);
+                      _refreshSuggestedAmount();
+                    },
                     style: _alex(14, FontWeight.w700, 1.2, c.textMain),
                     decoration: InputDecoration(
                       labelText: 'التصنيف',
                       labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
                       filled: true,
                       fillColor: c.surface.withValues(alpha: 0.15),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                        borderSide:
+                            BorderSide(color: c.border.withValues(alpha: 0.3)),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                        borderSide:
+                            BorderSide(color: c.border.withValues(alpha: 0.3)),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                         borderSide: BorderSide(color: c.primary, width: 1.5),
                       ),
                     ),
-                    validator: (value) =>
-                        value == null ? 'اختر تصنيفًا' : null,
+                    validator: (value) => value == null ? 'اختر تصنيفًا' : null,
                   ),
                   const SizedBox(height: AppSpacing.s4),
                   TextFormField(
                     controller: _amountController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     style: _alex(15, FontWeight.w700, 1.2, c.textMain),
                     decoration: InputDecoration(
                       labelText: 'المبلغ',
@@ -223,14 +240,17 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                       suffixStyle: _alex(14, FontWeight.w800, 1.2, c.textMain),
                       filled: true,
                       fillColor: c.surface.withValues(alpha: 0.15),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                        borderSide:
+                            BorderSide(color: c.border.withValues(alpha: 0.3)),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                        borderSide:
+                            BorderSide(color: c.border.withValues(alpha: 0.3)),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -248,8 +268,25 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                   const SizedBox(height: AppSpacing.s4),
                   _PeriodSelector(
                     value: _period,
-                    onChanged: (value) => setState(() => _period = value),
+                    onChanged: (value) {
+                      setState(() => _period = value);
+                      _refreshSuggestedAmount();
+                    },
                   ),
+                  if (budget == null) ...[
+                    const SizedBox(height: AppSpacing.s3),
+                    _BudgetSuggestionCard(
+                      loading: _suggestionLoading,
+                      amount: _suggestedAmount,
+                      period: _period,
+                      onApply: _suggestedAmount == null
+                          ? null
+                          : () => setState(() {
+                                _amountController.text =
+                                    _suggestedAmount!.toStringAsFixed(0);
+                              }),
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.s4),
                   _buildSwitchRow(
                     title: 'نبّهني عند 80%',
@@ -372,12 +409,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
               alert100Sent: false,
             ))
         .copyWith(
-          categoryId: _categoryId,
-          amount: amount,
-          period: _period,
-          alert80Sent: !_alert80,
-          alert100Sent: !_alert100,
-        );
+      categoryId: _categoryId,
+      amount: amount,
+      period: _period,
+      alert80Sent: !_alert80,
+      alert100Sent: !_alert100,
+    );
     await ref.read(saveBudgetUseCaseProvider).call(budget);
     if (!mounted) {
       return;
@@ -392,17 +429,21 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: c.surface,
-        title: Text('حذف الميزانية؟', style: _alex(18, FontWeight.w800, 1.2, c.textMain)),
-        content: Text('سيتم حذف هذه الميزانية نهائياً.', style: _alex(14, FontWeight.w500, 1.4, c.textLight)),
+        title: Text('حذف الميزانية؟',
+            style: _alex(18, FontWeight.w800, 1.2, c.textMain)),
+        content: Text('سيتم حذف هذه الميزانية نهائياً.',
+            style: _alex(14, FontWeight.w500, 1.4, c.textLight)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('إلغاء', style: _alex(14, FontWeight.w700, 1.2, c.textLight)),
+            child: Text('إلغاء',
+                style: _alex(14, FontWeight.w700, 1.2, c.textLight)),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: FilledButton.styleFrom(backgroundColor: c.danger),
-            child: Text('حذف', style: _alex(14, FontWeight.w700, 1.2, Colors.white)),
+            child: Text('حذف',
+                style: _alex(14, FontWeight.w700, 1.2, Colors.white)),
           ),
         ],
       ),
@@ -420,7 +461,13 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   }
 
   void _seedInitialState(BudgetEntity? budget) {
-    if (budget == null || _amountController.text.isNotEmpty) {
+    if (_didSeedInitialState) {
+      return;
+    }
+    _didSeedInitialState = true;
+    if (budget == null) {
+      _categoryId = BudgetEntity.allExpensesCategoryId;
+      Future.microtask(_refreshSuggestedAmount);
       return;
     }
     _amountController.text = budget.amount.toStringAsFixed(0);
@@ -428,6 +475,115 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     _categoryId = budget.categoryId;
     _alert80 = !budget.alert80Sent;
     _alert100 = !budget.alert100Sent;
+  }
+
+  Future<void> _refreshSuggestedAmount() async {
+    final categoryId = _categoryId;
+    if (categoryId == null || widget.budgetId != null) return;
+    final key = '$categoryId:${_period.name}';
+    if (_suggestionKey == key && _suggestedAmount != null) return;
+    setState(() {
+      _suggestionKey = key;
+      _suggestionLoading = true;
+      _suggestedAmount = null;
+    });
+    final now = DateTime.now();
+    final from = DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: 29));
+    final txRepo = ref.read(transactionRepositoryProvider);
+    final total = categoryId == BudgetEntity.allExpensesCategoryId
+        ? await txRepo.expenseTotalBetween(from: from, to: now)
+        : await txRepo.categoryExpenseTotalBetween(
+            categoryId: categoryId,
+            from: from,
+            to: now,
+          );
+    if (!mounted || _suggestionKey != key) return;
+    final dailyAverage = total / 30;
+    final amount = switch (_period) {
+      BudgetPeriod.daily => dailyAverage,
+      BudgetPeriod.weekly => dailyAverage * 7,
+      BudgetPeriod.monthly => dailyAverage * 30,
+    };
+    setState(() {
+      _suggestionLoading = false;
+      _suggestedAmount = amount <= 0 ? null : _roundBudgetSuggestion(amount);
+    });
+  }
+
+  double _roundBudgetSuggestion(double amount) {
+    if (amount < 50) return amount.ceilToDouble();
+    if (amount < 500) return (amount / 10).ceil() * 10.0;
+    return (amount / 50).ceil() * 50.0;
+  }
+}
+
+class _BudgetSuggestionCard extends StatelessWidget {
+  const _BudgetSuggestionCard({
+    required this.loading,
+    required this.amount,
+    required this.period,
+    required this.onApply,
+  });
+
+  final bool loading;
+  final double? amount;
+  final BudgetPeriod period;
+  final VoidCallback? onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final label = switch (period) {
+      BudgetPeriod.daily => 'يومية',
+      BudgetPeriod.weekly => 'أسبوعية',
+      BudgetPeriod.monthly => 'شهرية',
+    };
+    final value = amount?.toStringAsFixed(0);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: c.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.primary.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: c.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: loading
+                ? const Padding(
+                    padding: EdgeInsets.all(10),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.auto_awesome_outlined, color: c.primary),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Text(
+              loading
+                  ? 'بنحسب اقتراح من آخر 30 يوم...'
+                  : value == null
+                      ? 'بعد ما تضيف عمليات أكثر، هنقترح ميزانية $label مناسبة.'
+                      : 'اقتراح ميزانية $label: $value',
+              style: _alex(12, FontWeight.w700, 1.35, c.textMain),
+            ),
+          ),
+          if (value != null) ...[
+            const SizedBox(width: AppSpacing.s2),
+            TextButton(
+              onPressed: onApply,
+              child: const Text('استخدمه'),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -471,7 +627,8 @@ class _PeriodSelector extends StatelessWidget {
     );
   }
 
-  Widget _buildSegment(BuildContext context, BudgetPeriod period, String label) {
+  Widget _buildSegment(
+      BuildContext context, BudgetPeriod period, String label) {
     final c = context.colors;
     final active = value == period;
     return Expanded(
@@ -496,7 +653,8 @@ class _PeriodSelector extends StatelessWidget {
           alignment: Alignment.center,
           child: Text(
             label,
-            style: _alex(13, active ? FontWeight.bold : FontWeight.w600, 1.2, active ? Colors.white : c.textLight),
+            style: _alex(13, active ? FontWeight.bold : FontWeight.w600, 1.2,
+                active ? Colors.white : c.textLight),
           ),
         ),
       ),

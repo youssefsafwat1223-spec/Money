@@ -47,7 +47,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smsReadingDesc =>
-      'We read bank messages on your device, extract amount & merchant, and classify them automatically.';
+      'Share a bank message with Mali; we extract amount and merchant on your device.';
 
   @override
   String get now => 'Now';
@@ -199,21 +199,21 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get privacyRule2 =>
-      'We only read bank messages and exclude any personal messages';
+      'We only process bank messages you share or paste yourself';
 
   @override
   String get privacyRule3 =>
       'We never sell your data, and you have full freedom to delete it';
 
   @override
-  String get enableAutoTracking => 'Enable Auto-Tracking';
+  String get enableAutoTracking => 'Share bank messages with Mali';
 
   @override
   String get setupAppleShortcut => 'Setup Apple Shortcut';
 
   @override
   String get autoTrackingSubtitleAndroid =>
-      'We read and analyze your bank messages on your device only — and from banks only.';
+      'From Messages, share a bank SMS to Mali. We parse it on your device and add the transaction.';
 
   @override
   String get autoTrackingSubtitleIos =>
@@ -221,13 +221,13 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smsActivationSnack =>
-      'Not activated — you can paste messages manually.';
+      'You can share a bank SMS with Mali or paste it manually.';
 
   @override
   String get howWillActivationWork => 'How will it work?';
 
   @override
-  String get allowSmsReading => 'Allow Message Reading';
+  String get allowSmsReading => 'Got it';
 
   @override
   String get gotIt => 'Got it';

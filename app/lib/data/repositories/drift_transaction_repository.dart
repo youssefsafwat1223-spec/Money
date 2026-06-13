@@ -90,16 +90,18 @@ class DriftTransactionRepository implements TransactionRepository {
         : await _resolveOrCreateMerchantId(transaction.rawMerchant!);
     final categoryId =
         categoryKey == null ? null : await _categoryIdByKey(categoryKey);
+    final accountId = transaction.accountId ?? await _defaultAccountId();
 
     await _db.customStatement('''
       INSERT INTO transactions(
-        id, amount, currency, merchant_id, raw_merchant, category_id, type, source,
-        card_last4, balance_after, occurred_at, raw_message, parse_confidence, status,
+        id, amount, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
+        card_last4, balance_after, note, occurred_at, raw_message, parse_confidence, status,
         created_at, updated_at
       ) VALUES (
         ${sqlString(transaction.id)},
         ${transaction.amount},
         ${sqlString(transaction.currency)},
+        ${sqlNullableString(accountId)},
         ${sqlNullableString(merchantId)},
         ${sqlNullableString(transaction.rawMerchant)},
         ${sqlNullableString(categoryId)},
@@ -107,6 +109,7 @@ class DriftTransactionRepository implements TransactionRepository {
         ${sqlString(transaction.source.name)},
         ${sqlNullableString(transaction.cardLast4)},
         ${sqlNullableNum(transaction.balanceAfter)},
+        ${sqlNullableString(transaction.note)},
         ${sqlString(dateTimeToSql(transaction.occurredAt))},
         ${sqlString(transaction.rawMessage)},
         ${transaction.parseConfidence},
@@ -151,6 +154,77 @@ class DriftTransactionRepository implements TransactionRepository {
       throw StateError('Transaction not found: $transactionId');
     }
     return updated;
+  }
+
+  @override
+  Future<TransactionEntity> updateTransaction({
+    required String transactionId,
+    required double amount,
+    required String currency,
+    required TransactionTypeEntity type,
+    required DateTime occurredAt,
+    required String? rawMerchant,
+    required String? categoryId,
+    required String? note,
+  }) async {
+    final trimmedMerchant = rawMerchant?.trim();
+    final merchantId = trimmedMerchant == null || trimmedMerchant.isEmpty
+        ? null
+        : await _resolveOrCreateMerchantId(trimmedMerchant);
+    final normalizedNote = note?.trim();
+    await _db.customUpdate(
+      '''
+        UPDATE transactions
+        SET amount = ?, currency = ?, type = ?, occurred_at = ?,
+            merchant_id = ?, raw_merchant = ?, category_id = ?, note = ?,
+            raw_message = ?, status = 'confirmed', updated_at = ?
+        WHERE id = ?;
+      ''',
+      variables: [
+        Variable.withReal(amount),
+        Variable.withString(currency),
+        Variable.withString(type.name),
+        Variable.withString(dateTimeToSql(occurredAt.toUtc())),
+        merchantId == null
+            ? const Variable<String>(null)
+            : Variable.withString(merchantId),
+        trimmedMerchant == null || trimmedMerchant.isEmpty
+            ? const Variable<String>(null)
+            : Variable.withString(trimmedMerchant),
+        categoryId == null || categoryId.isEmpty
+            ? const Variable<String>(null)
+            : Variable.withString(categoryId),
+        normalizedNote == null || normalizedNote.isEmpty
+            ? const Variable<String>(null)
+            : Variable.withString(normalizedNote),
+        Variable.withString(normalizedNote == null || normalizedNote.isEmpty
+            ? 'Manual transaction'
+            : normalizedNote),
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(transactionId),
+      ],
+    );
+
+    final updated = await getById(transactionId);
+    if (updated == null) {
+      throw StateError('Transaction not found: $transactionId');
+    }
+    return updated;
+  }
+
+  @override
+  Future<void> deleteTransaction(String id) async {
+    await _db.customUpdate(
+      '''
+        UPDATE transactions
+        SET status = 'ignored', updated_at = ?
+        WHERE id = ?;
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(id),
+      ],
+    );
   }
 
   @override
@@ -425,6 +499,13 @@ class DriftTransactionRepository implements TransactionRepository {
               monthsSeen: r.read<int>('months'),
             ))
         .toList();
+  }
+
+  Future<String?> _defaultAccountId() async {
+    final row = await _db.customSelect(
+      'SELECT id FROM accounts ORDER BY is_default DESC, sort_order ASC LIMIT 1;',
+    ).getSingleOrNull();
+    return row?.read<String>('id');
   }
 
   Future<String?> _categoryIdByKey(String categoryKey) async {

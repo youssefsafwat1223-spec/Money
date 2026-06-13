@@ -9,6 +9,7 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../common/category_catalog.dart';
 import '../common/widgets.dart';
+import 'manual_transaction_sheet.dart';
 import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
 import '../common/motion.dart';
@@ -154,7 +155,17 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       style: AppTypography.headline(c.textMain),
                     ),
                   ),
-                  const SizedBox(width: 48), // Balancing close button
+                  IconButton(
+                    onPressed: () => ManualTransactionSheet.show(
+                      context,
+                      transaction: tx,
+                    ),
+                    icon: Icon(Icons.edit_outlined, color: c.textMain),
+                    style: IconButton.styleFrom(
+                      backgroundColor: isDark ? c.surface2 : c.bg,
+                      padding: const EdgeInsets.all(8),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -246,6 +257,14 @@ class _TransactionDetailsContent extends ConsumerWidget {
                             context,
                             'الرصيد بعد',
                             '${Formatters.amount(tx.balanceAfter!)} ${tx.currency}',
+                          ),
+                        ],
+                        if (tx.note != null && tx.note!.isNotEmpty) ...[
+                          _divider(c),
+                          _buildDetailRow(
+                            context,
+                            'ملاحظة',
+                            tx.note!,
                           ),
                         ],
                         if (tx.status == TransactionStatus.pending) ...[

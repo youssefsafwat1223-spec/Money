@@ -26,6 +26,9 @@ class DashboardData {
     required this.savedThisMonth,
     required this.spentThisMonth,
     required this.incomeThisMonth,
+    required this.todaySpend,
+    required this.todayIncome,
+    required this.weekIncome,
     required this.balance,
     required this.monthlyBudgetLimit,
     required this.monthlyBudgetRatio,
@@ -50,6 +53,9 @@ class DashboardData {
   final double savedThisMonth;
   final double spentThisMonth;
   final double incomeThisMonth;
+  final double todaySpend;
+  final double todayIncome;
+  final double weekIncome;
   final double? balance;
   final double monthlyBudgetLimit;
   final double monthlyBudgetRatio;
@@ -100,7 +106,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final range = ref.watch(transactionsDateRangeProvider);
 
   final now = DateTime.now();
-  final rangeStart = DateTime(range.from.year, range.from.month, range.from.day);
+  final rangeStart =
+      DateTime(range.from.year, range.from.month, range.from.day);
   final rangeEnd = range.to.isAfter(now) ? now : range.to;
   final daysInRange =
       rangeEnd.difference(rangeStart).inDays.abs().clamp(1, 3660) + 1;
@@ -122,6 +129,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     to: previousEnd,
   );
   final weekSpend = await txRepo.expenseTotalBetween(from: weekStart, to: now);
+  final todaySpend = await txRepo.expenseTotalBetween(from: today, to: now);
+  final todayIncome = await txRepo.incomeTotalBetween(from: today, to: now);
+  final weekIncome = await txRepo.incomeTotalBetween(from: weekStart, to: now);
   final previousWeekSpend = await txRepo.expenseTotalBetween(
     from: prevWeekStart,
     to: weekStart,
@@ -154,7 +164,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
         monthlyBudgetLimit == 0 ? 0.0 : spent / monthlyBudgetLimit;
   }
 
-  final breakdown = await txRepo.categoryBreakdown(from: rangeStart, to: rangeEnd);
+  final breakdown =
+      await txRepo.categoryBreakdown(from: rangeStart, to: rangeEnd);
   final totalSpend = breakdown.fold<double>(0, (sum, item) => sum + item.total);
   final topCategories = <CategorySlice>[];
   for (final item in breakdown.take(3)) {
@@ -200,6 +211,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     savedThisMonth: saved,
     spentThisMonth: thisMonthExpenses,
     incomeThisMonth: thisMonthIncome,
+    todaySpend: todaySpend,
+    todayIncome: todayIncome,
+    weekIncome: weekIncome,
     balance: balance,
     monthlyBudgetLimit: monthlyBudgetLimit,
     monthlyBudgetRatio: monthlyBudgetRatio,

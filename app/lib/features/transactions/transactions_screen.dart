@@ -78,6 +78,8 @@ class TransactionsScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: AppSpacing.s3),
                   if (tab == 0) ...[
+                    const _TransactionSearchField(),
+                    const SizedBox(height: AppSpacing.s3),
                     const _KindFilterChips(),
                     const SizedBox(height: AppSpacing.s3),
                     if (view.transactions.isEmpty)
@@ -114,6 +116,68 @@ class TransactionsScreen extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _TransactionSearchField extends ConsumerStatefulWidget {
+  const _TransactionSearchField();
+
+  @override
+  ConsumerState<_TransactionSearchField> createState() =>
+      _TransactionSearchFieldState();
+}
+
+class _TransactionSearchFieldState
+    extends ConsumerState<_TransactionSearchField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: ref.read(transactionSearchQueryProvider),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final query = ref.watch(transactionSearchQueryProvider);
+    return TextField(
+      controller: _controller,
+      textInputAction: TextInputAction.search,
+      onChanged: (value) =>
+          ref.read(transactionSearchQueryProvider.notifier).state = value,
+      decoration: InputDecoration(
+        hintText: 'ابحث باسم متجر، تصنيف، مبلغ أو عملة',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: query.isEmpty
+            ? null
+            : IconButton(
+                onPressed: () {
+                  _controller.clear();
+                  ref.read(transactionSearchQueryProvider.notifier).state = '';
+                },
+                icon: const Icon(Icons.close_rounded),
+              ),
+        filled: true,
+        fillColor: c.surface2.withValues(alpha: 0.45),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: c.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: c.border.withValues(alpha: 0.6)),
+        ),
+      ),
     );
   }
 }

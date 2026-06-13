@@ -1,4 +1,5 @@
 import '../../../data/db/app_database.dart';
+import '../../../data/repositories/drift_account_repository.dart';
 import '../../../data/repositories/drift_gamification_repository.dart';
 import '../../../data/repositories/drift_merchant_category_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
@@ -16,23 +17,26 @@ class CapturedMessageProcessor {
     required String rawMessage,
     String? senderId,
     bool showNotifications = true,
+    AppDatabase? database,
   }) async {
-    final database = await AppDatabase.open();
+    final db = database ?? await AppDatabase.open();
+    final shouldCloseDatabase = database == null;
     try {
-      final settingsRepository = DriftUserSettingsRepository(database);
+      final settingsRepository = DriftUserSettingsRepository(db);
       final engagementUseCase = RecordEngagementUseCase(
-        gamificationRepository: DriftGamificationRepository(database),
-        transactionRepository: DriftTransactionRepository(database),
+        gamificationRepository: DriftGamificationRepository(db),
+        transactionRepository: DriftTransactionRepository(db),
         userSettingsRepository: settingsRepository,
       );
       final notificationPreferences =
           await LoadNotificationPreferencesUseCase(settingsRepository).call();
       final ingestUseCase = IngestCapturedMessageUseCase(
         AddTransactionUseCase(
-          transactionRepository: DriftTransactionRepository(database),
+          transactionRepository: DriftTransactionRepository(db),
           merchantCategoryRepository:
-              DriftMerchantCategoryRepository(database),
+              DriftMerchantCategoryRepository(db),
           recordEngagementUseCase: engagementUseCase,
+          accountRepository: DriftAccountRepository(db),
         ),
       );
 
@@ -65,7 +69,9 @@ class CapturedMessageProcessor {
 
       return result;
     } finally {
-      await database.close();
+      if (shouldCloseDatabase) {
+        await db.close();
+      }
     }
   }
 

@@ -27,7 +27,7 @@ subprojects {
         }
     }
 
-    // وحّد Java على 17 أيضاً (يحل تعارض JVM target مع إضافات مثل another_telephony).
+    // وحّد Java على 17 أيضاً لتقليل تعارضات JVM target بين الإضافات.
     tasks.withType<JavaCompile>().configureEach {
         sourceCompatibility = JavaVersion.VERSION_11.toString()
         targetCompatibility = JavaVersion.VERSION_11.toString()

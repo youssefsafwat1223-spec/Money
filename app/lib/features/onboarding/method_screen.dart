@@ -11,7 +11,6 @@ import '../../core/backup/backup_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../capture/services/android_sms_capture_service.dart';
 import '../../core/utils/l10n_ext.dart';
 import 'widgets/premium_ui.dart';
 
@@ -37,8 +36,6 @@ class OnboardingMethodScreen extends ConsumerStatefulWidget {
 
 class _OnboardingMethodScreenState
     extends ConsumerState<OnboardingMethodScreen> {
-  bool _busy = false;
-
   Future<void> _finish() async {
     if (SupabaseConfig.isConfigured) {
       try {
@@ -56,50 +53,28 @@ class _OnboardingMethodScreenState
     if (mounted) context.go('/');
   }
 
-  Future<void> _requestSms() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    final granted =
-        await AndroidSmsCaptureService.instance.requestPermissions();
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (!granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.l10n.smsActivationSnack,
-            style: _alex(12, FontWeight.w500, 1.3, Colors.white),
-          ),
-          backgroundColor: context.colors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-      );
-    }
-    await _finish();
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final actionForeground = maliPrimaryActionForeground(context);
     final isAndroid = Platform.isAndroid;
-    final title = isAndroid ? context.l10n.enableAutoTracking : context.l10n.setupAppleShortcut;
+    final title = isAndroid
+        ? 'شارك رسائل البنك مع مالي'
+        : context.l10n.setupAppleShortcut;
     final subtitle = isAndroid
-        ? context.l10n.autoTrackingSubtitleAndroid
+        ? 'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى مالي. سنحللها على جهازك ونضيف العملية.'
         : context.l10n.autoTrackingSubtitleIos;
     final steps = isAndroid
         ? (Localizations.localeOf(context).languageCode == 'en'
             ? const [
-                'Click "Allow message reading".',
-                'Approve the permission from the dialog.',
-                'We capture your bank transactions automatically and classify them.',
+                'Open the bank SMS in your Messages app.',
+                'Tap Share and choose Mali.',
+                'Mali parses the text on your device and asks for confirmation when needed.',
               ]
             : const [
-                'اضغط «السماح بقراءة الرسائل».',
-                'وافق على الإذن من النافذة.',
-                'نلتقط عمليات بنكك تلقائياً ونصنّفها.',
+                'افتح رسالة البنك من تطبيق الرسائل.',
+                'اضغط مشاركة واختر مالي.',
+                'مالي يحلل النص على جهازك ويطلب التأكيد عند الحاجة.',
               ])
         : const <String>[];
 
@@ -224,8 +199,7 @@ class _OnboardingMethodScreenState
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed:
-                            _busy ? null : (isAndroid ? _requestSms : _finish),
+                        onPressed: _finish,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
@@ -233,22 +207,11 @@ class _OnboardingMethodScreenState
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: _busy
-                            ? SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: actionForeground,
-                                ),
-                              )
-                            : Text(
-                                isAndroid
-                                    ? context.l10n.allowSmsReading
-                                    : context.l10n.gotIt,
-                                style: _alex(
-                                    15, FontWeight.w800, 1.2, actionForeground),
-                              ),
+                        child: Text(
+                          context.l10n.gotIt,
+                          style: _alex(
+                              15, FontWeight.w800, 1.2, actionForeground),
+                        ),
                       ),
                     ),
                   ),

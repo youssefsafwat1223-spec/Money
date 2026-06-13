@@ -154,6 +154,25 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<TransactionEntity> updateTransaction({
+    required String transactionId,
+    required double amount,
+    required String currency,
+    required TransactionTypeEntity type,
+    required DateTime occurredAt,
+    required String? rawMerchant,
+    required String? categoryId,
+    required String? note,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> deleteTransaction(String id) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<MerchantSpend>> merchantBreakdown({
     required DateTime from,
     required DateTime to,

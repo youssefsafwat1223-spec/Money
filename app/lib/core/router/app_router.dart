@@ -32,10 +32,13 @@ final appRouter = GoRouter(
   redirect: (context, state) {
     final status = AppSession.instance.status;
     final inOnboarding = state.matchedLocation.startsWith('/onboarding');
+    final guestUpgrade = AppSession.instance.isGuest &&
+        (state.matchedLocation == '/onboarding/auth' ||
+            state.matchedLocation == '/onboarding/otp');
     if (status == SessionStatus.needsOnboarding && !inOnboarding) {
       return '/onboarding';
     }
-    if (status == SessionStatus.authenticated && inOnboarding) {
+    if (status == SessionStatus.authenticated && inOnboarding && !guestUpgrade) {
       return '/';
     }
     return null;

@@ -48,9 +48,13 @@ class BankProfiles {
   ];
 
   /// كشف البنك من معرّف المرسِل أو نص الرسالة (best-effort).
-  static BankProfile? detect(String normalizedText, {String? senderId}) {
+  static BankProfile? detect(
+    String normalizedText, {
+    String? senderId,
+    List<BankProfile> extraProfiles = const [],
+  }) {
     final haystack = '${senderId ?? ''} $normalizedText'.toLowerCase();
-    for (final profile in all) {
+    for (final profile in [...extraProfiles, ...all]) {
       for (final kw in profile.keywords) {
         if (haystack.contains(kw.toLowerCase())) return profile;
       }

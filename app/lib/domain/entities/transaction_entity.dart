@@ -34,11 +34,14 @@ class TransactionEntity {
     this.categoryId,
     this.cardLast4,
     this.balanceAfter,
+    this.note,
+    this.accountId,
   });
 
   final String id;
   final double amount;
   final String currency;
+  final String? accountId;
   final String? merchantId;
   final String? rawMerchant;
   final String? categoryId;
@@ -46,6 +49,7 @@ class TransactionEntity {
   final TransactionSourceEntity source;
   final String? cardLast4;
   final double? balanceAfter;
+  final String? note;
   final DateTime occurredAt;
   final String rawMessage;
   final double parseConfidence;
@@ -57,6 +61,7 @@ class TransactionEntity {
     String? id,
     double? amount,
     String? currency,
+    String? accountId,
     String? merchantId,
     String? rawMerchant,
     String? categoryId,
@@ -64,6 +69,7 @@ class TransactionEntity {
     TransactionSourceEntity? source,
     String? cardLast4,
     double? balanceAfter,
+    String? note,
     DateTime? occurredAt,
     String? rawMessage,
     double? parseConfidence,
@@ -75,6 +81,7 @@ class TransactionEntity {
       id: id ?? this.id,
       amount: amount ?? this.amount,
       currency: currency ?? this.currency,
+      accountId: accountId ?? this.accountId,
       merchantId: merchantId ?? this.merchantId,
       rawMerchant: rawMerchant ?? this.rawMerchant,
       categoryId: categoryId ?? this.categoryId,
@@ -82,6 +89,7 @@ class TransactionEntity {
       source: source ?? this.source,
       cardLast4: cardLast4 ?? this.cardLast4,
       balanceAfter: balanceAfter ?? this.balanceAfter,
+      note: note ?? this.note,
       occurredAt: occurredAt ?? this.occurredAt,
       rawMessage: rawMessage ?? this.rawMessage,
       parseConfidence: parseConfidence ?? this.parseConfidence,

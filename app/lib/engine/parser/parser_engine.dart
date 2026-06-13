@@ -13,12 +13,16 @@ class ParserEngine {
   const ParserEngine();
 
   // ── تعابير الاستخراج ──
+  static const String _currencyPattern =
+      r'SAR|AED|EGP|KWD|QAR|BHD|OMR|USD|EUR|GBP';
   static final RegExp _amountAfterCurrency = RegExp(
-      r'(?:SAR)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)',
+      '(?:$_currencyPattern)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)',
       caseSensitive: false);
   static final RegExp _amountBeforeCurrency = RegExp(
-      r'([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:SAR)',
+      '([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s*(?:$_currencyPattern)',
       caseSensitive: false);
+  static final RegExp _currency =
+      RegExp('(?:$_currencyPattern)', caseSensitive: false);
   static final RegExp _decimalNumber = RegExp(r'([0-9][0-9,]*\.[0-9]{1,2})');
   static final RegExp _last4Star = RegExp(r'\*{2,}\s*([0-9]{4})');
   static final RegExp _last4Ending =
@@ -28,13 +32,22 @@ class ParserEngine {
   static final RegExp _merchant =
       RegExp(r'(?:لدى|At|من|إلى)\s*:?\s*(.+)', caseSensitive: false);
 
-  ParseResult parse(String rawText, {String? senderId}) {
+  ParseResult parse(
+    String rawText, {
+    String? senderId,
+    List<BankProfile> bankProfiles = const [],
+    String defaultCurrency = 'SAR',
+  }) {
     final text = Normalizer.normalizeCurrencyTokens(
       Normalizer.normalize(rawText),
     );
     final lines = text.split('\n');
     final lower = text.toLowerCase();
-    final bank = BankProfiles.detect(text, senderId: senderId);
+    final bank = BankProfiles.detect(
+      text,
+      senderId: senderId,
+      extraProfiles: bankProfiles,
+    );
 
     final type = _detectType(lower);
     final amount = _extractAmount(lines);
@@ -49,6 +62,7 @@ class ParserEngine {
 
     final source = _detectSource(lower, bank);
     final merchant = _extractMerchant(lines);
+    final currency = _extractCurrency(text) ?? defaultCurrency;
     final last4 = _extractLast4(text);
     final balance = _extractBalance(lines);
     final occurredAt = _extractDate(text);
@@ -62,7 +76,7 @@ class ParserEngine {
 
     final txn = ParsedTransaction(
       amount: amount,
-      currency: 'SAR',
+      currency: currency,
       type: type == TransactionType.unknown ? TransactionType.payment : type,
       source: source,
       rawMerchant: merchant,
@@ -120,7 +134,7 @@ class ParserEngine {
     for (final line in lines) {
       final l = line.toLowerCase();
       if (l.contains('الرصيد') || l.contains('balance')) continue;
-      if (l.contains('sar')) {
+      if (_currency.hasMatch(line)) {
         final v = _numberInLine(line);
         if (v != null) return v;
       }
@@ -154,13 +168,18 @@ class ParserEngine {
         // تنظيف لاحقات/علامات شائعة.
         value = value.replaceAll(RegExp(r'[.;،]+$'), '').trim();
         if (value.isNotEmpty &&
-            !value.toLowerCase().contains('sar') &&
+            !_currency.hasMatch(value) &&
             !value.contains(RegExp(r'^[0-9]'))) {
           return value;
         }
       }
     }
     return null;
+  }
+
+  String? _extractCurrency(String text) {
+    final m = _currency.firstMatch(text);
+    return m?.group(0)?.toUpperCase();
   }
 
   String? _extractLast4(String text) {

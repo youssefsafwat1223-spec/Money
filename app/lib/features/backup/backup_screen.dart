@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/backup/backup_service.dart';
+import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -17,6 +18,7 @@ class BackupScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(backupStatusProvider);
     final c = context.colors;
+    final isGuest = AppSession.instance.isGuest;
     return Scaffold(
       backgroundColor: c.bg,
       body: Column(
@@ -30,13 +32,43 @@ class BackupScreen extends ConsumerWidget {
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('حدث خطأ: $e')),
-              data: (status) => status.enabled
+              data: (status) => isGuest
+                  ? const _GuestBackupGate()
+                  : status.enabled
                   ? _EnabledView(status: status)
                   : const _EnableFlow(),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _GuestBackupGate extends StatelessWidget {
+  const _GuestBackupGate();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return ListView(
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      children: [
+        Icon(Icons.person_add_alt_1_outlined, size: 48, color: c.primary),
+        const SizedBox(height: AppSpacing.s3),
+        Text('أنشئ حسابًا لتفعيل النسخ الاحتياطي',
+            style: AppTypography.headline(c.textMain)),
+        const SizedBox(height: AppSpacing.s2),
+        Text(
+          'تقدر تستخدم مالي محليًا بدون حساب. النسخ الاحتياطي يحتاج تسجيل دخول حتى نربط النسخة المشفّرة بك.',
+          style: AppTypography.body(c.textLight),
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        FilledButton(
+          onPressed: () => context.push('/onboarding/auth'),
+          child: const Text('تسجيل الدخول'),
+        ),
+      ],
     );
   }
 }

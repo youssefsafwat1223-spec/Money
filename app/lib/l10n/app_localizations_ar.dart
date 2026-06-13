@@ -47,7 +47,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smsReadingDesc =>
-      'نقرأ رسائل بنكك على جهازك، ونطلّع المبلغ والمتجر ونصنّفها تلقائياً.';
+      'شارك رسالة البنك مع مالي، ونطلّع المبلغ والمتجر ونصنّفها على جهازك.';
 
   @override
   String get now => 'الآن';
@@ -197,33 +197,35 @@ class AppL10nAr extends AppL10n {
   String get privacyRule1 => 'كل المعالجة والذكاء يتم على هاتفك بدون إنترنت';
 
   @override
-  String get privacyRule2 => 'نقرأ فقط رسائل البنوك ونستبعد أي رسائل شخصية';
+  String get privacyRule2 =>
+      'نعالج فقط رسائل البنك التي تشاركها أو تلصقها بنفسك';
 
   @override
   String get privacyRule3 => 'ما نبيع بياناتك أبداً، ولك كامل الحرية في حذفها';
 
   @override
-  String get enableAutoTracking => 'فعّل التتبّع التلقائي';
+  String get enableAutoTracking => 'شارك رسائل البنك مع مالي';
 
   @override
   String get setupAppleShortcut => 'إعداد اختصار Apple';
 
   @override
   String get autoTrackingSubtitleAndroid =>
-      'نقرأ رسائل بنكك ونحلّلها على جهازك فقط — ونقرأ من البنوك فقط.';
+      'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى مالي. سنحللها على جهازك ونضيف العملية.';
 
   @override
   String get autoTrackingSubtitleIos =>
       'اتبع الخطوات مرة واحدة، وبعدها يمرّر iPhone رسائل البنك إلى مالي بأمان.';
 
   @override
-  String get smsActivationSnack => 'لم يتم التفعيل — تقدر تلصق الرسائل يدوياً.';
+  String get smsActivationSnack =>
+      'تقدر تشارك رسالة البنك مع مالي أو تلصقها يدويًا.';
 
   @override
   String get howWillActivationWork => 'كيف سيتم التفعيل؟';
 
   @override
-  String get allowSmsReading => 'السماح بقراءة الرسائل';
+  String get allowSmsReading => 'فهمت';
 
   @override
   String get gotIt => 'تمام، فهمت';

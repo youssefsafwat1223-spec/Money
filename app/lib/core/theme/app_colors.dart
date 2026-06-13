@@ -65,19 +65,20 @@ class AppColors extends ThemeExtension<AppColors> {
   );
 
   // 🌙 الوضع الداكن — Dark premium Mali tokens.
+  // أزرق أهدأ وأعمق (أقل سطوعًا/إجهادًا) مع خلفية أعمق وتباين أوضح.
   static const AppColors dark = AppColors(
-    bg: Color(0xFF0A1421),
-    surface: Color(0xFF121F31),
-    surface2: Color(0xFF1A2A40),
-    primary: Color(0xFF388DF8),
-    gradA: Color(0xFF388DF8),
-    gradB: Color(0xFF0A2540),
-    accent: Color(0xFFFFB300),
+    bg: Color(0xFF080F1A),
+    surface: Color(0xFF111C2C),
+    surface2: Color(0xFF18293D),
+    primary: Color(0xFF3D7CC4),
+    gradA: Color(0xFF2F5F9C),
+    gradB: Color(0xFF0B1B30),
+    accent: Color(0xFFF5A623),
     success: Color(0xFF22C57E),
-    danger: Color(0xFFFF6166),
+    danger: Color(0xFFE8606B),
     textMain: Color(0xFFEAF1F8),
-    textLight: Color(0xFF8A9CB0),
-    border: Color(0x14FFFFFF),
+    textLight: Color(0xFF93A4B8),
+    border: Color(0x1FFFFFFF),
   );
 
   @override

@@ -113,7 +113,7 @@ Required if you want a **signed** IPA (longer validity, TestFlight, Ad Hoc):
   **Teams → Integrations → App Store Connect** and name it `codemagic_asc_api_key`
   (matches `integrations.app_store_connect` in `codemagic.yaml`).
 - **Bundle identifier** registered in your Apple Developer account:
-  `com.example.moneyCompanion` (change in both Apple's portal and the workflow's
+  `com.youssefsafwat.mali` (change in both Apple's portal and the workflow's
   `ios_signing.bundle_identifier` if you use your own).
 - **Distribution type**: set `ios_signing.distribution_type` to one of
   `development` / `ad_hoc` / `app_store` / `enterprise` (currently `ad_hoc`).
@@ -126,7 +126,7 @@ Required if you want a **signed** IPA (longer validity, TestFlight, Ad Hoc):
 If you add the **`ShareBankMessage`** and **`BankMessageShortcuts`** targets
 (see [`app/ios/SHORTCUT_SETUP.md`](app/ios/SHORTCUT_SETUP.md)), each is a separate
 binary and needs its **own** bundle ID + provisioning profile, plus the shared
-**App Group** `group.com.example.money_companion.shared` enabled on all three
+**App Group** `group.com.youssefsafwat.mali.shared` enabled on all three
 targets under the same Team.
 
 ---
@@ -144,7 +144,7 @@ targets under the same Team.
 - [ ] Buy/join the **Apple Developer Program**.
 - [ ] Generate an **App Store Connect API key**, upload to Codemagic as
       `codemagic_asc_api_key`.
-- [ ] Register the **bundle ID** (`com.example.moneyCompanion`) and test-device UDIDs.
+- [ ] Register the **bundle ID** (`com.youssefsafwat.mali`) and test-device UDIDs.
 - [ ] Run **`ios-signed-release`**, download the `.ipa` from `app/build/ios/ipa/`.
 
 **On your iPhone:**

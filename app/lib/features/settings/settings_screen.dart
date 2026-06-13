@@ -1,19 +1,28 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import '../../core/security/app_lock_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/theme_mode_provider.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/formatters.dart';
+import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/supporting_entities.dart';
+import '../budgets/budgets_providers.dart';
 import '../common/category_catalog.dart';
 import '../common/motion.dart';
+import '../dashboard/dashboard_providers.dart';
+import '../transactions/transactions_providers.dart';
+import 'data_export.dart';
 import 'settings_providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -23,6 +32,7 @@ class SettingsScreen extends ConsumerWidget {
     'google': 'Google',
     'apple': 'Apple',
     'email': 'البريد الإلكتروني',
+    'guest': 'بدون حساب',
   };
 
   @override
@@ -157,25 +167,6 @@ class SettingsScreen extends ConsumerWidget {
                         subtitle: 'مصروفات ودخل وتحويلات في مجموعات واضحة',
                         onTap: () => _showCategoriesSheet(context, ref),
                       ),
-                      _NavTile(
-                        icon: AppLucideIcons.arrowLeftRight,
-                        title: 'قواعد المتاجر',
-                        subtitle: 'تعلّم تصنيف المتاجر تلقائياً',
-                        onTap: () => _showSoon(context, 'قواعد المتاجر'),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.alertTriangle,
-                        title: 'البطاقات المتجاهلة',
-                        subtitle: 'تجاهل SMS من بطاقات محددة',
-                        onTap: () => _showSoon(context, 'البطاقات المتجاهلة'),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.flame,
-                        title: 'Apple Pay ورسائل البنك',
-                        subtitle: 'تحسين الالتقاط من مصادر الدفع',
-                        onTap: () =>
-                            _showSoon(context, 'Apple Pay ورسائل البنك'),
-                      ),
                     ],
                   ),
                 ),
@@ -268,7 +259,8 @@ class SettingsScreen extends ConsumerWidget {
                           title: 'ساعات الهدوء',
                           subtitle:
                               '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
-                          onTap: () => _showSoon(context, 'ساعات الهدوء'),
+                          onTap: () =>
+                              _showQuietHoursSheet(context, ref, prefs),
                         ),
                       ],
                     ),
@@ -293,17 +285,30 @@ class SettingsScreen extends ConsumerWidget {
                         subtitle: 'إدارة أمن بياناتك وسياسة خصوصية التطبيق',
                         onTap: () => context.push('/privacy'),
                       ),
+                      settingsAsync.maybeWhen(
+                        data: (settings) => _SwitchTile(
+                          title: 'إخفاء الأرقام في الواجهة',
+                          icon: Icons.visibility_off_outlined,
+                          iconColor: c.primary,
+                          value: settings.privacyModeEnabled,
+                          onChanged: (value) async {
+                            await ref
+                                .read(userSettingsRepositoryProvider)
+                                .saveSettings(settings.copyWith(
+                                  privacyModeEnabled: value,
+                                ));
+                            refreshUserSettings(ref);
+                            ref.invalidate(dashboardDataProvider);
+                          },
+                        ),
+                        orElse: () => const SizedBox.shrink(),
+                      ),
+                      const _AppLockTile(),
                       _NavTile(
                         icon: AppLucideIcons.inbox,
                         title: 'تصدير البيانات',
-                        subtitle: 'تصدير عملياتك بصيغة CSV محلي لاحقاً',
-                        onTap: () => _showSoon(context, 'تصدير البيانات'),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.inbox,
-                        title: 'استيراد العمليات',
-                        subtitle: 'استيراد عملياتك من تطبيقات أو ملفات أخرى',
-                        onTap: () => _showSoon(context, 'استيراد العمليات'),
+                        subtitle: 'مشاركة ملف CSV بكل عملياتك',
+                        onTap: () => exportTransactionsCsv(context, ref),
                       ),
                       _NavTile(
                         icon: AppLucideIcons.repeat,
@@ -324,21 +329,20 @@ class SettingsScreen extends ConsumerWidget {
                       _NavTile(
                         icon: AppLucideIcons.gift,
                         title: 'دعوة الأصدقاء',
-                        subtitle: 'شارك التطبيق مع أصدقائك للحصول على مكافآت',
-                        trailing: const _SoonBadge(),
-                        onTap: () => _showSoon(context, 'دعوة الأصدقاء'),
+                        subtitle: 'انسخ رسالة دعوة مختصرة وشاركها بطريقتك',
+                        onTap: () => _copyInviteText(context),
                       ),
                       _NavTile(
                         icon: AppLucideIcons.alertTriangle,
                         title: 'عن التطبيق',
                         subtitle: 'Money Companion MVP',
-                        onTap: () => _showSoon(context, 'عن التطبيق'),
+                        onTap: () => _showAboutApp(context),
                       ),
                       _NavTile(
                         icon: AppLucideIcons.receipt,
                         title: 'تواصل معنا',
                         subtitle: 'تواصل مع الدعم الفني للإجابة على استفساراتك',
-                        onTap: () => _showSoon(context, 'تواصل معنا'),
+                        onTap: () => _showContactSupport(context),
                       ),
                     ],
                   ),
@@ -347,7 +351,7 @@ class SettingsScreen extends ConsumerWidget {
                 PremiumMotion(
                   delay: const Duration(milliseconds: 280),
                   child: OutlinedButton.icon(
-                    onPressed: () => AppSession.instance.signOut(),
+                    onPressed: () => _signOut(),
                     icon: const Icon(Icons.logout),
                     label: const Text('تسجيل الخروج'),
                     style: OutlinedButton.styleFrom(
@@ -394,6 +398,17 @@ class SettingsScreen extends ConsumerWidget {
     await ref.read(saveThemeModeUseCaseProvider).call(themeModeToKey(mode));
     refreshUserSettings(ref);
     ref.invalidate(persistedThemeModeProvider);
+  }
+
+  Future<void> _signOut() async {
+    if (SupabaseConfig.isConfigured) {
+      try {
+        await supabase.Supabase.instance.client.auth.signOut();
+      } catch (_) {
+        // Local sign-out still protects the device even if network sign-out fails.
+      }
+    }
+    await AppSession.instance.signOut();
   }
 
   String _languageLabel(String value) => switch (value) {
@@ -489,15 +504,36 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               Text('التصنيفات', style: AppTypography.title2(c.textMain)),
               Text(
-                'التصنيفات الحالية مقسمة حسب نوع الحركة لتسهيل القراءة.',
+                'أضف أو عدّل التصنيفات التي تظهر في العمليات والتقارير.',
                 style: AppTypography.callout(c.textLight),
               ),
               const SizedBox(height: AppSpacing.s4),
-              _CategoryGroup(title: 'مصروفات', items: expenses),
+              FilledButton.icon(
+                onPressed: () => _showCategoryForm(context, ref),
+                icon: const Icon(Icons.add),
+                label: const Text('إضافة تصنيف'),
+              ),
               const SizedBox(height: AppSpacing.s4),
-              _CategoryGroup(title: 'دخل', items: income),
+              _CategoryGroup(
+                title: 'مصروفات',
+                items: expenses,
+                onEdit: (item) => _showCategoryForm(context, ref, item: item),
+                onDelete: (item) => _deleteCategory(context, ref, item),
+              ),
               const SizedBox(height: AppSpacing.s4),
-              _CategoryGroup(title: 'تحويلات', items: transfers),
+              _CategoryGroup(
+                title: 'دخل',
+                items: income,
+                onEdit: (item) => _showCategoryForm(context, ref, item: item),
+                onDelete: (item) => _deleteCategory(context, ref, item),
+              ),
+              const SizedBox(height: AppSpacing.s4),
+              _CategoryGroup(
+                title: 'تحويلات',
+                items: transfers,
+                onEdit: (item) => _showCategoryForm(context, ref, item: item),
+                onDelete: (item) => _deleteCategory(context, ref, item),
+              ),
             ],
           ),
         ),
@@ -505,76 +541,379 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _showSoon(BuildContext context, String title) {
+  Future<void> _showCategoryForm(
+    BuildContext context,
+    WidgetRef ref, {
+    CategoryView? item,
+  }) async {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final name = TextEditingController(text: item?.nameAr ?? '');
+    var icon = item?.entity.icon ?? 'shapes';
+    var color = item?.entity.color ?? '#9E9E9E';
+    var isIncome = item?.entity.isIncome ?? false;
+    final isEditing = item != null;
+    const icons = [
+      'shapes',
+      'utensils-crossed',
+      'shopping-basket',
+      'shopping-bag',
+      'car-taxi-front',
+      'receipt-text',
+      'wallet-cards',
+      'banknote',
+      'coffee',
+      'gift',
+      'house',
+      'plane',
+      'heart-pulse',
+      'graduation-cap',
+      'arrow-left-right',
+    ];
+    const colors = [
+      '#9E9E9E',
+      '#FF7043',
+      '#43A047',
+      '#1E88E5',
+      '#8E24AA',
+      '#00C853',
+      '#00897B',
+      '#D81B60',
+      '#546E7A',
+      '#FB8C00',
+    ];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.s2,
+              AppSpacing.gutter,
+              MediaQuery.of(context).viewInsets.bottom + AppSpacing.s6,
+            ),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Text(
+                  isEditing ? 'تعديل تصنيف' : 'إضافة تصنيف',
+                  style: AppTypography.title2(c.textMain),
+                ),
+                const SizedBox(height: AppSpacing.s4),
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(
+                    labelText: 'اسم التصنيف',
+                    prefixIcon: Icon(Icons.label_outline),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: isIncome,
+                  onChanged: (value) => setState(() => isIncome = value),
+                  title: const Text('تصنيف دخل'),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                DropdownButtonFormField<String>(
+                  value: icon,
+                  decoration: const InputDecoration(
+                    labelText: 'الأيقونة',
+                    prefixIcon: Icon(Icons.emoji_symbols_outlined),
+                  ),
+                  items: icons
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(value),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(() => icon = value ?? icon),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                DropdownButtonFormField<String>(
+                  value: color,
+                  decoration: const InputDecoration(
+                    labelText: 'اللون',
+                    prefixIcon: Icon(Icons.palette_outlined),
+                  ),
+                  items: colors
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 8,
+                                backgroundColor: Formatters.colorFromHex(value),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(value),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(() => color = value ?? color),
+                ),
+                const SizedBox(height: AppSpacing.s5),
+                FilledButton(
+                  onPressed: () async {
+                    final title = name.text.trim();
+                    if (title.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('اكتب اسم التصنيف.')),
+                      );
+                      return;
+                    }
+                    final repo = ref.read(categoryRepositoryProvider);
+                    if (item == null) {
+                      await repo.createCategory(
+                        nameAr: title,
+                        icon: icon,
+                        color: color,
+                        isIncome: isIncome,
+                      );
+                    } else {
+                      await repo.updateCategory(
+                        CategoryEntity(
+                          id: item.id,
+                          key: item.key,
+                          nameAr: title,
+                          icon: icon,
+                          color: color,
+                          isIncome: isIncome,
+                          sort: item.entity.sort,
+                        ),
+                      );
+                    }
+                    _refreshCategoryDependents(ref);
+                    if (context.mounted) Navigator.of(context).pop();
+                  },
+                  child: Text(isEditing ? 'حفظ التعديلات' : 'إضافة'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    name.dispose();
+  }
+
+  Future<void> _deleteCategory(
+    BuildContext context,
+    WidgetRef ref,
+    CategoryView item,
+  ) async {
+    if (item.entity.sort < 0) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('حذف التصنيف؟'),
+        content: const Text(
+          'سيتم نقل عملياته إلى «أخرى» أو «دخل»، وحذف أي ميزانية مرتبطة به.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(categoryRepositoryProvider).deleteCategory(item.id);
+    _refreshCategoryDependents(ref);
+  }
+
+  void _refreshCategoryDependents(WidgetRef ref) {
+    ref.invalidate(categoryCatalogProvider);
+    refreshTransactions(ref);
+    refreshBudgets(ref);
+    ref.invalidate(dashboardDataProvider);
+  }
+
+  Future<void> _showQuietHoursSheet(
+    BuildContext context,
+    WidgetRef ref,
+    NotificationPreferences preferences,
+  ) {
+    final c = context.colors;
+    var start = preferences.quietHoursStartHour;
+    var end = preferences.quietHoursEndHour;
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.s2,
+              AppSpacing.gutter,
+              AppSpacing.s6,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('ساعات الهدوء', style: AppTypography.title2(c.textMain)),
+                const SizedBox(height: AppSpacing.s2),
+                Text(
+                  'نؤجل الإشعارات المجدولة خلال هذه الفترة لأول وقت مسموح.',
+                  style: AppTypography.callout(c.textLight),
+                ),
+                const SizedBox(height: AppSpacing.s4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _HourPicker(
+                        label: 'تبدأ',
+                        value: start,
+                        onChanged: (value) => setState(() => start = value),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: _HourPicker(
+                        label: 'تنتهي',
+                        value: end,
+                        onChanged: (value) => setState(() => end = value),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.s5),
+                SizedBox(
+                  height: 52,
+                  child: FilledButton(
+                    onPressed: () async {
+                      await _savePrefs(
+                        ref,
+                        preferences.copyWith(
+                          quietHoursStartHour: start,
+                          quietHoursEndHour: end,
+                        ),
+                      );
+                      if (context.mounted) Navigator.of(context).pop();
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: c.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: Text(
+                      'حفظ',
+                      style: AppTypography.bodyStrong(Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyInviteText(BuildContext context) async {
+    await Clipboard.setData(
+      const ClipboardData(
+        text:
+            'جرّب مالي: تطبيق عربي يساعدك تفهم مصروفاتك من رسائل البنك وتتابع ميزانيتك بسهولة.',
+      ),
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم نسخ رسالة الدعوة.')),
+    );
+  }
+
+  void _showAboutApp(BuildContext context) {
+    _showInfoSheet(
+      context,
+      title: 'عن التطبيق',
+      body:
+          'مالي MVP لتتبع المصروفات تلقائياً من رسائل البنك. البيانات المالية تبقى على جهازك افتراضياً، والنسخ الاحتياطي اختياري ومشفّر end-to-end عند تفعيله.',
+      actionLabel: 'تمام',
+    );
+  }
+
+  void _showContactSupport(BuildContext context) {
+    _showInfoSheet(
+      context,
+      title: 'تواصل معنا',
+      body:
+          'للدعم أو الملاحظات انسخ البريد وأرسل لنا تفاصيل المشكلة، نوع الجهاز، وخطوات تكرارها.',
+      actionLabel: 'نسخ البريد',
+      onAction: () async {
+        await Clipboard.setData(
+          const ClipboardData(text: 'support@money-companion.app'),
+        );
+      },
+    );
+  }
+
+  void _showInfoSheet(
+    BuildContext context, {
+    required String title,
+    required String body,
+    required String actionLabel,
+    Future<void> Function()? onAction,
+  }) {
+    final c = context.colors;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
+      showDragHandle: true,
       builder: (context) => Directionality(
         textDirection: TextDirection.rtl,
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter,
-                AppSpacing.s3,
-                AppSpacing.gutter,
-                AppSpacing.s6,
-              ),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? c.surface.withValues(alpha: 0.9)
-                    : Colors.white.withValues(alpha: 0.92),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                  width: 1.5,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s2,
+            AppSpacing.gutter,
+            AppSpacing.s6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: AppTypography.title2(c.textMain)),
+              const SizedBox(height: AppSpacing.s2),
+              Text(body, style: AppTypography.callout(c.textLight)),
+              const SizedBox(height: AppSpacing.s4),
+              SizedBox(
+                height: 52,
+                child: FilledButton(
+                  onPressed: () async {
+                    await onAction?.call();
+                    if (context.mounted) Navigator.of(context).pop();
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: c.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: Text(
+                    actionLabel,
+                    style: AppTypography.bodyStrong(Colors.white),
+                  ),
                 ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: c.textLight.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.s3),
-                  Text(title, style: AppTypography.title2(c.textMain)),
-                  const SizedBox(height: AppSpacing.s2),
-                  Text(
-                    'الميزة دي متجهزة كمكان في الإعدادات، وهنوصلها بالمنطق الكامل في دفعة قريبة.',
-                    style: AppTypography.callout(c.textLight),
-                  ),
-                  const SizedBox(height: AppSpacing.s4),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: FilledButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: c.primary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: Text('تمام',
-                          style: AppTypography.bodyStrong(Colors.white)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            ],
           ),
         ),
       ),
@@ -726,10 +1065,17 @@ class _Section extends StatelessWidget {
 }
 
 class _CategoryGroup extends StatelessWidget {
-  const _CategoryGroup({required this.title, required this.items});
+  const _CategoryGroup({
+    required this.title,
+    required this.items,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   final String title;
   final List<CategoryView> items;
+  final ValueChanged<CategoryView> onEdit;
+  final ValueChanged<CategoryView> onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -739,35 +1085,95 @@ class _CategoryGroup extends StatelessWidget {
       children: [
         Text(title, style: AppTypography.bodyStrong(c.textMain)),
         const SizedBox(height: AppSpacing.s2),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        Column(
           children: [
             for (final item in items)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: item.color.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(color: item.color.withValues(alpha: 0.20)),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: item.color.withValues(alpha: 0.12),
+                  child: Icon(item.icon, color: item.color, size: 18),
                 ),
-                child: Row(
+                title: Text(item.nameAr),
+                subtitle: Text(item.key),
+                trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(item.icon, color: item.color, size: 16),
-                    const SizedBox(width: 6),
-                    Text(
-                      item.nameAr,
-                      style: AppTypography.caption(c.textMain)
-                          .copyWith(fontWeight: FontWeight.w700),
+                    IconButton(
+                      tooltip: 'تعديل',
+                      onPressed: () => onEdit(item),
+                      icon: const Icon(Icons.edit_outlined),
                     ),
+                    if (item.entity.sort >= 0)
+                      IconButton(
+                        tooltip: 'حذف',
+                        onPressed: () => onDelete(item),
+                        icon: Icon(Icons.delete_outline, color: c.danger),
+                      ),
                   ],
                 ),
               ),
           ],
         ),
       ],
+    );
+  }
+}
+
+class _AppLockTile extends StatefulWidget {
+  const _AppLockTile();
+
+  @override
+  State<_AppLockTile> createState() => _AppLockTileState();
+}
+
+class _AppLockTileState extends State<_AppLockTile> {
+  bool _enabled = false;
+  bool _loading = true;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final enabled = await AppLockService.instance.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      _enabled = enabled;
+      _loading = false;
+    });
+  }
+
+  Future<void> _setEnabled(bool value) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final ok = await AppLockService.instance.setEnabled(value);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (ok) _enabled = value;
+    });
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تعذر تفعيل القفل. تأكد من إعداد بصمة أو رمز للجهاز.'),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return _SwitchTile(
+      title: 'قفل التطبيق',
+      icon: Icons.lock_outline_rounded,
+      iconColor: c.primary,
+      value: _enabled,
+      onChanged: _loading || _busy ? (_) {} : _setEnabled,
     );
   }
 }
@@ -821,14 +1227,12 @@ class _NavTile extends StatelessWidget {
     required this.icon,
     required this.title,
     this.subtitle,
-    this.trailing,
     required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String? subtitle;
-  final Widget? trailing;
   final VoidCallback onTap;
 
   @override
@@ -842,8 +1246,7 @@ class _NavTile extends StatelessWidget {
       subtitle: subtitle == null
           ? null
           : Text(subtitle!, style: AppTypography.caption(c.textLight)),
-      trailing:
-          trailing ?? Icon(Icons.chevron_left, color: c.textLight, size: 20),
+      trailing: Icon(Icons.chevron_left, color: c.textLight, size: 20),
       onTap: onTap,
     );
   }
@@ -899,19 +1302,51 @@ class _TileIcon extends StatelessWidget {
   }
 }
 
-class _SoonBadge extends StatelessWidget {
-  const _SoonBadge();
+class _HourPicker extends StatelessWidget {
+  const _HourPicker({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int value;
+  final ValueChanged<int> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: c.success.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Text('قريباً', style: AppTypography.caption(c.success)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTypography.subhead(c.textLight)),
+        const SizedBox(height: AppSpacing.s2),
+        DropdownButtonFormField<int>(
+          value: value,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: c.surface2.withValues(alpha: 0.55),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: c.border),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: c.border),
+            ),
+          ),
+          items: [
+            for (var hour = 0; hour < 24; hour++)
+              DropdownMenuItem(
+                value: hour,
+                child: Text('${hour.toString().padLeft(2, '0')}:00'),
+              ),
+          ],
+          onChanged: (value) {
+            if (value != null) onChanged(value);
+          },
+        ),
+      ],
     );
   }
 }

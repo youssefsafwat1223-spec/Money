@@ -12,6 +12,7 @@ import '../common/premium_loading.dart';
 import '../common/widgets.dart';
 import '../common/section_hero_header.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
+import '../settings/settings_providers.dart';
 import 'reports_providers.dart';
 
 class ReportsScreen extends ConsumerWidget {
@@ -20,6 +21,10 @@ class ReportsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(reportsProvider);
+    final privacyMode = ref.watch(userSettingsProvider).maybeWhen(
+          data: (settings) => settings.privacyModeEnabled,
+          orElse: () => false,
+        );
     final c = context.colors;
     return DefaultTabController(
       length: 3,
@@ -37,15 +42,17 @@ class ReportsScreen extends ConsumerWidget {
                     subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
                     metrics: [
                       SectionHeroMetric(
-                        value: '${Formatters.amount(section.total)} ر',
+                        value: _money(section.total, privacyMode: privacyMode),
                         label: 'مصروف الشهر',
                       ),
                       SectionHeroMetric(
-                        value: '${Formatters.amount(section.averageDaily)} ر',
+                        value: _money(section.averageDaily,
+                            privacyMode: privacyMode),
                         label: 'متوسط يومي',
                       ),
                       SectionHeroMetric(
-                        value: '${Formatters.amount(section.highestDaily)} ر',
+                        value: _money(section.highestDaily,
+                            privacyMode: privacyMode),
                         label: 'أعلى يوم',
                       ),
                     ],
@@ -80,9 +87,18 @@ class ReportsScreen extends ConsumerWidget {
                 Expanded(
                   child: TabBarView(
                     children: [
-                      _OverviewTab(section: section),
-                      _TrendsTab(section: section),
-                      _DetailsTab(section: section),
+                      _OverviewTab(
+                        section: section,
+                        privacyMode: privacyMode,
+                      ),
+                      _TrendsTab(
+                        section: section,
+                        privacyMode: privacyMode,
+                      ),
+                      _DetailsTab(
+                        section: section,
+                        privacyMode: privacyMode,
+                      ),
                     ],
                   ),
                 ),
@@ -95,10 +111,20 @@ class ReportsScreen extends ConsumerWidget {
   }
 }
 
+String _money(double amount, {required bool privacyMode}) {
+  return privacyMode ? '•••• ر' : '${Formatters.amount(amount)} ر';
+}
+
+String _dateLabel(DateTime day) => '${day.day}/${day.month}';
+
 class _OverviewTab extends StatelessWidget {
-  const _OverviewTab({required this.section});
+  const _OverviewTab({
+    required this.section,
+    required this.privacyMode,
+  });
 
   final ReportSection section;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
@@ -114,11 +140,19 @@ class _OverviewTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
-        PremiumMotion(child: _PeriodCard(section: section)),
+        PremiumMotion(
+          child: _PeriodCard(
+            section: section,
+            privacyMode: privacyMode,
+          ),
+        ),
         const SizedBox(height: AppSpacing.s5),
         PremiumMotion(
           delay: const Duration(milliseconds: 70),
-          child: _DailySpendCard(section: section),
+          child: _DailySpendCard(
+            section: section,
+            privacyMode: privacyMode,
+          ),
         ),
         if (section.topCategories.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.s5),
@@ -143,17 +177,33 @@ class _OverviewTab extends StatelessWidget {
 }
 
 class _TrendsTab extends StatelessWidget {
-  const _TrendsTab({required this.section});
+  const _TrendsTab({
+    required this.section,
+    required this.privacyMode,
+  });
 
   final ReportSection section;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final delta = section.deltaPercent;
+    final anomaly = section.anomaly;
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
+        if (anomaly != null) ...[
+          _InsightCard(
+            icon: AppLucideIcons.alertTriangle,
+            title: 'صرف غير معتاد',
+            body: privacyMode
+                ? 'في يوم ${_dateLabel(anomaly.day)} كان الصرف أعلى من نمطك المعتاد. راجعه لو حابب تفهم السبب.'
+                : 'في يوم ${_dateLabel(anomaly.day)} صرفت ${_money(anomaly.total, privacyMode: false)}، وهو أعلى من متوسطك اليومي ${anomaly.ratio.toStringAsFixed(1)}×.',
+            color: c.danger,
+          ),
+          const SizedBox(height: AppSpacing.s4),
+        ],
         _InsightCard(
           icon: delta == null || delta <= 0
               ? AppLucideIcons.arrowLeftRight
@@ -171,7 +221,7 @@ class _TrendsTab extends StatelessWidget {
           icon: AppLucideIcons.shapes,
           title: 'أعلى يوم صرف',
           body:
-              'أعلى يوم هذا الشهر وصل إلى ${Formatters.amount(section.highestDaily)} ريال.',
+              'أعلى يوم هذا الشهر وصل إلى ${_money(section.highestDaily, privacyMode: privacyMode)}.',
           color: c.primary,
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -189,9 +239,13 @@ class _TrendsTab extends StatelessWidget {
 }
 
 class _DetailsTab extends StatelessWidget {
-  const _DetailsTab({required this.section});
+  const _DetailsTab({
+    required this.section,
+    required this.privacyMode,
+  });
 
   final ReportSection section;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
@@ -234,7 +288,7 @@ class _DetailsTab extends StatelessWidget {
                     child: Text(merchant.name,
                         style: AppTypography.bodyStrong(c.textMain)),
                   ),
-                  Text('${Formatters.amount(merchant.total)} ريال',
+                  Text(_money(merchant.total, privacyMode: privacyMode),
                       style: AppTypography.bodyStrong(c.textMain)),
                 ],
               ),
@@ -245,9 +299,13 @@ class _DetailsTab extends StatelessWidget {
 }
 
 class _PeriodCard extends StatelessWidget {
-  const _PeriodCard({required this.section});
+  const _PeriodCard({
+    required this.section,
+    required this.privacyMode,
+  });
 
   final ReportSection section;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
@@ -264,7 +322,7 @@ class _PeriodCard extends StatelessWidget {
         children: [
           Text('يونيو 2026', style: AppTypography.subhead(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
-          Text('${Formatters.amount(section.total)} ريال',
+          Text(_money(section.total, privacyMode: privacyMode),
               style: AppTypography.amountHero(c.textMain)),
           Text('مصروف هذا الشهر', style: AppTypography.caption(c.textLight)),
         ],
@@ -274,9 +332,13 @@ class _PeriodCard extends StatelessWidget {
 }
 
 class _DailySpendCard extends StatelessWidget {
-  const _DailySpendCard({required this.section});
+  const _DailySpendCard({
+    required this.section,
+    required this.privacyMode,
+  });
 
   final ReportSection section;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
@@ -306,19 +368,19 @@ class _DailySpendCard extends StatelessWidget {
               Expanded(
                 child: _MiniMetric(
                   label: 'المتوسط',
-                  value: '${Formatters.amount(section.averageDaily)} ريال',
+                  value: _money(section.averageDaily, privacyMode: privacyMode),
                 ),
               ),
               Expanded(
                 child: _MiniMetric(
                   label: 'الأعلى',
-                  value: '${Formatters.amount(section.highestDaily)} ريال',
+                  value: _money(section.highestDaily, privacyMode: privacyMode),
                 ),
               ),
               Expanded(
                 child: _MiniMetric(
                   label: 'الإجمالي',
-                  value: '${Formatters.amount(section.total)} ريال',
+                  value: _money(section.total, privacyMode: privacyMode),
                 ),
               ),
             ],

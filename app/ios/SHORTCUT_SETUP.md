@@ -40,19 +40,19 @@ Flutter side: `NativeCaptureBridge.consumePendingSharedMessages()` and
 The App Group identifier is hard-coded in all three stores:
 
 ```
-group.com.example.money_companion.shared
+group.com.youssefsafwat.mali.shared
 ```
 
-> If you change the app's bundle ID away from `com.example.money_companion`, update
+> If you change the app's bundle ID away from `com.youssefsafwat.mali`, update
 > `appGroupIdentifier` in **all three** `SharedCaptureStore.swift` files to match.
 
 1. Apple Developer portal → **Certificates, Identifiers & Profiles → Identifiers**.
-2. Create an **App Group**: `group.com.example.money_companion.shared`.
+2. Create an **App Group**: `group.com.youssefsafwat.mali.shared`.
 3. Enable it for the App ID of **each** of the three targets (app + 2 extensions).
 
 In Xcode, for **Runner**, **BankMessageShortcuts**, and **ShareBankMessage**:
 - Target → **Signing & Capabilities → + Capability → App Groups**.
-- Tick `group.com.example.money_companion.shared`.
+- Tick `group.com.youssefsafwat.mali.shared`.
 
 ---
 
@@ -158,7 +158,7 @@ the key), and a legacy single-string key is migrated in for backwards compatibil
 ## 7. Troubleshooting
 
 - **Nothing happens on open** — App Group not enabled on all 3 targets, or the
-  identifier differs from `group.com.example.money_companion.shared`.
+  identifier differs from `group.com.youssefsafwat.mali.shared`.
 - **Action missing in Shortcuts** — the App Intents extension didn't build/embed, or
   the device is below iOS 16. Reinstall the app; iOS indexes intents on install.
 - **Share sheet doesn't show Mali** — `NSExtensionActivationRule` doesn't accept text.
@@ -172,5 +172,5 @@ the key), and a legacy single-string key is migrated in for backwards compatibil
 - **Apple Developer Program** account (paid) — required to sign app extensions.
 - **Xcode on macOS** to create the two extension targets once and to build.
 - **iOS 16.0+** for App Intents (Share Extension works on older iOS too).
-- One **App Group**: `group.com.example.money_companion.shared`, enabled on Runner +
+- One **App Group**: `group.com.youssefsafwat.mali.shared`, enabled on Runner +
   both extensions, all on the same Team.

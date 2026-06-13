@@ -20,7 +20,6 @@ import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
 import '../capture/capture_entry_sheet.dart';
 import '../capture/capture_runtime.dart';
-import '../capture/services/android_sms_capture_service.dart';
 import '../capture/services/captured_message_processor.dart';
 import '../capture/services/local_notification_service.dart';
 import '../capture/services/native_capture_bridge.dart';
@@ -63,7 +62,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await AndroidSmsCaptureService.instance.startListeningIfPermitted();
       await _consumeSharedInput();
       await _syncEngagement();
       _drainCelebrations();
@@ -107,6 +105,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         rawMessage: message.text,
         senderId: message.sender,
         showNotifications: false,
+        database: ref.read(appDatabaseProvider),
       );
       if (result.transactionId != null &&
           result.addTransactionResult.requiresConfirmation) {
@@ -318,11 +317,9 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ),
               ),
             ),
-            // محتوى الصفحة الرئيسي
-            SafeArea(
-              bottom: false,
-              child: IndexedStack(index: index, children: pages),
-            ),
+            // محتوى الصفحة الرئيسي — بدون SafeArea علوي حتى يمتد الهيدر
+            // المتدرّج خلف شريط الحالة (كل شاشة تتكفّل بالمساحة الآمنة داخليًا).
+            IndexedStack(index: index, children: pages),
             if (_activeCelebration != null)
               Positioned(
                 top: AppSpacing.s5,

@@ -17,10 +17,16 @@ void main() {
   });
 
   group('Normalizer.normalizeCurrencyTokens', () {
-    test('يوحّد رموز العملة إلى SAR', () {
+    test('يوحّد رموز العملة السعودية إلى SAR', () {
       expect(Normalizer.normalizeCurrencyTokens('45 ريال'), '45 SAR');
       expect(Normalizer.normalizeCurrencyTokens('45 ر.س'), '45 SAR');
       expect(Normalizer.normalizeCurrencyTokens('45 ﷼'), '45 SAR');
+    });
+
+    test('يوحّد عملات عربية متعددة', () {
+      expect(Normalizer.normalizeCurrencyTokens('45 درهم'), '45 AED');
+      expect(Normalizer.normalizeCurrencyTokens('45 جنيه مصري'), '45 EGP');
+      expect(Normalizer.normalizeCurrencyTokens('45 دينار كويتي'), '45 KWD');
     });
   });
 

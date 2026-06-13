@@ -55,8 +55,8 @@ money/                         ← جذر الريبو (هنا codemagic.yaml و
 ```
 
 ### معلومات أساسية
-- **Bundle ID للتطبيق:** `com.example.moneyCompanion`
-- **App Group (في الـ entitlements):** `group.com.example.money_companion.shared`
+- **Bundle ID للتطبيق:** `com.youssefsafwat.mali`
+- **App Group (في الـ entitlements):** `group.com.youssefsafwat.mali.shared`
   - ملاحظة: عدم تطابق الـ underscore بين الـ bundle id و الـ App Group **مقصود ومقبول** —
     الـ App Group مستقل عن الـ bundle id. لا تُصلح أحدهما ليطابق الآخر.
 - **Flutter:** `>=3.22.0` / Dart `>=3.4.0`
@@ -135,7 +135,7 @@ commit، لكنه **غير مضاف لتارجت Runner** في `project.pbxproj`
 - `Runner.entitlements` موجود وفيه الـ App Group، لكن **غير مربوط**:
   `CODE_SIGN_ENTITLEMENTS` غير موجود في `project.pbxproj` (تأكدنا: NOT referenced).
 - على الماك: Runner target → **Signing & Capabilities** → **+ Capability → App Groups**
-  → فعّل `group.com.example.money_companion.shared`. Xcode سيضبط
+  → فعّل `group.com.youssefsafwat.mali.shared`. Xcode سيضبط
   `CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements` تلقائياً.
 
 ### 🟡 (C) إنشاء تارجت الـ Share Extension: `ShareBankMessage`

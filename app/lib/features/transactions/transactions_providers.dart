@@ -106,6 +106,8 @@ final transactionsDateRangeProvider =
 final transactionKindFilterProvider =
     StateProvider<TransactionKindFilter>((ref) => TransactionKindFilter.all);
 
+final transactionSearchQueryProvider = StateProvider<String>((ref) => '');
+
 final transactionsPageTabProvider = StateProvider<int>((ref) => 0);
 
 final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
@@ -113,12 +115,13 @@ final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
   final catalog = await ref.watch(categoryCatalogProvider.future);
   final range = ref.watch(transactionsDateRangeProvider);
   final kind = ref.watch(transactionKindFilterProvider);
+  final query = ref.watch(transactionSearchQueryProvider).trim().toLowerCase();
   final all = await txRepo.getAll();
   final inRange = all.where((tx) {
     final at = tx.occurredAt;
     return !at.isBefore(range.from) && !at.isAfter(range.to);
   });
-  final filtered = inRange.where((tx) {
+  final filteredByKind = inRange.where((tx) {
     return switch (kind) {
       TransactionKindFilter.all => true,
       TransactionKindFilter.expenses =>
@@ -129,6 +132,19 @@ final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
             tx.type == TransactionTypeEntity.refund,
       TransactionKindFilter.transfers => tx.type == TransactionTypeEntity.transfer,
     };
+  });
+  final filtered = filteredByKind.where((tx) {
+    if (query.isEmpty) return true;
+    final category = catalog.byId(tx.categoryId);
+    final haystack = [
+      tx.rawMerchant,
+      tx.currency,
+      tx.amount.toStringAsFixed(2),
+      category?.nameAr,
+      category?.key,
+      tx.note,
+    ].whereType<String>().join(' ').toLowerCase();
+    return haystack.contains(query);
   }).toList(growable: false);
   return TransactionsView(transactions: filtered, catalog: catalog, range: range);
 });

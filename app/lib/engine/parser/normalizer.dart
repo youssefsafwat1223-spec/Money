@@ -3,7 +3,7 @@
 /// المسؤوليات:
 /// - تحويل الأرقام العربية/الهندية إلى غربية (٠-٩ و ۰-۹ → 0-9).
 /// - إزالة التطويل (ـ) والمسافات الزائدة.
-/// - توحيد رمز العملة إلى الرمز القياسي SAR.
+/// - توحيد كلمات ورموز العملات إلى رموز ISO.
 class Normalizer {
   Normalizer._();
 
@@ -27,13 +27,22 @@ class Normalizer {
     return buffer.toString();
   }
 
-  /// توحيد رموز العملة السعودية إلى "SAR".
+  /// توحيد رموز وكلمات العملات إلى رموز ISO.
   static String normalizeCurrencyTokens(String input) {
     return input
-        .replaceAll('ر.س', 'SAR')
-        .replaceAll('ر.س.', 'SAR')
+        .replaceAll(RegExp(r'ر\.س\.?', caseSensitive: false), 'SAR')
+        .replaceAll(RegExp(r'د\.إ\.?', caseSensitive: false), 'AED')
+        .replaceAll(RegExp(r'ج\.م\.?', caseSensitive: false), 'EGP')
         .replaceAll('﷼', 'SAR')
-        .replaceAll('ريال', 'SAR');
+        .replaceAll(RegExp(r'ريال\s+سعودي'), 'SAR')
+        .replaceAll(RegExp(r'ريال\s+قطري'), 'QAR')
+        .replaceAll(RegExp(r'ريال\s+عماني'), 'OMR')
+        .replaceAll(RegExp(r'درهم\s+إماراتي|درهم\s+اماراتي|درهم'), 'AED')
+        .replaceAll(RegExp(r'جنيه\s+مصري|جنيه'), 'EGP')
+        .replaceAll(RegExp(r'دينار\s+كويتي'), 'KWD')
+        .replaceAll(RegExp(r'دينار\s+بحريني'), 'BHD')
+        .replaceAll(RegExp(r'دولار\s+أمريكي|دولار\s+امريكي|دولار'), 'USD')
+        .replaceAll(RegExp(r'ريال'), 'SAR');
   }
 
   /// التطبيع الكامل: أرقام + تطويل + مسافات (مع الحفاظ على أسطر جديدة).

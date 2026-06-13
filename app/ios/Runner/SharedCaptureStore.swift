@@ -7,7 +7,7 @@ import Foundation
 /// IMPORTANT: must be identical in all three targets (Runner, ShareBankMessage,
 /// BankMessageShortcuts) — Swift targets do not share source automatically.
 enum SharedCaptureStore {
-  static let appGroupIdentifier = "group.com.example.money_companion.shared"
+  static let appGroupIdentifier = "group.com.youssefsafwat.mali.shared"
   private static let queueKey = "pending_bank_messages_v2"
   // Legacy single-value key kept for backward compatibility.
   private static let legacyKey = "pending_bank_message_text"

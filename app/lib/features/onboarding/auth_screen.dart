@@ -45,19 +45,52 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Future<void> _provider(Future<AuthIdentity> Function() signIn) async {
     if (_busy) return;
     setState(() => _busy = true);
-    final identity = await signIn();
-    await AppSession.instance
-        .setIdentity(method: identity.method, email: identity.email);
-    if (mounted) context.push('/onboarding/method');
+    try {
+      final identity = await signIn();
+      final wasAuthenticated = AppSession.instance.status ==
+          SessionStatus.authenticated;
+      await AppSession.instance
+          .setIdentity(method: identity.method, email: identity.email);
+      if (mounted) {
+        wasAuthenticated
+            ? context.go('/backup')
+            : context.push('/onboarding/method');
+      }
+    } catch (_) {
+      if (mounted) {
+        _showAuthError();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
   }
 
   Future<void> _emailContinue() async {
     final email = _email.text.trim();
     if (email.isEmpty || _busy) return;
     setState(() => _busy = true);
-    await ref.read(authServiceProvider).sendEmailCode(email);
-    setState(() => _busy = false);
-    if (mounted) context.push('/onboarding/otp', extra: email);
+    try {
+      await ref.read(authServiceProvider).sendEmailCode(email);
+      if (mounted) context.push('/onboarding/otp', extra: email);
+    } catch (_) {
+      if (mounted) {
+        _showAuthError();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  void _showAuthError() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('تعذر تسجيل الدخول الآن. حاول مرة أخرى بعد لحظات.'),
+      ),
+    );
   }
 
   @override
@@ -232,6 +265,27 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   context.l10n.sendOtpCode,
                                   style: _alex(15, FontWeight.w800, 1.2, actionForeground),
                                 ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: _busy
+                                ? null
+                                : () async {
+                                    await AppSession.instance
+                                        .setIdentity(method: 'guest');
+                                    if (context.mounted) {
+                                      context.push('/onboarding/method');
+                                    }
+                                  },
+                            child: Text(
+                              'المتابعة بدون حساب',
+                              style: _alex(
+                                13,
+                                FontWeight.w800,
+                                1.2,
+                                c.textLight,
                               ),
                             ),
                           ),

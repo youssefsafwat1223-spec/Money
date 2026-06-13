@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/privacy/data_wipe_service.dart';
 import '../../core/session/app_session.dart';
@@ -8,9 +9,15 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../common/section_hero_header.dart';
+import 'data_export.dart';
 
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
+
+  static final Uri _privacyPolicyUrl =
+      Uri.parse('https://mali.youssefsafwat.com/privacy');
+  static final Uri _termsUrl =
+      Uri.parse('https://mali.youssefsafwat.com/terms');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -31,15 +38,19 @@ class PrivacyScreen extends ConsumerWidget {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.description_outlined),
                   title: const Text('سياسة الخصوصية'),
-                  onTap: () {},
+                  onTap: () => _openExternalLink(context, _privacyPolicyUrl),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.gavel_outlined),
+                  title: const Text('الشروط والأحكام'),
+                  onTap: () => _openExternalLink(context, _termsUrl),
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.download_outlined),
                   title: const Text('تصدير بياناتي'),
-                  onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('التصدير سيتوفّر قريباً.')),
-                  ),
+                  onTap: () => exportTransactionsCsv(context, ref),
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -67,6 +78,15 @@ class PrivacyScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _openExternalLink(BuildContext context, Uri url) async {
+    final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر فتح الرابط الآن.')),
+      );
+    }
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {

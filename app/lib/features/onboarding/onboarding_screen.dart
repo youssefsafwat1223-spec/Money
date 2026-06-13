@@ -1,10 +1,12 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -795,17 +797,39 @@ class _VaultPage extends StatelessWidget {
 
 
 
-class _CountryPage extends StatefulWidget {
+class _CountryPage extends ConsumerStatefulWidget {
   const _CountryPage();
 
   @override
-  State<_CountryPage> createState() => _CountryPageState();
+  ConsumerState<_CountryPage> createState() => _CountryPageState();
 }
 
-class _CountryPageState extends State<_CountryPage> {
+class _CountryPageState extends ConsumerState<_CountryPage> {
   int _selectedCountryIndex = 0;
   final Set<String> _selectedExtraCurrencies = {};
   final Set<String> _selectedSubscriptions = {};
+
+  Future<void> _selectCountry(int index) async {
+    setState(() => _selectedCountryIndex = index);
+    final selectedCountry = onboardingCountries[index];
+    try {
+      final repository = ref.read(userSettingsRepositoryProvider);
+      final settings = await repository.getSettings();
+      await repository.saveSettings(
+        settings.copyWith(
+          country: selectedCountry.code,
+          currency: selectedCountry.currencyCode,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لم نتمكن من حفظ البلد والعملة الآن. جرّب مرة أخرى.'),
+        ),
+      );
+    }
+  }
 
   void _showCountryPicker(BuildContext context) {
     String searchQuery = '';
@@ -886,7 +910,7 @@ class _CountryPageState extends State<_CountryPage> {
                             option: country,
                             selected: isSelected,
                             onTap: () {
-                              setState(() => _selectedCountryIndex = actualIndex);
+                              _selectCountry(actualIndex);
                               setModalState(() {});
                               Navigator.pop(context);
                             },

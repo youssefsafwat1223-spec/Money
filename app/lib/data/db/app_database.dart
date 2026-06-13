@@ -11,6 +11,8 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
+const int _targetSchemaVersion = 2;
+
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
     DatabaseConnection connection, {
@@ -22,7 +24,7 @@ class AppDatabase extends GeneratedDatabase {
   final bool isEncrypted;
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => _targetSchemaVersion;
 
   @override
   Iterable<TableInfo<Table, Object?>> get allTables => const [];
@@ -58,9 +60,10 @@ class AppDatabase extends GeneratedDatabase {
 
   Future<void> initialize() async {
     await customStatement('PRAGMA foreign_keys = ON;');
-    await customStatement('PRAGMA user_version = 1;');
     await _createSchema();
+    await _runCompatibilityMigrations();
     await _seedIfNeeded();
+    await customStatement('PRAGMA user_version = $_targetSchemaVersion;');
   }
 
   @override
@@ -140,6 +143,7 @@ class AppDatabase extends GeneratedDatabase {
         source TEXT NOT NULL,
         card_last4 TEXT NULL,
         balance_after REAL NULL,
+        note TEXT NULL,
         occurred_at TEXT NOT NULL,
         raw_message TEXT NOT NULL,
         parse_confidence REAL NOT NULL,
@@ -237,6 +241,60 @@ class AppDatabase extends GeneratedDatabase {
         FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
       );
     ''');
+
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS parsing_rules(
+        id TEXT PRIMARY KEY,
+        bank_key TEXT NOT NULL,
+        locale TEXT NOT NULL,
+        pattern TEXT NOT NULL,
+        field TEXT NOT NULL,
+        priority INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        is_active INTEGER NOT NULL
+      );
+    ''');
+
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS user_settings(
+        id TEXT PRIMARY KEY,
+        country TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        language TEXT NOT NULL,
+        theme TEXT NOT NULL,
+        input_method TEXT NOT NULL,
+        notifications_json TEXT NOT NULL,
+        db_encryption_key_ref TEXT NOT NULL,
+        privacy_mode_enabled INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+
+    // الحسابات/المحافظ — كل حساب بعملته الخاصة (multi-currency).
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS accounts(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        type TEXT NOT NULL,
+        initial_balance REAL NULL,
+        current_balance REAL NULL,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  Future<void> _runCompatibilityMigrations() async {
+    final version = await _currentUserVersion();
+    // v2 consolidates the manual columns added during MVP hardening. The
+    // checks stay idempotent because older builds could write user_version
+    // before all compatibility columns existed.
+    if (version > _targetSchemaVersion) {
+      throw StateError('Unsupported database schema version: $version');
+    }
+    await _ensureColumn('transactions', 'note', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'name', "TEXT NOT NULL DEFAULT ''");
     await _ensureColumn(
       'subscriptions',
@@ -264,32 +322,19 @@ class AppDatabase extends GeneratedDatabase {
       'created_at',
       "TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'",
     );
+    await _ensureColumn(
+      'user_settings',
+      'privacy_mode_enabled',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    // v2: ربط المعاملات/الاشتراكات بالحساب (multi-currency accounts).
+    await _ensureColumn('transactions', 'account_id', 'TEXT NULL');
+    await _ensureColumn('subscriptions', 'account_id', 'TEXT NULL');
+  }
 
-    await customStatement('''
-      CREATE TABLE IF NOT EXISTS parsing_rules(
-        id TEXT PRIMARY KEY,
-        bank_key TEXT NOT NULL,
-        locale TEXT NOT NULL,
-        pattern TEXT NOT NULL,
-        field TEXT NOT NULL,
-        priority INTEGER NOT NULL,
-        version INTEGER NOT NULL,
-        is_active INTEGER NOT NULL
-      );
-    ''');
-
-    await customStatement('''
-      CREATE TABLE IF NOT EXISTS user_settings(
-        id TEXT PRIMARY KEY,
-        country TEXT NOT NULL,
-        currency TEXT NOT NULL,
-        language TEXT NOT NULL,
-        theme TEXT NOT NULL,
-        input_method TEXT NOT NULL,
-        notifications_json TEXT NOT NULL,
-        db_encryption_key_ref TEXT NOT NULL
-      );
-    ''');
+  Future<int> _currentUserVersion() async {
+    final row = await customSelect('PRAGMA user_version;').getSingle();
+    return row.read<int>('user_version');
   }
 
   Future<void> _ensureColumn(
@@ -421,14 +466,65 @@ class AppDatabase extends GeneratedDatabase {
       await customInsert(
         '''
           INSERT INTO user_settings(
-            id, country, currency, language, theme, input_method, notifications_json, db_encryption_key_ref
+            id, country, currency, language, theme, input_method, notifications_json, db_encryption_key_ref, privacy_mode_enabled
           )
-          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', ?);
+          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', ?, 0);
         ''',
         variables: [
           Variable.withString(IdGenerator.next()),
           Variable.withString(keyRef),
         ],
+      );
+    }
+
+    await _ensureDefaultAccount();
+  }
+
+  /// ينشئ حساباً افتراضياً واحداً من عملة المستخدم الحالية، ويربط كل العمليات
+  /// والاشتراكات القائمة (بدون حساب) به. آمن وبدون فقدان بيانات.
+  Future<void> _ensureDefaultAccount() async {
+    if (await count('accounts') > 0) {
+      // اضمن وجود حساب افتراضي واحد على الأقل.
+      final defaults = await customSelect(
+        'SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;',
+      ).get();
+      if (defaults.isEmpty) {
+        await customStatement(
+          'UPDATE accounts SET is_default = 1 WHERE id = '
+          '(SELECT id FROM accounts ORDER BY sort_order ASC LIMIT 1);',
+        );
+      }
+    } else {
+      final settingsRow = await customSelect(
+        'SELECT currency FROM user_settings LIMIT 1;',
+      ).getSingleOrNull();
+      final currency = settingsRow?.read<String>('currency') ?? 'SAR';
+      final accountId = IdGenerator.next();
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await customInsert(
+        '''
+          INSERT INTO accounts(
+            id, name, currency, type, initial_balance, current_balance,
+            is_default, sort_order, created_at, updated_at
+          )
+          VALUES (?, ?, ?, 'bank', NULL, NULL, 1, 0, ?, ?);
+        ''',
+        variables: [
+          Variable.withString(accountId),
+          Variable.withString('الحساب الرئيسي'),
+          Variable.withString(currency),
+          Variable.withString(now),
+          Variable.withString(now),
+        ],
+      );
+      // backfill: اربط كل العمليات/الاشتراكات القائمة بالحساب الافتراضي.
+      await customStatement(
+        'UPDATE transactions SET account_id = ${sqlString(accountId)} '
+        'WHERE account_id IS NULL;',
+      );
+      await customStatement(
+        'UPDATE subscriptions SET account_id = ${sqlString(accountId)} '
+        'WHERE account_id IS NULL;',
       );
     }
   }

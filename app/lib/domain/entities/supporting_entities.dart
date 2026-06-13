@@ -142,6 +142,7 @@ class UserSettingsEntity {
     required this.inputMethod,
     required this.notificationsJson,
     required this.dbEncryptionKeyRef,
+    required this.privacyModeEnabled,
   });
 
   final String id;
@@ -152,6 +153,7 @@ class UserSettingsEntity {
   final String inputMethod;
   final String notificationsJson;
   final String dbEncryptionKeyRef;
+  final bool privacyModeEnabled;
 
   UserSettingsEntity copyWith({
     String? id,
@@ -162,6 +164,7 @@ class UserSettingsEntity {
     String? inputMethod,
     String? notificationsJson,
     String? dbEncryptionKeyRef,
+    bool? privacyModeEnabled,
   }) {
     return UserSettingsEntity(
       id: id ?? this.id,
@@ -172,6 +175,7 @@ class UserSettingsEntity {
       inputMethod: inputMethod ?? this.inputMethod,
       notificationsJson: notificationsJson ?? this.notificationsJson,
       dbEncryptionKeyRef: dbEncryptionKeyRef ?? this.dbEncryptionKeyRef,
+      privacyModeEnabled: privacyModeEnabled ?? this.privacyModeEnabled,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/engine/models/transaction_source.dart';
 import 'package:money_companion/engine/models/transaction_type.dart';
+import 'package:money_companion/engine/parser/bank_profile.dart';
 import 'package:money_companion/engine/parser/parser_engine.dart';
 
 import 'fixtures/sample_messages.dart';
@@ -76,6 +77,20 @@ void main() {
       expect(t.rawMerchant, 'بنده');
       expect(t.occurredAt, DateTime(2026, 4, 8, 14, 30));
     });
+
+    test('يستخرج عملات غير SAR', () {
+      final egp = engine
+          .parse('شراء بمبلغ 125.50 جنيه مصري لدى MARKET 2026-04-08 12:00')
+          .transaction!;
+      expect(egp.amount, 125.50);
+      expect(egp.currency, 'EGP');
+
+      final aed = engine
+          .parse('Purchase AED 42.00 At COFFEE SHOP 2026-04-08 12:00')
+          .transaction!;
+      expect(aed.amount, 42.00);
+      expect(aed.currency, 'AED');
+    });
   });
 
   group('ParserEngine — تجاهل غير المالي (§24.6)', () {
@@ -94,6 +109,24 @@ void main() {
         engine.parse(SampleMessages.stcPay, senderId: 'STCPay').bankKey,
         'stcpay',
       );
+    });
+
+    test('profiles خارجية توسع كشف البنك بدون تغيير المحرك', () {
+      final result = engine.parse(
+        'Purchase EGP 85.00 At GROCERY 2026-04-08 12:00',
+        senderId: 'CIB Alerts',
+        bankProfiles: const [
+          BankProfile(
+            bankKey: 'cib_eg',
+            displayName: 'CIB Egypt',
+            keywords: ['cib alerts'],
+            defaultSource: TransactionSource.bank,
+          ),
+        ],
+      );
+
+      expect(result.bankKey, 'cib_eg');
+      expect(result.transaction!.currency, 'EGP');
     });
   });
 }
