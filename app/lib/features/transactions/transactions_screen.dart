@@ -5,6 +5,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
@@ -770,41 +771,182 @@ class _BillCard extends StatelessWidget {
 
   final BillEntity bill;
 
+  int get _cycleDays => switch (bill.frequency) {
+        BillFrequency.weekly => 7,
+        BillFrequency.monthly => 30,
+        BillFrequency.yearly => 365,
+        BillFrequency.custom => bill.customIntervalDays ?? 30,
+      };
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final daysLeft = bill.nextDueDate.difference(DateTime.now()).inDays;
+    final cycle = _cycleDays;
+    final progress = ((cycle - daysLeft) / cycle).clamp(0.0, 1.0);
+    final isSoon = daysLeft <= 3;
+    final dueColor = isSoon ? c.accent : c.success;
+    final typeLabel =
+        bill.type == BillType.subscription ? 'اشتراك' : 'قسط';
+
+    String dueLabel() {
+      if (daysLeft < 0) return 'مستحق الآن';
+      if (daysLeft == 0) return 'يُجدّد اليوم';
+      if (daysLeft == 1) return 'يُجدّد غدًا';
+      return 'باقي $daysLeft يوم';
+    }
+
     return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.card),
+      borderRadius: BorderRadius.circular(AppRadius.cardLg),
       onTap: () => BillFormSheet.show(context, bill: bill),
       child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s4),
+        padding: const EdgeInsets.all(AppSpacing.s5),
         decoration: BoxDecoration(
-          color: c.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [
+              c.surface,
+              c.primary.withValues(alpha: isDark ? 0.10 : 0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.cardLg),
           border: Border.all(color: c.border),
-        ),
-        child: Row(
-          children: [
-            BrandMark(name: bill.name, size: 46),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(bill.name, style: AppTypography.bodyStrong(c.textMain)),
-                  Text(
-                    '${bill.type == BillType.subscription ? 'اشتراك' : 'قسط'} · ${_frequencyLabel(bill.frequency)} · ${Formatters.fullDate(bill.nextDueDate, context)}',
-                    style: AppTypography.caption(c.textLight),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              '${Formatters.amount(bill.amount)} ${bill.currency}',
-              style: AppTypography.bodyStrong(c.primary),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.05),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: c.surface2.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: c.border),
+                  ),
+                  child: BrandMark(name: bill.name, size: 44),
+                ),
+                const SizedBox(width: AppSpacing.s4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        bill.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.title2(c.textMain)
+                            .copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          _Tag(text: typeLabel, color: c.primary),
+                          const SizedBox(width: 6),
+                          _Tag(
+                            text: _frequencyLabel(bill.frequency),
+                            color: c.textLight,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (bill.reminderOn)
+                  Icon(Icons.notifications_active_rounded,
+                      size: 18, color: c.accent),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  Formatters.amount(bill.amount),
+                  style: AppTypography.amountHero(c.textMain),
+                ),
+                const SizedBox(width: 6),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    Currency.arabicLabel(bill.currency),
+                    style: AppTypography.subhead(c.textLight),
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: dueColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                    border:
+                        Border.all(color: dueColor.withValues(alpha: 0.28)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.schedule_rounded, size: 13, color: dueColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        dueLabel(),
+                        style: AppTypography.caption(dueColor)
+                            .copyWith(fontWeight: FontWeight.w800),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 7,
+                backgroundColor: c.surface2,
+                valueColor: AlwaysStoppedAnimation(dueColor),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'التجديد القادم · ${Formatters.fullDate(bill.nextDueDate, context)}',
+              style: AppTypography.caption(c.textLight),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  const _Tag({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        text,
+        style: AppTypography.caption(color).copyWith(fontWeight: FontWeight.w800),
       ),
     );
   }

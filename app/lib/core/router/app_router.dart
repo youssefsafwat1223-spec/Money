@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session.dart';
+import '../../features/accounts/accounts_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
 import '../../features/app/app_shell.dart';
 import '../../features/backup/backup_screen.dart';
@@ -147,6 +148,11 @@ final appRouter = GoRouter(
       path: '/reports',
       name: 'reports',
       builder: (context, state) => const ReportsScreen(),
+    ),
+    GoRoute(
+      path: '/accounts',
+      name: 'accounts',
+      builder: (context, state) => const AccountsScreen(),
     ),
     GoRoute(
       path: '/subscriptions',

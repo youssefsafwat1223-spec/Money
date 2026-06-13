@@ -60,6 +60,12 @@ class SettingsScreen extends ConsumerWidget {
                     title: 'الملف الشخصي والتحليل',
                     children: [
                       _NavTile(
+                        icon: Icons.account_balance_wallet_outlined,
+                        title: 'الحسابات والمحافظ',
+                        subtitle: 'حسابات متعددة، كل واحد بعملته الخاصة',
+                        onTap: () => context.push('/accounts'),
+                      ),
+                      _NavTile(
                         icon: Icons.bar_chart_outlined,
                         title: 'الرؤى والتقارير',
                         subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر',
