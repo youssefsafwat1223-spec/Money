@@ -53,8 +53,8 @@ class DriftBudgetRepository implements BudgetRepository {
       await _db.customInsert(
         '''
           INSERT INTO budgets(
-            id, category_id, amount, period, start_date, is_active, alert_80_sent, alert_100_sent
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            id, category_id, amount, period, start_date, is_active, alert_80_sent, alert_100_sent, show_on_header, account_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
         variables: [
           Variable.withString(budget.id),
@@ -65,6 +65,8 @@ class DriftBudgetRepository implements BudgetRepository {
           Variable.withInt(boolToSql(budget.isActive)),
           Variable.withInt(boolToSql(budget.alert80Sent)),
           Variable.withInt(boolToSql(budget.alert100Sent)),
+          Variable.withInt(boolToSql(budget.showOnHeader)),
+          budget.accountId == null ? const Variable<String>(null) : Variable.withString(budget.accountId!),
         ],
       );
     } else {
@@ -72,7 +74,7 @@ class DriftBudgetRepository implements BudgetRepository {
         '''
           UPDATE budgets
           SET category_id = ?, amount = ?, period = ?, start_date = ?, is_active = ?,
-              alert_80_sent = ?, alert_100_sent = ?
+              alert_80_sent = ?, alert_100_sent = ?, show_on_header = ?, account_id = ?
           WHERE id = ?;
         ''',
         variables: [
@@ -83,6 +85,8 @@ class DriftBudgetRepository implements BudgetRepository {
           Variable.withInt(boolToSql(budget.isActive)),
           Variable.withInt(boolToSql(budget.alert80Sent)),
           Variable.withInt(boolToSql(budget.alert100Sent)),
+          Variable.withInt(boolToSql(budget.showOnHeader)),
+          budget.accountId == null ? const Variable<String>(null) : Variable.withString(budget.accountId!),
           Variable.withString(budget.id),
         ],
       );

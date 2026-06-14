@@ -7,12 +7,8 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/account_entity.dart';
+import '../dashboard/dashboard_providers.dart';
 import '../common/section_hero_header.dart';
-
-const _accountCurrencies = [
-  'SAR', 'AED', 'EGP', 'KWD', 'QAR', 'BHD', 'OMR', 'JOD', 'USD', 'EUR', 'GBP',
-  'TRY', 'IQD', 'MAD', 'TND', 'DZD', 'SDG', 'LBP', 'LYD', 'YER',
-];
 
 String _accountTypeLabel(AccountType type) => switch (type) {
       AccountType.cash => 'نقدي',
@@ -45,8 +41,7 @@ class AccountsScreen extends ConsumerWidget {
           ),
           Expanded(
             child: accountsAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('حدث خطأ: $e')),
               data: (accounts) => ListView(
                 padding: const EdgeInsets.fromLTRB(
@@ -97,9 +92,8 @@ class _AccountCard extends ConsumerWidget {
           color: c.surface,
           borderRadius: BorderRadius.circular(AppRadius.card),
           border: Border.all(
-            color: account.isDefault
-                ? c.primary.withValues(alpha: 0.4)
-                : c.border,
+            color:
+                account.isDefault ? c.primary.withValues(alpha: 0.4) : c.border,
             width: account.isDefault ? 1.5 : 1,
           ),
         ),
@@ -240,6 +234,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       }
     }
     ref.invalidate(accountsProvider);
+    ref.invalidate(dashboardDataProvider);
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -248,6 +243,8 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     try {
       await repo.delete(widget.account!.id);
       ref.invalidate(accountsProvider);
+      ref.read(dashboardAccountProvider.notifier).state = null;
+      ref.invalidate(dashboardDataProvider);
       if (mounted) Navigator.of(context).pop();
     } on StateError {
       if (!mounted) return;
@@ -261,6 +258,16 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final editing = widget.account != null;
+    final currencyCodes = ref
+            .watch(activeCurrenciesProvider)
+            .valueOrNull
+            ?.map((currency) => currency.code)
+            .toList(growable: false) ??
+        const ['SAR', 'AED', 'EGP', 'USD', 'EUR', 'GBP'];
+    final currencies = {
+      _currency,
+      ...currencyCodes,
+    }.toList(growable: false);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
@@ -320,7 +327,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
               ),
             ),
             items: [
-              for (final code in _accountCurrencies)
+              for (final code in currencies)
                 DropdownMenuItem(
                   value: code,
                   child: Text('$code — ${Currency.arabicLabel(code)}'),
@@ -337,8 +344,8 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
             onChanged: widget.account?.isDefault == true
                 ? null
                 : (value) => setState(() => _isDefault = value),
-            title: Text('الحساب الافتراضي',
-                style: AppTypography.body(c.textMain)),
+            title:
+                Text('الحساب الافتراضي', style: AppTypography.body(c.textMain)),
             subtitle: Text('يُربط به الالتقاط التلقائي والإدخال السريع',
                 style: AppTypography.caption(c.textLight)),
             activeColor: c.primary,
@@ -358,8 +365,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
             TextButton.icon(
               onPressed: _delete,
               icon: Icon(Icons.delete_outline, color: c.danger),
-              label: Text('حذف الحساب',
-                  style: AppTypography.body(c.danger)),
+              label: Text('حذف الحساب', style: AppTypography.body(c.danger)),
             ),
           ],
         ],

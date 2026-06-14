@@ -13,6 +13,8 @@ class BudgetEntity {
     required this.isActive,
     required this.alert80Sent,
     required this.alert100Sent,
+    this.showOnHeader = false,
+    this.accountId,
   });
 
   final String id;
@@ -23,6 +25,8 @@ class BudgetEntity {
   final bool isActive;
   final bool alert80Sent;
   final bool alert100Sent;
+  final bool showOnHeader;
+  final String? accountId;
 
   bool get isAllExpenses => categoryId == allExpensesCategoryId;
 
@@ -35,6 +39,8 @@ class BudgetEntity {
     bool? isActive,
     bool? alert80Sent,
     bool? alert100Sent,
+    bool? showOnHeader,
+    String? accountId,
   }) {
     return BudgetEntity(
       id: id ?? this.id,
@@ -45,6 +51,8 @@ class BudgetEntity {
       isActive: isActive ?? this.isActive,
       alert80Sent: alert80Sent ?? this.alert80Sent,
       alert100Sent: alert100Sent ?? this.alert100Sent,
+      showOnHeader: showOnHeader ?? this.showOnHeader,
+      accountId: accountId ?? this.accountId,
     );
   }
 }

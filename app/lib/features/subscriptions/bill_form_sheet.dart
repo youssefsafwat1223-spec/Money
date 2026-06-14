@@ -10,6 +10,7 @@ import '../../core/utils/id_generator.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../transactions/transactions_providers.dart';
+import 'subscriptions_providers.dart';
 
 class BillFormSheet extends ConsumerStatefulWidget {
   const BillFormSheet({
@@ -46,38 +47,69 @@ class BillFormSheet extends ConsumerStatefulWidget {
   ConsumerState<BillFormSheet> createState() => _BillFormSheetState();
 }
 
+// Currency options: code → Arabic display name
+const _kCurrencies = <String, String>{
+  'SAR': 'ريال سعودي',
+  'AED': 'درهم إماراتي',
+  'EGP': 'جنيه مصري',
+  'KWD': 'دينار كويتي',
+  'QAR': 'ريال قطري',
+  'BHD': 'دينار بحريني',
+  'OMR': 'ريال عماني',
+  'USD': 'دولار أمريكي',
+  'EUR': 'يورو',
+  'GBP': 'جنيه إسترليني',
+};
+
 class _BillFormSheetState extends ConsumerState<BillFormSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _amountController;
   late final TextEditingController _customDaysController;
+  late final TextEditingController _totalInstController;
+  late final TextEditingController _paidCountController;
+  late final TextEditingController _totalPurchaseController;
+  late final TextEditingController _lenderController;
+  late final TextEditingController _interestController;
   late BillType _type;
   late BillFrequency _frequency;
   late String _currency;
   late DateTime _nextDueDate;
   late bool _reminderOn;
   late bool _isConfirmed;
+  late BillStatus _status;
   bool _busy = false;
+  bool _pickedCustom = false;
 
   @override
   void initState() {
     super.initState();
     final bill = widget.bill;
-    _nameController = TextEditingController(
-      text: bill?.name ?? widget.initialName ?? '',
-    );
+    _nameController =
+        TextEditingController(text: bill?.name ?? widget.initialName ?? '');
     _amountController = TextEditingController(
-      text: bill == null ? '' : bill.amount.toStringAsFixed(2),
-    );
-    _customDaysController = TextEditingController(
-      text: bill?.customIntervalDays?.toString() ?? '',
-    );
+        text: bill == null ? '' : bill.amount.toStringAsFixed(2));
+    _customDaysController =
+        TextEditingController(text: bill?.customIntervalDays?.toString() ?? '');
+    _totalInstController =
+        TextEditingController(text: bill?.totalInstallments?.toString() ?? '');
+    _paidCountController =
+        TextEditingController(text: bill?.paidCount?.toString() ?? '');
+    _totalPurchaseController = TextEditingController(
+        text: bill?.totalPurchaseAmount?.toStringAsFixed(0) ?? '');
+    _lenderController = TextEditingController(text: bill?.lenderName ?? '');
+    _interestController = TextEditingController(
+        text: bill?.interestRate != null
+            ? (bill!.interestRate! * 100).toStringAsFixed(1)
+            : '');
     _type = bill?.type ?? widget.initialType ?? BillType.subscription;
     _frequency = bill?.frequency ?? BillFrequency.monthly;
     _currency = bill?.currency ?? 'SAR';
-    _nextDueDate = bill?.nextDueDate ?? DateTime.now().add(const Duration(days: 7));
+    _nextDueDate =
+        bill?.nextDueDate ?? DateTime.now().add(const Duration(days: 7));
     _reminderOn = bill?.reminderOn ?? true;
     _isConfirmed = bill?.isConfirmed ?? true;
+    _status = bill?.status ?? BillStatus.active;
   }
 
   @override
@@ -85,6 +117,11 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     _nameController.dispose();
     _amountController.dispose();
     _customDaysController.dispose();
+    _totalInstController.dispose();
+    _paidCountController.dispose();
+    _totalPurchaseController.dispose();
+    _lenderController.dispose();
+    _interestController.dispose();
     super.dispose();
   }
 
@@ -95,15 +132,14 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 3650)),
     );
-    if (picked != null) {
-      setState(() => _nextDueDate = picked);
-    }
+    if (picked != null) setState(() => _nextDueDate = picked);
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate() || _busy) return;
     setState(() => _busy = true);
     final now = DateTime.now().toUtc();
+    final interestRaw = double.tryParse(_interestController.text.trim());
     final bill = BillEntity(
       id: widget.bill?.id ?? IdGenerator.next(),
       name: _nameController.text.trim(),
@@ -119,10 +155,28 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
           : null,
       createdAt: widget.bill?.createdAt ?? now,
       merchantId: widget.bill?.merchantId,
+      status: _status,
+      totalInstallments: _type == BillType.installment
+          ? int.tryParse(_totalInstController.text.trim())
+          : null,
+      paidCount: _type == BillType.installment
+          ? int.tryParse(_paidCountController.text.trim())
+          : null,
+      totalPurchaseAmount: _type == BillType.installment
+          ? double.tryParse(_totalPurchaseController.text.trim())
+          : null,
+      lenderName: _type == BillType.installment &&
+              _lenderController.text.trim().isNotEmpty
+          ? _lenderController.text.trim()
+          : null,
+      interestRate: _type == BillType.installment && interestRaw != null
+          ? interestRaw / 100
+          : null,
     );
     await ref.read(billRepositoryProvider).save(bill);
     if (!mounted) return;
     ref.invalidate(billsViewProvider);
+    ref.invalidate(savedBillsProvider);
     ref.invalidate(dashboardDataProvider);
     Navigator.of(context).pop();
   }
@@ -132,10 +186,14 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     final c = context.colors;
     if (widget.bill == null &&
         widget.initialName == null &&
-        _nameController.text.trim().isEmpty) {
+        _nameController.text.trim().isEmpty &&
+        !_pickedCustom) {
       return _BillServicePicker(
         initialType: _type,
-        onCustom: (type) => setState(() => _type = type),
+        onCustom: (type) => setState(() {
+          _type = type;
+          _pickedCustom = true;
+        }),
         onService: (type, name) {
           setState(() {
             _type = type;
@@ -168,124 +226,226 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                   AppSpacing.s6,
                 ),
                 children: [
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: c.border,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s4),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        widget.bill == null ? 'إضافة فاتورة' : 'تعديل فاتورة',
-                        style: AppTypography.title2(c.textMain),
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: c.border,
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.s3),
-                _Segmented<BillType>(
-                  value: _type,
-                  values: const [BillType.subscription, BillType.installment],
-                  label: (value) =>
-                      value == BillType.subscription ? 'اشتراك' : 'قسط',
-                  onChanged: (value) => setState(() => _type = value),
-                ),
-                const SizedBox(height: AppSpacing.s4),
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(labelText: 'اسم الفاتورة'),
-                  validator: (value) =>
-                      value == null || value.trim().isEmpty ? 'اكتب الاسم' : null,
-                ),
-                const SizedBox(height: AppSpacing.s3),
-                TextFormField(
-                  controller: _amountController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                  ],
-                  decoration: const InputDecoration(labelText: 'المبلغ'),
-                  validator: (value) {
-                    final amount = double.tryParse((value ?? '').trim());
-                    return amount == null || amount <= 0 ? 'اكتب مبلغ صحيح' : null;
-                  },
-                ),
-                const SizedBox(height: AppSpacing.s3),
-                DropdownButtonFormField<String>(
-                  value: _currency,
-                  decoration: const InputDecoration(labelText: 'العملة'),
-                  items: const ['SAR', 'AED', 'EGP', 'USD', 'EUR']
-                      .map((code) => DropdownMenuItem(value: code, child: Text(code)))
-                      .toList(),
-                  onChanged: (value) => setState(() => _currency = value ?? 'SAR'),
-                ),
-                const SizedBox(height: AppSpacing.s3),
-                DropdownButtonFormField<BillFrequency>(
-                  value: _frequency,
-                  decoration: const InputDecoration(labelText: 'كل قد إيه؟'),
-                  items: BillFrequency.values
-                      .map(
-                        (frequency) => DropdownMenuItem(
-                          value: frequency,
-                          child: Text(_frequencyLabel(frequency)),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.bill == null ? 'إضافة فاتورة' : 'تعديل فاتورة',
+                          style: AppTypography.title2(c.textMain),
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) =>
-                      setState(() => _frequency = value ?? BillFrequency.monthly),
-                ),
-                if (_frequency == BillFrequency.custom) ...[
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.s3),
+                  _Segmented<BillType>(
+                    value: _type,
+                    values: const [BillType.subscription, BillType.installment],
+                    label: (value) =>
+                        value == BillType.subscription ? 'اشتراك' : 'قسط',
+                    onChanged: (value) => setState(() => _type = value),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  TextFormField(
+                    controller: _nameController,
+                    decoration:
+                        const InputDecoration(labelText: 'اسم الفاتورة'),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'اكتب الاسم'
+                        : null,
+                  ),
                   const SizedBox(height: AppSpacing.s3),
                   TextFormField(
-                    controller: _customDaysController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(labelText: 'كل كام يوم؟'),
+                    controller: _amountController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    ],
+                    decoration: const InputDecoration(labelText: 'المبلغ'),
                     validator: (value) {
-                      if (_frequency != BillFrequency.custom) return null;
-                      final days = int.tryParse((value ?? '').trim());
-                      return days == null || days <= 0 ? 'اكتب عدد أيام صحيح' : null;
+                      final amount = double.tryParse((value ?? '').trim());
+                      return amount == null || amount <= 0
+                          ? 'اكتب مبلغ صحيح'
+                          : null;
                     },
                   ),
-                ],
-                const SizedBox(height: AppSpacing.s3),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('تاريخ الاستحقاق القادم'),
-                  subtitle: Text(
-                    '${_nextDueDate.day}/${_nextDueDate.month}/${_nextDueDate.year}',
+                  const SizedBox(height: AppSpacing.s3),
+                  Builder(builder: (context) {
+                    final remoteCurrencies =
+                        ref.watch(activeCurrenciesProvider).valueOrNull;
+                    final currencies = <String, String>{
+                      _currency: _kCurrencies[_currency] ?? _currency,
+                      if (remoteCurrencies == null || remoteCurrencies.isEmpty)
+                        ..._kCurrencies
+                      else
+                        for (final currency in remoteCurrencies)
+                          currency.code: currency.nameAr,
+                    };
+                    return DropdownButtonFormField<String>(
+                      value: _currency,
+                      decoration: const InputDecoration(labelText: 'العملة'),
+                      items: currencies.entries
+                          .map((e) => DropdownMenuItem(
+                                value: e.key,
+                                child: Text('${e.value} (${e.key})'),
+                              ))
+                          .toList(),
+                      onChanged: (value) =>
+                          setState(() => _currency = value ?? 'SAR'),
+                    );
+                  }),
+                  const SizedBox(height: AppSpacing.s3),
+                  if (_type == BillType.subscription) ...[
+                    _Segmented<BillStatus>(
+                      value: _status,
+                      values: BillStatus.values,
+                      label: _statusLabel,
+                      onChanged: (v) => setState(() => _status = v),
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                  ],
+                  if (_type == BillType.installment) ...[
+                    TextFormField(
+                      controller: _lenderController,
+                      decoration: const InputDecoration(
+                          labelText: 'المقرض / الجهة (Tamara, بنك...)'),
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _totalInstController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
+                            decoration: const InputDecoration(
+                                labelText: 'عدد الأقساط الكلي'),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.s3),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _paidCountController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
+                            decoration: const InputDecoration(
+                                labelText: 'المدفوع منها'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _totalPurchaseController,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'[0-9.]'))
+                            ],
+                            decoration: const InputDecoration(
+                                labelText: 'قيمة الشراء / القرض'),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.s3),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _interestController,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'[0-9.]'))
+                            ],
+                            decoration: const InputDecoration(
+                                labelText: 'الفائدة % (اختياري)',
+                                hintText: '0'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                  ],
+                  DropdownButtonFormField<BillFrequency>(
+                    value: _frequency,
+                    decoration: const InputDecoration(labelText: 'كل قد إيه؟'),
+                    items: BillFrequency.values
+                        .map(
+                          (frequency) => DropdownMenuItem(
+                            value: frequency,
+                            child: Text(_frequencyLabel(frequency)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(
+                        () => _frequency = value ?? BillFrequency.monthly),
                   ),
-                  trailing: const Icon(Icons.calendar_month_outlined),
-                  onTap: _pickDate,
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _reminderOn,
-                  onChanged: (value) => setState(() => _reminderOn = value),
-                  title: const Text('تفعيل التذكير'),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _isConfirmed,
-                  onChanged: (value) => setState(() => _isConfirmed = value),
-                  title: const Text('فاتورة مؤكدة'),
-                ),
-                const SizedBox(height: AppSpacing.s4),
-                FilledButton(
-                  onPressed: _busy ? null : _save,
-                  child: Text(_busy ? 'جار الحفظ...' : 'حفظ'),
-                ),
+                  if (_frequency == BillFrequency.custom) ...[
+                    const SizedBox(height: AppSpacing.s3),
+                    TextFormField(
+                      controller: _customDaysController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration:
+                          const InputDecoration(labelText: 'كل كام يوم؟'),
+                      validator: (value) {
+                        if (_frequency != BillFrequency.custom) return null;
+                        final days = int.tryParse((value ?? '').trim());
+                        return days == null || days <= 0
+                            ? 'اكتب عدد أيام صحيح'
+                            : null;
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.s3),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('تاريخ الاستحقاق القادم'),
+                    subtitle: Text(
+                      '${_nextDueDate.day}/${_nextDueDate.month}/${_nextDueDate.year}',
+                    ),
+                    trailing: const Icon(Icons.calendar_month_outlined),
+                    onTap: _pickDate,
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _reminderOn,
+                    onChanged: (value) => setState(() => _reminderOn = value),
+                    title: const Text('تفعيل التذكير'),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _isConfirmed,
+                    onChanged: (value) => setState(() => _isConfirmed = value),
+                    title: const Text('فاتورة مؤكدة'),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  FilledButton(
+                    onPressed: _busy ? null : _save,
+                    child: Text(_busy ? 'جار الحفظ...' : 'حفظ'),
+                  ),
                 ],
               ),
             ),
@@ -300,6 +460,12 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
         BillFrequency.monthly => 'شهري',
         BillFrequency.yearly => 'سنوي',
         BillFrequency.custom => 'مخصص',
+      };
+
+  String _statusLabel(BillStatus status) => switch (status) {
+        BillStatus.active => 'نشط',
+        BillStatus.paused => 'متوقف',
+        BillStatus.cancelled => 'ملغي',
       };
 }
 
@@ -365,9 +531,10 @@ class _BillServicePickerState extends State<_BillServicePicker> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final items = (_type == BillType.subscription ? _subscriptions : _installments)
-        .where((item) => item.toLowerCase().contains(_query.toLowerCase()))
-        .toList();
+    final items =
+        (_type == BillType.subscription ? _subscriptions : _installments)
+            .where((item) => item.toLowerCase().contains(_query.toLowerCase()))
+            .toList();
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Material(
@@ -530,7 +697,7 @@ class _ServiceAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final upper = name.toUpperCase();
-    final brand = _brandColor(upper);
+    final brand = _brandColor(upper, c.accent);
     return Container(
       width: 56,
       height: 56,
@@ -557,7 +724,7 @@ class _ServiceAvatar extends StatelessWidget {
     );
   }
 
-  (Color, String) _brandColor(String upper) {
+  (Color, String) _brandColor(String upper, Color fallback) {
     if (upper.contains('NETFLIX')) return (const Color(0xFFE50914), 'N');
     if (upper.contains('SPOTIFY')) return (const Color(0xFF1DB954), 'S');
     if (upper.contains('YOUTUBE')) return (const Color(0xFFFF0000), 'Y');
@@ -567,15 +734,10 @@ class _ServiceAvatar extends StatelessWidget {
     if (upper.contains('CHATGPT')) return (const Color(0xFF10A37F), 'G');
     if (upper.contains('CLAUDE')) return (const Color(0xFFD97757), 'C');
     if (upper.contains('GITHUB')) return (Colors.black, 'GH');
-    if (upper.contains('TABBY')) return (const Color(0xFF00D6A3), 'T');
-    if (upper.contains('TAMARA')) return (const Color(0xFF6D5DFB), 'T');
-    if (upper.contains('VALU')) return (const Color(0xFF7E3FF2), 'V');
-    return (
-      type == BillType.subscription
-          ? const Color(0xFF0A96A8)
-          : const Color(0xFF6D5DFB),
-      name.characters.first.toUpperCase(),
-    );
+    if (upper.contains('TABBY')) return (fallback, 'T');
+    if (upper.contains('TAMARA')) return (fallback, 'T');
+    if (upper.contains('VALU')) return (fallback, 'V');
+    return (fallback, name.characters.first.toUpperCase());
   }
 }
 

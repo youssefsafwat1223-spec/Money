@@ -7,38 +7,64 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
 import 'category_catalog.dart';
 
-/// دائرة أيقونة تصنيف متوهجة بإطار ناعم بلون التصنيف.
+/// دائرة تعرض شعار التاجر (الحرف الأول) أو أيقونة التصنيف.
 class CategoryAvatar extends StatelessWidget {
-  const CategoryAvatar({super.key, required this.category, this.size = 44});
+  const CategoryAvatar({
+    super.key, 
+    this.merchantName, 
+    required this.category, 
+    this.size = 44,
+  });
 
+  final String? merchantName;
   final CategoryView? category;
   final double size;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final color = category?.color ?? c.textLight;
+    final color = category?.color ?? c.primary;
+    
+    // محاولة استخراج الحرف الأول من اسم التاجر
+    String? initial;
+    if (merchantName != null && merchantName!.trim().isNotEmpty) {
+      final text = merchantName!.trim();
+      // استخراج أول حرف غير مسافة
+      if (text.isNotEmpty) {
+        initial = text.characters.first.toUpperCase();
+      }
+    }
+
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
+        color: initial != null ? c.surface : color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(size * 0.35),
         border: Border.all(
-          color: color.withValues(alpha: 0.25),
+          color: initial != null ? c.border : color.withValues(alpha: 0.25),
           width: 1.2,
         ),
       ),
-      child: Icon(
-        category?.icon ?? AppLucideIcons.shapes,
-        color: color,
-        size: size * 0.46,
-      ),
+      alignment: Alignment.center,
+      child: initial != null
+          ? Text(
+              initial,
+              style: AppTypography.title2(c.textMain).copyWith(
+                fontWeight: FontWeight.bold,
+                fontSize: size * 0.45,
+              ),
+            )
+          : Icon(
+              category?.icon ?? AppLucideIcons.shapes,
+              color: color,
+              size: size * 0.46,
+            ),
     );
   }
 }
 
-/// صف عملية فخم مصمم كبطاقة زجاجية عائمة.
+/// صف عملية فخم مصمم بأسلوب الحد الأدنى.
 class TransactionRow extends StatelessWidget {
   const TransactionRow({
     super.key,
@@ -59,26 +85,18 @@ class TransactionRow extends StatelessWidget {
     final isIncome = transaction.type == TransactionTypeEntity.income ||
         transaction.type == TransactionTypeEntity.refund;
 
-    // استخدام اللون الأحمر للمصاريف والأخضر للأرباح لتسهيل التمييز البصري
-    final amountColor = isIncome ? c.success : c.danger;
+    final amountColor = isIncome ? c.success : c.textMain;
     final pending = transaction.status == TransactionStatus.pending;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
-        color: c.surface.withValues(alpha: 0.5),
+        color: c.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: c.primary.withValues(alpha: 0.1),
-          width: 1.2,
+          color: c.border,
+          width: 1.0,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -88,7 +106,11 @@ class TransactionRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                CategoryAvatar(category: category, size: 44),
+                CategoryAvatar(
+                  merchantName: transaction.rawMerchant,
+                  category: category, 
+                  size: 44,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -115,16 +137,12 @@ class TransactionRow extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: c.accent.withValues(alpha: 0.15),
+                                color: c.textLight.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: c.accent.withValues(alpha: 0.35),
-                                  width: 0.8,
-                                ),
                               ),
                               child: Text(
                                 'معلّقة',
-                                style: AppTypography.caption(c.accent).copyWith(
+                                style: AppTypography.caption(c.textLight).copyWith(
                                   fontSize: 9.0,
                                   fontWeight: FontWeight.bold,
                                 ),

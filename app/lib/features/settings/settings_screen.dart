@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -21,6 +24,7 @@ import '../budgets/budgets_providers.dart';
 import '../common/category_catalog.dart';
 import '../common/motion.dart';
 import '../dashboard/dashboard_providers.dart';
+import '../onboarding/method_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'data_export.dart';
 import 'settings_providers.dart';
@@ -43,6 +47,37 @@ class SettingsScreen extends ConsumerWidget {
     final session = AppSession.instance;
     final email = session.email ?? '—';
     final method = _methodLabels[session.authMethod] ?? '—';
+    final countryValues = <String, String>{
+      if (ref.watch(supportedCountriesProvider).valueOrNull
+          case final countries?)
+        for (final country in countries)
+          country.code.toLowerCase(): country.nameAr,
+      if ((ref.watch(supportedCountriesProvider).valueOrNull ?? const [])
+          .isEmpty) ...const {
+        'sa': 'السعودية',
+        'ae': 'الإمارات',
+        'eg': 'مصر',
+        'kw': 'الكويت',
+        'qa': 'قطر',
+        'bh': 'البحرين',
+        'om': 'عمان',
+      },
+    };
+    final currencyValues = <String, String>{
+      if (ref.watch(activeCurrenciesProvider).valueOrNull
+          case final currencies?)
+        for (final currency in currencies)
+          currency.code: '${currency.code} - ${currency.nameAr}',
+      if ((ref.watch(activeCurrenciesProvider).valueOrNull ?? const [])
+          .isEmpty) ...const {
+        'SAR': 'SAR - ريال سعودي',
+        'AED': 'AED - درهم إماراتي',
+        'EGP': 'EGP - جنيه مصري',
+        'KWD': 'KWD - دينار كويتي',
+        'QAR': 'QAR - ريال قطري',
+        'USD': 'USD - دولار',
+      },
+    };
 
     return Scaffold(
       body: ListView(
@@ -83,6 +118,14 @@ class SettingsScreen extends ConsumerWidget {
                         subtitle: 'تتبع اشتراكاتك وأقساطك والتزاماتك الدورية',
                         onTap: () => context.push('/subscriptions'),
                       ),
+                      if (Platform.isIOS)
+                        _NavTile(
+                          icon: Icons.ios_share_rounded,
+                          title: 'إعداد اختصار آبل',
+                          subtitle:
+                              'مرّر رسائل البنك تلقائياً إلى مالي عبر Shortcuts',
+                          onTap: () => showIosShortcutSheet(context),
+                        ),
                     ],
                   ),
                 ),
@@ -110,21 +153,15 @@ class SettingsScreen extends ConsumerWidget {
                         _NavTile(
                           icon: Icons.flag_outlined,
                           title: 'الدولة',
-                          subtitle: _countryLabel(settings.country),
+                          subtitle:
+                              countryValues[settings.country.toLowerCase()] ??
+                                  _countryLabel(settings.country),
                           onTap: () => _showSettingsPicker(
                             context,
                             ref,
                             title: 'الدولة',
                             current: settings.country,
-                            values: const {
-                              'SA': 'السعودية',
-                              'AE': 'الإمارات',
-                              'EG': 'مصر',
-                              'KW': 'الكويت',
-                              'QA': 'قطر',
-                              'BH': 'البحرين',
-                              'OM': 'عمان',
-                            },
+                            values: countryValues,
                             apply: (value) => settings.copyWith(country: value),
                           ),
                         ),
@@ -137,13 +174,11 @@ class SettingsScreen extends ConsumerWidget {
                             ref,
                             title: 'العملة الأساسية',
                             current: settings.currency,
-                            values: const {
-                              'SAR': 'SAR - ريال سعودي',
-                              'AED': 'AED - درهم إماراتي',
-                              'EGP': 'EGP - جنيه مصري',
-                              'KWD': 'KWD - دينار كويتي',
-                              'QAR': 'QAR - ريال قطري',
-                              'USD': 'USD - دولار',
+                            values: {
+                              settings.currency:
+                                  currencyValues[settings.currency] ??
+                                      settings.currency,
+                              ...currencyValues,
                             },
                             apply: (value) =>
                                 settings.copyWith(currency: value),
@@ -341,7 +376,7 @@ class SettingsScreen extends ConsumerWidget {
                       _NavTile(
                         icon: AppLucideIcons.alertTriangle,
                         title: 'عن التطبيق',
-                        subtitle: 'Money Companion MVP',
+                        subtitle: 'مالي / Mali',
                         onTap: () => _showAboutApp(context),
                       ),
                       _NavTile(
@@ -422,13 +457,13 @@ class SettingsScreen extends ConsumerWidget {
         _ => 'العربية',
       };
 
-  String _countryLabel(String value) => switch (value) {
-        'AE' => 'الإمارات',
-        'EG' => 'مصر',
-        'KW' => 'الكويت',
-        'QA' => 'قطر',
-        'BH' => 'البحرين',
-        'OM' => 'عمان',
+  String _countryLabel(String value) => switch (value.toLowerCase()) {
+        'ae' => 'الإمارات',
+        'eg' => 'مصر',
+        'kw' => 'الكويت',
+        'qa' => 'قطر',
+        'bh' => 'البحرين',
+        'om' => 'عمان',
         _ => 'السعودية',
       };
 
@@ -460,8 +495,21 @@ class SettingsScreen extends ConsumerWidget {
             for (final entry in values.entries)
               RadioListTile<String>(
                 value: entry.key,
-                groupValue: current,
-                title: Text(entry.value),
+                groupValue: title == 'الدولة' ? current.toLowerCase() : current,
+                secondary: title == 'الدولة'
+                    ? _FlagAvatar(code: entry.key.toLowerCase(), size: 32)
+                    : null,
+                title: Text(
+                  entry.value,
+                  style: AppTypography.bodyStrong(c.textMain),
+                ),
+                subtitle: title == 'الدولة'
+                    ? Text(
+                        entry.key.toUpperCase(),
+                        style: AppTypography.caption(c.textLight),
+                      )
+                    : null,
+                activeColor: c.primary,
                 onChanged: (value) async {
                   if (value == null) return;
                   await ref
@@ -852,7 +900,7 @@ class SettingsScreen extends ConsumerWidget {
       context,
       title: 'عن التطبيق',
       body:
-          'مالي MVP لتتبع المصروفات تلقائياً من رسائل البنك. البيانات المالية تبقى على جهازك افتراضياً، والنسخ الاحتياطي اختياري ومشفّر end-to-end عند تفعيله.',
+          'مالي لتتبع المصروفات من رسائل البنك والإدخال اليدوي. بياناتك المالية تبقى على جهازك افتراضياً، والنسخ الاحتياطي اختياري ومشفّر end-to-end عند تفعيله.',
       actionLabel: 'تمام',
     );
   }
@@ -935,7 +983,7 @@ class _SettingsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
+    const headerText = Colors.white;
     return Container(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
@@ -944,15 +992,19 @@ class _SettingsHeader extends StatelessWidget {
         AppSpacing.s5,
       ),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [c.gradA, c.primary, c.gradB],
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFF046E9B),
+            Color(0xFF034E73),
+            Color(0xFF012438),
+          ],
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
         ),
         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
         boxShadow: [
           BoxShadow(
-            color: c.primary.withValues(alpha: 0.20),
+            color: const Color(0xFF034F73).withValues(alpha: 0.25),
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),
@@ -970,7 +1022,7 @@ class _SettingsHeader extends StatelessWidget {
               Expanded(
                 child: Text(
                   'الإعدادات والملف الشخصي',
-                  style: AppTypography.title1(Colors.white)
+                  style: AppTypography.title1(headerText)
                       .copyWith(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -1010,14 +1062,16 @@ class _SettingsHeader extends StatelessWidget {
                     children: [
                       Text(
                         email,
-                        style: AppTypography.bodyStrong(Colors.white),
+                        style: AppTypography.bodyStrong(headerText),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
                       Text(
                         'الدخول عبر $method',
-                        style: AppTypography.caption(Colors.white70),
+                        style: AppTypography.caption(
+                          headerText.withValues(alpha: 0.72),
+                        ),
                       ),
                     ],
                   ),
@@ -1089,39 +1143,81 @@ class _CategoryGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: AppTypography.bodyStrong(c.textMain)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
+          child: Text(title, style: AppTypography.caption(c.textLight)),
+        ),
         const SizedBox(height: AppSpacing.s2),
-        Column(
-          children: [
-            for (final item in items)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  backgroundColor: item.color.withValues(alpha: 0.12),
-                  child: Icon(item.icon, color: item.color, size: 18),
-                ),
-                title: Text(item.nameAr),
-                subtitle: Text(item.key),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'تعديل',
-                      onPressed: () => onEdit(item),
-                      icon: const Icon(Icons.edit_outlined),
-                    ),
-                    if (item.entity.sort >= 0)
+        Material(
+          color: c.surface,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            side: BorderSide(color: c.border),
+          ),
+          child: Column(
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
+                  leading: CircleAvatar(
+                    backgroundColor: items[i].color.withValues(alpha: 0.12),
+                    child: Icon(items[i].icon, color: items[i].color, size: 18),
+                  ),
+                  title: Text(items[i].nameAr),
+                  subtitle: Text(items[i].key),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       IconButton(
-                        tooltip: 'حذف',
-                        onPressed: () => onDelete(item),
-                        icon: Icon(Icons.delete_outline, color: c.danger),
+                        tooltip: 'تعديل',
+                        onPressed: () => onEdit(items[i]),
+                        icon: const Icon(Icons.edit_outlined),
                       ),
-                  ],
+                      if (items[i].entity.sort >= 0)
+                        IconButton(
+                          tooltip: 'حذف',
+                          onPressed: () => onDelete(items[i]),
+                          icon: Icon(Icons.delete_outline, color: c.danger),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-          ],
+                if (i != items.length - 1) Divider(height: 1, color: c.border),
+              ],
+            ],
+          ),
         ),
       ],
+    );
+  }
+}
+
+class _FlagAvatar extends StatelessWidget {
+  const _FlagAvatar({required this.code, required this.size});
+
+  final String code;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.08),
+      decoration: BoxDecoration(
+        color: c.surface,
+        shape: BoxShape.circle,
+        border: Border.all(color: c.border),
+      ),
+      child: ClipOval(
+        child: SvgPicture.asset(
+          'assets/flags/$code.svg',
+          fit: BoxFit.cover,
+        ),
+      ),
     );
   }
 }
@@ -1218,7 +1314,11 @@ class _ThemeTile extends StatelessWidget {
               onSelectionChanged: (selected) => onChanged(selected.first),
               style: SegmentedButton.styleFrom(
                 selectedBackgroundColor: c.primary,
-                selectedForegroundColor: Colors.white,
+                selectedForegroundColor:
+                    Theme.of(context).brightness == Brightness.dark
+                        ? Colors.black
+                        : Colors.white,
+                foregroundColor: c.textMain,
               ),
             ),
           ),

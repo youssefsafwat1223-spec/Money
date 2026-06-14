@@ -5,6 +5,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_merchant_category_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/domain/entities/captured_message.dart';
 import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
 import 'package:money_companion/domain/usecases/ingest_captured_message_usecase.dart';
 
@@ -37,14 +38,33 @@ void main() {
     await db.close();
   });
 
-  test('confirmed merchant capture becomes a light notification path', () async {
+  test('confirmed merchant capture becomes a light notification path',
+      () async {
     const rawMessage = 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\n'
         'لدى:NETFLIX\nفي:2026-04-08 12:45\nالرصيد:SAR 2,310.50';
 
-    final result = await ingestCapturedMessage(rawMessage: rawMessage);
+    final result =
+        await ingestCapturedMessage(rawMessage: rawMessage, senderId: 'SNB');
 
     expect(result.disposition, CapturedMessageDisposition.notifyOnly);
     expect(result.addTransactionResult.outcome, AddTransactionOutcome.added);
+    expect(result.addTransactionResult.requiresConfirmation, isFalse);
+  });
+
+  test('CapturedMessage model follows the same ingest pipeline', () async {
+    const rawMessage = 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\n'
+        'لدى:NETFLIX\nفي:2026-04-08 12:45\nالرصيد:SAR 2,310.50';
+
+    final result = await ingestCapturedMessage.fromCapturedMessage(
+      CapturedMessage(
+        text: rawMessage,
+        senderId: 'SNB',
+        source: CapturedMessageSource.androidShare,
+        receivedAt: DateTime.utc(2026, 4, 8, 12, 45),
+      ),
+    );
+
+    expect(result.disposition, CapturedMessageDisposition.notifyOnly);
     expect(result.addTransactionResult.requiresConfirmation, isFalse);
   });
 
@@ -71,7 +91,8 @@ void main() {
 
     expect(first.disposition, CapturedMessageDisposition.requestConfirmation);
     expect(duplicate.disposition, CapturedMessageDisposition.ignored);
-    expect(duplicate.addTransactionResult.outcome, AddTransactionOutcome.duplicate);
+    expect(duplicate.addTransactionResult.outcome,
+        AddTransactionOutcome.duplicate);
   });
 
   test('non-transaction capture is ignored silently', () async {

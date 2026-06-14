@@ -74,8 +74,7 @@ void main() {
     await db.close();
   });
 
-  test('first launch seeds categories, merchant mappings, and suggested goals',
-      () async {
+  test('first launch seeds categories and merchant mappings only', () async {
     expect(await db.count('categories'), 21);
     final allExpensesCategory = await db.customSelect(
       'SELECT id FROM categories WHERE key = ? LIMIT 1;',
@@ -84,14 +83,13 @@ void main() {
     expect(allExpensesCategory?.read<String>('id'),
         BudgetEntity.allExpensesCategoryId);
     expect(await db.count('merchant_category_map'), greaterThan(10));
-    expect(await db.count('goals'), 3);
+    expect(await db.count('goals'), 0);
     final userVersion =
         await db.customSelect('PRAGMA user_version;').getSingle();
     expect(userVersion.read<int>('user_version'), db.schemaVersion);
   });
 
-  test(
-      'add transaction saves a confirmed transaction and de-duplicates within two minutes',
+  test('new merchant stays pending and de-duplicates within two minutes',
       () async {
     const rawMessage = 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\n'
         'لدى:BURGER BOUTIQUE\nفي:2026-04-08 12:45\nالرصيد:SAR 2,310.50';
@@ -99,7 +97,8 @@ void main() {
     final firstResult = await addTransaction(rawMessage: rawMessage);
     expect(firstResult.outcome, AddTransactionOutcome.added);
     expect(firstResult.transaction, isNotNull);
-    expect(firstResult.transaction!.status, TransactionStatus.confirmed);
+    expect(firstResult.transaction!.status, TransactionStatus.pending);
+    expect(firstResult.requiresConfirmation, isTrue);
     expect(await db.count('transactions'), 1);
 
     final duplicateResult = await addTransaction(rawMessage: rawMessage);
@@ -107,8 +106,20 @@ void main() {
     expect(await db.count('transactions'), 1);
   });
 
+  test('trusted sender and known merchant can auto-confirm', () async {
+    const rawMessage = 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\n'
+        'لدى:NETFLIX\nفي:2026-04-08 12:45\nالرصيد:SAR 2,310.50';
+
+    final result =
+        await addTransaction(rawMessage: rawMessage, senderId: 'SNB');
+
+    expect(result.outcome, AddTransactionOutcome.added);
+    expect(result.transaction!.status, TransactionStatus.confirmed);
+    expect(result.requiresConfirmation, isFalse);
+  });
+
   test('confirm transaction upgrades a pending transaction', () async {
-    const rawMessage = 'SAR 20.00';
+    const rawMessage = 'Purchase SAR 20.00 At UNKNOWN SHOP';
 
     final added = await addTransaction(rawMessage: rawMessage);
     expect(added.outcome, AddTransactionOutcome.added);
@@ -116,6 +127,26 @@ void main() {
 
     final confirmed = await confirmTransaction(added.transaction!.id);
     expect(confirmed.status, TransactionStatus.confirmed);
+  });
+
+  test('pending transactions are excluded from financial totals', () async {
+    const rawMessage = 'Purchase SAR 20.00 At UNKNOWN SHOP 2026-04-08 12:00';
+
+    final added = await addTransaction(rawMessage: rawMessage);
+    expect(added.transaction!.status, TransactionStatus.pending);
+
+    final beforeConfirm = await transactionRepository.expenseTotalBetween(
+      from: DateTime.utc(2026, 4, 1),
+      to: DateTime.utc(2026, 5, 1),
+    );
+    expect(beforeConfirm, 0);
+
+    await confirmTransaction(added.transaction!.id);
+    final afterConfirm = await transactionRepository.expenseTotalBetween(
+      from: DateTime.utc(2026, 4, 1),
+      to: DateTime.utc(2026, 5, 1),
+    );
+    expect(afterConfirm, 20);
   });
 
   test(

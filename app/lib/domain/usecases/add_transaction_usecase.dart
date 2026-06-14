@@ -4,7 +4,7 @@ import '../../engine/categorization/merchant_category_map.dart';
 import '../../engine/models/transaction_source.dart';
 import '../../engine/models/transaction_type.dart';
 import '../../engine/parser/bank_profile.dart';
-import '../../engine/parser/parser_engine.dart';
+import '../../engine/parser/parser_isolate.dart';
 import '../../engine/parser/parse_result.dart';
 import '../entities/engagement_entities.dart';
 import '../entities/transaction_entity.dart';
@@ -62,41 +62,44 @@ class AddTransactionUseCase {
   AddTransactionUseCase({
     required TransactionRepository transactionRepository,
     required MerchantCategoryRepository merchantCategoryRepository,
-    ParserEngine? parserEngine,
+    ParserIsolate? parserIsolate,
     RecordEngagementUseCase? recordEngagementUseCase,
     Future<void> Function(String key, {String? dimension})? logMetric,
-    Future<List<BankProfile>> Function()? loadBankProfiles,
+    Future<List<BankProfile>> Function({String? senderId})? loadBankProfiles,
     AccountRepository? accountRepository,
   })  : _transactionRepository = transactionRepository,
         _merchantCategoryRepository = merchantCategoryRepository,
-        _parserEngine = parserEngine ?? const ParserEngine(),
+        _parserIsolate = parserIsolate ?? const ParserIsolate(),
         _recordEngagementUseCase = recordEngagementUseCase,
         _logMetric = logMetric,
         _loadBankProfiles = loadBankProfiles,
         _accountRepository = accountRepository;
 
-  static const double autoConfirmThreshold = 0.8;
+  static const double autoConfirmThreshold = 0.92;
+  static const double categoryAutoConfirmThreshold = 0.80;
 
   final TransactionRepository _transactionRepository;
   final MerchantCategoryRepository _merchantCategoryRepository;
-  final ParserEngine _parserEngine;
+  final ParserIsolate _parserIsolate;
   final RecordEngagementUseCase? _recordEngagementUseCase;
   final Future<void> Function(String key, {String? dimension})? _logMetric;
-  final Future<List<BankProfile>> Function()? _loadBankProfiles;
+  final Future<List<BankProfile>> Function({String? senderId})?
+      _loadBankProfiles;
   final AccountRepository? _accountRepository;
 
   Future<AddTransactionResult> call({
     required String rawMessage,
     String? senderId,
   }) async {
-    final bankProfiles = await _safeLoadBankProfiles();
+    final bankProfiles = await _safeLoadBankProfiles(senderId: senderId);
     final defaultAccount = await _accountRepository?.getDefault();
-    final parseResult = _parserEngine.parse(
-      rawMessage,
-      senderId: senderId,
-      bankProfiles: bankProfiles,
-      defaultCurrency: defaultAccount?.currency ?? 'SAR',
-    );
+    final parseResult = await _parserIsolate.parse(
+          rawMessage,
+          senderId: senderId,
+          bankProfiles: bankProfiles,
+          defaultCurrency: defaultAccount?.currency ?? 'SAR',
+        ) ??
+        ParseResult.notTransaction();
     if (!parseResult.isTransaction || parseResult.transaction == null) {
       return AddTransactionResult.notTransaction(parseResult);
     }
@@ -125,6 +128,9 @@ class AddTransactionUseCase {
         await _merchantCategoryRepository.getLearnedCategoryMap();
     final categorizer = Categorizer(map: MerchantCategoryMap(learnedMap));
     final categoryResult = categorizer.categorize(parsed);
+    final canAutoConfirm = parsed.parseConfidence >= autoConfirmThreshold &&
+        categoryResult.confidence >= categoryAutoConfirmThreshold &&
+        !isNewMerchant;
 
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
@@ -141,7 +147,7 @@ class AddTransactionUseCase {
       occurredAt: occurredAt.toUtc(),
       rawMessage: rawMessage,
       parseConfidence: parsed.parseConfidence,
-      status: parsed.parseConfidence >= autoConfirmThreshold
+      status: canAutoConfirm
           ? TransactionStatus.confirmed
           : TransactionStatus.pending,
       createdAt: now,
@@ -168,11 +174,11 @@ class AddTransactionUseCase {
     );
   }
 
-  Future<List<BankProfile>> _safeLoadBankProfiles() async {
+  Future<List<BankProfile>> _safeLoadBankProfiles({String? senderId}) async {
     final loader = _loadBankProfiles;
     if (loader == null) return const [];
     try {
-      return await loader();
+      return await loader(senderId: senderId);
     } catch (_) {
       return const [];
     }

@@ -6,12 +6,11 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/utils/id_generator.dart';
-import '../../domain/entities/goal_entity.dart';
 import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 2;
+const int _targetSchemaVersion = 4;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -255,6 +254,15 @@ class AppDatabase extends GeneratedDatabase {
       );
     ''');
 
+    await _createCatalogMetadataTable();
+    await _createRemoteBanksTable();
+    await _createRemoteParsersTable();
+    await _createRemoteCurrenciesTable();
+    await _createRemoteCountriesTable();
+    await _createRemoteCategoriesTable();
+    await _createRemoteFeatureFlagsTable();
+    await _createRemoteAnnouncementsTable();
+
     await customStatement('''
       CREATE TABLE IF NOT EXISTS user_settings(
         id TEXT PRIMARY KEY,
@@ -330,6 +338,172 @@ class AppDatabase extends GeneratedDatabase {
     // v2: ربط المعاملات/الاشتراكات بالحساب (multi-currency accounts).
     await _ensureColumn('transactions', 'account_id', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'account_id', 'TEXT NULL');
+    await _ensureColumn(
+        'budgets', 'show_on_header', 'INTEGER NOT NULL DEFAULT 0');
+    await _ensureColumn('budgets', 'account_id', 'TEXT NULL');
+    // subscription/installment extra fields
+    await _ensureColumn(
+        'subscriptions', 'status', "TEXT NOT NULL DEFAULT 'active'");
+    await _ensureColumn('subscriptions', 'total_installments', 'INTEGER NULL');
+    await _ensureColumn('subscriptions', 'paid_count', 'INTEGER NULL');
+    await _ensureColumn('subscriptions', 'total_purchase_amount', 'REAL NULL');
+    await _ensureColumn('subscriptions', 'lender_name', 'TEXT NULL');
+    await _ensureColumn('subscriptions', 'interest_rate', 'REAL NULL');
+
+    if (version < 3) {
+      await _createCatalogMetadataTable();
+      await _createRemoteBanksTable();
+      await _createRemoteParsersTable();
+      await _createRemoteCurrenciesTable();
+      await _createRemoteCountriesTable();
+      await _createRemoteCategoriesTable();
+    }
+    if (version < 4) {
+      await _createRemoteFeatureFlagsTable();
+      await _createRemoteAnnouncementsTable();
+    }
+  }
+
+  Future<void> _createCatalogMetadataTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS catalog_metadata(
+        category TEXT PRIMARY KEY,
+        server_version INTEGER NOT NULL,
+        local_version INTEGER NOT NULL,
+        last_synced_at TEXT NULL,
+        etag TEXT NULL
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteBanksTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_banks(
+        id TEXT PRIMARY KEY,
+        name_ar TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        short_code TEXT NOT NULL UNIQUE,
+        logo_url TEXT NULL,
+        country_code TEXT NOT NULL,
+        sms_senders TEXT NOT NULL,
+        supported_currencies TEXT NOT NULL,
+        color_hex TEXT NULL,
+        is_active INTEGER NOT NULL,
+        sort_order INTEGER NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteParsersTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_parsers(
+        id TEXT PRIMARY KEY,
+        bank_id TEXT NOT NULL,
+        sender_pattern TEXT NOT NULL,
+        message_pattern TEXT NOT NULL,
+        transaction_type TEXT NOT NULL,
+        language TEXT NOT NULL,
+        priority INTEGER NOT NULL,
+        extracted_fields TEXT NOT NULL,
+        is_active INTEGER NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (bank_id) REFERENCES remote_banks(id) ON DELETE CASCADE
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteCurrenciesTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_currencies(
+        code TEXT PRIMARY KEY,
+        name_ar TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        decimal_places INTEGER NOT NULL,
+        country_codes TEXT NOT NULL,
+        is_active INTEGER NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteCountriesTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_countries(
+        code TEXT PRIMARY KEY,
+        name_ar TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        flag_emoji TEXT NOT NULL,
+        phone_prefix TEXT NOT NULL,
+        is_supported INTEGER NOT NULL,
+        is_active INTEGER NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteCategoriesTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_categories(
+        id TEXT PRIMARY KEY,
+        key TEXT NOT NULL UNIQUE,
+        name_ar TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        icon TEXT NOT NULL,
+        color_hex TEXT NOT NULL,
+        parent_key TEXT NULL,
+        type TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        is_system INTEGER NOT NULL,
+        is_active INTEGER NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteFeatureFlagsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_feature_flags(
+        key TEXT PRIMARY KEY,
+        value_type TEXT NOT NULL,
+        value TEXT NOT NULL,
+        rollout_percent INTEGER NOT NULL DEFAULT 100,
+        target_countries TEXT NOT NULL DEFAULT '[]',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        synced_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteAnnouncementsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_announcements(
+        id TEXT PRIMARY KEY,
+        title_ar TEXT NOT NULL,
+        title_en TEXT NOT NULL,
+        body_ar TEXT NULL,
+        body_en TEXT NULL,
+        severity TEXT NOT NULL,
+        min_app_version TEXT NULL,
+        max_app_version TEXT NULL,
+        action_label_ar TEXT NULL,
+        action_label_en TEXT NULL,
+        action_url TEXT NULL,
+        valid_from TEXT NOT NULL,
+        valid_until TEXT NULL,
+        is_dismissible INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 0,
+        is_dismissed INTEGER NOT NULL DEFAULT 0,
+        dismissed_at TEXT NULL,
+        synced_at TEXT NOT NULL
+      );
+    ''');
   }
 
   Future<int> _currentUserVersion() async {
@@ -412,12 +586,6 @@ class AppDatabase extends GeneratedDatabase {
             Variable.withString(dateTimeToSql(now)),
           ],
         );
-      }
-    }
-
-    if (await count('goals') == 0) {
-      for (final goal in DatabaseSeed.suggestedGoals) {
-        await _insertGoal(goal);
       }
     }
 
@@ -547,24 +715,6 @@ class AppDatabase extends GeneratedDatabase {
         ],
       );
     }
-  }
-
-  Future<void> _insertGoal(GoalEntity goal) async {
-    await customStatement('''
-      INSERT INTO goals(
-        id, name, target_amount, saved_amount, deadline, vault_skin, status, created_at
-      )
-      VALUES (
-        ${sqlString(goal.id)},
-        ${sqlString(goal.name)},
-        ${goal.targetAmount},
-        ${goal.savedAmount},
-        ${sqlNullableString(goal.deadline == null ? null : dateTimeToSql(goal.deadline!))},
-        ${sqlString(goal.vaultSkin)},
-        ${sqlString(goal.status)},
-        ${sqlString(dateTimeToSql(goal.createdAt))}
-      );
-    ''');
   }
 
   Future<String?> _categoryIdByKey(String key) async {

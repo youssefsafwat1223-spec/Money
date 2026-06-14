@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
@@ -20,7 +19,6 @@ class SectionHeroHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(
@@ -29,18 +27,23 @@ class SectionHeroHeader extends StatelessWidget {
         AppSpacing.gutter,
         AppSpacing.s6,
       ),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
+        // تدرّج بهاما الأزرق الموحّد (مطابق للـ dashboard) — يشتغل في الفاتح والداكن.
         gradient: LinearGradient(
-          colors: [c.gradA, c.primary, c.gradB],
+          colors: [
+            Color(0xFF046E9B),
+            Color(0xFF034E73),
+            Color(0xFF012438),
+          ],
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
         ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(34)),
         boxShadow: [
           BoxShadow(
-            color: c.primary.withValues(alpha: 0.20),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
+            color: Color(0x40034F73),
+            blurRadius: 26,
+            offset: Offset(0, 14),
           ),
         ],
       ),

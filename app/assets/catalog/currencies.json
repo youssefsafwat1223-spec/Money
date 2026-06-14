@@ -1,0 +1,123 @@
+[
+  {
+    "code": "EGP",
+    "name_ar": "الجنيه المصري",
+    "name_en": "Egyptian Pound",
+    "symbol": "ج.م",
+    "decimal_places": 2,
+    "country_codes": ["EG"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "SAR",
+    "name_ar": "الريال السعودي",
+    "name_en": "Saudi Riyal",
+    "symbol": "ر.س",
+    "decimal_places": 2,
+    "country_codes": ["SA"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "AED",
+    "name_ar": "الدرهم الإماراتي",
+    "name_en": "UAE Dirham",
+    "symbol": "د.إ",
+    "decimal_places": 2,
+    "country_codes": ["AE"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "USD",
+    "name_ar": "الدولار الأمريكي",
+    "name_en": "US Dollar",
+    "symbol": "$",
+    "decimal_places": 2,
+    "country_codes": ["US", "EG", "SA", "AE"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "EUR",
+    "name_ar": "اليورو",
+    "name_en": "Euro",
+    "symbol": "€",
+    "decimal_places": 2,
+    "country_codes": ["EG", "SA", "AE"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "GBP",
+    "name_ar": "الجنيه الإسترليني",
+    "name_en": "British Pound",
+    "symbol": "£",
+    "decimal_places": 2,
+    "country_codes": ["GB", "EG", "SA", "AE"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "KWD",
+    "name_ar": "الدينار الكويتي",
+    "name_en": "Kuwaiti Dinar",
+    "symbol": "د.ك",
+    "decimal_places": 3,
+    "country_codes": ["KW"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "QAR",
+    "name_ar": "الريال القطري",
+    "name_en": "Qatari Riyal",
+    "symbol": "ر.ق",
+    "decimal_places": 2,
+    "country_codes": ["QA"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "BHD",
+    "name_ar": "الدينار البحريني",
+    "name_en": "Bahraini Dinar",
+    "symbol": "د.ب",
+    "decimal_places": 3,
+    "country_codes": ["BH"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "OMR",
+    "name_ar": "الريال العماني",
+    "name_en": "Omani Rial",
+    "symbol": "ر.ع",
+    "decimal_places": 3,
+    "country_codes": ["OM"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "JOD",
+    "name_ar": "الدينار الأردني",
+    "name_en": "Jordanian Dinar",
+    "symbol": "د.أ",
+    "decimal_places": 3,
+    "country_codes": ["JO"],
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  }
+]

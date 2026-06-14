@@ -24,7 +24,7 @@ import UIKit
     configureNativeCaptureChannelIfNeeded()
   }
 
-  private func configureNativeCaptureChannelIfNeeded() {
+  func configureNativeCaptureChannelIfNeeded() {
     guard captureChannel == nil, let controller = rootFlutterViewController() else {
       return
     }

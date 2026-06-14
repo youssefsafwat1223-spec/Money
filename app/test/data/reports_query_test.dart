@@ -40,8 +40,14 @@ void main() {
   tearDown(() async => db.close());
 
   test('merchantBreakdown يجمع إنفاق المتجر خلال الفترة', () async {
-    await addTransaction(rawMessage: _purchase('NETFLIX', '2026-01-10', 56));
-    await addTransaction(rawMessage: _purchase('NETFLIX', '2026-02-10', 56));
+    await addTransaction(
+      rawMessage: _purchase('NETFLIX', '2026-01-10', 56),
+      senderId: 'SNB',
+    );
+    await addTransaction(
+      rawMessage: _purchase('NETFLIX', '2026-02-10', 56),
+      senderId: 'SNB',
+    );
 
     final breakdown = await txRepo.merchantBreakdown(
       from: DateTime.utc(2026, 1, 1),
@@ -54,8 +60,14 @@ void main() {
   });
 
   test('recurringCandidates يكتشف الاشتراك المتكرر عبر شهرين', () async {
-    await addTransaction(rawMessage: _purchase('NETFLIX', '2026-01-10', 56));
-    await addTransaction(rawMessage: _purchase('NETFLIX', '2026-02-10', 56));
+    await addTransaction(
+      rawMessage: _purchase('NETFLIX', '2026-01-10', 56),
+      senderId: 'SNB',
+    );
+    await addTransaction(
+      rawMessage: _purchase('NETFLIX', '2026-02-10', 56),
+      senderId: 'SNB',
+    );
 
     final recurring = await txRepo.recurringCandidates();
 
@@ -66,7 +78,10 @@ void main() {
   });
 
   test('عملية واحدة لا تُعدّ اشتراكاً متكرراً', () async {
-    await addTransaction(rawMessage: _purchase('SPOTIFY', '2026-01-10', 21));
+    await addTransaction(
+      rawMessage: _purchase('SPOTIFY', '2026-01-10', 21),
+      senderId: 'SNB',
+    );
     final recurring = await txRepo.recurringCandidates();
     expect(recurring.where((r) => r.name == 'SPOTIFY'), isEmpty);
   });

@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../domain/entities/account_entity.dart';
+import '../../domain/entities/budget_entity.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -18,7 +20,6 @@ import '../capture/capture_entry_sheet.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
 import '../common/premium_loading.dart';
-import '../common/vault_widget.dart';
 import '../common/widgets.dart';
 import '../goals/goal_details_screen.dart';
 import '../goals/goal_form_screen.dart';
@@ -38,6 +39,10 @@ class DashboardScreen extends ConsumerWidget {
           orElse: () => false,
         );
     final c = context.colors;
+    final accounts = ref.watch(accountsProvider).maybeWhen(
+      data: (a) => a,
+      orElse: () => <AccountEntity>[],
+    );
 
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(dashboardDataProvider),
@@ -73,22 +78,40 @@ class DashboardScreen extends ConsumerWidget {
         data: (data) => ListView(
           padding: const EdgeInsets.only(bottom: 120),
           children: [
-            // الجزء العلوي البنفسجي الممتد للحواف (Header Card)
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [c.gradA, c.gradB],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            GestureDetector(
+              onHorizontalDragEnd: (details) {
+                if (accounts.isEmpty) return;
+                final allOptions = <String?>[null, ...accounts.map<String>((a) => a.id)];
+                final current = ref.read(dashboardAccountProvider);
+                final currentIdx = allOptions.indexOf(current);
+                final velocity = details.primaryVelocity ?? 0;
+                if (velocity.abs() < 200) return;
+                final nextIdx = velocity < 0
+                    ? (currentIdx + 1) % allOptions.length
+                    : (currentIdx - 1 + allOptions.length) % allOptions.length;
+                HapticFeedback.selectionClick();
+                ref.read(dashboardAccountProvider.notifier).state =
+                    allOptions[nextIdx];
+              },
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF046E9B),
+                    Color(0xFF034E73),
+                    Color(0xFF012438),
+                  ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
                 ),
                 borderRadius:
-                    const BorderRadius.vertical(bottom: Radius.circular(32)),
+                    const BorderRadius.vertical(bottom: Radius.circular(34)),
                 boxShadow: [
                   BoxShadow(
-                    color: c.primary.withValues(alpha: 0.25),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),
+                    color: const Color(0xFF034F73).withValues(alpha: 0.25),
+                    blurRadius: 26,
+                    offset: const Offset(0, 14),
                   ),
                 ],
               ),
@@ -118,10 +141,8 @@ class DashboardScreen extends ConsumerWidget {
                 ),
               ),
             ),
-
+            ),
             const SizedBox(height: AppSpacing.s5),
-
-            // محتوى الصفحة الرئيسي مع الهوامش الجانبية
             Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
@@ -463,10 +484,12 @@ class DashboardScreen extends ConsumerWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
-              color: Colors.white24,
+              color: Colors.white.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(AppRadius.pill),
               border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.3), width: 1),
+                color: Colors.white.withValues(alpha: 0.16),
+                width: 1,
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -509,19 +532,16 @@ class DashboardScreen extends ConsumerWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.s5),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF011C2B), Color(0xFF023A57)],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
         borderRadius: BorderRadius.circular(AppRadius.card),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.22),
-          width: 1.5,
+          color: c.accent.withValues(alpha: 0.24),
+          width: 1.0,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -535,8 +555,11 @@ class DashboardScreen extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.18),
+                color: Colors.white.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.12),
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -556,23 +579,27 @@ class DashboardScreen extends ConsumerWidget {
             children: [
               Expanded(
                 child: _heroMetric(
+                  context: context,
                   label: 'المصروف',
                   amount: data.spentThisMonth,
                   privacyMode: privacyMode,
                   currency: data.currency,
+                  onDark: true,
                 ),
               ),
               Container(
                 height: 48,
                 width: 1,
-                color: Colors.white.withValues(alpha: 0.28),
+                color: Colors.white.withValues(alpha: 0.14),
               ),
               Expanded(
                 child: _heroMetric(
+                  context: context,
                   label: 'الدخل',
                   amount: data.incomeThisMonth,
                   privacyMode: privacyMode,
                   currency: data.currency,
+                  onDark: true,
                 ),
               ),
             ],
@@ -587,15 +614,14 @@ class DashboardScreen extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.15),
+                color: Colors.white.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(AppLucideIcons.plus,
-                      color: Colors.white, size: 16),
+                  Icon(AppLucideIcons.plus, color: c.accent, size: 16),
                   const SizedBox(width: 8),
                   Text(
                     budgetSet
@@ -643,6 +669,14 @@ class DashboardScreen extends ConsumerWidget {
               ),
             ],
           ),
+          if (data.budgetsForHeader.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.s4),
+            _HeaderBudgetSwiper(
+              entries: data.budgetsForHeader,
+              currency: data.currency,
+              privacyMode: privacyMode,
+            ),
+          ],
           if (data.dailySpendTrend.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.s4),
             Container(
@@ -682,27 +716,32 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _heroMetric({
+    required BuildContext context,
     required String label,
     required double amount,
     required bool privacyMode,
     required String currency,
+    bool onDark = false,
   }) {
+    final c = context.colors;
+    final main = onDark ? Colors.white : c.textMain;
+    final muted = onDark ? Colors.white70 : c.textLight;
     return Column(
       children: [
         Text(
           label,
-          style: AppTypography.caption(Colors.white.withValues(alpha: 0.72))
+          style: AppTypography.caption(muted)
               .copyWith(letterSpacing: 1.2, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
         privacyMode
             ? Text(
                 '••••',
-                style: AppTypography.amountHero(Colors.white),
+                style: AppTypography.amountHero(main),
               )
             : AnimatedAmountText(
                 amount: amount,
-                color: Colors.white,
+                color: main,
                 suffix: ' ${_currencyLabel(currency)}',
               ),
       ],
@@ -1349,97 +1388,52 @@ class DashboardScreen extends ConsumerWidget {
     final goal = data.activeGoal!;
     final progress =
         goal.targetAmount == 0 ? 0.0 : goal.savedAmount / goal.targetAmount;
+    final percent = (progress * 100).round();
+    final remaining =
+        (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.card),
       onTap: () => GoalDetailsScreen.showSheet(context, goal.id),
       child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(AppSpacing.s5),
+        padding: const EdgeInsets.all(AppSpacing.s4),
         decoration: BoxDecoration(
-          color: c.surface.withValues(alpha: 0.75),
+          color: c.surface,
           borderRadius: BorderRadius.circular(AppRadius.card),
-          border:
-              Border.all(color: c.primary.withValues(alpha: 0.2), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
-            ),
-          ],
+          border: Border.all(color: c.border),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // اليسار: مجسم الخزنة الزجاجية المتوهجة
-            VaultWidget(progress: progress, size: 110),
-            const SizedBox(width: AppSpacing.s4),
-            // اليمين: معلومات الهدف بتنسيق نظيف
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: (Theme.of(context).brightness == Brightness.dark
-                              ? c.accent
-                              : c.primary)
-                          .withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                          color:
-                              (Theme.of(context).brightness == Brightness.dark
-                                      ? c.accent
-                                      : c.primary)
-                                  .withValues(alpha: 0.2),
-                          width: 1),
-                    ),
-                    child: Text(
-                      'الهدف الحالي',
-                      style: AppTypography.caption(
-                              Theme.of(context).brightness == Brightness.dark
-                                  ? c.accent
-                                  : c.primary)
-                          .copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    goal.name,
-                    style: AppTypography.title2(c.textMain).copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'المبلغ الموفر:',
-                    style: AppTypography.caption(c.textLight),
-                  ),
-                  const SizedBox(height: 2),
-                  RichText(
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: privacyMode
-                              ? '•••• '
-                              : '${Formatters.integer(goal.savedAmount)} ',
-                          style: AppTypography.headline(c.accent).copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        TextSpan(
-                          text: privacyMode
-                              ? 'من •••• ${_currencyLabel(data.currency)}'
-                              : 'من ${Formatters.integer(goal.targetAmount)} ${_currencyLabel(data.currency)}',
-                          style: AppTypography.body(c.textMain),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            Row(
+              children: [
+                Icon(Icons.savings_outlined, color: c.primary),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: Text(goal.name,
+                      style: AppTypography.headline(c.textMain)),
+                ),
+                Text('$percent%', style: AppTypography.bodyStrong(c.primary)),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              child: LinearProgressIndicator(
+                value: progress.clamp(0, 1).toDouble(),
+                minHeight: 10,
+                backgroundColor: c.surface2,
+                valueColor: AlwaysStoppedAnimation(
+                  remaining == 0 ? c.success : c.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            Text(
+              remaining == 0
+                  ? 'اكتمل الهدف'
+                  : 'باقي ${Formatters.integer(remaining)} ${_currencyLabel(data.currency)} للوصول',
+              style: AppTypography.caption(
+                remaining == 0 ? c.success : c.textLight,
               ),
             ),
           ],
@@ -1702,6 +1696,175 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
+// ─── Header Budget Swiper ────────────────────────────────────────────────────
+
+class _HeaderBudgetSwiper extends StatefulWidget {
+  const _HeaderBudgetSwiper({
+    required this.entries,
+    required this.currency,
+    required this.privacyMode,
+  });
+
+  final List<BudgetHeaderEntry> entries;
+  final String currency;
+  final bool privacyMode;
+
+  @override
+  State<_HeaderBudgetSwiper> createState() => _HeaderBudgetSwiperState();
+}
+
+class _HeaderBudgetSwiperState extends State<_HeaderBudgetSwiper> {
+  late final PageController _ctrl;
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = PageController();
+    _ctrl.addListener(() {
+      final p = _ctrl.page?.round() ?? 0;
+      if (p != _page) setState(() => _page = p);
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final multiple = widget.entries.length > 1;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 80,
+          child: PageView.builder(
+            controller: _ctrl,
+            itemCount: widget.entries.length,
+            itemBuilder: (context, index) => _BudgetBarPage(
+              entry: widget.entries[index],
+              privacyMode: widget.privacyMode,
+            ),
+          ),
+        ),
+        if (multiple) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < widget.entries.length; i++)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: _page == i ? 18 : 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: _page == i
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _BudgetBarPage extends StatelessWidget {
+  const _BudgetBarPage({required this.entry, required this.privacyMode});
+
+  final BudgetHeaderEntry entry;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final ratio = entry.ratio.clamp(0.0, 1.0);
+    final percent = (entry.ratio * 100).clamp(0, 999).round();
+    final isOver = entry.ratio >= 1.0;
+    final barColor = isOver ? c.danger : (entry.ratio > 0.8 ? c.accent : c.success);
+    final periodLabel = switch (entry.period) {
+      BudgetPeriod.daily => 'اليوم',
+      BudgetPeriod.weekly => 'الأسبوع',
+      BudgetPeriod.monthly => 'الشهر',
+    };
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'ميزانية $periodLabel · ${entry.label}',
+                  style: AppTypography.caption(Colors.white70),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (entry.accountName != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Text(
+                    entry.accountName!,
+                    style: AppTypography.caption(Colors.white60)
+                        .copyWith(fontSize: 10),
+                    maxLines: 1,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                '$percent%',
+                style: AppTypography.caption(barColor)
+                    .copyWith(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 8,
+              backgroundColor: Colors.white.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation(barColor),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            privacyMode
+                ? '•••• من ••••'
+                : '${Formatters.amount(entry.spent)} من ${Formatters.amount(entry.limit)}',
+            style: AppTypography.caption(Colors.white60),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Account Switcher ────────────────────────────────────────────────────────
+
 /// مبدّل الحساب أعلى الـ Dashboard — «كل الحسابات» + شريحة لكل حساب بعملته.
 class _AccountSwitcher extends ConsumerWidget {
   const _AccountSwitcher();
@@ -1712,27 +1875,62 @@ class _AccountSwitcher extends ConsumerWidget {
     final selectedId = ref.watch(dashboardAccountProvider);
     return accountsAsync.maybeWhen(
       data: (accounts) {
-        // شريحة واحدة فقط لا تستحق مبدّلاً.
-        if (accounts.length < 2) return const SizedBox.shrink();
+        // اعرض المبدّل بمجرد وجود حساب واحد ليبقى مدخل «إدارة الحسابات» متاحاً.
+        if (accounts.isEmpty) return const SizedBox.shrink();
         return SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
+          height: 42,
+          child: Row(
             children: [
-              _AccountChip(
-                label: 'كل الحسابات',
-                selected: selectedId == null,
-                onTap: () =>
-                    ref.read(dashboardAccountProvider.notifier).state = null,
-              ),
-              for (final account in accounts)
-                _AccountChip(
-                  label: '${account.name} · ${Currency.arabicLabel(account.currency)}',
-                  selected: selectedId == account.id,
-                  onTap: () => ref
-                      .read(dashboardAccountProvider.notifier)
-                      .state = account.id,
+              Expanded(
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    _AccountChip(
+                      label: 'كل الحسابات',
+                      selected: selectedId == null,
+                      onTap: () => ref
+                          .read(dashboardAccountProvider.notifier)
+                          .state = null,
+                    ),
+                    for (final account in accounts)
+                      _AccountChip(
+                        label:
+                            '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                        selected: selectedId == account.id,
+                        onTap: () => ref
+                            .read(dashboardAccountProvider.notifier)
+                            .state = account.id,
+                      ),
+                  ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: 'إدارة الحسابات',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    context.push('/accounts');
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.10),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.16),
+                      ),
+                    ),
+                    child: Icon(
+                      AppLucideIcons.walletCards,
+                      color: context.colors.accent,
+                      size: 19,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         );
@@ -1755,6 +1953,7 @@ class _AccountChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Padding(
       padding: const EdgeInsets.only(left: 8),
       child: GestureDetector(
@@ -1766,19 +1965,17 @@ class _AccountChip extends StatelessWidget {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            color: selected
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.14),
+            color: selected ? c.accent : Colors.white.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(
-              color: Colors.white.withValues(alpha: selected ? 0 : 0.28),
+              color: selected ? c.accent : Colors.white.withValues(alpha: 0.14),
             ),
           ),
           alignment: Alignment.center,
           child: Text(
             label,
             style: AppTypography.caption(
-              selected ? const Color(0xFF0A2540) : Colors.white,
+              selected ? Colors.black : Colors.white,
             ).copyWith(fontWeight: FontWeight.w800),
           ),
         ),

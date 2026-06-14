@@ -16,13 +16,18 @@ import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
-  return GoogleFonts.alexandria(
+  return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
     height: height,
     color: color,
     shadows: shadows,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  ).copyWith(
+    fontFamilyFallback: [
+      GoogleFonts.ibmPlexSansArabic().fontFamily!,
+      GoogleFonts.alexandria().fontFamily!,
+    ],
   );
 }
 
@@ -81,22 +86,34 @@ class _OnboardingMethodScreenState
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
+        bottom: false,
         child: Align(
           alignment: Alignment.bottomCenter,
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 680, maxHeight: 620),
-            margin: const EdgeInsets.all(AppSpacing.gutter),
-            padding: const EdgeInsets.all(AppSpacing.gutter),
+            width: double.infinity,
+            constraints: BoxConstraints(
+              maxWidth: 680,
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.gutter,
+              AppSpacing.gutter,
+              0,
+            ),
             decoration: BoxDecoration(
               color: c.bg,
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: c.border),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+              border: Border(
+                top: BorderSide(color: c.border),
+                left: BorderSide(color: c.border),
+                right: BorderSide(color: c.border),
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  blurRadius: 36,
-                  spreadRadius: -16,
-                  offset: const Offset(0, 18),
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 24,
+                  offset: const Offset(0, -4),
                 ),
               ],
             ),
@@ -181,7 +198,7 @@ class _OnboardingMethodScreenState
                               ],
                             ],
                           )
-                        : const _InlineIosShortcutGuide(),
+                        : const IosShortcutGuide(),
                   ),
                   const SizedBox(height: 18),
                   SizedBox(
@@ -223,6 +240,7 @@ class _OnboardingMethodScreenState
                       style: _alex(13, FontWeight.w700, 1.2, c.textLight),
                     ),
                   ),
+                  SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
                 ],
               ),
             ),
@@ -233,8 +251,8 @@ class _OnboardingMethodScreenState
   }
 }
 
-class _InlineIosShortcutGuide extends StatelessWidget {
-  const _InlineIosShortcutGuide();
+class IosShortcutGuide extends StatelessWidget {
+  const IosShortcutGuide({super.key});
 
   static List<_ShortcutStep> _getSteps(BuildContext context) {
     final locale = Localizations.localeOf(context).languageCode;
@@ -388,6 +406,98 @@ class _MethodStep extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// يفتح دليل اختصار آبل كـ bottom sheet قابل للسحب لأسفل.
+Future<void> showIosShortcutSheet(BuildContext context) {
+  final c = context.colors;
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    useSafeArea: true,
+    backgroundColor: c.bg,
+    barrierColor: Colors.black.withValues(alpha: 0.55),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+    ),
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.of(context).size.height * 0.9,
+    ),
+    builder: (_) => const _IosShortcutSheet(),
+  );
+}
+
+class _IosShortcutSheet extends StatelessWidget {
+  const _IosShortcutSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        0,
+        AppSpacing.gutter,
+        AppSpacing.gutter,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: c.primaryGradient,
+              borderRadius: BorderRadius.circular(26),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.10),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.ios_share_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  context.l10n.setupAppleShortcut,
+                  textAlign: TextAlign.center,
+                  style: _alex(22, FontWeight.w800, 1.2, Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  context.l10n.autoTrackingSubtitleIos,
+                  textAlign: TextAlign.center,
+                  style: _alex(
+                    13,
+                    FontWeight.w500,
+                    1.5,
+                    Colors.white.withValues(alpha: 0.84),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const GlassCard(
+            padding: EdgeInsets.all(18),
+            child: IosShortcutGuide(),
+          ),
+          const SizedBox(height: 18),
+        ],
+      ),
     );
   }
 }

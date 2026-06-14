@@ -14,14 +14,20 @@ import '../common/mali_logo.dart';
 import '../common/motion.dart';
 import 'widgets/premium_ui.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false, List<Shadow>? shadows}) {
-  return GoogleFonts.alexandria(
+TextStyle _alex(double size, FontWeight weight, double height, Color color,
+    {bool tabular = false, List<Shadow>? shadows}) {
+  return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
     height: height,
     color: color,
     shadows: shadows,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  ).copyWith(
+    fontFamilyFallback: [
+      GoogleFonts.ibmPlexSansArabic().fontFamily!,
+      GoogleFonts.alexandria().fontFamily!,
+    ],
   );
 }
 
@@ -47,8 +53,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     setState(() => _busy = true);
     try {
       final identity = await signIn();
-      final wasAuthenticated = AppSession.instance.status ==
-          SessionStatus.authenticated;
+      final wasAuthenticated =
+          AppSession.instance.status == SessionStatus.authenticated;
       await AppSession.instance
           .setIdentity(method: identity.method, email: identity.email);
       if (mounted) {
@@ -104,7 +110,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.gutter, vertical: 8.0),
             child: Row(
               children: [
                 Container(
@@ -120,7 +127,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         context.go('/onboarding');
                       }
                     },
-                    icon: Icon(Icons.arrow_forward_rounded, color: c.textMain, size: 20),
+                    icon: Icon(Icons.arrow_forward_rounded,
+                        color: c.textMain, size: 20),
                   ),
                 ),
               ],
@@ -128,7 +136,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -136,8 +145,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   const Center(child: MaliLogo(size: 64, glow: false)),
                   const SizedBox(height: 20),
                   Text(
-                    context.l10n.signInToStart, 
-                    textAlign: TextAlign.center, 
+                    context.l10n.signInToStart,
+                    textAlign: TextAlign.center,
                     style: _alex(24, FontWeight.w800, 1.2, c.textMain),
                   ),
                   const SizedBox(height: 8),
@@ -146,8 +155,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     textAlign: TextAlign.center,
                     style: _alex(13, FontWeight.w500, 1.5, c.textLight),
                   ),
+                  const SizedBox(height: 18),
+                  const _AuthTrustRow(),
                   const SizedBox(height: 24),
-                  
                   PremiumMotion(
                     delay: const Duration(milliseconds: 100),
                     child: GlassCard(
@@ -157,24 +167,28 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         children: [
                           Center(
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 7),
                               decoration: BoxDecoration(
                                 color: c.accent.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(999),
-                                border: Border.all(color: c.accent.withValues(alpha: 0.22)),
+                                border: Border.all(
+                                    color: c.accent.withValues(alpha: 0.22)),
                               ),
                               child: Text(
                                 context.l10n.noPassword,
-                                style: _alex(12, FontWeight.w800, 1.2, c.accent),
+                                style:
+                                    _alex(12, FontWeight.w800, 1.2, c.accent),
                               ),
                             ),
                           ),
                           const SizedBox(height: 24),
-                          
                           SizedBox(
                             height: 50,
                             child: SignInWithAppleButton(
-                              onPressed: _busy ? () {} : () => _provider(auth.signInWithApple),
+                              onPressed: _busy
+                                  ? () {}
+                                  : () => _provider(auth.signInWithApple),
                               text: context.l10n.continueWithApple,
                               style: SignInWithAppleButtonStyle.black,
                               borderRadius: BorderRadius.circular(16),
@@ -192,12 +206,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           const SizedBox(height: 20),
                           Row(
                             children: [
-                              Expanded(child: Divider(color: c.border.withValues(alpha: 0.3))),
+                              Expanded(
+                                  child: Divider(
+                                      color: c.border.withValues(alpha: 0.3))),
                               Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text(context.l10n.or, style: _alex(12, FontWeight.w600, 1.2, c.textLight)),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(context.l10n.or,
+                                    style: _alex(
+                                        12, FontWeight.w600, 1.2, c.textLight)),
                               ),
-                              Expanded(child: Divider(color: c.border.withValues(alpha: 0.3))),
+                              Expanded(
+                                  child: Divider(
+                                      color: c.border.withValues(alpha: 0.3))),
                             ],
                           ),
                           const SizedBox(height: 20),
@@ -214,25 +235,34 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             decoration: InputDecoration(
                               hintText: context.l10n.email,
                               hintTextDirection: TextDirection.rtl,
-                              hintStyle: _alex(14, FontWeight.w400, 1.4, c.textLight.withValues(alpha: 0.4)),
-                              prefixIcon: Icon(Icons.mail_outline_rounded, color: c.textLight),
+                              hintStyle: _alex(14, FontWeight.w400, 1.4,
+                                  c.textLight.withValues(alpha: 0.4)),
+                              prefixIcon: Icon(Icons.mail_outline_rounded,
+                                  color: c.textLight),
                               filled: true,
-                              fillColor: c.surface.withValues(alpha: isDark ? 0.06 : 0.45),
+                              fillColor: c.surface
+                                  .withValues(alpha: isDark ? 0.06 : 0.45),
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: AppSpacing.s4,
                                 vertical: 16,
                               ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4)),
+                                borderSide: BorderSide(
+                                    color: Colors.white.withValues(
+                                        alpha: isDark ? 0.08 : 0.4)),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4)),
+                                borderSide: BorderSide(
+                                    color: Colors.white.withValues(
+                                        alpha: isDark ? 0.08 : 0.4)),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(color: isDark ? c.accent : c.primary, width: 1.5),
+                                borderSide: BorderSide(
+                                    color: isDark ? c.accent : c.primary,
+                                    width: 1.5),
                               ),
                             ),
                           ),
@@ -263,7 +293,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 ),
                                 child: Text(
                                   context.l10n.sendOtpCode,
-                                  style: _alex(15, FontWeight.w800, 1.2, actionForeground),
+                                  style: _alex(15, FontWeight.w800, 1.2,
+                                      actionForeground),
                                 ),
                               ),
                             ),
@@ -293,7 +324,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       ),
                     ),
                   ),
-                  
                   const SizedBox(height: 32),
                   Center(
                     child: Text(
@@ -328,7 +358,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         onPressed: _busy ? null : onTap,
         style: OutlinedButton.styleFrom(
           backgroundColor: background,
-          side: border ? BorderSide(color: c.border.withValues(alpha: 0.2)) : BorderSide.none,
+          side: border
+              ? BorderSide(color: c.border.withValues(alpha: 0.2))
+              : BorderSide.none,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -344,6 +376,51 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AuthTrustRow extends StatelessWidget {
+  const _AuthTrustRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final items = [
+      (Icons.lock_outline_rounded, 'خصوصية'),
+      (Icons.cloud_done_outlined, 'نسخ اختياري'),
+      (Icons.password_rounded, 'بدون كلمة مرور'),
+    ];
+    return PremiumMotion(
+      delay: const Duration(milliseconds: 60),
+      child: Row(
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: c.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: c.border),
+                ),
+                child: Column(
+                  children: [
+                    Icon(items[i].$1, size: 18, color: c.accent),
+                    const SizedBox(height: 5),
+                    Text(
+                      items[i].$2,
+                      textAlign: TextAlign.center,
+                      style: _alex(10, FontWeight.w800, 1.2, c.textMain),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (i != items.length - 1) const SizedBox(width: 8),
+          ],
+        ],
       ),
     );
   }

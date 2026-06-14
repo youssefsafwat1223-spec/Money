@@ -30,7 +30,7 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color textMain;
   final Color textLight;
   final Color border;
-  
+
   // Kept for backward compatibility with older components until they are migrated
   final Color gradA;
   final Color gradB;
@@ -47,38 +47,38 @@ class AppColors extends ThemeExtension<AppColors> {
     return success;
   }
 
-  // ☀️ Light Mode — Premium Minimalist
+  // Light Mode — Bahama Blue brand on a crisp, airy canvas.
   static const AppColors light = AppColors(
-    bg: Color(0xFFF7F9FA), // Soft off-white
-    surface: Color(0xFFFFFFFF), // Pure white cards
-    surface2: Color(0xFFF0F2F5),
-    primary: Color(0xFF0A1128), // Deep ink black
-    accent: Color(0xFFFFB300), // Gold/Amber CTA
-    success: Color(0xFF16A968),
-    warning: Color(0xFFFF9500),
-    danger: Color(0xFFFF3B30),
-    textMain: Color(0xFF0A1128),
-    textLight: Color(0xFF8E8E93),
-    border: Color(0xFFEBEBEB),
-    gradA: Color(0xFF0A1128), // Mapped to primary for now
-    gradB: Color(0xFF111C3D), // Mapped to primary variant
+    bg: Color(0xFFF2F7FB),
+    surface: Color(0xFFFFFFFF),
+    surface2: Color(0xFFE3EEF5),
+    primary: Color(0xFF056A95),
+    accent: Color(0xFF4F8AA6),
+    success: Color(0xFF14946E),
+    warning: Color(0xFFC57F2C),
+    danger: Color(0xFFD4493D),
+    textMain: Color(0xFF0E2230),
+    textLight: Color(0xFF5C7484),
+    border: Color(0xFFD5E2EB),
+    gradA: Color(0xFF0789BB),
+    gradB: Color(0xFF034F73),
   );
 
-  // 🌙 Dark Mode — Premium Minimalist
+  // Dark Mode — deep midnight Bahama with luminous brand accents.
   static const AppColors dark = AppColors(
-    bg: Color(0xFF000000), // True black
-    surface: Color(0xFF151515), // Deep dark cards
-    surface2: Color(0xFF1C1C1E),
-    primary: Color(0xFFFFFFFF), // Crisp white text/icons
-    accent: Color(0xFFFFB300), // Gold/Amber CTA
-    success: Color(0xFF34C759),
-    warning: Color(0xFFFF9F0A),
-    danger: Color(0xFFFF453A),
-    textMain: Color(0xFFFFFFFF),
-    textLight: Color(0xFF98989D),
-    border: Color(0xFF2C2C2E),
-    gradA: Color(0xFF1C1C1E), // Mapped to dark surface
-    gradB: Color(0xFF2C2C2E),
+    bg: Color(0xFF02131C),
+    surface: Color(0xFF081E2A),
+    surface2: Color(0xFF102E3F),
+    primary: Color(0xFF38B0DD),
+    accent: Color(0xFF7CB1C8),
+    success: Color(0xFF2BC79A),
+    warning: Color(0xFFD89C5A),
+    danger: Color(0xFFFF6B73),
+    textMain: Color(0xFFEBF4F9),
+    textLight: Color(0xFF95AEBC),
+    border: Color(0xFF1C3849),
+    gradA: Color(0xFF0789BB),
+    gradB: Color(0xFF056A95),
   );
 
   @override

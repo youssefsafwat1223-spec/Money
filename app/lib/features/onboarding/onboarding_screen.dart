@@ -11,18 +11,25 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../data/catalog/catalog_daos.dart';
 import '../common/mali_logo.dart';
 import 'onboarding_options.dart';
 import 'widgets/premium_ui.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false, List<Shadow>? shadows}) {
-  return GoogleFonts.alexandria(
+TextStyle _alex(double size, FontWeight weight, double height, Color color,
+    {bool tabular = false, List<Shadow>? shadows}) {
+  return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
     height: height,
     color: color,
     shadows: shadows,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  ).copyWith(
+    fontFamilyFallback: [
+      GoogleFonts.ibmPlexSansArabic().fontFamily!,
+      GoogleFonts.alexandria().fontFamily!,
+    ],
   );
 }
 
@@ -95,7 +102,8 @@ class _TopFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter, vertical: AppSpacing.s3),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.gutter, vertical: AppSpacing.s3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -115,7 +123,8 @@ class _TopFrame extends StatelessWidget {
               onPressed: () => context.go('/onboarding/auth'),
               style: TextButton.styleFrom(
                 backgroundColor: Colors.transparent,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               ),
               child: Text(
                 context.l10n.skip,
@@ -131,24 +140,22 @@ class _TopFrame extends StatelessWidget {
 }
 
 class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.index, required this.count, required this.onNext});
-  
+  const _BottomBar(
+      {required this.index, required this.count, required this.onNext});
+
   final int index;
   final int count;
   final VoidCallback onNext;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     final isLast = index == count - 1;
-    
-    const actionGradient = LinearGradient(
-      colors: [Color(0xFFFFB300), Color(0xFFFF9500)],
-      begin: Alignment.topRight,
-      end: Alignment.bottomLeft,
-    );
-    final actionForeground = c.primary;
-    
+
+    // إطار زر «التالي» يطابق هوية بهاما الأزرق في الوضعين.
+    final actionGradient = context.colors.primaryGradient;
+    const actionForeground = Colors.white;
+    final glowColor = const Color(0xFF034F73).withValues(alpha: 0.32);
+
     return Container(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
@@ -162,6 +169,8 @@ class _BottomBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          _ProgressDots(index: index, count: count),
+          const SizedBox(height: 16),
           Align(
             alignment: Alignment.center,
             child: Container(
@@ -172,8 +181,8 @@ class _BottomBar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(27),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFFFB300).withValues(alpha: 0.35),
-                    blurRadius: 16,
+                    color: glowColor,
+                    blurRadius: 18,
                     offset: const Offset(0, 6),
                   ),
                 ],
@@ -184,21 +193,24 @@ class _BottomBar extends StatelessWidget {
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   padding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(27)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(27)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      isLast ? context.l10n.registerAndStart : context.l10n.next,
+                      isLast
+                          ? context.l10n.registerAndStart
+                          : context.l10n.next,
                       style: _alex(15, FontWeight.w800, 1.2, actionForeground),
                     ),
                     const SizedBox(width: 6),
                     Icon(
                       Directionality.of(context) == TextDirection.rtl
                           ? Icons.chevron_left_rounded
-                          : Icons.chevron_right_rounded, 
-                      color: actionForeground, 
+                          : Icons.chevron_right_rounded,
+                      color: actionForeground,
                       size: 20,
                     ),
                   ],
@@ -208,6 +220,35 @@ class _BottomBar extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ProgressDots extends StatelessWidget {
+  const _ProgressDots({required this.index, required this.count});
+
+  final int index;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = 0; i < count; i++)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 240),
+            width: i == index ? 24 : 7,
+            height: 7,
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            decoration: BoxDecoration(
+              color:
+                  i == index ? c.accent : c.textLight.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -228,6 +269,8 @@ class _WelcomePage extends StatelessWidget {
         const SizedBox(height: 40),
         const Center(child: MaliLogo(size: 90, glow: false)),
         const SizedBox(height: 32),
+        const _OnboardingHeroPreview(),
+        const SizedBox(height: 28),
         Text(
           context.l10n.welcomeTitle,
           textAlign: TextAlign.center,
@@ -282,6 +325,115 @@ class _WelcomePage extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _OnboardingHeroPreview extends StatelessWidget {
+  const _OnboardingHeroPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF050505), Color(0xFF1B1710)],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: c.accent.withValues(alpha: 0.25)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _PreviewMetric(
+                label: 'اليوم',
+                value: '126 ر',
+                color: c.accent,
+              ),
+              const SizedBox(width: 10),
+              const _PreviewMetric(
+                label: 'ميزانية',
+                value: '72%',
+                color: Color(0xFF38D996),
+              ),
+              const SizedBox(width: 10),
+              const _PreviewMetric(
+                label: 'أهداف',
+                value: '3',
+                color: Colors.white,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: Row(
+              children: [
+                Icon(AppLucideIcons.receipt, color: c.accent, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'رسالة بنك → عملية مصنفة → رؤية واضحة',
+                    style: _alex(12, FontWeight.w800, 1.5, Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    )
+        .animate()
+        .fadeIn(duration: 420.ms, curve: Curves.easeOutCubic)
+        .slideY(begin: 0.08, end: 0, duration: 420.ms);
+  }
+}
+
+class _PreviewMetric extends StatelessWidget {
+  const _PreviewMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          children: [
+            Text(label, style: _alex(10, FontWeight.w700, 1.2, Colors.white70)),
+            const SizedBox(height: 4),
+            Text(value, style: _alex(16, FontWeight.w900, 1.1, color)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -394,7 +546,7 @@ class _SmsTile extends StatelessWidget {
     required this.content,
     required this.isActive,
   });
-  
+
   final String bank;
   final String time;
   final Widget content;
@@ -406,8 +558,8 @@ class _SmsTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isActive 
-            ? c.accent.withValues(alpha: 0.05) 
+        color: isActive
+            ? c.accent.withValues(alpha: 0.05)
             : c.surface.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
@@ -426,7 +578,8 @@ class _SmsTile extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Icon(Icons.sms_outlined, size: 14, color: Colors.white),
+            child:
+                const Icon(Icons.sms_outlined, size: 14, color: Colors.white),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -436,8 +589,10 @@ class _SmsTile extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(bank, style: _alex(13, FontWeight.w800, 1.2, c.textMain)),
-                    Text(time, style: _alex(11, FontWeight.w600, 1.2, c.textLight)),
+                    Text(bank,
+                        style: _alex(13, FontWeight.w800, 1.2, c.textMain)),
+                    Text(time,
+                        style: _alex(11, FontWeight.w600, 1.2, c.textLight)),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -457,13 +612,18 @@ class _HowItWorksPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     Widget maybeAnimate(Widget child, {Duration delay = Duration.zero}) {
       if (reduceMotion) return child;
       return child
           .animate(delay: delay)
           .fadeIn(duration: 380.ms, curve: Curves.easeOutCubic)
-          .slideY(begin: 0.08, end: 0, duration: 380.ms, curve: Curves.easeOutCubic);
+          .slideY(
+              begin: 0.08,
+              end: 0,
+              duration: 380.ms,
+              curve: Curves.easeOutCubic);
     }
 
     return ListView(
@@ -577,11 +737,13 @@ class _MessageBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(context.l10n.messageFromBank, style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
+                Text(context.l10n.messageFromBank,
+                    style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
                 const SizedBox(height: 5),
                 Text(
                   context.l10n.burgerBoutiqueSms,
-                  style: _alex(12, FontWeight.w600, 1.4, c.textLight, tabular: true),
+                  style: _alex(12, FontWeight.w600, 1.4, c.textLight,
+                      tabular: true),
                 ),
               ],
             ),
@@ -638,16 +800,20 @@ class _ClassifiedTransactionCard extends StatelessWidget {
               color: const Color(0xFFFF7A59),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(AppLucideIcons.utensilsCrossed, color: Colors.white, size: 22),
+            child: const Icon(AppLucideIcons.utensilsCrossed,
+                color: Colors.white, size: 22),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('BURGER BOUTIQUE', style: _alex(13, FontWeight.w800, 1.2, Colors.white)),
+                Text('BURGER BOUTIQUE',
+                    style: _alex(13, FontWeight.w800, 1.2, Colors.white)),
                 const SizedBox(height: 5),
-                Text(context.l10n.burgerBoutiqueSub, style: _alex(11, FontWeight.w600, 1.2, Colors.white.withValues(alpha: 0.72))),
+                Text(context.l10n.burgerBoutiqueSub,
+                    style: _alex(11, FontWeight.w600, 1.2,
+                        Colors.white.withValues(alpha: 0.72))),
               ],
             ),
           ),
@@ -727,7 +893,8 @@ class _VaultPage extends StatelessWidget {
                       color: c.success.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.savings_outlined, color: c.success, size: 24),
+                    child: Icon(Icons.savings_outlined,
+                        color: c.success, size: 24),
                   ),
                 ],
               ),
@@ -737,7 +904,8 @@ class _VaultPage extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: c.surface.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.1)),
                 ),
                 child: Column(
                   children: [
@@ -746,11 +914,13 @@ class _VaultPage extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.flight_takeoff_rounded, size: 16, color: c.textMain),
+                            Icon(Icons.flight_takeoff_rounded,
+                                size: 16, color: c.textMain),
                             const SizedBox(width: 8),
                             Text(
                               context.l10n.travelVault,
-                              style: _alex(13, FontWeight.w800, 1.2, c.textMain),
+                              style:
+                                  _alex(13, FontWeight.w800, 1.2, c.textMain),
                             ),
                           ],
                         ),
@@ -795,8 +965,6 @@ class _VaultPage extends StatelessWidget {
   }
 }
 
-
-
 class _CountryPage extends ConsumerStatefulWidget {
   const _CountryPage();
 
@@ -809,9 +977,12 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
   final Set<String> _selectedExtraCurrencies = {};
   final Set<String> _selectedSubscriptions = {};
 
-  Future<void> _selectCountry(int index) async {
+  Future<void> _selectCountry(
+    int index,
+    List<OnboardingCountry> countries,
+  ) async {
     setState(() => _selectedCountryIndex = index);
-    final selectedCountry = onboardingCountries[index];
+    final selectedCountry = countries[index];
     try {
       final repository = ref.read(userSettingsRepositoryProvider);
       final settings = await repository.getSettings();
@@ -831,7 +1002,10 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
     }
   }
 
-  void _showCountryPicker(BuildContext context) {
+  void _showCountryPicker(
+    BuildContext context,
+    List<OnboardingCountry> countries,
+  ) {
     String searchQuery = '';
     showModalBottomSheet(
       context: context,
@@ -841,11 +1015,14 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final c = context.colors;
-            final filteredCountries = onboardingCountries.where((country) =>
-              country.name.contains(searchQuery) ||
-              country.currency.contains(searchQuery) ||
-              country.currencyCode.toLowerCase().contains(searchQuery.toLowerCase())
-            ).toList();
+            final filteredCountries = countries
+                .where((country) =>
+                    country.name.contains(searchQuery) ||
+                    country.currency.contains(searchQuery) ||
+                    country.currencyCode
+                        .toLowerCase()
+                        .contains(searchQuery.toLowerCase()))
+                .toList();
 
             return BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
@@ -853,7 +1030,8 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                 height: MediaQuery.of(context).size.height * 0.7,
                 decoration: BoxDecoration(
                   color: c.bg.withValues(alpha: 0.95),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
                   border: Border(top: BorderSide(color: c.border)),
                 ),
                 child: Column(
@@ -876,15 +1054,19 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: TextField(
-                        onChanged: (val) => setModalState(() => searchQuery = val),
+                        onChanged: (val) =>
+                            setModalState(() => searchQuery = val),
                         style: _alex(13, FontWeight.w600, 1.2, c.textMain),
                         decoration: InputDecoration(
                           hintText: context.l10n.searchCountryPlaceholder,
-                          hintStyle: _alex(12, FontWeight.w500, 1.2, c.textLight),
-                          prefixIcon: Icon(Icons.search_rounded, color: c.textLight, size: 18),
+                          hintStyle:
+                              _alex(12, FontWeight.w500, 1.2, c.textLight),
+                          prefixIcon: Icon(Icons.search_rounded,
+                              color: c.textLight, size: 18),
                           filled: true,
                           fillColor: c.surface.withValues(alpha: 0.15),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                             borderSide: BorderSide(color: c.border),
@@ -904,13 +1086,14 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, i) {
                           final country = filteredCountries[i];
-                          final actualIndex = onboardingCountries.indexOf(country);
-                          final isSelected = actualIndex == _selectedCountryIndex;
+                          final actualIndex = countries.indexOf(country);
+                          final isSelected =
+                              actualIndex == _selectedCountryIndex;
                           return _CountryTile(
                             option: country,
                             selected: isSelected,
                             onTap: () {
-                              _selectCountry(actualIndex);
+                              _selectCountry(actualIndex, countries);
                               setModalState(() {});
                               Navigator.pop(context);
                             },
@@ -928,7 +1111,10 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
     );
   }
 
-  void _showExtraCurrenciesPicker(BuildContext context) {
+  void _showExtraCurrenciesPicker(
+    BuildContext context,
+    List<OnboardingCurrency> currencies,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -943,7 +1129,8 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                 height: MediaQuery.of(context).size.height * 0.6,
                 decoration: BoxDecoration(
                   color: c.bg.withValues(alpha: 0.95),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
                   border: Border(top: BorderSide(color: c.border)),
                 ),
                 child: Column(
@@ -975,18 +1162,20 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                     Expanded(
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                        itemCount: onboardingCurrencies.length,
+                        itemCount: currencies.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, i) {
-                          final currency = onboardingCurrencies[i];
-                          final isSelected = _selectedExtraCurrencies.contains(currency.code);
+                          final currency = currencies[i];
+                          final isSelected =
+                              _selectedExtraCurrencies.contains(currency.code);
                           return _CurrencyTile(
                             option: currency,
                             selected: isSelected,
                             onTap: () {
                               setState(() {
                                 if (isSelected) {
-                                  _selectedExtraCurrencies.remove(currency.code);
+                                  _selectedExtraCurrencies
+                                      .remove(currency.code);
                                 } else {
                                   _selectedExtraCurrencies.add(currency.code);
                                 }
@@ -1022,7 +1211,8 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                 height: MediaQuery.of(context).size.height * 0.6,
                 decoration: BoxDecoration(
                   color: c.bg.withValues(alpha: 0.95),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
                   border: Border(top: BorderSide(color: c.border)),
                 ),
                 child: Column(
@@ -1058,7 +1248,8 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, i) {
                           final sub = subscriptionShowcase[i];
-                          final isSelected = _selectedSubscriptions.contains(sub.asset);
+                          final isSelected =
+                              _selectedSubscriptions.contains(sub.asset);
                           return _SubscriptionSelectionTile(
                             option: sub,
                             selected: isSelected,
@@ -1089,18 +1280,29 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final selectedCountry = onboardingCountries[_selectedCountryIndex];
-    
-    final extraCurrenciesText = _selectedExtraCurrencies.isEmpty 
-        ? context.l10n.none 
+    final countryOptions = _countryOptions(
+      ref.watch(supportedCountriesProvider).valueOrNull,
+      ref.watch(activeCurrenciesProvider).valueOrNull,
+    );
+    final currencyOptions = _currencyOptions(
+      ref.watch(activeCurrenciesProvider).valueOrNull,
+    );
+    final selectedIndex = _selectedCountryIndex.clamp(
+      0,
+      countryOptions.length - 1,
+    );
+    final selectedCountry = countryOptions[selectedIndex];
+
+    final extraCurrenciesText = _selectedExtraCurrencies.isEmpty
+        ? context.l10n.none
         : _selectedExtraCurrencies.join('، ');
 
     final activeSubsNames = subscriptionShowcase
         .where((sub) => _selectedSubscriptions.contains(sub.asset))
         .map((sub) => sub.name)
         .toList();
-    final subscriptionsText = activeSubsNames.isEmpty 
-        ? context.l10n.noActiveSubs 
+    final subscriptionsText = activeSubsNames.isEmpty
+        ? context.l10n.noActiveSubs
         : activeSubsNames.join('، ');
 
     return ListView(
@@ -1134,9 +1336,10 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
             children: [
               _SelectionTile(
                 title: context.l10n.mainCountryCurrency,
-                subtitle: '${selectedCountry.localizedName(context)} · ${selectedCountry.currencyCode} (${selectedCountry.localizedCurrency(context)})',
+                subtitle:
+                    '${selectedCountry.localizedName(context)} · ${selectedCountry.currencyCode} (${selectedCountry.localizedCurrency(context)})',
                 icon: _FlagAvatar(code: selectedCountry.code, size: 36),
-                onTap: () => _showCountryPicker(context),
+                onTap: () => _showCountryPicker(context, countryOptions),
               ),
               const SizedBox(height: 12),
               _SelectionTile(
@@ -1149,9 +1352,11 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                     color: c.accent.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.currency_exchange_rounded, color: c.accent, size: 18),
+                  child: Icon(Icons.currency_exchange_rounded,
+                      color: c.accent, size: 18),
                 ),
-                onTap: () => _showExtraCurrenciesPicker(context),
+                onTap: () =>
+                    _showExtraCurrenciesPicker(context, currencyOptions),
               ),
               const SizedBox(height: 12),
               _SelectionTile(
@@ -1164,7 +1369,8 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                     color: c.accent.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.subscriptions_outlined, color: c.accent, size: 18),
+                  child: Icon(Icons.subscriptions_outlined,
+                      color: c.accent, size: 18),
                 ),
                 onTap: () => _showSubscriptionsPicker(context),
               ),
@@ -1174,6 +1380,46 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
         const SizedBox(height: 20),
       ],
     );
+  }
+
+  List<OnboardingCountry> _countryOptions(
+    List<RemoteCountry>? countries,
+    List<RemoteCurrency>? currencies,
+  ) {
+    if (countries == null || countries.isEmpty || currencies == null) {
+      return onboardingCountries;
+    }
+    final options = <OnboardingCountry>[];
+    for (final country in countries) {
+      RemoteCurrency? primaryCurrency;
+      for (final currency in currencies) {
+        if (currency.countryCodes.contains(country.code)) {
+          primaryCurrency = currency;
+          break;
+        }
+      }
+      options.add(
+        OnboardingCountry(
+          code: country.code.toLowerCase(),
+          name: country.nameAr,
+          currency: primaryCurrency?.nameAr ?? country.nameAr,
+          currencyCode: primaryCurrency?.code ?? 'USD',
+        ),
+      );
+    }
+    return options.isEmpty ? onboardingCountries : options;
+  }
+
+  List<OnboardingCurrency> _currencyOptions(List<RemoteCurrency>? currencies) {
+    if (currencies == null || currencies.isEmpty) return onboardingCurrencies;
+    return currencies
+        .map(
+          (currency) => OnboardingCurrency(
+            code: currency.code,
+            name: currency.nameAr,
+          ),
+        )
+        .toList(growable: false);
   }
 }
 
@@ -1280,7 +1526,8 @@ class _SubscriptionSelectionTile extends StatelessWidget {
                 'assets/brands/${option.asset}.svg',
                 width: 22,
                 height: 22,
-                colorFilter: ColorFilter.mode(option.brandColor, BlendMode.srcIn),
+                colorFilter:
+                    ColorFilter.mode(option.brandColor, BlendMode.srcIn),
               ),
             ),
             const SizedBox(width: 12),
@@ -1288,9 +1535,12 @@ class _SubscriptionSelectionTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(option.name, style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
+                  Text(option.name,
+                      style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
                   const SizedBox(height: 4),
-                  Text(option.localizedPrice(context), style: _alex(10, FontWeight.w700, 1.2, c.textLight, tabular: true)),
+                  Text(option.localizedPrice(context),
+                      style: _alex(10, FontWeight.w700, 1.2, c.textLight,
+                          tabular: true)),
                 ],
               ),
             ),
@@ -1299,7 +1549,8 @@ class _SubscriptionSelectionTile extends StatelessWidget {
               onChanged: (_) => onTap(),
               activeColor: c.accent,
               checkColor: c.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4)),
             ),
           ],
         ),
@@ -1381,15 +1632,19 @@ class _CountryTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(option.localizedName(context), style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
+                  Text(option.localizedName(context),
+                      style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
                   const SizedBox(height: 4),
-                  Text(option.localizedCurrency(context), style: _alex(10, FontWeight.w700, 1.2, c.textLight)),
+                  Text(option.localizedCurrency(context),
+                      style: _alex(10, FontWeight.w700, 1.2, c.textLight)),
                 ],
               ),
             ),
             Text(
               option.currencyCode,
-              style: _alex(11, FontWeight.w800, 1.2, selected ? c.accent : c.textLight, tabular: true),
+              style: _alex(
+                  11, FontWeight.w800, 1.2, selected ? c.accent : c.textLight,
+                  tabular: true),
             ),
           ],
         ),
@@ -1421,7 +1676,8 @@ class _CurrencyTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: c.accent.withValues(alpha: selected ? 0.16 : 0.08),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: c.accent.withValues(alpha: selected ? 0.34 : 0.16)),
+          border: Border.all(
+              color: c.accent.withValues(alpha: selected ? 0.34 : 0.16)),
         ),
         child: Row(
           children: [
@@ -1435,16 +1691,20 @@ class _CurrencyTile extends StatelessWidget {
               alignment: Alignment.center,
               child: Text(
                 option.code.characters.first,
-                style: _alex(12, FontWeight.w800, 1.2, selected ? c.primary : c.textLight),
+                style: _alex(12, FontWeight.w800, 1.2,
+                    selected ? c.primary : c.textLight),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(option.localizedName(context), style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
+              child: Text(option.localizedName(context),
+                  style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
             ),
             Text(
               option.code,
-              style: _alex(11, FontWeight.w800, 1.2, selected ? c.accent : c.textLight, tabular: true),
+              style: _alex(
+                  11, FontWeight.w800, 1.2, selected ? c.accent : c.textLight,
+                  tabular: true),
             ),
           ],
         ),
@@ -1517,7 +1777,7 @@ class _PrivacyPage extends StatelessWidget {
 
 class _PrivacyTile extends StatelessWidget {
   const _PrivacyTile({required this.icon, required this.text});
-  
+
   final IconData icon;
   final String text;
 

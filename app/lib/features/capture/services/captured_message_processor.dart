@@ -1,9 +1,11 @@
+import '../../../core/backend/rules_client.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/repositories/drift_account_repository.dart';
 import '../../../data/repositories/drift_gamification_repository.dart';
 import '../../../data/repositories/drift_merchant_category_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
+import '../../../domain/entities/captured_message.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../../domain/usecases/engagement_usecase.dart';
 import '../../../domain/usecases/ingest_captured_message_usecase.dart';
@@ -16,6 +18,24 @@ class CapturedMessageProcessor {
   static Future<CapturedMessageResult> process({
     required String rawMessage,
     String? senderId,
+    CapturedMessageSource source = CapturedMessageSource.unknown,
+    bool showNotifications = true,
+    AppDatabase? database,
+  }) async {
+    return processCapturedMessage(
+      CapturedMessage(
+        text: rawMessage,
+        senderId: senderId,
+        source: source,
+        receivedAt: DateTime.now().toUtc(),
+      ),
+      showNotifications: showNotifications,
+      database: database,
+    );
+  }
+
+  static Future<CapturedMessageResult> processCapturedMessage(
+    CapturedMessage message, {
     bool showNotifications = true,
     AppDatabase? database,
   }) async {
@@ -33,24 +53,22 @@ class CapturedMessageProcessor {
       final ingestUseCase = IngestCapturedMessageUseCase(
         AddTransactionUseCase(
           transactionRepository: DriftTransactionRepository(db),
-          merchantCategoryRepository:
-              DriftMerchantCategoryRepository(db),
+          merchantCategoryRepository: DriftMerchantCategoryRepository(db),
           recordEngagementUseCase: engagementUseCase,
+          loadBankProfiles: RulesClient(database: db).localBankProfiles,
           accountRepository: DriftAccountRepository(db),
         ),
       );
 
-      final result = await ingestUseCase(
-        rawMessage: rawMessage,
-        senderId: senderId,
-      );
+      final result = await ingestUseCase.fromCapturedMessage(message);
 
       if (showNotifications) {
         switch (result.disposition) {
           case CapturedMessageDisposition.ignored:
             break;
           case CapturedMessageDisposition.notifyOnly:
-            await LocalNotificationService.instance.showLightCaptureNotification(
+            await LocalNotificationService.instance
+                .showLightCaptureNotification(
               title: 'تم التقاط العملية',
               body: _buildConfirmedBody(result.addTransactionResult),
               preferences: notificationPreferences,

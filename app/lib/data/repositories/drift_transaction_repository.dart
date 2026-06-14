@@ -179,7 +179,7 @@ class DriftTransactionRepository implements TransactionRepository {
         UPDATE transactions
         SET ${accountClause}amount = ?, currency = ?, type = ?, occurred_at = ?,
             merchant_id = ?, raw_merchant = ?, category_id = ?, note = ?,
-            raw_message = ?, status = 'confirmed', updated_at = ?
+            status = 'confirmed', updated_at = ?
         WHERE id = ?;
       ''',
       variables: [
@@ -200,9 +200,6 @@ class DriftTransactionRepository implements TransactionRepository {
         normalizedNote == null || normalizedNote.isEmpty
             ? const Variable<String>(null)
             : Variable.withString(normalizedNote),
-        Variable.withString(normalizedNote == null || normalizedNote.isEmpty
-            ? 'Manual transaction'
-            : normalizedNote),
         Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
         Variable.withString(transactionId),
       ],
@@ -260,7 +257,7 @@ class DriftTransactionRepository implements TransactionRepository {
     final rows = await _db.customSelect(
       '''
         SELECT * FROM transactions
-        WHERE status != 'ignored'${_accountClause(accountId)}
+        WHERE status = 'confirmed'${_accountClause(accountId)}
         ORDER BY occurred_at DESC
         LIMIT ?;
       ''',
@@ -292,7 +289,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
-          AND status != 'ignored'
+          AND status = 'confirmed'
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
@@ -315,7 +312,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
         FROM transactions
         WHERE type = 'income'
-          AND status != 'ignored'
+          AND status = 'confirmed'
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
@@ -333,7 +330,7 @@ class DriftTransactionRepository implements TransactionRepository {
       '''
         SELECT CAST(balance_after AS REAL) AS balance
         FROM transactions
-        WHERE status != 'ignored'
+        WHERE status = 'confirmed'
           AND balance_after IS NOT NULL${_accountClause(accountId)}
         ORDER BY occurred_at DESC
         LIMIT 1;
@@ -354,7 +351,7 @@ class DriftTransactionRepository implements TransactionRepository {
           CAST(COALESCE(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END), 0) AS REAL) AS expense,
           CAST(COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS REAL) AS income
         FROM transactions
-        WHERE status != 'ignored'
+        WHERE status = 'confirmed'
           AND occurred_at BETWEEN ? AND ?
         GROUP BY currency
         ORDER BY expense DESC;
@@ -384,7 +381,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT date(occurred_at) AS day, CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
-          AND status != 'ignored'
+          AND status = 'confirmed'
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
         GROUP BY date(occurred_at)
         ORDER BY day ASC;
@@ -416,7 +413,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT category_id AS cid, CAST(SUM(amount) AS REAL) AS total
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
-          AND status != 'ignored'
+          AND status = 'confirmed'
           AND category_id IS NOT NULL
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
         GROUP BY category_id
@@ -453,7 +450,7 @@ class DriftTransactionRepository implements TransactionRepository {
           END
         ), 0) AS REAL) AS total
         FROM transactions
-        WHERE status != 'ignored'
+        WHERE status = 'confirmed'
           AND category_id = ?
           AND type IN ('payment', 'withdrawal', 'refund')
           AND occurred_at BETWEEN ? AND ?;
@@ -479,7 +476,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions t
         INNER JOIN merchants m ON m.id = t.merchant_id
         WHERE t.type IN ('payment', 'withdrawal')
-          AND t.status != 'ignored'
+          AND t.status = 'confirmed'
           AND t.occurred_at BETWEEN ? AND ?
         GROUP BY t.merchant_id
         ORDER BY total DESC
@@ -509,7 +506,7 @@ class DriftTransactionRepository implements TransactionRepository {
                COUNT(*) AS cnt,
                MAX(raw_message) AS sample
         FROM transactions
-        WHERE card_last4 IS NOT NULL AND status != 'ignored'
+        WHERE card_last4 IS NOT NULL AND status = 'confirmed'
         GROUP BY card_last4
         ORDER BY (out_total + in_total) DESC;
       ''',
@@ -531,7 +528,7 @@ class DriftTransactionRepository implements TransactionRepository {
     final rows = await _db.customSelect(
       '''
         SELECT * FROM transactions
-        WHERE card_last4 = ? AND status != 'ignored'
+        WHERE card_last4 = ? AND status = 'confirmed'
         ORDER BY occurred_at DESC;
       ''',
       variables: [Variable.withString(last4)],
@@ -551,7 +548,7 @@ class DriftTransactionRepository implements TransactionRepository {
                  CAST(COUNT(DISTINCT strftime('%Y-%m', t.occurred_at)) AS INTEGER) AS months
           FROM transactions t
           INNER JOIN merchants m ON m.id = t.merchant_id
-          WHERE t.type = 'payment' AND t.status != 'ignored'
+          WHERE t.type = 'payment' AND t.status = 'confirmed'
           GROUP BY t.merchant_id
         )
         WHERE months >= 2 AND (max_a - min_a) <= (avg_amount * 0.15)
@@ -569,9 +566,11 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   Future<String?> _defaultAccountId() async {
-    final row = await _db.customSelect(
-      'SELECT id FROM accounts ORDER BY is_default DESC, sort_order ASC LIMIT 1;',
-    ).getSingleOrNull();
+    final row = await _db
+        .customSelect(
+          'SELECT id FROM accounts ORDER BY is_default DESC, sort_order ASC LIMIT 1;',
+        )
+        .getSingleOrNull();
     return row?.read<String>('id');
   }
 

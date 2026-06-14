@@ -35,10 +35,10 @@ class BentoCard extends StatelessWidget {
         );
         break;
       case BentoTheme.accent:
-        gradient = const LinearGradient(
+        gradient = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFFFB300), Color(0xFFFFC107)],
+          colors: [c.accent, c.primary],
         );
         break;
       case BentoTheme.success:

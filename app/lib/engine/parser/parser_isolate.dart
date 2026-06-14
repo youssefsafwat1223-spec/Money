@@ -1,0 +1,74 @@
+import 'dart:async';
+import 'dart:isolate';
+
+import 'bank_profile.dart';
+import 'parse_result.dart';
+import 'parser_engine.dart';
+
+class ParserIsolate {
+  const ParserIsolate({this.timeout = const Duration(seconds: 2)});
+
+  final Duration timeout;
+
+  Future<ParseResult?> parse(
+    String rawText, {
+    String? senderId,
+    List<BankProfile> bankProfiles = const [],
+    String defaultCurrency = 'SAR',
+  }) async {
+    final receivePort = ReceivePort();
+    Isolate? isolate;
+    try {
+      isolate = await Isolate.spawn(
+        _parseEntry,
+        _ParserIsolateRequest(
+          sendPort: receivePort.sendPort,
+          rawText: rawText,
+          senderId: senderId,
+          bankProfiles: bankProfiles,
+          defaultCurrency: defaultCurrency,
+        ),
+      );
+      final message = await receivePort.first.timeout(timeout);
+      if (message is ParseResult) return message;
+      return null;
+    } on TimeoutException {
+      isolate?.kill(priority: Isolate.immediate);
+      return null;
+    } catch (_) {
+      return null;
+    } finally {
+      receivePort.close();
+    }
+  }
+}
+
+void _parseEntry(_ParserIsolateRequest request) {
+  try {
+    final result = const ParserEngine().parse(
+      request.rawText,
+      senderId: request.senderId,
+      bankProfiles: request.bankProfiles,
+      defaultCurrency: request.defaultCurrency,
+    );
+    request.sendPort.send(result);
+  } catch (_) {
+    request.sendPort.send(null);
+  }
+}
+
+class _ParserIsolateRequest {
+  const _ParserIsolateRequest({
+    required this.sendPort,
+    required this.rawText,
+    required this.senderId,
+    required this.bankProfiles,
+    required this.defaultCurrency,
+  });
+
+  final SendPort sendPort;
+  final String rawText;
+  final String? senderId;
+  final List<BankProfile> bankProfiles;
+  final String defaultCurrency;
+}

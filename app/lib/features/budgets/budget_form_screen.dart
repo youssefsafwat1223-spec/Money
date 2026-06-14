@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../domain/entities/account_entity.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -12,14 +13,19 @@ import '../../domain/entities/budget_entity.dart';
 import '../common/category_catalog.dart';
 import 'budgets_providers.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color,
-    {bool tabular = false}) {
-  return GoogleFonts.alexandria(
+TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false, List<Shadow>? shadows}) {
+  return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
     height: height,
     color: color,
+    shadows: shadows,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  ).copyWith(
+    fontFamilyFallback: [
+      GoogleFonts.ibmPlexSansArabic().fontFamily!,
+      GoogleFonts.alexandria().fontFamily!,
+    ],
   );
 }
 
@@ -147,6 +153,8 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   String? _categoryId;
   bool _alert80 = true;
   bool _alert100 = true;
+  bool _showOnHeader = false;
+  String? _accountId;
   bool _didSeedInitialState = false;
   bool _suggestionLoading = false;
   double? _suggestedAmount;
@@ -165,6 +173,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
         ? const AsyncValue<BudgetEntity?>.data(null)
         : ref.watch(budgetByIdProvider(widget.budgetId!));
     final categoriesAsync = ref.watch(categoryCatalogProvider);
+    final accounts = ref.watch(accountsProvider).valueOrNull ?? <AccountEntity>[];
 
     return budgetAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -273,6 +282,44 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                       _refreshSuggestedAmount();
                     },
                   ),
+                  if (accounts.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.s4),
+                    DropdownButtonFormField<String?>(
+                      value: _accountId,
+                      style: _alex(14, FontWeight.w700, 1.2, c.textMain),
+                      decoration: InputDecoration(
+                        labelText: 'الحساب (اختياري)',
+                        labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
+                        filled: true,
+                        fillColor: c.surface.withValues(alpha: 0.15),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: c.primary, width: 1.5),
+                        ),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('كل الحسابات'),
+                        ),
+                        for (final acc in accounts)
+                          DropdownMenuItem<String?>(
+                            value: acc.id,
+                            child: Text(acc.name),
+                          ),
+                      ],
+                      onChanged: (v) => setState(() => _accountId = v),
+                    ),
+                  ],
                   if (budget == null) ...[
                     const SizedBox(height: AppSpacing.s3),
                     _BudgetSuggestionCard(
@@ -298,6 +345,13 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                     title: 'نبّهني عند 100%',
                     value: _alert100,
                     onChanged: (value) => setState(() => _alert100 = value),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildSwitchRow(
+                    title: 'اعرض في الهيدر',
+                    subtitle: 'شريط التقدم يظهر في بطاقة الملخص بالأعلى',
+                    value: _showOnHeader,
+                    onChanged: (value) => setState(() => _showOnHeader = value),
                   ),
                   const SizedBox(height: AppSpacing.s5),
                   SizedBox(
@@ -363,6 +417,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
 
   Widget _buildSwitchRow({
     required String title,
+    String? subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
@@ -377,7 +432,17 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title, style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
+                if (subtitle != null)
+                  Text(subtitle, style: _alex(11, FontWeight.w500, 1.3, c.textLight)),
+              ],
+            ),
+          ),
           Switch(
             value: value,
             onChanged: onChanged,
@@ -414,6 +479,8 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       period: _period,
       alert80Sent: !_alert80,
       alert100Sent: !_alert100,
+      showOnHeader: _showOnHeader,
+      accountId: _accountId,
     );
     await ref.read(saveBudgetUseCaseProvider).call(budget);
     if (!mounted) {
@@ -475,6 +542,8 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     _categoryId = budget.categoryId;
     _alert80 = !budget.alert80Sent;
     _alert100 = !budget.alert100Sent;
+    _showOnHeader = budget.showOnHeader;
+    _accountId = budget.accountId;
   }
 
   Future<void> _refreshSuggestedAmount() async {

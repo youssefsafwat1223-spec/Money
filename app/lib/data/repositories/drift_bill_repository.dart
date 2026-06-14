@@ -79,9 +79,11 @@ class DriftBillRepository implements BillRepository {
           INSERT INTO subscriptions(
             id, merchant_id, name, amount, currency, period, frequency, type,
             next_due_date, is_confirmed, reminder_on, custom_interval_days,
-            note, created_at
+            note, created_at, status, account_id,
+            total_installments, paid_count, total_purchase_amount,
+            lender_name, interest_rate
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
         variables: [
           Variable.withString(bill.id),
@@ -95,13 +97,16 @@ class DriftBillRepository implements BillRepository {
           Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
           Variable.withInt(boolToSql(bill.isConfirmed)),
           Variable.withInt(boolToSql(bill.reminderOn)),
-          bill.customIntervalDays == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.customIntervalDays!),
-          bill.note == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.note!),
+          bill.customIntervalDays == null ? const Variable<int>(null) : Variable.withInt(bill.customIntervalDays!),
+          bill.note == null ? const Variable<String>(null) : Variable.withString(bill.note!),
           Variable.withString(dateTimeToSql(bill.createdAt.toUtc())),
+          Variable.withString(bill.status.name),
+          bill.accountId == null ? const Variable<String>(null) : Variable.withString(bill.accountId!),
+          bill.totalInstallments == null ? const Variable<int>(null) : Variable.withInt(bill.totalInstallments!),
+          bill.paidCount == null ? const Variable<int>(null) : Variable.withInt(bill.paidCount!),
+          bill.totalPurchaseAmount == null ? const Variable<double>(null) : Variable.withReal(bill.totalPurchaseAmount!),
+          bill.lenderName == null ? const Variable<String>(null) : Variable.withString(bill.lenderName!),
+          bill.interestRate == null ? const Variable<double>(null) : Variable.withReal(bill.interestRate!),
         ],
       );
     } else {
@@ -111,7 +116,9 @@ class DriftBillRepository implements BillRepository {
           SET merchant_id = ?, name = ?, amount = ?, currency = ?,
               period = ?, frequency = ?, type = ?, next_due_date = ?,
               is_confirmed = ?, reminder_on = ?, custom_interval_days = ?,
-              note = ?
+              note = ?, status = ?, account_id = ?,
+              total_installments = ?, paid_count = ?, total_purchase_amount = ?,
+              lender_name = ?, interest_rate = ?
           WHERE id = ?;
         ''',
         variables: [
@@ -125,12 +132,15 @@ class DriftBillRepository implements BillRepository {
           Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
           Variable.withInt(boolToSql(bill.isConfirmed)),
           Variable.withInt(boolToSql(bill.reminderOn)),
-          bill.customIntervalDays == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.customIntervalDays!),
-          bill.note == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.note!),
+          bill.customIntervalDays == null ? const Variable<int>(null) : Variable.withInt(bill.customIntervalDays!),
+          bill.note == null ? const Variable<String>(null) : Variable.withString(bill.note!),
+          Variable.withString(bill.status.name),
+          bill.accountId == null ? const Variable<String>(null) : Variable.withString(bill.accountId!),
+          bill.totalInstallments == null ? const Variable<int>(null) : Variable.withInt(bill.totalInstallments!),
+          bill.paidCount == null ? const Variable<int>(null) : Variable.withInt(bill.paidCount!),
+          bill.totalPurchaseAmount == null ? const Variable<double>(null) : Variable.withReal(bill.totalPurchaseAmount!),
+          bill.lenderName == null ? const Variable<String>(null) : Variable.withString(bill.lenderName!),
+          bill.interestRate == null ? const Variable<double>(null) : Variable.withReal(bill.interestRate!),
           Variable.withString(bill.id),
         ],
       );
@@ -164,6 +174,13 @@ class DriftBillRepository implements BillRepository {
       customIntervalDays: row.readNullable<int>('custom_interval_days'),
       note: row.readNullable<String>('note'),
       createdAt: created == null ? DateTime.now().toUtc() : dateTimeFromSql(created),
+      status: _parseStatus(row.readNullable<String>('status')),
+      accountId: row.readNullable<String>('account_id'),
+      totalInstallments: row.readNullable<int>('total_installments'),
+      paidCount: row.readNullable<int>('paid_count'),
+      totalPurchaseAmount: row.readNullable<double>('total_purchase_amount'),
+      lenderName: row.readNullable<String>('lender_name'),
+      interestRate: row.readNullable<double>('interest_rate'),
     );
   }
 
@@ -175,6 +192,11 @@ class DriftBillRepository implements BillRepository {
   BillFrequency _parseFrequency(String? value) => BillFrequency.values.firstWhere(
         (frequency) => frequency.name == value,
         orElse: () => BillFrequency.monthly,
+      );
+
+  BillStatus _parseStatus(String? value) => BillStatus.values.firstWhere(
+        (s) => s.name == value,
+        orElse: () => BillStatus.active,
       );
 
   Future<String> _merchantIdForName(String name) async {

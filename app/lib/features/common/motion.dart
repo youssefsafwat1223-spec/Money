@@ -28,9 +28,9 @@ class PremiumMotion extends StatelessWidget {
     }
     return child
         .animate(delay: delay)
-        .fadeIn(duration: 280.ms, curve: Curves.easeOutCubic)
+        .fadeIn(duration: 180.ms, curve: Curves.easeOutCubic)
         .slideY(
-            begin: 0.05, end: 0, duration: 320.ms, curve: Curves.easeOutCubic);
+            begin: 0.05, end: 0, duration: 250.ms, curve: Curves.easeOutCubic);
   }
 }
 

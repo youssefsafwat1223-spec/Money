@@ -3,12 +3,19 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../../../domain/entities/captured_message.dart';
+
 /// A single bank message drained from the native share queue.
 class SharedCapturedMessage {
-  const SharedCapturedMessage({required this.text, this.sender});
+  const SharedCapturedMessage({
+    required this.text,
+    required this.source,
+    this.sender,
+  });
 
   final String text;
   final String? sender;
+  final CapturedMessageSource source;
 }
 
 class NativeCaptureBridge {
@@ -35,7 +42,8 @@ class NativeCaptureBridge {
     if (!Platform.isIOS) {
       return null;
     }
-    final text = await _channel.invokeMethod<String>('consumePendingSharedInput');
+    final text =
+        await _channel.invokeMethod<String>('consumePendingSharedInput');
     if (text == null || text.trim().isEmpty) {
       return null;
     }
@@ -44,12 +52,18 @@ class NativeCaptureBridge {
 
   /// Drains the full FIFO queue of bank messages captured by native sharing
   /// surfaces: iOS Share Extension/App Intent and Android ACTION_SEND.
-  static Future<List<SharedCapturedMessage>> consumePendingSharedMessages() async {
+  static Future<List<SharedCapturedMessage>>
+      consumePendingSharedMessages() async {
     if (!Platform.isIOS && !Platform.isAndroid) {
       return const [];
     }
-    final json =
-        await _channel.invokeMethod<String>('consumePendingSharedMessages');
+    final String? json;
+    try {
+      json =
+          await _channel.invokeMethod<String>('consumePendingSharedMessages');
+    } on MissingPluginException {
+      return const [];
+    }
     if (json == null || json.trim().isEmpty) {
       return const [];
     }
@@ -72,6 +86,9 @@ class NativeCaptureBridge {
       messages.add(
         SharedCapturedMessage(
           text: text,
+          source: Platform.isIOS
+              ? CapturedMessageSource.iosShare
+              : CapturedMessageSource.androidShare,
           sender: (rawSender == null || rawSender.isEmpty) ? null : rawSender,
         ),
       );

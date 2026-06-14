@@ -51,7 +51,8 @@ class BillsView {
       bills.where((bill) => bill.type == BillType.subscription).length;
   int get installmentsCount =>
       bills.where((bill) => bill.type == BillType.installment).length;
-  double get totalDue => bills.fold<double>(0, (sum, bill) => sum + bill.amount);
+  double get totalDue =>
+      bills.fold<double>(0, (sum, bill) => sum + bill.amount);
 }
 
 class BillSuggestion {
@@ -127,10 +128,10 @@ final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
       TransactionKindFilter.expenses =>
         tx.type == TransactionTypeEntity.payment ||
             tx.type == TransactionTypeEntity.withdrawal,
-      TransactionKindFilter.income =>
-        tx.type == TransactionTypeEntity.income ||
-            tx.type == TransactionTypeEntity.refund,
-      TransactionKindFilter.transfers => tx.type == TransactionTypeEntity.transfer,
+      TransactionKindFilter.income => tx.type == TransactionTypeEntity.income ||
+          tx.type == TransactionTypeEntity.refund,
+      TransactionKindFilter.transfers =>
+        tx.type == TransactionTypeEntity.transfer,
     };
   });
   final filtered = filteredByKind.where((tx) {
@@ -146,26 +147,24 @@ final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
     ].whereType<String>().join(' ').toLowerCase();
     return haystack.contains(query);
   }).toList(growable: false);
-  return TransactionsView(transactions: filtered, catalog: catalog, range: range);
+  return TransactionsView(
+      transactions: filtered, catalog: catalog, range: range);
 });
 
 final billsViewProvider = FutureProvider<BillsView>((ref) async {
   final range = ref.watch(transactionsDateRangeProvider);
-  final bills = await ref.watch(billRepositoryProvider).getDueBetween(
-        from: range.from,
-        to: range.to,
-      );
-  final suggestions = (await ref.watch(transactionRepositoryProvider)
-          .recurringCandidates())
-      .map(
-        (item) => BillSuggestion(
-          merchantId: item.merchantId,
-          name: item.name,
-          averageAmount: item.averageAmount,
-          monthsSeen: item.monthsSeen,
-        ),
-      )
-      .toList(growable: false);
+  final bills = await ref.watch(billRepositoryProvider).getAll();
+  final suggestions =
+      (await ref.watch(transactionRepositoryProvider).recurringCandidates())
+          .map(
+            (item) => BillSuggestion(
+              merchantId: item.merchantId,
+              name: item.name,
+              averageAmount: item.averageAmount,
+              monthsSeen: item.monthsSeen,
+            ),
+          )
+          .toList(growable: false);
   return BillsView(bills: bills, suggestions: suggestions, range: range);
 });
 

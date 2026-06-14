@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../tracking/user_activity_service.dart';
+
 enum SessionStatus { unknown, needsOnboarding, authenticated }
 
 /// حالة الجلسة (للتحكّم في عرض الـ Onboarding مقابل التطبيق).
@@ -53,6 +55,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     authMethod ??= await _storage.read(key: _kMethod);
     await _storage.write(key: _kDone, value: '1');
     value = SessionStatus.authenticated;
+    unawaited(UserActivityService.onSignIn());
   }
 
   Future<void> continueAsGuest() async {
@@ -68,6 +71,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   Future<void> signOut() async {
+    UserActivityService.onSignOut();
     await _storage.delete(key: _kMethod);
     await _storage.delete(key: _kEmail);
     await _storage.write(key: _kDone, value: '0');

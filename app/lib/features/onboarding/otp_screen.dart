@@ -14,12 +14,17 @@ import '../common/motion.dart';
 import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false}) {
-  return GoogleFonts.alexandria(
+  return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
     height: height,
     color: color,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  ).copyWith(
+    fontFamilyFallback: [
+      GoogleFonts.ibmPlexSansArabic().fontFamily!,
+      GoogleFonts.alexandria().fontFamily!,
+    ],
   );
 }
 

@@ -68,7 +68,7 @@ final appRouter = GoRouter(
         child: const OnboardingMethodScreen(),
         opaque: false,
         barrierDismissible: false,
-        barrierColor: Colors.black26,
+        barrierColor: Colors.black54,
         transitionDuration: const Duration(milliseconds: 380),
         reverseTransitionDuration: const Duration(milliseconds: 280),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {

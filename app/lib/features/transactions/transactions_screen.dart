@@ -383,7 +383,8 @@ class _BillsTabState extends State<_BillsTab> {
     final nextThisWeek = bills.where((bill) {
       final now = DateTime.now();
       final weekEnd = now.add(const Duration(days: 7));
-      return !bill.nextDueDate.isBefore(now) && bill.nextDueDate.isBefore(weekEnd);
+      return !bill.nextDueDate.isBefore(now) &&
+          bill.nextDueDate.isBefore(weekEnd);
     }).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -391,6 +392,20 @@ class _BillsTabState extends State<_BillsTab> {
         _BillsTypeSegmented(
           value: _type,
           onChanged: (value) => setState(() => _type = value),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        SizedBox(
+          height: 50,
+          child: FilledButton.icon(
+            onPressed: () => BillFormSheet.show(
+              context,
+              initialType: _type,
+            ),
+            icon: const Icon(Icons.add),
+            label: Text(
+              _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
+            ),
+          ),
         ),
         const SizedBox(height: AppSpacing.s3),
         _BillsHero(
@@ -402,14 +417,6 @@ class _BillsTabState extends State<_BillsTab> {
         const SizedBox(height: AppSpacing.s5),
         _BillExample(type: _type),
         const SizedBox(height: AppSpacing.s4),
-        FilledButton.icon(
-          onPressed: () => BillFormSheet.show(context, initialType: _type),
-          icon: const Icon(Icons.add),
-          label: Text(_type == BillType.subscription
-              ? 'إضافة اشتراك'
-              : 'إضافة قسط'),
-        ),
-        const SizedBox(height: AppSpacing.s3),
         TextButton.icon(
           onPressed: () => _showBillsHelp(context, _type),
           icon: const Icon(Icons.help_outline, size: 18),
@@ -425,8 +432,14 @@ class _BillsTabState extends State<_BillsTab> {
                 ? 'اشتراكاتك، متابعة تلقائية'
                 : 'أقساطك، واضحة كل شهر',
             body: _type == BillType.subscription
-                ? 'أضف Netflix أو Spotify أو أي خدمة، ومالي يذكرك قبل التجديد.'
-                : 'أضف ValU أو Tamara أو أي قسط يدويًا، وتابع المتبقي بسهولة.',
+                ? 'أضف اشتراكك يدويًا أو خليه يتكشف تلقائيًا من العمليات المتكررة.'
+                : 'أضف القسط بتاريخه وتنبيهه عشان يظهر في الفواتير قبل الاستحقاق.',
+            actionLabel:
+                _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
+            onAction: () => BillFormSheet.show(
+              context,
+              initialType: _type,
+            ),
           )
         else
           for (final bill in bills) ...[
@@ -438,7 +451,14 @@ class _BillsTabState extends State<_BillsTab> {
           const SizedBox(height: AppSpacing.s4),
           const _DateHeader(label: 'اقتراحات من العمليات المتكررة'),
           for (final suggestion in widget.view.suggestions.take(3)) ...[
-            _SuggestionCard(suggestion: suggestion),
+            _SuggestionCard(
+              suggestion: suggestion,
+              onAdd: () => BillFormSheet.show(
+                context,
+                initialType: BillType.subscription,
+                initialName: suggestion.name,
+              ),
+            ),
             const SizedBox(height: AppSpacing.s3),
           ],
         ],
@@ -477,8 +497,8 @@ class _BillsTabState extends State<_BillsTab> {
               const SizedBox(height: AppSpacing.s3),
               Text(
                 type == BillType.subscription
-                    ? 'ضيف الخدمة والمبلغ وميعاد التجديد. لو مالي لاحظ عملية متكررة، هيقترحها عليك كاشتراك قابل للحفظ.'
-                    : 'ضيف القسط وقيمة الدفعة والتكرار وميعاد الاستحقاق. كل التفاصيل تفضل في Bottom Sheet من غير تنقل مزعج.',
+                    ? 'مالي يتابع الأنماط المتكررة تلقائياً، وتقدر كمان تضيف اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.'
+                    : 'أضف القسط يدويًا بالمبلغ وتاريخ الاستحقاق والتنبيه. لاحقًا نضيف المتبقي وعدد الأقساط.',
                 style: AppTypography.callout(c.textLight),
               ),
               const SizedBox(height: AppSpacing.s4),
@@ -523,23 +543,26 @@ class _BillsHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     final isSubscription = type == BillType.subscription;
-    final accent = isSubscription ? const Color(0xFF0EA5B8) : const Color(0xFF6D5DFB);
+    final accent = c.accent;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s5),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
           colors: [
-            accent,
-            isSubscription ? const Color(0xFF12C6D4) : const Color(0xFF7C6DFF),
+            Color(0xFF046E9B),
+            Color(0xFF034E73),
+            Color(0xFF012438),
           ],
         ),
         borderRadius: BorderRadius.circular(AppRadius.cardLg),
+        border: Border.all(color: c.accent.withValues(alpha: 0.24)),
         boxShadow: [
           BoxShadow(
-            color: accent.withValues(alpha: 0.24),
+            color: const Color(0xFF034F73).withValues(alpha: 0.22),
             blurRadius: 28,
             offset: const Offset(0, 16),
           ),
@@ -552,7 +575,8 @@ class _BillsHero extends StatelessWidget {
             children: [
               Text(
                 isSubscription ? 'الصرف الشهري' : 'الأقساط الشهرية',
-                style: AppTypography.callout(Colors.white.withValues(alpha: 0.78)),
+                style:
+                    AppTypography.callout(Colors.white.withValues(alpha: 0.78)),
               ),
               const Spacer(),
               _HeroCircle(icon: Icons.calendar_month_outlined, color: accent),
@@ -591,7 +615,8 @@ class _BillsHero extends StatelessWidget {
                 if (isSubscription) ...[
                   _Divider(color: Colors.white.withValues(alpha: 0.25)),
                   Expanded(
-                    child: _HeroMetric(value: '$nextThisWeek', label: 'هذا الأسبوع'),
+                    child: _HeroMetric(
+                        value: '$nextThisWeek', label: 'هذا الأسبوع'),
                   ),
                 ],
               ],
@@ -674,8 +699,10 @@ class _BillExample extends StatelessWidget {
             borderRadius: BorderRadius.circular(24),
           ),
           child: Icon(
-            isSubscription ? AppLucideIcons.repeat : Icons.receipt_long_outlined,
-            color: isSubscription ? const Color(0xFF0EA5B8) : const Color(0xFF6D5DFB),
+            isSubscription
+                ? AppLucideIcons.repeat
+                : Icons.receipt_long_outlined,
+            color: c.accent,
             size: 34,
           ),
         ),
@@ -695,9 +722,8 @@ class _BillExample extends StatelessWidget {
           alignment: AlignmentDirectional.centerStart,
           child: Text(
             'مثال',
-            style: AppTypography.caption(
-              isSubscription ? const Color(0xFF0EA5B8) : const Color(0xFF6D5DFB),
-            ).copyWith(letterSpacing: 1.8, fontWeight: FontWeight.w900),
+            style: AppTypography.caption(c.accent)
+                .copyWith(letterSpacing: 1.8, fontWeight: FontWeight.w900),
           ),
         ),
         const SizedBox(height: AppSpacing.s2),
@@ -723,12 +749,15 @@ class _BillExample extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Netflix', style: AppTypography.bodyStrong(c.textMain)),
-                          Text('يتجدد بعد 3 أيام', style: AppTypography.caption(c.textLight)),
+                          Text('Netflix',
+                              style: AppTypography.bodyStrong(c.textMain)),
+                          Text('يتجدد بعد 3 أيام',
+                              style: AppTypography.caption(c.textLight)),
                         ],
                       ),
                     ),
-                    Text('49 ر / شهر', style: AppTypography.bodyStrong(c.textMain)),
+                    Text('49 ر / شهر',
+                        style: AppTypography.bodyStrong(c.textMain)),
                   ],
                 )
               : Row(
@@ -739,7 +768,8 @@ class _BillExample extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('ValU', style: AppTypography.bodyStrong(c.textMain)),
+                          Text('ValU',
+                              style: AppTypography.bodyStrong(c.textMain)),
                           const SizedBox(height: AppSpacing.s2),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -747,17 +777,17 @@ class _BillExample extends StatelessWidget {
                               value: 3 / 12,
                               minHeight: 6,
                               backgroundColor: c.surface2,
-                              valueColor: const AlwaysStoppedAnimation(
-                                Color(0xFF6D5DFB),
-                              ),
+                              valueColor: AlwaysStoppedAnimation(c.accent),
                             ),
                           ),
                           const SizedBox(height: AppSpacing.s1),
-                          Text('3 من 12 مدفوعة', style: AppTypography.caption(c.textLight)),
+                          Text('3 من 12 مدفوعة',
+                              style: AppTypography.caption(c.textLight)),
                         ],
                       ),
                     ),
-                    Text('1,500 ر / شهر', style: AppTypography.bodyStrong(c.textMain)),
+                    Text('1,500 ر / شهر',
+                        style: AppTypography.bodyStrong(c.textMain)),
                   ],
                 ),
         ),
@@ -787,8 +817,7 @@ class _BillCard extends StatelessWidget {
     final progress = ((cycle - daysLeft) / cycle).clamp(0.0, 1.0);
     final isSoon = daysLeft <= 3;
     final dueColor = isSoon ? c.accent : c.success;
-    final typeLabel =
-        bill.type == BillType.subscription ? 'اشتراك' : 'قسط';
+    final typeLabel = bill.type == BillType.subscription ? 'اشتراك' : 'قسط';
 
     String dueLabel() {
       if (daysLeft < 0) return 'مستحق الآن';
@@ -799,7 +828,7 @@ class _BillCard extends StatelessWidget {
 
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.cardLg),
-      onTap: () => BillFormSheet.show(context, bill: bill),
+      onTap: null,
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s5),
         decoration: BoxDecoration(
@@ -889,8 +918,7 @@ class _BillCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: dueColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border:
-                        Border.all(color: dueColor.withValues(alpha: 0.28)),
+                    border: Border.all(color: dueColor.withValues(alpha: 0.28)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -946,51 +974,60 @@ class _Tag extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: AppTypography.caption(color).copyWith(fontWeight: FontWeight.w800),
+        style:
+            AppTypography.caption(color).copyWith(fontWeight: FontWeight.w800),
       ),
     );
   }
 }
 
 class _SuggestionCard extends StatelessWidget {
-  const _SuggestionCard({required this.suggestion});
+  const _SuggestionCard({
+    required this.suggestion,
+    required this.onAdd,
+  });
 
   final BillSuggestion suggestion;
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.accent.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.accent.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        children: [
-          BrandMark(name: suggestion.name, size: 42),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  suggestion.name,
-                  style: AppTypography.bodyStrong(c.textMain),
-                ),
-                Text(
-                  'تكرر ${suggestion.monthsSeen} أشهر',
-                  style: AppTypography.caption(c.textLight),
-                ),
-              ],
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      onTap: onAdd,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        decoration: BoxDecoration(
+          color: c.accent.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          border: Border.all(color: c.accent.withValues(alpha: 0.24)),
+        ),
+        child: Row(
+          children: [
+            BrandMark(name: suggestion.name, size: 42),
+            const SizedBox(width: AppSpacing.s3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    suggestion.name,
+                    style: AppTypography.bodyStrong(c.textMain),
+                  ),
+                  Text(
+                    'تكرر ${suggestion.monthsSeen} أشهر · اضغط للإضافة',
+                    style: AppTypography.caption(c.textLight),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Text(
-            '${Formatters.amount(suggestion.averageAmount)} ر/شهر',
-            style: AppTypography.caption(c.accent),
-          ),
-        ],
+            Text(
+              '${Formatters.amount(suggestion.averageAmount)} ر/شهر',
+              style: AppTypography.caption(c.accent),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1010,6 +1047,9 @@ class _MainSegmented extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final selectedBg = isDark ? c.accent.withValues(alpha: 0.22) : c.primary;
+    final selectedFg = isDark ? c.accent : Colors.white;
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -1027,14 +1067,14 @@ class _MainSegmented extends StatelessWidget {
                   duration: const Duration(milliseconds: 180),
                   padding: const EdgeInsets.symmetric(vertical: 11),
                   decoration: BoxDecoration(
-                    color: value == i ? c.primary : Colors.transparent,
+                    color: value == i ? selectedBg : Colors.transparent,
                     borderRadius: BorderRadius.circular(AppRadius.pill),
                   ),
                   child: Text(
                     labels[i],
                     textAlign: TextAlign.center,
                     style: AppTypography.caption(
-                      value == i ? Colors.white : c.textLight,
+                      value == i ? selectedFg : c.textLight,
                     ).copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -1088,11 +1128,15 @@ class _EmptyState extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.body,
+    this.actionLabel,
+    this.onAction,
   });
 
   final IconData icon;
   final String title;
   final String body;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -1115,6 +1159,17 @@ class _EmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: AppTypography.callout(c.textLight),
           ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: AppSpacing.s4),
+            SizedBox(
+              height: 48,
+              child: FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.add),
+                label: Text(actionLabel!),
+              ),
+            ),
+          ],
         ],
       ),
     );

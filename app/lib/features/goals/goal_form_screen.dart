@@ -11,15 +11,24 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../budgets/budgets_providers.dart';
+import '../dashboard/dashboard_providers.dart';
 import 'goals_providers.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false}) {
-  return GoogleFonts.alexandria(
+TextStyle _alex(double size, FontWeight weight, double height, Color color,
+    {bool tabular = false, List<Shadow>? shadows}) {
+  return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
     height: height,
     color: color,
+    shadows: shadows,
     fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+  ).copyWith(
+    fontFamilyFallback: [
+      GoogleFonts.ibmPlexSansArabic().fontFamily!,
+      GoogleFonts.alexandria().fontFamily!,
+    ],
   );
 }
 
@@ -74,8 +83,11 @@ class _GoalFormSheet extends StatelessWidget {
           child: Container(
             height: MediaQuery.of(context).size.height * 0.82,
             decoration: BoxDecoration(
-              color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              color: isDark
+                  ? c.surface.withValues(alpha: 0.9)
+                  : Colors.white.withValues(alpha: 0.92),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
               border: Border.all(
                 color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
                 width: 1.5,
@@ -175,7 +187,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
               filled: true,
               fillColor: c.surface.withValues(alpha: 0.15),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
@@ -189,8 +202,9 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                 borderSide: BorderSide(color: c.primary, width: 1.5),
               ),
             ),
-            validator: (value) =>
-                (value == null || value.trim().isEmpty) ? 'اكتب اسم الهدف' : null,
+            validator: (value) => (value == null || value.trim().isEmpty)
+                ? 'اكتب اسم الهدف'
+                : null,
           ),
           const SizedBox(height: AppSpacing.s4),
           TextFormField(
@@ -204,7 +218,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               suffixStyle: _alex(14, FontWeight.w800, 1.2, c.textMain),
               filled: true,
               fillColor: c.surface.withValues(alpha: 0.15),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
@@ -235,13 +250,18 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               border: Border.all(color: c.border.withValues(alpha: 0.3)),
             ),
             child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-              title: Text('الموعد النهائي', style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              title: Text('الموعد النهائي',
+                  style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
               subtitle: Text(
-                _deadline == null ? 'اختياري' : Formatters.fullDate(_deadline!, context),
+                _deadline == null
+                    ? 'اختياري'
+                    : Formatters.fullDate(_deadline!, context),
                 style: _alex(12, FontWeight.w500, 1.2, c.textLight),
               ),
-              trailing: Icon(Icons.calendar_today_outlined, color: c.textLight, size: 20),
+              trailing: Icon(Icons.calendar_today_outlined,
+                  color: c.textLight, size: 20),
               onTap: _pickDeadline,
             ),
           ),
@@ -249,14 +269,19 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: (recommended == null ? c.primary : c.success).withValues(alpha: 0.08),
+              color: (recommended == null ? c.primary : c.success)
+                  .withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: (recommended == null ? c.primary : c.success).withValues(alpha: 0.2)),
+              border: Border.all(
+                  color: (recommended == null ? c.primary : c.success)
+                      .withValues(alpha: 0.2)),
             ),
             child: Row(
               children: [
                 Icon(
-                  recommended == null ? Icons.info_outline_rounded : Icons.lightbulb_outline_rounded,
+                  recommended == null
+                      ? Icons.info_outline_rounded
+                      : Icons.lightbulb_outline_rounded,
                   color: recommended == null ? c.primary : c.success,
                   size: 18,
                 ),
@@ -266,7 +291,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                     recommended == null
                         ? 'المبلغ الموصى به يظهر بعد اختيار التاريخ.'
                         : 'المبلغ الموصى به: ${Formatters.integer(recommended)} $cur يوميًا لـ ${((_deadline!.difference(DateTime.now()).inDays))} يوم.',
-                    style: _alex(12, FontWeight.w700, 1.4, recommended == null ? c.textLight : c.success),
+                    style: _alex(12, FontWeight.w700, 1.4,
+                        recommended == null ? c.textLight : c.success),
                   ),
                 ),
               ],
@@ -343,8 +369,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: Theme.of(context).colorScheme.copyWith(
-              primary: context.colors.primary,
-            ),
+                  primary: context.colors.primary,
+                ),
           ),
           child: child!,
         );
@@ -381,6 +407,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       return;
     }
     refreshGoals(ref);
+    refreshBudgets(ref);
+    ref.invalidate(dashboardDataProvider);
     if (widget.goal != null) {
       ref.invalidate(goalDetailsProvider(widget.goal!.id));
     }

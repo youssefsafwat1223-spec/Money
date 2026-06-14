@@ -1,3 +1,4 @@
+import '../entities/captured_message.dart';
 import 'add_transaction_usecase.dart';
 
 enum CapturedMessageDisposition {
@@ -27,9 +28,22 @@ class IngestCapturedMessageUseCase {
     required String rawMessage,
     String? senderId,
   }) async {
+    return fromCapturedMessage(
+      CapturedMessage(
+        text: rawMessage,
+        senderId: senderId,
+        source: CapturedMessageSource.unknown,
+        receivedAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  Future<CapturedMessageResult> fromCapturedMessage(
+    CapturedMessage message,
+  ) async {
     final result = await _addTransactionUseCase(
-      rawMessage: rawMessage,
-      senderId: senderId,
+      rawMessage: message.text,
+      senderId: message.senderId,
     );
 
     switch (result.outcome) {

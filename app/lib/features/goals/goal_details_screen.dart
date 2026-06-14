@@ -10,7 +10,9 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../budgets/budgets_providers.dart';
 import '../common/vault_widget.dart';
+import '../dashboard/dashboard_providers.dart';
 import 'goal_form_screen.dart';
 import 'goals_providers.dart';
 
@@ -62,9 +64,12 @@ class _GoalDetailsSheet extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Material(
-            color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
+            color: isDark
+                ? c.surface.withValues(alpha: 0.9)
+                : Colors.white.withValues(alpha: 0.92),
             shape: RoundedRectangleBorder(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
               side: BorderSide(
                 color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
                 width: 1.5,
@@ -92,7 +97,8 @@ class _GoalDetailsSheet extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Text('تفاصيل الهدف', style: AppTypography.title2(c.textMain)),
+                        Text('تفاصيل الهدف',
+                            style: AppTypography.title2(c.textMain)),
                         const Spacer(),
                         IconButton(
                           onPressed: () => Navigator.of(context).pop(),
@@ -104,7 +110,9 @@ class _GoalDetailsSheet extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Expanded(child: _GoalDetailsContent(goalId: goalId, sheetMode: true)),
+                  Expanded(
+                      child:
+                          _GoalDetailsContent(goalId: goalId, sheetMode: true)),
                 ],
               ),
             ),
@@ -128,135 +136,136 @@ class _GoalDetailsContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(goalDetailsProvider(goalId));
     return async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text('حدث خطأ: $error')),
-        data: (data) {
-          if (data == null) {
-            return const Center(child: Text('الهدف غير موجود'));
-          }
-          final c = context.colors;
-          final cur = Currency.arabicLabel(
-              ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
-              AppSpacing.s4,
-              AppSpacing.gutter,
-              140,
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => Center(child: Text('حدث خطأ: $error')),
+      data: (data) {
+        if (data == null) {
+          return const Center(child: Text('الهدف غير موجود'));
+        }
+        final c = context.colors;
+        final cur = Currency.arabicLabel(
+            ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s4,
+            AppSpacing.gutter,
+            140,
+          ),
+          children: [
+            Center(child: VaultWidget(progress: data.progress, size: 220)),
+            const SizedBox(height: AppSpacing.s4),
+            Center(
+              child: Text(
+                '${(data.progress * 100).round()}%',
+                style: AppTypography.title1(c.textMain),
+              ),
             ),
-            children: [
-              Center(child: VaultWidget(progress: data.progress, size: 220)),
-              const SizedBox(height: AppSpacing.s4),
-              Center(
-                child: Text(
-                  '${(data.progress * 100).round()}%',
-                  style: AppTypography.title1(c.textMain),
-                ),
+            const SizedBox(height: AppSpacing.s2),
+            Center(
+              child: Text(
+                'وفّرت ${Formatters.integer(data.goal.savedAmount)} من ${Formatters.integer(data.goal.targetAmount)} $cur',
+                style: AppTypography.subhead(c.textMain),
               ),
-              const SizedBox(height: AppSpacing.s2),
-              Center(
-                child: Text(
-                  'وفّرت ${Formatters.integer(data.goal.savedAmount)} من ${Formatters.integer(data.goal.targetAmount)} $cur',
-                  style: AppTypography.subhead(c.textMain),
-                ),
+            ),
+            const SizedBox(height: AppSpacing.s1),
+            Center(
+              child: Text(
+                data.daysRemaining == null
+                    ? 'باقي ${Formatters.integer(data.remainingAmount)} $cur'
+                    : 'باقي ${Formatters.integer(data.remainingAmount)} · ${data.daysRemaining} يوم',
+                style: AppTypography.callout(c.textLight),
               ),
-              const SizedBox(height: AppSpacing.s1),
-              Center(
-                child: Text(
-                  data.daysRemaining == null
-                      ? 'باقي ${Formatters.integer(data.remainingAmount)} $cur'
-                      : 'باقي ${Formatters.integer(data.remainingAmount)} · ${data.daysRemaining} يوم',
-                  style: AppTypography.callout(c.textLight),
-                ),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            Center(
+              child: Text(
+                'موصى: ${Formatters.integer(data.recommendedDailyAmount)} $cur يوميًا',
+                style: AppTypography.bodyStrong(c.primary),
               ),
-              const SizedBox(height: AppSpacing.s2),
-              Center(
-                child: Text(
-                  'موصى: ${Formatters.integer(data.recommendedDailyAmount)} $cur يوميًا',
-                  style: AppTypography.bodyStrong(c.primary),
-                ),
-              ),
-              if (sheetMode) ...[
-                const SizedBox(height: AppSpacing.s5),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 52,
-                        child: FilledButton.icon(
-                          onPressed: () =>
-                              _showAddContributionSheet(context, ref, goalId),
-                          icon: const Icon(Icons.add),
-                          label: const Text('أضف للهدف'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: c.primary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+            ),
+            if (sheetMode) ...[
+              const SizedBox(height: AppSpacing.s5),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed: () =>
+                            _showAddContributionSheet(context, ref, goalId),
+                        icon: const Icon(Icons.add),
+                        label: const Text('أضف للهدف'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: c.primary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: AppSpacing.s2),
-                    Expanded(
-                      child: SizedBox(
-                        height: 52,
-                        child: OutlinedButton.icon(
-                          onPressed: () => GoalFormScreen.showSheet(
-                            context,
-                            goal: data.goal,
-                          ),
-                          icon: const Icon(Icons.edit_outlined),
-                          label: const Text('تعديل'),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: c.border),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.s3),
-                OutlinedButton.icon(
-                  onPressed: () => _confirmDeleteGoal(context, ref, goalId),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: c.danger,
-                    side: BorderSide(color: c.danger),
-                    minimumSize: const Size.fromHeight(52),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('حذف الهدف'),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.s6),
-              Text('المساهمات', style: AppTypography.title2(c.textMain)),
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: OutlinedButton.icon(
+                        onPressed: () => GoalFormScreen.showSheet(
+                          context,
+                          goal: data.goal,
+                        ),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('تعديل'),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: c.border),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: AppSpacing.s3),
-              if (data.contributions.isEmpty)
-                Text(
-                  'لا توجد مساهمات بعد.',
-                  style: AppTypography.callout(c.textLight),
-                )
-              else
-                for (final contribution in data.contributions)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      '${Formatters.integer(contribution.amount)} $cur',
-                      style: AppTypography.subhead(c.textMain),
-                    ),
-                    subtitle: Text(
-                      contribution.note ?? Formatters.fullDate(contribution.createdAt, context),
-                    ),
+              OutlinedButton.icon(
+                onPressed: () => _confirmDeleteGoal(context, ref, goalId),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: c.danger,
+                  side: BorderSide(color: c.danger),
+                  minimumSize: const Size.fromHeight(52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
+                ),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('حذف الهدف'),
+              ),
             ],
-          );
-        },
+            const SizedBox(height: AppSpacing.s6),
+            Text('المساهمات', style: AppTypography.title2(c.textMain)),
+            const SizedBox(height: AppSpacing.s3),
+            if (data.contributions.isEmpty)
+              Text(
+                'لا توجد مساهمات بعد.',
+                style: AppTypography.callout(c.textLight),
+              )
+            else
+              for (final contribution in data.contributions)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    '${Formatters.integer(contribution.amount)} $cur',
+                    style: AppTypography.subhead(c.textMain),
+                  ),
+                  subtitle: Text(
+                    contribution.note ??
+                        Formatters.fullDate(contribution.createdAt, context),
+                  ),
+                ),
+          ],
+        );
+      },
     );
   }
 }
@@ -288,6 +297,8 @@ Future<void> _confirmDeleteGoal(
   }
   await ref.read(deleteGoalUseCaseProvider).call(goalId);
   refreshGoals(ref);
+  refreshBudgets(ref);
+  ref.invalidate(dashboardDataProvider);
   ref.invalidate(goalDetailsProvider(goalId));
   if (context.mounted) {
     Navigator.of(context).pop();
@@ -299,155 +310,170 @@ Future<void> _showAddContributionSheet(
   WidgetRef ref,
   String goalId,
 ) async {
-    final controller = TextEditingController();
-    final noteController = TextEditingController();
-    final c = context.colors;
-    final cur = Currency.arabicLabel(
-        ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  final controller = TextEditingController();
+  final noteController = TextEditingController();
+  final c = context.colors;
+  final cur =
+      Currency.arabicLabel(ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+  final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                padding: EdgeInsets.only(
-                  left: AppSpacing.gutter,
-                  right: AppSpacing.gutter,
-                  top: AppSpacing.s3,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.s5,
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) {
+      return Directionality(
+        textDirection: TextDirection.rtl,
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              padding: EdgeInsets.only(
+                left: AppSpacing.gutter,
+                right: AppSpacing.gutter,
+                top: AppSpacing.s3,
+                bottom:
+                    MediaQuery.of(context).viewInsets.bottom + AppSpacing.s5,
+              ),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? c.surface.withValues(alpha: 0.9)
+                    : Colors.white.withValues(alpha: 0.92),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
+                  width: 1.5,
                 ),
-                decoration: BoxDecoration(
-                  color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                    width: 1.5,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: c.textLight.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
                   ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: c.textLight.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Row(
-                        children: [
-                          Text('إضافة مساهمة', style: AppTypography.title2(c.textMain)),
-                          const Spacer(),
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close),
-                            style: IconButton.styleFrom(
-                              backgroundColor: c.surface.withValues(alpha: 0.4),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    TextField(
-                      controller: controller,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: AppTypography.body(c.textMain),
-                      decoration: InputDecoration(
-                        labelText: 'المبلغ',
-                        suffixText: cur,
-                        filled: true,
-                        fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.border.withValues(alpha: 0.5)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.primary, width: 2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.s3),
-                    TextField(
-                      controller: noteController,
-                      style: AppTypography.body(c.textMain),
-                      decoration: InputDecoration(
-                        labelText: 'ملاحظة',
-                        filled: true,
-                        fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.border.withValues(alpha: 0.5)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.primary, width: 2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                    SizedBox(
-                      height: 52,
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () async {
-                          final amount = double.tryParse(controller.text);
-                          if (amount == null || amount <= 0) {
-                            return;
-                          }
-                          await ref.read(addGoalContributionUseCaseProvider).call(
-                                GoalContributionEntity(
-                                  id: IdGenerator.next(),
-                                  goalId: goalId,
-                                  amount: amount,
-                                  createdAt: DateTime.now().toUtc(),
-                                  note: noteController.text.isEmpty
-                                      ? null
-                                      : noteController.text,
-                                ),
-                              );
-                          if (context.mounted) {
-                            Navigator.of(context).pop();
-                          }
-                          refreshGoals(ref);
-                          ref.invalidate(goalDetailsProvider(goalId));
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: c.primary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Row(
+                      children: [
+                        Text('إضافة مساهمة',
+                            style: AppTypography.title2(c.textMain)),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                          style: IconButton.styleFrom(
+                            backgroundColor: c.surface.withValues(alpha: 0.4),
                           ),
                         ),
-                        child: Text('حفظ المساهمة', style: AppTypography.bodyStrong(Colors.white)),
+                      ],
+                    ),
+                  ),
+                  TextField(
+                    controller: controller,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    style: AppTypography.body(c.textMain),
+                    decoration: InputDecoration(
+                      labelText: 'المبلغ',
+                      suffixText: cur,
+                      filled: true,
+                      fillColor: isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : c.surface2.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide:
+                            BorderSide(color: c.border.withValues(alpha: 0.5)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.primary, width: 2),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: AppSpacing.s3),
+                  TextField(
+                    controller: noteController,
+                    style: AppTypography.body(c.textMain),
+                    decoration: InputDecoration(
+                      labelText: 'ملاحظة',
+                      filled: true,
+                      fillColor: isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : c.surface2.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide:
+                            BorderSide(color: c.border.withValues(alpha: 0.5)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.primary, width: 2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s5),
+                  SizedBox(
+                    height: 52,
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () async {
+                        final amount = double.tryParse(controller.text);
+                        if (amount == null || amount <= 0) {
+                          return;
+                        }
+                        await ref.read(addGoalContributionUseCaseProvider).call(
+                              GoalContributionEntity(
+                                id: IdGenerator.next(),
+                                goalId: goalId,
+                                amount: amount,
+                                createdAt: DateTime.now().toUtc(),
+                                note: noteController.text.isEmpty
+                                    ? null
+                                    : noteController.text,
+                              ),
+                            );
+                        if (context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                        refreshGoals(ref);
+                        refreshBudgets(ref);
+                        ref.invalidate(dashboardDataProvider);
+                        ref.invalidate(goalDetailsProvider(goalId));
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: c.primary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: Text('حفظ المساهمة',
+                          style: AppTypography.bodyStrong(Colors.white)),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-        );
-      },
-    );
-    controller.dispose();
-    noteController.dispose();
+        ),
+      );
+    },
+  );
+  controller.dispose();
+  noteController.dispose();
 }

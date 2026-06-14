@@ -9,6 +9,29 @@ import '../../domain/entities/transaction_entity.dart';
 import '../common/category_catalog.dart';
 import '../transactions/transactions_providers.dart';
 
+/// ملخص ميزانية تُعرض في هيدر الداشبورد (showOnHeader = true).
+class BudgetHeaderEntry {
+  const BudgetHeaderEntry({
+    required this.budgetId,
+    required this.label,
+    required this.spent,
+    required this.limit,
+    required this.ratio,
+    required this.period,
+    this.accountId,
+    this.accountName,
+  });
+
+  final String budgetId;
+  final String label;
+  final double spent;
+  final double limit;
+  final double ratio;
+  final BudgetPeriod period;
+  final String? accountId;
+  final String? accountName;
+}
+
 class CategorySlice {
   const CategorySlice({
     required this.category,
@@ -48,6 +71,7 @@ class DashboardData {
     required this.subscriptionsMonthlyTotal,
     required this.range,
     required this.currencyTotals,
+    required this.budgetsForHeader,
     this.activeGoal,
   });
 
@@ -78,6 +102,7 @@ class DashboardData {
   final double subscriptionsMonthlyTotal;
   final TransactionsDateRange range;
   final List<CurrencyTotal> currencyTotals;
+  final List<BudgetHeaderEntry> budgetsForHeader;
   final GoalEntity? activeGoal;
 
   /// عرض إجماليات منفصلة لكل عملة (عند تعدّد العملات في «كل الحسابات»).
@@ -167,7 +192,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final saved = prevMonthExpenses - thisMonthExpenses;
   // ميزانية «كل المصروفات» (الكلية) — تظهر في الـ Dashboard عند إنشائها فقط،
   // أياً كانت دورتها (يومي/أسبوعي/شهري) بحساب صرف دورتها الحالية.
-  final allExpensesBudget = (await budgetRepo.getAll())
+  final allBudgets = await budgetRepo.getAll();
+  final allExpensesBudget = allBudgets
       .where((budget) => budget.isActive && budget.isAllExpenses)
       .fold<BudgetEntity?>(null, (prev, budget) => budget);
   double monthlyBudgetLimit = 0;
@@ -184,6 +210,35 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
         from: periodStart, to: now, accountId: accountId);
     monthlyBudgetRatio =
         monthlyBudgetLimit == 0 ? 0.0 : spent / monthlyBudgetLimit;
+  }
+
+  // ميزانيات الهيدر — كل الميزانيات النشطة التي showOnHeader = true.
+  final headerBudgets = allBudgets.where((b) => b.isActive && b.showOnHeader).toList();
+  final accounts = await accountRepo.getAll();
+  final accountMap = {for (final a in accounts) a.id: a.name};
+  final budgetsForHeader = <BudgetHeaderEntry>[];
+  for (final budget in headerBudgets) {
+    final ps = switch (budget.period) {
+      BudgetPeriod.daily => today,
+      BudgetPeriod.weekly =>
+        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7)),
+      BudgetPeriod.monthly => rangeStart,
+    };
+    final bSpent = budget.isAllExpenses
+        ? await txRepo.expenseTotalBetween(from: ps, to: now, accountId: budget.accountId)
+        : await txRepo.categoryExpenseTotalBetween(categoryId: budget.categoryId, from: ps, to: now);
+    final bRatio = budget.amount == 0 ? 0.0 : bSpent / budget.amount;
+    final catView = catalog.byId(budget.categoryId);
+    budgetsForHeader.add(BudgetHeaderEntry(
+      budgetId: budget.id,
+      label: budget.isAllExpenses ? 'كل المصروفات' : (catView?.nameAr ?? 'ميزانية'),
+      spent: bSpent,
+      limit: budget.amount,
+      ratio: bRatio,
+      period: budget.period,
+      accountId: budget.accountId,
+      accountName: budget.accountId != null ? accountMap[budget.accountId] : null,
+    ));
   }
 
   final breakdown = await txRepo.categoryBreakdown(
@@ -259,6 +314,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     subscriptionsMonthlyTotal: subscriptionsMonthlyTotal,
     range: range,
     currencyTotals: currencyTotals,
+    budgetsForHeader: budgetsForHeader,
     activeGoal: activeGoal,
   );
 });

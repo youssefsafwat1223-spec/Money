@@ -1,7 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
+import '../backend/supabase_config.dart';
+import '../../data/catalog/announcement_service.dart';
+import '../../data/catalog/catalog_daos.dart';
+import '../../data/catalog/catalog_sync_service.dart';
+import '../../data/catalog/feature_flag_service.dart';
+import '../../data/catalog/seed_loader.dart';
+import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_bill_repository.dart';
@@ -48,6 +56,98 @@ final rulesClientProvider = Provider<RulesClient>((ref) {
   return RulesClient(database: ref.watch(appDatabaseProvider));
 });
 
+final featureFlagServiceProvider = Provider<FeatureFlagService>((ref) {
+  return FeatureFlagService(
+    dao: RemoteFeatureFlagsDao(ref.watch(appDatabaseProvider)),
+    installId: '',  // replaced at runtime via initFeatureFlagService()
+  );
+});
+
+final announcementServiceProvider = Provider<AnnouncementService>((ref) {
+  return AnnouncementService(
+    dao: RemoteAnnouncementsDao(ref.watch(appDatabaseProvider)),
+  );
+});
+
+final activeAnnouncementsProvider =
+    FutureProvider<List<RemoteAnnouncement>>((ref) {
+  return ref.watch(announcementServiceProvider).getActiveAnnouncements();
+});
+
+final hasForceUpdateProvider = FutureProvider<bool>((ref) async {
+  final announcements = await ref.watch(activeAnnouncementsProvider.future);
+  return announcements.any((a) => a.isForceUpdate);
+});
+
+FeatureFlagService? _featureFlagInstance;
+
+/// Initialises the FeatureFlagService with the real install ID and loads
+/// flags from Drift. Call once at startup before the first frame.
+Future<FeatureFlagService> initFeatureFlagService(AppDatabase db) async {
+  final id = await InstallId.get();
+  final service = FeatureFlagService(
+    dao: RemoteFeatureFlagsDao(db),
+    installId: id,
+  );
+  await service.init();
+  _featureFlagInstance = service;
+  return service;
+}
+
+FeatureFlagService get featureFlags {
+  if (_featureFlagInstance != null) return _featureFlagInstance!;
+  throw StateError('FeatureFlagService not initialised. Call syncCatalog first.');
+}
+
+final catalogSyncServiceProvider = Provider<CatalogSyncService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return CatalogSyncService(
+    database: db,
+    client: supabase.Supabase.instance.client,
+    metadataDao: CatalogMetadataDao(db),
+    featureFlagService: ref.watch(featureFlagServiceProvider),
+    announcementService: ref.watch(announcementServiceProvider),
+  );
+});
+
+Future<void> syncCatalog(
+  WidgetRef ref, {
+  String? countryCode,
+  bool force = false,
+}) async {
+  final database = ref.read(appDatabaseProvider);
+  await const SeedLoader().seedIfEmpty(database);
+  // Init feature flags from seed data before first frame.
+  await initFeatureFlagService(database);
+  if (!SupabaseConfig.isConfigured) return;
+  if (!force && !await _catalogSyncIsStale(database)) return;
+  await ref.read(catalogSyncServiceProvider).syncAll(countryCode: countryCode);
+  // Invalidate announcement providers so UI rebuilds with fresh data.
+  ref.invalidate(activeAnnouncementsProvider);
+  ref.invalidate(hasForceUpdateProvider);
+}
+
+Future<bool> _catalogSyncIsStale(AppDatabase database) async {
+  final metadata = CatalogMetadataDao(database);
+  final cutoff = DateTime.now().toUtc().subtract(const Duration(minutes: 15));
+  for (final category in CatalogCategories.syncable) {
+    final version = await metadata.getVersion(category);
+    final syncedAt = version?.lastSyncedAt;
+    if (syncedAt == null || syncedAt.isBefore(cutoff)) return true;
+  }
+  return false;
+}
+
+final activeCurrenciesProvider = FutureProvider<List<RemoteCurrency>>((ref) {
+  return RemoteCurrenciesDao(ref.watch(appDatabaseProvider))
+      .getActiveCurrencies();
+});
+
+final supportedCountriesProvider = FutureProvider<List<RemoteCountry>>((ref) {
+  return RemoteCountriesDao(ref.watch(appDatabaseProvider))
+      .getSupportedCountries();
+});
+
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
   return DriftTransactionRepository(ref.watch(appDatabaseProvider));
 });
@@ -66,7 +166,8 @@ final accountsProvider = FutureProvider<List<AccountEntity>>((ref) async {
 final baseCurrencyProvider = FutureProvider<String>((ref) async {
   final account = await ref.watch(accountRepositoryProvider).getDefault();
   if (account != null) return account.currency;
-  final settings = await ref.watch(userSettingsRepositoryProvider).getSettings();
+  final settings =
+      await ref.watch(userSettingsRepositoryProvider).getSettings();
   return settings.currency;
 });
 

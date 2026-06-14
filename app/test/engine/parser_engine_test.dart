@@ -10,7 +10,7 @@ void main() {
   const engine = ParserEngine();
 
   group('ParserEngine — استخراج العمليات', () {
-    test('دفع ببطاقة (عربي): كل الحقول', () {
+    test('دفع ببطاقة (عربي): generic parser لا يصلح للحفظ التلقائي', () {
       final r = engine.parse(SampleMessages.cardPaymentAr);
       expect(r.isTransaction, isTrue);
       final t = r.transaction!;
@@ -22,7 +22,14 @@ void main() {
       expect(t.cardLast4, '4521');
       expect(t.balanceAfter, 2310.50);
       expect(t.occurredAt, DateTime(2026, 4, 8, 12, 45));
-      expect(t.parseConfidence, greaterThanOrEqualTo(0.9));
+      expect(t.parseConfidence, ParserEngine.genericMaxConfidence);
+    });
+
+    test('دفع ببطاقة (عربي): senderId معروف يرفع الثقة للحفظ الآمن', () {
+      final r = engine.parse(SampleMessages.cardPaymentAr, senderId: 'SNB');
+      expect(r.bankKey, 'snb');
+      expect(r.isTransaction, isTrue);
+      expect(r.transaction!.parseConfidence, greaterThanOrEqualTo(0.92));
     });
 
     test('دفع ببطاقة (إنجليزي مختلط)', () {
@@ -90,6 +97,38 @@ void main() {
           .transaction!;
       expect(aed.amount, 42.00);
       expect(aed.currency, 'AED');
+    });
+
+    test('لا يخلط مبلغ العملية مع الرصيد أو reference أو آخر 4 أرقام', () {
+      final t = engine.parse(
+        '''
+Purchase SAR 45.00 At GROCERY
+Card ending 4521
+Balance SAR 200.00
+Ref 987654
+2026-04-08 12:00''',
+        senderId: 'SNB',
+      ).transaction!;
+
+      expect(t.amount, 45.00);
+      expect(t.balanceAfter, 200.00);
+      expect(t.cardLast4, '4521');
+      expect(t.rawMerchant, 'GROCERY');
+      expect(t.parseConfidence, greaterThanOrEqualTo(0.92));
+    });
+
+    test('أكثر من مبلغ عملية قوي يجعل الرسالة تحتاج confirmation', () {
+      final t = engine.parse(
+        '''
+Purchase SAR 45.00 At GROCERY
+Amount SAR 50.00
+2026-04-08 12:00''',
+        senderId: 'SNB',
+      ).transaction!;
+
+      expect(t.parseConfidence,
+          greaterThanOrEqualTo(ParserEngine.pendingThreshold));
+      expect(t.parseConfidence, lessThan(0.92));
     });
   });
 

@@ -54,6 +54,35 @@ class AppTheme {
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
+      // مظهر موحّد لكل حقول الإدخال — يطابق هوية التطبيق في الوضعين.
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: brightness == Brightness.dark
+            ? c.surface2.withValues(alpha: 0.45)
+            : c.surface2.withValues(alpha: 0.55),
+        labelStyle: TextStyle(color: c.textLight),
+        hintStyle: TextStyle(color: c.textLight.withValues(alpha: 0.6)),
+        prefixIconColor: c.textLight,
+        suffixIconColor: c.textLight,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: c.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: c.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: c.primary, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: c.danger),
+        ),
+      ),
     );
   }
 }

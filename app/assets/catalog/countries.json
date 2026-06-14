@@ -1,0 +1,112 @@
+[
+  {
+    "code": "EG",
+    "name_ar": "مصر",
+    "name_en": "Egypt",
+    "flag_emoji": "🇪🇬",
+    "phone_prefix": "+20",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "SA",
+    "name_ar": "السعودية",
+    "name_en": "Saudi Arabia",
+    "flag_emoji": "🇸🇦",
+    "phone_prefix": "+966",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "AE",
+    "name_ar": "الإمارات",
+    "name_en": "United Arab Emirates",
+    "flag_emoji": "🇦🇪",
+    "phone_prefix": "+971",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "KW",
+    "name_ar": "الكويت",
+    "name_en": "Kuwait",
+    "flag_emoji": "🇰🇼",
+    "phone_prefix": "+965",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "QA",
+    "name_ar": "قطر",
+    "name_en": "Qatar",
+    "flag_emoji": "🇶🇦",
+    "phone_prefix": "+974",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "BH",
+    "name_ar": "البحرين",
+    "name_en": "Bahrain",
+    "flag_emoji": "🇧🇭",
+    "phone_prefix": "+973",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "OM",
+    "name_ar": "عمان",
+    "name_en": "Oman",
+    "flag_emoji": "🇴🇲",
+    "phone_prefix": "+968",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "JO",
+    "name_ar": "الأردن",
+    "name_en": "Jordan",
+    "flag_emoji": "🇯🇴",
+    "phone_prefix": "+962",
+    "is_supported": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "US",
+    "name_ar": "الولايات المتحدة",
+    "name_en": "United States",
+    "flag_emoji": "🇺🇸",
+    "phone_prefix": "+1",
+    "is_supported": false,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  },
+  {
+    "code": "GB",
+    "name_ar": "المملكة المتحدة",
+    "name_en": "United Kingdom",
+    "flag_emoji": "🇬🇧",
+    "phone_prefix": "+44",
+    "is_supported": false,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-06-14T00:00:00.000Z"
+  }
+]

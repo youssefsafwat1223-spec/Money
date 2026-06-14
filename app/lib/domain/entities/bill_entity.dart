@@ -2,6 +2,8 @@ enum BillType { subscription, installment }
 
 enum BillFrequency { weekly, monthly, yearly, custom }
 
+enum BillStatus { active, paused, cancelled }
+
 class BillEntity {
   const BillEntity({
     required this.id,
@@ -17,6 +19,14 @@ class BillEntity {
     this.merchantId,
     this.customIntervalDays,
     this.note,
+    this.status = BillStatus.active,
+    this.accountId,
+    // installment-only fields
+    this.totalInstallments,
+    this.paidCount,
+    this.totalPurchaseAmount,
+    this.lenderName,
+    this.interestRate,
   });
 
   final String id;
@@ -32,6 +42,26 @@ class BillEntity {
   final String? merchantId;
   final int? customIntervalDays;
   final String? note;
+  final BillStatus status;
+  final String? accountId;
+
+  // installment-specific
+  final int? totalInstallments;
+  final int? paidCount;
+  final double? totalPurchaseAmount;
+  final String? lenderName;
+  final double? interestRate;
+
+  // derived helpers
+  int get remainingInstallments =>
+      (totalInstallments != null && paidCount != null)
+          ? (totalInstallments! - paidCount!).clamp(0, totalInstallments!)
+          : 0;
+
+  double get installmentProgress =>
+      (totalInstallments != null && totalInstallments! > 0 && paidCount != null)
+          ? (paidCount! / totalInstallments!).clamp(0.0, 1.0)
+          : 0.0;
 
   BillEntity copyWith({
     String? id,
@@ -47,6 +77,13 @@ class BillEntity {
     String? merchantId,
     int? customIntervalDays,
     String? note,
+    BillStatus? status,
+    String? accountId,
+    int? totalInstallments,
+    int? paidCount,
+    double? totalPurchaseAmount,
+    String? lenderName,
+    double? interestRate,
   }) {
     return BillEntity(
       id: id ?? this.id,
@@ -62,6 +99,13 @@ class BillEntity {
       merchantId: merchantId ?? this.merchantId,
       customIntervalDays: customIntervalDays ?? this.customIntervalDays,
       note: note ?? this.note,
+      status: status ?? this.status,
+      accountId: accountId ?? this.accountId,
+      totalInstallments: totalInstallments ?? this.totalInstallments,
+      paidCount: paidCount ?? this.paidCount,
+      totalPurchaseAmount: totalPurchaseAmount ?? this.totalPurchaseAmount,
+      lenderName: lenderName ?? this.lenderName,
+      interestRate: interestRate ?? this.interestRate,
     );
   }
 }

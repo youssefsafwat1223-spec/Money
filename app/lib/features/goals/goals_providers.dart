@@ -5,7 +5,8 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 
 final goalsListProvider = FutureProvider<List<GoalEntity>>((ref) async {
-  return ref.watch(goalRepositoryProvider).getAll();
+  final goals = await ref.watch(goalRepositoryProvider).getAll();
+  return goals.where((goal) => goal.status == 'active').toList(growable: false);
 });
 
 final goalDetailsProvider =

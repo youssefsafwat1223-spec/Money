@@ -182,11 +182,7 @@ class DailySpendBarChart extends StatelessWidget {
                     toY: safeValues[i],
                     width: safeValues.length > 18 ? 7 : 11,
                     borderRadius: BorderRadius.circular(AppRadius.pill),
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [c.primary, c.accent],
-                    ),
+                    color: c.primary,
                     backDrawRodData: BackgroundBarChartRodData(
                       show: true,
                       toY: maxValue * 1.2,

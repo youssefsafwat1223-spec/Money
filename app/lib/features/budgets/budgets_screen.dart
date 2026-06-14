@@ -24,94 +24,94 @@ class BudgetsScreen extends ConsumerWidget {
     final tab = ref.watch(budgetsPageTabProvider);
 
     return async.when(
-        loading: () => const PremiumSkeletonPage(cardCount: 4),
-        error: (error, _) => Center(child: Text('حدث خطأ: $error')),
-        data: (data) {
-          final used = data.snapshot.entries.fold<double>(
-            0,
-            (sum, entry) => sum + entry.spent,
-          );
-          final limit = data.snapshot.entries.fold<double>(
-            0,
-            (sum, entry) => sum + entry.budget.amount,
-          );
-          final usedRatio = limit == 0 ? 0 : (used / limit * 100).round();
-          final saved =
-              data.goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
-          final target =
-              data.goals.fold<double>(0, (sum, goal) => sum + goal.targetAmount);
-          return RefreshIndicator(
-            onRefresh: () async => refreshBudgets(ref),
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                tab == 0
-                    ? _BudgetsHeader(
-                        budgetCount: data.snapshot.entries.length,
-                        usedRatio: usedRatio,
-                        totalLimit: limit,
-                        onAdd: () => BudgetFormScreen.showSheet(context),
+      loading: () => const PremiumSkeletonPage(cardCount: 4),
+      error: (error, _) => Center(child: Text('حدث خطأ: $error')),
+      data: (data) {
+        final used = data.snapshot.entries.fold<double>(
+          0,
+          (sum, entry) => sum + entry.spent,
+        );
+        final limit = data.snapshot.entries.fold<double>(
+          0,
+          (sum, entry) => sum + entry.budget.amount,
+        );
+        final usedRatio = limit == 0 ? 0 : (used / limit * 100).round();
+        final saved =
+            data.goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
+        final target =
+            data.goals.fold<double>(0, (sum, goal) => sum + goal.targetAmount);
+        return RefreshIndicator(
+          onRefresh: () async => refreshBudgets(ref),
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              tab == 0
+                  ? _BudgetsHeader(
+                      budgetCount: data.snapshot.entries.length,
+                      usedRatio: usedRatio,
+                      totalLimit: limit,
+                      onAdd: () => BudgetFormScreen.showSheet(context),
+                    )
+                  : _GoalsHeader(
+                      count: data.goals.length,
+                      saved: saved,
+                      target: target,
+                      onAdd: () => GoalFormScreen.showSheet(context),
+                    ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  AppSpacing.s4,
+                  AppSpacing.gutter,
+                  0,
+                ),
+                child: _PlannerSegmented(
+                  value: tab,
+                  onChanged: (value) =>
+                      ref.read(budgetsPageTabProvider.notifier).state = value,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.gutter),
+                child: tab == 0
+                    ? Column(
+                        children: [
+                          if (data.snapshot.entries.isEmpty)
+                            _EmptyBudgetCard(
+                              onAdd: () => BudgetFormScreen.showSheet(context),
+                            )
+                          else
+                            for (final entry in data.snapshot.entries) ...[
+                              _BudgetCard(
+                                entry: entry,
+                                category: data.catalog.byId(entry.budget.categoryId),
+                                accountName: data.accountName(entry.budget.accountId),
+                              ),
+                              const SizedBox(height: AppSpacing.s4),
+                            ],
+                          const SizedBox(height: 120),
+                        ],
                       )
-                    : _GoalsHeader(
-                        count: data.goals.length,
-                        saved: saved,
-                        target: target,
-                        onAdd: () => GoalFormScreen.showSheet(context),
+                    : Column(
+                        children: [
+                          if (data.goals.isEmpty)
+                            _EmptyGoalsCard(
+                              onAdd: () => GoalFormScreen.showSheet(context),
+                            )
+                          else
+                            for (final goal in data.goals) ...[
+                              _GoalPlannerCard(goal: goal),
+                              const SizedBox(height: AppSpacing.s4),
+                            ],
+                          const SizedBox(height: 120),
+                        ],
                       ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.gutter,
-                    AppSpacing.s4,
-                    AppSpacing.gutter,
-                    0,
-                  ),
-                  child: _PlannerSegmented(
-                    value: tab,
-                    onChanged: (value) =>
-                        ref.read(budgetsPageTabProvider.notifier).state = value,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(AppSpacing.gutter),
-                  child: tab == 0
-                      ? Column(
-                          children: [
-                            if (data.snapshot.entries.isEmpty)
-                              _EmptyBudgetCard(
-                                onAdd: () => BudgetFormScreen.showSheet(context),
-                              )
-                            else
-                              for (final entry in data.snapshot.entries) ...[
-                                _BudgetCard(
-                                  entry: entry,
-                                  category:
-                                      data.catalog.byId(entry.budget.categoryId),
-                                ),
-                                const SizedBox(height: AppSpacing.s4),
-                              ],
-                            const SizedBox(height: 120),
-                          ],
-                        )
-                      : Column(
-                          children: [
-                            if (data.goals.isEmpty)
-                              _EmptyGoalsCard(
-                                onAdd: () => GoalFormScreen.showSheet(context),
-                              )
-                            else
-                              for (final goal in data.goals) ...[
-                                _GoalPlannerCard(goal: goal),
-                                const SizedBox(height: AppSpacing.s4),
-                              ],
-                            const SizedBox(height: 120),
-                          ],
-                        ),
-                ),
-              ],
-            ),
-          );
-        },
-      );
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -124,6 +124,9 @@ class _PlannerSegmented extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final selectedBg = isDark ? c.accent.withValues(alpha: 0.22) : c.primary;
+    final selectedFg = isDark ? c.accent : Colors.white;
     const labels = ['الميزانيات', 'الأهداف'];
     return Container(
       padding: const EdgeInsets.all(4),
@@ -142,14 +145,14 @@ class _PlannerSegmented extends StatelessWidget {
                   duration: const Duration(milliseconds: 180),
                   padding: const EdgeInsets.symmetric(vertical: 11),
                   decoration: BoxDecoration(
-                    color: value == i ? c.primary : Colors.transparent,
+                    color: value == i ? selectedBg : Colors.transparent,
                     borderRadius: BorderRadius.circular(AppRadius.pill),
                   ),
                   child: Text(
                     labels[i],
                     textAlign: TextAlign.center,
                     style: AppTypography.caption(
-                      value == i ? Colors.white : c.textLight,
+                      value == i ? selectedFg : c.textLight,
                     ).copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -183,7 +186,8 @@ class _GoalsHeader extends StatelessWidget {
       metrics: [
         SectionHeroMetric(value: '$count', label: 'أهداف'),
         SectionHeroMetric(value: '$progress%', label: 'إنجاز'),
-        SectionHeroMetric(value: '${Formatters.integer(saved)} ر', label: 'مدخر'),
+        SectionHeroMetric(
+            value: '${Formatters.integer(saved)} ر', label: 'مدخر'),
       ],
       action: FilledButton.icon(
         onPressed: onAdd,
@@ -225,7 +229,8 @@ class _GoalPlannerCard extends StatelessWidget {
                 Icon(Icons.savings_outlined, color: c.primary),
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
-                  child: Text(goal.name, style: AppTypography.headline(c.textMain)),
+                  child: Text(goal.name,
+                      style: AppTypography.headline(c.textMain)),
                 ),
                 Text('$percent%', style: AppTypography.bodyStrong(c.primary)),
               ],
@@ -367,10 +372,12 @@ class _BudgetCard extends StatelessWidget {
   const _BudgetCard({
     required this.entry,
     required this.category,
+    required this.accountName,
   });
 
   final BudgetProgressEntry entry;
   final CategoryView? category;
+  final String accountName;
 
   @override
   Widget build(BuildContext context) {
@@ -401,23 +408,9 @@ class _BudgetCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s4),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              c.surface,
-              Color.lerp(c.surface, progressColor, 0.08)!,
-            ],
-          ),
+          color: c.surface,
           borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: progressColor.withValues(alpha: 0.22)),
-          boxShadow: [
-            BoxShadow(
-              color: progressColor.withValues(alpha: 0.08),
-              blurRadius: 22,
-              offset: const Offset(0, 12),
-            ),
-          ],
+          border: Border.all(color: c.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -452,9 +445,36 @@ class _BudgetCard extends StatelessWidget {
                         style: AppTypography.headline(c.textMain),
                       ),
                       const SizedBox(height: AppSpacing.s1),
+                      Row(
+                        children: [
+                          Text(
+                            'ميزانية $periodLabel',
+                            style: AppTypography.footnote(c.textLight),
+                          ),
+                          if (accountName.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: c.primary.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(AppRadius.pill),
+                              ),
+                              child: Text(
+                                accountName,
+                                style: AppTypography.caption(c.primary).copyWith(fontSize: 10),
+                              ),
+                            ),
+                          ],
+                          if (entry.budget.showOnHeader) ...[
+                            const SizedBox(width: 6),
+                            Icon(Icons.push_pin_outlined, size: 12, color: c.accent),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 2),
                       Text(
-                        'ميزانية $periodLabel',
-                        style: AppTypography.footnote(c.textLight),
+                        '${entry.periodStart.day}/${entry.periodStart.month} — ${entry.periodEnd.day}/${entry.periodEnd.month}',
+                        style: AppTypography.footnote(c.textLight).copyWith(fontSize: 10),
                       ),
                     ],
                   ),

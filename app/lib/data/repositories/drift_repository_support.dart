@@ -121,6 +121,8 @@ BudgetEntity budgetFromRow(QueryRow row) {
     isActive: sqlToBool(row.read<int>('is_active')),
     alert80Sent: sqlToBool(row.read<int>('alert_80_sent')),
     alert100Sent: sqlToBool(row.read<int>('alert_100_sent')),
+    showOnHeader: sqlToBool(row.readNullable<int>('show_on_header') ?? 0),
+    accountId: row.readNullable<String>('account_id'),
   );
 }
 

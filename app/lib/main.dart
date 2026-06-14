@@ -7,7 +7,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
 import 'core/backend/metrics_client.dart';
-import 'core/backend/rules_client.dart';
 import 'core/backend/sentry_config.dart';
 import 'core/backend/supabase_config.dart';
 import 'core/di/app_providers.dart';
@@ -48,11 +47,6 @@ Future<void> _bootstrap() async {
   final initialCaptureTransactionId =
       await LocalNotificationService.instance.initialize();
   final database = await AppDatabase.open();
-  unawaited(
-    RulesClient(database: database).syncBankRules().catchError((Object error) {
-      debugPrint('Remote parsing rules sync failed: $error');
-    }),
-  );
   if (initialCaptureTransactionId != null) {
     CaptureRuntime.instance
         .seedInitialConfirmation(initialCaptureTransactionId);

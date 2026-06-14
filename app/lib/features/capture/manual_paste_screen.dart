@@ -8,6 +8,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../domain/entities/captured_message.dart';
 import '../../domain/usecases/add_transaction_usecase.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../transactions/transactions_providers.dart';
@@ -48,7 +49,9 @@ class _ManualPasteSheet extends StatelessWidget {
           child: Container(
             height: MediaQuery.of(context).size.height * 0.78,
             decoration: BoxDecoration(
-              color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
+              color: isDark
+                  ? c.surface.withValues(alpha: 0.9)
+                  : Colors.white.withValues(alpha: 0.92),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(28),
               ),
@@ -137,17 +140,25 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     if (text.isEmpty || _busy) return;
     setState(() => _busy = true);
 
-    final result =
-        await ref.read(addTransactionUseCaseProvider)(rawMessage: text);
+    final result = await ref
+        .read(ingestCapturedMessageUseCaseProvider)
+        .fromCapturedMessage(
+          CapturedMessage(
+            text: text,
+            source: CapturedMessageSource.manualPaste,
+            receivedAt: DateTime.now().toUtc(),
+          ),
+        );
+    final addResult = result.addTransactionResult;
 
     if (!mounted) return;
     setState(() => _busy = false);
 
-    switch (result.outcome) {
+    switch (addResult.outcome) {
       case AddTransactionOutcome.added:
         refreshTransactions(ref);
         ref.invalidate(dashboardDataProvider);
-        await showConfirmTransactionSheet(context, result.transaction!.id);
+        await showConfirmTransactionSheet(context, addResult.transaction!.id);
         if (mounted) Navigator.of(context).pop();
       case AddTransactionOutcome.duplicate:
         _snack('هذه العملية مسجّلة بالفعل.');
@@ -167,69 +178,71 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final content = Padding(
-        padding: const EdgeInsets.all(AppSpacing.gutter),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _controller,
-              maxLines: 6,
-              style: AppTypography.body(c.textMain),
-              decoration: InputDecoration(
-                hintText: 'الصق نص رسالة البنك هنا...',
-                filled: true,
-                fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: c.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: c.border.withValues(alpha: 0.5)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: c.primary, width: 2),
-                ),
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _controller,
+            maxLines: 6,
+            style: AppTypography.body(c.textMain),
+            decoration: InputDecoration(
+              hintText: 'الصق نص رسالة البنك هنا...',
+              filled: true,
+              fillColor: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : c.surface2.withValues(alpha: 0.5),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: c.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: c.border.withValues(alpha: 0.5)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: c.primary, width: 2),
               ),
             ),
-            const SizedBox(height: AppSpacing.s3),
-            OutlinedButton.icon(
-              onPressed: _pasteFromClipboard,
-              icon: const Icon(AppLucideIcons.clipboardPaste, size: 18),
-              label: const Text('لصق من الحافظة'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
-                side: BorderSide(color: c.border.withValues(alpha: 0.5)),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          OutlinedButton.icon(
+            onPressed: _pasteFromClipboard,
+            icon: const Icon(AppLucideIcons.clipboardPaste, size: 18),
+            label: const Text('لصق من الحافظة'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              side: BorderSide(color: c.border.withValues(alpha: 0.5)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            height: 52,
+            child: FilledButton(
+              onPressed: _busy ? null : _analyze,
+              style: FilledButton.styleFrom(
+                backgroundColor: c.primary,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
+                    borderRadius: BorderRadius.circular(16)),
               ),
+              child: _busy
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: Colors.white),
+                    )
+                  : Text('حلّل وأضف',
+                      style: AppTypography.bodyStrong(Colors.white)),
             ),
-            const Spacer(),
-            SizedBox(
-              height: 52,
-              child: FilledButton(
-                onPressed: _busy ? null : _analyze,
-                style: FilledButton.styleFrom(
-                  backgroundColor: c.primary,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
-                ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2.5, color: Colors.white),
-                      )
-                    : Text('حلّل وأضف',
-                        style: AppTypography.bodyStrong(Colors.white)),
-              ),
-            ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
     if (!widget.fullScreen) return content;
     return Scaffold(
       appBar: AppBar(title: const Text('ألصق رسالة البنك')),
@@ -237,4 +250,3 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     );
   }
 }
-

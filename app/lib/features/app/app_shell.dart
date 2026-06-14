@@ -23,7 +23,10 @@ import '../capture/capture_runtime.dart';
 import '../capture/services/captured_message_processor.dart';
 import '../capture/services/local_notification_service.dart';
 import '../capture/services/native_capture_bridge.dart';
+import '../../core/tracking/user_activity_service.dart';
 import '../common/category_catalog.dart';
+import '../common/widgets/announcement_banner.dart';
+import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../settings/settings_providers.dart';
@@ -62,6 +65,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      unawaited(syncCatalog(ref, force: true));
+      unawaited(UserActivityService.ping()); // cold start — always writes
       await _consumeSharedInput();
       await _syncEngagement();
       _drainCelebrations();
@@ -87,14 +92,15 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _onResume() async {
+    unawaited(syncCatalog(ref));
+    unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
     await _consumeSharedInput();
     await _syncEngagement();
     _drainCelebrations();
   }
 
   Future<void> _consumeSharedInput() async {
-    final messages =
-        await NativeCaptureBridge.consumePendingSharedMessages();
+    final messages = await NativeCaptureBridge.consumePendingSharedMessages();
     if (messages.isEmpty) {
       return;
     }
@@ -104,6 +110,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       final result = await CapturedMessageProcessor.process(
         rawMessage: message.text,
         senderId: message.sender,
+        source: message.source,
         showNotifications: false,
         database: ref.read(appDatabaseProvider),
       );
@@ -248,6 +255,12 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Force update blocks the entire app — check before rendering anything else.
+    final forceUpdateAsync = ref.watch(hasForceUpdateProvider);
+    if (forceUpdateAsync.valueOrNull == true) {
+      return const ForceUpdateScreen();
+    }
+
     final c = context.colors;
     final index = ref.watch(shellIndexProvider);
     const pages = [
@@ -272,54 +285,20 @@ class _AppShellState extends ConsumerState<AppShell> {
       },
       child: Scaffold(
         extendBody: true,
+        backgroundColor: c.bg,
         appBar: null,
         body: Stack(
           children: [
-            // الخلفية الأساسية مع التوهج الملون (Ambient Glows) لتعميق الإحساس البصري
-            Positioned.fill(
-              child: Container(
-                color: c.bg,
-              ),
-            ),
-            // توهج بنفسجي علوي يمين
-            Positioned(
-              top: -150,
-              right: -150,
-              child: Container(
-                width: 400,
-                height: 400,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      c.primary.withValues(alpha: 0.12),
-                      c.primary.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // توهج بنفسجي غامق سفلي يسار
-            Positioned(
-              bottom: 100,
-              left: -150,
-              child: Container(
-                width: 350,
-                height: 350,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      c.gradA.withValues(alpha: 0.08),
-                      c.gradA.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
             // محتوى الصفحة الرئيسي — بدون SafeArea علوي حتى يمتد الهيدر
             // المتدرّج خلف شريط الحالة (كل شاشة تتكفّل بالمساحة الآمنة داخليًا).
             IndexedStack(index: index, children: pages),
+            // Announcement banner — shown above content, below celebrations.
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(bottom: false, child: AnnouncementBanner()),
+            ),
             if (_activeCelebration != null)
               Positioned(
                 top: AppSpacing.s5,
@@ -331,8 +310,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         ),
         bottomNavigationBar: AnimatedSlide(
           offset: _isBottomBarVisible ? Offset.zero : const Offset(0, 1.5),
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOutCubic,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
           child: _FloatingBottomBar(
             currentIndex: index,
             onSelect: (next) =>
@@ -358,22 +337,23 @@ class _CelebrationBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s4),
         decoration: BoxDecoration(
-          gradient: c.primaryGradient,
+          color: c.surface,
           borderRadius: BorderRadius.circular(AppRadius.card),
-          boxShadow: const [
+          border: Border.all(color: c.border),
+          boxShadow: [
             BoxShadow(
-              color: Colors.black12,
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 14,
-              offset: Offset(0, 8),
+              offset: const Offset(0, 8),
             ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(event.title, style: AppTypography.bodyStrong(Colors.white)),
+            Text(event.title, style: AppTypography.bodyStrong(c.textMain)),
             const SizedBox(height: AppSpacing.s1),
-            Text(event.message, style: AppTypography.callout(Colors.white)),
+            Text(event.message, style: AppTypography.callout(c.textLight)),
           ],
         ),
       ),
@@ -401,30 +381,34 @@ class _FloatingBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(32),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
             child: Container(
-              height: 72,
+              height: 64,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
-                color: c.surface.withValues(alpha: 0.78),
+                color: isDark
+                    ? const Color(0xFF1C1C1E).withValues(alpha: 0.8)
+                    : Colors.white.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(32),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.42),
-                  width: 1.2,
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.1)
+                      : Colors.black.withValues(alpha: 0.05),
+                  width: 1.0,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.18),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 30,
-                    offset: const Offset(0, 14),
+                    offset: const Offset(0, 10),
                   ),
                 ],
               ),
@@ -508,54 +492,35 @@ class _NavTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // High contrast color selections for active and inactive states
-    final activeColor = isDark ? Colors.white : c.primary;
-    final activeBgColor = isDark
-        ? c.primary.withValues(alpha: 0.24)
-        : c.primary.withValues(alpha: 0.12);
-    final activeBorderColor = isDark
-        ? c.primary.withValues(alpha: 0.35)
-        : c.primary.withValues(alpha: 0.18);
-    final inactiveColor =
-        isDark ? c.textLight.withValues(alpha: 0.7) : c.textLight;
+    final activeColor = c.accent;
+    final inactiveColor = c.textLight;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => onTap(item.index),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 240),
+        duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
         height: 50,
-        padding: EdgeInsets.symmetric(horizontal: selected ? 8 : 4),
-        decoration: BoxDecoration(
-          color: selected ? activeBgColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? activeBorderColor : Colors.transparent,
-          ),
-        ),
-        child: Row(
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               item.icon,
               color: selected ? activeColor : inactiveColor,
-              size: 21,
+              size: 22,
             ),
             if (selected) ...[
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  softWrap: false,
-                  style: AppTypography.caption(activeColor).copyWith(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 10.5,
-                  ),
+              const SizedBox(height: 2),
+              Text(
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.fade,
+                softWrap: false,
+                style: AppTypography.caption(activeColor).copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10.0,
                 ),
               ),
             ],
@@ -574,27 +539,25 @@ class _CenterAddButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 52,
-        height: 52,
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [c.accent, c.accent.withValues(alpha: 0.86)],
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-          ),
-          borderRadius: BorderRadius.circular(18),
+          color: isDark ? c.accent : c.primary,
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: c.accent.withValues(alpha: 0.36),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
+              color: (isDark ? c.accent : c.primary).withValues(alpha: 0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Icon(AppLucideIcons.plus, color: c.primary, size: 27),
+        child: Icon(AppLucideIcons.plus,
+            color: isDark ? c.primary : Colors.white, size: 24),
       ),
     );
   }

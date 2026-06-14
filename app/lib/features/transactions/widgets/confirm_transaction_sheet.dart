@@ -12,6 +12,7 @@ import '../../../domain/entities/transaction_entity.dart';
 import '../../common/category_catalog.dart';
 import '../../common/widgets.dart';
 import '../../dashboard/dashboard_providers.dart';
+import '../manual_transaction_sheet.dart';
 import '../transactions_providers.dart';
 import 'change_category_sheet.dart';
 
@@ -56,17 +57,20 @@ class _ConfirmSheet extends ConsumerWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Material(
-            color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
+            color: isDark
+                ? c.surface.withValues(alpha: 0.9)
+                : Colors.white.withValues(alpha: 0.92),
             shape: RoundedRectangleBorder(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
               side: BorderSide(
                 color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
                 width: 1.5,
               ),
             ),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, AppSpacing.s6),
+              padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
+                  AppSpacing.s3, AppSpacing.gutter, AppSpacing.s6),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -79,13 +83,15 @@ class _ConfirmSheet extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.s4),
-                  Text('عملية جديدة', style: AppTypography.subhead(c.textLight)),
+                  Text('عملية جديدة',
+                      style: AppTypography.subhead(c.textLight)),
                   const SizedBox(height: AppSpacing.s2),
                   Text('${Formatters.amount(tx.amount)} ${tx.currency}',
                       style: AppTypography.amountHero(c.textMain)),
                   if (tx.rawMerchant != null) ...[
                     const SizedBox(height: 4),
-                    Text(tx.rawMerchant!, style: AppTypography.headline(c.textMain)),
+                    Text(tx.rawMerchant!,
+                        style: AppTypography.headline(c.textMain)),
                   ],
                   const SizedBox(height: AppSpacing.s4),
                   // التصنيف المقترح (قابل للتغيير)
@@ -95,10 +101,13 @@ class _ConfirmSheet extends ConsumerWidget {
                     child: Container(
                       padding: const EdgeInsets.all(AppSpacing.s3),
                       decoration: BoxDecoration(
-                        color: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.05)
+                            : c.surface2.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4),
+                          color: Colors.white
+                              .withValues(alpha: isDark ? 0.08 : 0.4),
                         ),
                       ),
                       child: Row(
@@ -109,7 +118,8 @@ class _ConfirmSheet extends ConsumerWidget {
                             child: Text(category?.nameAr ?? 'غير مصنّف',
                                 style: AppTypography.bodyStrong(c.textMain)),
                           ),
-                          Text('تغيير', style: AppTypography.subhead(c.primary)),
+                          Text('تغيير',
+                              style: AppTypography.subhead(c.primary)),
                         ],
                       ),
                     ),
@@ -135,15 +145,14 @@ class _ConfirmSheet extends ConsumerWidget {
                                   ? tx.accountId
                                   : accounts.first.id;
                           return Padding(
-                            padding:
-                                const EdgeInsets.only(top: AppSpacing.s4),
+                            padding: const EdgeInsets.only(top: AppSpacing.s4),
                             child: DropdownButtonFormField<String>(
                               value: value,
                               isExpanded: true,
                               decoration: const InputDecoration(
                                 labelText: 'الحساب',
-                                prefixIcon: Icon(
-                                    Icons.account_balance_wallet_outlined),
+                                prefixIcon:
+                                    Icon(Icons.account_balance_wallet_outlined),
                               ),
                               items: [
                                 for (final account in accounts)
@@ -172,6 +181,25 @@ class _ConfirmSheet extends ConsumerWidget {
                         orElse: () => const SizedBox.shrink(),
                       ),
                   const SizedBox(height: AppSpacing.s5),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await ManualTransactionSheet.show(
+                          context,
+                          transaction: tx,
+                        );
+                        if (!context.mounted) return;
+                        ref.invalidate(transactionByIdProvider(transactionId));
+                        refreshTransactions(ref);
+                        ref.invalidate(dashboardDataProvider);
+                      },
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('تعديل التفاصيل'),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s2),
                   Row(
                     children: [
                       Expanded(
@@ -180,8 +208,8 @@ class _ConfirmSheet extends ConsumerWidget {
                           child: FilledButton(
                             onPressed: () async {
                               if (tx.status == TransactionStatus.pending) {
-                                await ref
-                                    .read(confirmTransactionUseCaseProvider)(tx.id);
+                                await ref.read(
+                                    confirmTransactionUseCaseProvider)(tx.id);
                               }
                               refreshTransactions(ref);
                               ref.invalidate(dashboardDataProvider);
@@ -208,4 +236,3 @@ class _ConfirmSheet extends ConsumerWidget {
     );
   }
 }
-
