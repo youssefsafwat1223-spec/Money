@@ -55,6 +55,11 @@ abstract class SenderBankMappingRepository {
 
   Future<List<SenderBankMappingEntity>> pendingSync();
 
+  Future<SenderBankMappingEntity> upsertRemote(
+    SenderBankMappingEntity remote, {
+    DateTime? syncedAt,
+  });
+
   Future<void> markSynced(String id, {DateTime? now});
 
   Future<void> markSyncFailed(String id, {DateTime? now});

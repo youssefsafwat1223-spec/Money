@@ -127,6 +127,15 @@ class _MemorySenderBankMappingRepository
   Future<List<SenderBankMappingEntity>> pendingSync() async => [mapping];
 
   @override
+  Future<SenderBankMappingEntity> upsertRemote(
+    SenderBankMappingEntity remote, {
+    DateTime? syncedAt,
+  }) async {
+    mapping = remote;
+    return mapping;
+  }
+
+  @override
   Future<void> markSynced(String id, {DateTime? now}) async {}
 
   @override

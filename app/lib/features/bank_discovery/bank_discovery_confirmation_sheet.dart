@@ -43,12 +43,14 @@ class _BankDiscoveryConfirmationSheetState
   Future<void> _confirm() async {
     await _run(() async {
       await _controller.confirm(widget.mapping);
+      await ref.read(senderBankMappingSyncServiceProvider)?.uploadPending();
     });
   }
 
   Future<void> _reject() async {
     await _run(() async {
       await _controller.reject(widget.mapping);
+      await ref.read(senderBankMappingSyncServiceProvider)?.uploadPending();
     });
   }
 

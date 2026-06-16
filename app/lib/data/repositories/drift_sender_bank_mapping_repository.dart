@@ -252,6 +252,96 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
   }
 
   @override
+  Future<SenderBankMappingEntity> upsertRemote(
+    SenderBankMappingEntity remote, {
+    DateTime? syncedAt,
+  }) async {
+    final normalized = normalizeSenderId(remote.senderId);
+    if (normalized.isEmpty) {
+      throw ArgumentError.value(
+        remote.senderId,
+        'remote.senderId',
+        'Sender ID must not be empty.',
+      );
+    }
+
+    final existing = await getBySender(remote.senderId);
+    if (existing != null && !_shouldApplyRemote(existing, remote)) {
+      return existing;
+    }
+
+    final syncTime = (syncedAt ?? DateTime.now()).toUtc();
+    final id = existing?.id ?? remote.id;
+    await _db.customInsert(
+      '''
+        INSERT INTO sender_bank_mappings(
+          id, sender_id, normalized_sender_id, bank_key,
+          suggested_bank_name, suggested_country, confidence,
+          reason, status, source, first_seen_at, last_seen_at,
+          confirmed_at, rejected_at, rejection_expires_at,
+          created_at, updated_at, synced_at, sync_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+        ON CONFLICT(normalized_sender_id) DO UPDATE SET
+          sender_id = excluded.sender_id,
+          bank_key = excluded.bank_key,
+          suggested_bank_name = excluded.suggested_bank_name,
+          suggested_country = excluded.suggested_country,
+          confidence = excluded.confidence,
+          reason = excluded.reason,
+          status = excluded.status,
+          source = excluded.source,
+          first_seen_at = excluded.first_seen_at,
+          last_seen_at = excluded.last_seen_at,
+          confirmed_at = excluded.confirmed_at,
+          rejected_at = excluded.rejected_at,
+          rejection_expires_at = excluded.rejection_expires_at,
+          created_at = excluded.created_at,
+          updated_at = excluded.updated_at,
+          synced_at = excluded.synced_at,
+          sync_status = 'synced';
+      ''',
+      variables: [
+        Variable.withString(id),
+        Variable.withString(remote.senderId),
+        Variable.withString(normalized),
+        _nullableString(remote.bankKey),
+        Variable.withString(remote.suggestedBankName),
+        Variable.withString(remote.suggestedCountry),
+        Variable.withReal(remote.confidence),
+        _nullableString(remote.reason),
+        Variable.withString(_statusToSql(remote.status)),
+        Variable.withString(_sourceToSql(remote.source)),
+        Variable.withString(dateTimeToSql(remote.firstSeenAt)),
+        Variable.withString(dateTimeToSql(remote.lastSeenAt)),
+        _nullableDateTime(remote.confirmedAt),
+        _nullableDateTime(remote.rejectedAt),
+        _nullableDateTime(remote.rejectionExpiresAt),
+        Variable.withString(dateTimeToSql(remote.createdAt)),
+        Variable.withString(dateTimeToSql(remote.updatedAt)),
+        Variable.withString(dateTimeToSql(syncTime)),
+      ],
+    );
+    return (await getBySender(remote.senderId))!;
+  }
+
+  bool _shouldApplyRemote(
+    SenderBankMappingEntity local,
+    SenderBankMappingEntity remote,
+  ) {
+    if (local.status == SenderBankMappingStatus.confirmed &&
+        remote.status == SenderBankMappingStatus.pending) {
+      return false;
+    }
+    if (local.status == remote.status) {
+      return remote.updatedAt.isAfter(local.updatedAt);
+    }
+    if (local.syncStatus != SenderBankMappingSyncStatus.synced) {
+      return false;
+    }
+    return remote.updatedAt.isAfter(local.updatedAt);
+  }
+
+  @override
   Future<void> markSynced(String id, {DateTime? now}) async {
     final timestamp = (now ?? DateTime.now()).toUtc();
     await _db.customUpdate(
@@ -334,6 +424,13 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
   DateTime? _dateTimeOrNull(String? value) =>
       value == null ? null : dateTimeFromSql(value);
 
+  Variable<String> _nullableString(String? value) =>
+      value == null ? const Variable<String>(null) : Variable.withString(value);
+
+  Variable<String> _nullableDateTime(DateTime? value) => value == null
+      ? const Variable<String>(null)
+      : Variable.withString(dateTimeToSql(value));
+
   SenderBankMappingStatus _statusFromSql(String value) {
     switch (value) {
       case 'pending':
@@ -344,6 +441,17 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
         return SenderBankMappingStatus.rejected;
       default:
         throw ArgumentError.value(value, 'value', 'Unknown mapping status.');
+    }
+  }
+
+  String _statusToSql(SenderBankMappingStatus value) {
+    switch (value) {
+      case SenderBankMappingStatus.pending:
+        return 'pending';
+      case SenderBankMappingStatus.confirmed:
+        return 'confirmed';
+      case SenderBankMappingStatus.rejected:
+        return 'rejected';
     }
   }
 

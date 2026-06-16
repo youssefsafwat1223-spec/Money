@@ -24,6 +24,7 @@ import '../../data/repositories/drift_merchant_category_repository.dart';
 import '../../data/repositories/drift_sender_bank_mapping_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
+import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
@@ -252,6 +253,18 @@ final bankDiscoveryServiceProvider = Provider<BankDiscoveryService?>((ref) {
       ).getSettings();
       return settings.aiConsentGranted;
     },
+  );
+});
+
+final senderBankMappingSyncServiceProvider =
+    Provider<SenderBankMappingSyncService?>((ref) {
+  if (!SupabaseConfig.isConfigured) return null;
+  return SenderBankMappingSyncService(
+    repository: ref.watch(senderBankMappingRepositoryProvider),
+    remoteStore: SupabaseSenderBankMappingRemoteStore(
+      supabase.Supabase.instance.client,
+    ),
+    currentUserId: () => supabase.Supabase.instance.client.auth.currentUser?.id,
   );
 });
 
