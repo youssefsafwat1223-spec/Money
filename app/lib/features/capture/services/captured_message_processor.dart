@@ -1,15 +1,22 @@
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+
+import '../../../core/backend/supabase_config.dart';
 import '../../../core/backend/rules_client.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/repositories/drift_account_repository.dart';
 import '../../../data/repositories/drift_gamification_repository.dart';
 import '../../../data/repositories/drift_merchant_category_repository.dart';
+import '../../../data/repositories/drift_sender_bank_mapping_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/captured_message.dart';
+import '../../../domain/services/bank_discovery_service.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../../domain/usecases/engagement_usecase.dart';
 import '../../../domain/usecases/ingest_captured_message_usecase.dart';
+import '../../../domain/usecases/resolve_bank_for_sender_usecase.dart';
 import '../../../domain/usecases/user_settings_usecases.dart';
+import '../../../engine/ai/bank_discovery_client.dart';
 import 'local_notification_service.dart';
 
 class CapturedMessageProcessor {
@@ -50,6 +57,15 @@ class CapturedMessageProcessor {
       );
       final notificationPreferences =
           await LoadNotificationPreferencesUseCase(settingsRepository).call();
+      final senderBankMappingRepository = DriftSenderBankMappingRepository(db);
+      final bankDiscoveryClient = SupabaseConfig.isConfigured
+          ? GeminiBankDiscoveryClient(
+              edgeFunctionUrl:
+                  '${SupabaseConfig.url}/functions/v1/bank-discovery',
+              getAnonJwt: () async => supabase
+                  .Supabase.instance.client.auth.currentSession?.accessToken,
+            )
+          : null;
       final ingestUseCase = IngestCapturedMessageUseCase(
         AddTransactionUseCase(
           transactionRepository: DriftTransactionRepository(db),
@@ -57,6 +73,17 @@ class CapturedMessageProcessor {
           recordEngagementUseCase: engagementUseCase,
           loadBankProfiles: RulesClient(database: db).localBankProfiles,
           accountRepository: DriftAccountRepository(db),
+          resolveBankForSenderUseCase: ResolveBankForSenderUseCase(
+            mappingRepository: senderBankMappingRepository,
+          ),
+          bankDiscoveryService: bankDiscoveryClient == null
+              ? null
+              : BankDiscoveryService(
+                  mappingRepository: senderBankMappingRepository,
+                  client: bankDiscoveryClient,
+                  loadAiConsent: () async =>
+                      (await settingsRepository.getSettings()).aiConsentGranted,
+                ),
         ),
       );
 

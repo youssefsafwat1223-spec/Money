@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../../domain/entities/sender_bank_mapping_entity.dart';
+
 class CaptureRuntime {
   CaptureRuntime._();
 
@@ -9,14 +11,22 @@ class CaptureRuntime {
       StreamController<String>.broadcast();
   final StreamController<String> _navigationRequests =
       StreamController<String>.broadcast();
+  final StreamController<SenderBankMappingEntity> _bankDiscoveryRequests =
+      StreamController<SenderBankMappingEntity>.broadcast();
   String? _pendingInitialTransactionId;
   String? _pendingInitialRoute;
 
   Stream<String> get confirmRequests => _confirmRequests.stream;
   Stream<String> get navigationRequests => _navigationRequests.stream;
+  Stream<SenderBankMappingEntity> get bankDiscoveryRequests =>
+      _bankDiscoveryRequests.stream;
 
   void requestConfirmation(String transactionId) {
     _confirmRequests.add(transactionId);
+  }
+
+  void requestBankDiscoveryConfirmation(SenderBankMappingEntity mapping) {
+    _bankDiscoveryRequests.add(mapping);
   }
 
   void seedInitialConfirmation(String transactionId) {

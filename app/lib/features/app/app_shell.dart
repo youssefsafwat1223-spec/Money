@@ -14,8 +14,10 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
+import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/services/notification_planner.dart';
 import '../achievements/achievements_providers.dart';
+import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
 import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
 import '../capture/capture_entry_sheet.dart';
@@ -49,6 +51,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   late final AppLifecycleListener _lifecycleListener;
   StreamSubscription<String>? _confirmSubscription;
   StreamSubscription<String>? _navigationSubscription;
+  StreamSubscription<SenderBankMappingEntity>? _bankDiscoverySubscription;
   CelebrationEvent? _activeCelebration;
   Timer? _celebrationTimer;
   bool _isBottomBarVisible = true;
@@ -62,6 +65,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
     _navigationSubscription = CaptureRuntime.instance.navigationRequests.listen(
       _handleNotificationRoute,
+    );
+    _bankDiscoverySubscription =
+        CaptureRuntime.instance.bankDiscoveryRequests.listen(
+      _openBankDiscoverySheet,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -87,6 +94,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     _celebrationTimer?.cancel();
     _confirmSubscription?.cancel();
     _navigationSubscription?.cancel();
+    _bankDiscoverySubscription?.cancel();
     _lifecycleListener.dispose();
     super.dispose();
   }
@@ -106,6 +114,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
 
     String? pendingConfirmationId;
+    SenderBankMappingEntity? pendingBankDiscovery;
     for (final message in messages) {
       final result = await CapturedMessageProcessor.process(
         rawMessage: message.text,
@@ -118,6 +127,9 @@ class _AppShellState extends ConsumerState<AppShell> {
           result.addTransactionResult.requiresConfirmation) {
         pendingConfirmationId = result.transactionId;
       }
+      pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
+        message.sender,
+      );
     }
     if (!mounted) {
       return;
@@ -127,6 +139,23 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (pendingConfirmationId != null) {
       await _openConfirmSheet(pendingConfirmationId);
     }
+    if (pendingBankDiscovery != null) {
+      await _openBankDiscoverySheet(pendingBankDiscovery);
+    }
+  }
+
+  Future<SenderBankMappingEntity?> _pendingBankDiscoveryForSender(
+    String? senderId,
+  ) async {
+    final cleanSender = senderId?.trim();
+    if (cleanSender == null || cleanSender.isEmpty) return null;
+    final mapping = await ref
+        .read(senderBankMappingRepositoryProvider)
+        .getActiveSuggestionBySender(cleanSender);
+    if (mapping?.status == SenderBankMappingStatus.pending) {
+      return mapping;
+    }
+    return null;
   }
 
   Future<void> _syncEngagement() async {
@@ -239,6 +268,13 @@ class _AppShellState extends ConsumerState<AppShell> {
     await showConfirmTransactionSheet(context, transactionId);
     await _syncEngagement();
     _drainCelebrations();
+  }
+
+  Future<void> _openBankDiscoverySheet(SenderBankMappingEntity mapping) async {
+    if (!mounted) {
+      return;
+    }
+    await showBankDiscoveryConfirmationSheet(context, mapping);
   }
 
   void _handleNotificationRoute(String route) {

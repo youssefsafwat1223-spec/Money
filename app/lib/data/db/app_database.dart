@@ -10,7 +10,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 4;
+const int _targetSchemaVersion = 8;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -24,6 +24,16 @@ class AppDatabase extends GeneratedDatabase {
 
   @override
   int get schemaVersion => _targetSchemaVersion;
+
+  // Migrations are handled manually in initialize() → _runCompatibilityMigrations(),
+  // which uses IF NOT EXISTS / ADD COLUMN IF NOT EXISTS and is fully idempotent.
+  // This no-op strategy prevents Drift from throwing when it detects a version bump
+  // on an existing database before initialize() has had a chance to run.
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) async {},
+        onUpgrade: (m, from, to) async {},
+      );
 
   @override
   Iterable<TableInfo<Table, Object?>> get allTables => const [];
@@ -292,6 +302,11 @@ class AppDatabase extends GeneratedDatabase {
         updated_at TEXT NOT NULL
       );
     ''');
+
+    await _createDedupHashesTable();
+    await _createRemoteMerchantKeywordsTable();
+    await _createPendingMerchantFeedbackTable();
+    await _createSenderBankMappingsTable();
   }
 
   Future<void> _runCompatibilityMigrations() async {
@@ -335,6 +350,11 @@ class AppDatabase extends GeneratedDatabase {
       'privacy_mode_enabled',
       'INTEGER NOT NULL DEFAULT 0',
     );
+    await _ensureColumn(
+      'user_settings',
+      'ai_consent_granted',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
     // v2: ربط المعاملات/الاشتراكات بالحساب (multi-currency accounts).
     await _ensureColumn('transactions', 'account_id', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'account_id', 'TEXT NULL');
@@ -362,6 +382,74 @@ class AppDatabase extends GeneratedDatabase {
       await _createRemoteFeatureFlagsTable();
       await _createRemoteAnnouncementsTable();
     }
+    if (version < 5) {
+      await _createDedupHashesTable();
+    }
+    if (version < 6) {
+      await _createRemoteMerchantKeywordsTable();
+      await _createPendingMerchantFeedbackTable();
+    }
+    if (version < 7) {
+      await _createSenderBankMappingsTable();
+    }
+    if (version < 8) {
+      await _ensureColumn('sender_bank_mappings', 'reason', 'TEXT NULL');
+    }
+  }
+
+  Future<void> _createSenderBankMappingsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sender_bank_mappings(
+        id TEXT PRIMARY KEY,
+        sender_id TEXT NOT NULL,
+        normalized_sender_id TEXT NOT NULL UNIQUE,
+        bank_key TEXT NULL,
+        suggested_bank_name TEXT NOT NULL,
+        suggested_country TEXT NOT NULL,
+        confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+        reason TEXT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'confirmed', 'rejected')),
+        source TEXT NOT NULL CHECK(source IN ('gemini', 'user_manual', 'remote')),
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        confirmed_at TEXT NULL,
+        rejected_at TEXT NULL,
+        rejection_expires_at TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        synced_at TEXT NULL,
+        sync_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK(sync_status IN ('pending', 'synced', 'failed')),
+        CHECK(status != 'confirmed' OR confirmed_at IS NOT NULL),
+        CHECK(status != 'rejected' OR rejected_at IS NOT NULL)
+      );
+    ''');
+    await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_sender_bank_mappings_normalized_sender '
+      'ON sender_bank_mappings(normalized_sender_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_sender_bank_mappings_status '
+      'ON sender_bank_mappings(status);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_sender_bank_mappings_sync_status '
+      'ON sender_bank_mappings(sync_status);',
+    );
+  }
+
+  Future<void> _createDedupHashesTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS dedup_hashes(
+        hash TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        saved_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_dedup_hashes_occurred_at ON dedup_hashes(occurred_at);',
+    );
   }
 
   Future<void> _createCatalogMetadataTable() async {
@@ -506,6 +594,36 @@ class AppDatabase extends GeneratedDatabase {
     ''');
   }
 
+  Future<void> _createRemoteMerchantKeywordsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_merchant_keywords(
+        id TEXT PRIMARY KEY,
+        keyword TEXT NOT NULL,
+        category_key TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT 'any',
+        country_code TEXT NOT NULL DEFAULT 'ALL',
+        priority INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_rmk_country_active '
+      'ON remote_merchant_keywords(country_code, is_active);',
+    );
+  }
+
+  Future<void> _createPendingMerchantFeedbackTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS pending_merchant_feedback(
+        normalized_keyword TEXT PRIMARY KEY,
+        seen_count INTEGER NOT NULL DEFAULT 1,
+        last_seen_at TEXT NOT NULL
+      );
+    ''');
+  }
+
   Future<int> _currentUserVersion() async {
     final row = await customSelect('PRAGMA user_version;').getSingle();
     return row.read<int>('user_version');
@@ -547,7 +665,8 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureInternalCategories();
 
     if (await count('merchants') == 0 &&
-        await count('merchant_category_map') == 0) {
+        await count('merchant_category_map') == 0 &&
+        await count('remote_merchant_keywords') == 0) {
       for (final mapping in DatabaseSeed.merchantMappings) {
         final merchantId = IdGenerator.next();
         final now = DateTime.now().toUtc();

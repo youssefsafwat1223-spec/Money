@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
+import '../../engine/ai/ai_parser_client.dart';
+import '../../engine/ai/bank_discovery_client.dart';
 import '../../data/catalog/announcement_service.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../data/catalog/catalog_sync_service.dart';
@@ -15,9 +17,11 @@ import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_bill_repository.dart';
 import '../../data/repositories/drift_budget_repository.dart';
 import '../../data/repositories/drift_category_repository.dart';
+import '../../data/repositories/drift_dedup_store.dart';
 import '../../data/repositories/drift_gamification_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_merchant_category_repository.dart';
+import '../../data/repositories/drift_sender_bank_mapping_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../../domain/entities/account_entity.dart';
@@ -28,8 +32,10 @@ import '../../domain/repositories/category_repository.dart';
 import '../../domain/repositories/gamification_repository.dart';
 import '../../domain/repositories/goal_repository.dart';
 import '../../domain/repositories/merchant_category_repository.dart';
+import '../../domain/repositories/sender_bank_mapping_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/repositories/user_settings_repository.dart';
+import '../../domain/services/bank_discovery_service.dart';
 import '../../domain/usecases/add_transaction_usecase.dart';
 import '../../domain/usecases/budget_progress_usecase.dart';
 import '../../domain/usecases/confirm_transaction_usecase.dart';
@@ -37,6 +43,7 @@ import '../../domain/usecases/correct_category_usecase.dart';
 import '../../domain/usecases/engagement_usecase.dart';
 import '../../domain/usecases/goal_details_usecase.dart';
 import '../../domain/usecases/ingest_captured_message_usecase.dart';
+import '../../domain/usecases/resolve_bank_for_sender_usecase.dart';
 import '../../domain/usecases/save_budget_usecase.dart';
 import '../../domain/usecases/save_goal_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
@@ -59,7 +66,7 @@ final rulesClientProvider = Provider<RulesClient>((ref) {
 final featureFlagServiceProvider = Provider<FeatureFlagService>((ref) {
   return FeatureFlagService(
     dao: RemoteFeatureFlagsDao(ref.watch(appDatabaseProvider)),
-    installId: '',  // replaced at runtime via initFeatureFlagService()
+    installId: '', // replaced at runtime via initFeatureFlagService()
   );
 });
 
@@ -96,7 +103,8 @@ Future<FeatureFlagService> initFeatureFlagService(AppDatabase db) async {
 
 FeatureFlagService get featureFlags {
   if (_featureFlagInstance != null) return _featureFlagInstance!;
-  throw StateError('FeatureFlagService not initialised. Call syncCatalog first.');
+  throw StateError(
+      'FeatureFlagService not initialised. Call syncCatalog first.');
 }
 
 final catalogSyncServiceProvider = Provider<CatalogSyncService>((ref) {
@@ -211,6 +219,44 @@ final recordEngagementUseCaseProvider =
   );
 });
 
+final senderBankMappingRepositoryProvider =
+    Provider<SenderBankMappingRepository>((ref) {
+  return DriftSenderBankMappingRepository(ref.watch(appDatabaseProvider));
+});
+
+final resolveBankForSenderUseCaseProvider =
+    Provider<ResolveBankForSenderUseCase>((ref) {
+  return ResolveBankForSenderUseCase(
+    mappingRepository: ref.watch(senderBankMappingRepositoryProvider),
+  );
+});
+
+final bankDiscoveryClientProvider = Provider<BankDiscoveryClient?>((ref) {
+  if (!SupabaseConfig.isConfigured) return null;
+  return GeminiBankDiscoveryClient(
+    edgeFunctionUrl: '${SupabaseConfig.url}/functions/v1/bank-discovery',
+    getAnonJwt: () async =>
+        supabase.Supabase.instance.client.auth.currentSession?.accessToken,
+  );
+});
+
+final bankDiscoveryServiceProvider = Provider<BankDiscoveryService?>((ref) {
+  final client = ref.watch(bankDiscoveryClientProvider);
+  if (client == null) return null;
+  return BankDiscoveryService(
+    mappingRepository: ref.watch(senderBankMappingRepositoryProvider),
+    client: client,
+    loadAiConsent: () async {
+      final settings = await DriftUserSettingsRepository(
+        ref.read(appDatabaseProvider),
+      ).getSettings();
+      return settings.aiConsentGranted;
+    },
+  );
+});
+
+final installIdProvider = FutureProvider<String>((ref) => InstallId.get());
+
 final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
   return AddTransactionUseCase(
     transactionRepository: ref.watch(transactionRepositoryProvider),
@@ -218,7 +264,35 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
     logMetric: ref.watch(metricsClientProvider).logEvent,
     loadBankProfiles: ref.watch(rulesClientProvider).localBankProfiles,
+    loadRemoteKeywords: () async {
+      final db = ref.read(appDatabaseProvider);
+      final settings = await DriftUserSettingsRepository(db).getSettings();
+      final country = settings.country;
+      return country.isEmpty
+          ? RemoteMerchantKeywordsDao(db).getAll()
+          : RemoteMerchantKeywordsDao(db).getActiveForCountry(country);
+    },
+    noteMerchantFeedback: (keyword) =>
+        PendingMerchantFeedbackDao(ref.watch(appDatabaseProvider))
+            .record(keyword),
     accountRepository: ref.watch(accountRepositoryProvider),
+    dedupStore: DriftDedupStore(ref.watch(appDatabaseProvider)),
+    aiClient: SupabaseConfig.isConfigured
+        ? SupabaseAiParserClient(
+            edgeFunctionUrl: '${SupabaseConfig.url}/functions/v1/parse-sms',
+            getAnonJwt: () async => supabase
+                .Supabase.instance.client.auth.currentSession?.accessToken,
+          )
+        : null,
+    loadAiConsent: () async {
+      final settings = await DriftUserSettingsRepository(
+        ref.read(appDatabaseProvider),
+      ).getSettings();
+      return settings.aiConsentGranted;
+    },
+    installId: ref.watch(installIdProvider).valueOrNull ?? '',
+    resolveBankForSenderUseCase: ref.watch(resolveBankForSenderUseCaseProvider),
+    bankDiscoveryService: ref.watch(bankDiscoveryServiceProvider),
   );
 });
 
