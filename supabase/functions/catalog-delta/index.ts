@@ -13,6 +13,7 @@ const tableByCategory: Record<string, string> = {
   currencies: "currencies",
   countries: "countries",
   categories: "categories",
+  merchant_keywords: "merchant_keywords",
 };
 
 const idColumnByCategory: Record<string, string> = {
@@ -21,6 +22,7 @@ const idColumnByCategory: Record<string, string> = {
   currencies: "code",
   countries: "code",
   categories: "id",
+  merchant_keywords: "id",
 };
 
 Deno.serve(async (req) => {
@@ -67,6 +69,21 @@ Deno.serve(async (req) => {
       .limit(1);
     if (versionError) return json({ error: versionError.message }, 500);
     const version = Number(versionRows?.[0]?.version ?? 0);
+
+    if (category === "merchant_keywords") {
+      const result = await fetchMerchantKeywordsDelta(
+        client,
+        since,
+        version,
+        country,
+      );
+      if ("error" in result) return json({ error: result.error }, 500);
+      return json({
+        meta: { category, version, since_version: since },
+        items: result.items,
+        deleted_ids: result.deletedIds,
+      });
+    }
 
     let baseItemQuery = client.from(table).select("*").gt("updated_version", since);
     // Parsers: only serve rules that have passed golden-test validation.
@@ -135,6 +152,51 @@ function applyCountryFilter(
     return query;
   }
   return query;
+}
+
+async function fetchMerchantKeywordsDelta(
+  client: any,
+  since: number,
+  version: number,
+  country: string | undefined,
+): Promise<
+  | { items: unknown[]; deletedIds: string[] }
+  | { error: string }
+> {
+  // merchant_keywords is intentionally a lightweight public dictionary table.
+  // It is versioned at category level through catalog_versions, not per row.
+  // When the category version is newer than the client version, return a
+  // complete active snapshot plus deleted ids so clients can converge safely.
+  if (since >= version) {
+    return { items: [], deletedIds: [] };
+  }
+
+  let itemQuery = client
+    .from("merchant_keywords")
+    .select("*")
+    .eq("is_active", true)
+    .eq("is_deleted", false);
+  itemQuery = applyMerchantKeywordCountryFilter(itemQuery, country);
+  const { data: items, error: itemError } = await itemQuery;
+  if (itemError) return { error: itemError.message };
+
+  let deletedQuery = client
+    .from("merchant_keywords")
+    .select("id")
+    .eq("is_deleted", true);
+  deletedQuery = applyMerchantKeywordCountryFilter(deletedQuery, country);
+  const { data: deletedRows, error: deletedError } = await deletedQuery;
+  if (deletedError) return { error: deletedError.message };
+
+  const deletedIds = (deletedRows ?? [])
+    .map((row: Record<string, unknown>) => row.id)
+    .filter((id: unknown): id is string => typeof id === "string");
+  return { items: items ?? [], deletedIds };
+}
+
+function applyMerchantKeywordCountryFilter(query: any, country: string | undefined): any {
+  if (!country) return query;
+  return query.or(`country_code.eq.ALL,country_code.eq.${country}`);
 }
 
 function json(body: unknown, status = 200): Response {
