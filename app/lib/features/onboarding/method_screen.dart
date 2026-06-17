@@ -13,6 +13,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../capture/services/android_sms_capture_service.dart';
 import '../../core/utils/l10n_ext.dart';
+import 'onboarding_options.dart';
 import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
@@ -59,25 +60,24 @@ class _OnboardingMethodScreenState
   Future<void> _requestSms() async {
     if (_busy) return;
     setState(() => _busy = true);
-    final granted =
-        await AndroidSmsCaptureService.instance.requestPermissions();
+    await AndroidSmsCaptureService.instance.requestPermissions();
     if (!mounted) return;
     setState(() => _busy = false);
-    if (!granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.l10n.smsActivationSnack,
-            style: _alex(12, FontWeight.w500, 1.3, Colors.white),
-          ),
-          backgroundColor: context.colors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-      );
+    context.push('/onboarding/listening');
+  }
+
+  Future<void> _startIosVerify() async {
+    if (SupabaseConfig.isConfigured) {
+      try {
+        final hasBackup =
+            await ref.read(backupServiceProvider).hasRemoteBackup();
+        if (mounted && hasBackup) {
+          context.push('/onboarding/restore');
+          return;
+        }
+      } catch (_) {}
     }
-    await _finish();
+    if (mounted) context.push('/onboarding/ios-verify');
   }
 
   @override
@@ -225,7 +225,7 @@ class _OnboardingMethodScreenState
                       ),
                       child: ElevatedButton(
                         onPressed:
-                            _busy ? null : (isAndroid ? _requestSms : _finish),
+                            _busy ? null : (isAndroid ? _requestSms : _startIosVerify),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
@@ -270,39 +270,41 @@ class _OnboardingMethodScreenState
   }
 }
 
-class _InlineIosShortcutGuide extends StatelessWidget {
+class _InlineIosShortcutGuide extends ConsumerWidget {
   const _InlineIosShortcutGuide();
 
-  static List<_ShortcutStep> _getSteps(BuildContext context) {
+  static List<_ShortcutStep> _getSteps(BuildContext context, String keyword) {
     final locale = Localizations.localeOf(context).languageCode;
     if (locale == 'en') {
-      return const [
-        _ShortcutStep('Open Shortcuts app', 'Go to Shortcuts then Automation tab at the bottom.', Icons.auto_awesome_motion_rounded),
-        _ShortcutStep('Create new Automation', 'Press New Automation or +, then select Message.', Icons.add_circle_outline_rounded),
-        _ShortcutStep('Select bank messages', 'In Message Contents type currency code e.g. SAR, repeat later for additional currencies.', Icons.filter_alt_outlined),
-        _ShortcutStep('Run Immediately', 'Select Run Immediately then press Next.', Icons.bolt_rounded),
-        _ShortcutStep('Choose Mali Shortcut', 'Press New Blank Automation, and search for Post Bank Status.', Icons.send_rounded),
-        _ShortcutStep('Pass message text', 'Select Shortcut Input as input to the shortcut so Mali receives the bank message text.', Icons.text_snippet_outlined),
-        _ShortcutStep('Run in background', 'Disable Show When Run so the addition happens silently.', Icons.volume_off_rounded),
-        _ShortcutStep('Save shortcut', 'Press Done. Then any matching bank message will be converted to a transaction inside Mali.', Icons.check_circle_outline_rounded),
+      return [
+        const _ShortcutStep('Open Shortcuts app', 'Go to Shortcuts then Automation tab at the bottom.', Icons.auto_awesome_motion_rounded),
+        const _ShortcutStep('Create new Automation', 'Press New Automation or +, then select Message.', Icons.add_circle_outline_rounded),
+        _ShortcutStep('Select bank messages', 'In Message Contents type $keyword, then press Next.', Icons.filter_alt_outlined),
+        const _ShortcutStep('Run Immediately', 'Select Run Immediately then press Next.', Icons.bolt_rounded),
+        const _ShortcutStep('Choose Mali Shortcut', 'Press New Blank Automation, and search for Post Bank Status.', Icons.send_rounded),
+        const _ShortcutStep('Pass message text', 'Select Shortcut Input as input to the shortcut so Mali receives the bank message text.', Icons.text_snippet_outlined),
+        const _ShortcutStep('Run in background', 'Disable Show When Run so the addition happens silently.', Icons.volume_off_rounded),
+        const _ShortcutStep('Save shortcut', 'Press Done. Then any matching bank message will be converted to a transaction inside Mali.', Icons.check_circle_outline_rounded),
       ];
     }
-    return const [
-      _ShortcutStep('افتح تطبيق الاختصارات', 'ادخل على Shortcuts ثم تبويب Automation من الأسفل.', Icons.auto_awesome_motion_rounded),
-      _ShortcutStep('أنشئ Automation جديد', 'اضغط New Automation أو علامة +، ثم اختر Message.', Icons.add_circle_outline_rounded),
-      _ShortcutStep('حدّد رسائل البنك', 'في Message Contents اكتب رمز العملة مثل SAR، وكرّر لاحقاً لأي عملة إضافية.', Icons.filter_alt_outlined),
-      _ShortcutStep('خلّيه يعمل فوراً', 'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
-      _ShortcutStep('اختَر اختصار مالي', 'اضغط New Blank Automation، وابحث عن Post Bank Status.', Icons.send_rounded),
-      _ShortcutStep('مرّر نص الرسالة', 'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.', Icons.text_snippet_outlined),
-      _ShortcutStep('شغّله في الخلفية', 'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.', Icons.volume_off_rounded),
-      _ShortcutStep('احفظ الاختصار', 'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.', Icons.check_circle_outline_rounded),
+    return [
+      const _ShortcutStep('افتح تطبيق الاختصارات', 'ادخل على Shortcuts ثم تبويب Automation من الأسفل.', Icons.auto_awesome_motion_rounded),
+      const _ShortcutStep('أنشئ Automation جديد', 'اضغط New Automation أو علامة +، ثم اختر Message.', Icons.add_circle_outline_rounded),
+      _ShortcutStep('حدّد رسائل البنك', 'في Message Contents اكتب $keyword، ثم اضغط Next.', Icons.filter_alt_outlined),
+      const _ShortcutStep('خلّيه يعمل فوراً', 'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
+      const _ShortcutStep('اختَر اختصار مالي', 'اضغط New Blank Automation، وابحث عن Post Bank Status.', Icons.send_rounded),
+      const _ShortcutStep('مرّر نص الرسالة', 'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.', Icons.text_snippet_outlined),
+      const _ShortcutStep('شغّله في الخلفية', 'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.', Icons.volume_off_rounded),
+      const _ShortcutStep('احفظ الاختصار', 'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.', Icons.check_circle_outline_rounded),
     ];
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    final steps = _getSteps(context);
+    final currencyCode = ref.watch(onboardingSelectionProvider).currencyCode;
+    final keyword = currencyKeywords(currencyCode).first;
+    final steps = _getSteps(context, keyword);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

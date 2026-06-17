@@ -240,7 +240,26 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 20),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => context.push('/onboarding/method'),
+                      child: Text(
+                        context.l10n.continueWithoutAccount,
+                        style: _alex(13, FontWeight.w700, 1.2, c.textLight),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Center(
+                    child: Text(
+                      context.l10n.continueWithoutAccountSub,
+                      textAlign: TextAlign.center,
+                      style: _alex(
+                          11, FontWeight.w500, 1.4, c.textLight.withValues(alpha: 0.65)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   Center(
                     child: Text(
                       context.l10n.byContinuingAgree,
