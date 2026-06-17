@@ -6,7 +6,8 @@
     "dev": "next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
-    "lint": "next lint"
+    "lint": "next lint",
+    "build:parser-lab": "dart compile js ../app/tool/parser_lab_entry.dart -O2 -o public/parser_lab.js"
   },
   "dependencies": {
     "next": "14.2.29",

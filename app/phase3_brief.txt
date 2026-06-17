@@ -1,0 +1,333 @@
+# Phase 3 — Category Expansion + SHA-256 Dedup
+
+## Context
+
+Mali is an Arabic-first on-device expense tracker. Bank SMS messages are parsed into
+transactions using a pipeline in `lib/engine/`. This is Phase 3 of a planned parser
+improvement sprint. Phases 1 and 2 are complete and all tests pass.
+
+Working directory: `app/` (Flutter project root). Do NOT commit.
+
+## Gate commands (run all three from `app/` before reporting done)
+
+```bash
+flutter analyze     # must be 0 issues
+flutter test        # must pass (currently ~96 tests)
+flutter gen-l10n    # no-op if no ARB changes, run anyway
+```
+
+## Task A — Category seeds expansion
+
+File: `lib/engine/categorization/category_seeds.dart`
+
+Add the following entries to the `keywordRules` map. All existing entries must stay.
+Keys are matched with `.contains(key.toUpperCase())` on the merchant name, so shorter
+keywords match wider. Add longer/more specific keys first in the map to get priority.
+
+```dart
+// Egypt merchants
+'FAWRY': Categories.bills.key,
+'BREADFAST': Categories.restaurants.key,
+'TALABAT': Categories.restaurants.key,
+'ELMENUS': Categories.restaurants.key,
+'SWVL': Categories.transport.key,
+'ORANGE': Categories.bills.key,
+'VODAFONE': Categories.bills.key,
+'ETISALAT': Categories.bills.key,
+// Gulf delivery/grocery
+'HUNGERSTATION': Categories.restaurants.key,
+'طلبات': Categories.restaurants.key,
+'MRSOOL': Categories.transport.key,
+'مرسول': Categories.transport.key,
+'SPINNEYS': Categories.groceries.key,
+'NANA': Categories.groceries.key,
+'INSTASHOP': Categories.groceries.key,
+// Generic English patterns (broad, so come after specifics)
+'RESTAURANT': Categories.restaurants.key,
+'PHARMACY': Categories.health.key,
+'HOSPITAL': Categories.health.key,
+'CLINIC': Categories.health.key,
+'PETROL': Categories.fuel.key,
+'CINEMA': Categories.entertainment.key,
+'MOVIE': Categories.entertainment.key,
+'HOTEL': Categories.travel.key,
+'AIRPORT': Categories.travel.key,
+// Generic Arabic patterns
+'مطعم': Categories.restaurants.key,
+'مقهى': Categories.cafes.key,
+'صيدلية': Categories.health.key,
+'محطة': Categories.fuel.key,
+'مستشفى': Categories.health.key,
+'عيادة': Categories.health.key,
+'سينما': Categories.entertainment.key,
+'فندق': Categories.travel.key,
+'مطار': Categories.travel.key,
+```
+
+Category constants are already defined in `lib/engine/categorization/category.dart`
+(class `Categories`). All keys used above already exist there; do NOT add new categories.
+
+## Task B — SHA-256 dedup infrastructure
+
+The current `findDuplicate` in the repository requires a known merchant and only covers
+the 2-minute window. It silently skips dedup for no-merchant transactions (transfers,
+ATM withdrawals). The new hash-based dedup plugs this gap.
+
+### B1. Pure hash utility
+
+Create new file `lib/engine/dedup/transaction_dedup.dart`:
+
+```dart
+import 'dart:convert';
+import 'package:cryptography/cryptography.dart';
+
+/// Computes a dedup hash for a parsed transaction.
+/// Dedup window = 5-minute bucket. Two SMS for the same amount + currency + card
+/// within the same 5-min bucket produce the same hash → duplicate.
+class TransactionDedup {
+  TransactionDedup._();
+
+  static final _sha = Sha256();
+
+  static Future<String> computeHash({
+    required double amount,
+    required String currency,
+    String? cardLast4,
+    required DateTime occurredAt,
+  }) async {
+    final bucket = _floorTo5Min(occurredAt.toUtc());
+    final key =
+        '$amount|${currency.toUpperCase()}|${cardLast4 ?? ''}|${bucket.toIso8601String()}';
+    final bytes = utf8.encode(key);
+    final digest = await _sha.hash(bytes);
+    return digest.bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
+  static DateTime _floorTo5Min(DateTime d) =>
+      DateTime.utc(d.year, d.month, d.day, d.hour, (d.minute ~/ 5) * 5);
+}
+```
+
+`cryptography` (^2.7.0) is already in `pubspec.yaml`. No new dependency needed.
+
+### B2. DedupStore abstract interface
+
+Create new file `lib/domain/repositories/dedup_store.dart`:
+
+```dart
+abstract class DedupStore {
+  /// Returns true if this hash was already seen (duplicate).
+  Future<bool> has(String hash);
+
+  /// Records a hash → transaction_id mapping after a successful save.
+  Future<void> mark(String hash, {required String transactionId});
+
+  /// Returns the transaction ID that produced this hash, or null.
+  Future<String?> transactionIdFor(String hash);
+}
+```
+
+### B3. Drift implementation
+
+Create new file `lib/data/repositories/drift_dedup_store.dart`:
+
+```dart
+import 'package:drift/drift.dart';
+
+import '../db/app_database.dart';
+import '../../domain/repositories/dedup_store.dart';
+
+class DriftDedupStore implements DedupStore {
+  const DriftDedupStore(this._db);
+
+  final AppDatabase _db;
+
+  @override
+  Future<bool> has(String hash) async {
+    final rows = await _db.customSelect(
+      'SELECT 1 FROM dedup_hashes WHERE hash = ? LIMIT 1;',
+      variables: [Variable.withString(hash)],
+    ).get();
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<void> mark(String hash, {required String transactionId}) async {
+    await _db.customInsert(
+      '''
+        INSERT OR IGNORE INTO dedup_hashes(hash, transaction_id, saved_at)
+        VALUES (?, ?, ?);
+      ''',
+      variables: [
+        Variable.withString(hash),
+        Variable.withString(transactionId),
+        Variable.withString(DateTime.now().toUtc().toIso8601String()),
+      ],
+    );
+  }
+
+  @override
+  Future<String?> transactionIdFor(String hash) async {
+    final row = await _db.customSelect(
+      'SELECT transaction_id FROM dedup_hashes WHERE hash = ? LIMIT 1;',
+      variables: [Variable.withString(hash)],
+    ).getSingleOrNull();
+    return row?.read<String>('transaction_id');
+  }
+}
+```
+
+### B4. dedup_hashes table in AppDatabase
+
+File: `lib/data/db/app_database.dart`
+
+**Step 1**: Bump schema version constant from 4 to 5:
+```dart
+const int _targetSchemaVersion = 5;
+```
+
+**Step 2**: Add `_createDedupHashesTable()` private method:
+```dart
+Future<void> _createDedupHashesTable() async {
+  await customStatement('''
+    CREATE TABLE IF NOT EXISTS dedup_hashes(
+      hash TEXT PRIMARY KEY,
+      transaction_id TEXT NOT NULL,
+      saved_at TEXT NOT NULL
+    );
+  ''');
+}
+```
+
+**Step 3**: Call it inside `_createSchema()` at the end (after existing tables, before close of method):
+```dart
+await _createDedupHashesTable();
+```
+
+**Step 4**: Add migration block inside `_runCompatibilityMigrations()` after the `if (version < 4)` block:
+```dart
+if (version < 5) {
+  await _createDedupHashesTable();
+}
+```
+
+Do NOT change any other migration logic. The existing `_ensureColumn` calls and
+`if (version < 3)` / `if (version < 4)` blocks must remain unchanged.
+
+### B5. Integrate dedup into AddTransactionUseCase
+
+File: `lib/domain/usecases/add_transaction_usecase.dart`
+
+**Step 1**: Add import:
+```dart
+import '../../engine/dedup/transaction_dedup.dart';
+import '../repositories/dedup_store.dart';
+```
+
+**Step 2**: Add optional `dedupStore` parameter to constructor and store it:
+```dart
+AddTransactionUseCase({
+  required TransactionRepository transactionRepository,
+  required MerchantCategoryRepository merchantCategoryRepository,
+  ParserIsolate? parserIsolate,
+  RecordEngagementUseCase? recordEngagementUseCase,
+  Future<void> Function(String key, {String? dimension})? logMetric,
+  Future<List<BankProfile>> Function({String? senderId})? loadBankProfiles,
+  AccountRepository? accountRepository,
+  DedupStore? dedupStore,          // NEW
+}) : _transactionRepository = transactionRepository,
+     _merchantCategoryRepository = merchantCategoryRepository,
+     _parserIsolate = parserIsolate ?? const ParserIsolate(),
+     _recordEngagementUseCase = recordEngagementUseCase,
+     _logMetric = logMetric,
+     _loadBankProfiles = loadBankProfiles,
+     _accountRepository = accountRepository,
+     _dedupStore = dedupStore;     // NEW
+
+final DedupStore? _dedupStore;     // NEW field
+```
+
+**Step 3**: In `addFromSms()`, after the line:
+```dart
+final occurredAt = parsed.occurredAt ?? DateTime.now().toUtc();
+```
+Insert the dedup check:
+```dart
+// Hash-based dedup: catches no-merchant transactions the merchant check misses.
+if (_dedupStore != null) {
+  final hash = await TransactionDedup.computeHash(
+    amount: parsed.amount,
+    currency: parsed.currency,
+    cardLast4: parsed.cardLast4,
+    occurredAt: occurredAt,
+  );
+  final existingId = await _dedupStore!.transactionIdFor(hash);
+  if (existingId != null) {
+    final existing = await _transactionRepository.getById(existingId);
+    if (existing != null) {
+      return AddTransactionResult.duplicate(existing);
+    }
+    // Hash exists but transaction was deleted — fall through and re-save.
+  }
+}
+```
+
+**Step 4**: After the existing `saveTransaction` call and the `await _recordEngagementUseCase?...` call,
+mark the dedup hash. Add this block:
+```dart
+// Mark dedup hash after successful save.
+if (_dedupStore != null) {
+  final hash = await TransactionDedup.computeHash(
+    amount: parsed.amount,
+    currency: parsed.currency,
+    cardLast4: parsed.cardLast4,
+    occurredAt: occurredAt,
+  );
+  await _dedupStore!.mark(hash, transactionId: transaction.id);
+}
+```
+
+Important: compute the hash twice (once for check, once for mark). This avoids storing
+the hash across the parsing + save gap, which keeps the logic simple. The second compute
+is cheap — under 1ms.
+
+### B6. Wire up DedupStore in DI
+
+File: `lib/core/di/app_providers.dart`
+
+Add import at top:
+```dart
+import '../../data/repositories/drift_dedup_store.dart';
+```
+
+In `addTransactionUseCaseProvider`, add the `dedupStore` argument:
+```dart
+final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
+  return AddTransactionUseCase(
+    transactionRepository: ref.watch(transactionRepositoryProvider),
+    merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
+    recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
+    logMetric: ref.watch(metricsClientProvider).logEvent,
+    loadBankProfiles: ref.watch(rulesClientProvider).localBankProfiles,
+    accountRepository: ref.watch(accountRepositoryProvider),
+    dedupStore: DriftDedupStore(ref.watch(appDatabaseProvider)),   // NEW
+  );
+});
+```
+
+## What NOT to change
+
+- Do not touch `lib/engine/parser/` files (parser_engine.dart, bank_profile.dart, etc.) — Phase 2 is complete.
+- Do not touch test fixtures or golden tests — they already pass.
+- Do not modify `pubspec.yaml` — all packages are already present.
+- Do not commit anything.
+
+## Report contract
+
+When done, report:
+1. List of all files modified or created.
+2. Gate command results (full output of `flutter analyze` and summary of `flutter test`).
+3. Any design decisions you made that weren't specified above.
+4. Anything you skipped or couldn't implement cleanly, with why.

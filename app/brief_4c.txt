@@ -1,0 +1,883 @@
+PHASE 4C — AI CASCADE (PARSE-SMS EDGE FUNCTION + DART INTEGRATION)
+
+You are implementing the AI cascade layer for Mali, an Arabic-first SMS expense tracker.
+Do NOT commit anything — leave all changes in the working tree.
+
+# Project layout (Flutter app root = current directory `app/`)
+lib/
+  engine/
+    models/transaction_source.dart        ← add `aiParsed` to enum
+    privacy/sms_sanitizer.dart            ← already exists, do NOT modify
+    ai/                                   ← CREATE this directory
+      grounding_check.dart                ← CREATE
+      ai_sender_failure_tracker.dart      ← CREATE
+      ai_parser_client.dart               ← CREATE
+  domain/
+    entities/transaction_entity.dart      ← add `aiParsed` to TransactionSourceEntity enum
+    usecases/add_transaction_usecase.dart ← modify (AI trigger + consent gate)
+  data/
+    repositories/drift_repository_support.dart ← add `aiParsed` case
+  core/
+    di/app_providers.dart                 ← wire AI client + country filter
+  features/
+    transactions/transaction_details_screen.dart ← add Arabic label for `aiParsed`
+
+supabase/functions/parse-sms/index.ts    ← CREATE Edge Function
+
+test/engine/ai_cascade_test.dart         ← CREATE (5 required tests)
+
+# Current state you must know
+
+## TransactionSource (engine) — lib/engine/models/transaction_source.dart
+```dart
+enum TransactionSource {
+  bank,
+  card,
+  wallet,
+  unknown,
+}
+```
+Add `aiParsed` as a new value.
+
+## TransactionSourceEntity (domain) — lib/domain/entities/transaction_entity.dart line 10-14
+```dart
+enum TransactionSourceEntity {
+  bank,
+  card,
+  wallet,
+  unknown,
+}
+```
+Add `aiParsed` as a new value.
+
+## ParseResult — lib/engine/parser/parse_result.dart
+Has fields: isTransaction, transaction (ParsedTransaction?), bankKey (String?), confidence (double).
+bankKey is null when no bank profile matched.
+
+## ParsedTransaction — lib/engine/models/parsed_transaction.dart
+Fields: amount (double), currency (String), type (TransactionType), source (TransactionSource),
+rawMerchant (String?), cardLast4 (String?), balanceAfter (double?), occurredAt (DateTime?),
+parseConfidence (double).
+
+## CategorySource — lib/engine/categorization/categorizer.dart line 9
+```dart
+enum CategorySource { userMap, typeRule, keyword, fallback }
+```
+
+## UserSettingsEntity — lib/domain/entities/supporting_entities.dart line 135+
+Already has `country` (String) and `aiConsentGranted` (bool, default false).
+
+## SmsSanitizer — lib/engine/privacy/sms_sanitizer.dart
+Already exists. Signature: `static String sanitize(String rawSms, {TransactionType? detectedType})`
+Do NOT modify it.
+
+## DriftUserSettingsRepository — lib/data/repositories/drift_user_settings_repository.dart
+Has `getSettings()` → Future<UserSettingsEntity>. Country is stored in `user_settings.country`.
+
+## RemoteMerchantKeywordsDao — lib/data/catalog/catalog_daos.dart
+Has `getAll()` (no filter) and `getActiveForCountry(String countryCode)` (filters by country IN (countryCode, 'ALL')).
+
+## Schema version: 6 (do NOT change schema — no new DB tables needed)
+
+## Existing _mapSource switch in AddTransactionUseCase:
+```dart
+static TransactionSourceEntity _mapSource(TransactionSource source) {
+  switch (source) {
+    case TransactionSource.bank:   return TransactionSourceEntity.bank;
+    case TransactionSource.card:   return TransactionSourceEntity.card;
+    case TransactionSource.wallet: return TransactionSourceEntity.wallet;
+    case TransactionSource.unknown: return TransactionSourceEntity.unknown;
+  }
+}
+```
+
+## drift_repository_support.dart source parsing (around line 55-67):
+```dart
+if (raw == 'bank') return TransactionSourceEntity.bank;
+if (raw == 'card') return TransactionSourceEntity.card;
+if (raw == 'wallet') return TransactionSourceEntity.wallet;
+return TransactionSourceEntity.unknown;
+```
+
+## transaction_details_screen.dart source labels (lines 32-35):
+```dart
+TransactionSourceEntity.bank: 'بنك',
+TransactionSourceEntity.card: 'بطاقة',
+TransactionSourceEntity.wallet: 'محفظة',
+TransactionSourceEntity.unknown: 'غير محدد',
+```
+
+## SupabaseConfig — lib/core/backend/supabase_config.dart
+Has `static String get url` and `static bool get isConfigured`.
+Edge Function URL pattern: `${SupabaseConfig.url}/functions/v1/parse-sms`
+
+## AddTransactionUseCase constructor — current params:
+transactionRepository, merchantCategoryRepository, parserIsolate?, recordEngagementUseCase?,
+logMetric?, loadBankProfiles?, loadRemoteKeywords (Future<List<RemoteMerchantKeyword>> Function()?),
+noteMerchantFeedback?, accountRepository?, dedupStore?
+
+# WHAT TO BUILD
+
+## 1. lib/engine/ai/grounding_check.dart (CREATE)
+
+Verifies that the AI-returned amount exists literally in the sanitized SMS text.
+Handles: 2-decimal, 3-decimal, 1-decimal, 0-decimal, and Arabic-Indic digit equivalents.
+If amount ≤ 0 → return false (reject zero/negative amounts from AI).
+
+```dart
+class GroundingCheck {
+  static bool verify({required double amount, required String sanitizedText}) {
+    if (amount <= 0) return false;
+    final candidates = _buildCandidates(amount);
+    return candidates.any((c) => sanitizedText.contains(c));
+  }
+
+  static List<String> _buildCandidates(double amount) {
+    final western = [
+      amount.toStringAsFixed(2),
+      amount.toStringAsFixed(3),
+      amount.toStringAsFixed(1),
+      amount.toStringAsFixed(0),
+    ];
+    // Also add integer form without decimal if it's a whole number
+    final all = <String>{...western};
+    // Arabic-Indic equivalents
+    all.addAll(western.map(_toArabicIndic));
+    return all.toList();
+  }
+
+  static const _westernDigits = ['0','1','2','3','4','5','6','7','8','9'];
+  static const _arabicDigits  = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+
+  static String _toArabicIndic(String s) {
+    var r = s;
+    for (var i = 0; i < 10; i++) {
+      r = r.replaceAll(_westernDigits[i], _arabicDigits[i]);
+    }
+    return r;
+  }
+}
+```
+
+## 2. lib/engine/ai/ai_sender_failure_tracker.dart (CREATE)
+
+In-memory singleton. Tracks consecutive grounding failures per senderId.
+After 3 consecutive failures → sender is suppressed until app restart.
+A success resets the counter for that sender.
+
+```dart
+class AiSenderFailureTracker {
+  AiSenderFailureTracker._();
+  static final instance = AiSenderFailureTracker._();
+
+  static const _suppressAfter = 3;
+  final _counts = <String, int>{};
+
+  bool isSuppressed(String senderId) =>
+      (_counts[senderId] ?? 0) >= _suppressAfter;
+
+  void recordFailure(String senderId) =>
+      _counts[senderId] = (_counts[senderId] ?? 0) + 1;
+
+  void recordSuccess(String senderId) => _counts.remove(senderId);
+
+  // For testing only — resets all state.
+  void resetForTest() => _counts.clear();
+}
+```
+
+## 3. lib/engine/ai/ai_parser_client.dart (CREATE)
+
+Abstract interface + HTTP implementation.
+
+```dart
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+class AiParseResponse {
+  const AiParseResponse({
+    required this.amount,
+    required this.currency,
+    this.merchantName,
+    this.type,
+    this.categoryKey,
+    this.modelUsed,
+  });
+
+  final double amount;
+  final String currency;
+  final String? merchantName;
+  final String? type;       // 'payment', 'transfer', 'withdrawal', etc.
+  final String? categoryKey;
+  final String? modelUsed;
+
+  factory AiParseResponse.fromJson(Map<String, dynamic> json) {
+    return AiParseResponse(
+      amount: (json['amount'] as num).toDouble(),
+      currency: json['currency'] as String,
+      merchantName: json['merchant_name'] as String?,
+      type: json['type'] as String?,
+      categoryKey: json['category_key'] as String?,
+      modelUsed: json['model_used'] as String?,
+    );
+  }
+}
+
+abstract class AiParserClient {
+  Future<AiParseResponse?> parse({
+    required String sanitizedSms,
+    required String senderId,
+    required String installId,
+  });
+}
+
+class SupabaseAiParserClient implements AiParserClient {
+  SupabaseAiParserClient({
+    required String edgeFunctionUrl,
+    required Future<String?> Function() getAnonJwt,
+    http.Client? httpClient,
+  })  : _url = edgeFunctionUrl,
+        _getAnonJwt = getAnonJwt,
+        _http = httpClient ?? http.Client();
+
+  final String _url;
+  final Future<String?> Function() _getAnonJwt;
+  final http.Client _http;
+
+  @override
+  Future<AiParseResponse?> parse({
+    required String sanitizedSms,
+    required String senderId,
+    required String installId,
+  }) async {
+    final jwt = await _getAnonJwt();
+    if (jwt == null) return null;
+    try {
+      final response = await _http.post(
+        Uri.parse(_url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $jwt',
+        },
+        body: jsonEncode({
+          'sanitized_sms': sanitizedSms,
+          'sender_id': senderId,
+          'install_id': installId,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) return null;
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      if (json['amount'] == null || json['currency'] == null) return null;
+      return AiParseResponse.fromJson(json);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+```
+
+## 4. supabase/functions/parse-sms/index.ts (CREATE)
+
+Edge Function at `../supabase/functions/parse-sms/index.ts` (relative to app/).
+This is a Deno TypeScript Edge Function for Supabase.
+
+Requirements:
+- Verify Supabase anon JWT from Authorization header
+- Extract install_id from body
+- Rate limit: max 20 calls per install_id hash per day (store in `ai_rate_limits` table)
+- Re-sanitize the SMS server-side (TypeScript version of the key patterns)
+- Call Gemini 2.0 Flash-Lite API
+- Return structured JSON: { amount, currency, merchant_name, type, category_key, model_used }
+- Model is configurable via GEMINI_MODEL env var (default: gemini-2.0-flash-lite)
+
+```typescript
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.0-flash-lite';
+const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+const RATE_LIMIT_PER_DAY = 20;
+
+// Server-side re-sanitize (mirrors Dart SmsSanitizer key patterns)
+function reSanitize(text: string): string {
+  // Card numbers
+  text = text.replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, '[CARD]');
+  // Phone numbers (Saudi + Egypt + Intl)
+  text = text.replace(/\b05\d{8}\b/g, '[PHONE]');
+  text = text.replace(/\b01[0125]\d{8}\b/g, '[PHONE]');
+  text = text.replace(/\+\d{7,15}\b/g, '[PHONE]');
+  // Account numbers (10-20 digit sequences)
+  text = text.replace(/\b\d{10,20}\b/g, '[ACCOUNT]');
+  // Beneficiary lines
+  text = text.replace(/(إلى|الى)\s*:?\s*.+/gi, '$1: [REDACTED]');
+  text = text.replace(/\bTo\s*:\s*.+/gi, 'To: [REDACTED]');
+  // Arabic greetings with name
+  text = text.replace(/(عزيزي|عزيزتي)\s+\S+/gi, '[REDACTED]');
+  return text.trim();
+}
+
+async function hashInstallId(installId: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(installId);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } });
+  }
+
+  // Verify JWT
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
+  }
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  );
+  const jwt = authHeader.slice(7);
+  const { data: { user }, error: authError } = await supabase.auth.getUser(jwt);
+  // For anon users (not signed in), check the anon key instead
+  // Allow both authenticated and anon JWT holders
+  if (authError && !jwt) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  if (!body?.sanitized_sms || !body?.install_id) {
+    return new Response(JSON.stringify({ error: 'missing fields' }), { status: 400 });
+  }
+
+  const installIdHash = await hashInstallId(body.install_id as string);
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // Rate limit check
+  const { data: rateRow } = await supabase
+    .from('ai_rate_limits')
+    .select('call_count')
+    .eq('install_id_hash', installIdHash)
+    .eq('date', today)
+    .single();
+
+  const currentCount = (rateRow?.call_count ?? 0) as number;
+  if (currentCount >= RATE_LIMIT_PER_DAY) {
+    return new Response(JSON.stringify({ error: 'rate_limit_exceeded' }), { status: 429 });
+  }
+
+  // Increment rate limit counter (upsert)
+  await supabase.from('ai_rate_limits').upsert({
+    install_id_hash: installIdHash,
+    date: today,
+    call_count: currentCount + 1,
+  }, { onConflict: 'install_id_hash,date' });
+
+  // Re-sanitize server-side
+  const reSanitized = reSanitize(body.sanitized_sms as string);
+
+  // Call Gemini
+  if (!GEMINI_API_KEY) {
+    return new Response(JSON.stringify({ error: 'ai_not_configured' }), { status: 503 });
+  }
+
+  const prompt = `You are a bank SMS parser. Extract transaction details from this sanitized bank SMS message. Return ONLY a JSON object with these fields (omit null fields):
+- amount: number (required, must appear in the message)
+- currency: string like "SAR", "EGP", "AED" (required)
+- merchant_name: string (business name only, for payment/POS transactions)
+- type: one of "payment", "withdrawal", "transfer", "income", "refund", "unknown"
+- category_key: one of "restaurants", "groceries", "transport", "entertainment", "health", "utilities", "shopping", "subscriptions", "transfers", "income", "cash", "other"
+
+SMS: ${reSanitized}
+
+Return ONLY valid JSON, no markdown, no explanation.`;
+
+  let geminiResult: Record<string, unknown> | null = null;
+  try {
+    const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 256 },
+      }),
+    });
+    if (!geminiRes.ok) throw new Error(`Gemini error ${geminiRes.status}`);
+    const geminiJson = await geminiRes.json();
+    const text = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    geminiResult = JSON.parse(cleaned);
+  } catch {
+    return new Response(JSON.stringify({ error: 'ai_parse_failed' }), { status: 502 });
+  }
+
+  if (!geminiResult || typeof geminiResult.amount !== 'number' || !geminiResult.currency) {
+    return new Response(JSON.stringify({ error: 'invalid_ai_response' }), { status: 502 });
+  }
+
+  return new Response(JSON.stringify({
+    ...geminiResult,
+    model_used: GEMINI_MODEL,
+  }), {
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+  });
+});
+```
+
+Also create `../supabase/migrations/0007_ai_rate_limits.sql`:
+```sql
+-- AI rate limiting table for parse-sms Edge Function
+CREATE TABLE IF NOT EXISTS ai_rate_limits (
+  install_id_hash TEXT NOT NULL,
+  date TEXT NOT NULL,
+  call_count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (install_id_hash, date)
+);
+
+-- Auto-cleanup rows older than 7 days (run periodically or via cron)
+-- This table has no RLS needed since it's only written via service role in Edge Functions
+ALTER TABLE ai_rate_limits ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service role only" ON ai_rate_limits USING (false);
+```
+
+## 5. Modify lib/engine/models/transaction_source.dart
+
+Add `aiParsed` to the enum:
+```dart
+enum TransactionSource {
+  bank,
+  card,
+  wallet,
+  unknown,
+  aiParsed,
+}
+```
+
+## 6. Modify lib/domain/entities/transaction_entity.dart
+
+Add `aiParsed` to TransactionSourceEntity:
+```dart
+enum TransactionSourceEntity {
+  bank,
+  card,
+  wallet,
+  unknown,
+  aiParsed,
+}
+```
+
+## 7. Modify lib/domain/usecases/add_transaction_usecase.dart
+
+### 7a. Add new imports:
+```dart
+import '../../engine/ai/ai_parser_client.dart';
+import '../../engine/ai/ai_sender_failure_tracker.dart';
+import '../../engine/ai/grounding_check.dart';
+import '../../engine/privacy/sms_sanitizer.dart';
+```
+
+### 7b. Add new constructor parameters:
+```dart
+AiParserClient? aiClient,
+Future<bool> Function()? loadAiConsent,
+String? installId,
+```
+Store as `_aiClient`, `_loadAiConsent`, `_installId`.
+
+### 7c. Add AI trigger logic AFTER the categorization step and BEFORE the canAutoConfirm calculation.
+
+Insert this block after `final categoryResult = categorizer.categorize(parsed);`:
+
+```dart
+// ── AI cascade ─────────────────────────────────────────────────────────────
+// Trigger: no bank profile matched, OR confidence below pending threshold,
+// OR merchant categorization fell back. Never on results that are already
+// ≥ pending (bankKey present AND confidence ≥ 0.70 AND category resolved).
+final aiTriggered = parseResult.bankKey == null ||
+    parsed.parseConfidence < 0.70 ||
+    categoryResult.source == CategorySource.fallback;
+
+ParsedTransaction aiParsed_result = parsed;  // may be replaced by AI
+CategoryResult aiCategory = categoryResult;  // may be replaced by AI
+
+if (aiTriggered && _aiClient != null) {
+  final consent = await _loadAiConsent?.call() ?? false;
+  final sid = senderId ?? '';
+  if (consent && !AiSenderFailureTracker.instance.isSuppressed(sid)) {
+    final sanitized = SmsSanitizer.sanitize(rawMessage, detectedType: parsed.type);
+    final aiResponse = await _aiClient!.parse(
+      sanitizedSms: sanitized,
+      senderId: sid,
+      installId: _installId ?? '',
+    );
+    if (aiResponse != null) {
+      if (!GroundingCheck.verify(
+        amount: aiResponse.amount,
+        sanitizedText: sanitized,
+      )) {
+        AiSenderFailureTracker.instance.recordFailure(sid);
+        return AddTransactionResult.notTransaction(parseResult);
+      }
+      AiSenderFailureTracker.instance.recordSuccess(sid);
+      // Build a new ParsedTransaction from AI result.
+      // Cap confidence at 0.79 so AI results are never auto-confirmed.
+      final aiType = _parseTypeFromString(aiResponse.type) ?? parsed.type;
+      aiParsed_result = ParsedTransaction(
+        amount: aiResponse.amount,
+        currency: aiResponse.currency,
+        type: aiType,
+        source: TransactionSource.aiParsed,
+        rawMerchant: aiResponse.merchantName ?? parsed.rawMerchant,
+        cardLast4: parsed.cardLast4,
+        balanceAfter: parsed.balanceAfter,
+        occurredAt: parsed.occurredAt,
+        parseConfidence: 0.79,  // always capped — AI results need human review
+      );
+      // Re-categorize with AI merchant if provided.
+      if (aiResponse.categoryKey != null) {
+        aiCategory = CategoryResult(
+          aiResponse.categoryKey!,
+          CategorySource.keyword,
+          0.85,
+        );
+      } else {
+        aiCategory = categorizer.categorize(aiParsed_result);
+      }
+    }
+  }
+}
+
+// Use AI results if cascade ran successfully
+final effectiveParsed = aiParsed_result;
+final effectiveCategory = aiCategory;
+```
+
+Then update all subsequent references from `parsed` to `effectiveParsed` and `categoryResult` to `effectiveCategory`.
+
+### 7d. Add helper method:
+```dart
+static TransactionType? _parseTypeFromString(String? raw) {
+  switch (raw) {
+    case 'payment': return TransactionType.payment;
+    case 'withdrawal': return TransactionType.withdrawal;
+    case 'transfer': return TransactionType.transfer;
+    case 'income': return TransactionType.income;
+    case 'refund': return TransactionType.refund;
+    default: return null;
+  }
+}
+```
+
+### 7e. Update _mapSource to handle aiParsed:
+```dart
+case TransactionSource.aiParsed:
+  return TransactionSourceEntity.aiParsed;
+```
+
+### 7f. Important — variable naming:
+The variable `aiParsed_result` above conflicts with the `aiParsed` enum value name.
+Rename the local variable to `effectiveParsed` declared after the AI block,
+and rename `aiCategory` to `effectiveCategory`. Do NOT use `aiParsed` as a variable name.
+
+## 8. Modify lib/data/repositories/drift_repository_support.dart
+
+Add the aiParsed case to source parsing:
+```dart
+if (raw == 'aiParsed') return TransactionSourceEntity.aiParsed;
+```
+(Add before the final `return TransactionSourceEntity.unknown;` fallback)
+
+## 9. Modify lib/features/transactions/transaction_details_screen.dart
+
+Add Arabic label for aiParsed:
+```dart
+TransactionSourceEntity.aiParsed: 'ذكاء اصطناعي',
+```
+
+## 10. Modify lib/core/di/app_providers.dart
+
+### 10a. Add imports:
+```dart
+import '../../engine/ai/ai_parser_client.dart';
+import '../../core/utils/install_id.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+```
+
+### 10b. Wire AI client in addTransactionUseCaseProvider:
+```dart
+final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
+  return AddTransactionUseCase(
+    transactionRepository: ref.watch(transactionRepositoryProvider),
+    merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
+    recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
+    logMetric: ref.watch(metricsClientProvider).logEvent,
+    loadBankProfiles: ref.watch(rulesClientProvider).localBankProfiles,
+    // CHANGED from 4B: now uses country-filtered query instead of getAll()
+    loadRemoteKeywords: () async {
+      final db = ref.read(appDatabaseProvider);
+      final settings = await DriftUserSettingsRepository(db).getSettings();
+      final country = settings.country;
+      return country.isEmpty
+          ? RemoteMerchantKeywordsDao(db).getAll()
+          : RemoteMerchantKeywordsDao(db).getActiveForCountry(country);
+    },
+    noteMerchantFeedback: (keyword) =>
+        PendingMerchantFeedbackDao(ref.read(appDatabaseProvider)).record(keyword),
+    accountRepository: ref.watch(accountRepositoryProvider),
+    dedupStore: DriftDedupStore(ref.watch(appDatabaseProvider)),
+    // AI cascade (new in 4C)
+    aiClient: SupabaseConfig.isConfigured
+        ? SupabaseAiParserClient(
+            edgeFunctionUrl: '${SupabaseConfig.url}/functions/v1/parse-sms',
+            getAnonJwt: () async =>
+                supabase.Supabase.instance.client.auth.currentSession?.accessToken,
+          )
+        : null,
+    loadAiConsent: () async {
+      final settings = await DriftUserSettingsRepository(
+        ref.read(appDatabaseProvider),
+      ).getSettings();
+      return settings.aiConsentGranted;
+    },
+    installId: null, // loaded at runtime via InstallId.get() — set in main or pass as FutureProvider
+  );
+});
+```
+
+Note: `installId` can be null for now — the Edge Function still works with an empty string.
+To wire it properly, add an `installIdProvider`:
+```dart
+final installIdProvider = FutureProvider<String>((ref) => InstallId.get());
+```
+And in `addTransactionUseCaseProvider` use `ref.watch(installIdProvider).valueOrNull ?? ''`.
+
+### 10c. Add import for DriftUserSettingsRepository:
+Make sure `drift_user_settings_repository.dart` is imported in app_providers.dart.
+
+## 11. CREATE test/engine/ai_cascade_test.dart
+
+Write exactly these 5 tests (all must pass):
+
+### Test 1 — Criterion 1: Clean Al Rajhi message → ZERO AI calls
+A message that parsed successfully (bankKey = 'alrajhi', confidence = 0.95, category != fallback)
+must not trigger the AI path at all.
+Use a fake AI client that throws if called. The test passes if no exception is thrown.
+
+```dart
+test('clean Al Rajhi parse makes ZERO AI calls', () async {
+  var aiCallCount = 0;
+  final fakeParsed = ParsedTransaction(
+    amount: 500.0, currency: 'SAR', type: TransactionType.payment,
+    source: TransactionSource.bank, rawMerchant: 'STARBUCKS',
+    occurredAt: DateTime.utc(2026, 6, 16, 12, 0, 0), parseConfidence: 0.95,
+  );
+  final fakeParseResult = ParseResult.success(fakeParsed, bankKey: 'alrajhi');
+  // A fake parser that always returns the above
+  // A fake AI client that increments aiCallCount if called
+  final useCase = AddTransactionUseCase(
+    transactionRepository: _StubTransactionRepo(),
+    merchantCategoryRepository: _StubMerchantRepoWithKnownMerchant(), // returns a category (not fallback)
+    parserIsolate: _FakeParserIsolate(fakeParseResult),
+    loadAiConsent: () async => true, // consent ON
+    aiClient: _CountingAiClient(counter: aiCallCount),  // NOTE: cannot capture by ref in Dart, use object
+    dedupStore: _NoDedupStore(),
+  );
+  await useCase(rawMessage: 'dummy');
+  expect(aiCallCount, 0); // or use the CountingAiClient's callCount field
+});
+```
+
+Make `_CountingAiClient` a class with `int callCount = 0` that increments on `parse()` and returns null.
+Make `_StubMerchantRepoWithKnownMerchant` return true for `hasCategoryForMerchant` and return
+a non-empty map from `getLearnedCategoryMap` so categorizer uses userMap (not fallback).
+
+### Test 2 — Criterion 2: Transfer routed to AI has beneficiary absent in payload
+An unmatched transfer SMS containing "إلى: سارة العمري" should have the beneficiary
+stripped in the sanitized text sent to the AI client.
+Inject a fake AI client that captures the `sanitizedSms` parameter.
+The captured sanitized SMS must NOT contain "سارة" or "العمري".
+
+```dart
+test('transfer to AI: beneficiary name absent in outgoing payload', () async {
+  String? capturedSanitized;
+  final rawTransferSms = 'تم تحويل مبلغ 200.00 ريال إلى: سارة العمري';
+  final fakeParsed = ParsedTransaction(
+    amount: 200.0, currency: 'SAR', type: TransactionType.transfer,
+    source: TransactionSource.bank, rawMerchant: 'سارة العمري',
+    occurredAt: DateTime.utc(2026, 6, 16, 12, 0, 0), parseConfidence: 0.60, // < 0.70 → triggers AI
+  );
+  final fakeParseResult = ParseResult.success(fakeParsed, bankKey: null); // no bank → triggers AI
+  final capturingClient = _CapturingAiClient(onParse: (s, _, __) => capturedSanitized = s);
+
+  final useCase = AddTransactionUseCase(
+    transactionRepository: _StubTransactionRepo(),
+    merchantCategoryRepository: _StubMerchantRepo(),
+    parserIsolate: _FakeParserIsolate(fakeParseResult),
+    loadAiConsent: () async => true,
+    aiClient: capturingClient,
+    dedupStore: _NoDedupStore(),
+  );
+  await useCase(rawMessage: rawTransferSms);
+
+  expect(capturedSanitized, isNotNull);
+  expect(capturedSanitized, isNot(contains('سارة')));
+  expect(capturedSanitized, isNot(contains('العمري')));
+});
+```
+
+### Test 3 — Criterion 3: Fabricated amount not in source → result ignored (not pending)
+AI returns amount 999.99 but the sanitized SMS only contains "200.00".
+Grounding check must fail → the result is AddTransactionResult.notTransaction (ignored).
+
+```dart
+test('AI fabricated amount not in source → transaction ignored (grounding fail)', () async {
+  final rawSms = 'خصم 200.00 ريال من حسابك';
+  final fakeParsed = ParsedTransaction(
+    amount: 200.0, currency: 'SAR', type: TransactionType.payment,
+    source: TransactionSource.bank, rawMerchant: null,
+    occurredAt: DateTime.utc(2026, 6, 16, 12, 0, 0), parseConfidence: 0.50, // triggers AI
+  );
+  final fakeParseResult = ParseResult.success(fakeParsed, bankKey: null);
+  // AI returns 999.99 — NOT in the SMS text
+  final lyingClient = _FixedResponseAiClient(AiParseResponse(
+    amount: 999.99, currency: 'SAR', type: 'payment',
+  ));
+
+  final useCase = AddTransactionUseCase(
+    transactionRepository: _StubTransactionRepo(),
+    merchantCategoryRepository: _StubMerchantRepo(),
+    parserIsolate: _FakeParserIsolate(fakeParseResult),
+    loadAiConsent: () async => true,
+    aiClient: lyingClient,
+    dedupStore: _NoDedupStore(),
+  );
+  final result = await useCase(rawMessage: rawSms);
+
+  expect(result.outcome, AddTransactionOutcome.notTransaction,
+      reason: 'Grounding failure must discard the result entirely');
+});
+```
+
+### Test 4 — Criterion 4: AI-parsed transaction never auto-confirmed
+AI returns a valid response (amount grounding passes).
+The saved transaction must have status == TransactionStatus.pending, never confirmed.
+
+```dart
+test('AI-parsed transaction is always pending, never auto-confirmed', () async {
+  final rawSms = 'خصم 150.00 ريال من حسابك في مطعم البيك';
+  final fakeParsed = ParsedTransaction(
+    amount: 150.0, currency: 'SAR', type: TransactionType.payment,
+    source: TransactionSource.bank, rawMerchant: null,
+    occurredAt: DateTime.utc(2026, 6, 16, 12, 0, 0), parseConfidence: 0.50, // triggers AI
+  );
+  final fakeParseResult = ParseResult.success(fakeParsed, bankKey: null);
+  // AI returns valid grounded amount
+  final aiClient = _FixedResponseAiClient(AiParseResponse(
+    amount: 150.0, currency: 'SAR', type: 'payment', merchantName: 'البيك',
+  ));
+
+  TransactionEntity? savedTransaction;
+  final capturingRepo = _CapturingTransactionRepo(onSave: (t) => savedTransaction = t);
+
+  final useCase = AddTransactionUseCase(
+    transactionRepository: capturingRepo,
+    merchantCategoryRepository: _StubMerchantRepo(),
+    parserIsolate: _FakeParserIsolate(fakeParseResult),
+    loadAiConsent: () async => true,
+    aiClient: aiClient,
+    dedupStore: _NoDedupStore(),
+  );
+  await useCase(rawMessage: rawSms);
+
+  expect(savedTransaction, isNotNull);
+  expect(savedTransaction!.status, TransactionStatus.pending,
+      reason: 'AI-parsed transactions must always be pending — confidence is capped at 0.79');
+  expect(savedTransaction!.source, TransactionSourceEntity.aiParsed);
+});
+```
+
+### Test 5 — Criterion 8: Consent off → ZERO AI calls
+Even with a trigger condition met (bankKey null, confidence < 0.70), if aiConsentGranted is false,
+the AI client must not be called.
+
+```dart
+test('consent off → zero AI calls regardless of trigger conditions', () async {
+  final countingClient = _CountingAiClient();
+  final fakeParsed = ParsedTransaction(
+    amount: 300.0, currency: 'SAR', type: TransactionType.payment,
+    source: TransactionSource.bank, rawMerchant: null,
+    occurredAt: DateTime.utc(2026, 6, 16, 12, 0, 0), parseConfidence: 0.40, // triggers
+  );
+  final fakeParseResult = ParseResult.success(fakeParsed, bankKey: null); // triggers
+
+  final useCase = AddTransactionUseCase(
+    transactionRepository: _StubTransactionRepo(),
+    merchantCategoryRepository: _StubMerchantRepo(),
+    parserIsolate: _FakeParserIsolate(fakeParseResult),
+    loadAiConsent: () async => false, // CONSENT OFF
+    aiClient: countingClient,
+    dedupStore: _NoDedupStore(),
+  );
+  await useCase(rawMessage: 'dummy 300.00 SAR');
+
+  expect(countingClient.callCount, 0,
+      reason: 'AI must never be called when user has not granted consent');
+});
+```
+
+### Stub helpers needed for the tests:
+- `_FakeParserIsolate` — extends ParserIsolate, returns pre-built ParseResult (same as merchant_feedback_privacy_test.dart)
+- `_StubTransactionRepo` — implements TransactionRepository (same stubs as before)
+- `_StubMerchantRepo` — returns false for hasCategoryForMerchant, empty map for getLearnedCategoryMap
+- `_StubMerchantRepoWithKnownMerchant` — returns true for hasCategoryForMerchant AND returns {'STARBUCKS': 'restaurants'} from getLearnedCategoryMap (so categorizer uses userMap, not fallback)
+- `_NoDedupStore` — always returns null (no duplicate)
+- `_CountingAiClient` — implements AiParserClient, has `int callCount = 0`, increments on parse(), returns null
+- `_CapturingAiClient` — captures the sanitizedSms argument, returns null
+- `_FixedResponseAiClient` — returns a fixed AiParseResponse
+- `_CapturingTransactionRepo` — captures the transaction passed to saveTransaction, returns it unchanged
+
+Import the following in the test file:
+```dart
+import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/repositories/merchant_category_repository.dart';
+import 'package:money_companion/domain/repositories/transaction_repository.dart';
+import 'package:money_companion/domain/repositories/dedup_store.dart';
+import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
+import 'package:money_companion/engine/ai/ai_parser_client.dart';
+import 'package:money_companion/engine/models/parsed_transaction.dart';
+import 'package:money_companion/engine/models/transaction_source.dart';
+import 'package:money_companion/engine/models/transaction_type.dart';
+import 'package:money_companion/engine/parser/bank_profile.dart';
+import 'package:money_companion/engine/parser/parse_result.dart';
+import 'package:money_companion/engine/parser/parser_isolate.dart';
+```
+
+# GATE COMMANDS (run from app/ directory, must all pass before you report done)
+
+```bash
+flutter analyze
+flutter test --reporter compact
+```
+
+Both must be clean (0 issues, all tests pass).
+
+# WHAT NOT TO DO
+- Do NOT modify SmsSanitizer
+- Do NOT change the schema version or add DB tables in the Dart app
+- Do NOT commit anything
+- Do NOT add comments explaining what the code does — only add comments for non-obvious WHY
+- Do NOT create any planning or documentation files
+- Do NOT modify anything in lib/features/ except transaction_details_screen.dart (the source label map)
+- Do NOT use `aiParsed` as a local variable name (conflicts with enum value) — use `aiResult`, `effectiveParsed`, etc.
+- Do NOT add `aiParsed` handling in test stubs for TransactionSource — it's already in the enum, just use it
+
+# REPORT FORMAT
+After gates pass, report:
+- List of files created/modified
+- Whether `flutter analyze` was clean
+- Whether all tests passed (count)
+- Any non-obvious decisions you made

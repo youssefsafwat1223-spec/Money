@@ -36,6 +36,10 @@ BEGIN
 END;
 $$;
 
+-- Add columns that 0001_init.sql didn't include (CREATE TABLE IF NOT EXISTS above is a no-op).
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS app_version  TEXT;
+
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 
 CREATE TRIGGER on_auth_user_created

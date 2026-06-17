@@ -1,0 +1,639 @@
+# Phase 4B — Remote Merchant Dictionary Migration
+
+## Context
+
+Mali is an Arabic-first on-device expense tracker. This is Phase 4B of a planned
+improvement sprint. Phase 4A (privacy/sanitization) is complete.
+
+Working directory: `app/` (Flutter project root). Do NOT commit.
+
+## Gate commands (run all three before reporting done)
+
+```bash
+flutter analyze     # must be 0 issues
+flutter test        # must pass (currently ~184 tests)
+flutter gen-l10n    # no-op, run anyway
+```
+
+## Background: what exists today
+
+- `CategorySeeds.keywordRules` — hardcoded Map<String,String> in
+  `lib/engine/categorization/category_seeds.dart` (70+ entries).
+- `lib/engine/categorization/categorizer.dart` — 4-step chain:
+  1. user-confirmed map (merchant_category_map, is_user_confirmed=1)
+  2. CategorySeeds.keywordRules (step 3 in current code, will become step 3 after 4B)
+  3. type rules (withdrawal→cash, income→income, etc.)
+  4. fallback → Categories.other
+- `lib/data/catalog/catalog_daos.dart` — contains CatalogCategories constants and all
+  remote DAO classes. Each follows the same pattern: data class + DAO class.
+- `lib/data/catalog/catalog_sync_service.dart` — `_writeCategory(category, items, deletedIds)`
+  switch routes by string category key to the matching DAO.
+- `lib/data/db/app_database.dart` — schema v5; `_createSchema()` creates tables with
+  CREATE IF NOT EXISTS; `_runCompatibilityMigrations()` uses `_ensureColumn` for
+  idempotent column adds and `if (version < N)` blocks for new tables.
+- `lib/domain/usecases/add_transaction_usecase.dart` — constructor has optional
+  callback pattern for injecting capabilities without coupling to data layer:
+  `Future<List<BankProfile>> Function({String? senderId})? loadBankProfiles`
+
+## Task A — New DB tables (schema version 6)
+
+File: `lib/data/db/app_database.dart`
+
+### A1. Bump schema version
+```dart
+const int _targetSchemaVersion = 6;
+```
+
+### A2. Add two new table creation methods
+
+```dart
+Future<void> _createRemoteMerchantKeywordsTable() async {
+  await customStatement('''
+    CREATE TABLE IF NOT EXISTS remote_merchant_keywords(
+      id TEXT PRIMARY KEY,
+      keyword TEXT NOT NULL,
+      category_key TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'any',
+      country_code TEXT NOT NULL DEFAULT 'ALL',
+      priority INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      is_deleted INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+  ''');
+  await customStatement(
+    'CREATE INDEX IF NOT EXISTS idx_rmk_country_active '
+    'ON remote_merchant_keywords(country_code, is_active);',
+  );
+}
+
+Future<void> _createPendingMerchantFeedbackTable() async {
+  await customStatement('''
+    CREATE TABLE IF NOT EXISTS pending_merchant_feedback(
+      normalized_keyword TEXT PRIMARY KEY,
+      seen_count INTEGER NOT NULL DEFAULT 1,
+      last_seen_at TEXT NOT NULL
+    );
+  ''');
+}
+```
+
+### A3. Call both in `_createSchema()` at the end (before the closing brace):
+```dart
+await _createRemoteMerchantKeywordsTable();
+await _createPendingMerchantFeedbackTable();
+```
+
+### A4. Add migration block in `_runCompatibilityMigrations()` after `if (version < 5)`:
+```dart
+if (version < 6) {
+  await _createRemoteMerchantKeywordsTable();
+  await _createPendingMerchantFeedbackTable();
+}
+```
+
+Do NOT touch any other migration logic.
+
+## Task B — RemoteMerchantKeyword DAO
+
+File: `lib/data/catalog/catalog_daos.dart`
+
+### B1. Add constant to CatalogCategories
+
+In the `CatalogCategories` class, add:
+```dart
+static const merchantKeywords = 'merchant_keywords';
+```
+
+Add `merchantKeywords` to the `syncable` list:
+```dart
+static const syncable = <String>[
+  banks,
+  parsers,
+  currencies,
+  countries,
+  categories,
+  merchantKeywords,   // NEW
+];
+```
+
+### B2. Add RemoteMerchantKeyword data class
+
+```dart
+class RemoteMerchantKeyword {
+  const RemoteMerchantKeyword({
+    required this.id,
+    required this.keyword,
+    required this.categoryKey,
+    required this.language,
+    required this.countryCode,
+    required this.priority,
+    required this.isActive,
+    required this.isDeleted,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String keyword;
+  final String categoryKey;
+  final String language;
+  final String countryCode;
+  final int priority;
+  final bool isActive;
+  final bool isDeleted;
+  final String updatedAt;
+
+  static RemoteMerchantKeyword fromJson(Map<String, Object?> json) {
+    return RemoteMerchantKeyword(
+      id: json['id'] as String,
+      keyword: json['keyword'] as String,
+      categoryKey: json['category_key'] as String,
+      language: (json['language'] as String?) ?? 'any',
+      countryCode: (json['country_code'] as String?) ?? 'ALL',
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      isActive: (json['is_active'] as int? ?? 1) != 0,
+      isDeleted: (json['is_deleted'] as int? ?? 0) != 0,
+      updatedAt: json['updated_at'] as String,
+    );
+  }
+}
+```
+
+### B3. Add RemoteMerchantKeywordsDao class
+
+```dart
+class RemoteMerchantKeywordsDao {
+  const RemoteMerchantKeywordsDao(this._db);
+
+  final AppDatabase _db;
+
+  Future<void> upsertAll(List<RemoteMerchantKeyword> keywords) async {
+    for (final kw in keywords) {
+      await _db.customInsert(
+        '''
+          INSERT INTO remote_merchant_keywords(
+            id, keyword, category_key, language, country_code,
+            priority, is_active, is_deleted, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            keyword = excluded.keyword,
+            category_key = excluded.category_key,
+            language = excluded.language,
+            country_code = excluded.country_code,
+            priority = excluded.priority,
+            is_active = excluded.is_active,
+            is_deleted = excluded.is_deleted,
+            updated_at = excluded.updated_at;
+        ''',
+        variables: [
+          Variable.withString(kw.id),
+          Variable.withString(kw.keyword),
+          Variable.withString(kw.categoryKey),
+          Variable.withString(kw.language),
+          Variable.withString(kw.countryCode),
+          Variable.withInt(kw.priority),
+          Variable.withInt(kw.isActive ? 1 : 0),
+          Variable.withInt(kw.isDeleted ? 1 : 0),
+          Variable.withString(kw.updatedAt),
+        ],
+      );
+    }
+  }
+
+  Future<void> markDeleted(List<String> ids) async {
+    for (final id in ids) {
+      await _db.customUpdate(
+        'UPDATE remote_merchant_keywords SET is_deleted = 1 WHERE id = ?;',
+        variables: [Variable.withString(id)],
+      );
+    }
+  }
+
+  /// Returns active, non-deleted keywords for [countryCode] and 'ALL',
+  /// ordered by priority descending (highest priority checked first).
+  Future<List<RemoteMerchantKeyword>> getActiveForCountry(
+      String countryCode) async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM remote_merchant_keywords
+        WHERE is_active = 1
+          AND is_deleted = 0
+          AND (country_code = ? OR country_code = 'ALL')
+        ORDER BY priority DESC;
+      ''',
+      variables: [Variable.withString(countryCode.toUpperCase())],
+    ).get();
+    return rows.map((r) => RemoteMerchantKeyword(
+      id: r.read<String>('id'),
+      keyword: r.read<String>('keyword'),
+      categoryKey: r.read<String>('category_key'),
+      language: r.read<String>('language'),
+      countryCode: r.read<String>('country_code'),
+      priority: r.read<int>('priority'),
+      isActive: r.read<int>('is_active') != 0,
+      isDeleted: r.read<int>('is_deleted') != 0,
+      updatedAt: r.read<String>('updated_at'),
+    )).toList();
+  }
+
+  Future<bool> isEmpty() async {
+    final rows = await _db.customSelect(
+      'SELECT 1 FROM remote_merchant_keywords WHERE is_active = 1 AND is_deleted = 0 LIMIT 1;',
+    ).get();
+    return rows.isEmpty;
+  }
+}
+```
+
+### B4. Add PendingMerchantFeedbackDao class
+
+```dart
+class PendingMerchantFeedbackDao {
+  const PendingMerchantFeedbackDao(this._db);
+
+  final AppDatabase _db;
+
+  Future<void> record(String normalizedKeyword) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    await _db.customInsert(
+      '''
+        INSERT INTO pending_merchant_feedback(normalized_keyword, seen_count, last_seen_at)
+        VALUES (?, 1, ?)
+        ON CONFLICT(normalized_keyword) DO UPDATE SET
+          seen_count = seen_count + 1,
+          last_seen_at = excluded.last_seen_at;
+      ''',
+      variables: [
+        Variable.withString(normalizedKeyword),
+        Variable.withString(now),
+      ],
+    );
+  }
+
+  Future<List<String>> drainAll() async {
+    final rows = await _db.customSelect(
+      'SELECT normalized_keyword FROM pending_merchant_feedback;',
+    ).get();
+    final keywords = rows.map((r) => r.read<String>('normalized_keyword')).toList();
+    if (keywords.isNotEmpty) {
+      await _db.customStatement('DELETE FROM pending_merchant_feedback;');
+    }
+    return keywords;
+  }
+
+  Future<int> count() async {
+    final row = await _db.customSelect(
+      'SELECT COUNT(*) AS total FROM pending_merchant_feedback;',
+    ).getSingle();
+    return row.read<int>('total');
+  }
+}
+```
+
+## Task C — Sync integration
+
+File: `lib/data/catalog/catalog_sync_service.dart`
+
+In `_writeCategory()`, add a new case to the switch statement:
+
+```dart
+case CatalogCategories.merchantKeywords:
+  final dao = RemoteMerchantKeywordsDao(_database);
+  await dao.upsertAll(items.map(RemoteMerchantKeyword.fromJson).toList());
+  await dao.markDeleted(deletedIds);
+```
+
+The switch in `_writeCategory` is currently on String (not an exhaustive enum switch),
+so adding a new `case` is all that's needed. Do NOT add a `default:` clause — the
+existing code has none and the `CatalogCategories.syncable.contains()` guard in
+`syncCategory()` already prevents unknown categories from reaching here.
+
+## Task D — Conditional seeding
+
+File: `lib/data/db/app_database.dart`
+
+In `_seedIfNeeded()`, the merchant seeding block currently reads:
+```dart
+if (await count('merchants') == 0 &&
+    await count('merchant_category_map') == 0) {
+```
+
+Change it to:
+```dart
+if (await count('merchants') == 0 &&
+    await count('merchant_category_map') == 0 &&
+    await count('remote_merchant_keywords') == 0) {
+```
+
+This keeps `CategorySeeds.keywordRules` as the offline fallback when the remote catalog
+has never synced, but skips the hardcoded seed when remote keywords are already present
+(avoiding duplication). The hardcoded keywords are never deleted — they remain in memory
+in `CategorySeeds.keywordRules` and are always used by the `Categorizer` as step 3.
+
+## Task E — Categorizer update
+
+File: `lib/engine/categorization/categorizer.dart`
+
+### E1. Updated Categorizer class
+
+Add `remoteKeywords` optional parameter. Keep all existing behaviour when it's empty.
+
+```dart
+class Categorizer {
+  Categorizer({
+    MerchantCategoryMap? map,
+    List<RemoteMerchantKeyword> remoteKeywords = const [],
+  })  : _map = map ?? MerchantCategoryMap(),
+        _remoteKeywords = remoteKeywords;
+
+  final MerchantCategoryMap _map;
+  final List<RemoteMerchantKeyword> _remoteKeywords;
+
+  CategoryResult categorize(ParsedTransaction txn) {
+    final merchant = txn.rawMerchant;
+
+    // 1) User-confirmed map (highest priority, unchanged)
+    if (merchant != null) {
+      final learned = _map.lookup(merchant);
+      if (learned != null) {
+        return CategoryResult(learned, CategorySource.userMap, 1.0);
+      }
+    }
+
+    // 2) Type rules that don't need a merchant (unchanged)
+    switch (txn.type) {
+      case TransactionType.withdrawal:
+        return CategoryResult(Categories.cash.key, CategorySource.typeRule, 0.95);
+      case TransactionType.transfer:
+        return CategoryResult(Categories.transfers.key, CategorySource.typeRule, 0.95);
+      case TransactionType.income:
+        return CategoryResult(Categories.income.key, CategorySource.typeRule, 0.95);
+      case TransactionType.creditCardPayment:
+      case TransactionType.governmentPayment:
+        return CategoryResult(Categories.other.key, CategorySource.typeRule, 0.75);
+      case TransactionType.payment:
+      case TransactionType.refund:
+      case TransactionType.unknown:
+        break;
+    }
+
+    // 3) Remote merchant keywords (country-filtered, priority-ordered)
+    if (merchant != null && _remoteKeywords.isNotEmpty) {
+      final upper = merchant.toUpperCase();
+      for (final kw in _remoteKeywords) {
+        if (upper.contains(kw.keyword.toUpperCase())) {
+          return CategoryResult(kw.categoryKey, CategorySource.keyword, 0.8);
+        }
+      }
+    }
+
+    // 4) Local hardcoded seeds (always available — offline fallback)
+    if (merchant != null) {
+      final upper = merchant.toUpperCase();
+      for (final entry in CategorySeeds.keywordRules.entries) {
+        if (upper.contains(entry.key.toUpperCase())) {
+          return CategoryResult(entry.value, CategorySource.keyword, 0.8);
+        }
+      }
+    }
+
+    // 5) Fallback
+    return CategoryResult(Categories.other.key, CategorySource.fallback, 0.3);
+  }
+
+  void confirmMerchant(String rawMerchant, String categoryKey) {
+    _map.learn(rawMerchant, categoryKey);
+  }
+}
+```
+
+IMPORTANT: add the missing import for `RemoteMerchantKeyword` at the top:
+```dart
+import '../../data/catalog/catalog_daos.dart';
+```
+
+## Task F — AddTransactionUseCase: remote keywords + feedback
+
+File: `lib/domain/usecases/add_transaction_usecase.dart`
+
+### F1. Add two new optional constructor parameters
+
+```dart
+Future<List<RemoteMerchantKeyword>> Function(String countryCode)?
+    loadRemoteKeywords,
+Future<void> Function(String normalizedMerchant)? noteMerchantFeedback,
+```
+
+Store them as fields:
+```dart
+final Future<List<RemoteMerchantKeyword>> Function(String countryCode)?
+    _loadRemoteKeywords;
+final Future<void> Function(String normalizedMerchant)? _noteMerchantFeedback;
+```
+
+The constructor signature change follows the same optional-callback pattern already
+used for `loadBankProfiles` and `logMetric`.
+
+### F2. Load remote keywords before creating Categorizer
+
+After `final learnedMap = await _merchantCategoryRepository.getLearnedCategoryMap();`,
+add:
+
+```dart
+final userCountry = (await _accountRepository?.getDefault())
+    ?.currency  // currency gives a hint but not country; use 'SA' as default
+    ?? 'SA';
+// Prefer country from UserSettings, but we don't have that ref here.
+// Country defaults to 'SA' — the largest user base. Remote keywords for
+// 'ALL' always apply regardless.
+final remoteKeywords = _loadRemoteKeywords != null
+    ? await _loadRemoteKeywords!(userCountry)
+    : const <RemoteMerchantKeyword>[];
+final categorizer = Categorizer(
+  map: MerchantCategoryMap(learnedMap),
+  remoteKeywords: remoteKeywords,
+);
+```
+
+IMPORTANT: Remove the existing `final categorizer = Categorizer(map: ...)` line and
+replace it with the block above.
+
+### F3. Record merchant feedback on categorization fallback
+
+After `final categoryResult = categorizer.categorize(parsed);`, add:
+
+```dart
+// Record unknown merchants for admin review feedback loop.
+// Only when categorizer gave up (fallback) and merchant is a real name.
+if (categoryResult.source == CategorySource.fallback &&
+    parsed.rawMerchant != null &&
+    _noteMerchantFeedback != null) {
+  final normalized =
+      TransactionDedup.normalizeMerchant(parsed.rawMerchant!);
+  if (normalized.isNotEmpty) {
+    await _noteMerchantFeedback!(normalized);
+  }
+}
+```
+
+Add the import for `TransactionDedup` if not already present:
+```dart
+import '../../engine/dedup/transaction_dedup.dart';
+```
+
+### F4. Add import for RemoteMerchantKeyword
+
+```dart
+import '../../data/catalog/catalog_daos.dart';
+```
+
+## Task G — Wire up in DI
+
+File: `lib/core/di/app_providers.dart`
+
+In `addTransactionUseCaseProvider`, add the two new callbacks:
+
+```dart
+loadRemoteKeywords: (countryCode) =>
+    RemoteMerchantKeywordsDao(ref.watch(appDatabaseProvider))
+        .getActiveForCountry(countryCode),
+noteMerchantFeedback: (keyword) =>
+    PendingMerchantFeedbackDao(ref.watch(appDatabaseProvider))
+        .record(keyword),
+```
+
+No new providers needed — both callbacks close over the existing `appDatabaseProvider`.
+
+## Task H — Merchant feedback client (stub)
+
+Create new file `lib/data/catalog/merchant_feedback_client.dart`:
+
+```dart
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+
+import '../db/app_database.dart';
+import 'catalog_daos.dart';
+
+/// Posts accumulated anonymous merchant feedback to the Edge Function for
+/// admin review. Only normalized merchant strings are sent — never amounts,
+/// dates, user IDs, or transaction IDs.
+class MerchantFeedbackClient {
+  const MerchantFeedbackClient({
+    required supabase.SupabaseClient client,
+    required AppDatabase database,
+  })  : _client = client,
+        _db = database;
+
+  final supabase.SupabaseClient _client;
+  final AppDatabase _db;
+
+  static const _minBatchSize = 5;
+
+  /// Drains `pending_merchant_feedback` and POSTs to `merchant-feedback`
+  /// Edge Function if there are [_minBatchSize] or more distinct unknowns.
+  Future<void> flushIfReady() async {
+    final dao = PendingMerchantFeedbackDao(_db);
+    if (await dao.count() < _minBatchSize) {
+      return;
+    }
+    final keywords = await dao.drainAll();
+    if (keywords.isEmpty) return;
+    try {
+      await _client.functions.invoke(
+        'merchant-feedback',
+        body: {'keywords': keywords},
+      );
+    } catch (e) {
+      // Silently ignore — keywords are already drained; they'll accumulate again.
+      debugPrint('MerchantFeedbackClient: failed to post feedback: $e');
+    }
+  }
+}
+```
+
+## Task I — Supabase stubs (create files, do not deploy)
+
+Create two stub files in the supabase directory:
+
+### `../supabase/migrations/0006_merchant_keywords.sql`
+
+```sql
+-- Phase 4B: remote merchant keyword dictionary
+-- Admins manage rows via the admin panel; devices sync via catalog-delta.
+
+CREATE TABLE IF NOT EXISTS merchant_keywords (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  keyword TEXT NOT NULL,
+  category_key TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT 'any',
+  country_code TEXT NOT NULL DEFAULT 'ALL',
+  priority INTEGER NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_mk_country_active ON merchant_keywords(country_code, is_active)
+  WHERE NOT is_deleted;
+
+-- Row Level Security: read-only for anon (sync), write for authenticated admin
+ALTER TABLE merchant_keywords ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "anon can read active keywords"
+  ON merchant_keywords FOR SELECT
+  USING (is_active AND NOT is_deleted);
+
+-- Admin panel uses service_role key so no additional INSERT/UPDATE policy needed.
+
+-- Register in catalog_versions for delta sync tracking
+INSERT INTO catalog_versions(category, version, updated_at)
+VALUES ('merchant_keywords', 1, NOW())
+ON CONFLICT(category) DO NOTHING;
+```
+
+### `../supabase/functions/merchant-feedback/index.ts`
+
+```typescript
+// Stub — receives anonymous normalized merchant keyword lists from devices.
+// Admin reviews in admin panel and promotes to merchant_keywords table.
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+serve(async (req) => {
+  if (req.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 })
+  }
+  const body = await req.json().catch(() => null)
+  if (!body?.keywords || !Array.isArray(body.keywords)) {
+    return new Response('Bad Request', { status: 400 })
+  }
+  // TODO: insert into merchant_keywords_pending for admin review
+  // For now, just acknowledge receipt.
+  return new Response(JSON.stringify({ received: body.keywords.length }), {
+    headers: { 'Content-Type': 'application/json' },
+    status: 200,
+  })
+})
+```
+
+## What NOT to change
+
+- Do NOT delete or modify `CategorySeeds.keywordRules` — it must remain as the offline
+  fallback.
+- Do NOT modify any parser files (`parser_engine.dart`, `bank_profile.dart`, etc.)
+- Do NOT touch existing tests — they must still pass with the updated Categorizer
+  (remoteKeywords defaults to empty, so existing behaviour is preserved when omitted).
+- Do NOT add imports for `catalog_daos.dart` to the domain layer without a wrapping
+  interface or callback — Task E (Categorizer) has a necessary exception because it is
+  in the engine layer, not strictly domain. Task F uses callbacks to keep the domain
+  usecase layer clean.
+- Do NOT commit.
+
+## Report contract
+
+1. List all files created or modified.
+2. Full output of `flutter analyze` (must be 0 issues) and test count from `flutter test`.
+3. Any design decisions you made that were not specified above.
+4. Anything you skipped or could not implement cleanly, with why.

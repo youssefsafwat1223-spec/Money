@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Building2, Code2, Tag, ToggleLeft,
-  Megaphone, LogOut, ChevronRight,
+  Megaphone, LogOut, ChevronRight, FlaskConical,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/categories",    label: "Categories",    icon: Tag },
   { href: "/flags",         label: "Feature Flags", icon: ToggleLeft },
   { href: "/announcements", label: "Announcements", icon: Megaphone },
+  { href: "/parser-lab",    label: "Parser Lab",    icon: FlaskConical },
 ];
 
 export function Sidebar() {
