@@ -6,7 +6,10 @@ import '../../features/achievements/achievements_screen.dart';
 import '../../features/app/app_shell.dart';
 import '../../features/backup/backup_screen.dart';
 import '../../features/onboarding/auth_screen.dart';
+import '../../features/onboarding/first_transaction_screen.dart';
 import '../../features/onboarding/ios_shortcut_screen.dart';
+import '../../features/onboarding/ios_shortcut_verify_screen.dart';
+import '../../features/onboarding/listening_screen.dart';
 import '../../features/onboarding/method_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/onboarding/otp_screen.dart';
@@ -117,6 +120,23 @@ final appRouter = GoRouter(
       path: '/onboarding/ios-shortcut',
       name: 'onboarding-ios-shortcut',
       builder: (context, state) => const IosShortcutScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/listening',
+      name: 'onboarding-listening',
+      builder: (context, state) => const ListeningScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/ios-verify',
+      name: 'onboarding-ios-verify',
+      builder: (context, state) => const IosShortcutVerifyScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/first-transaction',
+      name: 'onboarding-first-transaction',
+      builder: (context, state) => FirstTransactionScreen(
+        transactionId: state.extra as String? ?? '',
+      ),
     ),
     GoRoute(
       path: '/onboarding/otp',

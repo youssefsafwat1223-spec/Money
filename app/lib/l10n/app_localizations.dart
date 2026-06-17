@@ -738,6 +738,120 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة.'**
   String get multipleCurrenciesDesc;
+
+  /// No description provided for @continueWithoutAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكمل بدون حساب'**
+  String get continueWithoutAccount;
+
+  /// No description provided for @continueWithoutAccountSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك تبقى محلية على جهازك.'**
+  String get continueWithoutAccountSub;
+
+  /// No description provided for @smsPermissionRationaleTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'محتاجين إذن قراءة رسائل البنك بس'**
+  String get smsPermissionRationaleTitle;
+
+  /// No description provided for @smsPermissionRationaleBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'مالي يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.'**
+  String get smsPermissionRationaleBody;
+
+  /// No description provided for @listeningTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'جاهزين — بنستنى رسالتك الأولى'**
+  String get listeningTitle;
+
+  /// No description provided for @listeningSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اعمل أي شراء بكارتك وهيظهر هنا تلقائياً.'**
+  String get listeningSubtitle;
+
+  /// No description provided for @pasteMessageInstead.
+  ///
+  /// In ar, this message translates to:
+  /// **'ألصق رسالة بنك بدلاً من كده'**
+  String get pasteMessageInstead;
+
+  /// No description provided for @skipForNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'تخطي الآن'**
+  String get skipForNow;
+
+  /// No description provided for @shortcutVerifyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'خلينا نتأكد إن الاختصار شغّال'**
+  String get shortcutVerifyTitle;
+
+  /// No description provided for @shortcutVerifyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ارجع لتطبيق Shortcuts وابعت نفسك رسالة فيها كلمة العملة، ثم ارجع هنا.'**
+  String get shortcutVerifyBody;
+
+  /// No description provided for @shortcutVerifyWaiting.
+  ///
+  /// In ar, this message translates to:
+  /// **'بنستنى رسالة...'**
+  String get shortcutVerifyWaiting;
+
+  /// No description provided for @recheckSetup.
+  ///
+  /// In ar, this message translates to:
+  /// **'راجع الإعداد'**
+  String get recheckSetup;
+
+  /// No description provided for @filterKeywordsLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة المفتاح:'**
+  String get filterKeywordsLabel;
+
+  /// No description provided for @firstTxTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'أول عملية اتسجّلت لوحدها!'**
+  String get firstTxTitle;
+
+  /// No description provided for @firstTxTrustLine.
+  ///
+  /// In ar, this message translates to:
+  /// **'إنت معملتش حاجة — مالي قرأ رسالة بنكك وسجّلها.'**
+  String get firstTxTrustLine;
+
+  /// No description provided for @firstTxContinue.
+  ///
+  /// In ar, this message translates to:
+  /// **'تمام، كمّل'**
+  String get firstTxContinue;
+
+  /// No description provided for @firstTxNeedsCheck.
+  ///
+  /// In ar, this message translates to:
+  /// **'محتاجة تأكيد سريع'**
+  String get firstTxNeedsCheck;
+
+  /// No description provided for @firstTxNeedsCheckSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'مالي مش متأكد 100% — راجعها بسرعة.'**
+  String get firstTxNeedsCheckSub;
+
+  /// No description provided for @wrongCategoryTap.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفئة مش صح؟ اضغط لتغييرها'**
+  String get wrongCategoryTap;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

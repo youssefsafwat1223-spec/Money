@@ -112,5 +112,29 @@
   "iosShortcutSubtitle": "بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ مالي تلقائياً وبأمان تام.",
   "stepsLabel": "الخطوات:",
   "multipleCurrenciesQuestion": "تتعامل بأكثر من عملة؟",
-  "multipleCurrenciesDesc": "إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة."
+  "multipleCurrenciesDesc": "إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة.",
+
+  "continueWithoutAccount": "أكمل بدون حساب",
+  "continueWithoutAccountSub": "بياناتك تبقى محلية على جهازك.",
+
+  "smsPermissionRationaleTitle": "محتاجين إذن قراءة رسائل البنك بس",
+  "smsPermissionRationaleBody": "مالي يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.",
+
+  "listeningTitle": "جاهزين — بنستنى رسالتك الأولى",
+  "listeningSubtitle": "اعمل أي شراء بكارتك وهيظهر هنا تلقائياً.",
+  "pasteMessageInstead": "ألصق رسالة بنك بدلاً من كده",
+  "skipForNow": "تخطي الآن",
+
+  "shortcutVerifyTitle": "خلينا نتأكد إن الاختصار شغّال",
+  "shortcutVerifyBody": "ارجع لتطبيق Shortcuts وابعت نفسك رسالة فيها كلمة العملة، ثم ارجع هنا.",
+  "shortcutVerifyWaiting": "بنستنى رسالة...",
+  "recheckSetup": "راجع الإعداد",
+  "filterKeywordsLabel": "كلمة المفتاح:",
+
+  "firstTxTitle": "أول عملية اتسجّلت لوحدها!",
+  "firstTxTrustLine": "إنت معملتش حاجة — مالي قرأ رسالة بنكك وسجّلها.",
+  "firstTxContinue": "تمام، كمّل",
+  "firstTxNeedsCheck": "محتاجة تأكيد سريع",
+  "firstTxNeedsCheckSub": "مالي مش متأكد 100% — راجعها بسرعة.",
+  "wrongCategoryTap": "الفئة مش صح؟ اضغط لتغييرها"
 }
