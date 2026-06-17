@@ -26,7 +26,8 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       '''
         UPDATE user_settings
         SET country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
-            notifications_json = ?, db_encryption_key_ref = ?, privacy_mode_enabled = ?
+            notifications_json = ?, db_encryption_key_ref = ?,
+            privacy_mode_enabled = ?, ai_consent_granted = ?
         WHERE id = ?;
       ''',
       variables: [
@@ -38,6 +39,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
         Variable.withString(settings.notificationsJson),
         Variable.withString(settings.dbEncryptionKeyRef),
         Variable.withInt(settings.privacyModeEnabled ? 1 : 0),
+        Variable.withInt(settings.aiConsentGranted ? 1 : 0),
         Variable.withString(settings.id),
       ],
     );

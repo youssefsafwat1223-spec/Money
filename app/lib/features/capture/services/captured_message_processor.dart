@@ -109,6 +109,12 @@ class CapturedMessageProcessor {
                 preferences: notificationPreferences,
               );
             }
+          case CapturedMessageDisposition.unprocessable:
+            await LocalNotificationService.instance.showLightCaptureNotification(
+              title: 'رسالة لم نتمكن من تحليلها',
+              body: 'افتح مالي والصق الرسالة يدوياً للإضافة.',
+              preferences: notificationPreferences,
+            );
         }
       }
 

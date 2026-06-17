@@ -40,4 +40,33 @@ void main() {
       expect(result.split('\n').length, 2);
     });
   });
+
+  group('Normalizer — thousands separator stripping', () {
+    test('single group: 18,000.00 → 18000.00', () {
+      expect(Normalizer.normalize('18,000.00'), '18000.00');
+    });
+    test('multi-group: 1,234,567.89 → 1234567.89', () {
+      expect(Normalizer.normalize('1,234,567.89'), '1234567.89');
+    });
+    test('in context: SAR 2,310.50 → SAR 2310.50', () {
+      expect(
+          Normalizer.normalize('الرصيد: SAR 2,310.50'), 'الرصيد: SAR 2310.50');
+    });
+    test('multiple in one string', () {
+      expect(Normalizer.normalize('14,379.13 and 5,620.87'),
+          '14379.13 and 5620.87');
+    });
+    test('no commas unchanged', () {
+      expect(Normalizer.normalize('250.93'), '250.93');
+    });
+  });
+
+  group('Normalizer — tashkeel stripping', () {
+    test('removes fathah (U+064E)', () {
+      expect(Normalizer.normalize('مَبلغ'), 'مبلغ');
+    });
+    test('removes kasrah (U+0650)', () {
+      expect(Normalizer.normalize('بِـ'), 'ب');
+    });
+  });
 }

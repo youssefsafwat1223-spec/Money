@@ -45,9 +45,28 @@ class Normalizer {
         .replaceAll(RegExp(r'ريال'), 'SAR');
   }
 
+  static String stripThousandsSeparators(String input) {
+    final commaPattern = RegExp(r'(\d),(\d)');
+    var text = input;
+    while (commaPattern.hasMatch(text)) {
+      text = text.replaceAllMapped(
+        commaPattern,
+        (match) => '${match.group(1)}${match.group(2)}',
+      );
+    }
+    text = text.replaceAll('٬', '');
+    return text;
+  }
+
+  static String stripTashkeel(String input) {
+    return input.replaceAll(RegExp(r'[ً-ٰٟ]'), '');
+  }
+
   /// التطبيع الكامل: أرقام + تطويل + مسافات (مع الحفاظ على أسطر جديدة).
   static String normalize(String input) {
-    var text = normalizeDigits(input);
+    var text = stripThousandsSeparators(input);
+    text = stripTashkeel(text);
+    text = normalizeDigits(text);
     text = text.replaceAll('ـ', ''); // إزالة التطويل
     // توحيد المسافات داخل كل سطر دون دمج الأسطر.
     text = text

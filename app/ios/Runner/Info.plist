@@ -26,6 +26,17 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.881903820931-25j4h02kniuvhlo4sb7sjqbbc9hf7ptd</string>
+				</array>
+			</dict>
+		</array>
 		<key>NSFaceIDUsageDescription</key>
 		<string>يستخدم مالي Face ID لحماية بياناتك المالية عند فتح التطبيق.</string>
 		<key>UIApplicationSceneManifest</key>

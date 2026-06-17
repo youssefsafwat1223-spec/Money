@@ -1,3 +1,4 @@
+import '../../data/catalog/catalog_daos.dart';
 import '../models/parsed_transaction.dart';
 import '../models/transaction_type.dart';
 import 'category.dart';
@@ -17,9 +18,14 @@ class CategoryResult {
 
 /// محرّك التصنيف: merchant_map → قاعدة النوع → كلمات مفتاحية → افتراضي.
 class Categorizer {
-  Categorizer({MerchantCategoryMap? map}) : _map = map ?? MerchantCategoryMap();
+  Categorizer({
+    MerchantCategoryMap? map,
+    List<RemoteMerchantKeyword> remoteKeywords = const [],
+  })  : _map = map ?? MerchantCategoryMap(),
+        _remoteKeywords = remoteKeywords;
 
   final MerchantCategoryMap _map;
+  final List<RemoteMerchantKeyword> _remoteKeywords;
 
   CategoryResult categorize(ParsedTransaction txn) {
     final merchant = txn.rawMerchant;
@@ -43,13 +49,27 @@ class Categorizer {
       case TransactionType.income:
         return CategoryResult(
             Categories.income.key, CategorySource.typeRule, 0.95);
+      case TransactionType.creditCardPayment:
+      case TransactionType.governmentPayment:
+        return CategoryResult(
+            Categories.other.key, CategorySource.typeRule, 0.75);
       case TransactionType.payment:
       case TransactionType.refund:
       case TransactionType.unknown:
         break;
     }
 
-    // 3) كلمات مفتاحية على اسم المتجر.
+    // 3) كلمات مفتاحية بعيدة على اسم المتجر.
+    if (merchant != null && _remoteKeywords.isNotEmpty) {
+      final upper = merchant.toUpperCase();
+      for (final kw in _remoteKeywords) {
+        if (upper.contains(kw.keyword.toUpperCase())) {
+          return CategoryResult(kw.categoryKey, CategorySource.keyword, 0.8);
+        }
+      }
+    }
+
+    // 4) كلمات مفتاحية محلية على اسم المتجر.
     if (merchant != null) {
       final upper = merchant.toUpperCase();
       for (final entry in CategorySeeds.keywordRules.entries) {
@@ -59,7 +79,7 @@ class Categorizer {
       }
     }
 
-    // 4) افتراضي.
+    // 5) افتراضي.
     return CategoryResult(Categories.other.key, CategorySource.fallback, 0.3);
   }
 

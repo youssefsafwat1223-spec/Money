@@ -259,14 +259,16 @@ void main() {
   });
 
   test('confirmed sender-bank mapping suppresses AI cascade', () async {
+    // Use a sender NOT in BankProfiles.all so the mapping-based resolution fires.
+    const unknownSender = 'GULFCORP-XYZ';
     final countingClient = _CountingAiClient();
     final now = DateTime.utc(2026, 6, 16, 12, 0, 0);
     final mapping = SenderBankMappingEntity(
-      id: 'mapping-adib',
-      senderId: 'ADIB',
-      normalizedSenderId: 'ADIB',
+      id: 'mapping-gulfcorp',
+      senderId: unknownSender,
+      normalizedSenderId: unknownSender.toUpperCase(),
       bankKey: 'dubai_bank',
-      suggestedBankName: 'Abu Dhabi Islamic Bank',
+      suggestedBankName: 'Unknown Gulf Bank',
       suggestedCountry: 'AE',
       confidence: 0.98,
       status: SenderBankMappingStatus.confirmed,
@@ -286,7 +288,7 @@ void main() {
       currency: 'AED',
       type: TransactionType.payment,
       source: TransactionSource.bank,
-      rawMerchant: 'ABU DHABI NATIONAL OIL',
+      rawMerchant: 'MERCHANT STORE',
       occurredAt: now,
       parseConfidence: 0.50,
     );
@@ -306,9 +308,8 @@ void main() {
     );
 
     final result = await useCase(
-      rawMessage:
-          'Trx. of AED 50.00 on your a/c ****0535 at ABU DHABI NATIONAL OIL.',
-      senderId: 'ADIB',
+      rawMessage: 'Trx. of AED 50.00 on your a/c ****0535 at MERCHANT STORE.',
+      senderId: unknownSender,
     );
 
     expect(countingClient.callCount, 0);

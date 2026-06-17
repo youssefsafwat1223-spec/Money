@@ -10,6 +10,8 @@ import '../../engine/models/parsed_transaction.dart';
 import '../../engine/models/transaction_source.dart';
 import '../../engine/models/transaction_type.dart';
 import '../../engine/parser/bank_profile.dart';
+import '../../engine/parser/bank_sender_filter.dart';
+import '../../engine/parser/parser_engine.dart';
 import '../../engine/parser/parser_isolate.dart';
 import '../../engine/parser/parse_result.dart';
 import '../../engine/privacy/sms_sanitizer.dart';
@@ -29,6 +31,7 @@ class AddTransactionResult {
     this.transaction,
     this.parseResult,
     this.isNewMerchant = false,
+    this.droppedByParser = false,
   });
 
   const AddTransactionResult.added(
@@ -47,16 +50,20 @@ class AddTransactionResult {
           transaction: transaction,
         );
 
-  const AddTransactionResult.notTransaction(ParseResult parseResult)
+  const AddTransactionResult.notTransaction(ParseResult parseResult,
+      {bool droppedByParser = false})
       : this._(
           outcome: AddTransactionOutcome.notTransaction,
           parseResult: parseResult,
+          droppedByParser: droppedByParser,
         );
 
   final AddTransactionOutcome outcome;
   final TransactionEntity? transaction;
   final ParseResult? parseResult;
   final bool isNewMerchant;
+  /// True when a bank-like message was not OTP/promo but couldn't be parsed.
+  final bool droppedByParser;
 
   bool get requiresConfirmation {
     if (outcome != AddTransactionOutcome.added || transaction == null) {
@@ -133,6 +140,14 @@ class AddTransactionUseCase {
     );
     final bankProfiles = bankResolution.bankProfiles;
     final defaultAccount = await _accountRepository?.getDefault();
+
+    // Pre-classify message before parsing so we can surface unprocessable cases.
+    final isLikelyBank = BankSenderFilter.isLikelyBank(senderId, text: rawMessage);
+    final wasIgnored = isLikelyBank
+        ? ParserEngine.isIgnoredMessage(rawMessage,
+            senderId: senderId, bankProfiles: bankProfiles)
+        : false;
+
     final parseResult = await _parserIsolate.parse(
           rawMessage,
           senderId: senderId,
@@ -140,10 +155,6 @@ class AddTransactionUseCase {
           defaultCurrency: defaultAccount?.currency ?? 'SAR',
         ) ??
         ParseResult.notTransaction();
-    // B.3 sender diagnostic — remove after on-device sender test is confirmed.
-    // ignore: avoid_print
-    print(
-        '[Mali] parse: bankKey=${parseResult.bankKey ?? "<none>"} senderId=$senderId conf=${parseResult.confidence.toStringAsFixed(2)} isTxn=${parseResult.isTransaction}');
 
     await _runBankDiscoveryIfEligible(
       rawMessage: rawMessage,
@@ -154,7 +165,10 @@ class AddTransactionUseCase {
     );
 
     if (!parseResult.isTransaction || parseResult.transaction == null) {
-      return AddTransactionResult.notTransaction(parseResult);
+      // droppedByParser = bank-like sender, not OTP/promo, yet still unresolvable.
+      final droppedByParser = isLikelyBank && !wasIgnored;
+      return AddTransactionResult.notTransaction(parseResult,
+          droppedByParser: droppedByParser);
     }
     await _logMetric?.call('parse_success', dimension: parseResult.bankKey);
 
@@ -187,9 +201,15 @@ class AddTransactionUseCase {
 
     final merchant = parsed.rawMerchant;
     final now = DateTime.now().toUtc();
+    // Pre-categorize to determine if keyword match exists — known merchants
+    // (Starbucks, Amazon, etc.) should not require confirmation even on first visit.
+    final preCategory = Categorizer(
+      remoteKeywords: const [],
+    ).categorize(parsed);
     final isNewMerchant = merchant == null
         ? false
-        : !await _merchantCategoryRepository.hasCategoryForMerchant(merchant);
+        : preCategory.source == CategorySource.fallback &&
+          !await _merchantCategoryRepository.hasCategoryForMerchant(merchant);
 
     if (merchant != null) {
       final duplicate = await _transactionRepository.findDuplicate(
@@ -312,6 +332,8 @@ class AddTransactionUseCase {
           : TransactionStatus.pending,
       createdAt: now,
       updatedAt: now,
+      foreignAmount: effectiveParsed.foreignAmount,
+      foreignCurrency: effectiveParsed.foreignCurrency,
     );
 
     final saved = await _transactionRepository.saveTransaction(

@@ -24,6 +24,7 @@ import '../common/widgets.dart';
 import '../goals/goal_details_screen.dart';
 import '../goals/goal_form_screen.dart';
 import '../settings/settings_providers.dart';
+import '../app/app_shell.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
@@ -176,6 +177,7 @@ class DashboardScreen extends ConsumerWidget {
                       PremiumMotion(
                         child: _reviewCard(
                           context,
+                          ref,
                           data,
                           privacyMode: privacyMode,
                         ),
@@ -439,18 +441,8 @@ class DashboardScreen extends ConsumerWidget {
     return '${Formatters.fullDate(range.from, context)} - ${Formatters.fullDate(range.to, context)}';
   }
 
-  String _currencyLabel(String currency) => switch (currency.toUpperCase()) {
-        'SAR' => 'ريال',
-        'AED' => 'درهم',
-        'EGP' => 'جنيه',
-        'KWD' => 'دينار',
-        'QAR' => 'ريال قطري',
-        'BHD' => 'دينار بحريني',
-        'OMR' => 'ريال عماني',
-        'USD' => 'دولار',
-        'EUR' => 'يورو',
-        _ => currency.toUpperCase(),
-      };
+  String _currencyLabel(String currency) =>
+      Currency.arabicLabel(currency.toUpperCase());
 
   String _money(
     double amount,
@@ -788,6 +780,7 @@ class DashboardScreen extends ConsumerWidget {
 
   Widget _reviewCard(
     BuildContext context,
+    WidgetRef ref,
     DashboardData data, {
     required bool privacyMode,
   }) {
@@ -796,10 +789,9 @@ class DashboardScreen extends ConsumerWidget {
       borderRadius: BorderRadius.circular(AppRadius.card),
       onTap: () {
         HapticFeedback.selectionClick();
-        if (data.pendingReview.isNotEmpty) {
-          TransactionDetailsScreen.showSheet(
-              context, data.pendingReview.first.id);
-        }
+        // Switch to transactions tab and show pending-only view.
+        ref.read(shellIndexProvider.notifier).state = 1;
+        ref.read(transactionsPendingFilterProvider.notifier).state = true;
       },
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s4),

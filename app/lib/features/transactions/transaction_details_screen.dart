@@ -33,6 +33,7 @@ class TransactionDetailsScreen extends ConsumerWidget {
     TransactionSourceEntity.card: 'بطاقة',
     TransactionSourceEntity.wallet: 'محفظة',
     TransactionSourceEntity.unknown: 'غير محدد',
+    TransactionSourceEntity.aiParsed: 'ذكاء اصطناعي',
   };
 
   static Future<void> showSheet(BuildContext context, String transactionId) {
@@ -251,6 +252,15 @@ class _TransactionDetailsContent extends ConsumerWidget {
                           'التاريخ',
                           '${Formatters.fullDate(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
                         ),
+                        if (tx.foreignAmount != null &&
+                            tx.foreignCurrency != null) ...[
+                          _divider(c),
+                          _buildDetailRow(
+                            context,
+                            'بالعملة الأصلية',
+                            '${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency!}',
+                          ),
+                        ],
                         if (tx.balanceAfter != null) ...[
                           _divider(c),
                           _buildDetailRow(
@@ -272,7 +282,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                           _buildDetailRow(
                             context,
                             'الحالة',
-                            'غير مؤكدة',
+                            _pendingLabel(tx.createdAt),
                             isPending: true,
                           ),
                         ],
@@ -313,6 +323,13 @@ class _TransactionDetailsContent extends ConsumerWidget {
         );
       },
     );
+  }
+
+  String _pendingLabel(DateTime createdAt) {
+    final days = DateTime.now().difference(createdAt).inDays;
+    if (days == 0) return 'غير مؤكدة · اليوم';
+    if (days == 1) return 'غير مؤكدة · منذ يوم';
+    return 'غير مؤكدة · منذ $days أيام';
   }
 
   Widget _buildDetailRow(BuildContext context, String label, String value,

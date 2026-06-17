@@ -96,7 +96,7 @@ class DriftTransactionRepository implements TransactionRepository {
       INSERT INTO transactions(
         id, amount, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
         card_last4, balance_after, note, occurred_at, raw_message, parse_confidence, status,
-        created_at, updated_at
+        created_at, updated_at, foreign_amount, foreign_currency
       ) VALUES (
         ${sqlString(transaction.id)},
         ${transaction.amount},
@@ -115,7 +115,9 @@ class DriftTransactionRepository implements TransactionRepository {
         ${transaction.parseConfidence},
         ${sqlString(transaction.status.name)},
         ${sqlString(dateTimeToSql(transaction.createdAt))},
-        ${sqlString(dateTimeToSql(transaction.updatedAt))}
+        ${sqlString(dateTimeToSql(transaction.updatedAt))},
+        ${sqlNullableNum(transaction.foreignAmount)},
+        ${sqlNullableString(transaction.foreignCurrency)}
       );
     ''');
 

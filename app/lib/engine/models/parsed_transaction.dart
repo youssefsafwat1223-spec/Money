@@ -15,6 +15,9 @@ class ParsedTransaction {
     this.cardLast4,
     this.balanceAfter,
     this.occurredAt,
+    this.foreignAmount,
+    this.foreignCurrency,
+    this.fundingSource,
     this.parseConfidence = 0,
   });
 
@@ -26,6 +29,9 @@ class ParsedTransaction {
   final String? cardLast4;
   final double? balanceAfter;
   final DateTime? occurredAt;
+  final double? foreignAmount;
+  final String? foreignCurrency;
+  final String? fundingSource;
   final double parseConfidence;
 
   ParsedTransaction copyWith({
@@ -37,6 +43,9 @@ class ParsedTransaction {
     String? cardLast4,
     double? balanceAfter,
     DateTime? occurredAt,
+    double? foreignAmount,
+    String? foreignCurrency,
+    String? fundingSource,
     double? parseConfidence,
   }) {
     return ParsedTransaction(
@@ -48,6 +57,9 @@ class ParsedTransaction {
       cardLast4: cardLast4 ?? this.cardLast4,
       balanceAfter: balanceAfter ?? this.balanceAfter,
       occurredAt: occurredAt ?? this.occurredAt,
+      foreignAmount: foreignAmount ?? this.foreignAmount,
+      foreignCurrency: foreignCurrency ?? this.foreignCurrency,
+      fundingSource: fundingSource ?? this.fundingSource,
       parseConfidence: parseConfidence ?? this.parseConfidence,
     );
   }
@@ -56,5 +68,9 @@ class ParsedTransaction {
   String toString() =>
       'ParsedTransaction(amount: $amount $currency, type: $type, source: $source, '
       'merchant: $rawMerchant, last4: $cardLast4, balance: $balanceAfter, '
-      'date: $occurredAt, conf: ${parseConfidence.toStringAsFixed(2)})';
+      'date: $occurredAt'
+      '${foreignAmount == null ? '' : ', foreignAmount: $foreignAmount'}'
+      '${foreignCurrency == null ? '' : ', foreignCurrency: $foreignCurrency'}'
+      '${fundingSource == null ? '' : ', fundingSource: $fundingSource'}'
+      ', conf: ${parseConfidence.toStringAsFixed(2)})';
 }

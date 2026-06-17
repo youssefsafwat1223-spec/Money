@@ -12,6 +12,7 @@ enum TransactionSourceEntity {
   card,
   wallet,
   unknown,
+  aiParsed,
 }
 
 enum TransactionStatus { confirmed, pending, ignored }
@@ -36,6 +37,8 @@ class TransactionEntity {
     this.balanceAfter,
     this.note,
     this.accountId,
+    this.foreignAmount,
+    this.foreignCurrency,
   });
 
   final String id;
@@ -56,6 +59,8 @@ class TransactionEntity {
   final TransactionStatus status;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final double? foreignAmount;
+  final String? foreignCurrency;
 
   TransactionEntity copyWith({
     String? id,
@@ -76,6 +81,8 @@ class TransactionEntity {
     TransactionStatus? status,
     DateTime? createdAt,
     DateTime? updatedAt,
+    double? foreignAmount,
+    String? foreignCurrency,
   }) {
     return TransactionEntity(
       id: id ?? this.id,
@@ -96,6 +103,8 @@ class TransactionEntity {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      foreignAmount: foreignAmount ?? this.foreignAmount,
+      foreignCurrency: foreignCurrency ?? this.foreignCurrency,
     );
   }
 }

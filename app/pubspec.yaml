@@ -39,6 +39,7 @@ dependencies:
   sign_in_with_apple: ^6.1.0
   sentry_flutter: ^9.22.0
   local_auth: ^2.3.0
+  http: ^1.2.2
   # dio: ^5.5.0
   # flutter_local_notifications: ^17.2.0
   # timezone: ^0.9.4

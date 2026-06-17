@@ -353,6 +353,8 @@ class _RemoteBankProfileDraft {
                 'إيداع',
                 'راتب'
               ],
+            TransactionType.creditCardPayment => const ['سداد', 'تأكيد السداد'],
+            TransactionType.governmentPayment => const ['مدفوعات', 'سداد'],
             TransactionType.unknown => const <String>[],
           },
         );

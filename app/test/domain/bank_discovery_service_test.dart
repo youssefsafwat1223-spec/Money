@@ -93,19 +93,22 @@ class _FakeSenderBankMappingRepository implements SenderBankMappingRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+// Unknown sender used across tests — must NOT be in BankProfiles.all.
+const _unknownSender = 'GULFCORP-UNKNOWN';
+
 void main() {
-  const highConfidenceAdib = BankDiscoverySuggestion(
-    suggestedBankName: 'Abu Dhabi Islamic Bank',
-    bankKeySuggestion: 'adib_ae',
+  const highConfidenceSuggestion = BankDiscoverySuggestion(
+    suggestedBankName: 'Unknown Gulf Bank',
+    bankKeySuggestion: 'gulfcorp_ae',
     country: 'AE',
     confidence: 0.97,
-    reason: 'Sender ADIB and wording match UAE ADIB alerts.',
+    reason: 'Sender and wording match UAE bank alerts.',
   );
 
-  test('ADIB unknown sender can produce high-confidence pending suggestion',
+  test('unknown sender can produce high-confidence pending suggestion',
       () async {
     final repo = _FakeSenderBankMappingRepository();
-    final client = _FakeBankDiscoveryClient(highConfidenceAdib);
+    final client = _FakeBankDiscoveryClient(highConfidenceSuggestion);
     final service = BankDiscoveryService(
       mappingRepository: repo,
       client: client,
@@ -113,8 +116,8 @@ void main() {
     );
 
     final result = await service.discoverIfEligible(
-      rawSms: 'Dear customer, ADIB card alerts are now active for AED account.',
-      senderId: 'ADIB',
+      rawSms: 'Dear customer, card alerts are now active for your AED account.',
+      senderId: _unknownSender,
       availableProfiles: const [],
       parseResult: ParseResult.notTransaction(),
       localeHint: 'ar-AE',
@@ -123,8 +126,8 @@ void main() {
 
     expect(client.callCount, 1);
     expect(result.status, BankDiscoveryResultStatus.pendingSuggestion);
-    expect(repo.savedDraft?.suggestedBankName, 'Abu Dhabi Islamic Bank');
-    expect(repo.savedDraft?.bankKey, 'adib_ae');
+    expect(repo.savedDraft?.suggestedBankName, 'Unknown Gulf Bank');
+    expect(repo.savedDraft?.bankKey, 'gulfcorp_ae');
     expect(repo.savedDraft?.source, SenderBankMappingSource.gemini);
   });
 
@@ -144,7 +147,7 @@ void main() {
 
     final result = await service.discoverIfEligible(
       rawSms: 'Dear customer, card alerts are active.',
-      senderId: 'ADIB',
+      senderId: _unknownSender,
       availableProfiles: const [],
       parseResult: ParseResult.notTransaction(),
     );
@@ -155,7 +158,7 @@ void main() {
   });
 
   test('ignored admin SMS never calls Gemini', () async {
-    final client = _FakeBankDiscoveryClient(highConfidenceAdib);
+    final client = _FakeBankDiscoveryClient(highConfidenceSuggestion);
     final service = BankDiscoveryService(
       mappingRepository: _FakeSenderBankMappingRepository(),
       client: client,
@@ -165,8 +168,8 @@ void main() {
     final result = await service.discoverIfEligible(
       rawSms: 'Dear Customer, thank you for requesting a new chequebook for '
           'your A/C NO: ****0535. Your request will be fulfilled at the '
-          'earliest. Sincerely, ADIB',
-      senderId: 'ADIB',
+          'earliest. Sincerely, $_unknownSender',
+      senderId: _unknownSender,
       availableProfiles: const [],
       parseResult: ParseResult.notTransaction(),
     );
@@ -180,10 +183,11 @@ void main() {
     final now = DateTime.utc(2026, 6, 16);
     final repo = _FakeSenderBankMappingRepository()
       ..mapping = _mapping(
+        senderId: _unknownSender,
         status: SenderBankMappingStatus.confirmed,
         confirmedAt: now,
       );
-    final client = _FakeBankDiscoveryClient(highConfidenceAdib);
+    final client = _FakeBankDiscoveryClient(highConfidenceSuggestion);
     final service = BankDiscoveryService(
       mappingRepository: repo,
       client: client,
@@ -192,7 +196,7 @@ void main() {
 
     final result = await service.discoverIfEligible(
       rawSms: 'Dear customer, card alerts are active.',
-      senderId: 'ADIB',
+      senderId: _unknownSender,
       availableProfiles: const [],
       parseResult: ParseResult.notTransaction(),
       now: now,
@@ -207,11 +211,12 @@ void main() {
     final now = DateTime.utc(2026, 6, 16);
     final repo = _FakeSenderBankMappingRepository()
       ..mapping = _mapping(
+        senderId: _unknownSender,
         status: SenderBankMappingStatus.rejected,
         rejectedAt: now.subtract(const Duration(days: 1)),
         rejectionExpiresAt: now.add(const Duration(days: 29)),
       );
-    final client = _FakeBankDiscoveryClient(highConfidenceAdib);
+    final client = _FakeBankDiscoveryClient(highConfidenceSuggestion);
     final service = BankDiscoveryService(
       mappingRepository: repo,
       client: client,
@@ -220,7 +225,7 @@ void main() {
 
     final result = await service.discoverIfEligible(
       rawSms: 'Dear customer, card alerts are active.',
-      senderId: 'ADIB',
+      senderId: _unknownSender,
       availableProfiles: const [],
       parseResult: ParseResult.notTransaction(),
       now: now,
@@ -232,7 +237,7 @@ void main() {
   });
 
   test('request payload is sanitized', () async {
-    final client = _FakeBankDiscoveryClient(highConfidenceAdib);
+    final client = _FakeBankDiscoveryClient(highConfidenceSuggestion);
     final service = BankDiscoveryService(
       mappingRepository: _FakeSenderBankMappingRepository(),
       client: client,
@@ -242,14 +247,14 @@ void main() {
     await service.discoverIfEligible(
       rawSms: 'Card 4111111111111111 account 123456789012 '
           'Trx. of AED 50.00 at SHOP.',
-      senderId: 'ADIB',
+      senderId: _unknownSender,
       availableProfiles: const [],
       parseResult: ParseResult.notTransaction(),
       localeHint: 'ar-AE',
     );
 
     expect(client.callCount, 1);
-    expect(client.lastRequest?.senderId, 'ADIB');
+    expect(client.lastRequest?.senderId, _unknownSender);
     expect(client.lastRequest?.detectedCurrency, 'AED');
     expect(client.lastRequest?.localeHint, 'ar-AE');
     expect(client.lastRequest?.sanitizedSms, isNot(contains('411111')));
@@ -259,7 +264,7 @@ void main() {
   });
 
   test('usable generic pending result skips Gemini discovery', () async {
-    final client = _FakeBankDiscoveryClient(highConfidenceAdib);
+    final client = _FakeBankDiscoveryClient(highConfidenceSuggestion);
     final service = BankDiscoveryService(
       mappingRepository: _FakeSenderBankMappingRepository(),
       client: client,
@@ -271,14 +276,14 @@ void main() {
         currency: 'AED',
         type: TransactionType.payment,
         source: TransactionSource.bank,
-        rawMerchant: 'ABU DHABI NATIONAL OIL',
+        rawMerchant: 'MERCHANT STORE',
         parseConfidence: 0.79,
       ),
     );
 
     final result = await service.discoverIfEligible(
-      rawSms: 'Trx. of AED 50.00 at ABU DHABI NATIONAL OIL.',
-      senderId: 'ADIB',
+      rawSms: 'Trx. of AED 50.00 at MERCHANT STORE.',
+      senderId: _unknownSender,
       availableProfiles: const [],
       parseResult: parseResult,
     );
@@ -290,6 +295,7 @@ void main() {
 }
 
 SenderBankMappingEntity _mapping({
+  required String senderId,
   required SenderBankMappingStatus status,
   DateTime? confirmedAt,
   DateTime? rejectedAt,
@@ -297,11 +303,11 @@ SenderBankMappingEntity _mapping({
 }) {
   final now = DateTime.utc(2026, 6, 16);
   return SenderBankMappingEntity(
-    id: 'mapping-adib',
-    senderId: 'ADIB',
-    normalizedSenderId: 'ADIB',
-    bankKey: 'adib_ae',
-    suggestedBankName: 'Abu Dhabi Islamic Bank',
+    id: 'mapping-$senderId',
+    senderId: senderId,
+    normalizedSenderId: senderId.toUpperCase(),
+    bankKey: 'gulfcorp_ae',
+    suggestedBankName: 'Unknown Gulf Bank',
     suggestedCountry: 'AE',
     confidence: 0.98,
     status: status,

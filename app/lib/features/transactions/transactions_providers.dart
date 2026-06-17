@@ -111,18 +111,25 @@ final transactionSearchQueryProvider = StateProvider<String>((ref) => '');
 
 final transactionsPageTabProvider = StateProvider<int>((ref) => 0);
 
+/// When true, the transactions list shows only pending-review transactions.
+/// Automatically reset to false when the user leaves the transactions tab.
+final transactionsPendingFilterProvider = StateProvider<bool>((ref) => false);
+
 final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
   final txRepo = ref.watch(transactionRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
   final range = ref.watch(transactionsDateRangeProvider);
   final kind = ref.watch(transactionKindFilterProvider);
   final query = ref.watch(transactionSearchQueryProvider).trim().toLowerCase();
+  final pendingOnly = ref.watch(transactionsPendingFilterProvider);
   final all = await txRepo.getAll();
   final inRange = all.where((tx) {
+    if (pendingOnly) return tx.status == TransactionStatus.pending;
     final at = tx.occurredAt;
     return !at.isBefore(range.from) && !at.isAfter(range.to);
   });
   final filteredByKind = inRange.where((tx) {
+    if (pendingOnly) return true;
     return switch (kind) {
       TransactionKindFilter.all => true,
       TransactionKindFilter.expenses =>

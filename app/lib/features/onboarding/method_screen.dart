@@ -8,10 +8,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/backup/backup_service.dart';
+import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../settings/settings_providers.dart';
 import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
@@ -29,6 +31,14 @@ TextStyle _alex(double size, FontWeight weight, double height, Color color,
       GoogleFonts.alexandria().fontFamily!,
     ],
   );
+}
+
+const String _defaultShortcutCurrency = 'SAR';
+
+String _shortcutCurrency(String? currency) {
+  final normalized = currency?.trim().toUpperCase();
+  if (normalized == null || normalized.isEmpty) return _defaultShortcutCurrency;
+  return normalized;
 }
 
 class OnboardingMethodScreen extends ConsumerStatefulWidget {
@@ -63,6 +73,8 @@ class _OnboardingMethodScreenState
     final c = context.colors;
     final actionForeground = maliPrimaryActionForeground(context);
     final isAndroid = Platform.isAndroid;
+    final shortcutCurrency =
+        _shortcutCurrency(ref.watch(baseCurrencyProvider).valueOrNull);
     final title = isAndroid
         ? 'شارك رسائل البنك مع مالي'
         : context.l10n.setupAppleShortcut;
@@ -103,7 +115,8 @@ class _OnboardingMethodScreenState
             ),
             decoration: BoxDecoration(
               color: c.bg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(32)),
               border: Border(
                 top: BorderSide(color: c.border),
                 left: BorderSide(color: c.border),
@@ -198,8 +211,38 @@ class _OnboardingMethodScreenState
                               ],
                             ],
                           )
-                        : const IosShortcutGuide(),
+                        : IosShortcutGuide(currencyCode: shortcutCurrency),
                   ),
+                  const SizedBox(height: 18),
+                  // Multi-currency shortcut note
+                  if (!isAndroid)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: c.primary.withValues(alpha: 0.07),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: c.primary.withValues(alpha: 0.15)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              size: 16, color: c.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'إذا كان لديك حسابات بعملات متعددة، كرّر إعداد الـ Automation مرة لكل عملة (مثل SAR و AED).',
+                              style:
+                                  _alex(11, FontWeight.w600, 1.4, c.textLight),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  // AI consent opt-in
+                  _AiConsentCard(ref: ref),
                   const SizedBox(height: 18),
                   SizedBox(
                     height: 52,
@@ -226,8 +269,8 @@ class _OnboardingMethodScreenState
                         ),
                         child: Text(
                           context.l10n.gotIt,
-                          style: _alex(
-                              15, FontWeight.w800, 1.2, actionForeground),
+                          style:
+                              _alex(15, FontWeight.w800, 1.2, actionForeground),
                         ),
                       ),
                     ),
@@ -252,38 +295,90 @@ class _OnboardingMethodScreenState
 }
 
 class IosShortcutGuide extends StatelessWidget {
-  const IosShortcutGuide({super.key});
+  const IosShortcutGuide({
+    super.key,
+    this.currencyCode = _defaultShortcutCurrency,
+  });
 
-  static List<_ShortcutStep> _getSteps(BuildContext context) {
+  final String currencyCode;
+
+  static List<_ShortcutStep> _getSteps(
+    BuildContext context,
+    String currencyCode,
+  ) {
     final locale = Localizations.localeOf(context).languageCode;
     if (locale == 'en') {
-      return const [
-        _ShortcutStep('Open Shortcuts app', 'Go to Shortcuts then Automation tab at the bottom.', Icons.auto_awesome_motion_rounded),
-        _ShortcutStep('Create new Automation', 'Press New Automation or +, then select Message.', Icons.add_circle_outline_rounded),
-        _ShortcutStep('Select bank messages', 'In Message Contents type currency code e.g. SAR, repeat later for additional currencies.', Icons.filter_alt_outlined),
-        _ShortcutStep('Run Immediately', 'Select Run Immediately then press Next.', Icons.bolt_rounded),
-        _ShortcutStep('Choose Mali Shortcut', 'Press New Blank Automation, and search for Post Bank Status.', Icons.send_rounded),
-        _ShortcutStep('Pass message text', 'Select Shortcut Input as input to the shortcut so Mali receives the bank message text.', Icons.text_snippet_outlined),
-        _ShortcutStep('Run in background', 'Disable Show When Run so the addition happens silently.', Icons.volume_off_rounded),
-        _ShortcutStep('Save shortcut', 'Press Done. Then any matching bank message will be converted to a transaction inside Mali.', Icons.check_circle_outline_rounded),
+      return [
+        const _ShortcutStep(
+            'Open Shortcuts app',
+            'Go to Shortcuts then Automation tab at the bottom.',
+            Icons.auto_awesome_motion_rounded),
+        const _ShortcutStep(
+            'Create new Automation',
+            'Press New Automation or +, then select Message.',
+            Icons.add_circle_outline_rounded),
+        _ShortcutStep(
+            'Select bank messages',
+            'In Message Contents type currency code e.g. $currencyCode, repeat later for additional currencies.',
+            Icons.filter_alt_outlined),
+        const _ShortcutStep('Run Immediately',
+            'Select Run Immediately then press Next.', Icons.bolt_rounded),
+        const _ShortcutStep(
+            'Choose Mali Shortcut',
+            'Press New Blank Automation, and search for Post Bank Status.',
+            Icons.send_rounded),
+        const _ShortcutStep(
+            'Pass message text',
+            'Select Shortcut Input as input to the shortcut so Mali receives the bank message text.',
+            Icons.text_snippet_outlined),
+        const _ShortcutStep(
+            'Run in background',
+            'Disable Show When Run so the addition happens silently.',
+            Icons.volume_off_rounded),
+        const _ShortcutStep(
+            'Save shortcut',
+            'Press Done. Then any matching bank message will be converted to a transaction inside Mali.',
+            Icons.check_circle_outline_rounded),
       ];
     }
-    return const [
-      _ShortcutStep('افتح تطبيق الاختصارات', 'ادخل على Shortcuts ثم تبويب Automation من الأسفل.', Icons.auto_awesome_motion_rounded),
-      _ShortcutStep('أنشئ Automation جديد', 'اضغط New Automation أو علامة +، ثم اختر Message.', Icons.add_circle_outline_rounded),
-      _ShortcutStep('حدّد رسائل البنك', 'في Message Contents اكتب رمز العملة مثل SAR، وكرّر لاحقاً لأي عملة إضافية.', Icons.filter_alt_outlined),
-      _ShortcutStep('خلّيه يعمل فوراً', 'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
-      _ShortcutStep('اختَر اختصار مالي', 'اضغط New Blank Automation، وابحث عن Post Bank Status.', Icons.send_rounded),
-      _ShortcutStep('مرّر نص الرسالة', 'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.', Icons.text_snippet_outlined),
-      _ShortcutStep('شغّله في الخلفية', 'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.', Icons.volume_off_rounded),
-      _ShortcutStep('احفظ الاختصار', 'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.', Icons.check_circle_outline_rounded),
+    return [
+      const _ShortcutStep(
+          'افتح تطبيق الاختصارات',
+          'ادخل على Shortcuts ثم تبويب Automation من الأسفل.',
+          Icons.auto_awesome_motion_rounded),
+      const _ShortcutStep(
+          'أنشئ Automation جديد',
+          'اضغط New Automation أو علامة +، ثم اختر Message.',
+          Icons.add_circle_outline_rounded),
+      _ShortcutStep(
+          'حدّد رسائل البنك',
+          'في Message Contents اكتب رمز العملة مثل $currencyCode، وكرّر لاحقاً لأي عملة إضافية.',
+          Icons.filter_alt_outlined),
+      const _ShortcutStep('خلّيه يعمل فوراً',
+          'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
+      const _ShortcutStep(
+          'اختَر اختصار مالي',
+          'اضغط New Blank Automation، وابحث عن Post Bank Status.',
+          Icons.send_rounded),
+      const _ShortcutStep(
+          'مرّر نص الرسالة',
+          'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.',
+          Icons.text_snippet_outlined),
+      const _ShortcutStep(
+          'شغّله في الخلفية',
+          'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.',
+          Icons.volume_off_rounded),
+      const _ShortcutStep(
+          'احفظ الاختصار',
+          'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.',
+          Icons.check_circle_outline_rounded),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final steps = _getSteps(context);
+    final steps = _getSteps(context, _shortcutCurrency(currencyCode));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -430,12 +525,14 @@ Future<void> showIosShortcutSheet(BuildContext context) {
   );
 }
 
-class _IosShortcutSheet extends StatelessWidget {
+class _IosShortcutSheet extends ConsumerWidget {
   const _IosShortcutSheet();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
+    final shortcutCurrency =
+        _shortcutCurrency(ref.watch(baseCurrencyProvider).valueOrNull);
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
@@ -491,11 +588,80 @@ class _IosShortcutSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          const GlassCard(
-            padding: EdgeInsets.all(18),
-            child: IosShortcutGuide(),
+          GlassCard(
+            padding: const EdgeInsets.all(18),
+            child: IosShortcutGuide(
+              currencyCode: shortcutCurrency,
+            ),
           ),
           const SizedBox(height: 18),
+        ],
+      ),
+    );
+  }
+}
+
+/// AI consent opt-in card shown during onboarding setup.
+/// Mirrors the toggle in Settings → الخصوصية.
+class _AiConsentCard extends ConsumerWidget {
+  const _AiConsentCard({required this.ref});
+
+  final WidgetRef ref;
+
+  @override
+  Widget build(BuildContext context, WidgetRef widgetRef) {
+    final c = context.colors;
+    final settingsAsync = widgetRef.watch(userSettingsProvider);
+    final granted = settingsAsync.maybeWhen(
+      data: (s) => s.aiConsentGranted,
+      orElse: () => false,
+    );
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: granted
+            ? c.success.withValues(alpha: 0.07)
+            : c.surface.withValues(alpha: 0.60),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: granted
+              ? c.success.withValues(alpha: 0.24)
+              : c.border.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.auto_awesome_outlined,
+              size: 20, color: granted ? c.success : c.accent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'اقتراحات الذكاء الاصطناعي',
+                  style: _alex(13, FontWeight.w800, 1.2, c.textMain),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'للبنوك غير المعروفة، نرسل نصاً مُعقَّماً بدون أرقام بطاقات أو أسماء شخصية لخدمة ذكاء اصطناعي لتحليله. يمكن تغييره لاحقاً من الإعدادات.',
+                  style: _alex(11, FontWeight.w600, 1.45, c.textLight),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Switch.adaptive(
+            value: granted,
+            activeColor: c.success,
+            onChanged: (value) async {
+              final repo = widgetRef.read(userSettingsRepositoryProvider);
+              final settings = await repo.getSettings();
+              await repo.saveSettings(settings.copyWith(aiConsentGranted: value));
+              refreshUserSettings(widgetRef);
+            },
+          ),
         ],
       ),
     );

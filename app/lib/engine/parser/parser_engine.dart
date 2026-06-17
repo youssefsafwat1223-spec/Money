@@ -615,7 +615,7 @@ class ParserEngine {
         .trim();
     if (value.isNotEmpty &&
         !_startsWithCurrency(value) &&
-        !value.contains(RegExp(r'^[0-9]'))) {
+        !RegExp(r'^\d+$').hasMatch(value)) {
       return value;
     }
     return null;

@@ -344,6 +344,26 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                         orElse: () => const SizedBox.shrink(),
                       ),
+                      settingsAsync.maybeWhen(
+                        data: (settings) => _SwitchTile(
+                          title: 'اقتراحات الذكاء الاصطناعي',
+                          subtitle: 'للرسائل التي يعجز المحرك عن تحليلها، '
+                              'نرسل نصاً مُعقَّماً (بدون أرقام بطاقات أو أسماء) '
+                              'لخدمة ذكاء اصطناعي. المبالغ والتواريخ تبقى على جهازك.',
+                          icon: Icons.auto_awesome_outlined,
+                          iconColor: c.accent,
+                          value: settings.aiConsentGranted,
+                          onChanged: (value) async {
+                            await ref
+                                .read(userSettingsRepositoryProvider)
+                                .saveSettings(settings.copyWith(
+                                  aiConsentGranted: value,
+                                ));
+                            refreshUserSettings(ref);
+                          },
+                        ),
+                        orElse: () => const SizedBox.shrink(),
+                      ),
                       const _AppLockTile(),
                       _NavTile(
                         icon: AppLucideIcons.inbox,
@@ -1365,9 +1385,11 @@ class _SwitchTile extends StatelessWidget {
     required this.iconColor,
     required this.value,
     required this.onChanged,
+    this.subtitle,
   });
 
   final String title;
+  final String? subtitle;
   final IconData icon;
   final Color iconColor;
   final bool value;
@@ -1384,6 +1406,9 @@ class _SwitchTile extends StatelessWidget {
       onChanged: onChanged,
       activeColor: c.primary,
       title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle!, style: AppTypography.caption(c.textLight)),
     );
   }
 }

@@ -38,7 +38,7 @@
     "name_en": "US Dollar",
     "symbol": "$",
     "decimal_places": 2,
-    "country_codes": ["US", "EG", "SA", "AE"],
+    "country_codes": ["US"],
     "is_active": true,
     "is_deleted": false,
     "updated_at": "2026-06-14T00:00:00.000Z"
@@ -49,7 +49,7 @@
     "name_en": "Euro",
     "symbol": "€",
     "decimal_places": 2,
-    "country_codes": ["EG", "SA", "AE"],
+    "country_codes": [],
     "is_active": true,
     "is_deleted": false,
     "updated_at": "2026-06-14T00:00:00.000Z"
@@ -60,7 +60,7 @@
     "name_en": "British Pound",
     "symbol": "£",
     "decimal_places": 2,
-    "country_codes": ["GB", "EG", "SA", "AE"],
+    "country_codes": ["GB"],
     "is_active": true,
     "is_deleted": false,
     "updated_at": "2026-06-14T00:00:00.000Z"

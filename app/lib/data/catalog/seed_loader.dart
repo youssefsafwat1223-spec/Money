@@ -43,29 +43,23 @@ class SeedLoader {
       debugPrint('Catalog seed: skipped parsers (already had data)');
     }
 
-    if (await db.count('remote_currencies') == 0) {
-      final currencies = await _readJsonList(
-        'assets/catalog/currencies.json',
-        RemoteCurrency.fromJson,
-      );
-      await currenciesDao.upsertAll(currencies);
-      await metadataDao.upsertVersion(CatalogCategories.currencies, 0, 0);
-      debugPrint('Catalog seed: seeded currencies (${currencies.length})');
-    } else {
-      debugPrint('Catalog seed: skipped currencies (already had data)');
-    }
+    // Currencies and countries are small static reference data — always upsert
+    // so that fixes to the bundled JSON are picked up without a reinstall.
+    final currencies = await _readJsonList(
+      'assets/catalog/currencies.json',
+      RemoteCurrency.fromJson,
+    );
+    await currenciesDao.upsertAll(currencies);
+    await metadataDao.upsertVersion(CatalogCategories.currencies, 0, 0);
+    debugPrint('Catalog seed: seeded currencies (${currencies.length})');
 
-    if (await db.count('remote_countries') == 0) {
-      final countries = await _readJsonList(
-        'assets/catalog/countries.json',
-        RemoteCountry.fromJson,
-      );
-      await countriesDao.upsertAll(countries);
-      await metadataDao.upsertVersion(CatalogCategories.countries, 0, 0);
-      debugPrint('Catalog seed: seeded countries (${countries.length})');
-    } else {
-      debugPrint('Catalog seed: skipped countries (already had data)');
-    }
+    final countries = await _readJsonList(
+      'assets/catalog/countries.json',
+      RemoteCountry.fromJson,
+    );
+    await countriesDao.upsertAll(countries);
+    await metadataDao.upsertVersion(CatalogCategories.countries, 0, 0);
+    debugPrint('Catalog seed: seeded countries (${countries.length})');
 
     if (await db.count('remote_categories') == 0) {
       final categories = await _readJsonList(
@@ -73,6 +67,7 @@ class SeedLoader {
         RemoteCategory.fromJson,
       );
       await categoriesDao.upsertAll(categories);
+      await metadataDao.upsertVersion(CatalogCategories.categories, 0, 0);
       debugPrint('Catalog seed: seeded categories (${categories.length})');
     } else {
       debugPrint('Catalog seed: skipped categories (already had data)');
@@ -87,6 +82,15 @@ class SeedLoader {
       debugPrint('Catalog seed: seeded feature_flags (${flags.length})');
     } else {
       debugPrint('Catalog seed: skipped feature_flags (already had data)');
+    }
+
+    // Merchant keywords seed is always empty — entries come from remote sync only.
+    // Register the metadata entry so CatalogSyncService can track versions.
+    if (await db.count('remote_merchant_keywords') == 0) {
+      await metadataDao.upsertVersion(CatalogCategories.merchantKeywords, 0, 0);
+      debugPrint('Catalog seed: seeded merchant_keywords (0)');
+    } else {
+      debugPrint('Catalog seed: skipped merchant_keywords (already had data)');
     }
 
     // Announcements seed is always empty — no hard-coded announcements.

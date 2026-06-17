@@ -217,6 +217,10 @@ class CatalogSyncService {
         final dao = RemoteCategoriesDao(_database);
         await dao.upsertAll(items.map(RemoteCategory.fromJson).toList());
         await dao.markDeleted(deletedIds);
+      case CatalogCategories.merchantKeywords:
+        final dao = RemoteMerchantKeywordsDao(_database);
+        await dao.upsertAll(items.map(RemoteMerchantKeyword.fromJson).toList());
+        await dao.markDeleted(deletedIds);
     }
   }
 

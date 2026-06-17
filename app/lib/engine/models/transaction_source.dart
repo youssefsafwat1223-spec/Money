@@ -4,4 +4,5 @@ enum TransactionSource {
   card,
   wallet,
   unknown,
+  aiParsed,
 }

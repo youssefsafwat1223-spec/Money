@@ -143,6 +143,7 @@ class UserSettingsEntity {
     required this.notificationsJson,
     required this.dbEncryptionKeyRef,
     required this.privacyModeEnabled,
+    this.aiConsentGranted = false,
   });
 
   final String id;
@@ -154,6 +155,10 @@ class UserSettingsEntity {
   final String notificationsJson;
   final String dbEncryptionKeyRef;
   final bool privacyModeEnabled;
+  /// User has opted in to AI suggestions (off by default).
+  /// When true, low-confidence messages may be sent (sanitized) to an AI
+  /// service for parsing or merchant categorization.
+  final bool aiConsentGranted;
 
   UserSettingsEntity copyWith({
     String? id,
@@ -165,6 +170,7 @@ class UserSettingsEntity {
     String? notificationsJson,
     String? dbEncryptionKeyRef,
     bool? privacyModeEnabled,
+    bool? aiConsentGranted,
   }) {
     return UserSettingsEntity(
       id: id ?? this.id,
@@ -176,6 +182,7 @@ class UserSettingsEntity {
       notificationsJson: notificationsJson ?? this.notificationsJson,
       dbEncryptionKeyRef: dbEncryptionKeyRef ?? this.dbEncryptionKeyRef,
       privacyModeEnabled: privacyModeEnabled ?? this.privacyModeEnabled,
+      aiConsentGranted: aiConsentGranted ?? this.aiConsentGranted,
     );
   }
 }

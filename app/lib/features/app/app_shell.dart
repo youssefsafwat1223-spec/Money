@@ -13,16 +13,17 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/budget_entity.dart';
+import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/services/notification_planner.dart';
+import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../achievements/achievements_providers.dart';
 import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
 import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
 import '../capture/capture_entry_sheet.dart';
 import '../capture/capture_runtime.dart';
-import '../capture/services/captured_message_processor.dart';
 import '../capture/services/local_notification_service.dart';
 import '../capture/services/native_capture_bridge.dart';
 import '../../core/tracking/user_activity_service.dart';
@@ -109,33 +110,52 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   Future<void> _consumeSharedInput() async {
     final messages = await NativeCaptureBridge.consumePendingSharedMessages();
-    if (messages.isEmpty) {
-      return;
-    }
+    if (messages.isEmpty) return;
+
+    // Prune old dedup hashes opportunistically on each drain cycle.
+    unawaited(ref.read(appDatabaseProvider).pruneOldDedupHashes());
+
+    final ingestUseCase = ref.read(ingestCapturedMessageUseCaseProvider);
 
     String? pendingConfirmationId;
     SenderBankMappingEntity? pendingBankDiscovery;
+    final unprocessableSenders = <String>[];
+
     for (final message in messages) {
-      final result = await CapturedMessageProcessor.process(
-        rawMessage: message.text,
+      final captured = CapturedMessage(
+        text: message.text,
         senderId: message.sender,
         source: message.source,
-        showNotifications: false,
-        database: ref.read(appDatabaseProvider),
+        receivedAt: DateTime.now().toUtc(),
       );
+      final result = await ingestUseCase.fromCapturedMessage(captured);
       if (result.transactionId != null &&
           result.addTransactionResult.requiresConfirmation) {
         pendingConfirmationId = result.transactionId;
+      }
+      if (result.disposition == CapturedMessageDisposition.unprocessable) {
+        unprocessableSenders.add(message.sender ?? 'مرسل غير معروف');
       }
       pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
         message.sender,
       );
     }
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     _refreshAll();
+
+    // Notify user about messages that couldn't be parsed so they can add manually.
+    for (final sender in unprocessableSenders) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('لم نتمكن من تحليل رسالة $sender. اضغط للإضافة يدوياً.'),
+        action: SnackBarAction(
+          label: 'إضافة',
+          onPressed: () => showCaptureEntrySheet(context),
+        ),
+        duration: const Duration(seconds: 6),
+      ));
+    }
+
     if (pendingConfirmationId != null) {
       await _openConfirmSheet(pendingConfirmationId);
     }
@@ -163,6 +183,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         await ref.read(loadNotificationPreferencesUseCaseProvider).call();
     final snapshot = await ref.read(budgetProgressUseCaseProvider).call();
     final catalog = await ref.read(categoryCatalogProvider.future);
+    // Use settings currency for budget notifications; budgets don't have own currency.
+    final budgetCurrency =
+        ref.read(userSettingsProvider).valueOrNull?.currency ?? 'SAR';
     for (final alert in snapshot.alerts) {
       final category = catalog.byId(alert.budget.categoryId);
       final label =
@@ -173,7 +196,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         await LocalNotificationService.instance.showBudgetAlert(
           title: 'اقتربت من ميزانية $label',
           body:
-              'وصلت إلى ${(alert.progress.ratio * 100).round()}% من ميزانية ${alert.progress.budget.amount.toStringAsFixed(0)} ريال.',
+              'وصلت إلى ${(alert.progress.ratio * 100).round()}% من ميزانية ${alert.progress.budget.amount.toStringAsFixed(0)} $budgetCurrency.',
           type: NotificationType.budgetWarning,
           preferences: preferences,
         );
@@ -181,7 +204,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         await LocalNotificationService.instance.showBudgetAlert(
           title: 'تم تجاوز ميزانية $label',
           body:
-              'تجاوزت الميزانية بمقدار ${alert.progress.remaining.abs().toStringAsFixed(0)} ريال.',
+              'تجاوزت الميزانية بمقدار ${alert.progress.remaining.abs().toStringAsFixed(0)} $budgetCurrency.',
           type: NotificationType.budgetOver,
           preferences: preferences,
         );

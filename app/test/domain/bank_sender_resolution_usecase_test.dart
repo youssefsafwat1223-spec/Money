@@ -56,23 +56,25 @@ class _FakeSenderBankMappingRepository implements SenderBankMappingRepository {
 }
 
 void main() {
-  const adibSms =
-      'Trx. of AED 50.00 on your a/c ****0535 at ABU DHABI NATIONAL OIL '
+  // Use a sender not in BankProfiles.all so mapping-based resolution is exercised.
+  const unknownSender = 'GULFBANK-XYZ';
+  const unknownBankSms =
+      'Trx. of AED 50.00 on your a/c ****0535 at MERCHANT STORE '
       'ABU DHABI AE. Avl Bal is AED 12956.50';
 
-  test('confirmed ADIB mapping resolves sender ADIB to an existing profile',
+  test('confirmed mapping resolves unknown sender to an existing profile',
       () async {
     final repo = _FakeSenderBankMappingRepository()
       ..seed(_mapping(
-        senderId: 'ADIB',
+        senderId: unknownSender,
         bankKey: 'dubai_bank',
         status: SenderBankMappingStatus.confirmed,
       ));
     final resolver = ResolveBankForSenderUseCase(mappingRepository: repo);
 
     final resolution = await resolver(
-      rawMessage: adibSms,
-      senderId: 'ADIB',
+      rawMessage: unknownBankSms,
+      senderId: unknownSender,
       bankProfiles: const [],
       now: DateTime.utc(2026, 6, 16),
     );
@@ -82,8 +84,8 @@ void main() {
     expect(resolution.suppressesDiscovery, isTrue);
     expect(
       BankProfiles.detect(
-        adibSms,
-        senderId: 'ADIB',
+        unknownBankSms,
+        senderId: unknownSender,
         extraProfiles: resolution.bankProfiles,
       )?.bankKey,
       'dubai_bank',
@@ -95,7 +97,7 @@ void main() {
     final now = DateTime.utc(2026, 6, 16);
     final repo = _FakeSenderBankMappingRepository()
       ..seed(_mapping(
-        senderId: 'ADIB',
+        senderId: unknownSender,
         status: SenderBankMappingStatus.rejected,
         rejectedAt: now.subtract(const Duration(days: 1)),
         rejectionExpiresAt: now.add(const Duration(days: 29)),
@@ -103,8 +105,8 @@ void main() {
     final resolver = ResolveBankForSenderUseCase(mappingRepository: repo);
 
     final resolution = await resolver(
-      rawMessage: adibSms,
-      senderId: 'ADIB',
+      rawMessage: unknownBankSms,
+      senderId: unknownSender,
       bankProfiles: const [],
       now: now,
     );
@@ -117,15 +119,15 @@ void main() {
   test('pending mapping is not trusted', () async {
     final repo = _FakeSenderBankMappingRepository()
       ..seed(_mapping(
-        senderId: 'ADIB',
+        senderId: unknownSender,
         bankKey: 'dubai_bank',
         status: SenderBankMappingStatus.pending,
       ));
     final resolver = ResolveBankForSenderUseCase(mappingRepository: repo);
 
     final resolution = await resolver(
-      rawMessage: adibSms,
-      senderId: 'ADIB',
+      rawMessage: unknownBankSms,
+      senderId: unknownSender,
       bankProfiles: const [],
       now: DateTime.utc(2026, 6, 16),
     );
@@ -142,8 +144,8 @@ void main() {
     );
 
     final resolution = await resolver(
-      rawMessage: adibSms,
-      senderId: 'UNKNOWNBANK',
+      rawMessage: unknownBankSms,
+      senderId: 'ANOTHER-UNKNOWNBANK',
       bankProfiles: const [],
       now: DateTime.utc(2026, 6, 16),
     );
@@ -170,7 +172,7 @@ SenderBankMappingEntity _mapping({
       senderId,
     ),
     bankKey: bankKey,
-    suggestedBankName: 'Abu Dhabi Islamic Bank',
+    suggestedBankName: 'Unknown Gulf Bank',
     suggestedCountry: 'AE',
     confidence: 0.98,
     status: status,

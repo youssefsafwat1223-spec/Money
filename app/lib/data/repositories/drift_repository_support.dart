@@ -63,6 +63,8 @@ TransactionSourceEntity transactionSourceFromSql(String value) {
       return TransactionSourceEntity.wallet;
     case 'unknown':
       return TransactionSourceEntity.unknown;
+    case 'aiParsed':
+      return TransactionSourceEntity.aiParsed;
     default:
       throw ArgumentError.value(value, 'value', 'Unknown transaction source.');
   }
@@ -86,6 +88,8 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final status = row.read<String>('status');
   final createdAt = row.read<String>('created_at');
   final updatedAt = row.read<String>('updated_at');
+  final foreignAmount = row.readNullable<double>('foreign_amount');
+  final foreignCurrency = row.readNullable<String>('foreign_currency');
   return TransactionEntity(
     id: row.read<String>('id'),
     amount: amount,
@@ -105,6 +109,8 @@ TransactionEntity transactionFromRow(QueryRow row) {
     status: transactionStatusFromSql(status),
     createdAt: dateTimeFromSql(createdAt),
     updatedAt: dateTimeFromSql(updatedAt),
+    foreignAmount: foreignAmount,
+    foreignCurrency: foreignCurrency,
   );
 }
 
@@ -198,5 +204,7 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     notificationsJson: row.read<String>('notifications_json'),
     dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
     privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
+    aiConsentGranted:
+        sqlToBool(row.readNullable<int>('ai_consent_granted') ?? 0),
   );
 }

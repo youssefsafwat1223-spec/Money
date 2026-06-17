@@ -14,9 +14,9 @@ struct PostBankStatusIntent: AppIntent {
     "Send a bank SMS to Mali so it parses the amount, merchant and category and adds the transaction."
   )
 
-  /// Launch the app when run so the captured message is processed immediately.
-  /// Set to false in the Shortcut if you prefer a fully silent background automation.
-  static var openAppWhenRun: Bool = true
+  /// false = silent background capture; app stays closed or in background.
+  /// The message is drained on next foreground via AppLifecycleListener.onResume.
+  static var openAppWhenRun: Bool = false
 
   @Parameter(
     title: "Message",

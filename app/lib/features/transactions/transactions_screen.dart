@@ -25,6 +25,7 @@ class TransactionsScreen extends ConsumerWidget {
     final async = ref.watch(transactionsListProvider);
     final billsAsync = ref.watch(billsViewProvider);
     final tab = ref.watch(transactionsPageTabProvider);
+    final pendingOnly = ref.watch(transactionsPendingFilterProvider);
 
     return async.when(
       loading: () => const PremiumSkeletonPage(cardCount: 6),
@@ -68,8 +69,48 @@ class TransactionsScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _DateRangeChips(range: view.range),
-                  const SizedBox(height: AppSpacing.s3),
+                  if (pendingOnly)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: context.colors.accent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: context.colors.accent
+                                      .withValues(alpha: 0.30)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(AppLucideIcons.alertTriangle,
+                                    size: 14, color: context.colors.accent),
+                                const SizedBox(width: 6),
+                                Text('تصفية: قيد المراجعة',
+                                    style: AppTypography.caption(
+                                            context.colors.accent)
+                                        .copyWith(fontWeight: FontWeight.w700)),
+                                const SizedBox(width: 8),
+                                GestureDetector(
+                                  onTap: () => ref
+                                      .read(transactionsPendingFilterProvider
+                                          .notifier)
+                                      .state = false,
+                                  child: Icon(Icons.close,
+                                      size: 14, color: context.colors.accent),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (!pendingOnly) _DateRangeChips(range: view.range),
+                  if (!pendingOnly) const SizedBox(height: AppSpacing.s3),
                   _MainSegmented(
                     value: tab,
                     labels: const ['العمليات', 'الفواتير'],

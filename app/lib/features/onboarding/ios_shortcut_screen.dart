@@ -1,14 +1,17 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/app_spacing.dart';
 import 'widgets/premium_ui.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false}) {
+TextStyle _alex(double size, FontWeight weight, double height, Color color,
+    {bool tabular = false}) {
   return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
@@ -23,44 +26,89 @@ TextStyle _alex(double size, FontWeight weight, double height, Color color, {boo
   );
 }
 
-class IosShortcutScreen extends StatelessWidget {
+const String _defaultShortcutCurrency = 'SAR';
+
+String _shortcutCurrency(String? currency) {
+  final normalized = currency?.trim().toUpperCase();
+  if (normalized == null || normalized.isEmpty) return _defaultShortcutCurrency;
+  return normalized;
+}
+
+class IosShortcutScreen extends ConsumerWidget {
   const IosShortcutScreen({super.key});
 
-  static List<_Step> _getSteps(BuildContext context) {
+  static List<_Step> _getSteps(BuildContext context, String currencyCode) {
     final locale = Localizations.localeOf(context).languageCode;
     if (locale == 'en') {
-      return const [
-        _Step('Delete Old', 'Open Shortcuts app and go to Automation tab. If there is an old automation for the app, delete it.', Icons.delete_outline_rounded),
-        _Step('New (+)', 'Press New Automation (+) and scroll down to "Message".', Icons.add_circle_outline_rounded),
-        _Step('Filter Messages', 'Press "Message Contents" and type the bank currency code (e.g. SAR).', Icons.filter_alt_outlined),
-        _Step('Run Immediately', 'Enable "Run Immediately" and press Next.', Icons.bolt_rounded),
-        _Step('Blank Automation', 'Press "New Blank Automation".', Icons.insert_drive_file_outlined),
-        _Step('Send to App', 'Search for "Post Bank Status", choose the "Shortcut Input" variable and ensure it is correct.', Icons.send_rounded),
-        _Step('Silent Run', 'Disable "Show When Run" to run in the background.', Icons.volume_off_rounded),
-        _Step('Save', 'Press Save in the top and setup is completed.', Icons.check_circle_outline_rounded),
+      return [
+        const _Step(
+            'Delete Old',
+            'Open Shortcuts app and go to Automation tab. If there is an old automation for the app, delete it.',
+            Icons.delete_outline_rounded),
+        const _Step(
+            'New (+)',
+            'Press New Automation (+) and scroll down to "Message".',
+            Icons.add_circle_outline_rounded),
+        _Step(
+            'Filter Messages',
+            'Press "Message Contents" and type currency code e.g. $currencyCode.',
+            Icons.filter_alt_outlined),
+        const _Step('Run Immediately',
+            'Enable "Run Immediately" and press Next.', Icons.bolt_rounded),
+        const _Step('Blank Automation', 'Press "New Blank Automation".',
+            Icons.insert_drive_file_outlined),
+        const _Step(
+            'Send to App',
+            'Search for "Post Bank Status", choose the "Shortcut Input" variable and ensure it is correct.',
+            Icons.send_rounded),
+        const _Step(
+            'Silent Run',
+            'Disable "Show When Run" to run in the background.',
+            Icons.volume_off_rounded),
+        const _Step('Save', 'Press Save in the top and setup is completed.',
+            Icons.check_circle_outline_rounded),
       ];
     }
-    return const [
-      _Step('احذف القديم', 'افتح تطبيق Shortcuts وروح لتبويب Automation. لو فيه Automation قديم للتطبيق، احذفه.', Icons.delete_outline_rounded),
-      _Step('جديد (+)', 'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».', Icons.add_circle_outline_rounded),
-      _Step('حدّد الرسائل', 'اضغط على «Message Contents» واكتب رمز عملة البنك (مثال: SAR).', Icons.filter_alt_outlined),
-      _Step('بدون تأكيد', 'فعّل «Run Immediately» واضغط Next.', Icons.bolt_rounded),
-      _Step('اختصار فارغ', 'اضغط «New Blank Automation».', Icons.insert_drive_file_outlined),
-      _Step('إرسال للتطبيق', 'ابحث عن «Post Bank Status»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.', Icons.send_rounded),
-      _Step('تشغيل صامت', 'أوقف «Show When Run» ليشتغل بالخلفية.', Icons.volume_off_rounded),
-      _Step('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.', Icons.check_circle_outline_rounded),
+    return [
+      const _Step(
+          'احذف القديم',
+          'افتح تطبيق Shortcuts وروح لتبويب Automation. لو فيه Automation قديم للتطبيق، احذفه.',
+          Icons.delete_outline_rounded),
+      const _Step(
+          'جديد (+)',
+          'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».',
+          Icons.add_circle_outline_rounded),
+      _Step(
+          'حدّد الرسائل',
+          'اضغط على «Message Contents» واكتب رمز العملة مثل $currencyCode.',
+          Icons.filter_alt_outlined),
+      const _Step('بدون تأكيد', 'فعّل «Run Immediately» واضغط Next.',
+          Icons.bolt_rounded),
+      const _Step('اختصار فارغ', 'اضغط «New Blank Automation».',
+          Icons.insert_drive_file_outlined),
+      const _Step(
+          'إرسال للتطبيق',
+          'ابحث عن «Post Bank Status»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.',
+          Icons.send_rounded),
+      const _Step('تشغيل صامت', 'أوقف «Show When Run» ليشتغل بالخلفية.',
+          Icons.volume_off_rounded),
+      const _Step('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.',
+          Icons.check_circle_outline_rounded),
     ];
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    final steps = _getSteps(context);
+    final currencyCode =
+        _shortcutCurrency(ref.watch(baseCurrencyProvider).valueOrNull);
+    final steps = _getSteps(context, currencyCode);
     return PremiumBackground(
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.gutter, vertical: 8.0),
             child: Row(
               children: [
                 Container(
@@ -84,7 +132,8 @@ class IosShortcutScreen extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
               children: [
                 Center(
                   child: GlowingIcon(
@@ -94,7 +143,9 @@ class IosShortcutScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                Text(context.l10n.appleSecuritySteps, textAlign: TextAlign.center, style: _alex(24, FontWeight.w800, 1.2, c.textMain)),
+                Text(context.l10n.appleSecuritySteps,
+                    textAlign: TextAlign.center,
+                    style: _alex(24, FontWeight.w800, 1.2, c.textMain)),
                 const SizedBox(height: 8),
                 Text(
                   context.l10n.iosShortcutSubtitle,
@@ -102,8 +153,8 @@ class IosShortcutScreen extends StatelessWidget {
                   style: _alex(13, FontWeight.w500, 1.5, c.textLight),
                 ),
                 const SizedBox(height: 32),
-                
-                Text(context.l10n.stepsLabel, style: _alex(15, FontWeight.w800, 1.2, c.textMain)),
+                Text(context.l10n.stepsLabel,
+                    style: _alex(15, FontWeight.w800, 1.2, c.textMain)),
                 const SizedBox(height: 20),
                 GlassCard(
                   padding: const EdgeInsets.all(20),
@@ -112,7 +163,8 @@ class IosShortcutScreen extends StatelessWidget {
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: steps.length,
                     separatorBuilder: (context, index) => Padding(
-                      padding: const EdgeInsets.only(right: 14.0, top: 4, bottom: 4),
+                      padding:
+                          const EdgeInsets.only(right: 14.0, top: 4, bottom: 4),
                       child: Container(
                         height: 16,
                         width: 1.5,
@@ -133,7 +185,9 @@ class IosShortcutScreen extends StatelessWidget {
                               shape: BoxShape.circle,
                             ),
                             alignment: Alignment.center,
-                            child: Text('${index + 1}', style: _alex(12, FontWeight.w800, 1.0, Colors.white)),
+                            child: Text('${index + 1}',
+                                style: _alex(
+                                    12, FontWeight.w800, 1.0, Colors.white)),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -144,13 +198,18 @@ class IosShortcutScreen extends StatelessWidget {
                                 children: [
                                   Row(
                                     children: [
-                                      Text(step.title, style: _alex(14, FontWeight.w800, 1.2, c.textMain)),
+                                      Text(step.title,
+                                          style: _alex(14, FontWeight.w800, 1.2,
+                                              c.textMain)),
                                       const SizedBox(width: 8),
-                                      Icon(step.icon, color: c.textLight, size: 14),
+                                      Icon(step.icon,
+                                          color: c.textLight, size: 14),
                                     ],
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(step.body, style: _alex(12, FontWeight.w500, 1.5, c.textLight)),
+                                  Text(step.body,
+                                      style: _alex(12, FontWeight.w500, 1.5,
+                                          c.textLight)),
                                 ],
                               ),
                             ),
@@ -160,7 +219,6 @@ class IosShortcutScreen extends StatelessWidget {
                     },
                   ),
                 ),
-                
                 const SizedBox(height: 32),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -172,17 +230,21 @@ class IosShortcutScreen extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.currency_exchange_rounded, size: 24, color: c.accent),
+                      Icon(Icons.currency_exchange_rounded,
+                          size: 24, color: c.accent),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(context.l10n.multipleCurrenciesQuestion, style: _alex(14, FontWeight.w800, 1.2, c.accent)),
+                            Text(context.l10n.multipleCurrenciesQuestion,
+                                style:
+                                    _alex(14, FontWeight.w800, 1.2, c.accent)),
                             const SizedBox(height: 4),
                             Text(
                               context.l10n.multipleCurrenciesDesc,
-                              style: _alex(12, FontWeight.w600, 1.5, c.accent.withValues(alpha: 0.8)),
+                              style: _alex(12, FontWeight.w600, 1.5,
+                                  c.accent.withValues(alpha: 0.8)),
                             ),
                           ],
                         ),

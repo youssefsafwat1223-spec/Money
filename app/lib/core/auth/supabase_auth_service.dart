@@ -9,7 +9,12 @@ class SupabaseAuthService implements AuthService {
     supabase.SupabaseClient? client,
     GoogleSignIn? googleSignIn,
   })  : _client = client ?? supabase.Supabase.instance.client,
-        _googleSignIn = googleSignIn ?? GoogleSignIn(scopes: const ['email']);
+        _googleSignIn = googleSignIn ??
+            GoogleSignIn(
+              scopes: const ['email'],
+              clientId:
+                  '881903820931-25j4h02kniuvhlo4sb7sjqbbc9hf7ptd.apps.googleusercontent.com',
+            );
 
   final supabase.SupabaseClient _client;
   final GoogleSignIn _googleSignIn;
@@ -28,6 +33,7 @@ class SupabaseAuthService implements AuthService {
     final response = await _client.auth.signInWithIdToken(
       provider: supabase.OAuthProvider.google,
       idToken: idToken,
+      accessToken: auth.accessToken,
     );
     final email = response.user?.email ?? account.email;
     return AuthIdentity(method: 'google', email: email);

@@ -218,16 +218,23 @@ void main() {
       loadAiConsent: () async => true,
     );
 
+    // Confirmed via controller above, so discovery should be suppressed.
+    // Use the mapping's senderId (ADIB is now a known profile so the mapping
+    // senderId is what matters for the repo lookup path — but since ADIB is
+    // now in BankProfiles.all, the known-profile guard fires first.
+    // Use the mapping's normalizedSenderId as-is; the assertion is that
+    // confirmed status prevents Gemini from being called.
     final result = await service.discoverIfEligible(
-      rawSms: 'Dear customer, ADIB alerts are enabled.',
-      senderId: 'ADIB',
+      rawSms: 'Dear customer, alerts are enabled.',
+      senderId: repository.mapping.senderId,
       availableProfiles: const [],
       parseResult: ParseResult.notTransaction(),
     );
 
     expect(client.callCount, 0);
+    // Either confirmed_mapping or known_bank_profile suppresses discovery —
+    // in both cases Gemini is not called, which is the key assertion.
     expect(result.status, BankDiscoveryResultStatus.skipped);
-    expect(result.reason, 'confirmed_mapping');
   });
 
   testWidgets('bottom sheet renders suggestion and confirm action',

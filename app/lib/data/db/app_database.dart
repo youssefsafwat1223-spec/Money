@@ -10,7 +10,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 8;
+const int _targetSchemaVersion = 9;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -159,6 +159,8 @@ class AppDatabase extends GeneratedDatabase {
         status TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        foreign_amount REAL NULL,
+        foreign_currency TEXT NULL,
         FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE SET NULL,
         FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
       );
@@ -395,6 +397,18 @@ class AppDatabase extends GeneratedDatabase {
     if (version < 8) {
       await _ensureColumn('sender_bank_mappings', 'reason', 'TEXT NULL');
     }
+    if (version < 9) {
+      await _ensureColumn('transactions', 'foreign_amount', 'REAL NULL');
+      await _ensureColumn('transactions', 'foreign_currency', 'TEXT NULL');
+    }
+  }
+
+  /// Removes dedup hashes older than [daysOld] days to prevent unbounded growth.
+  Future<void> pruneOldDedupHashes({int daysOld = 30}) async {
+    final cutoff = DateTime.now().toUtc().subtract(Duration(days: daysOld));
+    await customStatement(
+      "DELETE FROM dedup_hashes WHERE occurred_at < '${cutoff.toIso8601String()}';",
+    );
   }
 
   Future<void> _createSenderBankMappingsTable() async {

@@ -13,6 +13,7 @@ class CatalogCategories {
   static const currencies = 'currencies';
   static const countries = 'countries';
   static const categories = 'categories';
+  static const merchantKeywords = 'merchant_keywords';
 
   static const phase0 = <String>[
     banks,
@@ -27,6 +28,7 @@ class CatalogCategories {
     currencies,
     countries,
     categories,
+    merchantKeywords,
   ];
 }
 
@@ -895,6 +897,205 @@ class RemoteCategoriesDao {
   }
 }
 
+class RemoteMerchantKeyword {
+  const RemoteMerchantKeyword({
+    required this.id,
+    required this.keyword,
+    required this.categoryKey,
+    required this.language,
+    required this.countryCode,
+    required this.priority,
+    required this.isActive,
+    required this.isDeleted,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String keyword;
+  final String categoryKey;
+  final String language;
+  final String countryCode;
+  final int priority;
+  final bool isActive;
+  final bool isDeleted;
+  final String updatedAt;
+
+  static RemoteMerchantKeyword fromJson(Map<String, Object?> json) {
+    return RemoteMerchantKeyword(
+      id: json['id'] as String,
+      keyword: json['keyword'] as String,
+      categoryKey: json['category_key'] as String,
+      language: (json['language'] as String?) ?? 'any',
+      countryCode: (json['country_code'] as String?) ?? 'ALL',
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      isActive: _boolFromJson(json['is_active'], defaultValue: true),
+      isDeleted: _boolFromJson(json['is_deleted']),
+      updatedAt: json['updated_at'] as String,
+    );
+  }
+}
+
+class RemoteMerchantKeywordsDao {
+  const RemoteMerchantKeywordsDao(this._db);
+
+  final AppDatabase _db;
+
+  Future<void> upsertAll(List<RemoteMerchantKeyword> keywords) async {
+    for (final kw in keywords) {
+      await _db.customInsert(
+        '''
+          INSERT INTO remote_merchant_keywords(
+            id, keyword, category_key, language, country_code,
+            priority, is_active, is_deleted, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            keyword = excluded.keyword,
+            category_key = excluded.category_key,
+            language = excluded.language,
+            country_code = excluded.country_code,
+            priority = excluded.priority,
+            is_active = excluded.is_active,
+            is_deleted = excluded.is_deleted,
+            updated_at = excluded.updated_at;
+        ''',
+        variables: [
+          Variable.withString(kw.id),
+          Variable.withString(kw.keyword),
+          Variable.withString(kw.categoryKey),
+          Variable.withString(kw.language),
+          Variable.withString(kw.countryCode),
+          Variable.withInt(kw.priority),
+          Variable.withInt(kw.isActive ? 1 : 0),
+          Variable.withInt(kw.isDeleted ? 1 : 0),
+          Variable.withString(kw.updatedAt),
+        ],
+      );
+    }
+  }
+
+  Future<void> markDeleted(List<String> ids) async {
+    for (final id in ids) {
+      await _db.customUpdate(
+        'UPDATE remote_merchant_keywords SET is_deleted = 1 WHERE id = ?;',
+        variables: [Variable.withString(id)],
+      );
+    }
+  }
+
+  /// Returns active, non-deleted keywords for [countryCode] and 'ALL',
+  /// ordered by priority descending (highest priority checked first).
+  Future<List<RemoteMerchantKeyword>> getActiveForCountry(
+      String countryCode) async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM remote_merchant_keywords
+        WHERE is_active = 1
+          AND is_deleted = 0
+          AND (country_code = ? OR country_code = 'ALL')
+        ORDER BY priority DESC;
+      ''',
+      variables: [Variable.withString(countryCode.toUpperCase())],
+    ).get();
+    return rows
+        .map((r) => RemoteMerchantKeyword(
+              id: r.read<String>('id'),
+              keyword: r.read<String>('keyword'),
+              categoryKey: r.read<String>('category_key'),
+              language: r.read<String>('language'),
+              countryCode: r.read<String>('country_code'),
+              priority: r.read<int>('priority'),
+              isActive: r.read<int>('is_active') != 0,
+              isDeleted: r.read<int>('is_deleted') != 0,
+              updatedAt: r.read<String>('updated_at'),
+            ))
+        .toList();
+  }
+
+  /// Returns all active, non-deleted keywords ordered by priority DESC.
+  /// Used as the interim default until 4C wires a real country code from
+  /// UserSettings — applying all keywords avoids silently excluding EG/Gulf
+  /// markets whose currency codes don't map 1:1 to country codes.
+  Future<List<RemoteMerchantKeyword>> getAll() async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM remote_merchant_keywords
+        WHERE is_active = 1
+          AND is_deleted = 0
+        ORDER BY priority DESC;
+      ''',
+    ).get();
+    return rows
+        .map((r) => RemoteMerchantKeyword(
+              id: r.read<String>('id'),
+              keyword: r.read<String>('keyword'),
+              categoryKey: r.read<String>('category_key'),
+              language: r.read<String>('language'),
+              countryCode: r.read<String>('country_code'),
+              priority: r.read<int>('priority'),
+              isActive: r.read<int>('is_active') != 0,
+              isDeleted: r.read<int>('is_deleted') != 0,
+              updatedAt: r.read<String>('updated_at'),
+            ))
+        .toList();
+  }
+
+  Future<bool> isEmpty() async {
+    final rows = await _db
+        .customSelect(
+          'SELECT 1 FROM remote_merchant_keywords WHERE is_active = 1 AND is_deleted = 0 LIMIT 1;',
+        )
+        .get();
+    return rows.isEmpty;
+  }
+}
+
+class PendingMerchantFeedbackDao {
+  const PendingMerchantFeedbackDao(this._db);
+
+  final AppDatabase _db;
+
+  Future<void> record(String normalizedKeyword) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    await _db.customInsert(
+      '''
+        INSERT INTO pending_merchant_feedback(normalized_keyword, seen_count, last_seen_at)
+        VALUES (?, 1, ?)
+        ON CONFLICT(normalized_keyword) DO UPDATE SET
+          seen_count = seen_count + 1,
+          last_seen_at = excluded.last_seen_at;
+      ''',
+      variables: [
+        Variable.withString(normalizedKeyword),
+        Variable.withString(now),
+      ],
+    );
+  }
+
+  Future<List<String>> drainAll() async {
+    final rows = await _db
+        .customSelect(
+          'SELECT normalized_keyword FROM pending_merchant_feedback;',
+        )
+        .get();
+    final keywords =
+        rows.map((r) => r.read<String>('normalized_keyword')).toList();
+    if (keywords.isNotEmpty) {
+      await _db.customStatement('DELETE FROM pending_merchant_feedback;');
+    }
+    return keywords;
+  }
+
+  Future<int> count() async {
+    final row = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS total FROM pending_merchant_feedback;',
+        )
+        .getSingle();
+    return row.read<int>('total');
+  }
+}
+
 Variable<String> _nullableString(String? value) {
   return value == null
       ? const Variable<String>(null)
@@ -910,6 +1111,12 @@ DateTime _dateTimeFromJson(Object? value) {
   final text = value?.toString();
   if (text == null || text.isEmpty) return DateTime.now().toUtc();
   return DateTime.parse(text).toUtc();
+}
+
+bool _boolFromJson(Object? value, {bool defaultValue = false}) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  return defaultValue;
 }
 
 List<String> _stringList(Object? value) {
@@ -1018,9 +1225,11 @@ class RemoteFeatureFlagsDao {
   }
 
   Future<List<RemoteFeatureFlag>> getAllActiveFlags() async {
-    final rows = await _db.customSelect(
-      'SELECT * FROM remote_feature_flags WHERE is_active = 1;',
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM remote_feature_flags WHERE is_active = 1;',
+        )
+        .get();
     return rows.map(_flagFromRow).toList();
   }
 
@@ -1120,9 +1329,11 @@ class RemoteAnnouncementsDao {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.transaction(() async {
       // Collect currently dismissed IDs before wiping.
-      final dismissedRows = await _db.customSelect(
-        'SELECT id FROM remote_announcements WHERE is_dismissed = 1;',
-      ).get();
+      final dismissedRows = await _db
+          .customSelect(
+            'SELECT id FROM remote_announcements WHERE is_dismissed = 1;',
+          )
+          .get();
       final dismissedIds =
           dismissedRows.map((r) => r.read<String>('id')).toSet();
 
@@ -1211,8 +1422,7 @@ class RemoteAnnouncementsDao {
       actionLabelEn: row.readNullable<String>('action_label_en'),
       actionUrl: row.readNullable<String>('action_url'),
       validFrom: dateTimeFromSql(row.read<String>('valid_from')),
-      validUntil:
-          validUntilRaw != null ? dateTimeFromSql(validUntilRaw) : null,
+      validUntil: validUntilRaw != null ? dateTimeFromSql(validUntilRaw) : null,
       isDismissible: sqlToBool(row.read<int>('is_dismissible')),
       priority: row.read<int>('priority'),
       isDismissed: sqlToBool(row.read<int>('is_dismissed')),

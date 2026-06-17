@@ -10,6 +10,23 @@ class CategorySeeds {
 
   /// أسماء متاجر شائعة (تطابق بالاحتواء، حروف كبيرة).
   static final Map<String, String> keywordRules = {
+    // Egypt merchants
+    'FAWRY': Categories.bills.key,
+    'BREADFAST': Categories.restaurants.key,
+    'TALABAT': Categories.restaurants.key,
+    'ELMENUS': Categories.restaurants.key,
+    'SWVL': Categories.transport.key,
+    'ORANGE': Categories.bills.key,
+    'VODAFONE': Categories.bills.key,
+    'ETISALAT': Categories.bills.key,
+    // Gulf delivery/grocery
+    'HUNGERSTATION': Categories.restaurants.key,
+    'طلبات': Categories.restaurants.key,
+    'MRSOOL': Categories.restaurants.key,
+    'مرسول': Categories.restaurants.key,
+    'SPINNEYS': Categories.groceries.key,
+    'NANA': Categories.groceries.key,
+    'INSTASHOP': Categories.groceries.key,
     // تسوق
     'JARIR': Categories.shopping.key,
     'EXTRA': Categories.shopping.key,
@@ -65,6 +82,25 @@ class CategorySeeds {
     'النهدي': Categories.health.key,
     'ALDAWAA': Categories.health.key,
     'الدواء': Categories.health.key,
+    // Generic English patterns (broad, so come after specifics)
+    'RESTAURANT': Categories.restaurants.key,
+    'PHARMACY': Categories.health.key,
+    'HOSPITAL': Categories.health.key,
+    'CLINIC': Categories.health.key,
+    'PETROL': Categories.fuel.key,
+    'CINEMA': Categories.entertainment.key,
+    'MOVIE': Categories.entertainment.key,
+    'HOTEL': Categories.travel.key,
+    'AIRPORT': Categories.travel.key,
+    // Generic Arabic patterns
+    'مطعم': Categories.restaurants.key,
+    'مقهى': Categories.cafes.key,
     'صيدلية': Categories.health.key,
+    'محطة': Categories.fuel.key,
+    'مستشفى': Categories.health.key,
+    'عيادة': Categories.health.key,
+    'سينما': Categories.entertainment.key,
+    'فندق': Categories.travel.key,
+    'مطار': Categories.travel.key,
   };
 }

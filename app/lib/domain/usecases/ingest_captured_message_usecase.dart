@@ -5,6 +5,9 @@ enum CapturedMessageDisposition {
   ignored,
   notifyOnly,
   requestConfirmation,
+  /// A bank-like message was received but could not be parsed (not OTP/promo).
+  /// The user should be prompted to add it manually.
+  unprocessable,
 }
 
 class CapturedMessageResult {
@@ -48,9 +51,15 @@ class IngestCapturedMessageUseCase {
 
     switch (result.outcome) {
       case AddTransactionOutcome.duplicate:
-      case AddTransactionOutcome.notTransaction:
         return CapturedMessageResult(
           disposition: CapturedMessageDisposition.ignored,
+          addTransactionResult: result,
+        );
+      case AddTransactionOutcome.notTransaction:
+        return CapturedMessageResult(
+          disposition: result.droppedByParser
+              ? CapturedMessageDisposition.unprocessable
+              : CapturedMessageDisposition.ignored,
           addTransactionResult: result,
         );
       case AddTransactionOutcome.added:
