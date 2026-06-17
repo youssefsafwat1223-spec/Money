@@ -13,6 +13,7 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../capture/services/android_sms_capture_service.dart';
 import '../settings/settings_providers.dart';
 import 'widgets/premium_ui.dart';
 
@@ -51,6 +52,8 @@ class OnboardingMethodScreen extends ConsumerStatefulWidget {
 
 class _OnboardingMethodScreenState
     extends ConsumerState<OnboardingMethodScreen> {
+  bool _busy = false;
+
   Future<void> _finish() async {
     if (SupabaseConfig.isConfigured) {
       try {
@@ -67,6 +70,30 @@ class _OnboardingMethodScreenState
     await AppSession.instance.finishOnboarding();
     if (mounted) context.go('/');
   }
+
+  Future<void> _requestSms() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await AndroidSmsCaptureService.instance.requestPermissions();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    context.push('/onboarding/listening');
+  }
+
+  Future<void> _startIosVerify() async {
+    if (SupabaseConfig.isConfigured) {
+      try {
+        final hasBackup =
+            await ref.read(backupServiceProvider).hasRemoteBackup();
+        if (mounted && hasBackup) {
+          context.push('/onboarding/restore');
+          return;
+        }
+      } catch (_) {}
+    }
+    if (mounted) context.push('/onboarding/ios-verify');
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -259,7 +286,8 @@ class _OnboardingMethodScreenState
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: _finish,
+                        onPressed:
+                            _busy ? null : (isAndroid ? _requestSms : _startIosVerify),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,

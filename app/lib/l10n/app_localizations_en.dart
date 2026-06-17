@@ -353,4 +353,68 @@ class AppL10nEn extends AppL10n {
   @override
   String get multipleCurrenciesDesc =>
       'If you receive bank messages in different currencies, repeat the same steps for each currency.';
+
+  @override
+  String get continueWithoutAccount => 'Continue without account';
+
+  @override
+  String get continueWithoutAccountSub =>
+      'Your data stays local on your device.';
+
+  @override
+  String get smsPermissionRationaleTitle =>
+      'We just need permission to read bank messages';
+
+  @override
+  String get smsPermissionRationaleBody =>
+      'Mali reads bank SMS on your device only to log your transactions automatically. We don\'t read personal messages and nothing leaves your phone.';
+
+  @override
+  String get listeningTitle => 'Armed — waiting for your first message';
+
+  @override
+  String get listeningSubtitle =>
+      'Make any card purchase and it will appear here automatically.';
+
+  @override
+  String get pasteMessageInstead => 'Paste a bank message instead';
+
+  @override
+  String get skipForNow => 'Skip for now';
+
+  @override
+  String get shortcutVerifyTitle => 'Let\'s confirm the Shortcut works';
+
+  @override
+  String get shortcutVerifyBody =>
+      'Go back to the Shortcuts app, send yourself a message with your currency keyword, then come back here.';
+
+  @override
+  String get shortcutVerifyWaiting => 'Waiting for a message...';
+
+  @override
+  String get recheckSetup => 'Re-check setup';
+
+  @override
+  String get filterKeywordsLabel => 'Keyword:';
+
+  @override
+  String get firstTxTitle => 'First transaction — captured automatically!';
+
+  @override
+  String get firstTxTrustLine =>
+      'You did nothing — Mali read your bank\'s SMS and logged it.';
+
+  @override
+  String get firstTxContinue => 'Continue';
+
+  @override
+  String get firstTxNeedsCheck => 'Needs a quick check';
+
+  @override
+  String get firstTxNeedsCheckSub =>
+      'Mali isn\'t 100% sure — review it quickly.';
+
+  @override
+  String get wrongCategoryTap => 'Wrong category? Tap to change it';
 }

@@ -429,3 +429,8 @@ final loadUserSettingsUseCaseProvider =
 final saveThemeModeUseCaseProvider = Provider<SaveThemeModeUseCase>((ref) {
   return SaveThemeModeUseCase(ref.watch(userSettingsRepositoryProvider));
 });
+
+final saveCountryCurrencyUseCaseProvider =
+    Provider<SaveCountryCurrencyUseCase>((ref) {
+  return SaveCountryCurrencyUseCase(ref.watch(userSettingsRepositoryProvider));
+});

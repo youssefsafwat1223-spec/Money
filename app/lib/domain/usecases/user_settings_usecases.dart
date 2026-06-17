@@ -51,3 +51,16 @@ class SaveThemeModeUseCase {
     return _repository.saveSettings(settings.copyWith(theme: theme));
   }
 }
+
+class SaveCountryCurrencyUseCase {
+  SaveCountryCurrencyUseCase(this._repository);
+
+  final UserSettingsRepository _repository;
+
+  Future<UserSettingsEntity> call(String country, String currency) async {
+    final settings = await _repository.getSettings();
+    return _repository.saveSettings(
+      settings.copyWith(country: country, currency: currency),
+    );
+  }
+}

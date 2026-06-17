@@ -354,4 +354,64 @@ class AppL10nAr extends AppL10n {
   @override
   String get multipleCurrenciesDesc =>
       'إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة.';
+
+  @override
+  String get continueWithoutAccount => 'أكمل بدون حساب';
+
+  @override
+  String get continueWithoutAccountSub => 'بياناتك تبقى محلية على جهازك.';
+
+  @override
+  String get smsPermissionRationaleTitle => 'محتاجين إذن قراءة رسائل البنك بس';
+
+  @override
+  String get smsPermissionRationaleBody =>
+      'مالي يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.';
+
+  @override
+  String get listeningTitle => 'جاهزين — بنستنى رسالتك الأولى';
+
+  @override
+  String get listeningSubtitle => 'اعمل أي شراء بكارتك وهيظهر هنا تلقائياً.';
+
+  @override
+  String get pasteMessageInstead => 'ألصق رسالة بنك بدلاً من كده';
+
+  @override
+  String get skipForNow => 'تخطي الآن';
+
+  @override
+  String get shortcutVerifyTitle => 'خلينا نتأكد إن الاختصار شغّال';
+
+  @override
+  String get shortcutVerifyBody =>
+      'ارجع لتطبيق Shortcuts وابعت نفسك رسالة فيها كلمة العملة، ثم ارجع هنا.';
+
+  @override
+  String get shortcutVerifyWaiting => 'بنستنى رسالة...';
+
+  @override
+  String get recheckSetup => 'راجع الإعداد';
+
+  @override
+  String get filterKeywordsLabel => 'كلمة المفتاح:';
+
+  @override
+  String get firstTxTitle => 'أول عملية اتسجّلت لوحدها!';
+
+  @override
+  String get firstTxTrustLine =>
+      'إنت معملتش حاجة — مالي قرأ رسالة بنكك وسجّلها.';
+
+  @override
+  String get firstTxContinue => 'تمام، كمّل';
+
+  @override
+  String get firstTxNeedsCheck => 'محتاجة تأكيد سريع';
+
+  @override
+  String get firstTxNeedsCheckSub => 'مالي مش متأكد 100% — راجعها بسرعة.';
+
+  @override
+  String get wrongCategoryTap => 'الفئة مش صح؟ اضغط لتغييرها';
 }

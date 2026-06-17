@@ -11,7 +11,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
-import '../../data/catalog/catalog_daos.dart';
 import '../common/mali_logo.dart';
 import 'onboarding_options.dart';
 import 'widgets/premium_ui.dart';
@@ -33,17 +32,17 @@ TextStyle _alex(double size, FontWeight weight, double height, Color color,
   );
 }
 
-class OnboardingScreen extends StatefulWidget {
+class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _pageController = PageController();
   int _currentIndex = 0;
-  static const int _pageCount = 6;
+  static const int _pageCount = 4;
 
   @override
   void dispose() {
@@ -51,14 +50,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  void _next() {
+  Future<void> _next() async {
     if (_currentIndex < _pageCount - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeOutCubic,
       );
     } else {
-      context.go('/onboarding/auth');
+      // Last page (Country) — persist selection then go to auth.
+      final country = ref.read(onboardingSelectionProvider);
+      try {
+        await ref
+            .read(saveCountryCurrencyUseCaseProvider)
+            .call(country.code, country.currencyCode);
+      } catch (_) {
+        // Non-blocking — settings have a sensible default.
+      }
+      if (mounted) context.go('/onboarding/auth');
     }
   }
 
@@ -75,11 +83,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               onPageChanged: (i) => setState(() => _currentIndex = i),
               children: const [
                 _WelcomePage(),
-                _SmsPage(),
                 _HowItWorksPage(),
-                _VaultPage(),
-                _CountryPage(),
                 _PrivacyPage(),
+                _CountryPage(),
               ],
             ),
           ),
@@ -108,7 +114,8 @@ class _TopFrame extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: c.accent.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(99),
@@ -151,7 +158,6 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isLast = index == count - 1;
 
-    // إطار زر «التالي» يطابق هوية بهاما الأزرق في الوضعين.
     final actionGradient = context.colors.primaryGradient;
     const actionForeground = Colors.white;
     final glowColor = const Color(0xFF034F73).withValues(alpha: 0.32);
@@ -253,9 +259,7 @@ class _ProgressDots extends StatelessWidget {
   }
 }
 
-// ==========================================
-// PAGES IMPLEMENTATION
-// ==========================================
+// ── Pages ────────────────────────────────────────────────────────────────────
 
 class _WelcomePage extends StatelessWidget {
   const _WelcomePage();
@@ -264,7 +268,8 @@ class _WelcomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      padding:
+          const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       children: [
         const SizedBox(height: 40),
         const Center(child: MaliLogo(size: 90, glow: false)),
@@ -305,11 +310,13 @@ class _WelcomePage extends StatelessWidget {
         const SizedBox(height: 18),
         Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: c.success.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: c.success.withValues(alpha: 0.24)),
+              border: Border.all(
+                  color: c.success.withValues(alpha: 0.24)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -438,174 +445,6 @@ class _PreviewMetric extends StatelessWidget {
   }
 }
 
-class _SmsPage extends StatelessWidget {
-  const _SmsPage();
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      children: [
-        const SizedBox(height: 16),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.l10n.effortless,
-              style: _alex(12, FontWeight.w800, 1.2, c.accent),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              context.l10n.noTyping,
-              style: _alex(24, FontWeight.w800, 1.3, c.textMain),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              context.l10n.smsReadingDesc,
-              style: _alex(14, FontWeight.w500, 1.5, c.textLight),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        GlassCard(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              _SmsTile(
-                bank: 'SNB',
-                time: context.l10n.now,
-                content: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(text: context.l10n.snbSmsText),
-                      TextSpan(
-                        text: '18.50 ${context.l10n.sar}',
-                        style: _alex(12, FontWeight.w800, 1.4, c.accent),
-                      ),
-                      TextSpan(text: context.l10n.snbSmsSuffix),
-                    ],
-                  ),
-                  style: _alex(12, FontWeight.w500, 1.4, c.textLight),
-                ),
-                isActive: false,
-              ),
-              const SizedBox(height: 12),
-              _SmsTile(
-                bank: context.l10n.alrajhi,
-                time: context.l10n.oneMinuteAgo,
-                content: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(text: context.l10n.alrajhiSmsText),
-                      TextSpan(
-                        text: '126.00 ${context.l10n.sar}',
-                        style: _alex(12, FontWeight.w800, 1.4, c.success),
-                      ),
-                      TextSpan(text: context.l10n.alrajhiSmsSuffix),
-                    ],
-                  ),
-                  style: _alex(12, FontWeight.w500, 1.4, c.textLight),
-                ),
-                isActive: true,
-              ),
-              const SizedBox(height: 16),
-              Divider(color: c.border.withValues(alpha: 0.15), height: 1),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.memory_rounded, size: 14, color: c.success),
-                      const SizedBox(width: 4),
-                      Text(
-                        context.l10n.localProcessing,
-                        style: _alex(11, FontWeight.w700, 1.2, c.success),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    context.l10n.privacyFirst,
-                    style: _alex(11, FontWeight.w700, 1.2, c.textLight),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SmsTile extends StatelessWidget {
-  const _SmsTile({
-    required this.bank,
-    required this.time,
-    required this.content,
-    required this.isActive,
-  });
-
-  final String bank;
-  final String time;
-  final Widget content;
-  final bool isActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isActive
-            ? c.accent.withValues(alpha: 0.05)
-            : c.surface.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isActive ? c.accent : Colors.white.withValues(alpha: 0.1),
-          width: isActive ? 1.5 : 1,
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child:
-                const Icon(Icons.sms_outlined, size: 14, color: Colors.white),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(bank,
-                        style: _alex(13, FontWeight.w800, 1.2, c.textMain)),
-                    Text(time,
-                        style: _alex(11, FontWeight.w600, 1.2, c.textLight)),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                content,
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _HowItWorksPage extends StatelessWidget {
   const _HowItWorksPage();
 
@@ -627,23 +466,18 @@ class _HowItWorksPage extends StatelessWidget {
     }
 
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      padding:
+          const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       children: [
         const SizedBox(height: 16),
-        Text(
-          context.l10n.howItWorks,
-          style: _alex(12, FontWeight.w800, 1.2, c.accent),
-        ),
+        Text(context.l10n.howItWorks,
+            style: _alex(12, FontWeight.w800, 1.2, c.accent)),
         const SizedBox(height: 4),
-        Text(
-          context.l10n.smsToTx,
-          style: _alex(24, FontWeight.w800, 1.3, c.textMain),
-        ),
+        Text(context.l10n.smsToTx,
+            style: _alex(24, FontWeight.w800, 1.3, c.textMain)),
         const SizedBox(height: 8),
-        Text(
-          context.l10n.howItWorksDesc,
-          style: _alex(14, FontWeight.w500, 1.5, c.textLight),
-        ),
+        Text(context.l10n.howItWorksDesc,
+            style: _alex(14, FontWeight.w500, 1.5, c.textLight)),
         const SizedBox(height: 24),
         GlassCard(
           padding: const EdgeInsets.all(18),
@@ -651,9 +485,11 @@ class _HowItWorksPage extends StatelessWidget {
             children: [
               maybeAnimate(const _MessageBubble(), delay: 80.ms),
               const SizedBox(height: 14),
-              maybeAnimate(_FlowConnector(color: c.accent), delay: 280.ms),
+              maybeAnimate(_FlowConnector(color: c.accent),
+                  delay: 280.ms),
               const SizedBox(height: 14),
-              maybeAnimate(const _ClassifiedTransactionCard(), delay: 480.ms),
+              maybeAnimate(const _ClassifiedTransactionCard(),
+                  delay: 480.ms),
               const SizedBox(height: 14),
               maybeAnimate(const _HowItWorksNote(), delay: 640.ms),
             ],
@@ -681,7 +517,8 @@ class _HowItWorksNote extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.success.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: c.success.withValues(alpha: 0.22)),
+        border:
+            Border.all(color: c.success.withValues(alpha: 0.22)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -693,10 +530,9 @@ class _HowItWorksNote extends StatelessWidget {
                 Icon(AppLucideIcons.plus, size: 14, color: c.success),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    items[i],
-                    style: _alex(11, FontWeight.w800, 1.5, c.success),
-                  ),
+                  child: Text(items[i],
+                      style:
+                          _alex(11, FontWeight.w800, 1.5, c.success)),
                 ),
               ],
             ),
@@ -730,7 +566,8 @@ class _MessageBubble extends StatelessWidget {
               color: c.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(AppLucideIcons.receipt, size: 20, color: c.primary),
+            child:
+                Icon(AppLucideIcons.receipt, size: 20, color: c.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -756,16 +593,21 @@ class _MessageBubble extends StatelessWidget {
 
 class _FlowConnector extends StatelessWidget {
   const _FlowConnector({required this.color});
-
   final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Container(width: 2, height: 18, color: color.withValues(alpha: 0.45)),
+        Container(
+            width: 2,
+            height: 18,
+            color: color.withValues(alpha: 0.45)),
         Icon(AppLucideIcons.arrowLeftRight, color: color, size: 20),
-        Container(width: 2, height: 18, color: color.withValues(alpha: 0.45)),
+        Container(
+            width: 2,
+            height: 18,
+            color: color.withValues(alpha: 0.45)),
       ],
     );
   }
@@ -819,7 +661,8 @@ class _ClassifiedTransactionCard extends StatelessWidget {
           ),
           Text(
             context.l10n.burgerBoutiqueAmount,
-            style: _alex(14, FontWeight.w800, 1.2, Colors.white, tabular: true),
+            style: _alex(14, FontWeight.w800, 1.2, Colors.white,
+                tabular: true),
           ),
         ],
       ),
@@ -827,143 +670,80 @@ class _ClassifiedTransactionCard extends StatelessWidget {
   }
 }
 
-class _VaultPage extends StatelessWidget {
-  const _VaultPage();
+class _PrivacyPage extends StatelessWidget {
+  const _PrivacyPage();
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      padding:
+          const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       children: [
         const SizedBox(height: 16),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.l10n.financialMotivation,
-              style: _alex(12, FontWeight.w800, 1.2, c.accent),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              context.l10n.saveLikeGame,
-              style: _alex(24, FontWeight.w800, 1.3, c.textMain),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              context.l10n.saveLikeGameDesc,
-              style: _alex(14, FontWeight.w500, 1.5, c.textLight),
-            ),
-          ],
-        ),
+        Text(context.l10n.completePrivacy,
+            style: _alex(12, FontWeight.w800, 1.2, c.accent)),
+        const SizedBox(height: 4),
+        Text(context.l10n.dataStaysOnDevice,
+            style: _alex(24, FontWeight.w800, 1.3, c.textMain)),
+        const SizedBox(height: 8),
+        Text(context.l10n.privacyPrinciples,
+            style: _alex(14, FontWeight.w500, 1.5, c.textLight)),
         const SizedBox(height: 24),
-        GlassCard(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.l10n.totalSavings,
-                        style: _alex(13, FontWeight.w700, 1.2, c.textLight),
-                      ),
-                      const SizedBox(height: 6),
-                      Text.rich(
-                        TextSpan(
-                          children: [
-                            const TextSpan(text: '11,250 '),
-                            TextSpan(
-                              text: context.l10n.sar,
-                              style: _alex(14, FontWeight.w600, 1, c.textMain),
-                            ),
-                          ],
-                        ),
-                        style: _alex(32, FontWeight.w800, 1.2, c.textMain),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: c.success.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.savings_outlined,
-                        color: c.success, size: 24),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: c.surface.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(16),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.flight_takeoff_rounded,
-                                size: 16, color: c.textMain),
-                            const SizedBox(width: 8),
-                            Text(
-                              context.l10n.travelVault,
-                              style:
-                                  _alex(13, FontWeight.w800, 1.2, c.textMain),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          context.l10n.completedPercent,
-                          style: _alex(12, FontWeight.w800, 1.2, c.success),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(99),
-                      child: LinearProgressIndicator(
-                        value: 0.75,
-                        backgroundColor: Colors.white.withValues(alpha: 0.1),
-                        color: c.success,
-                        minHeight: 8,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          context.l10n.goalLimit,
-                          style: _alex(11, FontWeight.w600, 1.2, c.textLight),
-                        ),
-                        Text(
-                          context.l10n.remainingAmount,
-                          style: _alex(11, FontWeight.w600, 1.2, c.textLight),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        Column(
+          children: [
+            _PrivacyTile(
+                icon: Icons.memory_rounded,
+                text: context.l10n.privacyRule1),
+            const SizedBox(height: 12),
+            _PrivacyTile(
+                icon: Icons.visibility_off_rounded,
+                text: context.l10n.privacyRule2),
+            const SizedBox(height: 12),
+            _PrivacyTile(
+                icon: Icons.delete_forever_rounded,
+                text: context.l10n.privacyRule3),
+          ],
         ),
       ],
     );
   }
 }
+
+class _PrivacyTile extends StatelessWidget {
+  const _PrivacyTile({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: c.success.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(icon, color: c.success, size: 16),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(text,
+                style: _alex(12, FontWeight.w800, 1.4, c.textMain)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Country page (S4) ───────────────────────────────────────────────────────
 
 class _CountryPage extends ConsumerStatefulWidget {
   const _CountryPage();
@@ -973,39 +753,7 @@ class _CountryPage extends ConsumerStatefulWidget {
 }
 
 class _CountryPageState extends ConsumerState<_CountryPage> {
-  int _selectedCountryIndex = 0;
-  final Set<String> _selectedExtraCurrencies = {};
-  final Set<String> _selectedSubscriptions = {};
-
-  Future<void> _selectCountry(
-    int index,
-    List<OnboardingCountry> countries,
-  ) async {
-    setState(() => _selectedCountryIndex = index);
-    final selectedCountry = countries[index];
-    try {
-      final repository = ref.read(userSettingsRepositoryProvider);
-      final settings = await repository.getSettings();
-      await repository.saveSettings(
-        settings.copyWith(
-          country: selectedCountry.code,
-          currency: selectedCountry.currencyCode,
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('لم نتمكن من حفظ البلد والعملة الآن. جرّب مرة أخرى.'),
-        ),
-      );
-    }
-  }
-
-  void _showCountryPicker(
-    BuildContext context,
-    List<OnboardingCountry> countries,
-  ) {
+  void _showCountryPicker(BuildContext context) {
     String searchQuery = '';
     showModalBottomSheet(
       context: context,
@@ -1015,7 +763,8 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final c = context.colors;
-            final filteredCountries = countries
+            final selected = ref.read(onboardingSelectionProvider);
+            final filteredCountries = onboardingCountries
                 .where((country) =>
                     country.name.contains(searchQuery) ||
                     country.currency.contains(searchQuery) ||
@@ -1069,11 +818,13 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                               horizontal: 16, vertical: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: c.border),
+                            borderSide:
+                                BorderSide(color: c.border),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: c.accent),
+                            borderSide:
+                                BorderSide(color: c.accent),
                           ),
                         ),
                       ),
@@ -1083,185 +834,20 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                         itemCount: filteredCountries.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 8),
                         itemBuilder: (context, i) {
                           final country = filteredCountries[i];
-                          final actualIndex = countries.indexOf(country);
-                          final isSelected =
-                              actualIndex == _selectedCountryIndex;
+                          final isSelected = country.code == selected.code;
                           return _CountryTile(
                             option: country,
                             selected: isSelected,
                             onTap: () {
-                              _selectCountry(actualIndex, countries);
+                              ref
+                                  .read(onboardingSelectionProvider.notifier)
+                                  .state = country;
                               setModalState(() {});
                               Navigator.pop(context);
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showExtraCurrenciesPicker(
-    BuildContext context,
-    List<OnboardingCurrency> currencies,
-  ) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final c = context.colors;
-            return BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(
-                height: MediaQuery.of(context).size.height * 0.6,
-                decoration: BoxDecoration(
-                  color: c.bg.withValues(alpha: 0.95),
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(24)),
-                  border: Border(top: BorderSide(color: c.border)),
-                ),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 12),
-                    Container(
-                      width: 38,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: c.border.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      context.l10n.additionalCurrenciesTitle,
-                      style: _alex(16, FontWeight.w800, 1.2, c.textMain),
-                    ),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Text(
-                        context.l10n.additionalCurrenciesDesc,
-                        textAlign: TextAlign.center,
-                        style: _alex(11, FontWeight.w600, 1.4, c.textLight),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                        itemCount: currencies.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final currency = currencies[i];
-                          final isSelected =
-                              _selectedExtraCurrencies.contains(currency.code);
-                          return _CurrencyTile(
-                            option: currency,
-                            selected: isSelected,
-                            onTap: () {
-                              setState(() {
-                                if (isSelected) {
-                                  _selectedExtraCurrencies
-                                      .remove(currency.code);
-                                } else {
-                                  _selectedExtraCurrencies.add(currency.code);
-                                }
-                              });
-                              setModalState(() {});
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showSubscriptionsPicker(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final c = context.colors;
-            return BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(
-                height: MediaQuery.of(context).size.height * 0.6,
-                decoration: BoxDecoration(
-                  color: c.bg.withValues(alpha: 0.95),
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(24)),
-                  border: Border(top: BorderSide(color: c.border)),
-                ),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 12),
-                    Container(
-                      width: 38,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: c.border.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      context.l10n.expectedSubscriptions,
-                      style: _alex(16, FontWeight.w800, 1.2, c.textMain),
-                    ),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Text(
-                        context.l10n.expectedSubscriptionsDesc,
-                        textAlign: TextAlign.center,
-                        style: _alex(11, FontWeight.w600, 1.4, c.textLight),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                        itemCount: subscriptionShowcase.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final sub = subscriptionShowcase[i];
-                          final isSelected =
-                              _selectedSubscriptions.contains(sub.asset);
-                          return _SubscriptionSelectionTile(
-                            option: sub,
-                            selected: isSelected,
-                            onTap: () {
-                              setState(() {
-                                if (isSelected) {
-                                  _selectedSubscriptions.remove(sub.asset);
-                                } else {
-                                  _selectedSubscriptions.add(sub.asset);
-                                }
-                              });
-                              setModalState(() {});
                             },
                           );
                         },
@@ -1280,146 +866,35 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final countryOptions = _countryOptions(
-      ref.watch(supportedCountriesProvider).valueOrNull,
-      ref.watch(activeCurrenciesProvider).valueOrNull,
-    );
-    final currencyOptions = _currencyOptions(
-      ref.watch(activeCurrenciesProvider).valueOrNull,
-    );
-    final selectedIndex = _selectedCountryIndex.clamp(
-      0,
-      countryOptions.length - 1,
-    );
-    final selectedCountry = countryOptions[selectedIndex];
-
-    final extraCurrenciesText = _selectedExtraCurrencies.isEmpty
-        ? context.l10n.none
-        : _selectedExtraCurrencies.join('، ');
-
-    final activeSubsNames = subscriptionShowcase
-        .where((sub) => _selectedSubscriptions.contains(sub.asset))
-        .map((sub) => sub.name)
-        .toList();
-    final subscriptionsText = activeSubsNames.isEmpty
-        ? context.l10n.noActiveSubs
-        : activeSubsNames.join('، ');
+    final selectedCountry = ref.watch(onboardingSelectionProvider);
 
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      padding:
+          const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       children: [
         const SizedBox(height: 16),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.l10n.easyToUse,
-              style: _alex(12, FontWeight.w800, 1.2, c.accent),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              context.l10n.selectCountryCurrency,
-              style: _alex(24, FontWeight.w800, 1.3, c.textMain),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              context.l10n.selectCountryDesc,
-              style: _alex(14, FontWeight.w500, 1.5, c.textLight),
-            ),
-          ],
-        ),
+        Text(context.l10n.easyToUse,
+            style: _alex(12, FontWeight.w800, 1.2, c.accent)),
+        const SizedBox(height: 4),
+        Text(context.l10n.selectCountryCurrency,
+            style: _alex(24, FontWeight.w800, 1.3, c.textMain)),
+        const SizedBox(height: 8),
+        Text(context.l10n.selectCountryDesc,
+            style: _alex(14, FontWeight.w500, 1.5, c.textLight)),
         const SizedBox(height: 24),
         GlassCard(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SelectionTile(
-                title: context.l10n.mainCountryCurrency,
-                subtitle:
-                    '${selectedCountry.localizedName(context)} · ${selectedCountry.currencyCode} (${selectedCountry.localizedCurrency(context)})',
-                icon: _FlagAvatar(code: selectedCountry.code, size: 36),
-                onTap: () => _showCountryPicker(context, countryOptions),
-              ),
-              const SizedBox(height: 12),
-              _SelectionTile(
-                title: context.l10n.additionalCurrencies,
-                subtitle: extraCurrenciesText,
-                icon: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: c.accent.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.currency_exchange_rounded,
-                      color: c.accent, size: 18),
-                ),
-                onTap: () =>
-                    _showExtraCurrenciesPicker(context, currencyOptions),
-              ),
-              const SizedBox(height: 12),
-              _SelectionTile(
-                title: context.l10n.activeSubscriptions,
-                subtitle: subscriptionsText,
-                icon: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: c.accent.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.subscriptions_outlined,
-                      color: c.accent, size: 18),
-                ),
-                onTap: () => _showSubscriptionsPicker(context),
-              ),
-            ],
+          child: _SelectionTile(
+            title: context.l10n.mainCountryCurrency,
+            subtitle:
+                '${selectedCountry.localizedName(context)} · ${selectedCountry.currencyCode} (${selectedCountry.localizedCurrency(context)})',
+            icon: _FlagAvatar(code: selectedCountry.code, size: 36),
+            onTap: () => _showCountryPicker(context),
           ),
         ),
         const SizedBox(height: 20),
       ],
     );
-  }
-
-  List<OnboardingCountry> _countryOptions(
-    List<RemoteCountry>? countries,
-    List<RemoteCurrency>? currencies,
-  ) {
-    if (countries == null || countries.isEmpty || currencies == null) {
-      return onboardingCountries;
-    }
-    final options = <OnboardingCountry>[];
-    for (final country in countries) {
-      RemoteCurrency? primaryCurrency;
-      for (final currency in currencies) {
-        if (currency.countryCodes.contains(country.code)) {
-          primaryCurrency = currency;
-          break;
-        }
-      }
-      options.add(
-        OnboardingCountry(
-          code: country.code.toLowerCase(),
-          name: country.nameAr,
-          currency: primaryCurrency?.nameAr ?? country.nameAr,
-          currencyCode: primaryCurrency?.code ?? 'USD',
-        ),
-      );
-    }
-    return options.isEmpty ? onboardingCountries : options;
-  }
-
-  List<OnboardingCurrency> _currencyOptions(List<RemoteCurrency>? currencies) {
-    if (currencies == null || currencies.isEmpty) return onboardingCurrencies;
-    return currencies
-        .map(
-          (currency) => OnboardingCurrency(
-            code: currency.code,
-            name: currency.nameAr,
-          ),
-        )
-        .toList(growable: false);
   }
 }
 
@@ -1447,7 +922,8 @@ class _SelectionTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: c.surface.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: c.border.withValues(alpha: 0.08)),
+          border: Border.all(
+              color: c.border.withValues(alpha: 0.08)),
         ),
         child: Row(
           children: [
@@ -1457,15 +933,13 @@ class _SelectionTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: _alex(13, FontWeight.w800, 1.2, c.textMain),
-                  ),
+                  Text(title,
+                      style:
+                          _alex(13, FontWeight.w800, 1.2, c.textMain)),
                   const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: _alex(11, FontWeight.w600, 1.3, c.textLight),
-                  ),
+                  Text(subtitle,
+                      style:
+                          _alex(11, FontWeight.w600, 1.3, c.textLight)),
                 ],
               ),
             ),
@@ -1483,85 +957,8 @@ class _SelectionTile extends StatelessWidget {
   }
 }
 
-class _SubscriptionSelectionTile extends StatelessWidget {
-  const _SubscriptionSelectionTile({
-    required this.option,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final SubscriptionShowcase option;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected
-              ? c.accent.withValues(alpha: 0.12)
-              : c.surface.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? c.accent.withValues(alpha: 0.36) : c.border,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: option.brandColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              alignment: Alignment.center,
-              child: SvgPicture.asset(
-                'assets/brands/${option.asset}.svg',
-                width: 22,
-                height: 22,
-                colorFilter:
-                    ColorFilter.mode(option.brandColor, BlendMode.srcIn),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(option.name,
-                      style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
-                  const SizedBox(height: 4),
-                  Text(option.localizedPrice(context),
-                      style: _alex(10, FontWeight.w700, 1.2, c.textLight,
-                          tabular: true)),
-                ],
-              ),
-            ),
-            Checkbox(
-              value: selected,
-              onChanged: (_) => onTap(),
-              activeColor: c.accent,
-              checkColor: c.primary,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(4)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _FlagAvatar extends StatelessWidget {
   const _FlagAvatar({required this.code, this.size = 30});
-
   final String code;
   final double size;
 
@@ -1575,7 +972,8 @@ class _FlagAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.surface,
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+        border: Border.all(
+            color: Colors.white.withValues(alpha: 0.72)),
         boxShadow: [
           BoxShadow(
             color: c.primary.withValues(alpha: 0.12),
@@ -1621,7 +1019,9 @@ class _CountryTile extends StatelessWidget {
               : c.surface.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected ? c.accent.withValues(alpha: 0.36) : c.border,
+            color: selected
+                ? c.accent.withValues(alpha: 0.36)
+                : c.border,
           ),
         ),
         child: Row(
@@ -1653,160 +1053,11 @@ class _CountryTile extends StatelessWidget {
   }
 }
 
-class _CurrencyTile extends StatelessWidget {
-  const _CurrencyTile({
-    required this.option,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final OnboardingCurrency option;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: c.accent.withValues(alpha: selected ? 0.16 : 0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: c.accent.withValues(alpha: selected ? 0.34 : 0.16)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: selected ? c.accent : c.surface2,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                option.code.characters.first,
-                style: _alex(12, FontWeight.w800, 1.2,
-                    selected ? c.primary : c.textLight),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(option.localizedName(context),
-                  style: _alex(12, FontWeight.w800, 1.2, c.textMain)),
-            ),
-            Text(
-              option.code,
-              style: _alex(
-                  11, FontWeight.w800, 1.2, selected ? c.accent : c.textLight,
-                  tabular: true),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class KsaFlagIcon extends StatelessWidget {
   const KsaFlagIcon({super.key});
 
   @override
   Widget build(BuildContext context) {
     return const _FlagAvatar(code: 'sa', size: 40);
-  }
-}
-
-class _PrivacyPage extends StatelessWidget {
-  const _PrivacyPage();
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      children: [
-        const SizedBox(height: 16),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.l10n.completePrivacy,
-              style: _alex(12, FontWeight.w800, 1.2, c.accent),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              context.l10n.dataStaysOnDevice,
-              style: _alex(24, FontWeight.w800, 1.3, c.textMain),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              context.l10n.privacyPrinciples,
-              style: _alex(14, FontWeight.w500, 1.5, c.textLight),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Column(
-          children: [
-            _PrivacyTile(
-              icon: Icons.memory_rounded,
-              text: context.l10n.privacyRule1,
-            ),
-            const SizedBox(height: 12),
-            _PrivacyTile(
-              icon: Icons.visibility_off_rounded,
-              text: context.l10n.privacyRule2,
-            ),
-            const SizedBox(height: 12),
-            _PrivacyTile(
-              icon: Icons.delete_forever_rounded,
-              text: context.l10n.privacyRule3,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _PrivacyTile extends StatelessWidget {
-  const _PrivacyTile({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return GlassCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: c.success.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Icon(icon, color: c.success, size: 16),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              text,
-              style: _alex(12, FontWeight.w800, 1.4, c.textMain),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

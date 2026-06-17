@@ -15,15 +15,22 @@ import '../transactions/transactions_providers.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 
 class ManualPasteScreen extends ConsumerStatefulWidget {
-  const ManualPasteScreen({super.key});
+  const ManualPasteScreen({super.key, this.onTransactionAdded});
 
-  static Future<void> showSheet(BuildContext context) {
+  final ValueChanged<String>? onTransactionAdded;
+
+  /// When [onTransactionAdded] is provided, the sheet calls it with the
+  /// transaction id instead of opening the confirm sheet inline.
+  static Future<void> showSheet(
+    BuildContext context, {
+    ValueChanged<String>? onTransactionAdded,
+  }) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const _ManualPasteSheet(),
+      builder: (_) => _ManualPasteSheet(onTransactionAdded: onTransactionAdded),
     );
   }
 
@@ -32,7 +39,9 @@ class ManualPasteScreen extends ConsumerStatefulWidget {
 }
 
 class _ManualPasteSheet extends StatelessWidget {
-  const _ManualPasteSheet();
+  const _ManualPasteSheet({this.onTransactionAdded});
+
+  final ValueChanged<String>? onTransactionAdded;
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +102,7 @@ class _ManualPasteSheet extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Expanded(child: _ManualPasteContent(fullScreen: false)),
+                Expanded(child: _ManualPasteContent(fullScreen: false, onTransactionAdded: onTransactionAdded)),
               ],
             ),
           ),
@@ -105,13 +114,14 @@ class _ManualPasteSheet extends StatelessWidget {
 
 class _ManualPasteScreenState extends ConsumerState<ManualPasteScreen> {
   @override
-  Widget build(BuildContext context) => const _ManualPasteContent();
+  Widget build(BuildContext context) => _ManualPasteContent(onTransactionAdded: widget.onTransactionAdded);
 }
 
 class _ManualPasteContent extends ConsumerStatefulWidget {
-  const _ManualPasteContent({this.fullScreen = true});
+  const _ManualPasteContent({this.fullScreen = true, this.onTransactionAdded});
 
   final bool fullScreen;
+  final ValueChanged<String>? onTransactionAdded;
 
   @override
   ConsumerState<_ManualPasteContent> createState() =>
@@ -158,8 +168,14 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
       case AddTransactionOutcome.added:
         refreshTransactions(ref);
         ref.invalidate(dashboardDataProvider);
-        await showConfirmTransactionSheet(context, addResult.transaction!.id);
-        if (mounted) Navigator.of(context).pop();
+        final txId = addResult.transaction!.id;
+        if (widget.onTransactionAdded != null) {
+          if (mounted) Navigator.of(context).pop();
+          widget.onTransactionAdded!(txId);
+        } else {
+          await showConfirmTransactionSheet(context, txId);
+          if (mounted) Navigator.of(context).pop();
+        }
       case AddTransactionOutcome.duplicate:
         _snack('هذه العملية مسجّلة بالفعل.');
       case AddTransactionOutcome.notTransaction:

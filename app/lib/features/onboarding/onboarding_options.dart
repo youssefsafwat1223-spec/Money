@@ -1,4 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Riverpod provider holding the country the user picked in S4.
+/// Written by _CountryPage, read by method_screen for iOS keyword injection.
+final onboardingSelectionProvider = StateProvider<OnboardingCountry>(
+  (_) => onboardingCountries.first, // default: Saudi Arabia
+);
+
+/// Returns the SMS filter keywords for a given currency code.
+/// Used in the iOS Shortcut wizard to inject the correct keyword.
+List<String> currencyKeywords(String currencyCode) {
+  switch (currencyCode) {
+    case 'SAR':
+      return ['SAR', 'ريال', 'ر.س'];
+    case 'AED':
+      return ['AED', 'درهم', 'د.إ'];
+    case 'EGP':
+      return ['EGP', 'جنيه', 'ج.م'];
+    case 'KWD':
+      return ['KWD', 'دينار'];
+    case 'QAR':
+      return ['QAR', 'ريال'];
+    case 'BHD':
+      return ['BHD', 'دينار'];
+    case 'OMR':
+      return ['OMR', 'ريال'];
+    case 'JOD':
+      return ['JOD', 'دينار'];
+    default:
+      return [currencyCode];
+  }
+}
 
 class OnboardingCountry {
   const OnboardingCountry({

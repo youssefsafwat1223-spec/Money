@@ -112,5 +112,29 @@
   "iosShortcutSubtitle": "Due to iOS limitations, we use Apple's official Shortcuts app to pass bank messages to Mali automatically and securely.",
   "stepsLabel": "Steps:",
   "multipleCurrenciesQuestion": "Deal with multiple currencies?",
-  "multipleCurrenciesDesc": "If you receive bank messages in different currencies, repeat the same steps for each currency."
+  "multipleCurrenciesDesc": "If you receive bank messages in different currencies, repeat the same steps for each currency.",
+
+  "continueWithoutAccount": "Continue without account",
+  "continueWithoutAccountSub": "Your data stays local on your device.",
+
+  "smsPermissionRationaleTitle": "We just need permission to read bank messages",
+  "smsPermissionRationaleBody": "Mali reads bank SMS on your device only to log your transactions automatically. We don't read personal messages and nothing leaves your phone.",
+
+  "listeningTitle": "Armed — waiting for your first message",
+  "listeningSubtitle": "Make any card purchase and it will appear here automatically.",
+  "pasteMessageInstead": "Paste a bank message instead",
+  "skipForNow": "Skip for now",
+
+  "shortcutVerifyTitle": "Let's confirm the Shortcut works",
+  "shortcutVerifyBody": "Go back to the Shortcuts app, send yourself a message with your currency keyword, then come back here.",
+  "shortcutVerifyWaiting": "Waiting for a message...",
+  "recheckSetup": "Re-check setup",
+  "filterKeywordsLabel": "Keyword:",
+
+  "firstTxTitle": "First transaction — captured automatically!",
+  "firstTxTrustLine": "You did nothing — Mali read your bank's SMS and logged it.",
+  "firstTxContinue": "Continue",
+  "firstTxNeedsCheck": "Needs a quick check",
+  "firstTxNeedsCheckSub": "Mali isn't 100% sure — review it quickly.",
+  "wrongCategoryTap": "Wrong category? Tap to change it"
 }
