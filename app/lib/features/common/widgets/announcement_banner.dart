@@ -6,6 +6,7 @@ import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/app_lucide_icons.dart';
 import '../../../data/catalog/catalog_daos.dart';
 
 class AnnouncementBanner extends ConsumerWidget {
@@ -16,7 +17,6 @@ class AnnouncementBanner extends ConsumerWidget {
     final announcementsAsync = ref.watch(activeAnnouncementsProvider);
     return announcementsAsync.when(
       data: (announcements) {
-        // Filter out force_update here — those are handled by ForceUpdateScreen.
         final visible = announcements
             .where((a) => !a.isForceUpdate && !a.isDismissed)
             .toList();
@@ -38,51 +38,153 @@ class _BannerTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = Theme.of(context).extension<AppColors>()!;
-    final bg = switch (announcement.severity) {
-      'warning' => c.warning.withValues(alpha: 0.15),
-      'maintenance' => c.accent.withValues(alpha: 0.12),
-      _ => c.primary.withValues(alpha: 0.10),
-    };
-    final textColor = switch (announcement.severity) {
+    final accent = switch (announcement.severity) {
       'warning' => c.warning,
       'maintenance' => c.accent,
-      _ => c.primary,
+      _ => c.cta,
     };
+    final icon = switch (announcement.severity) {
+      'warning' => AppLucideIcons.alertTriangle,
+      'maintenance' => AppLucideIcons.wrench,
+      _ => AppLucideIcons.zap,
+    };
+    final body = announcement.bodyAr?.trim();
+    final hasBody = body != null && body.isNotEmpty;
+    final actionLabel = announcement.actionLabelAr?.trim();
+    final hasAction = announcement.actionUrl != null &&
+        actionLabel != null &&
+        actionLabel.isNotEmpty;
 
-    return Material(
-      color: bg,
-      child: InkWell(
-        onTap: announcement.actionUrl != null
-            ? () => _handleTap(context, announcement.actionUrl!)
-            : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.gutter,
-            vertical: AppSpacing.s2,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  announcement.titleAr,
-                  style: AppTypography.caption(textColor).copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s2,
+        AppSpacing.gutter,
+        0,
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Material(
+          color: c.surface.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: announcement.actionUrl != null
+                ? () => _handleTap(context, announcement.actionUrl!)
+                : null,
+            child: Stack(
+              children: [
+                PositionedDirectional(
+                  top: 0,
+                  bottom: 0,
+                  start: 0,
+                  child: Container(width: 5, color: accent),
                 ),
-              ),
-              if (announcement.isDismissible) ...[
-                const SizedBox(width: AppSpacing.s2),
-                GestureDetector(
-                  onTap: () => ref
-                      .read(announcementServiceProvider)
-                      .dismiss(announcement.id)
-                      .then((_) => ref.invalidate(activeAnnouncementsProvider)),
-                  child: Icon(Icons.close, size: 16, color: textColor),
+                Padding(
+                  padding: const EdgeInsetsDirectional.fromSTEB(
+                    AppSpacing.s4,
+                    AppSpacing.s3,
+                    AppSpacing.s3,
+                    AppSpacing.s3,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.13),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          border: Border.all(
+                            color: accent.withValues(alpha: 0.22),
+                          ),
+                        ),
+                        child: Icon(icon, size: 20, color: accent),
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              announcement.titleAr,
+                              style: AppTypography.bodyStrong(c.textPrimary),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (hasBody) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                body,
+                                style: AppTypography.footnote(c.textSecondary),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                            if (hasAction) ...[
+                              const SizedBox(height: AppSpacing.s2),
+                              Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.s3,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: accent.withValues(alpha: 0.12),
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadius.pill),
+                                  ),
+                                  child: Text(
+                                    actionLabel,
+                                    style: AppTypography.caption(accent)
+                                        .copyWith(fontWeight: FontWeight.w800),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (announcement.isDismissible) ...[
+                        const SizedBox(width: AppSpacing.s2),
+                        SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () => ref
+                                .read(announcementServiceProvider)
+                                .dismiss(announcement.id)
+                                .then(
+                                  (_) => ref
+                                      .invalidate(activeAnnouncementsProvider),
+                                ),
+                            icon: Icon(
+                              Icons.close_rounded,
+                              size: 18,
+                              color: c.textMuted,
+                            ),
+                            tooltip: 'إخفاء',
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -91,8 +193,6 @@ class _BannerTile extends ConsumerWidget {
 
   void _handleTap(BuildContext context, String url) {
     if (url.startsWith('/')) {
-      // Internal route — use GoRouter
-      // ignore: use_build_context_synchronously
       Navigator.of(context).pushNamed(url);
     } else {
       launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);

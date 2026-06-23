@@ -53,64 +53,115 @@ class CategoryDonutChart extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.card),
         border: Border.all(color: c.border),
       ),
-      child: Row(
-        children: [
-          SizedBox(
-            height: height,
-            width: height * 0.72,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                PieChart(
-                  PieChartData(
-                    centerSpaceRadius: height * 0.19,
-                    sectionsSpace: 3,
-                    startDegreeOffset: -90,
-                    sections: [
-                      for (final slice in slices)
-                        PieChartSectionData(
-                          value: math.max(slice.total, 0.01),
-                          color: slice.category.color,
-                          radius: height * 0.13,
-                          showTitle: false,
-                        ),
-                    ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 260;
+          final chartSize = math.min(
+            height,
+            compact ? constraints.maxWidth.clamp(96.0, 160.0) : height * 0.72,
+          );
+          final chart = SizedBox(
+            height: chartSize,
+            width: chartSize,
+            child: _Donut(
+              slices: slices,
+              size: chartSize,
+              centerLabelColor: c.textPrimary,
+              centerCaptionColor: c.textMuted,
+            ),
+          );
+          final legend = Column(
+            children: [
+              for (final slice in slices)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+                  child: _LegendRow(
+                    slice: slice,
+                    currencyLabel: currencyLabel,
                   ),
                 ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${(slices.first.percent * 100).round()}%',
-                      style: AppTypography.bodyStrong(c.textMain),
-                    ),
-                    Text(
-                      slices.first.category.nameAr,
-                      style: AppTypography.caption(c.textLight),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Column(
+            ],
+          );
+
+          if (compact) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                for (final slice in slices)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                    child: _LegendRow(
-                      slice: slice,
-                      currencyLabel: currencyLabel,
-                    ),
-                  ),
+                chart,
+                const SizedBox(height: AppSpacing.s3),
+                legend,
               ],
-            ),
-          ),
-        ],
+            );
+          }
+
+          return Row(
+            children: [
+              chart,
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(child: legend),
+            ],
+          );
+        },
       ),
+    );
+  }
+}
+
+class _Donut extends StatelessWidget {
+  const _Donut({
+    required this.slices,
+    required this.size,
+    required this.centerLabelColor,
+    required this.centerCaptionColor,
+  });
+
+  final List<SpendingChartSlice> slices;
+  final double size;
+  final Color centerLabelColor;
+  final Color centerCaptionColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        PieChart(
+          PieChartData(
+            centerSpaceRadius: size * 0.26,
+            sectionsSpace: 3,
+            startDegreeOffset: -90,
+            sections: [
+              for (final slice in slices)
+                PieChartSectionData(
+                  value: math.max(slice.total, 0.01),
+                  color: slice.category.color,
+                  radius: size * 0.18,
+                  showTitle: false,
+                ),
+            ],
+          ),
+        ),
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: size * 0.52),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${(slices.first.percent * 100).round()}%',
+                style: AppTypography.bodyStrong(centerLabelColor),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              Text(
+                slices.first.category.nameAr,
+                style: AppTypography.caption(centerCaptionColor),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -120,10 +171,14 @@ class DailySpendBarChart extends StatelessWidget {
     super.key,
     required this.values,
     this.height = 180,
+    this.selectedIndex,
+    this.onBarTap,
   });
 
   final List<double> values;
   final double height;
+  final int? selectedIndex;
+  final ValueChanged<int>? onBarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -138,6 +193,17 @@ class DailySpendBarChart extends StatelessWidget {
         BarChartData(
           maxY: maxValue * 1.2,
           alignment: BarChartAlignment.spaceBetween,
+          barTouchData: BarTouchData(
+            enabled: onBarTap != null,
+            touchCallback: (event, response) {
+              if (!event.isInterestedForInteractions) return;
+              final index = response?.spot?.touchedBarGroupIndex;
+              if (index == null || index < 0 || index >= safeValues.length) {
+                return;
+              }
+              onBarTap?.call(index);
+            },
+          ),
           gridData: FlGridData(
             show: true,
             drawVerticalLine: false,
@@ -166,7 +232,7 @@ class DailySpendBarChart extends StatelessWidget {
                   }
                   return Text(
                     '${index + 1}',
-                    style: AppTypography.caption(c.textLight)
+                    style: AppTypography.caption(c.textMuted)
                         .copyWith(fontSize: 10),
                   );
                 },
@@ -182,9 +248,9 @@ class DailySpendBarChart extends StatelessWidget {
                     toY: safeValues[i],
                     width: safeValues.length > 18 ? 7 : 11,
                     borderRadius: BorderRadius.circular(AppRadius.pill),
-                    color: c.primary,
+                    color: selectedIndex == i ? c.accent : c.primary,
                     backDrawRodData: BackgroundBarChartRodData(
-                      show: true,
+                      show: false,
                       toY: maxValue * 1.2,
                       color: c.surface2,
                     ),
@@ -274,11 +340,11 @@ class _LegendRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(slice.category.nameAr,
-                  style: AppTypography.caption(c.textMain)),
+                  style: AppTypography.caption(c.textPrimary)),
               const SizedBox(height: 2),
               Text(
                 '${Formatters.amount(slice.total)} $currencyLabel',
-                style: AppTypography.caption(c.textLight),
+                style: AppTypography.caption(c.textMuted),
               ),
             ],
           ),
@@ -311,9 +377,9 @@ class _EmptyChartCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: AppTypography.bodyStrong(c.textMain)),
+          Text(title, style: AppTypography.bodyStrong(c.textPrimary)),
           const SizedBox(height: AppSpacing.s2),
-          Text(body, style: AppTypography.caption(c.textLight)),
+          Text(body, style: AppTypography.caption(c.textMuted)),
         ],
       ),
     );

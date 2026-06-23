@@ -7,6 +7,24 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
 import 'category_catalog.dart';
 
+export 'app_budget_progress_card.dart';
+export 'app_button.dart';
+export 'app_card.dart';
+export 'app_category_chip.dart';
+export 'app_empty_state.dart';
+export 'app_header.dart';
+export 'app_insight_card.dart';
+export 'app_loading_state.dart';
+export 'app_metric_card.dart';
+export 'app_pill_tab_bar.dart';
+export 'app_screen_scaffold.dart';
+export 'app_sheet_scaffold.dart';
+export 'app_transaction_row.dart';
+export 'charts/spending_charts.dart';
+export 'section_hero_header.dart';
+export 'vault_widget.dart';
+export 'widgets/announcement_banner.dart';
+
 /// دائرة تعرض شعار التاجر (الحرف الأول) أو أيقونة التصنيف.
 class CategoryAvatar extends StatelessWidget {
   const CategoryAvatar({
@@ -50,7 +68,7 @@ class CategoryAvatar extends StatelessWidget {
       child: initial != null
           ? Text(
               initial,
-              style: AppTypography.title2(c.textMain).copyWith(
+              style: AppTypography.title2(c.textPrimary).copyWith(
                 fontWeight: FontWeight.bold,
                 fontSize: size * 0.45,
               ),
@@ -85,7 +103,7 @@ class TransactionRow extends StatelessWidget {
     final isIncome = transaction.type == TransactionTypeEntity.income ||
         transaction.type == TransactionTypeEntity.refund;
 
-    final amountColor = isIncome ? c.success : c.textMain;
+    final amountColor = isIncome ? c.success : c.textPrimary;
     final pending = transaction.status == TransactionStatus.pending;
 
     return Container(
@@ -124,7 +142,7 @@ class TransactionRow extends StatelessWidget {
                                   category?.nameAr ??
                                   'عملية',
                               style:
-                                  AppTypography.bodyStrong(c.textMain).copyWith(
+                                  AppTypography.bodyStrong(c.textPrimary).copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
                               maxLines: 1,
@@ -137,14 +155,38 @@ class TransactionRow extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: c.textLight.withValues(alpha: 0.1),
+                                color: c.warning.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 'معلّقة',
-                                style: AppTypography.caption(c.textLight).copyWith(
-                                  fontSize: 9.0,
+                                style: AppTypography.caption(c.warning).copyWith(
+                                  fontSize: 11.0,
                                   fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (transaction.source ==
+                              TransactionSourceEntity.aiParsed) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: c.accent.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: c.accent.withValues(alpha: 0.35),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                'AI',
+                                style: AppTypography.caption(c.accent).copyWith(
+                                  fontSize: 11.0,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5,
                                 ),
                               ),
                             ),
@@ -154,7 +196,7 @@ class TransactionRow extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         '${category?.nameAr ?? '—'} · ${Formatters.time(transaction.occurredAt)}',
-                        style: AppTypography.caption(c.textLight),
+                        style: AppTypography.caption(c.textMuted),
                       ),
                     ],
                   ),

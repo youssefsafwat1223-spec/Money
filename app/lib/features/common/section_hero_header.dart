@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_gradients.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
@@ -28,16 +29,7 @@ class SectionHeroHeader extends StatelessWidget {
         AppSpacing.s6,
       ),
       decoration: const BoxDecoration(
-        // تدرّج بهاما الأزرق الموحّد (مطابق للـ dashboard) — يشتغل في الفاتح والداكن.
-        gradient: LinearGradient(
-          colors: [
-            Color(0xFF046E9B),
-            Color(0xFF034E73),
-            Color(0xFF012438),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
+        gradient: AppGradients.heroHeader,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(34)),
         boxShadow: [
           BoxShadow(
