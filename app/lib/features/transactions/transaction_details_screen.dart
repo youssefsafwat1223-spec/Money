@@ -9,6 +9,12 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../common/category_catalog.dart';
 import '../common/widgets.dart';
+import '../common/app_sheet_scaffold.dart';
+import '../common/app_screen_scaffold.dart';
+import '../common/app_header.dart';
+import '../common/app_card.dart';
+import '../common/app_category_chip.dart';
+import '../common/app_button.dart';
 import 'manual_transaction_sheet.dart';
 import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
@@ -48,9 +54,7 @@ class TransactionDetailsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      body: SafeArea(child: _TransactionDetailsContent(transactionId: transactionId, isSheet: false)),
-    );
+    return _TransactionDetailsContent(transactionId: transactionId, isSheet: false);
   }
 }
 
@@ -61,36 +65,9 @@ class _TransactionDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Material(
-            color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
-            shape: RoundedRectangleBorder(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              side: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
-            child: Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.92,
-              ),
-              child: _TransactionDetailsContent(transactionId: transactionId, isSheet: true),
-            ),
-          ),
-        ),
-      ),
-    );
+    return _TransactionDetailsContent(transactionId: transactionId, isSheet: true);
   }
 }
-
 
 class _TransactionDetailsContent extends ConsumerWidget {
   const _TransactionDetailsContent({required this.transactionId, required this.isSheet});
@@ -106,214 +83,159 @@ class _TransactionDetailsContent extends ConsumerWidget {
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
 
     return txAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+      loading: () => _buildScaffold(context, c, const Center(child: CircularProgressIndicator())),
+      error: (e, _) => _buildScaffold(context, c, Center(child: Text('حدث خطأ: $e'))),
       data: (tx) {
         if (tx == null) {
-          return const Center(child: Text('العملية غير موجودة'));
+          return _buildScaffold(context, c, const Center(child: Text('العملية غير موجودة')));
         }
+        
         final category = catalog?.byId(tx.categoryId);
-        final containerColor = isDark
-            ? c.surface2.withValues(alpha: 0.4)
-            : c.surface2.withValues(alpha: 0.6);
-        final containerBorderColor = c.border.withValues(alpha: 0.5);
+        final editButton = IconButton(
+          onPressed: () => ManualTransactionSheet.show(
+            context,
+            transaction: tx,
+          ),
+          icon: Icon(Icons.edit_outlined, color: c.textPrimary),
+        );
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
+        final body = ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s2,
+            AppSpacing.gutter,
+            AppSpacing.s6,
+          ),
           children: [
-            if (isSheet) ...[
-              // Drag handle
-              Container(
-                margin: const EdgeInsets.only(top: 12, bottom: 8),
-                width: 40,
-                height: 4.5,
-                decoration: BoxDecoration(
-                  color: c.textLight.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2.5),
-                ),
-              ),
-            ],
-            // Top Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.gutter,
-                vertical: AppSpacing.s2,
-              ),
-              child: Row(
+            // Hero section (Avatar & Amount)
+            Center(
+              child: Column(
                 children: [
-                  IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: Icon(Icons.close, color: c.textMain),
-                    style: IconButton.styleFrom(
-                      backgroundColor: isDark ? c.surface2 : c.bg,
-                      padding: const EdgeInsets.all(8),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: c.primary.withValues(alpha: 0.1),
+                        width: 2,
+                      ),
                     ),
+                    child: CategoryAvatar(category: category, size: 78),
                   ),
-                  Expanded(
-                    child: Text(
-                      'تفاصيل العملية',
+                  const SizedBox(height: AppSpacing.s3),
+                  AnimatedAmountText(
+                    amount: tx.amount,
+                    color: tx.type == TransactionTypeEntity.expense ? c.danger : c.success,
+                    suffix: ' ${tx.currency}',
+                    style: AppTypography.amountHero(c.textPrimary),
+                  ),
+                  if (tx.rawMerchant != null) ...[
+                    const SizedBox(height: AppSpacing.s1),
+                    Text(
+                      tx.rawMerchant!,
                       textAlign: TextAlign.center,
-                      style: AppTypography.headline(c.textMain),
+                      style: AppTypography.headline(c.textPrimary).copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    onPressed: () => ManualTransactionSheet.show(
-                      context,
-                      transaction: tx,
-                    ),
-                    icon: Icon(Icons.edit_outlined, color: c.textMain),
-                    style: IconButton.styleFrom(
-                      backgroundColor: isDark ? c.surface2 : c.bg,
-                      padding: const EdgeInsets.all(8),
-                    ),
-                  ),
+                  ],
                 ],
               ),
             ),
-            Divider(height: 1, color: c.border),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s4,
-                  AppSpacing.gutter,
-                  AppSpacing.s6,
-                ),
+            const SizedBox(height: AppSpacing.s6),
+            
+            // Details Card
+            AppCard(
+              padding: EdgeInsets.zero,
+              child: Column(
                 children: [
-                  // Hero section (Avatar & Amount)
-                  Center(
-                    child: Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: c.primary.withValues(alpha: 0.1),
-                              width: 2,
-                            ),
+                  _buildDetailRow(
+                    context,
+                    'التصنيف',
+                    category?.nameAr ?? 'غير مصنّف',
+                    trailing: catalog == null
+                        ? null
+                        : AppButton(
+                            label: 'تغيير',
+                            onPressed: () => showChangeCategorySheet(context, tx, catalog),
+                            isPrimary: false,
+                            height: 32,
                           ),
-                          child: CategoryAvatar(category: category, size: 78),
-                        ),
-                        const SizedBox(height: AppSpacing.s3),
-                        AnimatedAmountText(
-                          amount: tx.amount,
-                          color: c.textMain,
-                          suffix: ' ${tx.currency}',
-                          style: AppTypography.amountHero(c.textMain),
-                        ),
-                        if (tx.rawMerchant != null) ...[
-                          const SizedBox(height: AppSpacing.s1),
-                          Text(
-                            tx.rawMerchant!,
-                            textAlign: TextAlign.center,
-                            style: AppTypography.headline(c.textMain).copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
                   ),
-                  const SizedBox(height: AppSpacing.s6),
-                  
-                  // Details Card
-                  Container(
-                    decoration: BoxDecoration(
-                      color: containerColor,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: containerBorderColor, width: 1),
-                    ),
-                    child: Column(
-                      children: [
-                        _buildDetailRow(
-                          context,
-                          'التصنيف',
-                          category?.nameAr ?? 'غير مصنّف',
-                          trailing: catalog == null
-                              ? null
-                              : _buildChangeButton(context, tx, catalog),
-                        ),
-                        _divider(c),
-                        _buildDetailRow(
-                          context,
-                          'النوع',
-                          TransactionDetailsScreen._typeLabels[tx.type] ?? '—',
-                        ),
-                        _divider(c),
-                        _buildDetailRow(
-                          context,
-                          'المصدر',
-                          '${TransactionDetailsScreen._sourceLabels[tx.source] ?? '—'}${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}',
-                        ),
-                        _divider(c),
-                        _buildDetailRow(
-                          context,
-                          'التاريخ',
-                          '${Formatters.fullDate(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
-                        ),
-                        if (tx.foreignAmount != null &&
-                            tx.foreignCurrency != null) ...[
-                          _divider(c),
-                          _buildDetailRow(
-                            context,
-                            'بالعملة الأصلية',
-                            '${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency!}',
-                          ),
-                        ],
-                        if (tx.balanceAfter != null) ...[
-                          _divider(c),
-                          _buildDetailRow(
-                            context,
-                            'الرصيد بعد',
-                            '${Formatters.amount(tx.balanceAfter!)} ${tx.currency}',
-                          ),
-                        ],
-                        if (tx.note != null && tx.note!.isNotEmpty) ...[
-                          _divider(c),
-                          _buildDetailRow(
-                            context,
-                            'ملاحظة',
-                            tx.note!,
-                          ),
-                        ],
-                        if (tx.status == TransactionStatus.pending) ...[
-                          _divider(c),
-                          _buildDetailRow(
-                            context,
-                            'الحالة',
-                            _pendingLabel(tx.createdAt),
-                            isPending: true,
-                          ),
-                        ],
-                      ],
-                    ),
+                  _divider(c),
+                  _buildDetailRow(
+                    context,
+                    'النوع',
+                    TransactionDetailsScreen._typeLabels[tx.type] ?? '—',
                   ),
-                  const SizedBox(height: AppSpacing.s4),
+                  _divider(c),
+                  _buildDetailRow(
+                    context,
+                    'المصدر',
+                    '${TransactionDetailsScreen._sourceLabels[tx.source] ?? '—'}${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}',
+                  ),
+                  _divider(c),
+                  _buildDetailRow(
+                    context,
+                    'التاريخ',
+                    '${Formatters.fullDate(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
+                  ),
+                  if (tx.foreignAmount != null &&
+                      tx.foreignCurrency != null) ...[
+                    _divider(c),
+                    _buildDetailRow(
+                      context,
+                      'بالعملة الأصلية',
+                      '${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency!}',
+                    ),
+                  ],
+                  if (tx.balanceAfter != null) ...[
+                    _divider(c),
+                    _buildDetailRow(
+                      context,
+                      'الرصيد بعد',
+                      '${Formatters.amount(tx.balanceAfter!)} ${tx.currency}',
+                    ),
+                  ],
+                  if (tx.note != null && tx.note!.isNotEmpty) ...[
+                    _divider(c),
+                    _buildDetailRow(
+                      context,
+                      'ملاحظة',
+                      tx.note!,
+                    ),
+                  ],
+                  if (tx.status == TransactionStatus.pending) ...[
+                    _divider(c),
+                    _buildDetailRow(
+                      context,
+                      'الحالة',
+                      _pendingLabel(tx.createdAt),
+                      isPending: true,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s4),
 
-                  // Raw text
-                  Theme(
-                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                    child: ExpansionTile(
-                      tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-                      title: Text('النص الأصلي', style: AppTypography.subhead(c.textLight)),
-                      collapsedIconColor: c.textLight,
-                      iconColor: c.primary,
-                      children: [
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: containerColor,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: containerBorderColor, width: 1),
-                          ),
-                          child: SelectableText(
-                            tx.rawMessage,
-                            style: AppTypography.footnote(c.textMain).copyWith(height: 1.4),
-                          ),
-                        ),
-                      ],
+            // Raw text
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 8),
+                title: Text('النص الأصلي', style: AppTypography.subhead(c.textSecondary)),
+                collapsedIconColor: c.textSecondary,
+                iconColor: c.primary,
+                children: [
+                  AppCard(
+                    padding: const EdgeInsets.all(16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: SelectableText(
+                        tx.rawMessage,
+                        style: AppTypography.footnote(c.textPrimary).copyWith(height: 1.4),
+                      ),
                     ),
                   ),
                 ],
@@ -321,8 +243,34 @@ class _TransactionDetailsContent extends ConsumerWidget {
             ),
           ],
         );
+        
+        return _buildScaffold(context, c, body, title: 'تفاصيل العملية', trailing: editButton);
       },
     );
+  }
+
+  Widget _buildScaffold(BuildContext context, AppColors c, Widget body, {String? title, Widget? trailing}) {
+    if (isSheet) {
+      return AppSheetScaffold(
+        title: title ?? 'تفاصيل العملية',
+        trailing: trailing,
+        leading: IconButton(
+          onPressed: () => Navigator.of(context).pop(),
+          icon: Icon(Icons.close, color: c.textSecondary),
+        ),
+        scrollable: true,
+        body: body,
+      );
+    } else {
+      return AppScreenScaffold(
+        header: AppHeader(
+          title: title ?? 'تفاصيل العملية',
+          action: trailing,
+          showBack: true,
+        ),
+        body: body,
+      );
+    }
   }
 
   String _pendingLabel(DateTime createdAt) {
@@ -343,13 +291,13 @@ class _TransactionDetailsContent extends ConsumerWidget {
             width: 100,
             child: Text(
               label,
-              style: AppTypography.subhead(c.textLight).copyWith(fontWeight: FontWeight.w500),
+              style: AppTypography.subhead(c.textSecondary).copyWith(fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: AppTypography.bodyStrong(isPending ? c.accent : c.textMain),
+              style: AppTypography.bodyStrong(isPending ? c.accent : c.textPrimary),
             ),
           ),
           if (trailing != null) trailing,
@@ -362,33 +310,9 @@ class _TransactionDetailsContent extends ConsumerWidget {
     return Divider(
       height: 1,
       thickness: 1,
-      color: c.border.withValues(alpha: 0.3),
+      color: c.border.withValues(alpha: 0.5),
       indent: 20,
       endIndent: 20,
-    );
-  }
-
-  Widget _buildChangeButton(
-      BuildContext context, TransactionEntity tx, CategoryCatalog catalog) {
-    final c = context.colors;
-    return Material(
-      color: c.primary.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(100),
-      child: InkWell(
-        onTap: () => showChangeCategorySheet(context, tx, catalog),
-        borderRadius: BorderRadius.circular(100),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(100),
-            border: Border.all(color: c.primary.withValues(alpha: 0.15), width: 1),
-          ),
-          child: Text(
-            'تغيير',
-            style: AppTypography.subhead(c.primary).copyWith(fontSize: 12),
-          ),
-        ),
-      ),
     );
   }
 }
