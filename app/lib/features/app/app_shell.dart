@@ -3,11 +3,13 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -399,20 +401,14 @@ class _CelebrationBanner extends StatelessWidget {
           color: c.surface,
           borderRadius: BorderRadius.circular(AppRadius.card),
           border: Border.all(color: c.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-          ],
+          boxShadow: AppShadows.float,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(event.title, style: AppTypography.bodyStrong(c.textMain)),
+            Text(event.title, style: AppTypography.bodyStrong(c.textPrimary)),
             const SizedBox(height: AppSpacing.s1),
-            Text(event.message, style: AppTypography.callout(c.textLight)),
+            Text(event.message, style: AppTypography.callout(c.textSecondary)),
           ],
         ),
       ),
@@ -440,11 +436,19 @@ class _FloatingBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = context.colors;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+
     return SafeArea(
       top: false,
+      bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.s6,
+          AppSpacing.s2,
+          AppSpacing.s6,
+          safeBottom > 0 ? safeBottom : AppSpacing.s6,
+        ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(32),
           child: BackdropFilter(
@@ -453,23 +457,10 @@ class _FloatingBottomBar extends StatelessWidget {
               height: 64,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
-                color: isDark
-                    ? const Color(0xFF1C1C1E).withValues(alpha: 0.8)
-                    : Colors.white.withValues(alpha: 0.8),
+                color: c.surface.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(32),
-                border: Border.all(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.1)
-                      : Colors.black.withValues(alpha: 0.05),
-                  width: 1.0,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 30,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
+                border: Border.all(color: c.border.withValues(alpha: 0.5)),
+                boxShadow: AppShadows.nav,
               ),
               child: Row(
                 textDirection: TextDirection.rtl,
@@ -552,38 +543,46 @@ class _NavTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
 
-    final activeColor = c.accent;
-    final inactiveColor = c.textLight;
+    final activeColor = c.cta;
+    final inactiveColor = c.textMuted;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => onTap(item.index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        height: 50,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              item.icon,
-              color: selected ? activeColor : inactiveColor,
-              size: 22,
-            ),
-            if (selected) ...[
-              const SizedBox(height: 2),
-              Text(
-                item.label,
-                maxLines: 1,
-                overflow: TextOverflow.fade,
-                softWrap: false,
-                style: AppTypography.caption(activeColor).copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 10.0,
-                ),
+    return Semantics(
+      label: item.label,
+      selected: selected,
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap(item.index);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          height: 50,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                item.icon,
+                color: selected ? activeColor : inactiveColor,
+                size: 22,
               ),
+              if (selected) ...[
+                const SizedBox(height: 2),
+                Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.fade,
+                  softWrap: false,
+                  style: AppTypography.caption(activeColor).copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10.0,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -598,25 +597,30 @@ class _CenterAddButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: isDark ? c.accent : c.primary,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: (isDark ? c.accent : c.primary).withValues(alpha: 0.2),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+    return Semantics(
+      label: 'إضافة',
+      button: true,
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: c.cta,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: c.cta.withValues(alpha: 0.25),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Icon(AppLucideIcons.plus, color: c.onCta, size: 24),
         ),
-        child: Icon(AppLucideIcons.plus,
-            color: isDark ? c.primary : Colors.white, size: 24),
       ),
     );
   }
