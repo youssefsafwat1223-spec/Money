@@ -9,6 +9,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/usecases/correct_category_usecase.dart';
+import '../../common/app_sheet_scaffold.dart';
 import '../../common/category_catalog.dart';
 import '../../common/widgets.dart';
 import '../../dashboard/dashboard_providers.dart';
@@ -66,133 +67,96 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasMerchant = widget.transaction.rawMerchant != null;
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Material(
-            color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
-            shape: RoundedRectangleBorder(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              side: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
-            child: Container(
-              padding: EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s3,
-                  AppSpacing.gutter,
-                  MediaQuery.of(context).viewInsets.bottom + AppSpacing.s5),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: c.textLight.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s4),
-                Text('غيّر التصنيف', style: AppTypography.title2(c.textMain)),
-                const SizedBox(height: AppSpacing.s4),
-                Wrap(
-                  spacing: AppSpacing.s3,
-                  runSpacing: AppSpacing.s3,
-                  children: [
-                    for (final cat in widget.catalog.all.where(
-                      (it) =>
-                          it.key != 'income' &&
-                          it.key != BudgetEntity.allExpensesCategoryKey,
-                    ))
-                      GestureDetector(
-                        onTap: () => setState(() => _selectedKey = cat.key),
-                        child: Column(
-                          children: [
-                            Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                CategoryAvatar(category: cat, size: 52),
-                                if (_selectedKey == cat.key)
-                                  Container(
-                                    width: 52,
-                                    height: 52,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border:
-                                          Border.all(color: c.primary, width: 2.5),
-                                    ),
-                                  ),
-                              ],
+    return AppSheetScaffold(
+      title: 'غيّر التصنيف',
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: AppSpacing.s3,
+            runSpacing: AppSpacing.s3,
+            children: [
+              for (final cat in widget.catalog.all.where(
+                (it) =>
+                    it.key != 'income' &&
+                    it.key != BudgetEntity.allExpensesCategoryKey,
+              ))
+                GestureDetector(
+                  onTap: () => setState(() => _selectedKey = cat.key),
+                  child: Column(
+                    children: [
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CategoryAvatar(category: cat, size: 52),
+                          if (_selectedKey == cat.key)
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: c.primary, width: 2.5),
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            SizedBox(
-                              width: 60,
-                              child: Text(cat.nameAr,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppTypography.caption(c.textLight)),
-                            ),
-                          ],
-                        ),
+                        ],
                       ),
-                  ],
-                ),
-                if (hasMerchant) ...[
-                  const SizedBox(height: AppSpacing.s4),
-                  Text('تطبّق على:', style: AppTypography.subhead(c.textLight)),
-                  RadioListTile<CategoryCorrectionScope>(
-                    value: CategoryCorrectionScope.thisTransactionOnly,
-                    groupValue: _scope,
-                    onChanged: (v) => setState(() => _scope = v!),
-                    contentPadding: EdgeInsets.zero,
-                    title: Text('هذه العملية فقط',
-                        style: AppTypography.body(c.textMain)),
-                    activeColor: c.primary,
-                  ),
-                  RadioListTile<CategoryCorrectionScope>(
-                    value: CategoryCorrectionScope.allMerchantTransactions,
-                    groupValue: _scope,
-                    onChanged: (v) => setState(() => _scope = v!),
-                    contentPadding: EdgeInsets.zero,
-                    title: Text('كل عمليات هذا المتجر',
-                        style: AppTypography.body(c.textMain)),
-                    activeColor: c.primary,
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.s4),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: FilledButton(
-                    onPressed: _saving ? null : _save,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: c.primary,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16)),
-                    ),
-                    child: Text('حفظ', style: AppTypography.bodyStrong(Colors.white)),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        width: 60,
+                        child: Text(cat.nameAr,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption(c.textLight)),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+            ],
+          ),
+          if (hasMerchant) ...[
+            const SizedBox(height: AppSpacing.s4),
+            Text('تطبّق على:', style: AppTypography.subhead(c.textLight)),
+            RadioListTile<CategoryCorrectionScope>(
+              value: CategoryCorrectionScope.thisTransactionOnly,
+              groupValue: _scope,
+              onChanged: (v) => setState(() => _scope = v!),
+              contentPadding: EdgeInsets.zero,
+              title: Text('هذه العملية فقط',
+                  style: AppTypography.body(c.textMain)),
+              activeColor: c.primary,
+            ),
+            RadioListTile<CategoryCorrectionScope>(
+              value: CategoryCorrectionScope.allMerchantTransactions,
+              groupValue: _scope,
+              onChanged: (v) => setState(() => _scope = v!),
+              contentPadding: EdgeInsets.zero,
+              title: Text('كل عمليات هذا المتجر',
+                  style: AppTypography.body(c.textMain)),
+              activeColor: c.primary,
+            ),
+          ],
+          const SizedBox(height: AppSpacing.s4),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton(
+              onPressed: _saving ? null : _save,
+              style: FilledButton.styleFrom(
+                backgroundColor: c.primary,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+              ),
+              child: Text('حفظ', style: AppTypography.bodyStrong(Colors.white)),
             ),
           ),
-        ),
+        ],
       ),
-    ),
-  );
+    );
+  }
 }
-}
-

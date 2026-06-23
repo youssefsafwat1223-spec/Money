@@ -8,6 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/bill_entity.dart';
+import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../transactions/transactions_providers.dart';
 import 'subscriptions_providers.dart';
@@ -183,7 +184,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     if (widget.bill == null &&
         widget.initialName == null &&
         _nameController.text.trim().isEmpty &&
@@ -202,56 +202,20 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
         },
       );
     }
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          height: MediaQuery.of(context).size.height * 0.88,
-          decoration: BoxDecoration(
-            color: c.bg,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(AppRadius.cardLg),
-            ),
+    return AppSheetScaffold(
+      title: widget.bill == null ? 'إضافة فاتورة' : 'تعديل فاتورة',
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s3,
+            AppSpacing.gutter,
+            AppSpacing.s6,
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s3,
-                  AppSpacing.gutter,
-                  AppSpacing.s6,
-                ),
-                children: [
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: c.border,
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.s4),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.bill == null ? 'إضافة فاتورة' : 'تعديل فاتورة',
-                          style: AppTypography.title2(c.textMain),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.s3),
+          children: [
+            const SizedBox(height: AppSpacing.s3),
                   _Segmented<BillType>(
                     value: _type,
                     values: const [BillType.subscription, BillType.installment],
@@ -449,9 +413,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                 ],
               ),
             ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -535,45 +496,18 @@ class _BillServicePickerState extends State<_BillServicePicker> {
         (_type == BillType.subscription ? _subscriptions : _installments)
             .where((item) => item.toLowerCase().contains(_query.toLowerCase()))
             .toList();
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          height: MediaQuery.of(context).size.height * 0.86,
-          decoration: BoxDecoration(
-            color: c.bg,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(AppRadius.cardLg),
-            ),
-          ),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
-              AppSpacing.s3,
-              AppSpacing.gutter,
-              AppSpacing.s6,
-            ),
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                  Expanded(
-                    child: Text(
-                      _type == BillType.subscription
-                          ? 'إضافة اشتراك'
-                          : 'إضافة قسط',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.title2(c.textMain),
-                    ),
-                  ),
-                  const SizedBox(width: 48),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s3),
+    return AppSheetScaffold(
+      title: _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
+      body: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          AppSpacing.s3,
+          AppSpacing.gutter,
+          AppSpacing.s6,
+        ),
+        children: [
+          const SizedBox(height: AppSpacing.s3),
               _Segmented<BillType>(
                 value: _type,
                 values: const [BillType.subscription, BillType.installment],
@@ -681,8 +615,6 @@ class _BillServicePickerState extends State<_BillServicePicker> {
               ),
             ],
           ),
-        ),
-      ),
     );
   }
 }

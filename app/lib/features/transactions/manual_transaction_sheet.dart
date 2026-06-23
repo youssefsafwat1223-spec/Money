@@ -7,12 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../engine/parser/normalizer.dart';
 import '../achievements/achievements_providers.dart';
 import '../budgets/budgets_providers.dart';
+import '../common/app_sheet_scaffold.dart';
 import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'transactions_providers.dart';
@@ -219,34 +219,15 @@ class _ManualTransactionSheetState
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final catalogAsync = ref.watch(categoryCatalogProvider);
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            height: MediaQuery.of(context).size.height * 0.9,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.94)
-                  : Colors.white.withValues(alpha: 0.95),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border.all(color: c.border.withValues(alpha: 0.35)),
-            ),
-            child: catalogAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, stackTrace) =>
-                  const Center(child: Text('تعذر تحميل التصنيفات')),
-              data: (catalog) => _buildForm(context, catalog),
-            ),
-          ),
-        ),
+    return AppSheetScaffold(
+      title: _isEditing ? 'تعديل العملية' : 'إضافة عملية يدويًا',
+      body: catalogAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stackTrace) =>
+            const Center(child: Text('تعذر تحميل التصنيفات')),
+        data: (catalog) => _buildForm(context, catalog),
       ),
     );
   }
@@ -262,37 +243,13 @@ class _ManualTransactionSheetState
     }
 
     return ListView(
-      padding: EdgeInsets.only(
+      shrinkWrap: true,
+      padding: const EdgeInsets.only(
         left: AppSpacing.gutter,
         right: AppSpacing.gutter,
-        top: AppSpacing.s3,
-        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.s6,
+        bottom: AppSpacing.s6,
       ),
       children: [
-        Center(
-          child: Container(
-            width: 44,
-            height: 5,
-            decoration: BoxDecoration(
-              color: c.textLight.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(99),
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        Row(
-          children: [
-            Text(
-              _isEditing ? 'تعديل العملية' : 'إضافة عملية يدويًا',
-              style: AppTypography.title2(c.textMain),
-            ),
-            const Spacer(),
-            IconButton(
-              onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(Icons.close),
-            ),
-          ],
-        ),
         const SizedBox(height: AppSpacing.s4),
         SegmentedButton<TransactionTypeEntity>(
           segments: const [
