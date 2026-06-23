@@ -1,7 +1,0 @@
-{
-  "/(admin)/parser-lab/page": "app/(admin)/parser-lab/page.js",
-  "/(admin)/categories/page": "app/(admin)/categories/page.js",
-  "/(admin)/banks/page": "app/(admin)/banks/page.js",
-  "/(admin)/parsers/page": "app/(admin)/parsers/page.js",
-  "/(admin)/flags/page": "app/(admin)/flags/page.js"
-}
