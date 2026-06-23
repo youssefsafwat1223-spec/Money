@@ -11,8 +11,12 @@ import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../cards/brand_mark.dart';
 import '../common/premium_loading.dart';
-import '../common/section_hero_header.dart';
-import '../common/widgets.dart';
+import '../common/app_header.dart';
+import '../common/app_screen_scaffold.dart';
+import '../common/app_pill_tab_bar.dart';
+import '../common/app_empty_state.dart';
+import '../common/app_transaction_row.dart';
+import '../common/app_button.dart';
 import '../subscriptions/bill_form_sheet.dart';
 import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
@@ -27,137 +31,185 @@ class TransactionsScreen extends ConsumerWidget {
     final tab = ref.watch(transactionsPageTabProvider);
     final pendingOnly = ref.watch(transactionsPendingFilterProvider);
 
-    return async.when(
-      loading: () => const PremiumSkeletonPage(cardCount: 6),
-      error: (e, _) => Center(child: Text('حدث خطأ: $e')),
-      data: (view) {
-        final groups = <String, List<TransactionEntity>>{};
-        for (final tx in view.transactions) {
-          final label = Formatters.dateGroupLabel(tx.occurredAt, context);
-          groups.putIfAbsent(label, () => []).add(tx);
-        }
+    return AppScreenScaffold(
+      header: AppHeader(
+        title: tab == 0 ? 'العمليات' : 'الفواتير',
+        showBack: false,
+      ),
+      body: async.when(
+        loading: () => const PremiumSkeletonPage(cardCount: 6),
+        error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+        data: (view) {
+          final groups = <String, List<TransactionEntity>>{};
+          for (final tx in view.transactions) {
+            final label = Formatters.dateGroupLabel(tx.occurredAt, context);
+            groups.putIfAbsent(label, () => []).add(tx);
+          }
 
-        return ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            SectionHeroHeader(
-              title: tab == 0 ? 'العمليات' : 'الفواتير',
-              subtitle:
-                  '${view.range.label} · كل التفاصيل تفتح من أسفل الشاشة.',
-              metrics: [
-                SectionHeroMetric(
-                  value: '${view.transactions.length}',
-                  label: 'عمليات',
-                ),
-                SectionHeroMetric(
-                  value: '${view.pendingCount}',
-                  label: 'مراجعة',
-                ),
-                SectionHeroMetric(
-                  value: '${Formatters.integer(view.expenseTotal)} ر',
-                  label: 'مصروف',
-                ),
-              ],
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.s2,
+              AppSpacing.gutter,
+              120,
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter,
-                AppSpacing.s4,
-                AppSpacing.gutter,
-                120,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (pendingOnly)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: context.colors.accent.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                  color: context.colors.accent
-                                      .withValues(alpha: 0.30)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(AppLucideIcons.alertTriangle,
-                                    size: 14, color: context.colors.accent),
-                                const SizedBox(width: 6),
-                                Text('تصفية: قيد المراجعة',
-                                    style: AppTypography.caption(
-                                            context.colors.accent)
-                                        .copyWith(fontWeight: FontWeight.w700)),
-                                const SizedBox(width: 8),
-                                GestureDetector(
-                                  onTap: () => ref
-                                      .read(transactionsPendingFilterProvider
-                                          .notifier)
-                                      .state = false,
-                                  child: Icon(Icons.close,
-                                      size: 14, color: context.colors.accent),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (!pendingOnly) _DateRangeChips(range: view.range),
-                  if (!pendingOnly) const SizedBox(height: AppSpacing.s3),
-                  _MainSegmented(
-                    value: tab,
-                    labels: const ['العمليات', 'الفواتير'],
-                    onChanged: (value) => ref
-                        .read(transactionsPageTabProvider.notifier)
-                        .state = value,
+            children: [
+              if (tab == 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.s4),
+                  child: Text(
+                    '${view.range.label} · كل التفاصيل تفتح من أسفل الشاشة.',
+                    style: AppTypography.callout(context.colors.textLight),
                   ),
-                  const SizedBox(height: AppSpacing.s3),
-                  if (tab == 0) ...[
-                    const _TransactionSearchField(),
-                    const SizedBox(height: AppSpacing.s3),
-                    const _KindFilterChips(),
-                    const SizedBox(height: AppSpacing.s3),
-                    if (view.transactions.isEmpty)
-                      const _EmptyState(
-                        icon: AppLucideIcons.inbox,
-                        title: 'لا توجد عمليات في هذه الفترة',
-                        body: 'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
-                      )
-                    else
-                      for (final entry in groups.entries) ...[
-                        _DateHeader(label: entry.key),
-                        for (final tx in entry.value)
-                          TransactionRow(
-                            transaction: tx,
-                            category: view.catalog.byId(tx.categoryId),
-                            onTap: () => TransactionDetailsScreen.showSheet(
-                              context,
-                              tx.id,
+                ),
+              if (pendingOnly)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: context.colors.accent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                              color: context.colors.accent
+                                  .withValues(alpha: 0.30)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(AppLucideIcons.alertTriangle,
+                                size: 14, color: context.colors.accent),
+                            const SizedBox(width: 6),
+                            Text('تصفية: قيد المراجعة',
+                                style: AppTypography.caption(
+                                        context.colors.accent)
+                                    .copyWith(fontWeight: FontWeight.w700)),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => ref
+                                  .read(transactionsPendingFilterProvider
+                                      .notifier)
+                                  .state = false,
+                              child: Icon(Icons.close,
+                                  size: 14, color: context.colors.accent),
                             ),
-                          ),
-                      ],
-                  ] else
-                    billsAsync.when(
-                      loading: () => const Padding(
-                        padding: EdgeInsets.all(32),
-                        child: Center(child: CircularProgressIndicator()),
+                          ],
+                        ),
                       ),
-                      error: (error, _) => Text('حدث خطأ: $error'),
-                      data: (bills) => _BillsTab(view: bills),
-                    ),
-                ],
+                    ],
+                  ),
+                ),
+              if (!pendingOnly) _DateRangeChips(range: view.range),
+              if (!pendingOnly) const SizedBox(height: AppSpacing.s4),
+              AppPillTabBar(
+                tabs: const ['العمليات', 'الفواتير'],
+                selectedIndex: tab,
+                onSelected: (value) => ref
+                    .read(transactionsPageTabProvider.notifier)
+                    .state = value,
               ),
-            ),
-          ],
-        );
-      },
+              const SizedBox(height: AppSpacing.s4),
+              if (tab == 0) ...[
+                // Metrics for transactions
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.s4),
+                  decoration: BoxDecoration(
+                    color: context.colors.surface2,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _MetricItem(
+                          label: 'عمليات',
+                          value: '${view.transactions.length}',
+                        ),
+                      ),
+                      Container(width: 1, height: 32, color: context.colors.border),
+                      Expanded(
+                        child: _MetricItem(
+                          label: 'مراجعة',
+                          value: '${view.pendingCount}',
+                        ),
+                      ),
+                      Container(width: 1, height: 32, color: context.colors.border),
+                      Expanded(
+                        child: _MetricItem(
+                          label: 'مصروف',
+                          value: '${Formatters.integer(view.expenseTotal)} ر',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s4),
+                
+                const _TransactionSearchField(),
+                const SizedBox(height: AppSpacing.s3),
+                const _KindFilterChips(),
+                const SizedBox(height: AppSpacing.s4),
+                if (view.transactions.isEmpty)
+                  const AppEmptyState(
+                    icon: AppLucideIcons.inbox,
+                    title: 'لا توجد عمليات في هذه الفترة',
+                    subtitle: 'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
+                  )
+                else
+                  for (final entry in groups.entries) ...[
+                    _DateHeader(label: entry.key),
+                    for (final tx in entry.value)
+                      () {
+                        final category = view.catalog.byId(tx.categoryId);
+                        return AppTransactionRow(
+                          title: tx.rawMerchant ?? category?.nameAr ?? 'عملية',
+                          amount: tx.amount,
+                          currency: Currency.arabicLabel(tx.currency),
+                          subtitle: category?.nameAr,
+                          categoryIcon: category?.iconData,
+                          categoryColor: category?.colorValue,
+                          isPending: tx.status == TransactionStatus.pending,
+                          isAi: tx.confidence != null,
+                          isDebit: tx.type == TransactionType.expense,
+                          onTap: () => TransactionDetailsScreen.showSheet(
+                            context,
+                            tx.id,
+                          ),
+                        );
+                      }(),
+                  ],
+              ] else
+                billsAsync.when(
+                  loading: () => const Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (error, _) => Text('حدث خطأ: $error'),
+                  data: (bills) => _BillsTab(view: bills),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MetricItem extends StatelessWidget {
+  const _MetricItem({required this.label, required this.value});
+  final String label;
+  final String value;
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(value, style: AppTypography.title2(context.colors.textMain).copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 2),
+        Text(label, style: AppTypography.caption(context.colors.textLight)),
+      ],
     );
   }
 }
@@ -430,25 +482,24 @@ class _BillsTabState extends State<_BillsTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _BillsTypeSegmented(
-          value: _type,
-          onChanged: (value) => setState(() => _type = value),
+        AppPillTabBar(
+          tabs: const ['اشتراكات', 'أقساط'],
+          selectedIndex: _type == BillType.subscription ? 0 : 1,
+          onSelected: (index) => setState(() {
+            _type = index == 0 ? BillType.subscription : BillType.installment;
+          }),
         ),
         const SizedBox(height: AppSpacing.s3),
-        SizedBox(
-          height: 50,
-          child: FilledButton.icon(
-            onPressed: () => BillFormSheet.show(
-              context,
-              initialType: _type,
-            ),
-            icon: const Icon(Icons.add),
-            label: Text(
-              _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
-            ),
+        AppButton(
+          onPressed: () => BillFormSheet.show(
+            context,
+            initialType: _type,
           ),
+          icon: Icons.add,
+          label: _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
+          isPrimary: true,
         ),
-        const SizedBox(height: AppSpacing.s3),
+        const SizedBox(height: AppSpacing.s4),
         _BillsHero(
           type: _type,
           monthlyTotal: monthlyTotal,
@@ -465,19 +516,19 @@ class _BillsTabState extends State<_BillsTab> {
         ),
         const SizedBox(height: AppSpacing.s3),
         if (bills.isEmpty)
-          _EmptyState(
+          AppEmptyState(
             icon: _type == BillType.subscription
                 ? AppLucideIcons.repeat
                 : Icons.receipt_long_outlined,
             title: _type == BillType.subscription
                 ? 'اشتراكاتك، متابعة تلقائية'
                 : 'أقساطك، واضحة كل شهر',
-            body: _type == BillType.subscription
+            subtitle: _type == BillType.subscription
                 ? 'أضف اشتراكك يدويًا أو خليه يتكشف تلقائيًا من العمليات المتكررة.'
                 : 'أضف القسط بتاريخه وتنبيهه عشان يظهر في الفواتير قبل الاستحقاق.',
-            actionLabel:
+            primaryLabel:
                 _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
-            onAction: () => BillFormSheet.show(
+            onPrimary: () => BillFormSheet.show(
               context,
               initialType: _type,
             ),
@@ -546,24 +597,6 @@ class _BillsTabState extends State<_BillsTab> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _BillsTypeSegmented extends StatelessWidget {
-  const _BillsTypeSegmented({required this.value, required this.onChanged});
-
-  final BillType value;
-  final ValueChanged<BillType> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return _MainSegmented(
-      value: value == BillType.subscription ? 0 : 1,
-      labels: const ['اشتراكات', 'أقساط'],
-      onChanged: (index) => onChanged(
-        index == 0 ? BillType.subscription : BillType.installment,
       ),
     );
   }
@@ -1074,59 +1107,6 @@ class _SuggestionCard extends StatelessWidget {
   }
 }
 
-class _MainSegmented extends StatelessWidget {
-  const _MainSegmented({
-    required this.value,
-    required this.labels,
-    required this.onChanged,
-  });
-
-  final int value;
-  final List<String> labels;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final selectedBg = isDark ? c.accent.withValues(alpha: 0.22) : c.primary;
-    final selectedFg = isDark ? c.accent : Colors.white;
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: c.surface2,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Row(
-        children: [
-          for (var i = 0; i < labels.length; i++)
-            Expanded(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                onTap: () => onChanged(i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(vertical: 11),
-                  decoration: BoxDecoration(
-                    color: value == i ? selectedBg : Colors.transparent,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                  ),
-                  child: Text(
-                    labels[i],
-                    textAlign: TextAlign.center,
-                    style: AppTypography.caption(
-                      value == i ? selectedFg : c.textLight,
-                    ).copyWith(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class _DateHeader extends StatelessWidget {
   const _DateHeader({required this.label});
 
@@ -1158,59 +1138,6 @@ class _DateHeader extends StatelessWidget {
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.body,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  final IconData icon;
-  final String title;
-  final String body;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s6),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.border),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 44, color: c.textLight),
-          const SizedBox(height: AppSpacing.s3),
-          Text(title, style: AppTypography.headline(c.textMain)),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            body,
-            textAlign: TextAlign.center,
-            style: AppTypography.callout(c.textLight),
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: AppSpacing.s4),
-            SizedBox(
-              height: 48,
-              child: FilledButton.icon(
-                onPressed: onAction,
-                icon: const Icon(Icons.add),
-                label: Text(actionLabel!),
-              ),
-            ),
-          ],
         ],
       ),
     );
