@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -16,42 +14,32 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
     context: context,
     backgroundColor: Colors.transparent,
     builder: (_) => AppSheetScaffold(
-      title: 'طريقة الإدخال',
+      title: 'إضافة عملية جديدة',
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       body: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _ActionTile(
-            icon: Icons.edit_note_rounded,
-            title: 'إضافة عملية يدويًا',
-            subtitle: 'اكتب المبلغ والتصنيف والتاريخ في أقل من دقيقة.',
-            onTap: () {
-              Navigator.of(context).pop();
-              ManualTransactionSheet.show(context);
-            },
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          _ActionTile(
             icon: AppLucideIcons.clipboardPaste,
             title: 'ألصق رسالة بنك',
-            subtitle: 'المسار اليدوي الحالي لإضافة عملية جديدة.',
+            subtitle: 'سيقوم الذكاء الاصطناعي بتصنيفها وإضافتها تلقائياً.',
+            isPrimary: true,
             onTap: () {
               Navigator.of(context).pop();
               ManualPasteScreen.showSheet(context);
             },
           ),
-          if (Platform.isAndroid) ...[
-            const SizedBox(height: AppSpacing.s3),
-            _ActionTile(
-              icon: AppLucideIcons.receipt,
-              title: 'شارك رسالة من تطبيق الرسائل',
-              subtitle: 'افتح رسالة البنك، اضغط مشاركة، واختر مالي لإضافتها بدون أذونات SMS.',
-              onTap: () {
-                Navigator.of(context).pop();
-                ManualPasteScreen.showSheet(context);
-              },
-            ),
-          ],
+          const SizedBox(height: AppSpacing.s3),
+          _ActionTile(
+            icon: AppLucideIcons.penLine,
+            title: 'إضافة يدوية',
+            subtitle: 'اكتب تفاصيل العملية بنفسك.',
+            isPrimary: false,
+            onTap: () {
+              Navigator.of(context).pop();
+              ManualTransactionSheet.show(context);
+            },
+          ),
         ],
       ),
     ),
@@ -64,17 +52,18 @@ class _ActionTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.isPrimary = false,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool isPrimary;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return InkWell(
       onTap: onTap,
@@ -82,18 +71,21 @@ class _ActionTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s3),
         decoration: BoxDecoration(
-          color: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
+          color: isPrimary ? c.accent.withValues(alpha: 0.1) : c.surface2.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4),
+            color: isPrimary ? c.accent.withValues(alpha: 0.3) : c.border,
           ),
         ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 22,
-              backgroundColor: c.primary.withValues(alpha: 0.12),
-              child: Icon(icon, color: c.primary, size: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isPrimary ? c.accent : c.surface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: isPrimary ? Colors.white : c.textMain, size: 20),
             ),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
