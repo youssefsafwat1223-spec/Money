@@ -167,4 +167,59 @@ class AppLucideIcons {
     fontFamily: _fontFamily,
     fontPackage: _fontPackage,
   );
+  static const IconData hotel = IconData(
+    0xf361,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData scissors = IconData(
+    0xf4a8,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData dumbbell = IconData(
+    0xf28d,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData shieldCheck = IconData(
+    0xf4c1,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData dog = IconData(
+    0xf281,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData cake = IconData(
+    0xf1cf,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData heartHandshake = IconData(
+    0xf356,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData settings = IconData(
+    0xf4b9,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData zap = IconData(
+    0xf5a3,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData lock = IconData(
+    0xf3ae,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
+  static const IconData globe = IconData(
+    0xf33a,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
 }

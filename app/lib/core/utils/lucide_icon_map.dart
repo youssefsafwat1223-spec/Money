@@ -43,6 +43,20 @@ IconData lucideByName(String name) {
       return AppLucideIcons.wrench;
     case 'wallet-cards':
       return AppLucideIcons.walletCards;
+    case 'hotel':
+      return AppLucideIcons.hotel;
+    case 'scissors':
+      return AppLucideIcons.scissors;
+    case 'dumbbell':
+      return AppLucideIcons.dumbbell;
+    case 'shield-check':
+      return AppLucideIcons.shieldCheck;
+    case 'dog':
+      return AppLucideIcons.dog;
+    case 'cake':
+      return AppLucideIcons.cake;
+    case 'heart-handshake':
+      return AppLucideIcons.heartHandshake;
     case 'shapes':
     default:
       return AppLucideIcons.shapes;

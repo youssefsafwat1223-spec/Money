@@ -48,6 +48,22 @@ class AppTypography {
       letterSpacing: -0.5,
       tabular: true,
       color: c);
+
+  static TextStyle amountMedium(Color c) => _premiumText(
+      size: 24,
+      weight: FontWeight.w700,
+      height: 1.20,
+      letterSpacing: -0.3,
+      tabular: true,
+      color: c);
+
+  static TextStyle amountSmall(Color c) => _premiumText(
+      size: 18,
+      weight: FontWeight.w600,
+      height: 1.25,
+      letterSpacing: -0.2,
+      tabular: true,
+      color: c);
       
   static TextStyle display(Color c) => _premiumText(
       size: 32,
@@ -104,9 +120,9 @@ class AppTypography {
       color: c);
       
   static TextStyle caption(Color c) => _premiumText(
-      size: 12, 
-      weight: FontWeight.w600, 
-      height: 1.33, 
+      size: 12,
+      weight: FontWeight.w500,
+      height: 1.33,
       color: c);
 
   /// يبني [TextTheme] كامل بلون النص الأساسي.
