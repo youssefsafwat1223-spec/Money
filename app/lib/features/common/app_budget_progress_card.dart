@@ -4,6 +4,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import 'app_card.dart';
 
+/// بطاقة تقدم الميزانية — تعرض الاسم، المصروف، الحد الأقصى، وشريط التقدم ملونًا دلاليًا.
 class AppBudgetProgressCard extends StatelessWidget {
   const AppBudgetProgressCard({
     super.key,
@@ -26,11 +27,11 @@ class AppBudgetProgressCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final pct = progress.clamp(0.0, 1.0);
-    final safeColor = color ?? c.cta;
     
-    final trackColor = safeColor.withValues(alpha: 0.15);
-    final isExceeded = progress > 1.0;
-    final barColor = isExceeded ? c.danger : safeColor;
+    // استخدام لون الميزانية الدلالي المشتق من نسبة التقدم (نجاح، تحذير، خطر)
+    final stateColor = color ?? c.budgetState(progress);
+    final trackColor = stateColor.withValues(alpha: 0.15);
+    final barColor = stateColor;
 
     return AppCard(
       child: Column(
@@ -39,7 +40,7 @@ class AppBudgetProgressCard extends StatelessWidget {
           Row(
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 18, color: safeColor),
+                Icon(icon, size: 18, color: stateColor),
                 const SizedBox(width: AppSpacing.s2),
               ],
               Expanded(
@@ -62,8 +63,14 @@ class AppBudgetProgressCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(spentText, style: AppTypography.caption(barColor).copyWith(fontWeight: FontWeight.bold)),
-              Text(limitText, style: AppTypography.caption(c.textMuted)),
+              Text(
+                spentText,
+                style: AppTypography.caption(barColor).copyWith(fontWeight: FontWeight.bold),
+              ),
+              Text(
+                limitText,
+                style: AppTypography.caption(c.textMuted),
+              ),
             ],
           ),
         ],

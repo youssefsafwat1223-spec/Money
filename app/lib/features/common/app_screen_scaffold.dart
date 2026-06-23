@@ -1,14 +1,7 @@
 import 'package:flutter/material.dart';
-
 import '../../core/theme/app_colors.dart';
 
-/// هيكل شاشة قياسي — خلفية، SafeArea، header اختياري، padding آمن.
-///
-/// [bottomNavPadding]: علامة أن الشاشة تعمل تحت شريط تنقل عائم.
-/// لا نضغط الـ body نفسه بهذه المسافة حتى لا يظهر كسر بصري في منتصف الشاشة؛
-/// الشاشات القابلة للتمرير تضيف مسافة النهاية داخل الـ ListView/Sliver نفسها.
-///
-/// لا تُطبَّق على كل الشاشات بعد — مكوّن جاهز للمراحل 4-9.
+/// هيكل شاشة قياسي — خلفية مع أوربت مضيئة خافتة للوضع الداكن، SafeArea، وهيدر اختياري.
 class AppScreenScaffold extends StatelessWidget {
   const AppScreenScaffold({
     super.key,
@@ -22,14 +15,13 @@ class AppScreenScaffold extends StatelessWidget {
 
   final Widget body;
 
-  /// Widget فوق المحتوى (مثل SectionHeroHeader). يُعرَض قبل [body].
+  /// Widget فوق المحتوى. يُعرَض قبل [body].
   final Widget? header;
 
-  /// padding للمحتوى داخل body. إذا null، لا padding.
+  /// padding للمحتوى داخل body.
   final EdgeInsetsGeometry? padding;
 
   /// مسافة إضافية في الأسفل لتجنب تغطية شريط التنقل العائم.
-  /// القيمة المعتادة: ~80px لشريط التنقل العائم في Mali.
   final double? bottomNavPadding;
 
   final bool resizeToAvoidBottomInset;
@@ -38,6 +30,7 @@ class AppScreenScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     Widget content = body;
 
     if (padding != null) {
@@ -51,13 +44,72 @@ class AppScreenScaffold extends StatelessWidget {
       ],
     );
 
+    // شبكة الإضاءة المحيطية - تدعم الهوية البصرية الفاخرة للوضع الداكن
+    Widget baseBackground = Container(
+      color: c.bg,
+    );
+
+    if (isDark) {
+      baseBackground = Stack(
+        children: [
+          Positioned.fill(child: Container(color: c.bg)),
+          // هالة زرقاء خفيفة في الأعلى
+          Positioned(
+            right: -100,
+            top: -100,
+            width: 320,
+            height: 320,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    c.cta.withValues(alpha: 0.05),
+                    c.cta.withValues(alpha: 0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // هالة خضراء خفيفة في الأسفل
+          Positioned(
+            left: -120,
+            bottom: -120,
+            width: 360,
+            height: 360,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    c.success.withValues(alpha: 0.04),
+                    c.success.withValues(alpha: 0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       extendBodyBehindAppBar: extendBodyBehindHeader,
-      body: SafeArea(
-        bottom: bottomNavPadding == null,
-        child: bodyColumn,
+      body: Stack(
+        children: [
+          Positioned.fill(child: baseBackground),
+          SafeArea(
+            bottom: bottomNavPadding == null,
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: bottomNavPadding ?? 0.0,
+              ),
+              child: bodyColumn,
+            ),
+          ),
+        ],
       ),
     );
   }

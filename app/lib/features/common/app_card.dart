@@ -4,10 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 
-/// بطاقة قياسية بتوكنات التصميم — سطح، زاوية، ظل.
-///
-/// إذا أُعطيت [onTap]، تصبح البطاقة تفاعلية وتحصل على دور زر في شجرة إمكانية
-/// الوصول.
+/// بطاقة قياسية بتوكنات التصميم — سطح، زاوية، ظل، وحواف ناعمة.
 class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
@@ -15,6 +12,7 @@ class AppCard extends StatelessWidget {
     this.onTap,
     this.padding,
     this.border,
+    this.gradient,
     this.semanticsLabel,
   });
 
@@ -22,15 +20,17 @@ class AppCard extends StatelessWidget {
   final VoidCallback? onTap;
   final EdgeInsetsGeometry? padding;
   final Border? border;
+  final Gradient? gradient;
   final String? semanticsLabel;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final decoration = BoxDecoration(
-      color: c.surface,
+      color: gradient == null ? c.surface : null,
+      gradient: gradient,
       borderRadius: BorderRadius.circular(AppRadius.card),
-      border: border,
+      border: border ?? Border.all(color: c.border, width: 1.0),
       boxShadow: AppShadows.card,
     );
 

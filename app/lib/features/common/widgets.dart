@@ -22,6 +22,8 @@ export 'app_sheet_scaffold.dart';
 export 'app_transaction_row.dart';
 export 'charts/spending_charts.dart';
 export 'section_hero_header.dart';
+export 'section_header.dart';
+export 'chart_card.dart';
 export 'vault_widget.dart';
 export 'widgets/announcement_banner.dart';
 

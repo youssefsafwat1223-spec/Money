@@ -4,7 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
-/// زر رئيسي بلون CTA (#006FAE / #1A9BD7 dark).
+/// زر رئيسي بلون CTA مع دعم تباين آمن وميكرو-تفاعل عند الضغط.
 class AppPrimaryButton extends StatelessWidget {
   const AppPrimaryButton({
     super.key,
@@ -45,7 +45,7 @@ class AppPrimaryButton extends StatelessWidget {
   }
 }
 
-/// زر ثانوي — حد بلون CTA، خلفية شفافة.
+/// زر ثانوي — حد بلون CTA، خلفية شفافة وميكرو-تفاعل.
 class AppSecondaryButton extends StatelessWidget {
   const AppSecondaryButton({
     super.key,
@@ -81,12 +81,12 @@ class AppSecondaryButton extends StatelessWidget {
       foregroundColor: c.cta,
       disabledBg: Colors.transparent,
       disabledFg: c.textMuted,
-      side: BorderSide(color: disabled ? c.border : c.cta),
+      side: BorderSide(color: disabled ? c.border : c.cta, width: 1.5),
     );
   }
 }
 
-/// زر شبحي — نص فقط، بدون حد ولا خلفية.
+/// زر شبحي — نص فقط، بدون حد ولا خلفية مع ميكرو-تفاعل.
 class AppGhostButton extends StatelessWidget {
   const AppGhostButton({
     super.key,
@@ -129,7 +129,7 @@ class AppGhostButton extends StatelessWidget {
 
 // ── Private shared implementation ─────────────────────────────────────────────
 
-class _AppButtonBase extends StatelessWidget {
+class _AppButtonBase extends StatefulWidget {
   const _AppButtonBase({
     required this.label,
     required this.onTap,
@@ -159,55 +159,99 @@ class _AppButtonBase extends StatelessWidget {
   final BorderSide? side;
 
   @override
+  State<_AppButtonBase> createState() => _AppButtonBaseState();
+}
+
+class _AppButtonBaseState extends State<_AppButtonBase> {
+  bool _isPressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final isEnabled = !disabled && !loading && onTap != null;
+    final isEnabled = !widget.disabled && !widget.loading && widget.onTap != null;
 
     return Semantics(
-      label: semanticsLabel ?? label,
+      label: widget.semanticsLabel ?? widget.label,
       button: true,
       enabled: isEnabled,
-      child: SizedBox(
-        height: height,
-        child: ElevatedButton(
-          onPressed: isEnabled ? onTap : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: backgroundColor,
-            foregroundColor: foregroundColor,
-            disabledBackgroundColor: disabledBg,
-            disabledForegroundColor: disabledFg,
-            elevation: 0,
-            shadowColor: Colors.transparent,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.button),
-              side: side ?? BorderSide.none,
+      child: GestureDetector(
+        onTapDown: isEnabled ? (_) => setState(() => _isPressed = true) : null,
+        onTapUp: isEnabled ? (_) => setState(() => _isPressed = false) : null,
+        onTapCancel: isEnabled ? () => setState(() => _isPressed = false) : null,
+        child: AnimatedScale(
+          scale: _isPressed ? 0.97 : 1.0,
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOutCubic,
+          child: SizedBox(
+            height: widget.height,
+            child: ElevatedButton(
+              onPressed: isEnabled ? widget.onTap : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: widget.backgroundColor,
+                foregroundColor: widget.foregroundColor,
+                disabledBackgroundColor: widget.disabledBg,
+                disabledForegroundColor: widget.disabledFg,
+                elevation: 0,
+                shadowColor: Colors.transparent,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.button),
+                  side: widget.side ?? BorderSide.none,
+                ),
+              ),
+              child: widget.loading
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: widget.foregroundColor,
+                      ),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.icon != null) ...[
+                          Icon(widget.icon, size: 18),
+                          const SizedBox(width: AppSpacing.s2),
+                        ],
+                        Text(
+                          widget.label,
+                          style: AppTypography.bodyStrong(widget.foregroundColor),
+                        ),
+                      ],
+                    ),
             ),
           ),
-          child: loading
-              ? SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: foregroundColor,
-                  ),
-                )
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (icon != null) ...[
-                      Icon(icon, size: 18),
-                      const SizedBox(width: AppSpacing.s2),
-                    ],
-                    Text(
-                      label,
-                      style: AppTypography.bodyStrong(foregroundColor),
-                    ),
-                  ],
-                ),
         ),
       ),
     );
+  }
+}
+
+// Backwards compatibility wrapper
+class AppButton extends StatelessWidget {
+  const AppButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.isPrimary = false,
+    this.height = 56,
+    this.icon,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final bool isPrimary;
+  final double height;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isPrimary) {
+      return AppPrimaryButton(label: label, onTap: onPressed, height: height, icon: icon);
+    } else {
+      return AppSecondaryButton(label: label, onTap: onPressed, height: height, icon: icon);
+    }
   }
 }
