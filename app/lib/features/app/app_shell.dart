@@ -457,7 +457,7 @@ class _FloatingBottomBar extends StatelessWidget {
               height: 64,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
-                color: c.surface.withValues(alpha: 0.8),
+                color: c.surface.withValues(alpha: 0.85), // Keep mostly solid for performance
                 borderRadius: BorderRadius.circular(32),
                 border: Border.all(color: c.border.withValues(alpha: 0.5)),
                 boxShadow: AppShadows.nav,
@@ -557,30 +557,50 @@ class _NavTab extends StatelessWidget {
           onTap(item.index);
         },
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
           height: 50,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                item.icon,
-                color: selected ? activeColor : inactiveColor,
-                size: 22,
+              AnimatedScale(
+                scale: selected ? 1.06 : 1.0,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: Icon(
+                  item.icon,
+                  color: selected ? activeColor : inactiveColor,
+                  size: 22,
+                ),
               ),
-              if (selected) ...[
-                const SizedBox(height: 2),
-                Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  softWrap: false,
-                  style: AppTypography.caption(activeColor).copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 10.0,
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                height: selected ? 14 : 0,
+                child: AnimatedOpacity(
+                  opacity: selected ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 150),
+                  curve: Curves.easeOutCubic,
+                  child: SingleChildScrollView(
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 2),
+                        Text(
+                          item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.fade,
+                          softWrap: false,
+                          style: AppTypography.caption(activeColor).copyWith(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.0,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),
@@ -589,10 +609,17 @@ class _NavTab extends StatelessWidget {
   }
 }
 
-class _CenterAddButton extends StatelessWidget {
+class _CenterAddButton extends StatefulWidget {
   const _CenterAddButton({required this.onTap});
 
   final VoidCallback onTap;
+
+  @override
+  State<_CenterAddButton> createState() => _CenterAddButtonState();
+}
+
+class _CenterAddButtonState extends State<_CenterAddButton> {
+  bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -601,25 +628,32 @@ class _CenterAddButton extends StatelessWidget {
       label: 'إضافة',
       button: true,
       child: GestureDetector(
+        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapUp: (_) => setState(() => _isPressed = false),
+        onTapCancel: () => setState(() => _isPressed = false),
         onTap: () {
           HapticFeedback.lightImpact();
-          onTap();
+          widget.onTap();
         },
-        child: Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: c.cta,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: c.cta.withValues(alpha: 0.25),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+        child: AnimatedScale(
+          scale: _isPressed ? 0.95 : 1.0,
+          duration: const Duration(milliseconds: 100),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: c.cta,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: c.cta.withValues(alpha: 0.25),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(AppLucideIcons.plus, color: c.onCta, size: 24),
           ),
-          child: Icon(AppLucideIcons.plus, color: c.onCta, size: 24),
         ),
       ),
     );
