@@ -16,6 +16,7 @@ class AppSpacing {
   // Semantic spacing
   static const double pagePadding = 24;
   static const double sectionGap = 32;
+  static const double listGap = 16;
   static const double cardPadding = 20;
   static const double chipPadding = 12;
   static const double buttonHeight = 56;
@@ -35,6 +36,12 @@ class AppRadius {
   static const double lg = 24;
   static const double pill = 999;
   static const double full = 9999;
+
+  // Explicit semantic tokens
+  static const double small = sm;
+  static const double medium = md;
+  static const double large = lg;
+  static const double xlarge = 32;
 
   static const double card = 24;
   static const double cardLg = 32;

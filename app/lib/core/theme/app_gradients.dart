@@ -8,9 +8,9 @@ class AppGradients {
   /// Safe for both light and dark mode as a bold backdrop.
   static const LinearGradient brandHero = LinearGradient(
     colors: [
-      Color(0xFF062635),
-      Color(0xFF073B50),
-      Color(0xFF01070C),
+      Color(0xFF0C0D11),
+      Color(0xFF141623),
+      Color(0xFF06131C),
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
@@ -18,14 +18,20 @@ class AppGradients {
 
   /// Wallet card gradient (subtle dark premium feel).
   static const LinearGradient walletCard = LinearGradient(
-    colors: [Color(0xFF06131C), Color(0xFF073B50)],
+    colors: [
+      Color(0xFF141623),
+      Color(0xFF0C2450),
+    ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
   );
 
-  /// AI subtle presence gradient (purple/teal mix).
+  /// AI subtle presence gradient (electric blue signature transition).
   static const LinearGradient aiSubtle = LinearGradient(
-    colors: [Color(0xFF4DA3C7), Color(0xFF006B8F)],
+    colors: [
+      Color(0xFF5488FE),
+      Color(0xFF238AFF),
+    ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
   );

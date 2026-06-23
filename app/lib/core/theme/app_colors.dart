@@ -26,6 +26,10 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.textPrimary,
     required this.textSecondary,
     required this.textMuted,
+    required this.onSuccess,
+    required this.onDanger,
+    required this.onWarning,
+    required this.onInfo,
     // Legacy tokens for backward compatibility
     required this.gradA,
     required this.gradB,
@@ -61,6 +65,12 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color info;
   final Color neutral;
   final Color disabled;
+
+  // ===== Contrast Safe Pairings =====
+  final Color onSuccess;
+  final Color onDanger;
+  final Color onWarning;
+  final Color onInfo;
 
   // ===== Lines =====
   final Color border;
@@ -116,36 +126,44 @@ class AppColors extends ThemeExtension<AppColors> {
     textPrimary: Color(0xFF062635),
     textSecondary: Color(0xFF64748B),
     textMuted: Color(0xFF94A3B8),
+    onSuccess: Color(0xFFFFFFFF),
+    onDanger: Color(0xFFFFFFFF),
+    onWarning: Color(0xFFFFFFFF),
+    onInfo: Color(0xFFFFFFFF),
     gradA: Color(0xFF006B8F),
     gradB: Color(0xFF062635),
   );
 
   // ===== Dark Mode =====
   static const AppColors dark = AppColors(
-    bg: Color(0xFF01070C),
-    surface: Color(0xFF06131C),
-    surfaceElevated: Color(0xFF0B1C29),
+    bg: Color(0xFF0C0D11),              // Obsidian base
+    surface: Color(0xFF141623),         // Slate card fill
+    surfaceElevated: Color(0xFF1C1E2F), // Popups / Sheets
     primary: Color(0xFFFFFFFF),
-    onPrimary: Color(0xFF062635),
-    cta: Color(0xFF1A8DB0),
+    onPrimary: Color(0xFF0C0D11),
+    cta: Color(0xFF5488FE),             // Electric blue CTA
     onCta: Color(0xFFFFFFFF),
-    ctaSoft: Color(0xFF0A2833), // 20% of CTA roughly
-    accent: Color(0xFF4DA3C7),
-    income: Color(0xFF28C99B),
-    expense: Color(0xFFFF6B73),
+    ctaSoft: Color(0xFF0C2450),         // Soft tinted CTA
+    accent: Color(0xFF238AFF),          // Accent neon blue
+    income: Color(0xFF28C99B),          // Emerald success
+    expense: Color(0xFFFF6B73),          // Watermelon danger
     success: Color(0xFF28C99B),
-    warning: Color(0xFFFF8A65),
+    warning: Color(0xFFFF8A65),          // Luminous orange coral warning
     danger: Color(0xFFFF6B73),
-    info: Color(0xFF4DA3C7),
+    info: Color(0xFF238AFF),
     neutral: Color(0xFF6F8190),
     disabled: Color(0xFF193044),
-    border: Color(0xFF193044),
-    divider: Color(0xFF0B1C29),
+    border: Color(0xFF1E2235),          // Thin borders
+    divider: Color(0xFF121422),         // Dividers
     textPrimary: Color(0xFFFFFFFF),
     textSecondary: Color(0xFFA8B7C4),
     textMuted: Color(0xFF6F8190),
-    gradA: Color(0xFF0A2833),
-    gradB: Color(0xFF01070C),
+    onSuccess: Color(0xFFFFFFFF),
+    onDanger: Color(0xFFFFFFFF),
+    onWarning: Color(0xFF0C0D11),        // Dark foreground for soft orange coral
+    onInfo: Color(0xFFFFFFFF),
+    gradA: Color(0xFF0C2450),
+    gradB: Color(0xFF0C0D11),
   );
 
   @override
@@ -172,6 +190,10 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? textPrimary,
     Color? textSecondary,
     Color? textMuted,
+    Color? onSuccess,
+    Color? onDanger,
+    Color? onWarning,
+    Color? onInfo,
     Color? gradA,
     Color? gradB,
   }) {
@@ -198,6 +220,10 @@ class AppColors extends ThemeExtension<AppColors> {
       textPrimary: textPrimary ?? this.textPrimary,
       textSecondary: textSecondary ?? this.textSecondary,
       textMuted: textMuted ?? this.textMuted,
+      onSuccess: onSuccess ?? this.onSuccess,
+      onDanger: onDanger ?? this.onDanger,
+      onWarning: onWarning ?? this.onWarning,
+      onInfo: onInfo ?? this.onInfo,
       gradA: gradA ?? this.gradA,
       gradB: gradB ?? this.gradB,
     );
@@ -229,6 +255,10 @@ class AppColors extends ThemeExtension<AppColors> {
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
       textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
       textMuted: Color.lerp(textMuted, other.textMuted, t)!,
+      onSuccess: Color.lerp(onSuccess, other.onSuccess, t)!,
+      onDanger: Color.lerp(onDanger, other.onDanger, t)!,
+      onWarning: Color.lerp(onWarning, other.onWarning, t)!,
+      onInfo: Color.lerp(onInfo, other.onInfo, t)!,
       gradA: Color.lerp(gradA, other.gradA, t)!,
       gradB: Color.lerp(gradB, other.gradB, t)!,
     );

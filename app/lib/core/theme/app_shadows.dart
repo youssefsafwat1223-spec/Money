@@ -32,12 +32,9 @@ class AppShadows {
   ];
 
   /// cta - Accent glow for primary buttons.
-  /// NOTE: This currently uses a hardcoded Mali Blue with 20% opacity.
-  /// In Phase 2 components, this should be generated dynamically via `colors.cta.withValues(...)` 
-  /// so it correctly tracks dark/light mode accent color.
   static const List<BoxShadow> cta = [
     BoxShadow(
-      color: Color(0x33006B8F), // Fixed Mali Blue for now (legacy compat)
+      color: Color(0x265488FE), // 15% opacity electric blue
       blurRadius: 10,
       offset: Offset(0, 4),
     ),
