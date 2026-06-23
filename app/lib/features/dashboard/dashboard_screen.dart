@@ -10,6 +10,8 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/app_gradients.dart';
+import '../../core/theme/app_shadows.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -21,6 +23,13 @@ import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
 import '../common/premium_loading.dart';
 import '../common/widgets.dart';
+import '../common/app_card.dart';
+import '../common/app_metric_card.dart';
+import '../common/app_insight_card.dart';
+import '../common/app_transaction_row.dart';
+import '../common/app_empty_state.dart';
+import '../common/app_screen_scaffold.dart';
+import '../common/app_header.dart';
 import '../goals/goal_details_screen.dart';
 import '../goals/goal_form_screen.dart';
 import '../settings/settings_providers.dart';
@@ -28,6 +37,7 @@ import '../app/app_shell.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
+
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -39,202 +49,141 @@ class DashboardScreen extends ConsumerWidget {
           data: (settings) => settings.privacyModeEnabled,
           orElse: () => false,
         );
-    final c = context.colors;
     final accounts = ref.watch(accountsProvider).maybeWhen(
       data: (a) => a,
       orElse: () => <AccountEntity>[],
     );
 
-    return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(dashboardDataProvider),
-      child: async.when(
-        loading: () => const PremiumSkeletonPage(cardCount: 5),
-        error: (error, stackTrace) => ListView(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'تعذر تحميل لوحة التحكم الآن.',
-                    style: AppTypography.title2(c.textMain),
-                  ),
-                  const SizedBox(height: AppSpacing.s2),
-                  Text(
-                    'تحقق من البيانات أو حاول التحديث مرة أخرى.',
-                    style: AppTypography.body(c.textLight),
-                  ),
-                  const SizedBox(height: AppSpacing.s4),
-                  OutlinedButton.icon(
-                    onPressed: () => ref.invalidate(dashboardDataProvider),
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('إعادة المحاولة'),
-                  ),
-                ],
-              ),
-            )
-          ],
-        ),
-        data: (data) => ListView(
-          padding: const EdgeInsets.only(bottom: 120),
-          children: [
-            GestureDetector(
-              onHorizontalDragEnd: (details) {
-                if (accounts.isEmpty) return;
-                final allOptions = <String?>[null, ...accounts.map<String>((a) => a.id)];
-                final current = ref.read(dashboardAccountProvider);
-                final currentIdx = allOptions.indexOf(current);
-                final velocity = details.primaryVelocity ?? 0;
-                if (velocity.abs() < 200) return;
-                final nextIdx = velocity < 0
-                    ? (currentIdx + 1) % allOptions.length
-                    : (currentIdx - 1 + allOptions.length) % allOptions.length;
-                HapticFeedback.selectionClick();
-                ref.read(dashboardAccountProvider.notifier).state =
-                    allOptions[nextIdx];
-              },
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFF046E9B),
-                    Color(0xFF034E73),
-                    Color(0xFF012438),
+    return AppScreenScaffold(
+      body: RefreshIndicator(
+        onRefresh: () async => ref.invalidate(dashboardDataProvider),
+        child: async.when(
+          loading: () => const PremiumSkeletonPage(cardCount: 5),
+          error: (error, stackTrace) => ListView(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'تعذر تحميل لوحة التحكم الآن.',
+                      style: AppTypography.title2(context.colors.textMain),
+                    ),
+                    const SizedBox(height: AppSpacing.s2),
+                    Text(
+                      'تحقق من البيانات أو حاول التحديث مرة أخرى.',
+                      style: AppTypography.body(context.colors.textLight),
+                    ),
+                    const SizedBox(height: AppSpacing.s4),
+                    OutlinedButton.icon(
+                      onPressed: () => ref.invalidate(dashboardDataProvider),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('إعادة المحاولة'),
+                    ),
                   ],
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
                 ),
-                borderRadius:
-                    const BorderRadius.vertical(bottom: Radius.circular(34)),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF034F73).withValues(alpha: 0.25),
-                    blurRadius: 26,
-                    offset: const Offset(0, 14),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.gutter, 16, AppSpacing.gutter, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      PremiumMotion(child: _greeting(context, data)),
-                      const SizedBox(height: 14),
-                      const PremiumMotion(child: _AccountSwitcher()),
-                      const SizedBox(height: 16),
+              )
+            ],
+          ),
+          data: (data) => ListView(
+            padding: const EdgeInsets.only(bottom: 120),
+            children: [
+              _buildHeader(context, ref, data, accounts),
+              const SizedBox(height: AppSpacing.s4),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    PremiumMotion(
+                      delay: const Duration(milliseconds: 60),
+                      child: _walletSummary(context, ref, data, privacyMode: privacyMode),
+                    ),
+                    const SizedBox(height: AppSpacing.s5),
+                    
+                    if (data.hasMultipleCurrencies) ...[
+                      PremiumMotion(
+                        child: _currencyTotalsCard(context, data, privacyMode: privacyMode),
+                      ),
+                      const SizedBox(height: AppSpacing.s5),
+                    ],
+                    if (data.activeGoal != null) ...[
+                      PremiumMotion(
+                        child: _goalCard(context, data, privacyMode: privacyMode),
+                      ),
+                      const SizedBox(height: AppSpacing.s5),
+                    ],
+                    if (data.isEmpty)
+                      _emptyState(context)
+                    else ...[
+                      if (data.pendingReviewCount > 0) ...[
+                        PremiumMotion(
+                          child: _reviewCard(context, ref, data, privacyMode: privacyMode),
+                        ),
+                        const SizedBox(height: AppSpacing.s5),
+                      ],
+                      PremiumMotion(
+                        delay: const Duration(milliseconds: 40),
+                        child: _smartInsightCard(context, data, privacyMode: privacyMode),
+                      ),
+                      const SizedBox(height: AppSpacing.s5),
+                      PremiumMotion(
+                        delay: const Duration(milliseconds: 55),
+                        child: _periodSnapshotCard(context, data, privacyMode: privacyMode),
+                      ),
+                      const SizedBox(height: AppSpacing.s5),
+                      PremiumMotion(
+                        delay: const Duration(milliseconds: 70),
+                        child: _quickActions(context),
+                      ),
+                      const SizedBox(height: AppSpacing.s5),
+                      const CardsCarousel(),
+                      const SizedBox(height: AppSpacing.s5),
+                      if (data.subscriptions.isNotEmpty) ...[
+                        PremiumMotion(
+                          child: _subscriptionsPreview(context, data, privacyMode: privacyMode),
+                        ),
+                        const SizedBox(height: AppSpacing.s5),
+                      ],
+                      PremiumMotion(child: _whereMoneyWent(context, data)),
+                      const SizedBox(height: AppSpacing.s5),
                       PremiumMotion(
                         delay: const Duration(milliseconds: 80),
-                        child: _walletSummary(
-                          context,
-                          ref,
-                          data,
-                          privacyMode: privacyMode,
-                        ),
+                        child: _recent(context, ref, data, privacyMode: privacyMode),
                       ),
                     ],
-                  ),
+                  ],
                 ),
               ),
-            ),
-            ),
-            const SizedBox(height: AppSpacing.s5),
-            Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (data.hasMultipleCurrencies) ...[
-                    PremiumMotion(
-                      child: _currencyTotalsCard(
-                        context,
-                        data,
-                        privacyMode: privacyMode,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                  ],
-                  if (data.activeGoal != null) ...[
-                    PremiumMotion(
-                      child: _goalCard(
-                        context,
-                        data,
-                        privacyMode: privacyMode,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                  ],
-                  if (data.isEmpty)
-                    _emptyState(context)
-                  else ...[
-                    if (data.pendingReviewCount > 0) ...[
-                      PremiumMotion(
-                        child: _reviewCard(
-                          context,
-                          ref,
-                          data,
-                          privacyMode: privacyMode,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.s5),
-                    ],
-                    PremiumMotion(
-                      delay: const Duration(milliseconds: 40),
-                      child: _smartInsightCard(
-                        context,
-                        data,
-                        privacyMode: privacyMode,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                    PremiumMotion(
-                      delay: const Duration(milliseconds: 55),
-                      child: _periodSnapshotCard(
-                        context,
-                        data,
-                        privacyMode: privacyMode,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                    PremiumMotion(
-                      delay: const Duration(milliseconds: 70),
-                      child: _quickActions(context),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                    const CardsCarousel(),
-                    const SizedBox(height: AppSpacing.s5),
-                    if (data.subscriptions.isNotEmpty) ...[
-                      PremiumMotion(
-                        child: _subscriptionsPreview(
-                          context,
-                          data,
-                          privacyMode: privacyMode,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.s5),
-                    ],
-                    PremiumMotion(child: _whereMoneyWent(context, data)),
-                    const SizedBox(height: AppSpacing.s5),
-                    PremiumMotion(
-                      delay: const Duration(milliseconds: 80),
-                      child: _recent(
-                        context,
-                        ref,
-                        data,
-                        privacyMode: privacyMode,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, WidgetRef ref, DashboardData data, List<AccountEntity> accounts) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: AppGradients.brandHero,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(34)),
+        boxShadow: [AppShadows.card],
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(AppSpacing.gutter, 16, AppSpacing.gutter, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              PremiumMotion(child: _greeting(context, data)),
+              const SizedBox(height: 14),
+              const PremiumMotion(child: _AccountSwitcher()),
+            ],
+          ),
         ),
       ),
     );
@@ -514,191 +463,94 @@ class DashboardScreen extends ConsumerWidget {
   }) {
     final c = context.colors;
     final positive = data.savedThisMonth >= 0;
-    final budgetSet = data.monthlyBudgetLimit > 0;
-    final hasTrendMovement =
-        data.dailySpendTrend.any((value) => value > 0.0001);
-    final trendValues = data.dailySpendTrend.length == 1
-        ? <double>[0, data.dailySpendTrend.first]
-        : data.dailySpendTrend;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.s5),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF011C2B), Color(0xFF023A57)],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(
-          color: c.accent.withValues(alpha: 0.24),
-          width: 1.0,
-        ),
-      ),
+    return AppCard(
+      gradient: AppGradients.walletCard,
+      padding: EdgeInsets.zero,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            onTap: () {
-              HapticFeedback.selectionClick();
-              _showDashboardRangeSheet(context, ref, data.range);
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.12),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_rangeLabel(data.range, context),
-                      style: AppTypography.subhead(Colors.white)
-                          .copyWith(fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 6),
-                  const Icon(AppLucideIcons.arrowLeftRight,
-                      size: 16, color: Colors.white),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          Row(
-            children: [
-              Expanded(
-                child: _heroMetric(
-                  context: context,
-                  label: 'المصروف',
-                  amount: data.spentThisMonth,
-                  privacyMode: privacyMode,
-                  currency: data.currency,
-                  onDark: true,
-                ),
-              ),
-              Container(
-                height: 48,
-                width: 1,
-                color: Colors.white.withValues(alpha: 0.14),
-              ),
-              Expanded(
-                child: _heroMetric(
-                  context: context,
-                  label: 'الدخل',
-                  amount: data.incomeThisMonth,
-                  privacyMode: privacyMode,
-                  currency: data.currency,
-                  onDark: true,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          InkWell(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            onTap: () {
-              HapticFeedback.selectionClick();
-              BudgetFormScreen.showSheet(context);
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(AppLucideIcons.plus, color: c.accent, size: 16),
-                  const SizedBox(width: 8),
-                  Text(
-                    budgetSet
-                        ? 'استخدمت ${(data.monthlyBudgetRatio * 100).clamp(0, 999).round()}% من ميزانية ${data.budgetPeriodLabel}'
-                        : 'اضغط لضبط ميزانية كل المصروفات',
-                    style: AppTypography.caption(Colors.white)
-                        .copyWith(fontWeight: FontWeight.bold),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.s4, AppSpacing.s4, AppSpacing.s4, 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    _showDashboardRangeSheet(context, ref, data.range);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_rangeLabel(data.range, context),
+                            style: AppTypography.subhead(Colors.white)
+                                .copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 6),
+                        const Icon(AppLucideIcons.chevronDown,
+                            size: 16, color: Colors.white70),
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: AppSpacing.s4),
-          Row(
-            children: [
-              Expanded(
-                child: _glassPill(
-                  icon: data.balance == null
-                      ? AppLucideIcons.receipt
-                      : AppLucideIcons.wallet,
-                  title: data.balance == null ? 'عمليات الشهر' : 'كل الحسابات',
-                  value: data.balance == null
-                      ? '${data.recent.length} عمليات حديثة'
-                      : _money(
-                          data.balance!,
-                          data.currency,
-                          privacyMode: privacyMode,
-                        ),
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.s4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('الصرف', style: AppTypography.caption(Colors.white70)),
+                      const SizedBox(height: 4),
+                      privacyMode
+                        ? Text('••••', style: AppTypography.amountHero(Colors.white))
+                        : AnimatedAmountText(
+                            amount: data.spentThisMonth,
+                            color: Colors.white,
+                            suffix: ' ${_currencyLabel(data.currency)}',
+                          ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: _glassPill(
-                  icon: AppLucideIcons.arrowLeftRight,
-                  title: positive ? 'وفّرت' : 'زيادة صرف',
-                  value: privacyMode
-                      ? _money(
-                          data.savedThisMonth.abs(),
-                          data.currency,
-                          privacyMode: true,
-                        )
-                      : '${positive ? '+' : '−'}${_money(data.savedThisMonth.abs(), data.currency)}',
-                  valueColor: positive ? c.success : c.accent,
+                Container(width: 1, height: 48, color: Colors.white.withValues(alpha: 0.14)),
+                const SizedBox(width: AppSpacing.s4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('الدخل', style: AppTypography.caption(Colors.white70)),
+                      const SizedBox(height: 4),
+                      privacyMode
+                        ? Text('••••', style: AppTypography.amountMedium(Colors.white))
+                        : AnimatedAmountText(
+                            amount: data.incomeThisMonth,
+                            color: Colors.white,
+                            suffix: ' ${_currencyLabel(data.currency)}',
+                          ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           if (data.budgetsForHeader.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.s4),
-            _HeaderBudgetSwiper(
-              entries: data.budgetsForHeader,
-              currency: data.currency,
-              privacyMode: privacyMode,
-            ),
-          ],
-          if (data.dailySpendTrend.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.s4),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppSpacing.s3),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'اتجاه الصرف هذا الشهر',
-                    style: AppTypography.caption(Colors.white70),
-                  ),
-                  const SizedBox(height: AppSpacing.s2),
-                  if (hasTrendMovement)
-                    CompactSparkline(
-                      values: trendValues,
-                      color: c.accent,
-                      height: 44,
-                    )
-                  else
-                    Text(
-                      'ابدأ بإضافة عمليات أكثر، وهنعرض لك اتجاه الصرف اليومي هنا.',
-                      style: AppTypography.caption(Colors.white70),
-                    ),
-                ],
+            const Divider(color: Colors.white12, height: 1),
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.s4),
+              child: _HeaderBudgetSwiper(
+                entries: data.budgetsForHeader,
+                currency: data.currency,
+                privacyMode: privacyMode,
               ),
             ),
           ],
@@ -785,67 +637,16 @@ class DashboardScreen extends ConsumerWidget {
     required bool privacyMode,
   }) {
     final c = context.colors;
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.card),
+    return AppInsightCard(
+      title: '${data.pendingReviewCount} عمليات تحتاج مراجعة',
+      message: 'إجماليها ${_money(data.pendingReviewTotal, data.currency, privacyMode: privacyMode)}. راجعها لتبقى تقاريرك أدق.',
+      icon: AppLucideIcons.alertTriangle,
+      tone: AppInsightTone.danger,
       onTap: () {
         HapticFeedback.selectionClick();
-        // Switch to transactions tab and show pending-only view.
         ref.read(shellIndexProvider.notifier).state = 1;
         ref.read(transactionsPendingFilterProvider.notifier).state = true;
       },
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s4),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              c.accent.withValues(alpha: 0.20),
-              c.surface.withValues(alpha: 0.82),
-            ],
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: c.accent.withValues(alpha: 0.35)),
-          boxShadow: [
-            BoxShadow(
-              color: c.accent.withValues(alpha: 0.12),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: c.accent.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(AppLucideIcons.alertTriangle, color: c.accent),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${data.pendingReviewCount} عمليات تحتاج مراجعة',
-                    style: AppTypography.bodyStrong(c.textMain),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'إجماليها ${_money(data.pendingReviewTotal, data.currency, privacyMode: privacyMode)}. راجعها لتبقى تقاريرك أدق.',
-                    style: AppTypography.caption(c.textLight),
-                  ),
-                ],
-              ),
-            ),
-            Icon(AppLucideIcons.arrowLeftRight, color: c.textLight, size: 18),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1535,93 +1336,12 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _emptyState(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      margin: const EdgeInsets.only(top: AppSpacing.s5),
-      padding: const EdgeInsets.all(AppSpacing.s6),
-      decoration: BoxDecoration(
-        color: c.surface.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.primary.withValues(alpha: 0.2), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: c.primary.withValues(alpha: 0.1),
-              border: Border.all(
-                  color: c.primary.withValues(alpha: 0.2), width: 1.5),
-            ),
-            child: Icon(
-              AppLucideIcons.receipt,
-              size: 36,
-              color: c.primary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          Text(
-            'لا توجد عمليات مضافة',
-            style: AppTypography.headline(c.textMain).copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            'ألصق رسالة الخصم أو الإيداع التي تصلك من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائياً على جهازك.',
-            textAlign: TextAlign.center,
-            style: AppTypography.callout(c.textLight).copyWith(
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          _emptyStep(context, '1', 'ألصق رسالة خصم أو إيداع من البنك.'),
-          const SizedBox(height: AppSpacing.s2),
-          _emptyStep(context, '2', 'راجع التصنيف مرة واحدة لو العملية جديدة.'),
-          const SizedBox(height: AppSpacing.s2),
-          _emptyStep(context, '3', 'بعدها الداش بورد هيمتلئ تلقائياً.'),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            width: double.infinity,
-            height: 52,
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: c.primary.withValues(alpha: 0.35),
-                  blurRadius: 14,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: ElevatedButton.icon(
-              onPressed: () => showCaptureEntrySheet(context),
-              icon: const Icon(AppLucideIcons.clipboardPaste,
-                  color: Colors.white, size: 20),
-              label: Text(
-                'ألصق رسالة بنك',
-                style: AppTypography.bodyStrong(Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return AppEmptyState(
+      icon: AppLucideIcons.receipt,
+      title: 'لا توجد عمليات مضافة',
+      message: 'ألصق رسالة الخصم أو الإيداع التي تصلك من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائياً على جهازك.',
+      primaryActionText: 'ألصق رسالة بنك',
+      onPrimaryAction: () => showCaptureEntrySheet(context),
     );
   }
 
