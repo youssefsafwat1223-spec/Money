@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/app_motion.dart';
 import '../../core/utils/formatters.dart';
 
 bool shouldReduceMotion(BuildContext context) {
@@ -28,9 +29,9 @@ class PremiumMotion extends StatelessWidget {
     }
     return child
         .animate(delay: delay)
-        .fadeIn(duration: 180.ms, curve: Curves.easeOutCubic)
+        .fadeIn(duration: 180.ms, curve: AppMotion.standardCurve)
         .slideY(
-            begin: 0.05, end: 0, duration: 250.ms, curve: Curves.easeOutCubic);
+            begin: 0.05, end: 0, duration: AppMotion.normal, curve: AppMotion.standardCurve);
   }
 }
 
@@ -39,7 +40,7 @@ class AnimatedAmountText extends StatelessWidget {
     super.key,
     required this.amount,
     required this.color,
-    this.suffix = ' ريال',
+    this.suffix = '',
     this.textAlign = TextAlign.center,
     this.style,
   });
@@ -54,11 +55,11 @@ class AnimatedAmountText extends StatelessWidget {
   Widget build(BuildContext context) {
     final duration = shouldReduceMotion(context)
         ? Duration.zero
-        : const Duration(milliseconds: 650);
+        : AppMotion.numberCountUp;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: amount),
       duration: duration,
-      curve: Curves.easeOutCubic,
+      curve: AppMotion.standardCurve,
       builder: (context, value, _) {
         final baseStyle = style ?? AppTypography.title2(color);
         return Text(

@@ -1,4 +1,4 @@
-/// سلّم المسافات (4pt base) والزوايا — من DESIGN_SYSTEM.md / BRAND_AND_DESIGN_SYSTEM.md.
+/// AppSpacing — 4pt base spacing system.
 class AppSpacing {
   AppSpacing._();
 
@@ -13,18 +13,31 @@ class AppSpacing {
   static const double s9 = 48;
   static const double s10 = 64;
 
-  /// هامش الشاشة الجانبي القياسي.
-  static const double gutter = 20;
+  // Semantic spacing
+  static const double pagePadding = 24;
+  static const double sectionGap = 32;
+  static const double cardPadding = 20;
+  static const double chipPadding = 12;
+  static const double buttonHeight = 56;
+  static const double sheetPadding = 24;
+
+  // Legacy alias
+  static const double gutter = pagePadding;
 }
 
-/// زوايا الانحناء (Border Radius).
+/// AppRadius — Standardized border radii.
 class AppRadius {
   AppRadius._();
 
+  // Semantic radius
   static const double sm = 8;
-  static const double md = 16; // أزرار/حقول (Vibrant Fintech: 16)
-  static const double lg = 18;
-  static const double card = 24;
-  static const double cardLg = 32; // الخزنة/البطاقات الكبيرة
+  static const double md = 16;
+  static const double lg = 24;
   static const double pill = 999;
+  static const double full = 9999;
+
+  static const double card = 24;
+  static const double cardLg = 32;
+  static const double button = 16;
+  static const double nav = 28;
 }

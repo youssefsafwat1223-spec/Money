@@ -1,39 +1,84 @@
 import 'package:flutter/material.dart';
 
-/// رموز الألوان (Color Tokens) — Premium Minimalist Fintech.
+/// AppColors — Premium Minimalist Fintech Color System for Mali.
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
     required this.bg,
     required this.surface,
-    required this.surface2,
+    required this.surfaceElevated,
     required this.primary,
+    required this.onPrimary,
+    required this.cta,
+    required this.onCta,
+    required this.ctaSoft,
     required this.accent,
+    required this.income,
+    required this.expense,
     required this.success,
     required this.warning,
     required this.danger,
-    required this.textMain,
-    required this.textLight,
+    required this.info,
+    required this.neutral,
+    required this.disabled,
     required this.border,
+    required this.divider,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.textMuted,
+    // Legacy tokens for backward compatibility
     required this.gradA,
     required this.gradB,
   });
 
+  // ===== Surfaces =====
   final Color bg;
   final Color surface;
-  final Color surface2;
+  final Color surfaceElevated;
+
+  // ===== Brand / Interactive =====
+  /// Brand text/elements. Safe contrast in light/dark.
+  /// IMPORTANT: Never use as a button background without `onPrimary` as foreground!
   final Color primary;
+  /// The correct foreground color to use when `primary` is the background.
+  final Color onPrimary;
+
+  /// Primary interactive CTA color (Mali Blue).
+  final Color cta;
+  /// Foreground for CTA backgrounds (always white).
+  final Color onCta;
+  /// Tinted background for CTA.
+  final Color ctaSoft;
+
   final Color accent;
+
+  // ===== Semantics =====
+  final Color income;
+  final Color expense;
   final Color success;
   final Color warning;
   final Color danger;
-  final Color textMain;
-  final Color textLight;
-  final Color border;
+  final Color info;
+  final Color neutral;
+  final Color disabled;
 
-  // Kept for backward compatibility with older components until they are migrated
+  // ===== Lines =====
+  final Color border;
+  final Color divider;
+
+  // ===== Typography =====
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color textMuted;
+
+  // ===== Legacy Backwards Compatibility =====
   final Color gradA;
   final Color gradB;
+  
+  Color get surface2 => surfaceElevated;
+  Color get textMain => textPrimary;
+  Color get textSec => textSecondary;
+  Color get textLight => textMuted;
 
   LinearGradient get primaryGradient => LinearGradient(
         colors: [gradA, gradB],
@@ -47,68 +92,112 @@ class AppColors extends ThemeExtension<AppColors> {
     return success;
   }
 
-  // Light Mode — Bahama Blue brand on a crisp, airy canvas.
+  // ===== Light Mode =====
   static const AppColors light = AppColors(
-    bg: Color(0xFFF2F7FB),
+    bg: Color(0xFFF4F7FA),
     surface: Color(0xFFFFFFFF),
-    surface2: Color(0xFFE3EEF5),
-    primary: Color(0xFF056A95),
-    accent: Color(0xFF4F8AA6),
-    success: Color(0xFF14946E),
-    warning: Color(0xFFC57F2C),
-    danger: Color(0xFFD4493D),
-    textMain: Color(0xFF0E2230),
-    textLight: Color(0xFF5C7484),
-    border: Color(0xFFD5E2EB),
-    gradA: Color(0xFF0789BB),
-    gradB: Color(0xFF034F73),
+    surfaceElevated: Color(0xFFFFFFFF), // Can use shadow for elevation
+    primary: Color(0xFF062635),
+    onPrimary: Color(0xFFFFFFFF),
+    cta: Color(0xFF006B8F),
+    onCta: Color(0xFFFFFFFF),
+    ctaSoft: Color(0xFFE6F4F9),
+    accent: Color(0xFF2F80A8),
+    income: Color(0xFF0F9F6E),
+    expense: Color(0xFFD93D54),
+    success: Color(0xFF0F9F6E),
+    warning: Color(0xFFE06F4F),
+    danger: Color(0xFFD93D54),
+    info: Color(0xFF2F80A8),
+    neutral: Color(0xFF64748B),
+    disabled: Color(0xFFCBD5E1),
+    border: Color(0xFFD7E1E8),
+    divider: Color(0xFFE2E8F0),
+    textPrimary: Color(0xFF062635),
+    textSecondary: Color(0xFF64748B),
+    textMuted: Color(0xFF94A3B8),
+    gradA: Color(0xFF006B8F),
+    gradB: Color(0xFF062635),
   );
 
-  // Dark Mode — deep midnight Bahama with luminous brand accents.
+  // ===== Dark Mode =====
   static const AppColors dark = AppColors(
-    bg: Color(0xFF02131C),
-    surface: Color(0xFF081E2A),
-    surface2: Color(0xFF102E3F),
-    primary: Color(0xFF38B0DD),
-    accent: Color(0xFF7CB1C8),
-    success: Color(0xFF2BC79A),
-    warning: Color(0xFFD89C5A),
+    bg: Color(0xFF01070C),
+    surface: Color(0xFF06131C),
+    surfaceElevated: Color(0xFF0B1C29),
+    primary: Color(0xFFFFFFFF),
+    onPrimary: Color(0xFF062635),
+    cta: Color(0xFF1A8DB0),
+    onCta: Color(0xFFFFFFFF),
+    ctaSoft: Color(0xFF0A2833), // 20% of CTA roughly
+    accent: Color(0xFF4DA3C7),
+    income: Color(0xFF28C99B),
+    expense: Color(0xFFFF6B73),
+    success: Color(0xFF28C99B),
+    warning: Color(0xFFFF8A65),
     danger: Color(0xFFFF6B73),
-    textMain: Color(0xFFEBF4F9),
-    textLight: Color(0xFF95AEBC),
-    border: Color(0xFF1C3849),
-    gradA: Color(0xFF0789BB),
-    gradB: Color(0xFF056A95),
+    info: Color(0xFF4DA3C7),
+    neutral: Color(0xFF6F8190),
+    disabled: Color(0xFF193044),
+    border: Color(0xFF193044),
+    divider: Color(0xFF0B1C29),
+    textPrimary: Color(0xFFFFFFFF),
+    textSecondary: Color(0xFFA8B7C4),
+    textMuted: Color(0xFF6F8190),
+    gradA: Color(0xFF0A2833),
+    gradB: Color(0xFF01070C),
   );
 
   @override
   AppColors copyWith({
     Color? bg,
     Color? surface,
-    Color? surface2,
+    Color? surfaceElevated,
     Color? primary,
+    Color? onPrimary,
+    Color? cta,
+    Color? onCta,
+    Color? ctaSoft,
     Color? accent,
+    Color? income,
+    Color? expense,
     Color? success,
     Color? warning,
     Color? danger,
-    Color? textMain,
-    Color? textLight,
+    Color? info,
+    Color? neutral,
+    Color? disabled,
     Color? border,
+    Color? divider,
+    Color? textPrimary,
+    Color? textSecondary,
+    Color? textMuted,
     Color? gradA,
     Color? gradB,
   }) {
     return AppColors(
       bg: bg ?? this.bg,
       surface: surface ?? this.surface,
-      surface2: surface2 ?? this.surface2,
+      surfaceElevated: surfaceElevated ?? this.surfaceElevated,
       primary: primary ?? this.primary,
+      onPrimary: onPrimary ?? this.onPrimary,
+      cta: cta ?? this.cta,
+      onCta: onCta ?? this.onCta,
+      ctaSoft: ctaSoft ?? this.ctaSoft,
       accent: accent ?? this.accent,
+      income: income ?? this.income,
+      expense: expense ?? this.expense,
       success: success ?? this.success,
       warning: warning ?? this.warning,
       danger: danger ?? this.danger,
-      textMain: textMain ?? this.textMain,
-      textLight: textLight ?? this.textLight,
+      info: info ?? this.info,
+      neutral: neutral ?? this.neutral,
+      disabled: disabled ?? this.disabled,
       border: border ?? this.border,
+      divider: divider ?? this.divider,
+      textPrimary: textPrimary ?? this.textPrimary,
+      textSecondary: textSecondary ?? this.textSecondary,
+      textMuted: textMuted ?? this.textMuted,
       gradA: gradA ?? this.gradA,
       gradB: gradB ?? this.gradB,
     );
@@ -120,15 +209,26 @@ class AppColors extends ThemeExtension<AppColors> {
     return AppColors(
       bg: Color.lerp(bg, other.bg, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
-      surface2: Color.lerp(surface2, other.surface2, t)!,
+      surfaceElevated: Color.lerp(surfaceElevated, other.surfaceElevated, t)!,
       primary: Color.lerp(primary, other.primary, t)!,
+      onPrimary: Color.lerp(onPrimary, other.onPrimary, t)!,
+      cta: Color.lerp(cta, other.cta, t)!,
+      onCta: Color.lerp(onCta, other.onCta, t)!,
+      ctaSoft: Color.lerp(ctaSoft, other.ctaSoft, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
+      income: Color.lerp(income, other.income, t)!,
+      expense: Color.lerp(expense, other.expense, t)!,
       success: Color.lerp(success, other.success, t)!,
       warning: Color.lerp(warning, other.warning, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
-      textMain: Color.lerp(textMain, other.textMain, t)!,
-      textLight: Color.lerp(textLight, other.textLight, t)!,
+      info: Color.lerp(info, other.info, t)!,
+      neutral: Color.lerp(neutral, other.neutral, t)!,
+      disabled: Color.lerp(disabled, other.disabled, t)!,
       border: Color.lerp(border, other.border, t)!,
+      divider: Color.lerp(divider, other.divider, t)!,
+      textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
+      textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
+      textMuted: Color.lerp(textMuted, other.textMuted, t)!,
       gradA: Color.lerp(gradA, other.gradA, t)!,
       gradB: Color.lerp(gradB, other.gradB, t)!,
     );
