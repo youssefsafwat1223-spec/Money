@@ -84,9 +84,9 @@ class TransactionsScreen extends ConsumerWidget {
                                 size: 14, color: context.colors.accent),
                             const SizedBox(width: 6),
                             Text('تصفية: قيد المراجعة',
-                                style: AppTypography.caption(
-                                        context.colors.accent)
-                                    .copyWith(fontWeight: FontWeight.w700)),
+                                style:
+                                    AppTypography.caption(context.colors.accent)
+                                        .copyWith(fontWeight: FontWeight.w700)),
                             const SizedBox(width: 8),
                             GestureDetector(
                               onTap: () => ref
@@ -128,14 +128,16 @@ class TransactionsScreen extends ConsumerWidget {
                           value: '${view.transactions.length}',
                         ),
                       ),
-                      Container(width: 1, height: 32, color: context.colors.border),
+                      Container(
+                          width: 1, height: 32, color: context.colors.border),
                       Expanded(
                         child: _MetricItem(
                           label: 'مراجعة',
                           value: '${view.pendingCount}',
                         ),
                       ),
-                      Container(width: 1, height: 32, color: context.colors.border),
+                      Container(
+                          width: 1, height: 32, color: context.colors.border),
                       Expanded(
                         child: _MetricItem(
                           label: 'مصروف',
@@ -146,7 +148,7 @@ class TransactionsScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s4),
-                
+
                 const _TransactionSearchField(),
                 const SizedBox(height: AppSpacing.s3),
                 const _KindFilterChips(),
@@ -168,11 +170,12 @@ class TransactionsScreen extends ConsumerWidget {
                           amount: tx.amount,
                           currency: Currency.arabicLabel(tx.currency),
                           subtitle: category?.nameAr,
-                          categoryIcon: category?.iconData,
-                          categoryColor: category?.colorValue,
+                          categoryIcon: category?.icon,
+                          categoryColor: category?.color,
                           isPending: tx.status == TransactionStatus.pending,
-                          isAi: tx.confidence != null,
-                          isDebit: tx.type == TransactionType.expense,
+                          isAi: tx.source == TransactionSourceEntity.aiParsed,
+                          isDebit: tx.type != TransactionTypeEntity.income &&
+                              tx.type != TransactionTypeEntity.refund,
                           onTap: () => TransactionDetailsScreen.showSheet(
                             context,
                             tx.id,
@@ -206,7 +209,9 @@ class _MetricItem extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(value, style: AppTypography.title2(context.colors.textMain).copyWith(fontWeight: FontWeight.bold)),
+        Text(value,
+            style: AppTypography.title2(context.colors.textMain)
+                .copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 2),
         Text(label, style: AppTypography.caption(context.colors.textLight)),
       ],

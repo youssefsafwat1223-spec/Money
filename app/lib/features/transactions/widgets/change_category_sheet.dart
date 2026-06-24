@@ -5,7 +5,6 @@ import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/utils/app_lucide_icons.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/usecases/correct_category_usecase.dart';
@@ -88,7 +87,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
               ))
                 AppCategoryChip(
                   label: cat.nameAr,
-                  icon: AppLucideIcons.tag,
+                  icon: cat.icon,
                   color: _selectedKey == cat.key ? c.primary : c.textLight,
                   selected: _selectedKey == cat.key,
                   onTap: () => setState(() => _selectedKey = cat.key),

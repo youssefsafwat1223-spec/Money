@@ -16,7 +16,6 @@ import '../../common/category_catalog.dart';
 import '../../dashboard/dashboard_providers.dart';
 import '../manual_transaction_sheet.dart';
 import '../transactions_providers.dart';
-import 'change_category_sheet.dart';
 
 Future<void> showConfirmTransactionSheet(
   BuildContext context,
@@ -55,10 +54,9 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
       return const SizedBox(
           height: 200, child: Center(child: CircularProgressIndicator()));
     }
-    
-    final categoryKey = _selectedCategoryKey ?? tx.categoryId;
-    final category = catalog.byId(categoryKey);
-    final isNewMerchant = tx.rawMerchant != null;
+
+    final currentCategoryKey =
+        _selectedCategoryKey ?? catalog.byId(tx.categoryId)?.key;
 
     return AppSheetScaffold(
       title: 'مراجعة العملية',
@@ -80,7 +78,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(AppLucideIcons.sparkles, size: 14, color: c.accent),
+                Icon(Icons.auto_awesome, size: 14, color: c.accent),
                 const SizedBox(width: 6),
                 Text('قيد المراجعة',
                     style: AppTypography.caption(c.accent)
@@ -90,12 +88,11 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
           ),
           if (tx.rawMerchant != null) ...[
             const SizedBox(height: AppSpacing.s4),
-            Text(tx.rawMerchant!,
-                style: AppTypography.headline(c.textMain)),
+            Text(tx.rawMerchant!, style: AppTypography.headline(c.textMain)),
           ],
-          
+
           const SizedBox(height: AppSpacing.s4),
-          
+
           // Inline Category Quick-Pick
           Align(
             alignment: AlignmentDirectional.centerStart,
@@ -107,24 +104,32 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                for (final cat in catalog.all.where((it) => it.key != 'income' && it.key != 'all_expenses'))
+                for (final cat in catalog.all.where(
+                    (it) => it.key != 'income' && it.key != 'all_expenses'))
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: AppCategoryChip(
                       label: cat.nameAr,
-                      icon: AppLucideIcons.tag,
-                      color: cat.key == categoryKey ? c.primary : c.textLight,
-                      selected: cat.key == categoryKey,
+                      icon: cat.icon,
+                      color: cat.key == currentCategoryKey
+                          ? c.primary
+                          : c.textLight,
+                      selected: cat.key == currentCategoryKey,
                       onTap: () {
                         setState(() {
                           _selectedCategoryKey = cat.key;
                         });
                         // Update transaction category quietly
-                        ref.read(transactionRepositoryProvider).updateCategory(
-                          transactionId: tx.id,
-                          categoryId: cat.key,
-                        ).then((_) {
+                        ref
+                            .read(transactionRepositoryProvider)
+                            .updateCategory(
+                              transactionId: tx.id,
+                              categoryKey: cat.key,
+                            )
+                            .then((_) {
                           ref.invalidate(transactionByIdProvider(tx.id));
+                          refreshTransactions(ref);
+                          ref.invalidate(dashboardDataProvider);
                         });
                       },
                     ),
@@ -132,9 +137,9 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
               ],
             ),
           ),
-          
+
           const SizedBox(height: AppSpacing.s4),
-          
+
           // Account & Date Inline Row
           Container(
             padding: const EdgeInsets.all(AppSpacing.s3),
@@ -145,7 +150,8 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             ),
             child: Row(
               children: [
-                Icon(AppLucideIcons.calendarDays, size: 18, color: c.textLight),
+                Icon(Icons.calendar_today_outlined,
+                    size: 18, color: c.textLight),
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
                   child: Text(
@@ -154,66 +160,72 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                   ),
                 ),
                 if (tx.cardLast4 != null) ...[
-                  Container(width: 1, height: 16, color: c.border, margin: const EdgeInsets.symmetric(horizontal: 8)),
-                  Text('بطاقة ${tx.cardLast4}', style: AppTypography.caption(c.textLight)),
+                  Container(
+                      width: 1,
+                      height: 16,
+                      color: c.border,
+                      margin: const EdgeInsets.symmetric(horizontal: 8)),
+                  Text('بطاقة ${tx.cardLast4}',
+                      style: AppTypography.caption(c.textLight)),
                 ],
               ],
             ),
           ),
-          
+
           ref.watch(accountsProvider).maybeWhen(
-            data: (accounts) {
-              if (accounts.length < 2) return const SizedBox.shrink();
-              final value = accounts.any((a) => a.id == tx.accountId)
-                  ? tx.accountId
-                  : accounts.first.id;
-              return Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.s3),
-                child: DropdownButtonFormField<String>(
-                  value: value,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: 'الحساب',
-                    prefixIcon: const Icon(AppLucideIcons.walletCards),
-                    filled: true,
-                    fillColor: c.surface2.withValues(alpha: 0.5),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: c.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: c.border),
-                    ),
-                  ),
-                  items: [
-                    for (final account in accounts)
-                      DropdownMenuItem(
-                        value: account.id,
-                        child: Text(
-                          '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                data: (accounts) {
+                  if (accounts.length < 2) return const SizedBox.shrink();
+                  final value = accounts.any((a) => a.id == tx.accountId)
+                      ? tx.accountId
+                      : accounts.first.id;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.s3),
+                    child: DropdownButtonFormField<String>(
+                      value: value,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'الحساب',
+                        prefixIcon: const Icon(AppLucideIcons.walletCards),
+                        filled: true,
+                        fillColor: c.surface2.withValues(alpha: 0.5),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: c.border),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: c.border),
                         ),
                       ),
-                  ],
-                  onChanged: (id) async {
-                    if (id == null) return;
-                    await ref
-                        .read(transactionRepositoryProvider)
-                        .updateAccount(
-                          transactionId: tx.id,
-                          accountId: id,
-                        );
-                    ref.invalidate(transactionByIdProvider(widget.transactionId));
-                    ref.invalidate(dashboardDataProvider);
-                  },
-                ),
-              );
-            },
-            orElse: () => const SizedBox.shrink(),
-          ),
-          
+                      items: [
+                        for (final account in accounts)
+                          DropdownMenuItem(
+                            value: account.id,
+                            child: Text(
+                              '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                            ),
+                          ),
+                      ],
+                      onChanged: (id) async {
+                        if (id == null) return;
+                        await ref
+                            .read(transactionRepositoryProvider)
+                            .updateAccount(
+                              transactionId: tx.id,
+                              accountId: id,
+                            );
+                        ref.invalidate(
+                            transactionByIdProvider(widget.transactionId));
+                        ref.invalidate(dashboardDataProvider);
+                      },
+                    ),
+                  );
+                },
+                orElse: () => const SizedBox.shrink(),
+              ),
+
           const SizedBox(height: AppSpacing.s5),
-          
+
           AppButton(
             label: 'تأكيد العملية',
             onPressed: () async {

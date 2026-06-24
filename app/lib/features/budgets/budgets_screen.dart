@@ -56,8 +56,10 @@ class BudgetsScreen extends ConsumerWidget {
             (sum, entry) => sum + entry.budget.amount,
           );
           final usedRatio = limit == 0 ? 0 : (used / limit * 100).round();
-          final saved = data.goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
-          final target = data.goals.fold<double>(0, (sum, goal) => sum + goal.targetAmount);
+          final saved =
+              data.goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
+          final target = data.goals
+              .fold<double>(0, (sum, goal) => sum + goal.targetAmount);
           final progress = target == 0 ? 0 : (saved / target * 100).round();
 
           return RefreshIndicator(
@@ -86,14 +88,15 @@ class BudgetsScreen extends ConsumerWidget {
                       style: AppTypography.callout(context.colors.textLight),
                     ),
                   ),
-                
+
                 AppPillTabBar(
                   tabs: const ['الميزانيات', 'الأهداف'],
                   selectedIndex: tab,
-                  onSelected: (value) => ref.read(budgetsPageTabProvider.notifier).state = value,
+                  onSelected: (value) =>
+                      ref.read(budgetsPageTabProvider.notifier).state = value,
                 ),
                 const SizedBox(height: AppSpacing.s4),
-                
+
                 // Metrics
                 Container(
                   padding: const EdgeInsets.all(AppSpacing.s4),
@@ -104,18 +107,46 @@ class BudgetsScreen extends ConsumerWidget {
                   child: Row(
                     children: tab == 0
                         ? [
-                            Expanded(child: _MetricItem(label: 'ميزانيات', value: '${data.snapshot.entries.length}')),
-                            Container(width: 1, height: 32, color: context.colors.border),
-                            Expanded(child: _MetricItem(label: 'مستخدم', value: '$usedRatio%')),
-                            Container(width: 1, height: 32, color: context.colors.border),
-                            Expanded(child: _MetricItem(label: 'إجمالي الحدود', value: '${Formatters.integer(limit)} ر')),
+                            Expanded(
+                                child: _MetricItem(
+                                    label: 'ميزانيات',
+                                    value: '${data.snapshot.entries.length}')),
+                            Container(
+                                width: 1,
+                                height: 32,
+                                color: context.colors.border),
+                            Expanded(
+                                child: _MetricItem(
+                                    label: 'مستخدم', value: '$usedRatio%')),
+                            Container(
+                                width: 1,
+                                height: 32,
+                                color: context.colors.border),
+                            Expanded(
+                                child: _MetricItem(
+                                    label: 'إجمالي الحدود',
+                                    value: '${Formatters.integer(limit)} ر')),
                           ]
                         : [
-                            Expanded(child: _MetricItem(label: 'أهداف', value: '${data.goals.length}')),
-                            Container(width: 1, height: 32, color: context.colors.border),
-                            Expanded(child: _MetricItem(label: 'إنجاز', value: '$progress%')),
-                            Container(width: 1, height: 32, color: context.colors.border),
-                            Expanded(child: _MetricItem(label: 'مدخر', value: '${Formatters.integer(saved)} ر')),
+                            Expanded(
+                                child: _MetricItem(
+                                    label: 'أهداف',
+                                    value: '${data.goals.length}')),
+                            Container(
+                                width: 1,
+                                height: 32,
+                                color: context.colors.border),
+                            Expanded(
+                                child: _MetricItem(
+                                    label: 'إنجاز', value: '$progress%')),
+                            Container(
+                                width: 1,
+                                height: 32,
+                                color: context.colors.border),
+                            Expanded(
+                                child: _MetricItem(
+                                    label: 'مدخر',
+                                    value: '${Formatters.integer(saved)} ر')),
                           ],
                   ),
                 ),
@@ -124,9 +155,10 @@ class BudgetsScreen extends ConsumerWidget {
                 if (tab == 0) ...[
                   if (data.snapshot.entries.isEmpty)
                     AppEmptyState(
-                      icon: AppLucideIcons.pieChart,
+                      icon: Icons.pie_chart_outline,
                       title: 'لا توجد ميزانيات',
-                      subtitle: 'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
+                      subtitle:
+                          'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
                       primaryLabel: 'إضافة ميزانية',
                       onPrimary: () => BudgetFormScreen.showSheet(context),
                     )
@@ -144,7 +176,8 @@ class BudgetsScreen extends ConsumerWidget {
                     AppEmptyState(
                       icon: AppLucideIcons.target,
                       title: 'لا توجد أهداف',
-                      subtitle: 'أضف هدف ادخار عشان مالي يتابع تقدمك جنب ميزانياتك.',
+                      subtitle:
+                          'أضف هدف ادخار عشان مالي يتابع تقدمك جنب ميزانياتك.',
                       primaryLabel: 'إضافة هدف',
                       onPrimary: () => GoalFormScreen.showSheet(context),
                     )
@@ -226,7 +259,8 @@ class _BudgetCard extends StatelessWidget {
                 width: 50,
                 height: 50,
                 decoration: BoxDecoration(
-                  color: (category?.color ?? progressColor).withValues(alpha: 0.14),
+                  color: (category?.color ?? progressColor)
+                      .withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Icon(
@@ -255,27 +289,32 @@ class _BudgetCard extends StatelessWidget {
                         if (accountName.isNotEmpty) ...[
                           const SizedBox(width: 6),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: c.primary.withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
                             ),
                             child: Text(
                               accountName,
-                              style: AppTypography.caption(c.primary).copyWith(fontSize: 10),
+                              style: AppTypography.caption(c.primary)
+                                  .copyWith(fontSize: 10),
                             ),
                           ),
                         ],
                         if (entry.budget.showOnHeader) ...[
                           const SizedBox(width: 6),
-                          Icon(Icons.push_pin_outlined, size: 12, color: c.accent),
+                          Icon(Icons.push_pin_outlined,
+                              size: 12, color: c.accent),
                         ],
                       ],
                     ),
                     const SizedBox(height: 2),
                     Text(
                       '${entry.periodStart.day}/${entry.periodStart.month} — ${entry.periodEnd.day}/${entry.periodEnd.month}',
-                      style: AppTypography.footnote(c.textSecondary).copyWith(fontSize: 10),
+                      style: AppTypography.footnote(c.textSecondary)
+                          .copyWith(fontSize: 10),
                     ),
                   ],
                 ),
@@ -372,10 +411,12 @@ class _GoalPlannerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final progress = goal.targetAmount == 0 ? 0.0 : goal.savedAmount / goal.targetAmount;
+    final progress =
+        goal.targetAmount == 0 ? 0.0 : goal.savedAmount / goal.targetAmount;
     final percent = (progress * 100).round();
-    final remaining = (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
-    
+    final remaining =
+        (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
+
     return AppCard(
       onTap: () => GoalDetailsScreen.showSheet(context, goal.id),
       padding: const EdgeInsets.all(AppSpacing.s4),
@@ -387,7 +428,8 @@ class _GoalPlannerCard extends StatelessWidget {
               Icon(Icons.savings_outlined, color: c.primary),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
-                child: Text(goal.name, style: AppTypography.headline(c.textPrimary)),
+                child: Text(goal.name,
+                    style: AppTypography.headline(c.textPrimary)),
               ),
               Text('$percent%', style: AppTypography.bodyStrong(c.primary)),
             ],

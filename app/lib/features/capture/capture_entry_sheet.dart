@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -31,7 +30,7 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
           ),
           const SizedBox(height: AppSpacing.s3),
           _ActionTile(
-            icon: AppLucideIcons.penLine,
+            icon: Icons.edit_outlined,
             title: 'إضافة يدوية',
             subtitle: 'اكتب تفاصيل العملية بنفسك.',
             isPrimary: false,
@@ -71,7 +70,9 @@ class _ActionTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s3),
         decoration: BoxDecoration(
-          color: isPrimary ? c.accent.withValues(alpha: 0.1) : c.surface2.withValues(alpha: 0.5),
+          color: isPrimary
+              ? c.accent.withValues(alpha: 0.1)
+              : c.surface2.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isPrimary ? c.accent.withValues(alpha: 0.3) : c.border,
@@ -85,7 +86,8 @@ class _ActionTile extends StatelessWidget {
                 color: isPrimary ? c.accent : c.surface,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, color: isPrimary ? Colors.white : c.textMain, size: 20),
+              child: Icon(icon,
+                  color: isPrimary ? Colors.white : c.textMain, size: 20),
             ),
             const SizedBox(width: AppSpacing.s3),
             Expanded(

@@ -13,7 +13,6 @@ import '../common/app_sheet_scaffold.dart';
 import '../common/app_screen_scaffold.dart';
 import '../common/app_header.dart';
 import '../common/app_card.dart';
-import '../common/app_category_chip.dart';
 import '../common/app_button.dart';
 import 'manual_transaction_sheet.dart';
 import 'transactions_providers.dart';
@@ -54,7 +53,8 @@ class TransactionDetailsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return _TransactionDetailsContent(transactionId: transactionId, isSheet: false);
+    return _TransactionDetailsContent(
+        transactionId: transactionId, isSheet: false);
   }
 }
 
@@ -65,12 +65,14 @@ class _TransactionDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _TransactionDetailsContent(transactionId: transactionId, isSheet: true);
+    return _TransactionDetailsContent(
+        transactionId: transactionId, isSheet: true);
   }
 }
 
 class _TransactionDetailsContent extends ConsumerWidget {
-  const _TransactionDetailsContent({required this.transactionId, required this.isSheet});
+  const _TransactionDetailsContent(
+      {required this.transactionId, required this.isSheet});
 
   final String transactionId;
   final bool isSheet;
@@ -78,18 +80,20 @@ class _TransactionDetailsContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final txAsync = ref.watch(transactionByIdProvider(transactionId));
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
 
     return txAsync.when(
-      loading: () => _buildScaffold(context, c, const Center(child: CircularProgressIndicator())),
-      error: (e, _) => _buildScaffold(context, c, Center(child: Text('حدث خطأ: $e'))),
+      loading: () => _buildScaffold(
+          context, c, const Center(child: CircularProgressIndicator())),
+      error: (e, _) =>
+          _buildScaffold(context, c, Center(child: Text('حدث خطأ: $e'))),
       data: (tx) {
         if (tx == null) {
-          return _buildScaffold(context, c, const Center(child: Text('العملية غير موجودة')));
+          return _buildScaffold(
+              context, c, const Center(child: Text('العملية غير موجودة')));
         }
-        
+
         final category = catalog?.byId(tx.categoryId);
         final editButton = IconButton(
           onPressed: () => ManualTransactionSheet.show(
@@ -125,7 +129,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.s3),
                   AnimatedAmountText(
                     amount: tx.amount,
-                    color: tx.type == TransactionTypeEntity.expense ? c.danger : c.success,
+                    color: _isDebit(tx.type) ? c.danger : c.success,
                     suffix: ' ${tx.currency}',
                     style: AppTypography.amountHero(c.textPrimary),
                   ),
@@ -143,7 +147,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.s6),
-            
+
             // Details Card
             AppCard(
               padding: EdgeInsets.zero,
@@ -157,7 +161,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                         ? null
                         : AppButton(
                             label: 'تغيير',
-                            onPressed: () => showChangeCategorySheet(context, tx, catalog),
+                            onPressed: () =>
+                                showChangeCategorySheet(context, tx, catalog),
                             isPrimary: false,
                             height: 32,
                           ),
@@ -221,10 +226,12 @@ class _TransactionDetailsContent extends ConsumerWidget {
 
             // Raw text
             Theme(
-              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              data:
+                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-                title: Text('النص الأصلي', style: AppTypography.subhead(c.textSecondary)),
+                title: Text('النص الأصلي',
+                    style: AppTypography.subhead(c.textSecondary)),
                 collapsedIconColor: c.textSecondary,
                 iconColor: c.primary,
                 children: [
@@ -234,7 +241,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       width: double.infinity,
                       child: SelectableText(
                         tx.rawMessage,
-                        style: AppTypography.footnote(c.textPrimary).copyWith(height: 1.4),
+                        style: AppTypography.footnote(c.textPrimary)
+                            .copyWith(height: 1.4),
                       ),
                     ),
                   ),
@@ -243,13 +251,15 @@ class _TransactionDetailsContent extends ConsumerWidget {
             ),
           ],
         );
-        
-        return _buildScaffold(context, c, body, title: 'تفاصيل العملية', trailing: editButton);
+
+        return _buildScaffold(context, c, body,
+            title: 'تفاصيل العملية', trailing: editButton);
       },
     );
   }
 
-  Widget _buildScaffold(BuildContext context, AppColors c, Widget body, {String? title, Widget? trailing}) {
+  Widget _buildScaffold(BuildContext context, AppColors c, Widget body,
+      {String? title, Widget? trailing}) {
     if (isSheet) {
       return AppSheetScaffold(
         title: title ?? 'تفاصيل العملية',
@@ -273,6 +283,10 @@ class _TransactionDetailsContent extends ConsumerWidget {
     }
   }
 
+  bool _isDebit(TransactionTypeEntity type) =>
+      type != TransactionTypeEntity.income &&
+      type != TransactionTypeEntity.refund;
+
   String _pendingLabel(DateTime createdAt) {
     final days = DateTime.now().difference(createdAt).inDays;
     if (days == 0) return 'غير مؤكدة · اليوم';
@@ -291,13 +305,15 @@ class _TransactionDetailsContent extends ConsumerWidget {
             width: 100,
             child: Text(
               label,
-              style: AppTypography.subhead(c.textSecondary).copyWith(fontWeight: FontWeight.w500),
+              style: AppTypography.subhead(c.textSecondary)
+                  .copyWith(fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: AppTypography.bodyStrong(isPending ? c.accent : c.textPrimary),
+              style: AppTypography.bodyStrong(
+                  isPending ? c.accent : c.textPrimary),
             ),
           ),
           if (trailing != null) trailing,
