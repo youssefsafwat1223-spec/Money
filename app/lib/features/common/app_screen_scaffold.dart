@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
 
 /// هيكل شاشة قياسي — خلفية مع أوربت مضيئة خافتة للوضع الداكن، SafeArea، وهيدر اختياري.
 class AppScreenScaffold extends StatelessWidget {
@@ -9,8 +11,11 @@ class AppScreenScaffold extends StatelessWidget {
     this.header,
     this.padding,
     this.bottomNavPadding,
+    this.bottomArea,
     this.resizeToAvoidBottomInset = true,
     this.extendBodyBehindHeader = false,
+    this.safeArea = true,
+    this.ambient = true,
   });
 
   final Widget body;
@@ -24,8 +29,13 @@ class AppScreenScaffold extends StatelessWidget {
   /// مسافة إضافية في الأسفل لتجنب تغطية شريط التنقل العائم.
   final double? bottomNavPadding;
 
+  /// مساحة ثابتة اختيارية أسفل المحتوى، مثل أزرار إجراءات الشاشة.
+  final Widget? bottomArea;
+
   final bool resizeToAvoidBottomInset;
   final bool extendBodyBehindHeader;
+  final bool safeArea;
+  final bool ambient;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +51,16 @@ class AppScreenScaffold extends StatelessWidget {
       children: [
         if (header != null) header!,
         Expanded(child: content),
+        if (bottomArea != null)
+          Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(
+              AppSpacing.gutter,
+              AppSpacing.s3,
+              AppSpacing.gutter,
+              AppSpacing.s3,
+            ),
+            child: bottomArea!,
+          ),
       ],
     );
 
@@ -49,11 +69,11 @@ class AppScreenScaffold extends StatelessWidget {
       color: c.bg,
     );
 
-    if (isDark) {
+    if (isDark && ambient) {
       baseBackground = Stack(
         children: [
           Positioned.fill(child: Container(color: c.bg)),
-          // هالة زرقاء خفيفة في الأعلى
+          // هالة بنفسجية خفيفة في الأعلى، ثابتة ورخيصة بصريًا.
           Positioned(
             right: -100,
             top: -100,
@@ -71,7 +91,7 @@ class AppScreenScaffold extends StatelessWidget {
               ),
             ),
           ),
-          // هالة خضراء خفيفة في الأسفل
+          // هالة وردية خافتة في الأسفل، بلا blur أو shader.
           Positioned(
             left: -120,
             bottom: -120,
@@ -82,8 +102,8 @@ class AppScreenScaffold extends StatelessWidget {
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    c.success.withValues(alpha: 0.04),
-                    c.success.withValues(alpha: 0.0),
+                    c.accent.withValues(alpha: 0.035),
+                    c.accent.withValues(alpha: 0.0),
                   ],
                 ),
               ),
@@ -100,10 +120,11 @@ class AppScreenScaffold extends StatelessWidget {
       body: Stack(
         children: [
           Positioned.fill(child: baseBackground),
-          SafeArea(
+          _MaybeSafeArea(
+            enabled: safeArea,
             bottom: bottomNavPadding == null,
             child: Padding(
-              padding: EdgeInsets.only(
+              padding: EdgeInsetsDirectional.only(
                 bottom: bottomNavPadding ?? 0.0,
               ),
               child: bodyColumn,
@@ -112,5 +133,23 @@ class AppScreenScaffold extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _MaybeSafeArea extends StatelessWidget {
+  const _MaybeSafeArea({
+    required this.enabled,
+    required this.bottom,
+    required this.child,
+  });
+
+  final bool enabled;
+  final bool bottom;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return SafeArea(bottom: bottom, child: child);
   }
 }

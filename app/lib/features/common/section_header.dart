@@ -34,6 +34,8 @@ class SectionHeader extends StatelessWidget {
               children: [
                 Text(
                   title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTypography.headline(c.textPrimary).copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -42,6 +44,8 @@ class SectionHeader extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     subtitle!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: AppTypography.caption(c.textMuted),
                   ),
                 ],
@@ -50,7 +54,7 @@ class SectionHeader extends StatelessWidget {
           ),
           if (action != null) ...[
             const SizedBox(width: AppSpacing.s2),
-            action!,
+            Flexible(flex: 0, child: action!),
           ],
         ],
       ),

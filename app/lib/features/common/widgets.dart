@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
 import 'category_catalog.dart';
+import 'category_avatar.dart';
 
+export 'app_error_state.dart';
 export 'app_budget_progress_card.dart';
 export 'app_button.dart';
 export 'app_card.dart';
@@ -19,70 +20,15 @@ export 'app_metric_card.dart';
 export 'app_pill_tab_bar.dart';
 export 'app_screen_scaffold.dart';
 export 'app_sheet_scaffold.dart';
+export 'app_status_pill.dart';
 export 'app_transaction_row.dart';
+export 'category_avatar.dart';
 export 'charts/spending_charts.dart';
 export 'section_hero_header.dart';
 export 'section_header.dart';
 export 'chart_card.dart';
 export 'vault_widget.dart';
 export 'widgets/announcement_banner.dart';
-
-/// دائرة تعرض شعار التاجر (الحرف الأول) أو أيقونة التصنيف.
-class CategoryAvatar extends StatelessWidget {
-  const CategoryAvatar({
-    super.key, 
-    this.merchantName, 
-    required this.category, 
-    this.size = 44,
-  });
-
-  final String? merchantName;
-  final CategoryView? category;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final color = category?.color ?? c.primary;
-    
-    // محاولة استخراج الحرف الأول من اسم التاجر
-    String? initial;
-    if (merchantName != null && merchantName!.trim().isNotEmpty) {
-      final text = merchantName!.trim();
-      // استخراج أول حرف غير مسافة
-      if (text.isNotEmpty) {
-        initial = text.characters.first.toUpperCase();
-      }
-    }
-
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: initial != null ? c.surface : color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(size * 0.35),
-        border: Border.all(
-          color: initial != null ? c.border : color.withValues(alpha: 0.25),
-          width: 1.2,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: initial != null
-          ? Text(
-              initial,
-              style: AppTypography.title2(c.textPrimary).copyWith(
-                fontWeight: FontWeight.bold,
-                fontSize: size * 0.45,
-              ),
-            )
-          : Icon(
-              category?.icon ?? AppLucideIcons.shapes,
-              color: color,
-              size: size * 0.46,
-            ),
-    );
-  }
-}
 
 /// صف عملية فخم مصمم بأسلوب الحد الأدنى.
 class TransactionRow extends StatelessWidget {
@@ -128,7 +74,7 @@ class TransactionRow extends StatelessWidget {
               children: [
                 CategoryAvatar(
                   merchantName: transaction.rawMerchant,
-                  category: category, 
+                  category: category,
                   size: 44,
                 ),
                 const SizedBox(width: 12),
@@ -143,8 +89,8 @@ class TransactionRow extends StatelessWidget {
                               transaction.rawMerchant ??
                                   category?.nameAr ??
                                   'عملية',
-                              style:
-                                  AppTypography.bodyStrong(c.textPrimary).copyWith(
+                              style: AppTypography.bodyStrong(c.textPrimary)
+                                  .copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
                               maxLines: 1,
@@ -162,7 +108,8 @@ class TransactionRow extends StatelessWidget {
                               ),
                               child: Text(
                                 'معلّقة',
-                                style: AppTypography.caption(c.warning).copyWith(
+                                style:
+                                    AppTypography.caption(c.warning).copyWith(
                                   fontSize: 11.0,
                                   fontWeight: FontWeight.bold,
                                 ),

@@ -12,6 +12,7 @@ class AppBudgetProgressCard extends StatelessWidget {
     required this.spentText,
     required this.limitText,
     required this.progress,
+    this.remainingText,
     this.icon,
     this.color,
   });
@@ -20,6 +21,7 @@ class AppBudgetProgressCard extends StatelessWidget {
   final String spentText;
   final String limitText;
   final double progress;
+  final String? remainingText;
   final IconData? icon;
   final Color? color;
 
@@ -27,8 +29,7 @@ class AppBudgetProgressCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final pct = progress.clamp(0.0, 1.0);
-    
-    // استخدام لون الميزانية الدلالي المشتق من نسبة التقدم (نجاح، تحذير، خطر)
+
     final stateColor = color ?? c.budgetState(progress);
     final trackColor = stateColor.withValues(alpha: 0.15);
     final barColor = stateColor;
@@ -63,13 +64,37 @@ class AppBudgetProgressCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                spentText,
-                style: AppTypography.caption(barColor).copyWith(fontWeight: FontWeight.bold),
+              Flexible(
+                child: Text(
+                  spentText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption(barColor).copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              Text(
-                limitText,
-                style: AppTypography.caption(c.textMuted),
+              if (remainingText != null) ...[
+                const SizedBox(width: AppSpacing.s2),
+                Flexible(
+                  child: Text(
+                    remainingText!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.caption(c.textSecondary),
+                  ),
+                ),
+              ],
+              const SizedBox(width: AppSpacing.s2),
+              Flexible(
+                child: Text(
+                  limitText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: AppTypography.caption(c.textMuted),
+                ),
               ),
             ],
           ),
@@ -77,4 +102,17 @@ class AppBudgetProgressCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class BudgetProgressCard extends AppBudgetProgressCard {
+  const BudgetProgressCard({
+    super.key,
+    required String name,
+    required super.spentText,
+    required super.limitText,
+    required super.progress,
+    super.remainingText,
+    super.icon,
+    super.color,
+  }) : super(title: name);
 }

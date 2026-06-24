@@ -31,7 +31,10 @@ class PremiumMotion extends StatelessWidget {
         .animate(delay: delay)
         .fadeIn(duration: 180.ms, curve: AppMotion.standardCurve)
         .slideY(
-            begin: 0.05, end: 0, duration: AppMotion.normal, curve: AppMotion.standardCurve);
+            begin: 0.05,
+            end: 0,
+            duration: AppMotion.normal,
+            curve: AppMotion.standardCurve);
   }
 }
 
@@ -53,9 +56,8 @@ class AnimatedAmountText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final duration = shouldReduceMotion(context)
-        ? Duration.zero
-        : AppMotion.numberCountUp;
+    final duration =
+        shouldReduceMotion(context) ? Duration.zero : AppMotion.numberCountUp;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: amount),
       duration: duration,

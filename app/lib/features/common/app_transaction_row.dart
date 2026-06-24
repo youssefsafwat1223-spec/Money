@@ -4,6 +4,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
+import 'app_status_pill.dart';
+import 'category_avatar.dart';
 
 /// صف معاملة قياسي — UI فقط، لا يستورد طبقة البيانات.
 ///
@@ -24,6 +26,7 @@ class AppTransactionRow extends StatelessWidget {
     this.isPending = false,
     this.isAi = false,
     this.confidencePercent,
+    this.isConfirmed = true,
     this.onTap,
     this.trailing,
     this.privacyMode = false,
@@ -40,6 +43,7 @@ class AppTransactionRow extends StatelessWidget {
   final bool isPending;
   final bool isAi;
   final int? confidencePercent;
+  final bool isConfirmed;
   final VoidCallback? onTap;
   final Widget? trailing;
   final bool privacyMode;
@@ -74,7 +78,7 @@ class AppTransactionRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                _CategoryAvatar(icon: categoryIcon, color: categoryColor, c: c),
+                CategoryAvatar(icon: categoryIcon, color: categoryColor),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -92,19 +96,24 @@ class AppTransactionRow extends StatelessWidget {
                             ),
                           ),
                           if (isPending)
-                            _Badge(
+                            const AppStatusPill(
                               label: 'معلق',
-                              bg: c.warning.withValues(alpha: 0.15),
-                              fg: c.warning,
+                              tone: AppStatusTone.pending,
+                              compact: true,
+                            )
+                          else if (isConfirmed)
+                            const AppStatusPill(
+                              label: 'مؤكد',
+                              tone: AppStatusTone.confirmed,
+                              compact: true,
                             ),
                           if (isAi)
-                            Padding(
-                              padding:
-                                  const EdgeInsetsDirectional.only(start: 4),
-                              child: _Badge(
+                            const Padding(
+                              padding: EdgeInsetsDirectional.only(start: 4),
+                              child: AppStatusPill(
                                 label: 'ذكي',
-                                bg: c.accent.withValues(alpha: 0.15),
-                                fg: c.accent,
+                                tone: AppStatusTone.info,
+                                compact: true,
                               ),
                             ),
                         ],
@@ -132,53 +141,6 @@ class AppTransactionRow extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _CategoryAvatar extends StatelessWidget {
-  const _CategoryAvatar({
-    required this.icon,
-    required this.color,
-    required this.c,
-  });
-
-  final IconData? icon;
-  final Color? color;
-  final AppColors c;
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = (color ?? c.cta).withValues(alpha: 0.12);
-    final fg = color ?? c.cta;
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-      child: Icon(icon ?? Icons.receipt_outlined, size: 18, color: fg),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.label, required this.bg, required this.fg});
-
-  final String label;
-  final Color bg;
-  final Color fg;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Text(
-        label,
-        style: AppTypography.caption(fg).copyWith(fontSize: 11),
       ),
     );
   }

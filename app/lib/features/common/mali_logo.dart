@@ -38,7 +38,7 @@ class MaliLogo extends StatelessWidget {
               ),
             ),
           ),
-          
+
           // Line 3: dark green, rotated 72 deg
           Positioned(
             left: size * 0.18,

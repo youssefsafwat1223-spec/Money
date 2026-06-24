@@ -15,6 +15,7 @@ class AppEmptyState extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.illustration,
     this.primaryLabel,
     this.onPrimary,
     this.secondaryLabel,
@@ -24,6 +25,7 @@ class AppEmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final Widget? illustration;
   final String? primaryLabel;
   final VoidCallback? onPrimary;
   final String? secondaryLabel;
@@ -40,15 +42,17 @@ class AppEmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: c.cta.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 32, color: c.cta),
-          ),
+          illustration ??
+              Container(
+                width: 78,
+                height: 78,
+                decoration: BoxDecoration(
+                  color: c.ctaSoft,
+                  borderRadius: BorderRadius.circular(AppRadius.xlarge),
+                  border: Border.all(color: c.cta.withValues(alpha: 0.16)),
+                ),
+                child: Icon(icon, size: 32, color: c.cta),
+              ),
           const SizedBox(height: AppSpacing.s4),
           Text(
             title,
@@ -59,6 +63,8 @@ class AppEmptyState extends StatelessWidget {
           Text(
             subtitle,
             textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
             style: AppTypography.callout(c.textSecondary),
           ),
           if (primaryLabel != null && onPrimary != null) ...[

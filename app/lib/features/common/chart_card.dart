@@ -13,12 +13,16 @@ class ChartCard extends StatelessWidget {
     this.subtitle,
     required this.child,
     this.action,
+    this.legend,
+    this.aspectRatio = 1.7,
   });
 
   final String title;
   final String? subtitle;
   final Widget child;
   final Widget? action;
+  final Widget? legend;
+  final double aspectRatio;
 
   @override
   Widget build(BuildContext context) {
@@ -58,9 +62,13 @@ class ChartCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s5),
           AspectRatio(
-            aspectRatio: 1.7,
+            aspectRatio: aspectRatio,
             child: child,
           ),
+          if (legend != null) ...[
+            const SizedBox(height: AppSpacing.s4),
+            legend!,
+          ],
         ],
       ),
     );

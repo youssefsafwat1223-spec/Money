@@ -5,7 +5,7 @@ import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
-enum AppMetricStyle { neutral, positive, negative, success, warning }
+enum AppMetricStyle { neutral, positive, negative, success, warning, info }
 
 /// بطاقة مقياس مالي صغيرة — عنوان + قيمة + اختياريات.
 ///
@@ -19,6 +19,7 @@ class AppMetricCard extends StatelessWidget {
     this.icon,
     this.style = AppMetricStyle.neutral,
     this.privacyMode = false,
+    this.onTap,
   });
 
   final String title;
@@ -27,6 +28,7 @@ class AppMetricCard extends StatelessWidget {
   final IconData? icon;
   final AppMetricStyle style;
   final bool privacyMode;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -34,10 +36,10 @@ class AppMetricCard extends StatelessWidget {
     final accentColor = _color(style, c);
     final displayValue = privacyMode ? '••••' : value;
 
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(AppSpacing.s4),
       decoration: BoxDecoration(
-        color: c.surface,
+        color: c.surfaceCard,
         borderRadius: BorderRadius.circular(AppRadius.card),
         border: Border.all(color: c.border),
         boxShadow: AppShadows.card,
@@ -69,6 +71,18 @@ class AppMetricCard extends StatelessWidget {
         ],
       ),
     );
+
+    if (onTap == null) return card;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        child: card,
+      ),
+    );
   }
 
   static Color _color(AppMetricStyle style, AppColors c) => switch (style) {
@@ -76,6 +90,7 @@ class AppMetricCard extends StatelessWidget {
         AppMetricStyle.negative => c.danger,
         AppMetricStyle.success => c.success,
         AppMetricStyle.warning => c.warning,
+        AppMetricStyle.info => c.info,
         AppMetricStyle.neutral => c.textPrimary,
       };
 }

@@ -57,7 +57,7 @@ class _VaultWidgetState extends State<VaultWidget>
               ],
             ),
           ),
-          
+
           // الجسم الزجاجي الدائري (Glassmorphic Sphere)
           Container(
             width: s * 0.8,
@@ -86,7 +86,8 @@ class _VaultWidgetState extends State<VaultWidget>
             child: CircularProgressIndicator(
               value: 1.0,
               strokeWidth: 5,
-              valueColor: AlwaysStoppedAnimation(c.border.withValues(alpha: 0.25)),
+              valueColor:
+                  AlwaysStoppedAnimation(c.border.withValues(alpha: 0.25)),
             ),
           ),
 

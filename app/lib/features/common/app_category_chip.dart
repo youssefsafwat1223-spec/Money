@@ -8,7 +8,7 @@ class AppCategoryChip extends StatelessWidget {
   const AppCategoryChip({
     super.key,
     required this.label,
-    required this.icon,
+    this.icon,
     this.color,
     this.selected = false,
     this.disabled = false,
@@ -16,7 +16,7 @@ class AppCategoryChip extends StatelessWidget {
   });
 
   final String label;
-  final IconData icon;
+  final IconData? icon;
   final Color? color;
   final bool selected;
   final bool disabled;
@@ -26,7 +26,7 @@ class AppCategoryChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final baseColor = color ?? c.cta;
-    
+
     // الألوان الافتراضية بناءً على حالة التحديد والتعطيل
     final bg = disabled
         ? c.disabled.withValues(alpha: 0.5)
@@ -37,7 +37,7 @@ class AppCategoryChip extends StatelessWidget {
     final fg = disabled
         ? c.textMuted.withValues(alpha: 0.6)
         : selected
-            ? Colors.white
+            ? c.onCta
             : baseColor;
 
     final border = disabled
@@ -55,7 +55,10 @@ class AppCategoryChip extends StatelessWidget {
         onTap: isInteractive ? onTap : null,
         borderRadius: BorderRadius.circular(AppRadius.pill),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsetsDirectional.symmetric(
+            horizontal: AppSpacing.s3,
+            vertical: AppSpacing.s2,
+          ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(color: border),
@@ -63,11 +66,19 @@ class AppCategoryChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 16, color: fg),
-              const SizedBox(width: AppSpacing.s2),
-              Text(
-                label,
-                style: AppTypography.caption(fg).copyWith(fontWeight: FontWeight.bold),
+              if (icon != null) ...[
+                Icon(icon, size: 16, color: fg),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption(fg).copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ],
           ),

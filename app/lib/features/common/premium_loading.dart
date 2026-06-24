@@ -28,8 +28,8 @@ class PremiumSkeletonPage extends StatelessWidget {
         if (withHero) ...[
           _SkeletonBlock(
             height: 176,
-            baseColor: c.surface,
-            highlightColor: c.surface2,
+            baseColor: c.surfaceCard,
+            highlightColor: c.surfaceMuted,
             radius: AppRadius.cardLg,
           ),
           const SizedBox(height: AppSpacing.s5),
@@ -37,8 +37,8 @@ class PremiumSkeletonPage extends StatelessWidget {
         for (var i = 0; i < cardCount; i++) ...[
           _SkeletonBlock(
             height: i == 0 ? 96 : 74,
-            baseColor: c.surface,
-            highlightColor: c.surface2,
+            baseColor: c.surfaceCard,
+            highlightColor: c.surfaceMuted,
             radius: AppRadius.card,
           ),
           const SizedBox(height: AppSpacing.s3),
