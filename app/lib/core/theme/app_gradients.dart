@@ -9,28 +9,50 @@ class AppGradients {
   static const LinearGradient brandHero = LinearGradient(
     colors: [
       Color(0xFF0C0D11),
-      Color(0xFF141623),
-      Color(0xFF06131C),
+      Color(0xFF17182A),
+      Color(0xFF2A235E),
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
   );
 
-  /// Wallet card gradient (subtle dark premium feel).
-  static const LinearGradient walletCard = LinearGradient(
+  /// Primary CTA gradient. Use only for prominent, intentional action moments.
+  static const LinearGradient primaryCta = LinearGradient(
     colors: [
-      Color(0xFF141623),
-      Color(0xFF0C2450),
+      Color(0xFF8D7CFF),
+      Color(0xFF6C5CFF),
+      Color(0xFF4B3EE6),
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
   );
 
-  /// AI subtle presence gradient (electric blue signature transition).
-  static const LinearGradient aiSubtle = LinearGradient(
+  /// Quiet card/sheet gradient for depth without blur-heavy effects.
+  static const LinearGradient subtleSurface = LinearGradient(
     colors: [
-      Color(0xFF5488FE),
-      Color(0xFF238AFF),
+      Color(0xFF1D1F28),
+      Color(0xFF15161C),
+    ],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
+
+  /// Illustration accent gradient for Mali's abstract finance visuals.
+  static const LinearGradient accentIllustration = LinearGradient(
+    colors: [
+      Color(0xFFF472B6),
+      Color(0xFF8D7CFF),
+      Color(0xFF3B82F6),
+    ],
+    begin: Alignment.topRight,
+    end: Alignment.bottomLeft,
+  );
+
+  /// Controlled danger gradient for rare warning states.
+  static const LinearGradient danger = LinearGradient(
+    colors: [
+      Color(0xFFEF4444),
+      Color(0xFFDB2777),
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
@@ -38,7 +60,9 @@ class AppGradients {
 
   // ===== Legacy references for Phase 1 backward compatibility =====
   static const LinearGradient heroHeader = brandHero;
-  static const LinearGradient ctaBlue = aiSubtle;
-  static const LinearGradient darkSurface = walletCard;
-  static const LinearGradient aiPremium = aiSubtle;
+  static const LinearGradient walletCard = subtleSurface;
+  static const LinearGradient aiSubtle = accentIllustration;
+  static const LinearGradient ctaBlue = primaryCta;
+  static const LinearGradient darkSurface = subtleSurface;
+  static const LinearGradient aiPremium = accentIllustration;
 }

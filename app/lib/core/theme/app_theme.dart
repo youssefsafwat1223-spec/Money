@@ -23,6 +23,8 @@ class AppTheme {
       surface: c.surface,
       primary: c.cta,
       onPrimary: c.onCta,
+      secondary: c.accent,
+      onSecondary: c.onCta,
       error: c.danger,
       onError: Colors.white,
     );
@@ -36,12 +38,34 @@ class AppTheme {
       extensions: <ThemeExtension<dynamic>>[c],
       splashFactory: NoSplash.splashFactory,
       cardTheme: CardThemeData(
-        color: c.surface,
+        color: c.surfaceCard,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.card),
         ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: c.divider,
+        thickness: 1,
+        space: 1,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: c.surfaceElevated,
+        modalBackgroundColor: c.surfaceElevated,
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+        dragHandleColor: c.border,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppRadius.sheet),
+          ),
+        ),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: c.cta,
+        linearTrackColor: c.surfaceMuted,
+        circularTrackColor: c.surfaceMuted,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -52,7 +76,7 @@ class AppTheme {
             borderRadius: BorderRadius.circular(AppRadius.button),
           ),
           minimumSize: const Size(double.infinity, AppSpacing.buttonHeight),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          textStyle: AppTypography.title(c.onCta),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -65,14 +89,13 @@ class AppTheme {
           }),
           foregroundColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.disabled)) {
-              return c.textMuted;
+              return c.disabledFg;
             }
             return c.onCta;
           }),
-          minimumSize: const WidgetStatePropertyAll(Size(double.infinity, AppSpacing.buttonHeight)),
-          textStyle: const WidgetStatePropertyAll(
-            TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
+          minimumSize: const WidgetStatePropertyAll(
+              Size(double.infinity, AppSpacing.buttonHeight)),
+          textStyle: WidgetStatePropertyAll(AppTypography.title(c.onCta)),
           shape: WidgetStatePropertyAll(
             RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.button),
@@ -88,7 +111,18 @@ class AppTheme {
             borderRadius: BorderRadius.circular(AppRadius.button),
           ),
           minimumSize: const Size(double.infinity, AppSpacing.buttonHeight),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          textStyle: AppTypography.title(c.cta),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: c.surfaceMuted,
+        selectedColor: c.ctaSoft,
+        disabledColor: c.disabled,
+        labelStyle: AppTypography.caption(c.textSecondary),
+        secondaryLabelStyle: AppTypography.caption(c.cta),
+        side: BorderSide(color: c.border),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.chip),
         ),
       ),
       appBarTheme: AppBarTheme(
@@ -106,9 +140,9 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: brightness == Brightness.dark
-            ? c.surfaceElevated.withValues(alpha: 0.45)
-            : c.surfaceElevated.withValues(alpha: 0.55),
+        fillColor: c.surfaceMuted.withValues(
+          alpha: brightness == Brightness.dark ? 0.72 : 0.86,
+        ),
         labelStyle: TextStyle(color: c.textMuted),
         hintStyle: TextStyle(color: c.textMuted.withValues(alpha: 0.6)),
         prefixIconColor: c.textMuted,

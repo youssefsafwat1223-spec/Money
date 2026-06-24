@@ -7,36 +7,50 @@ class AppShadows {
   /// card - Subtle drop shadow for resting cards in light mode.
   static const List<BoxShadow> card = [
     BoxShadow(
-      color: Color(0x0A000000), // 4% opacity black equivalent
-      blurRadius: 8,
+      color: Color(0x0F101828),
+      blurRadius: 14,
       offset: Offset(0, 2),
     ),
   ];
 
-  /// float - Deeper shadow for floating elements (sheets, popups).
-  static const List<BoxShadow> float = [
+  /// elevatedCard - Premium card lift for summary panels and selected states.
+  static const List<BoxShadow> elevatedCard = [
     BoxShadow(
-      color: Color(0x14000000), // 8% opacity black
-      blurRadius: 20,
-      offset: Offset(0, 8),
-    ),
-  ];
-
-  /// nav - Floating navigation shadow.
-  static const List<BoxShadow> nav = [
-    BoxShadow(
-      color: Color(0x0D000000), // 5% opacity
-      blurRadius: 30,
+      color: Color(0x14101828),
+      blurRadius: 24,
       offset: Offset(0, 10),
     ),
   ];
 
-  /// cta - Accent glow for primary buttons.
-  static const List<BoxShadow> cta = [
+  /// sheet - Controlled depth for modal and bottom-sheet surfaces.
+  static const List<BoxShadow> sheet = [
     BoxShadow(
-      color: Color(0x265488FE), // 15% opacity electric blue
-      blurRadius: 10,
-      offset: Offset(0, 4),
+      color: Color(0x29101828),
+      blurRadius: 34,
+      offset: Offset(0, -10),
     ),
   ];
+
+  /// floatingNav - Soft lift for persistent navigation surfaces.
+  static const List<BoxShadow> floatingNav = [
+    BoxShadow(
+      color: Color(0x1A101828),
+      blurRadius: 28,
+      offset: Offset(0, 12),
+    ),
+  ];
+
+  /// ctaGlow - Very restrained violet presence for primary actions only.
+  static const List<BoxShadow> ctaGlow = [
+    BoxShadow(
+      color: Color(0x246C5CFF),
+      blurRadius: 18,
+      offset: Offset(0, 8),
+    ),
+  ];
+
+  // Legacy aliases
+  static const List<BoxShadow> float = elevatedCard;
+  static const List<BoxShadow> nav = floatingNav;
+  static const List<BoxShadow> cta = ctaGlow;
 }

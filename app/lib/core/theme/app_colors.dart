@@ -7,6 +7,8 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.bg,
     required this.surface,
     required this.surfaceElevated,
+    required this.surfaceCard,
+    required this.surfaceMuted,
     required this.primary,
     required this.onPrimary,
     required this.cta,
@@ -21,11 +23,18 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.info,
     required this.neutral,
     required this.disabled,
+    required this.disabledFg,
     required this.border,
     required this.divider,
     required this.textPrimary,
     required this.textSecondary,
     required this.textMuted,
+    required this.onSurface,
+    required this.onSurfaceMuted,
+    required this.successBg,
+    required this.dangerBg,
+    required this.warningBg,
+    required this.infoBg,
     required this.onSuccess,
     required this.onDanger,
     required this.onWarning,
@@ -39,18 +48,23 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color bg;
   final Color surface;
   final Color surfaceElevated;
+  final Color surfaceCard;
+  final Color surfaceMuted;
 
   // ===== Brand / Interactive =====
   /// Brand text/elements. Safe contrast in light/dark.
   /// IMPORTANT: Never use as a button background without `onPrimary` as foreground!
   final Color primary;
+
   /// The correct foreground color to use when `primary` is the background.
   final Color onPrimary;
 
   /// Primary interactive CTA color (Mali Blue).
   final Color cta;
+
   /// Foreground for CTA backgrounds (always white).
   final Color onCta;
+
   /// Tinted background for CTA.
   final Color ctaSoft;
 
@@ -65,8 +79,15 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color info;
   final Color neutral;
   final Color disabled;
+  final Color disabledFg;
 
   // ===== Contrast Safe Pairings =====
+  final Color onSurface;
+  final Color onSurfaceMuted;
+  final Color successBg;
+  final Color dangerBg;
+  final Color warningBg;
+  final Color infoBg;
   final Color onSuccess;
   final Color onDanger;
   final Color onWarning;
@@ -84,11 +105,18 @@ class AppColors extends ThemeExtension<AppColors> {
   // ===== Legacy Backwards Compatibility =====
   final Color gradA;
   final Color gradB;
-  
+
   Color get surface2 => surfaceElevated;
+  Color get cardSurface => surfaceCard;
   Color get textMain => textPrimary;
   Color get textSec => textSecondary;
   Color get textLight => textMuted;
+  Color get ctaBg => cta;
+  Color get ctaFg => onCta;
+  Color get successFg => onSuccess;
+  Color get dangerFg => onDanger;
+  Color get warningFg => onWarning;
+  Color get infoFg => onInfo;
 
   LinearGradient get primaryGradient => LinearGradient(
         colors: [gradA, gradB],
@@ -104,66 +132,84 @@ class AppColors extends ThemeExtension<AppColors> {
 
   // ===== Light Mode =====
   static const AppColors light = AppColors(
-    bg: Color(0xFFF4F7FA),
+    bg: Color(0xFFF6F7FB),
     surface: Color(0xFFFFFFFF),
-    surfaceElevated: Color(0xFFFFFFFF), // Can use shadow for elevation
-    primary: Color(0xFF062635),
+    surfaceElevated: Color(0xFFF1F3F8),
+    surfaceCard: Color(0xFFFFFFFF),
+    surfaceMuted: Color(0xFFECEFF6),
+    primary: Color(0xFF4B3EE6),
     onPrimary: Color(0xFFFFFFFF),
-    cta: Color(0xFF006B8F),
+    cta: Color(0xFF6C5CFF),
     onCta: Color(0xFFFFFFFF),
-    ctaSoft: Color(0xFFE6F4F9),
-    accent: Color(0xFF2F80A8),
-    income: Color(0xFF0F9F6E),
-    expense: Color(0xFFD93D54),
-    success: Color(0xFF0F9F6E),
-    warning: Color(0xFFE06F4F),
-    danger: Color(0xFFD93D54),
-    info: Color(0xFF2F80A8),
-    neutral: Color(0xFF64748B),
-    disabled: Color(0xFFCBD5E1),
-    border: Color(0xFFD7E1E8),
-    divider: Color(0xFFE2E8F0),
-    textPrimary: Color(0xFF062635),
-    textSecondary: Color(0xFF64748B),
-    textMuted: Color(0xFF94A3B8),
+    ctaSoft: Color(0xFFEDEBFF),
+    accent: Color(0xFFDB2777),
+    income: Color(0xFF16A34A),
+    expense: Color(0xFFDC2626),
+    success: Color(0xFF16A34A),
+    warning: Color(0xFFD97706),
+    danger: Color(0xFFDC2626),
+    info: Color(0xFF2563EB),
+    neutral: Color(0xFF667085),
+    disabled: Color(0xFFD8DDE8),
+    disabledFg: Color(0xFF8B94A7),
+    border: Color(0xFFDDE2EC),
+    divider: Color(0xFFE8EBF2),
+    textPrimary: Color(0xFF111827),
+    textSecondary: Color(0xFF4B5563),
+    textMuted: Color(0xFF7C879A),
+    onSurface: Color(0xFF111827),
+    onSurfaceMuted: Color(0xFF4B5563),
+    successBg: Color(0xFFE8F8EE),
+    dangerBg: Color(0xFFFDECEC),
+    warningBg: Color(0xFFFFF3D8),
+    infoBg: Color(0xFFEAF1FF),
     onSuccess: Color(0xFFFFFFFF),
     onDanger: Color(0xFFFFFFFF),
-    onWarning: Color(0xFFFFFFFF),
+    onWarning: Color(0xFF111827),
     onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF006B8F),
-    gradB: Color(0xFF062635),
+    gradA: Color(0xFF6C5CFF),
+    gradB: Color(0xFF4B3EE6),
   );
 
   // ===== Dark Mode =====
   static const AppColors dark = AppColors(
-    bg: Color(0xFF0C0D11),              // Obsidian base
-    surface: Color(0xFF141623),         // Slate card fill
-    surfaceElevated: Color(0xFF1C1E2F), // Popups / Sheets
-    primary: Color(0xFFFFFFFF),
+    bg: Color(0xFF0C0D11),
+    surface: Color(0xFF15161C),
+    surfaceElevated: Color(0xFF1D1F28),
+    surfaceCard: Color(0xFF181A22),
+    surfaceMuted: Color(0xFF232633),
+    primary: Color(0xFF8D7CFF),
     onPrimary: Color(0xFF0C0D11),
-    cta: Color(0xFF5488FE),             // Electric blue CTA
+    cta: Color(0xFF6C5CFF),
     onCta: Color(0xFFFFFFFF),
-    ctaSoft: Color(0xFF0C2450),         // Soft tinted CTA
-    accent: Color(0xFF238AFF),          // Accent neon blue
-    income: Color(0xFF28C99B),          // Emerald success
-    expense: Color(0xFFFF6B73),          // Watermelon danger
-    success: Color(0xFF28C99B),
-    warning: Color(0xFFFF8A65),          // Luminous orange coral warning
-    danger: Color(0xFFFF6B73),
-    info: Color(0xFF238AFF),
-    neutral: Color(0xFF6F8190),
-    disabled: Color(0xFF193044),
-    border: Color(0xFF1E2235),          // Thin borders
-    divider: Color(0xFF121422),         // Dividers
-    textPrimary: Color(0xFFFFFFFF),
-    textSecondary: Color(0xFFA8B7C4),
-    textMuted: Color(0xFF6F8190),
-    onSuccess: Color(0xFFFFFFFF),
+    ctaSoft: Color(0xFF242047),
+    accent: Color(0xFFF472B6),
+    income: Color(0xFF22C55E),
+    expense: Color(0xFFEF4444),
+    success: Color(0xFF22C55E),
+    warning: Color(0xFFF59E0B),
+    danger: Color(0xFFEF4444),
+    info: Color(0xFF3B82F6),
+    neutral: Color(0xFF8892A6),
+    disabled: Color(0xFF343746),
+    disabledFg: Color(0xFF777F91),
+    border: Color(0xFF2A2D36),
+    divider: Color(0xFF232633),
+    textPrimary: Color(0xFFF8FAFC),
+    textSecondary: Color(0xFFC8D0DE),
+    textMuted: Color(0xFF8791A3),
+    onSurface: Color(0xFFF8FAFC),
+    onSurfaceMuted: Color(0xFFC8D0DE),
+    successBg: Color(0xFF143322),
+    dangerBg: Color(0xFF351D24),
+    warningBg: Color(0xFF332817),
+    infoBg: Color(0xFF18283F),
+    onSuccess: Color(0xFF06130B),
     onDanger: Color(0xFFFFFFFF),
-    onWarning: Color(0xFF0C0D11),        // Dark foreground for soft orange coral
+    onWarning: Color(0xFF111827),
     onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF0C2450),
-    gradB: Color(0xFF0C0D11),
+    gradA: Color(0xFF8D7CFF),
+    gradB: Color(0xFF4B3EE6),
   );
 
   @override
@@ -171,6 +217,8 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? bg,
     Color? surface,
     Color? surfaceElevated,
+    Color? surfaceCard,
+    Color? surfaceMuted,
     Color? primary,
     Color? onPrimary,
     Color? cta,
@@ -185,11 +233,18 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? info,
     Color? neutral,
     Color? disabled,
+    Color? disabledFg,
     Color? border,
     Color? divider,
     Color? textPrimary,
     Color? textSecondary,
     Color? textMuted,
+    Color? onSurface,
+    Color? onSurfaceMuted,
+    Color? successBg,
+    Color? dangerBg,
+    Color? warningBg,
+    Color? infoBg,
     Color? onSuccess,
     Color? onDanger,
     Color? onWarning,
@@ -201,6 +256,8 @@ class AppColors extends ThemeExtension<AppColors> {
       bg: bg ?? this.bg,
       surface: surface ?? this.surface,
       surfaceElevated: surfaceElevated ?? this.surfaceElevated,
+      surfaceCard: surfaceCard ?? this.surfaceCard,
+      surfaceMuted: surfaceMuted ?? this.surfaceMuted,
       primary: primary ?? this.primary,
       onPrimary: onPrimary ?? this.onPrimary,
       cta: cta ?? this.cta,
@@ -215,11 +272,18 @@ class AppColors extends ThemeExtension<AppColors> {
       info: info ?? this.info,
       neutral: neutral ?? this.neutral,
       disabled: disabled ?? this.disabled,
+      disabledFg: disabledFg ?? this.disabledFg,
       border: border ?? this.border,
       divider: divider ?? this.divider,
       textPrimary: textPrimary ?? this.textPrimary,
       textSecondary: textSecondary ?? this.textSecondary,
       textMuted: textMuted ?? this.textMuted,
+      onSurface: onSurface ?? this.onSurface,
+      onSurfaceMuted: onSurfaceMuted ?? this.onSurfaceMuted,
+      successBg: successBg ?? this.successBg,
+      dangerBg: dangerBg ?? this.dangerBg,
+      warningBg: warningBg ?? this.warningBg,
+      infoBg: infoBg ?? this.infoBg,
       onSuccess: onSuccess ?? this.onSuccess,
       onDanger: onDanger ?? this.onDanger,
       onWarning: onWarning ?? this.onWarning,
@@ -236,6 +300,8 @@ class AppColors extends ThemeExtension<AppColors> {
       bg: Color.lerp(bg, other.bg, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
       surfaceElevated: Color.lerp(surfaceElevated, other.surfaceElevated, t)!,
+      surfaceCard: Color.lerp(surfaceCard, other.surfaceCard, t)!,
+      surfaceMuted: Color.lerp(surfaceMuted, other.surfaceMuted, t)!,
       primary: Color.lerp(primary, other.primary, t)!,
       onPrimary: Color.lerp(onPrimary, other.onPrimary, t)!,
       cta: Color.lerp(cta, other.cta, t)!,
@@ -250,11 +316,18 @@ class AppColors extends ThemeExtension<AppColors> {
       info: Color.lerp(info, other.info, t)!,
       neutral: Color.lerp(neutral, other.neutral, t)!,
       disabled: Color.lerp(disabled, other.disabled, t)!,
+      disabledFg: Color.lerp(disabledFg, other.disabledFg, t)!,
       border: Color.lerp(border, other.border, t)!,
       divider: Color.lerp(divider, other.divider, t)!,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
       textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
       textMuted: Color.lerp(textMuted, other.textMuted, t)!,
+      onSurface: Color.lerp(onSurface, other.onSurface, t)!,
+      onSurfaceMuted: Color.lerp(onSurfaceMuted, other.onSurfaceMuted, t)!,
+      successBg: Color.lerp(successBg, other.successBg, t)!,
+      dangerBg: Color.lerp(dangerBg, other.dangerBg, t)!,
+      warningBg: Color.lerp(warningBg, other.warningBg, t)!,
+      infoBg: Color.lerp(infoBg, other.infoBg, t)!,
       onSuccess: Color.lerp(onSuccess, other.onSuccess, t)!,
       onDanger: Color.lerp(onDanger, other.onDanger, t)!,
       onWarning: Color.lerp(onWarning, other.onWarning, t)!,
