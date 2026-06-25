@@ -176,55 +176,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     color: c.accent.withValues(alpha: 0.22)),
                               ),
                               child: Text(
-                                context.l10n.noPassword,
+                                'دخول آمن بدون كلمة مرور',
                                 style:
                                     _alex(12, FontWeight.w800, 1.2, c.accent),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 24),
-                          SizedBox(
-                            height: 50,
-                            child: SignInWithAppleButton(
-                              onPressed: _busy
-                                  ? () {}
-                                  : () => _provider(auth.signInWithApple),
-                              text: context.l10n.continueWithApple,
-                              style: SignInWithAppleButtonStyle.black,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _providerButton(
-                            iconWidget: const _GoogleMark(size: 20),
-                            label: context.l10n.continueWithGoogle,
-                            background: c.surface,
-                            foreground: c.textMain,
-                            border: true,
-                            onTap: () => _provider(auth.signInWithGoogle),
-                          ),
-                          const SizedBox(height: 20),
-                          Row(
-                            children: [
-                              Expanded(
-                                  child: Divider(
-                                      color: c.border.withValues(alpha: 0.3))),
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text(context.l10n.or,
-                                    style: _alex(
-                                        12, FontWeight.w600, 1.2, c.textLight)),
-                              ),
-                              Expanded(
-                                  child: Divider(
-                                      color: c.border.withValues(alpha: 0.3))),
-                            ],
-                          ),
                           const SizedBox(height: 20),
                           Text(
                             context.l10n.continueWithEmail,
-                            style: _alex(12, FontWeight.w700, 1.2, c.textLight),
+                            style: _alex(14, FontWeight.w800, 1.2, c.textMain),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'هنبعت لك رمز من 6 أرقام. مفيش كلمة مرور، وممكن تغيّر إعدادات النسخ لاحقاً.',
+                            style:
+                                _alex(12, FontWeight.w600, 1.45, c.textLight),
                           ),
                           const SizedBox(height: 8),
                           TextField(
@@ -292,14 +259,67 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   ),
                                 ),
                                 child: Text(
-                                  context.l10n.sendOtpCode,
+                                  _busy ? '' : context.l10n.sendOtpCode,
                                   style: _alex(15, FontWeight.w800, 1.2,
                                       actionForeground),
                                 ),
                               ),
                             ),
                           ),
+                          if (_busy)
+                            Transform.translate(
+                              offset: const Offset(0, -38),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    color: actionForeground,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(
+                                  child: Divider(
+                                      color: c.border.withValues(alpha: 0.45))),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(context.l10n.or,
+                                    style: _alex(
+                                        12, FontWeight.w700, 1.2, c.textLight)),
+                              ),
+                              Expanded(
+                                  child: Divider(
+                                      color: c.border.withValues(alpha: 0.45))),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 50,
+                            child: SignInWithAppleButton(
+                              onPressed: _busy
+                                  ? () {}
+                                  : () => _provider(auth.signInWithApple),
+                              text: context.l10n.continueWithApple,
+                              style: SignInWithAppleButtonStyle.black,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
                           const SizedBox(height: 12),
+                          _providerButton(
+                            iconWidget: const _GoogleMark(size: 20),
+                            label: context.l10n.continueWithGoogle,
+                            background: c.surfaceMuted.withValues(alpha: 0.42),
+                            foreground: c.textMain,
+                            border: true,
+                            onTap: () => _provider(auth.signInWithGoogle),
+                          ),
+                          const SizedBox(height: 10),
                           TextButton(
                             onPressed: _busy
                                 ? null
@@ -313,8 +333,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             child: Text(
                               'المتابعة بدون حساب',
                               style: _alex(
-                                13,
-                                FontWeight.w800,
+                                12,
+                                FontWeight.w700,
                                 1.2,
                                 c.textLight,
                               ),
@@ -326,24 +346,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                   const SizedBox(height: 20),
                   Center(
-                    child: TextButton(
-                      onPressed: () => context.push('/onboarding/method'),
-                      child: Text(
-                        context.l10n.continueWithoutAccount,
-                        style: _alex(13, FontWeight.w700, 1.2, c.textLight),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Center(
                     child: Text(
                       context.l10n.continueWithoutAccountSub,
                       textAlign: TextAlign.center,
                       style: _alex(
-                          11, FontWeight.w500, 1.4, c.textLight.withValues(alpha: 0.65)),
+                        11,
+                        FontWeight.w600,
+                        1.45,
+                        c.textLight.withValues(alpha: 0.72),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 2),
+                  const SizedBox(height: 18),
                   Center(
                     child: Text(
                       context.l10n.byContinuingAgree,

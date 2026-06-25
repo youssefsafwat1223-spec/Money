@@ -47,7 +47,9 @@ class FirstTransactionScreen extends ConsumerWidget {
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (_, __) => _ErrorView(onContinue: () => _finish(context)),
           data: (tx) {
-            if (tx == null) return _ErrorView(onContinue: () => _finish(context));
+            if (tx == null) {
+              return _ErrorView(onContinue: () => _finish(context));
+            }
             final catalog = catalogAsync.valueOrNull;
             if (tx.status == TransactionStatus.pending) {
               return _PendingView(
@@ -105,7 +107,19 @@ class _ConfirmedView extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
+          Text(
+            'كده مالي بدأ يفهم مصروفاتك',
+            textAlign: TextAlign.center,
+            style: _alex(26, FontWeight.w800, 1.18, c.textMain),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            context.l10n.firstTxTrustLine,
+            textAlign: TextAlign.center,
+            style: _alex(13, FontWeight.w600, 1.5, c.textLight),
+          ),
+          const SizedBox(height: 22),
           GlassCard(
             padding: const EdgeInsets.all(22),
             child: Column(
@@ -137,7 +151,8 @@ class _ConfirmedView extends ConsumerWidget {
                           if (cat != null)
                             Text(
                               cat.nameAr,
-                              style: _alex(12, FontWeight.w600, 1.3, c.textLight),
+                              style:
+                                  _alex(12, FontWeight.w600, 1.3, c.textLight),
                             ),
                         ],
                       ),
@@ -182,15 +197,7 @@ class _ConfirmedView extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
-          GlassCard(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Text(
-              context.l10n.firstTxTrustLine,
-              textAlign: TextAlign.center,
-              style: _alex(13, FontWeight.w600, 1.5, c.textLight),
-            ),
-          ),
+          _MiniTrustStrip(),
           const Spacer(),
           SizedBox(
             height: 54,
@@ -247,27 +254,29 @@ class _PendingView extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 48),
-          Center(
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: c.accent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(99),
-                border:
-                    Border.all(color: c.accent.withValues(alpha: 0.28)),
-              ),
-              child: Text(
-                context.l10n.firstTxNeedsCheck,
-                style: _alex(13, FontWeight.w800, 1.2, c.accent),
-              ),
-            ),
+          OnboardingHeroCard(
+            icon: Icons.rule_rounded,
+            title: context.l10n.firstTxNeedsCheck,
+            subtitle: context.l10n.firstTxNeedsCheckSub,
           ),
           const SizedBox(height: 20),
-          Text(
-            context.l10n.firstTxNeedsCheckSub,
-            textAlign: TextAlign.center,
-            style: _alex(15, FontWeight.w500, 1.5, c.textLight),
+          GlassCard(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                _PendingInfoRow(
+                  icon: Icons.receipt_long_outlined,
+                  title: tx.rawMerchant ?? tx.rawMessage.split('\n').first,
+                  subtitle: '${tx.amount.toStringAsFixed(2)} ${tx.currency}',
+                ),
+                const SizedBox(height: 14),
+                const _PendingInfoRow(
+                  icon: Icons.category_outlined,
+                  title: 'مراجعة سريعة',
+                  subtitle: 'راجع المبلغ والتصنيف مرة واحدة قبل دخول مالي.',
+                ),
+              ],
+            ),
           ),
           const Spacer(),
           SizedBox(
@@ -310,6 +319,96 @@ class _PendingView extends ConsumerWidget {
   }
 }
 
+class _MiniTrustStrip extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final items = [
+      (Icons.check_circle_outline_rounded, 'اتسجّلت'),
+      (Icons.edit_note_rounded, 'تقدر تعدّل'),
+      (Icons.lock_outline_rounded, 'خصوصية'),
+    ];
+    return Row(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: c.surfaceCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: c.border),
+              ),
+              child: Column(
+                children: [
+                  Icon(items[i].$1, size: 17, color: c.success),
+                  const SizedBox(height: 5),
+                  Text(
+                    items[i].$2,
+                    style: _alex(10, FontWeight.w800, 1.1, c.textMain),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (i != items.length - 1) const SizedBox(width: 8),
+        ],
+      ],
+    );
+  }
+}
+
+class _PendingInfoRow extends StatelessWidget {
+  const _PendingInfoRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: c.accent.withValues(alpha: 0.11),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: c.accent.withValues(alpha: 0.22)),
+          ),
+          child: Icon(icon, color: c.accent, size: 21),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _alex(13, FontWeight.w800, 1.2, c.textMain),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style:
+                    _alex(12, FontWeight.w700, 1.3, c.textLight, tabular: true),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ── Source chip ──────────────────────────────────────────────────────────────
 
 class _SourceChip extends StatelessWidget {
@@ -342,9 +441,7 @@ class _SourceChip extends StatelessWidget {
         Text(
           _label(context),
           style: GoogleFonts.alexandria(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: c.textLight),
+              fontSize: 11, fontWeight: FontWeight.w700, color: c.textLight),
         ),
       ],
     );
@@ -366,10 +463,22 @@ class _ErrorView extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Spacer(),
+          GlowingIcon(
+            icon: Icons.receipt_long_outlined,
+            color: c.warning,
+            size: 34,
+          ),
+          const SizedBox(height: 18),
           Text(
-            context.l10n.firstTxContinue,
-            style: GoogleFonts.alexandria(
-                fontSize: 16, fontWeight: FontWeight.w700, color: c.textMain),
+            'هنكمل ونظبطها بعدين',
+            textAlign: TextAlign.center,
+            style: _alex(22, FontWeight.w800, 1.2, c.textMain),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'لم نتمكن من عرض أول عملية الآن، لكن تقدر تدخل مالي وتضيف أو تراجع العملية يدوياً.',
+            textAlign: TextAlign.center,
+            style: _alex(13, FontWeight.w600, 1.5, c.textLight),
           ),
           const Spacer(),
           SizedBox(

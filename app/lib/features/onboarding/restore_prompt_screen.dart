@@ -130,42 +130,35 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                       ),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: c.primaryGradient,
-                      borderRadius: BorderRadius.circular(26),
+                  OnboardingHeroCard(
+                    icon: Icons.lock_reset_rounded,
+                    title: context.l10n.backupFound,
+                    subtitle: context.l10n.restoreDesc,
+                    trailing: Icon(
+                      Icons.key_rounded,
+                      color: Colors.white.withValues(alpha: 0.86),
                     ),
-                    child: Column(
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: c.successBg.withValues(alpha: 0.62),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: c.success.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.08),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.12),
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.lock_reset_rounded,
-                            color: Colors.white,
-                            size: 32,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          context.l10n.backupFound,
-                          textAlign: TextAlign.center,
-                          style: AppTypography.title2(Colors.white),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          context.l10n.restoreDesc,
-                          textAlign: TextAlign.center,
-                          style: AppTypography.footnote(
-                            Colors.white.withValues(alpha: 0.84),
+                        Icon(Icons.verified_user_outlined,
+                            color: c.success, size: 19),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'الاستعادة تحتاج كلمة المرور أو رمز الاسترداد فقط. مالي لا يقرأ محتوى النسخة بدونهم.',
+                            style: AppTypography.caption(c.textMain),
                           ),
                         ),
                       ],
@@ -276,7 +269,9 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                   TextButton(
                     onPressed: _busy ? null : _startFresh,
                     child: Text(
-                      widget.onboardingFlow ? context.l10n.startFresh : context.l10n.notNow,
+                      widget.onboardingFlow
+                          ? context.l10n.startFresh
+                          : context.l10n.notNow,
                       style: AppTypography.subhead(c.textLight),
                     ),
                   ),

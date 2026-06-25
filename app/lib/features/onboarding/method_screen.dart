@@ -94,7 +94,6 @@ class _OnboardingMethodScreenState
     if (mounted) context.push('/onboarding/ios-verify');
   }
 
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -172,47 +171,53 @@ class _OnboardingMethodScreenState
                       ),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: c.primaryGradient,
-                      borderRadius: BorderRadius.circular(26),
+                  OnboardingHeroCard(
+                    icon:
+                        isAndroid ? Icons.sms_rounded : Icons.ios_share_rounded,
+                    title: title,
+                    subtitle: subtitle,
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: Text(
+                        isAndroid ? 'Android' : 'iOS',
+                        textDirection: TextDirection.ltr,
+                        style: _alex(
+                          11,
+                          FontWeight.w900,
+                          1.1,
+                          Colors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
                     ),
-                    child: Column(
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: c.infoBg.withValues(alpha: 0.58),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: c.info.withValues(alpha: 0.18)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.08),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.10),
-                            ),
-                          ),
-                          child: Icon(
+                        Icon(Icons.verified_user_outlined,
+                            size: 19, color: c.info),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
                             isAndroid
-                                ? Icons.sms_rounded
-                                : Icons.ios_share_rounded,
-                            color: Colors.white,
-                            size: 30,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          title,
-                          textAlign: TextAlign.center,
-                          style: _alex(24, FontWeight.w800, 1.2, Colors.white),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          subtitle,
-                          textAlign: TextAlign.center,
-                          style: _alex(
-                            13,
-                            FontWeight.w500,
-                            1.5,
-                            Colors.white.withValues(alpha: 0.84),
+                                ? 'تقدر تبدأ باللصق اليدوي في أي وقت. تفعيل الالتقاط بس يخلّي تسجيل رسائل البنك أسرع.'
+                                : 'اختصار iOS يحتاج إعداد مرة واحدة فقط. لو مش جاهز، اللصق اليدوي يفضل متاح.',
+                            style: _alex(12, FontWeight.w700, 1.45, c.textMain),
                           ),
                         ),
                       ],
@@ -286,8 +291,9 @@ class _OnboardingMethodScreenState
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed:
-                            _busy ? null : (isAndroid ? _requestSms : _startIosVerify),
+                        onPressed: _busy
+                            ? null
+                            : (isAndroid ? _requestSms : _startIosVerify),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
@@ -648,20 +654,31 @@ class _AiConsentCard extends ConsumerWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: granted
-            ? c.success.withValues(alpha: 0.07)
-            : c.surface.withValues(alpha: 0.60),
-        borderRadius: BorderRadius.circular(16),
+            ? c.successBg.withValues(alpha: 0.72)
+            : c.surfaceCard.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: granted
               ? c.success.withValues(alpha: 0.24)
-              : c.border.withValues(alpha: 0.5),
+              : c.border.withValues(alpha: 0.75),
         ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.auto_awesome_outlined,
-              size: 20, color: granted ? c.success : c.accent),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: (granted ? c.success : c.accent).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: (granted ? c.success : c.accent).withValues(alpha: 0.22),
+              ),
+            ),
+            child: Icon(Icons.auto_awesome_outlined,
+                size: 20, color: granted ? c.success : c.accent),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -676,6 +693,18 @@ class _AiConsentCard extends ConsumerWidget {
                   'للبنوك غير المعروفة، نرسل نصاً مُعقَّماً بدون أرقام بطاقات أو أسماء شخصية لخدمة ذكاء اصطناعي لتحليله. يمكن تغييره لاحقاً من الإعدادات.',
                   style: _alex(11, FontWeight.w600, 1.45, c.textLight),
                 ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _ConsentPill(label: 'اختياري', color: c.info),
+                    _ConsentPill(label: 'نص معقّم', color: c.accent),
+                    _ConsentPill(
+                        label: granted ? 'مفعّل' : 'غير مفعّل',
+                        color: granted ? c.success : c.warning),
+                  ],
+                ),
               ],
             ),
           ),
@@ -686,11 +715,35 @@ class _AiConsentCard extends ConsumerWidget {
             onChanged: (value) async {
               final repo = widgetRef.read(userSettingsRepositoryProvider);
               final settings = await repo.getSettings();
-              await repo.saveSettings(settings.copyWith(aiConsentGranted: value));
+              await repo
+                  .saveSettings(settings.copyWith(aiConsentGranted: value));
               refreshUserSettings(widgetRef);
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ConsentPill extends StatelessWidget {
+  const _ConsentPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        label,
+        style: _alex(10, FontWeight.w800, 1.1, color),
       ),
     );
   }

@@ -84,7 +84,8 @@ class _IosShortcutVerifyScreenState
     _timer?.cancel();
     if (SupabaseConfig.isConfigured) {
       try {
-        final hasBackup = await ref.read(backupServiceProvider).hasRemoteBackup();
+        final hasBackup =
+            await ref.read(backupServiceProvider).hasRemoteBackup();
         if (mounted && hasBackup) {
           context.push('/onboarding/restore');
           return;
@@ -118,74 +119,77 @@ class _IosShortcutVerifyScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 40),
-              Container(
-                width: 72,
-                height: 72,
-                alignment: Alignment.center,
-                margin: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                decoration: BoxDecoration(
-                  color: c.accent.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: c.accent.withValues(alpha: 0.3), width: 2),
-                ),
-                child: Icon(Icons.ios_share_rounded, color: c.accent, size: 32),
-              ),
               const SizedBox(height: 28),
-              Text(
-                context.l10n.shortcutVerifyTitle,
-                textAlign: TextAlign.center,
-                style: _alex(22, FontWeight.w800, 1.3, c.textMain),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                context.l10n.shortcutVerifyBody,
-                textAlign: TextAlign.center,
-                style: _alex(14, FontWeight.w500, 1.6, c.textLight),
-              ),
-              const SizedBox(height: 12),
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: c.accent.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(99),
-                    border: Border.all(color: c.accent.withValues(alpha: 0.24)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        context.l10n.filterKeywordsLabel,
-                        style: _alex(11, FontWeight.w700, 1.2, c.textLight),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        keyword,
-                        style: _alex(12, FontWeight.w800, 1.2, c.accent),
-                      ),
-                    ],
+              OnboardingHeroCard(
+                icon: Icons.ios_share_rounded,
+                title: context.l10n.shortcutVerifyTitle,
+                subtitle: context.l10n.shortcutVerifyBody,
+                trailing: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.4,
+                    color: Colors.white.withValues(alpha: 0.88),
                   ),
                 ),
               ),
-              const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: c.accent,
+              const SizedBox(height: 20),
+              Text(
+                context.l10n.filterKeywordsLabel,
+                style: _alex(12, FontWeight.w800, 1.2, c.textLight),
+              ),
+              const SizedBox(height: 8),
+              GlassCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: c.accent.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(
+                                color: c.accent.withValues(alpha: 0.24)),
+                          ),
+                          child: Text(
+                            keyword,
+                            textDirection: TextDirection.ltr,
+                            style: _alex(13, FontWeight.w900, 1.2, c.accent),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'ارسل رسالة بنك تحتوي على هذه الكلمة للتأكد من أن الاختصار متصل بمالي.',
+                            style: _alex(12, FontWeight.w700, 1.45, c.textMain),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    context.l10n.shortcutVerifyWaiting,
-                    style: _alex(13, FontWeight.w600, 1.2, c.textLight),
-                  ),
-                ],
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: c.accent,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          context.l10n.shortcutVerifyWaiting,
+                          style: _alex(12, FontWeight.w700, 1.2, c.textLight),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               const Spacer(),
               OutlinedButton(
