@@ -13,6 +13,7 @@ import '../dashboard/dashboard_providers.dart';
 import '../transactions/transactions_providers.dart';
 import '../transactions/widgets/change_category_sheet.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
+import '../common/app_button.dart';
 import 'widgets/neon_illustration.dart';
 import 'widgets/premium_ui.dart';
 
@@ -207,35 +208,10 @@ class _ConfirmedView extends ConsumerWidget {
           const SizedBox(height: 16),
           _MiniTrustStrip(),
           const Spacer(),
-          SizedBox(
-            height: 54,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: maliPrimaryActionGradient(context),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: c.accent.withValues(alpha: 0.28),
-                    blurRadius: 18,
-                    offset: const Offset(0, 7),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: onContinue,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
-                ),
-                child: Text(
-                  context.l10n.firstTxContinue,
-                  style: _alex(16, FontWeight.w800, 1.2,
-                      maliPrimaryActionForeground(context)),
-                ),
-              ),
-            ),
+          AppPrimaryButton(
+            label: 'رائع!',
+            onTap: onContinue,
+            height: 56,
           ),
           const SizedBox(height: 16),
         ],
@@ -254,8 +230,6 @@ class _PendingView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.colors;
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       child: Column(
@@ -287,38 +261,13 @@ class _PendingView extends ConsumerWidget {
             ),
           ),
           const Spacer(),
-          SizedBox(
-            height: 54,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: maliPrimaryActionGradient(context),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: c.accent.withValues(alpha: 0.28),
-                    blurRadius: 18,
-                    offset: const Offset(0, 7),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: () async {
-                  await showConfirmTransactionSheet(context, tx.id);
-                  onConfirmed();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
-                ),
-                child: Text(
-                  context.l10n.firstTxNeedsCheck,
-                  style: _alex(16, FontWeight.w800, 1.2,
-                      maliPrimaryActionForeground(context)),
-                ),
-              ),
-            ),
+          AppPrimaryButton(
+            label: context.l10n.firstTxNeedsCheck,
+            onTap: () async {
+              await showConfirmTransactionSheet(context, tx.id);
+              onConfirmed();
+            },
+            height: 56,
           ),
           const SizedBox(height: 16),
         ],
