@@ -57,7 +57,7 @@ class ForceUpdateScreen extends ConsumerWidget {
                   mode: LaunchMode.externalApplication,
                 ),
                 style: FilledButton.styleFrom(
-                  backgroundColor: c.primary,
+                  backgroundColor: c.cta,
                   minimumSize: const Size.fromHeight(52),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.md),

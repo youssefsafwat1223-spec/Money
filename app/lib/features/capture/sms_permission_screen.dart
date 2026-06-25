@@ -142,7 +142,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                       ManualPasteScreen.showSheet(context);
                     },
                     style: FilledButton.styleFrom(
-                      backgroundColor: c.primary,
+                      backgroundColor: c.cta,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
