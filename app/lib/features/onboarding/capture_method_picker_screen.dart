@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../capture/manual_paste_screen.dart';
 import '../capture/services/android_sms_capture_service.dart';
 import 'widgets/onboarding_scaffold.dart';
 
@@ -63,7 +62,8 @@ class _CaptureMethodPickerScreenState
             icon: Icons.sms_rounded,
             color: c.cta,
             title: 'رسائل البنك (تلقائي)',
-            summary: 'نقرأ رسائل البنك على جهازك ونضيف العملية تلقائياً.',
+            platformTag: 'Android',
+            summary: 'للأندرويد: نقرأ رسائل البنك على جهازك ونضيف العملية تلقائياً.',
             expanded: _open == 0,
             onTap: () => _toggle(0),
             body: _SmsBody(granting: _granting, onGrant: _grantSms),
@@ -73,6 +73,7 @@ class _CaptureMethodPickerScreenState
             icon: Icons.ios_share_rounded,
             color: c.accent,
             title: 'اختصار iOS (تلقائي)',
+            platformTag: 'iPhone',
             summary: 'على iPhone نستخدم اختصار آبل لتمرير رسائل البنك لمالي.',
             expanded: _open == 1,
             onTap: () => _toggle(1),
@@ -86,9 +87,7 @@ class _CaptureMethodPickerScreenState
             summary: 'حل احتياطي دائم: انسخ أي رسالة بنك والصقها في مالي.',
             expanded: _open == 2,
             onTap: () => _toggle(2),
-            body: _ManualBody(
-              onTry: () => ManualPasteScreen.showSheet(context),
-            ),
+            body: const _ManualBody(),
           ),
         ],
       ),
@@ -107,6 +106,7 @@ class _ExpandableMethod extends StatelessWidget {
     required this.expanded,
     required this.onTap,
     required this.body,
+    this.platformTag,
   });
 
   final IconData icon;
@@ -116,6 +116,7 @@ class _ExpandableMethod extends StatelessWidget {
   final bool expanded;
   final VoidCallback onTap;
   final Widget body;
+  final String? platformTag;
 
   @override
   Widget build(BuildContext context) {
@@ -158,9 +159,30 @@ class _ExpandableMethod extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title,
-                            style:
-                                obFont(15, FontWeight.w800, 1.2, c.textPrimary)),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(title,
+                                  style: obFont(
+                                      15, FontWeight.w800, 1.2, c.textPrimary)),
+                            ),
+                            if (platformTag != null) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: color.withValues(alpha: 0.16),
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                                child: Text(platformTag!,
+                                    textDirection: TextDirection.ltr,
+                                    style:
+                                        obFont(10, FontWeight.w800, 1, color)),
+                              ),
+                            ],
+                          ],
+                        ),
                         const SizedBox(height: 3),
                         Text(summary,
                             style:
@@ -216,11 +238,16 @@ class _SmsBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _Step('1', 'تصلك رسالة من البنك بعد أي عملية.'),
-        const _Step('2', 'مالي يقرأها على جهازك فقط — مفيش بيانات بتطلع برّه.'),
-        const _Step('3', 'العملية تتضاف وتتصنّف تلقائياً.'),
+        const _DetailStep('1', 'فعّل إذن الرسائل',
+            'اضغط الزر بالأسفل واسمح لمالي بقراءة رسائل البنك (أندرويد فقط).'),
+        const _DetailStep('2', 'استقبل رسالة البنك',
+            'بعد أي عملية، تصلك رسالة من بنكك على نفس الجهاز.'),
+        const _DetailStep('3', 'تحليل تلقائي على الجهاز',
+            'مالي يقرأ الرسالة محلياً ويحدّد المبلغ والتاجر والتصنيف — بدون إنترنت.'),
+        const _DetailStep('4', 'مراجعة عند الحاجة',
+            'لو مالي مش متأكد، يفتح لك مراجعة سريعة قبل إضافة العملية.'),
         if (Platform.isAndroid) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           SizedBox(
             height: 48,
             child: FilledButton.icon(
@@ -233,7 +260,7 @@ class _SmsBody extends StatelessWidget {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.lock_open_rounded, size: 18),
-              label: const Text('منح إذن قراءة الرسائل'),
+              label: const Text('السماح بقراءة الرسائل'),
             ),
           ),
         ],
@@ -250,78 +277,82 @@ class _ShortcutBody extends StatelessWidget {
     return const Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _Step('1', 'افتح تطبيق «الاختصارات» (Shortcuts) على الـ iPhone.'),
-        _Step('2', 'أنشئ Automation جديد من نوع «رسالة» (Message).'),
-        _Step('3', 'اجعله يعمل تلقائياً عند وصول رسائل البنك.'),
-        _Step('4', 'اختر إجراء «مشاركة» ووجّهه إلى مالي.'),
-        _Step('5', 'احفظ الاختصار — وأي رسالة بنك هتتحوّل لعملية في مالي.'),
+        _DetailStep('1', 'افتح تطبيق الاختصارات',
+            'ادخل على Shortcuts ثم تبويب Automation من الأسفل.'),
+        _DetailStep('2', 'أنشئ Automation جديد',
+            'اضغط New Automation أو علامة +، ثم اختر Message.'),
+        _DetailStep('3', 'حدّد رسائل البنك',
+            'في Message Contents اكتب رمز العملة مثل SAR، وكرّر لاحقاً لأي عملة إضافية.'),
+        _DetailStep('4', 'خلّيه يعمل فوراً',
+            'اختَر Run Immediately ثم اضغط Next.'),
+        _DetailStep('5', 'اختَر اختصار مالي',
+            'اضغط New Blank Automation، وابحث عن Post Bank Status.'),
+        _DetailStep('6', 'مرّر نص الرسالة',
+            'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.'),
+        _DetailStep('7', 'شغّله في الخلفية',
+            'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.'),
+        _DetailStep('8', 'احفظ الاختصار',
+            'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.'),
       ],
     );
   }
 }
 
 class _ManualBody extends StatelessWidget {
-  const _ManualBody({required this.onTry});
-
-  final VoidCallback onTry;
+  const _ManualBody();
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Column(
+    return const Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _Step('1', 'انسخ نص رسالة البنك من تطبيق الرسائل.'),
-        const _Step('2', 'افتح مالي واضغط «إضافة».'),
-        const _Step('3', 'الصق الرسالة وسنحللها على جهازك.'),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 48,
-          child: OutlinedButton.icon(
-            onPressed: onTry,
-            style: OutlinedButton.styleFrom(
-              side: BorderSide(color: c.border),
-              foregroundColor: c.cta,
-            ),
-            icon: const Icon(Icons.content_paste_rounded, size: 18),
-            label: const Text('جرّب اللصق الآن'),
-          ),
-        ),
+        _DetailStep('1', 'انسخ نص الرسالة',
+            'من تطبيق الرسائل، انسخ رسالة البنك بالكامل.'),
+        _DetailStep('2', 'افتح مالي واضغط إضافة',
+            'من زر + اختر «لصق رسالة بنك».'),
+        _DetailStep('3', 'الصق وحلّل',
+            'الصق النص، ومالي يحلله على جهازك ويضيف العملية بعد مراجعة سريعة.'),
       ],
     );
   }
 }
 
-class _Step extends StatelessWidget {
-  const _Step(this.n, this.text);
+class _DetailStep extends StatelessWidget {
+  const _DetailStep(this.n, this.title, this.body);
 
   final String n;
-  final String text;
+  final String title;
+  final String body;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 24,
-            height: 24,
+            width: 26,
+            height: 26,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: c.cta.withValues(alpha: 0.14),
             ),
-            child: Text(n, style: obFont(11, FontWeight.w800, 1, c.cta)),
+            child: Text(n, style: obFont(12, FontWeight.w800, 1, c.cta)),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(text,
-                  style: obFont(13, FontWeight.w500, 1.45, c.textPrimary)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: obFont(13.5, FontWeight.w800, 1.25, c.textPrimary)),
+                const SizedBox(height: 2),
+                Text(body,
+                    style: obFont(12, FontWeight.w500, 1.5, c.textMuted)),
+              ],
             ),
           ),
         ],
