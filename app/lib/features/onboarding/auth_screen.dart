@@ -3,16 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../core/auth/auth_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
-import '../common/mali_logo.dart';
-import '../common/motion.dart';
-import 'widgets/premium_ui.dart';
+
+import 'widgets/neon_illustration.dart';
+import 'widgets/onboarding_scaffold.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -103,273 +103,92 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final auth = ref.read(authServiceProvider);
-    final actionForeground = maliPrimaryActionForeground(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return PremiumBackground(
+    InputBorder bord(Color color, [double w = 1]) => OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: color, width: w),
+        );
+
+    return OnboardingScaffold(
+      step: 6,
+      onBack: () =>
+          context.canPop() ? context.pop() : context.go('/onboarding'),
+      title: 'لنبدأ بحسابك',
+      subtitle: 'استخدم بريدك الإلكتروني للمتابعة وحفظ بياناتك بشكل آمن.',
+      primaryLabel: context.l10n.sendOtpCode,
+      onPrimary: _busy ? null : _emailContinue,
+      primaryLoading: _busy,
+      secondaryLabel: 'المتابعة بدون حساب',
+      onSecondary: _busy
+          ? null
+          : () async {
+              await AppSession.instance.setIdentity(method: 'guest');
+              if (context.mounted) context.push('/onboarding/method');
+            },
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.gutter, vertical: 8.0),
-            child: Row(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: c.surface.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    onPressed: () {
-                      if (context.canPop()) {
-                        context.pop();
-                      } else {
-                        context.go('/onboarding');
-                      }
-                    },
-                    icon: Icon(Icons.arrow_forward_rounded,
-                        color: c.textMain, size: 20),
-                  ),
-                ),
-              ],
+          Center(
+            child: const NeonIllustration(
+              icon: Icons.mark_email_read_rounded,
+              size: 170,
+            ).animate().fade(duration: 700.ms).scale(curve: Curves.easeOutBack),
+          ),
+          const SizedBox(height: 32),
+          Text('البريد الإلكتروني',
+              style: _alex(13, FontWeight.w700, 1.2, c.textMuted)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _email,
+            keyboardType: TextInputType.emailAddress,
+            textDirection: TextDirection.ltr,
+            style: _alex(15, FontWeight.w600, 1.4, c.textPrimary),
+            decoration: InputDecoration(
+              hintText: 'you@example.com',
+              hintTextDirection: TextDirection.ltr,
+              hintStyle: _alex(14, FontWeight.w400, 1.4,
+                  c.textMuted.withValues(alpha: 0.7)),
+              prefixIcon: Icon(Icons.mail_outline_rounded, color: c.textMuted),
+              filled: true,
+              fillColor: c.surfaceCard,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              border: bord(c.border),
+              enabledBorder: bord(c.border),
+              focusedBorder: bord(c.cta, 1.5),
             ),
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 8),
-                  const Center(child: MaliLogo(size: 64, glow: false)),
-                  const SizedBox(height: 20),
-                  Text(
-                    context.l10n.signInToStart,
-                    textAlign: TextAlign.center,
-                    style: _alex(24, FontWeight.w800, 1.2, c.textMain),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    context.l10n.signInSubtitle,
-                    textAlign: TextAlign.center,
-                    style: _alex(13, FontWeight.w500, 1.5, c.textLight),
-                  ),
-                  const SizedBox(height: 18),
-                  const _AuthTrustRow(),
-                  const SizedBox(height: 24),
-                  PremiumMotion(
-                    delay: const Duration(milliseconds: 100),
-                    child: GlassCard(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 7),
-                              decoration: BoxDecoration(
-                                color: c.accent.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                    color: c.accent.withValues(alpha: 0.22)),
-                              ),
-                              child: Text(
-                                'دخول آمن بدون كلمة مرور',
-                                style:
-                                    _alex(12, FontWeight.w800, 1.2, c.accent),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            context.l10n.continueWithEmail,
-                            style: _alex(14, FontWeight.w800, 1.2, c.textMain),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'هنبعت لك رمز من 6 أرقام. مفيش كلمة مرور، وممكن تغيّر إعدادات النسخ لاحقاً.',
-                            style:
-                                _alex(12, FontWeight.w600, 1.45, c.textLight),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: _email,
-                            keyboardType: TextInputType.emailAddress,
-                            style: _alex(15, FontWeight.w600, 1.4, c.textMain),
-                            textDirection: TextDirection.ltr,
-                            decoration: InputDecoration(
-                              hintText: context.l10n.email,
-                              hintTextDirection: TextDirection.rtl,
-                              hintStyle: _alex(14, FontWeight.w400, 1.4,
-                                  c.textLight.withValues(alpha: 0.4)),
-                              prefixIcon: Icon(Icons.mail_outline_rounded,
-                                  color: c.textLight),
-                              filled: true,
-                              fillColor: c.surface
-                                  .withValues(alpha: isDark ? 0.06 : 0.45),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.s4,
-                                vertical: 16,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(
-                                    color: Colors.white.withValues(
-                                        alpha: isDark ? 0.08 : 0.4)),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(
-                                    color: Colors.white.withValues(
-                                        alpha: isDark ? 0.08 : 0.4)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(
-                                    color: isDark ? c.accent : c.primary,
-                                    width: 1.5),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            height: 52,
-                            width: double.infinity,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: maliPrimaryActionGradient(context),
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: c.accent.withValues(alpha: 0.25),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: ElevatedButton(
-                                onPressed: _busy ? null : _emailContinue,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                                child: Text(
-                                  _busy ? '' : context.l10n.sendOtpCode,
-                                  style: _alex(15, FontWeight.w800, 1.2,
-                                      actionForeground),
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (_busy)
-                            Transform.translate(
-                              offset: const Offset(0, -38),
-                              child: Center(
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.4,
-                                    color: actionForeground,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          const SizedBox(height: 20),
-                          Row(
-                            children: [
-                              Expanded(
-                                  child: Divider(
-                                      color: c.border.withValues(alpha: 0.45))),
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text(context.l10n.or,
-                                    style: _alex(
-                                        12, FontWeight.w700, 1.2, c.textLight)),
-                              ),
-                              Expanded(
-                                  child: Divider(
-                                      color: c.border.withValues(alpha: 0.45))),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            height: 50,
-                            child: SignInWithAppleButton(
-                              onPressed: _busy
-                                  ? () {}
-                                  : () => _provider(auth.signInWithApple),
-                              text: context.l10n.continueWithApple,
-                              style: SignInWithAppleButtonStyle.black,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _providerButton(
-                            iconWidget: const _GoogleMark(size: 20),
-                            label: context.l10n.continueWithGoogle,
-                            background: c.surfaceMuted.withValues(alpha: 0.42),
-                            foreground: c.textMain,
-                            border: true,
-                            onTap: () => _provider(auth.signInWithGoogle),
-                          ),
-                          const SizedBox(height: 10),
-                          TextButton(
-                            onPressed: _busy
-                                ? null
-                                : () async {
-                                    await AppSession.instance
-                                        .setIdentity(method: 'guest');
-                                    if (context.mounted) {
-                                      context.push('/onboarding/method');
-                                    }
-                                  },
-                            child: Text(
-                              'المتابعة بدون حساب',
-                              style: _alex(
-                                12,
-                                FontWeight.w700,
-                                1.2,
-                                c.textLight,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Center(
-                    child: Text(
-                      context.l10n.continueWithoutAccountSub,
-                      textAlign: TextAlign.center,
-                      style: _alex(
-                        11,
-                        FontWeight.w600,
-                        1.45,
-                        c.textLight.withValues(alpha: 0.72),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  const SizedBox(height: 18),
-                  Center(
-                    child: Text(
-                      context.l10n.byContinuingAgree,
-                      textAlign: TextAlign.center,
-                      style: _alex(11, FontWeight.w500, 1.5, c.textLight),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(child: Divider(color: c.border)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Text('أو تابع عبر',
+                    style: _alex(12, FontWeight.w700, 1.2, c.textMuted)),
               ),
+              Expanded(child: Divider(color: c.border)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 52,
+            child: SignInWithAppleButton(
+              onPressed:
+                  _busy ? () {} : () => _provider(auth.signInWithApple),
+              text: context.l10n.continueWithApple,
+              style: SignInWithAppleButtonStyle.black,
+              borderRadius: BorderRadius.circular(16),
             ),
+          ),
+          const SizedBox(height: 12),
+          _providerButton(
+            iconWidget: const _GoogleMark(size: 20),
+            label: context.l10n.continueWithGoogle,
+            background: c.surfaceCard,
+            foreground: c.textPrimary,
+            border: true,
+            onTap: () => _provider(auth.signInWithGoogle),
           ),
         ],
       ),
@@ -410,51 +229,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _AuthTrustRow extends StatelessWidget {
-  const _AuthTrustRow();
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final items = [
-      (Icons.lock_outline_rounded, 'خصوصية'),
-      (Icons.cloud_done_outlined, 'نسخ اختياري'),
-      (Icons.password_rounded, 'بدون كلمة مرور'),
-    ];
-    return PremiumMotion(
-      delay: const Duration(milliseconds: 60),
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: c.surface,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: c.border),
-                ),
-                child: Column(
-                  children: [
-                    Icon(items[i].$1, size: 18, color: c.accent),
-                    const SizedBox(height: 5),
-                    Text(
-                      items[i].$2,
-                      textAlign: TextAlign.center,
-                      style: _alex(10, FontWeight.w800, 1.2, c.textMain),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (i != items.length - 1) const SizedBox(width: 8),
-          ],
-        ],
       ),
     );
   }

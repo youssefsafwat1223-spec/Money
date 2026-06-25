@@ -9,9 +9,8 @@ import '../../core/auth/auth_service.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_spacing.dart';
-import '../common/motion.dart';
-import 'widgets/premium_ui.dart';
+import 'widgets/neon_illustration.dart';
+import 'widgets/onboarding_scaffold.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false}) {
   return GoogleFonts.inter(
@@ -77,175 +76,68 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final actionForeground = maliPrimaryActionForeground(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    InputBorder bord(Color color, [double w = 1]) => OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: color, width: w),
+        );
 
-    return PremiumBackground(
+    return OnboardingScaffold(
+      step: 7,
+      onBack: () => context.pop(),
+      title: context.l10n.enterOtpCode,
+      subtitle: 'أرسلنا رمز تحقق من 6 أرقام إلى بريدك.',
+      primaryLabel: context.l10n.verifyCode,
+      onPrimary: _busy ? null : _verify,
+      primaryLoading: _busy,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter, vertical: 8.0),
-            child: Row(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: c.surface.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    onPressed: () => context.pop(),
-                    icon: Icon(Icons.arrow_forward_rounded, color: c.textMain, size: 20),
-                  ),
-                ),
-              ],
+          const Center(
+            child: NeonIllustration(
+              icon: Icons.mark_email_read_rounded,
+              size: 150,
             ),
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 16),
-                  Center(
-                    child: GlowingIcon(
-                      icon: Icons.mark_email_read_rounded,
-                      color: c.primary,
-                      size: 40,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    context.l10n.enterOtpCode,
-                    textAlign: TextAlign.center,
-                    style: _alex(24, FontWeight.w800, 1.3, c.textMain),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    context.l10n.otpSentTo,
-                    textAlign: TextAlign.center,
-                    style: _alex(14, FontWeight.w500, 1.5, c.textLight),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.email,
-                    style: _alex(14, FontWeight.w800, 1.5, c.primary),
-                    textDirection: TextDirection.ltr,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 28),
-                  
-                  PremiumMotion(
-                    delay: const Duration(milliseconds: 100),
-                    child: GlassCard(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          TextField(
-                            controller: _code,
-                            keyboardType: TextInputType.number,
-                            textAlign: TextAlign.center,
-                            maxLength: 6,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            style: _alex(32, FontWeight.w800, 1.2, c.textMain, tabular: true),
-                            decoration: InputDecoration(
-                              counterText: '',
-                              hintText: '••••••',
-                              hintStyle: _alex(32, FontWeight.w400, 1.2, c.textLight.withValues(alpha: 0.25), tabular: true),
-                              errorText: _error,
-                              errorStyle: _alex(13, FontWeight.w600, 1.2, c.danger),
-                              filled: true,
-                              fillColor: c.surface.withValues(alpha: isDark ? 0.06 : 0.45),
-                              contentPadding: const EdgeInsets.symmetric(
-                                vertical: 20,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4)),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(color: isDark ? c.accent : c.primary, width: 1.5),
-                              ),
-                              errorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(color: c.danger, width: 1.5),
-                              ),
-                              focusedErrorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(color: c.danger, width: 2),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            height: 52,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: maliPrimaryActionGradient(context),
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: c.accent.withValues(alpha: 0.25),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: ElevatedButton(
-                                onPressed: _busy ? null : _verify,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                                child: _busy
-                                    ? Center(
-                                        child: SizedBox(
-                                          width: 24,
-                                          height: 24,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2.5,
-                                            color: actionForeground,
-                                          ),
-                                        ),
-                                      )
-                                    : Text(
-                                        context.l10n.verifyCode,
-                                        style: _alex(15, FontWeight.w800, 1.2, actionForeground),
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 40),
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: c.surface.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(99),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                      ),
-                      child: Text(
-                        context.l10n.demoOtpCode,
-                        style: _alex(12, FontWeight.w700, 1.2, c.textLight),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          const SizedBox(height: 22),
+          Center(
+            child: Text(
+              widget.email,
+              textDirection: TextDirection.ltr,
+              style: _alex(14, FontWeight.w800, 1.4, c.cta),
+            ),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: _code,
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            maxLength: 6,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            style: _alex(28, FontWeight.w800, 1.2, c.textPrimary, tabular: true)
+                .copyWith(letterSpacing: 10),
+            decoration: InputDecoration(
+              counterText: '',
+              hintText: '••••••',
+              hintStyle: _alex(28, FontWeight.w400, 1.2,
+                      c.textMuted.withValues(alpha: 0.3), tabular: true)
+                  .copyWith(letterSpacing: 10),
+              errorText: _error,
+              errorStyle: _alex(13, FontWeight.w600, 1.2, c.danger),
+              filled: true,
+              fillColor: c.surfaceCard,
+              contentPadding: const EdgeInsets.symmetric(vertical: 18),
+              border: bord(c.border),
+              enabledBorder: bord(c.border),
+              focusedBorder: bord(c.cta, 1.5),
+              errorBorder: bord(c.danger),
+              focusedErrorBorder: bord(c.danger, 1.5),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: Text(
+              context.l10n.demoOtpCode,
+              style: _alex(12, FontWeight.w600, 1.4, c.textMuted),
             ),
           ),
         ],

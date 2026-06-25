@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
@@ -13,6 +14,7 @@ import '../dashboard/dashboard_providers.dart';
 import '../transactions/transactions_providers.dart';
 import '../transactions/widgets/change_category_sheet.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
+import 'widgets/neon_illustration.dart';
 import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
@@ -93,6 +95,14 @@ class _ConfirmedView extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 32),
+          Center(
+            child: NeonIllustration(
+              icon: Icons.check_circle_outline_rounded,
+              color: c.success,
+              size: 140,
+            ).animate().fade(duration: 800.ms).scale(curve: Curves.easeOutBack),
+          ),
+          const SizedBox(height: 16),
           Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
