@@ -218,7 +218,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: c.primary, width: 2),
+                borderSide: BorderSide(color: c.cta, width: 2),
               ),
             ),
           ),
@@ -241,7 +241,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
             child: FilledButton(
               onPressed: _busy ? null : _analyze,
               style: FilledButton.styleFrom(
-                backgroundColor: c.primary,
+                backgroundColor: c.cta,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
               ),
