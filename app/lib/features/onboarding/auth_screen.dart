@@ -60,7 +60,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       if (mounted) {
         wasAuthenticated
             ? context.go('/backup')
-            : context.push('/onboarding/method');
+            : context.push('/onboarding/privacy-info');
       }
     } catch (_) {
       if (mounted) {
@@ -123,7 +123,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           ? null
           : () async {
               await AppSession.instance.setIdentity(method: 'guest');
-              if (context.mounted) context.push('/onboarding/method');
+              if (context.mounted) context.push('/onboarding/privacy-info');
             },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

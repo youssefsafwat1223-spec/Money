@@ -6,7 +6,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/backup/backup_service.dart';
-import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -92,8 +91,7 @@ class _IosShortcutVerifyScreenState
         }
       } catch (_) {}
     }
-    await AppSession.instance.finishOnboarding();
-    if (mounted) context.go('/');
+    if (mounted) context.go('/onboarding/backup-info');
   }
 
   void _paste() {

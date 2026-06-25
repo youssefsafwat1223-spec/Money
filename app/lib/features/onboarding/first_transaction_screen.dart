@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
-import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -34,8 +33,7 @@ class FirstTransactionScreen extends ConsumerWidget {
   final String transactionId;
 
   Future<void> _finish(BuildContext context) async {
-    await AppSession.instance.finishOnboarding();
-    if (context.mounted) context.go('/');
+    if (context.mounted) context.go('/onboarding/completion');
   }
 
   @override

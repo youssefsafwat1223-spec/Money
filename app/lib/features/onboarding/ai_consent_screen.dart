@@ -28,7 +28,7 @@ class _AiConsentScreenState extends ConsumerState<AiConsentScreen> {
     } catch (_) {
       // Non-blocking — consent defaults are safe.
     }
-    if (mounted) context.push('/onboarding/first-transaction');
+    if (mounted) context.push('/onboarding/completion');
   }
 
   @override

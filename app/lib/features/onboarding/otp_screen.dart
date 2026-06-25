@@ -69,7 +69,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     await AppSession.instance
         .setIdentity(method: identity.method, email: identity.email);
     if (mounted) {
-      wasAuthenticated ? context.go('/backup') : context.push('/onboarding/method');
+      wasAuthenticated
+          ? context.go('/backup')
+          : context.push('/onboarding/privacy-info');
     }
   }
 
