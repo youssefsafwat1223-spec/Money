@@ -12,7 +12,8 @@ import '../../core/theme/app_colors.dart';
 import 'widgets/neon_illustration.dart';
 import 'widgets/onboarding_scaffold.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false}) {
+TextStyle _alex(double size, FontWeight weight, double height, Color color,
+    {bool tabular = false}) {
   return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
@@ -71,7 +72,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     if (mounted) {
       wasAuthenticated
           ? context.go('/backup')
-          : context.push('/onboarding/privacy-info');
+          : context.push('/onboarding/method-picker');
     }
   }
 
@@ -121,7 +122,8 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
               counterText: '',
               hintText: '••••••',
               hintStyle: _alex(28, FontWeight.w400, 1.2,
-                      c.textMuted.withValues(alpha: 0.3), tabular: true)
+                      c.textMuted.withValues(alpha: 0.3),
+                      tabular: true)
                   .copyWith(letterSpacing: 10),
               errorText: _error,
               errorStyle: _alex(13, FontWeight.w600, 1.2, c.danger),

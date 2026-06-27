@@ -37,13 +37,13 @@ class ParserEngine {
   static final RegExp _dateTime =
       RegExp(r'([0-9]{4})-([0-9]{2})-([0-9]{2})(?:[ T]([0-9]{2}):([0-9]{2}))?');
   static final RegExp _dateTimeDmy = RegExp(
-    r'\b([0-9]{1,2})[/-]([0-9]{1,2})[/-]([0-9]{2,4})(?:\s+(?:at\s*)?([0-9]{1,2}):([0-9]{2}))?\b',
+    r'\b([0-9]{1,2})[/-]([0-9]{1,2})[/-]([0-9]{2,4})(?:\s+(?:at\s*)?([0-9]{1,2}):([0-9]{2})\s*(am|pm)?)?\b',
     caseSensitive: false,
   );
   // DD/MM with no year (e.g. "14/03 الساعه 22:29") — assumes current year.
   static final RegExp _dateDmNoYear = RegExp(
     r'\b([0-9]{1,2})/([0-9]{1,2})\b'
-    r'(?:[^\d]{1,20}([0-9]{1,2}):([0-9]{2}))?',
+    r'(?:[^\d]{1,20}([0-9]{1,2}):([0-9]{2})\s*(am|pm)?)?',
     caseSensitive: false,
   );
   static final RegExp _dateYmdShort =
@@ -123,7 +123,7 @@ class ParserEngine {
       return ParseResult.notTransaction(bankKey: bank?.bankKey);
     }
 
-    final type = _detectType(lower, bank);
+    var type = _detectType(lower, bank);
     final amountExtraction = _extractAmounts(lines, text: text, bank: bank);
     final amount = amountExtraction.transactionAmount;
 
@@ -138,6 +138,14 @@ class ParserEngine {
     final source = _detectSource(lower, bank);
     final merchantResult = _extractMerchantAndSource(lines, bank: bank);
     final merchant = merchantResult.merchant;
+    if (type == TransactionType.payment &&
+        _looksLikeBankAtmCardTransaction(
+          lower,
+          merchant: merchant,
+          extraProfiles: bankProfiles,
+        )) {
+      type = TransactionType.withdrawal;
+    }
     final currency =
         amountExtraction.currency ?? _extractCurrency(text) ?? defaultCurrency;
     final last4 = _extractLast4(text);
@@ -229,6 +237,26 @@ class ParserEngine {
       return TransactionSource.card;
     }
     return bank?.defaultSource ?? TransactionSource.bank;
+  }
+
+  bool _looksLikeBankAtmCardTransaction(
+    String lower, {
+    required String? merchant,
+    required List<BankProfile> extraProfiles,
+  }) {
+    if (merchant == null || merchant.trim().isEmpty) return false;
+    final hasDebitCard = lower.contains('debit card');
+    final hasGenericTransaction = _containsAny(lower, const [
+      'successful transaction',
+      'transaction of',
+    ]);
+    if (!hasDebitCard || !hasGenericTransaction) return false;
+    return BankProfiles.detect(
+          '',
+          senderId: merchant,
+          extraProfiles: extraProfiles,
+        ) !=
+        null;
   }
 
   _AmountExtraction _extractAmounts(
@@ -456,6 +484,21 @@ class ParserEngine {
         score: 1,
       );
     }
+    if (_hasNearbyKeyword(
+      l,
+      start,
+      const ['from', 'from account', 'account', 'acct', 'a/c'],
+      before: 16,
+      after: 0,
+    )) {
+      return AmountCandidate(
+        value: value,
+        raw: raw,
+        line: line,
+        kind: AmountCandidateKind.referenceNumber,
+        score: 0.95,
+      );
+    }
     if (raw.length == 4 &&
         (_hasNearbyKeyword(
                 l,
@@ -602,6 +645,10 @@ class ParserEngine {
                 caseSensitive: false),
             '')
         .replaceAll(
+            RegExp(r'(?:ref|reference|for more details|call)(?:[#\s]|$).*$',
+                caseSensitive: false),
+            '')
+        .replaceAll(
             RegExp(r'(?:الرصيد|balance|available|avl\s+bal|المتاح)(?:\s|$).*$',
                 caseSensitive: false),
             '')
@@ -613,6 +660,10 @@ class ParserEngine {
             '')
         .replaceAll(RegExp(r'[.;،]+$'), '')
         .trim();
+    if (RegExp(r'^\d{1,2}:\d{2}\s*(?:am|pm)?\b', caseSensitive: false)
+        .hasMatch(value)) {
+      return null;
+    }
     if (value.isNotEmpty &&
         !_startsWithCurrency(value) &&
         !RegExp(r'^\d+$').hasMatch(value)) {
@@ -704,7 +755,9 @@ class ParserEngine {
         // confidence engine routes the transaction to pending_confirmation.
         return (date: null, ambiguous: true);
       }
-      final hour = dmy.group(4) != null ? int.parse(dmy.group(4)!) : 0;
+      final hour = dmy.group(4) != null
+          ? _hourWithMeridiem(int.parse(dmy.group(4)!), dmy.group(6))
+          : 0;
       final minute = dmy.group(5) != null ? int.parse(dmy.group(5)!) : 0;
       return (
         date: _safeDate(year, month, day, hour, minute),
@@ -717,7 +770,9 @@ class ParserEngine {
       final day = int.parse(dm.group(1)!);
       final month = int.parse(dm.group(2)!);
       final year = DateTime.now().year;
-      final hour = dm.group(3) != null ? int.parse(dm.group(3)!) : 0;
+      final hour = dm.group(3) != null
+          ? _hourWithMeridiem(int.parse(dm.group(3)!), dm.group(5))
+          : 0;
       final minute = dm.group(4) != null ? int.parse(dm.group(4)!) : 0;
       return (
         date: _safeDate(year, month, day, hour, minute),
@@ -896,6 +951,13 @@ class ParserEngine {
   int _normalizeYear(int year) {
     if (year >= 100) return year;
     return year >= 70 ? 1900 + year : 2000 + year;
+  }
+
+  int _hourWithMeridiem(int hour, String? meridiem) {
+    final normalized = meridiem?.toLowerCase();
+    if (normalized == 'pm' && hour < 12) return hour + 12;
+    if (normalized == 'am' && hour == 12) return 0;
+    return hour;
   }
 
   DateTime? _safeDate(int year, int month, int day, int hour, int minute) {

@@ -28,7 +28,7 @@ class CategoryDonutChart extends StatelessWidget {
     required this.slices,
     this.height = 210,
     this.centerLabel = 'التصنيفات',
-    this.currencyLabel = 'ريال',
+    this.currencyLabel = '',
   });
 
   final List<SpendingChartSlice> slices;
@@ -343,7 +343,10 @@ class _LegendRow extends StatelessWidget {
                   style: AppTypography.caption(c.textPrimary)),
               const SizedBox(height: 2),
               Text(
-                '${Formatters.amount(slice.total)} $currencyLabel',
+                [
+                  Formatters.amount(slice.total),
+                  if (currencyLabel.isNotEmpty) currencyLabel,
+                ].join(' '),
                 style: AppTypography.caption(c.textMuted),
               ),
             ],

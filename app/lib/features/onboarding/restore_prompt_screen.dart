@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -13,6 +14,7 @@ import '../budgets/budgets_providers.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../goals/goals_providers.dart';
 import '../transactions/transactions_providers.dart';
+import 'widgets/neon_illustration.dart';
 import 'widgets/premium_ui.dart';
 
 class RestorePromptScreen extends ConsumerStatefulWidget {
@@ -130,14 +132,23 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                       ),
                     ),
                   ),
-                  OnboardingHeroCard(
-                    icon: Icons.lock_reset_rounded,
-                    title: context.l10n.backupFound,
-                    subtitle: context.l10n.restoreDesc,
-                    trailing: Icon(
-                      Icons.key_rounded,
-                      color: Colors.white.withValues(alpha: 0.86),
-                    ),
+                  Center(
+                    child: const NeonIllustration(
+                      icon: Icons.cloud_done_rounded,
+                      size: 140,
+                    ).animate().fade(duration: 800.ms).scale(curve: Curves.easeOutBack),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  Text(
+                    context.l10n.backupFound,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.title2(c.textMain),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    context.l10n.restoreDesc,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.callout(c.textLight),
                   ),
                   const SizedBox(height: AppSpacing.s4),
                   Container(
@@ -157,7 +168,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'الاستعادة تحتاج كلمة المرور أو رمز الاسترداد فقط. مالي لا يقرأ محتوى النسخة بدونهم.',
+                            'الاستعادة تحتاج كلمة المرور أو رمز الاسترداد فقط. قرش لا يقرأ محتوى النسخة بدونهم.',
                             style: AppTypography.caption(c.textMain),
                           ),
                         ),

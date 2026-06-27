@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../session/app_session.dart';
 import '../../features/accounts/accounts_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
+import '../../features/announcements/announcements_screen.dart';
 import '../../features/app/app_shell.dart';
 import '../../features/backup/backup_screen.dart';
 import '../../features/onboarding/auth_screen.dart';
@@ -29,6 +30,7 @@ import '../../features/budgets/budgets_screen.dart';
 import '../../features/cards/card_details_screen.dart';
 import '../../features/capture/manual_paste_screen.dart';
 import '../../features/capture/sms_permission_screen.dart';
+import '../../features/coupons/coupons_screen.dart';
 import '../../features/goals/goal_details_screen.dart';
 import '../../features/goals/goal_form_screen.dart';
 import '../../features/goals/goals_screen.dart';
@@ -48,7 +50,9 @@ final appRouter = GoRouter(
     if (status == SessionStatus.needsOnboarding && !inOnboarding) {
       return '/onboarding';
     }
-    if (status == SessionStatus.authenticated && inOnboarding && !guestUpgrade) {
+    if (status == SessionStatus.authenticated &&
+        inOnboarding &&
+        !guestUpgrade) {
       return '/';
     }
     return null;
@@ -221,9 +225,19 @@ final appRouter = GoRouter(
       builder: (context, state) => const AccountsScreen(),
     ),
     GoRoute(
+      path: '/announcements',
+      name: 'announcements',
+      builder: (context, state) => const AnnouncementsScreen(),
+    ),
+    GoRoute(
       path: '/subscriptions',
       name: 'subscriptions',
       builder: (context, state) => const SubscriptionsScreen(),
+    ),
+    GoRoute(
+      path: '/coupons',
+      name: 'coupons',
+      builder: (context, state) => const CouponsScreen(),
     ),
     GoRoute(
       path: '/paste',

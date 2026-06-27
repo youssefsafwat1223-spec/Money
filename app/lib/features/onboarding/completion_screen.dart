@@ -32,7 +32,7 @@ class _CompletionScreenState extends State<CompletionScreen> {
       step: 16,
       title: 'جاهز للانطلاق؟',
       subtitle: 'استمتع بتجربة مالية ذكية تحت تحكمك بالكامل.',
-      primaryLabel: 'ابدأ استخدام مالي',
+      primaryLabel: 'ابدأ استخدام قرش',
       primaryLoading: _busy,
       onPrimary: _busy ? null : _start,
       child: Column(
@@ -45,7 +45,7 @@ class _CompletionScreenState extends State<CompletionScreen> {
           ),
           const SizedBox(height: 32),
           Text(
-            'كل حاجة جاهزة. مالي هيتابع مصروفاتك ويصنّفها ويوريك صورة واضحة لفلوسك.',
+            'كل حاجة جاهزة. قرش هيتابع مصروفاتك ويصنّفها ويوريك صورة واضحة لفلوسك.',
             textAlign: TextAlign.center,
             style: obFont(14, FontWeight.w500, 1.6, c.textMuted),
           ),

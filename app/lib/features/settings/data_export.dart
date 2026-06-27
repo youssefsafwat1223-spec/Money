@@ -30,8 +30,8 @@ Future<void> exportTransactionsCsv(
           name: 'mali-transactions.csv',
         ),
       ],
-      subject: 'Mali transactions export',
-      text: 'تصدير عمليات مالي بصيغة CSV.',
+      subject: 'Qirsh transactions export',
+      text: 'تصدير عمليات قرش بصيغة CSV.',
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

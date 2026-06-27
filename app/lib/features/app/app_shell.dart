@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:native_glass_navbar/native_glass_navbar.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -19,12 +20,10 @@ import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/services/notification_planner.dart';
-import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../achievements/achievements_providers.dart';
 import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
 import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
-import '../capture/capture_entry_sheet.dart';
 import '../capture/capture_runtime.dart';
 import '../capture/services/local_notification_service.dart';
 import '../capture/services/native_capture_bridge.dart';
@@ -34,6 +33,7 @@ import '../common/widgets/announcement_banner.dart';
 import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../reports/reports_screen.dart';
 import '../settings/settings_providers.dart';
 import '../settings/settings_screen.dart';
 import '../transactions/transactions_providers.dart';
@@ -120,8 +120,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     final ingestUseCase = ref.read(ingestCapturedMessageUseCaseProvider);
 
     String? pendingConfirmationId;
+    String? pendingSecondaryNotice;
     SenderBankMappingEntity? pendingBankDiscovery;
-    final unprocessableSenders = <String>[];
 
     for (final message in messages) {
       final captured = CapturedMessage(
@@ -134,9 +134,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (result.transactionId != null &&
           result.addTransactionResult.requiresConfirmation) {
         pendingConfirmationId = result.transactionId;
-      }
-      if (result.disposition == CapturedMessageDisposition.unprocessable) {
-        unprocessableSenders.add(message.sender ?? 'مرسل غير معروف');
+        pendingSecondaryNotice =
+            feeNoticeFor(result.addTransactionResult.secondary);
       }
       pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
         message.sender,
@@ -146,20 +145,11 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     _refreshAll();
 
-    // Notify user about messages that couldn't be parsed so they can add manually.
-    for (final sender in unprocessableSenders) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('لم نتمكن من تحليل رسالة $sender. اضغط للإضافة يدوياً.'),
-        action: SnackBarAction(
-          label: 'إضافة',
-          onPressed: () => showCaptureEntrySheet(context),
-        ),
-        duration: const Duration(seconds: 6),
-      ));
-    }
-
     if (pendingConfirmationId != null) {
-      await _openConfirmSheet(pendingConfirmationId);
+      await _openConfirmSheet(
+        pendingConfirmationId,
+        secondaryNotice: pendingSecondaryNotice,
+      );
     }
     if (pendingBankDiscovery != null) {
       await _openBankDiscoverySheet(pendingBankDiscovery);
@@ -185,9 +175,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         await ref.read(loadNotificationPreferencesUseCaseProvider).call();
     final snapshot = await ref.read(budgetProgressUseCaseProvider).call();
     final catalog = await ref.read(categoryCatalogProvider.future);
-    // Use settings currency for budget notifications; budgets don't have own currency.
-    final budgetCurrency =
-        ref.read(userSettingsProvider).valueOrNull?.currency ?? 'SAR';
+    // Budget notifications follow the active/default account currency.
+    final budgetCurrency = await ref.read(baseCurrencyProvider.future);
     for (final alert in snapshot.alerts) {
       final category = catalog.byId(alert.budget.categoryId);
       final label =
@@ -285,12 +274,19 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 
-  Future<void> _openConfirmSheet(String transactionId) async {
+  Future<void> _openConfirmSheet(
+    String transactionId, {
+    String? secondaryNotice,
+  }) async {
     if (!mounted) {
       return;
     }
     _refreshAll();
-    await showConfirmTransactionSheet(context, transactionId);
+    await showConfirmTransactionSheet(
+      context,
+      transactionId,
+      secondaryNotice: secondaryNotice,
+    );
     await _syncEngagement();
     _drainCelebrations();
   }
@@ -324,11 +320,14 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     final c = context.colors;
     final index = ref.watch(shellIndexProvider);
-    const pages = [
-      DashboardScreen(),
-      TransactionsScreen(),
-      BudgetsScreen(),
-      SettingsScreen(),
+    // Reports embeds a TabBarView (needs bounded height). IndexedStack lays out
+    // every child even when offstage, so build it only when its tab is active.
+    final pages = [
+      const DashboardScreen(),
+      const TransactionsScreen(),
+      const BudgetsScreen(),
+      const SettingsScreen(),
+      index == 4 ? const ReportsScreen() : const SizedBox.shrink(),
     ];
 
     return NotificationListener<UserScrollNotification>(
@@ -377,7 +376,6 @@ class _AppShellState extends ConsumerState<AppShell> {
             currentIndex: index,
             onSelect: (next) =>
                 ref.read(shellIndexProvider.notifier).state = next,
-            onAdd: () => showCaptureEntrySheet(context),
           ),
         ),
       ),
@@ -420,71 +418,155 @@ class _FloatingBottomBar extends StatelessWidget {
   const _FloatingBottomBar({
     required this.currentIndex,
     required this.onSelect,
-    required this.onAdd,
   });
 
   final int currentIndex;
   final ValueChanged<int> onSelect;
-  final VoidCallback onAdd;
 
   static const _items = [
-    _BottomBarItem(index: 0, icon: AppLucideIcons.home, label: 'الرئيسية'),
-    _BottomBarItem(index: 1, icon: AppLucideIcons.receipt, label: 'العمليات'),
-    _BottomBarItem(index: 2, icon: AppLucideIcons.wallet, label: 'الميزانيات'),
-    _BottomBarItem(index: 3, icon: AppLucideIcons.wrench, label: 'الإعدادات'),
+    _BottomBarItem(
+      page: 3,
+      icon: AppLucideIcons.settings,
+      symbol: 'ellipsis.circle.fill',
+      label: 'المزيد',
+    ),
+    _BottomBarItem(
+      page: 4,
+      icon: AppLucideIcons.shapes,
+      symbol: 'chart.bar.fill',
+      label: 'التحليلات',
+    ),
+    _BottomBarItem(
+      page: 0,
+      icon: AppLucideIcons.home,
+      symbol: 'house.fill',
+      label: 'الرئيسية',
+    ),
+    _BottomBarItem(
+      page: 2,
+      icon: AppLucideIcons.walletCards,
+      symbol: 'creditcard.fill',
+      label: 'الميزانيات',
+    ),
+    _BottomBarItem(
+      page: 1,
+      icon: AppLucideIcons.receipt,
+      symbol: 'doc.text.fill',
+      label: 'العمليات',
+    ),
   ];
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final selectedVisualIndex = _items.indexWhere(
+      (item) => item.page == currentIndex,
+    );
+    final nativeIndex = selectedVisualIndex == -1 ? 0 : selectedVisualIndex;
+
+    return NativeGlassNavBar(
+      currentIndex: nativeIndex,
+      tintColor: c.cta,
+      tabs: [
+        for (final item in _items)
+          NativeGlassNavBarItem(label: item.label, symbol: item.symbol),
+      ],
+      onTap: (visualIndex) {
+        if (visualIndex < 0 || visualIndex >= _items.length) return;
+        HapticFeedback.selectionClick();
+        onSelect(_items[visualIndex].page);
+      },
+      fallback: _FlutterGlassBottomBar(
+        currentIndex: currentIndex,
+        onSelect: onSelect,
+        items: _items,
+      ),
+    );
+  }
+}
+
+class _FlutterGlassBottomBar extends StatelessWidget {
+  const _FlutterGlassBottomBar({
+    required this.currentIndex,
+    required this.onSelect,
+    required this.items,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onSelect;
+  final List<_BottomBarItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
+    final selectedVisualIndex = items.indexWhere(
+      (item) => item.page == currentIndex,
+    );
+    const barRadius = 32.0;
 
     return SafeArea(
       top: false,
       bottom: false,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          AppSpacing.s6,
+          AppSpacing.s5,
           AppSpacing.s2,
-          AppSpacing.s6,
-          safeBottom > 0 ? safeBottom : AppSpacing.s6,
+          AppSpacing.s5,
+          safeBottom > 0 ? safeBottom + AppSpacing.s2 : AppSpacing.s5,
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: BorderRadius.circular(barRadius),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
             child: Container(
-              height: 64,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              height: 62,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
               decoration: BoxDecoration(
-                color: c.surface.withValues(alpha: 0.85), // Keep mostly solid for performance
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: c.border.withValues(alpha: 0.5)),
-                boxShadow: AppShadows.nav,
-              ),
-              child: Row(
-                textDirection: TextDirection.rtl,
-                children: [
-                  _NavSlot(
-                      item: _items[0],
-                      currentIndex: currentIndex,
-                      onTap: onSelect),
-                  _NavSlot(
-                      item: _items[1],
-                      currentIndex: currentIndex,
-                      onTap: onSelect),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: _CenterAddButton(onTap: onAdd),
+                color: c.surface.withValues(alpha: isDark ? 0.66 : 0.72),
+                borderRadius: BorderRadius.circular(barRadius),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white.withValues(alpha: isDark ? 0.08 : 0.52),
+                    c.surface.withValues(alpha: isDark ? 0.50 : 0.62),
+                  ],
+                ),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: isDark ? 0.14 : 0.66),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.42 : 0.13),
+                    blurRadius: 30,
+                    offset: const Offset(0, 14),
                   ),
-                  _NavSlot(
-                      item: _items[2],
-                      currentIndex: currentIndex,
-                      onTap: onSelect),
-                  _NavSlot(
-                      item: _items[3],
-                      currentIndex: currentIndex,
-                      onTap: onSelect),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  _GlassTabIndicator(
+                    selectedIndex:
+                        selectedVisualIndex == -1 ? 0 : selectedVisualIndex,
+                    tabCount: items.length,
+                    isDark: isDark,
+                    accent: c.cta,
+                  ),
+                  Row(
+                    textDirection: TextDirection.ltr,
+                    children: [
+                      for (final item in items)
+                        Expanded(
+                          child: _NavTab(
+                            item: item,
+                            selected: item.page == currentIndex,
+                            onTap: onSelect,
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -495,36 +577,81 @@ class _FloatingBottomBar extends StatelessWidget {
   }
 }
 
-class _NavSlot extends StatelessWidget {
-  const _NavSlot({
-    required this.item,
-    required this.currentIndex,
-    required this.onTap,
+class _GlassTabIndicator extends StatelessWidget {
+  const _GlassTabIndicator({
+    required this.selectedIndex,
+    required this.tabCount,
+    required this.isDark,
+    required this.accent,
   });
 
-  final _BottomBarItem item;
-  final int currentIndex;
-  final ValueChanged<int> onTap;
+  final int selectedIndex;
+  final int tabCount;
+  final bool isDark;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
-    final selected = item.index == currentIndex;
-    return Expanded(
-      flex: selected ? 16 : 10,
-      child: _NavTab(item: item, selected: selected, onTap: onTap),
+    final relative = tabCount <= 1 ? 0.5 : selectedIndex / (tabCount - 1);
+    final alignment = Alignment((relative * 2) - 1, 0);
+
+    return Positioned.fill(
+      child: AnimatedAlign(
+        alignment: alignment,
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOutCubic,
+        child: FractionallySizedBox(
+          widthFactor: 1 / tabCount,
+          heightFactor: 1,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: isDark ? 0.12 : 0.44),
+                borderRadius: BorderRadius.circular(25),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: isDark ? 0.18 : 0.72),
+                ),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: isDark ? 0.16 : 0.62),
+                    accent.withValues(alpha: isDark ? 0.12 : 0.10),
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.20 : 0.07),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                  BoxShadow(
+                    color: accent.withValues(alpha: isDark ? 0.10 : 0.08),
+                    blurRadius: 18,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
 class _BottomBarItem {
   const _BottomBarItem({
-    required this.index,
+    required this.page,
     required this.icon,
+    required this.symbol,
     required this.label,
   });
 
-  final int index;
+  final int page;
   final IconData icon;
+  final String symbol;
   final String label;
 }
 
@@ -542,9 +669,10 @@ class _NavTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final activeColor = c.cta;
-    final inactiveColor = c.textMuted;
+    final inactiveColor =
+        isDark ? c.textSecondary.withValues(alpha: 0.72) : c.textMuted;
 
     return Semantics(
       label: item.label,
@@ -554,105 +682,44 @@ class _NavTab extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: () {
           HapticFeedback.selectionClick();
-          onTap(item.index);
+          onTap(item.page);
         },
-        child: AnimatedContainer(
+        child: AnimatedScale(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
-          height: 50,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedScale(
-                scale: selected ? 1.06 : 1.0,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                child: Icon(
+          scale: selected ? 1.03 : 1,
+          child: SizedBox(
+            height: 48,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
                   item.icon,
                   color: selected ? activeColor : inactiveColor,
-                  size: 22,
+                  size: selected ? 22 : 21,
                 ),
-              ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                height: selected ? 14 : 0,
-                child: AnimatedOpacity(
-                  opacity: selected ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 150),
-                  curve: Curves.easeOutCubic,
-                  child: SingleChildScrollView(
-                    physics: const NeverScrollableScrollPhysics(),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 2),
-                        Text(
-                          item.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.fade,
-                          softWrap: false,
-                          style: AppTypography.caption(activeColor).copyWith(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 10.0,
-                          ),
-                        ),
-                      ],
+                const SizedBox(height: 3),
+                SizedBox(
+                  height: 14,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: AppTypography.caption(
+                        selected ? activeColor : inactiveColor,
+                      ).copyWith(
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 10,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CenterAddButton extends StatefulWidget {
-  const _CenterAddButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  State<_CenterAddButton> createState() => _CenterAddButtonState();
-}
-
-class _CenterAddButtonState extends State<_CenterAddButton> {
-  bool _isPressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Semantics(
-      label: 'إضافة',
-      button: true,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) => setState(() => _isPressed = false),
-        onTapCancel: () => setState(() => _isPressed = false),
-        onTap: () {
-          HapticFeedback.lightImpact();
-          widget.onTap();
-        },
-        child: AnimatedScale(
-          scale: _isPressed ? 0.95 : 1.0,
-          duration: const Duration(milliseconds: 100),
-          child: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: c.cta,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: c.cta.withValues(alpha: 0.25),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
               ],
             ),
-            child: Icon(AppLucideIcons.plus, color: c.onCta, size: 24),
           ),
         ),
       ),

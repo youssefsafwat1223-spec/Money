@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// AppColors — Premium Minimalist Fintech Color System for Mali.
+/// AppColors — Premium Minimalist Fintech Color System for Qirsh.
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
@@ -59,7 +59,7 @@ class AppColors extends ThemeExtension<AppColors> {
   /// The correct foreground color to use when `primary` is the background.
   final Color onPrimary;
 
-  /// Primary interactive CTA color (Mali Blue).
+  /// Primary interactive CTA color (Qirsh Blue).
   final Color cta;
 
   /// Foreground for CTA backgrounds (always white).
@@ -137,12 +137,12 @@ class AppColors extends ThemeExtension<AppColors> {
     surfaceElevated: Color(0xFFF1F3F8),
     surfaceCard: Color(0xFFFFFFFF),
     surfaceMuted: Color(0xFFECEFF6),
-    primary: Color(0xFF4B3EE6),
+    primary: Color(0xFF021B79),
     onPrimary: Color(0xFFFFFFFF),
-    cta: Color(0xFF6C5CFF),
+    cta: Color(0xFF0340A5),
     onCta: Color(0xFFFFFFFF),
-    ctaSoft: Color(0xFFEDEBFF),
-    accent: Color(0xFFDB2777),
+    ctaSoft: Color(0xFFEAF2FF),
+    accent: Color(0xFFFBC926),
     income: Color(0xFF16A34A),
     expense: Color(0xFFDC2626),
     success: Color(0xFF16A34A),
@@ -167,49 +167,49 @@ class AppColors extends ThemeExtension<AppColors> {
     onDanger: Color(0xFFFFFFFF),
     onWarning: Color(0xFF111827),
     onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF6C5CFF),
-    gradB: Color(0xFF4B3EE6),
+    gradA: Color(0xFF55ABFF),
+    gradB: Color(0xFF021B79),
   );
 
   // ===== Dark Mode =====
   static const AppColors dark = AppColors(
-    bg: Color(0xFF0C0D11),
-    surface: Color(0xFF15161C),
-    surfaceElevated: Color(0xFF1D1F28),
-    surfaceCard: Color(0xFF181A22),
-    surfaceMuted: Color(0xFF232633),
-    primary: Color(0xFF8D7CFF),
-    onPrimary: Color(0xFF0C0D11),
-    cta: Color(0xFF6C5CFF),
+    bg: Color(0xFF0B0F19),
+    surface: Color(0xFF131924),
+    surfaceElevated: Color(0xFF1E2535),
+    surfaceCard: Color(0xFF181F2E),
+    surfaceMuted: Color(0xFF2A3347),
+    primary: Color(0xFF55ABFF),
+    onPrimary: Color(0xFF0B0F19),
+    cta: Color(0xFF55ABFF),
     onCta: Color(0xFFFFFFFF),
-    ctaSoft: Color(0xFF242047),
-    accent: Color(0xFFF472B6),
+    ctaSoft: Color(0xFF1E2535),
+    accent: Color(0xFFFBC926),
     income: Color(0xFF22C55E),
     expense: Color(0xFFEF4444),
-    success: Color(0xFF22C55E),
+    success: Color(0xFF34D399),
     warning: Color(0xFFF59E0B),
-    danger: Color(0xFFEF4444),
-    info: Color(0xFF3B82F6),
+    danger: Color(0xFFF87171),
+    info: Color(0xFF38BDF8),
     neutral: Color(0xFF8892A6),
-    disabled: Color(0xFF343746),
-    disabledFg: Color(0xFF777F91),
-    border: Color(0xFF2A2D36),
-    divider: Color(0xFF232633),
+    disabled: Color(0xFF1E2535),
+    disabledFg: Color(0xFF4F5A6E),
+    border: Color(0xFF2A3347),
+    divider: Color(0xFF1E2535),
     textPrimary: Color(0xFFF8FAFC),
-    textSecondary: Color(0xFFC8D0DE),
-    textMuted: Color(0xFF8791A3),
+    textSecondary: Color(0xFF8295A5),
+    textMuted: Color(0xFF4F5A6E),
     onSurface: Color(0xFFF8FAFC),
-    onSurfaceMuted: Color(0xFFC8D0DE),
+    onSurfaceMuted: Color(0xFF8295A5),
     successBg: Color(0xFF143322),
-    dangerBg: Color(0xFF351D24),
-    warningBg: Color(0xFF332817),
+    dangerBg: Color(0xFF2B1519),
+    warningBg: Color(0xFF2D2012),
     infoBg: Color(0xFF18283F),
-    onSuccess: Color(0xFF06130B),
+    onSuccess: Color(0xFF0B0F19),
     onDanger: Color(0xFFFFFFFF),
-    onWarning: Color(0xFF111827),
+    onWarning: Color(0xFF0B0F19),
     onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF8D7CFF),
-    gradB: Color(0xFF4B3EE6),
+    gradA: Color(0xFF55ABFF),
+    gradB: Color(0xFFFBC926),
   );
 
   @override

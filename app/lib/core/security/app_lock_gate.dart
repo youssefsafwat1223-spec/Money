@@ -127,7 +127,7 @@ class _LockScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.s5),
                   Text(
-                    'مالي مقفول',
+                    'قرش مقفول',
                     style: AppTypography.headline(c.textMain),
                   ),
                   const SizedBox(height: AppSpacing.s2),
@@ -146,7 +146,7 @@ class _LockScreen extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.lock_open_rounded),
-                    label: Text(authenticating ? 'جاري التحقق...' : 'فتح مالي'),
+                    label: Text(authenticating ? 'جاري التحقق...' : 'فتح قرش'),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                       backgroundColor: c.primary,

@@ -44,6 +44,19 @@ abstract class TransactionRepository {
     required String accountId,
   });
 
+  /// يربط العملية ببطاقة (آخر 4 أرقام)، أو يفصلها عند null.
+  Future<void> updateCard({
+    required String transactionId,
+    required String? cardLast4,
+  });
+
+  /// يحدّث مبلغ العملية بعملة الحساب — يُستخدم لتسعير عملية أجنبية «بانتظار
+  /// التسعير» (amount = 0) بقيمتها المحلية التي يدخلها المستخدم.
+  Future<void> updateAmount({
+    required String transactionId,
+    required double amount,
+  });
+
   // ── قراءة (Sprint 3) ──
 
   /// أحدث العمليات (تتجاهل المُلغاة) — للـ Dashboard.
@@ -94,6 +107,7 @@ abstract class TransactionRepository {
     required String categoryId,
     required DateTime from,
     required DateTime to,
+    String? accountId,
   });
 
   /// أكثر المتاجر صرفاً خلال فترة — للتقارير.
@@ -101,10 +115,11 @@ abstract class TransactionRepository {
     required DateTime from,
     required DateTime to,
     int limit = 3,
+    String? accountId,
   });
 
   /// اشتراكات متكررة مُكتشَفة (نفس المتجر بمبلغ متقارب عبر ≥2 أشهر).
-  Future<List<RecurringCandidate>> recurringCandidates();
+  Future<List<RecurringCandidate>> recurringCandidates({String? accountId});
 
   /// ملخّص لكل بطاقة (آخر 4 أرقام + الشبكة + الداخل/الخارج).
   Future<List<CardSummary>> getCardSummaries();

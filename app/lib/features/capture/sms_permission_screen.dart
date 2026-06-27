@@ -97,13 +97,13 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                 ),
                 const SizedBox(height: AppSpacing.s4),
                 Text(
-                  'شارك رسالة البنك مع مالي',
+                  'شارك رسالة البنك مع قرش',
                   textAlign: TextAlign.center,
                   style: AppTypography.title1(c.textMain),
                 ),
                 const SizedBox(height: AppSpacing.s2),
                 Text(
-                  'بدون إذن قراءة SMS: افتح رسالة البنك، اضغط مشاركة، واختر مالي. سنحلّل النص على جهازك فقط.',
+                  'بدون إذن قراءة SMS: افتح رسالة البنك، اضغط مشاركة، واختر قرش. سنحلّل النص على جهازك فقط.',
                   textAlign: TextAlign.center,
                   style: AppTypography.callout(c.textLight),
                 ),

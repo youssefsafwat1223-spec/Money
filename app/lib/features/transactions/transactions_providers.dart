@@ -69,7 +69,16 @@ class BillSuggestion {
   final int monthsSeen;
 }
 
-enum TransactionsDatePreset { thisMonth, previousMonth, last30Days, custom }
+enum TransactionsDatePreset {
+  today,
+  thisWeek,
+  thisMonth,
+  previousMonth,
+  last7Days,
+  last30Days,
+  last90Days,
+  custom,
+}
 
 enum TransactionKindFilter { all, expenses, income, transfers }
 
@@ -85,9 +94,13 @@ class TransactionsDateRange {
   final DateTime to;
 
   String get label => switch (preset) {
+        TransactionsDatePreset.today => 'اليوم',
+        TransactionsDatePreset.thisWeek => 'هذا الأسبوع',
         TransactionsDatePreset.thisMonth => 'هذا الشهر',
         TransactionsDatePreset.previousMonth => 'الشهر السابق',
+        TransactionsDatePreset.last7Days => 'آخر 7 أيام',
         TransactionsDatePreset.last30Days => 'آخر 30 يوم',
+        TransactionsDatePreset.last90Days => 'آخر 90 يوم',
         TransactionsDatePreset.custom => 'مخصص',
       };
 }
@@ -116,14 +129,28 @@ final transactionsPageTabProvider = StateProvider<int>((ref) => 0);
 final transactionsPendingFilterProvider = StateProvider<bool>((ref) => false);
 
 final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
+  ref.watch(dbRevisionProvider);
   final txRepo = ref.watch(transactionRepositoryProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
   final range = ref.watch(transactionsDateRangeProvider);
   final kind = ref.watch(transactionKindFilterProvider);
   final query = ref.watch(transactionSearchQueryProvider).trim().toLowerCase();
   final pendingOnly = ref.watch(transactionsPendingFilterProvider);
+  final selectedAccountId = ref.watch(activeAccountIdProvider);
+  final selectedAccount = selectedAccountId == null
+      ? null
+      : await accountRepo.getById(selectedAccountId);
+  final defaultAccount = await accountRepo.getDefault();
+  final activeAccount = selectedAccount ?? defaultAccount;
   final all = await txRepo.getAll();
-  final inRange = all.where((tx) {
+  final scoped = all.where((tx) {
+    if (activeAccount == null) return true;
+    if (tx.accountId == activeAccount.id) return true;
+    return tx.accountId == null &&
+        tx.currency.toUpperCase() == activeAccount.currency.toUpperCase();
+  });
+  final inRange = scoped.where((tx) {
     if (pendingOnly) return tx.status == TransactionStatus.pending;
     final at = tx.occurredAt;
     return !at.isBefore(range.from) && !at.isAfter(range.to);
@@ -159,19 +186,39 @@ final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
 });
 
 final billsViewProvider = FutureProvider<BillsView>((ref) async {
+  ref.watch(dbRevisionProvider);
   final range = ref.watch(transactionsDateRangeProvider);
-  final bills = await ref.watch(billRepositoryProvider).getAll();
-  final suggestions =
-      (await ref.watch(transactionRepositoryProvider).recurringCandidates())
-          .map(
-            (item) => BillSuggestion(
-              merchantId: item.merchantId,
-              name: item.name,
-              averageAmount: item.averageAmount,
-              monthsSeen: item.monthsSeen,
-            ),
-          )
-          .toList(growable: false);
+  final billRepo = ref.watch(billRepositoryProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
+  final selectedAccountId = ref.watch(activeAccountIdProvider);
+  final selectedAccount = selectedAccountId == null
+      ? null
+      : await accountRepo.getById(selectedAccountId);
+  final defaultAccount = await accountRepo.getDefault();
+  final activeAccount = selectedAccount ?? defaultAccount;
+  final allBills = await billRepo.getAll();
+  final bills = allBills.where((bill) {
+    if (activeAccount != null) {
+      final matchesAccount = bill.accountId == activeAccount.id ||
+          (bill.accountId == null &&
+              bill.currency.toUpperCase() ==
+                  activeAccount.currency.toUpperCase());
+      if (!matchesAccount) return false;
+    }
+    return true;
+  }).toList(growable: false);
+  final suggestions = (await ref
+          .watch(transactionRepositoryProvider)
+          .recurringCandidates(accountId: activeAccount?.id))
+      .map(
+        (item) => BillSuggestion(
+          merchantId: item.merchantId,
+          name: item.name,
+          averageAmount: item.averageAmount,
+          monthsSeen: item.monthsSeen,
+        ),
+      )
+      .toList(growable: false);
   return BillsView(bills: bills, suggestions: suggestions, range: range);
 });
 

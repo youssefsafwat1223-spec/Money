@@ -34,7 +34,6 @@ class AppSheetScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final insets = MediaQuery.paddingOf(context);
     final viewInsets = MediaQuery.viewInsetsOf(context);
 
     Widget content = body;
@@ -52,19 +51,19 @@ class AppSheetScaffold extends StatelessWidget {
     return ClipRRect(
       borderRadius:
           const BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
-      child: Material(
-        color: c.surfaceElevated,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: c.surfaceElevated,
-            border: Border(top: BorderSide(color: c.border)),
-            boxShadow: AppShadows.sheet,
-          ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: c.surfaceElevated,
+          border: Border(top: BorderSide(color: c.border)),
+          boxShadow: AppShadows.sheet,
+        ),
+        child: Material(
+          color: Colors.transparent,
           child: Padding(
-            padding: EdgeInsetsDirectional.only(
+            padding: EdgeInsets.only(
               bottom: viewInsets.bottom > 0
                   ? viewInsets.bottom + AppSpacing.s4
-                  : insets.bottom + AppSpacing.s6,
+                  : MediaQuery.paddingOf(context).bottom,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,

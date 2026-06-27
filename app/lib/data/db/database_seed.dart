@@ -133,6 +133,16 @@ class DatabaseSeed {
         return 'coffee';
       case 'maintenance':
         return 'wrench';
+      case 'fitness':
+        return 'dumbbell';
+      case 'beauty':
+        return 'scissors';
+      case 'charity':
+        return 'heart-handshake';
+      case 'pets':
+        return 'dog';
+      case 'insurance':
+        return 'shield-check';
       case 'income':
         return 'wallet-cards';
       case 'other':
@@ -179,6 +189,16 @@ class DatabaseSeed {
         return '#6D4C41';
       case 'maintenance':
         return '#757575';
+      case 'fitness':
+        return '#43A047';
+      case 'beauty':
+        return '#EC407A';
+      case 'charity':
+        return '#26A69A';
+      case 'pets':
+        return '#8D6E63';
+      case 'insurance':
+        return '#5C6BC0';
       case 'income':
         return '#00C853';
       case 'other':

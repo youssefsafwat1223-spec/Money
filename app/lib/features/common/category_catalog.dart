@@ -22,11 +22,23 @@ class CategoryView {
 /// كتالوج التصنيفات (id↔عرض، key↔عرض) — يُحمّل مرة من DB.
 class CategoryCatalog {
   CategoryCatalog(List<CategoryEntity> categories)
-      : all = categories.map(CategoryView.new).toList() {
+      : all = _dedupeByKey(categories) {
     for (final view in all) {
       _byId[view.id] = view;
       _byKey[view.key] = view;
     }
+  }
+
+  // Guard against duplicate category rows in the DB (a duplicate key would crash
+  // any DropdownButton built from `all`). Keep the first occurrence per key.
+  static List<CategoryView> _dedupeByKey(List<CategoryEntity> categories) {
+    final seen = <String>{};
+    final result = <CategoryView>[];
+    for (final entity in categories) {
+      final view = CategoryView(entity);
+      if (seen.add(view.key)) result.add(view);
+    }
+    return result;
   }
 
   final List<CategoryView> all;

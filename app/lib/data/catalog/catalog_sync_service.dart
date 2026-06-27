@@ -132,7 +132,7 @@ class CatalogSyncService {
         headers: const {'X-App-Version': String.fromEnvironment('APP_VERSION')},
         queryParameters: {
           'category': category,
-          'since_version': sinceVersion,
+          'since_version': sinceVersion.toString(),
           if (countryCode != null && countryCode.trim().isNotEmpty)
             'country': countryCode.trim().toUpperCase(),
         },

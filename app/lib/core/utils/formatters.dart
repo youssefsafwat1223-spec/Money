@@ -51,6 +51,37 @@ class Formatters {
     return isExpense ? '−$formatted' : '+$formatted';
   }
 
+  static const List<String> _arWeekdays = [
+    'الإثنين',
+    'الثلاثاء',
+    'الأربعاء',
+    'الخميس',
+    'الجمعة',
+    'السبت',
+    'الأحد',
+  ];
+
+  static const List<String> _enWeekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+
+  /// "الثلاثاء، 21 مايو 2026" or "Tuesday, May 21, 2026"
+  static String dateWithWeekday(DateTime dt, BuildContext context) {
+    final d = dt.toLocal();
+    final locale = Localizations.localeOf(context).languageCode;
+    final weekday = locale == 'en'
+        ? _enWeekdays[d.weekday - 1]
+        : _arWeekdays[d.weekday - 1];
+    final sep = locale == 'en' ? ', ' : '، ';
+    return '$weekday$sep${fullDate(dt, context)}';
+  }
+
   /// "8 أبريل 2026" or "April 8, 2026"
   static String fullDate(DateTime dt, BuildContext context) {
     final d = dt.toLocal();

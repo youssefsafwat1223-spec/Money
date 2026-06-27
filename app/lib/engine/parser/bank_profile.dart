@@ -1,6 +1,31 @@
 import '../models/transaction_source.dart';
 import '../models/transaction_type.dart';
 
+String _compactBankToken(String input) =>
+    input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u0600-\u06ff]+'), '');
+
+bool _matchesBankAlias(
+    String rawHaystack, String compactHaystack, String alias) {
+  final rawAlias = alias.trim().toLowerCase();
+  if (rawAlias.isEmpty) return false;
+  final compactAlias = _compactBankToken(alias);
+  if (compactAlias.isEmpty) return false;
+  return rawHaystack.contains(rawAlias) ||
+      compactHaystack.contains(compactAlias);
+}
+
+bool _matchesSenderAlias(String rawSender, String compactSender, String alias) {
+  final compactAlias = _compactBankToken(alias);
+  if (compactAlias.isEmpty) return false;
+  final parts = rawSender
+      .split(RegExp(r'[^a-z0-9\u0600-\u06ff]+'))
+      .map(_compactBankToken)
+      .where((part) => part.isNotEmpty);
+  return compactSender == compactAlias ||
+      compactSender.startsWith(compactAlias) ||
+      parts.contains(compactAlias);
+}
+
 /// ملف تعريف بنك/محفظة (P0 للسوق السعودي).
 ///
 /// هذا هيكل مبدئي: الكشف عبر كلمات مفتاحية في النص أو معرّف المرسِل.
@@ -100,8 +125,10 @@ class BankProfile {
   bool matchesSender(String? senderId) {
     final sender = senderId?.trim().toLowerCase();
     if (sender == null || sender.isEmpty) return false;
-    return [...senderIds, ...keywords]
-        .any((item) => sender.contains(item.toLowerCase()));
+    final compactSender = _compactBankToken(sender);
+    return [...senderIds, ...keywords].any(
+      (item) => _matchesSenderAlias(sender, compactSender, item),
+    );
   }
 }
 
@@ -163,8 +190,14 @@ class BankProfiles {
       displayName: 'CIB مصر',
       country: 'EG',
       locale: 'ar-EG',
-      senderIds: ['cib'],
-      keywords: ['cib'],
+      senderIds: [
+        'cib',
+        'cib alerts',
+        'cibalerts',
+        'cibbank',
+        'cibeg',
+      ],
+      keywords: ['cib', 'commercial international bank', 'التجاري الدولي'],
       typeRules: {
         TransactionType.payment: ['خصم'],
         TransactionType.income: ['إيداع', 'ايداع', 'credited'],
@@ -182,8 +215,18 @@ class BankProfiles {
       displayName: 'البنك الأهلي المصري',
       country: 'EG',
       locale: 'ar-EG',
-      senderIds: ['nbe', 'NBE', 'ahlybank', 'AlAhlyBank'],
-      keywords: ['nbe', 'الأهلي المصري'],
+      senderIds: [
+        'nbe',
+        'NBE',
+        'nbe alerts',
+        'nbealerts',
+        'ahlybank',
+        'AlAhlyBank',
+        'alahlybank',
+        'natbank',
+        'nbebank',
+      ],
+      keywords: ['nbe', 'الأهلي المصري', 'national bank of egypt'],
       typeRules: {
         TransactionType.payment: ['خصم', 'شراء'],
         TransactionType.income: ['إيداع', 'ايداع', 'credited'],
@@ -198,14 +241,124 @@ class BankProfiles {
       displayName: 'بنك مصر',
       country: 'EG',
       locale: 'ar-EG',
-      senderIds: ['banquemisr', 'banque misr', 'bm'],
-      keywords: ['بنك مصر', 'banquemisr'],
+      senderIds: ['banquemisr', 'banque misr', 'bm', 'bmisr', 'misrbank'],
+      keywords: ['بنك مصر', 'banquemisr', 'banque misr'],
       typeRules: {
         TransactionType.payment: ['خصم'],
         TransactionType.income: ['إيداع', 'ايداع', 'credited'],
       },
       balanceRules: ['المتاح', 'الرصيد'],
       merchantRules: ['عند', 'لدى'],
+    ),
+    BankProfile(
+      bankKey: 'qnb_alahli',
+      displayName: 'QNB الأهلي',
+      country: 'EG',
+      locale: 'ar-EG',
+      senderIds: ['qnb', 'qnba', 'qnbalahli', 'qnb alahli', 'qnb-al-ahli'],
+      keywords: ['qnb', 'qnb al ahli', 'qnb الأهلي'],
+      typeRules: {
+        TransactionType.payment: ['خصم', 'debit', 'purchase', 'شراء'],
+        TransactionType.income: ['إيداع', 'ايداع', 'credited', 'credit'],
+        TransactionType.withdrawal: ['سحب', 'atm', 'withdrawal'],
+        TransactionType.transfer: ['تحويل', 'transfer'],
+      },
+      balanceRules: ['المتاح', 'الرصيد', 'available', 'balance'],
+      merchantRules: ['عند', 'لدى', 'at'],
+    ),
+    BankProfile(
+      bankKey: 'bdc_eg',
+      displayName: 'بنك القاهرة',
+      country: 'EG',
+      locale: 'ar-EG',
+      senderIds: ['bdc', 'bdcbank', 'banqueducaire', 'banque du caire'],
+      keywords: ['بنك القاهرة', 'banque du caire', 'bdc'],
+      typeRules: {
+        TransactionType.payment: ['خصم', 'debit', 'purchase', 'شراء'],
+        TransactionType.income: ['إيداع', 'ايداع', 'credited', 'credit'],
+        TransactionType.withdrawal: ['سحب', 'atm', 'withdrawal'],
+        TransactionType.transfer: ['تحويل', 'transfer'],
+      },
+      balanceRules: ['المتاح', 'الرصيد', 'available', 'balance'],
+      merchantRules: ['عند', 'لدى', 'at'],
+    ),
+    BankProfile(
+      bankKey: 'alexbank_eg',
+      displayName: 'بنك الإسكندرية',
+      country: 'EG',
+      locale: 'ar-EG',
+      senderIds: ['alexbank', 'boalex', 'bankofalexandria'],
+      keywords: ['بنك الإسكندرية', 'بنك الاسكندرية', 'alexbank'],
+      typeRules: {
+        TransactionType.payment: ['خصم', 'debit', 'purchase', 'شراء'],
+        TransactionType.income: ['إيداع', 'ايداع', 'credited', 'credit'],
+        TransactionType.withdrawal: ['سحب', 'atm', 'withdrawal'],
+        TransactionType.transfer: ['تحويل', 'transfer'],
+      },
+      balanceRules: ['المتاح', 'الرصيد', 'available', 'balance'],
+      merchantRules: ['عند', 'لدى', 'at'],
+    ),
+    BankProfile(
+      bankKey: 'aaib_eg',
+      displayName: 'البنك العربي الإفريقي',
+      country: 'EG',
+      locale: 'ar-EG',
+      senderIds: ['aaib', 'arabafrican', 'arabafricanbank'],
+      keywords: ['العربي الإفريقي', 'العربي الافريقي', 'aaib'],
+      typeRules: {
+        TransactionType.payment: ['خصم', 'debit', 'purchase', 'شراء'],
+        TransactionType.income: ['إيداع', 'ايداع', 'credited', 'credit'],
+        TransactionType.withdrawal: ['سحب', 'atm', 'withdrawal'],
+        TransactionType.transfer: ['تحويل', 'transfer'],
+      },
+      balanceRules: ['المتاح', 'الرصيد', 'available', 'balance'],
+      merchantRules: ['عند', 'لدى', 'at'],
+    ),
+    BankProfile(
+      bankKey: 'hdb_eg',
+      displayName: 'بنك التعمير والإسكان',
+      country: 'EG',
+      locale: 'ar-EG',
+      senderIds: ['hdb', 'hdbank'],
+      keywords: ['بنك التعمير', 'بنك الاسكان', 'hdb'],
+      typeRules: {
+        TransactionType.payment: ['خصم', 'debit', 'purchase', 'شراء'],
+        TransactionType.income: ['إيداع', 'ايداع', 'credited', 'credit'],
+        TransactionType.withdrawal: ['سحب', 'atm', 'withdrawal'],
+        TransactionType.transfer: ['تحويل', 'transfer'],
+      },
+      balanceRules: ['المتاح', 'الرصيد', 'available', 'balance'],
+      merchantRules: ['عند', 'لدى', 'at'],
+    ),
+    BankProfile(
+      bankKey: 'faisal_eg',
+      displayName: 'بنك فيصل الإسلامي',
+      country: 'EG',
+      locale: 'ar-EG',
+      senderIds: ['faisalbank', 'fib', 'fibeg'],
+      keywords: ['بنك فيصل', 'faisal bank', 'fib'],
+      typeRules: {
+        TransactionType.payment: ['خصم', 'debit', 'purchase', 'شراء'],
+        TransactionType.income: ['إيداع', 'ايداع', 'credited', 'credit'],
+        TransactionType.withdrawal: ['سحب', 'atm', 'withdrawal'],
+        TransactionType.transfer: ['تحويل', 'transfer'],
+      },
+      balanceRules: ['المتاح', 'الرصيد', 'available', 'balance'],
+      merchantRules: ['عند', 'لدى', 'at'],
+    ),
+    BankProfile(
+      bankKey: 'instapay_eg',
+      displayName: 'InstaPay',
+      country: 'EG',
+      locale: 'ar-EG',
+      senderIds: ['ipn', 'instapay'],
+      keywords: ['ipn', 'instapay'],
+      typeRules: {
+        TransactionType.transfer: ['transfer', 'تحويل'],
+        TransactionType.income: ['received', 'incoming', 'استلام'],
+      },
+      amountRules: ['amount', 'مبلغ'],
+      dateRules: ['on', 'في'],
     ),
     BankProfile(
       bankKey: 'd360',
@@ -406,7 +559,13 @@ class BankProfiles {
       senderIds: ['adib', 'ADIB', 'AbuDhabiIslamicBank'],
       keywords: ['adib', 'أبوظبي الإسلامي', 'abu dhabi islamic'],
       typeRules: {
-        TransactionType.payment: ['تم الخصم', 'debit', 'purchase', 'spent', 'شراء'],
+        TransactionType.payment: [
+          'تم الخصم',
+          'debit',
+          'purchase',
+          'spent',
+          'شراء'
+        ],
         TransactionType.income: ['تم الإيداع', 'credited', 'credit', 'إيداع'],
         TransactionType.transfer: ['تحويل', 'transfer'],
         TransactionType.withdrawal: ['سحب', 'withdrawal', 'atm'],
@@ -502,11 +661,16 @@ class BankProfiles {
     String? senderId,
     List<BankProfile> extraProfiles = const [],
   }) {
-    final haystack = '${senderId ?? ''} $normalizedText'.toLowerCase();
+    final text = normalizedText.toLowerCase();
+    final compactText = _compactBankToken(text);
     for (final profile in [...extraProfiles, ...all]) {
-      for (final kw in [...profile.senderIds, ...profile.keywords]) {
-        if (haystack.contains(kw.toLowerCase())) return profile;
-      }
+      if (profile.matchesSender(senderId)) return profile;
+    }
+    for (final profile in [...extraProfiles, ...all]) {
+      final matched = [...profile.senderIds, ...profile.keywords].any(
+        (item) => _matchesBankAlias(text, compactText, item),
+      );
+      if (matched) return profile;
     }
     return null;
   }

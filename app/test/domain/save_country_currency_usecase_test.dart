@@ -1,5 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
+import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/repositories/account_repository.dart';
+import 'package:money_companion/domain/repositories/transaction_repository.dart';
 import 'package:money_companion/domain/repositories/user_settings_repository.dart';
 import 'package:money_companion/domain/usecases/user_settings_usecases.dart';
 
@@ -28,25 +32,75 @@ class _FakeRepo implements UserSettingsRepository {
   }
 }
 
+AccountEntity _account(String currency) => AccountEntity(
+      id: 'acc-1',
+      name: 'الحساب الرئيسي',
+      currency: currency,
+      type: AccountType.bank,
+      isDefault: true,
+      sortOrder: 0,
+      createdAt: DateTime.utc(2026, 1, 1),
+      updatedAt: DateTime.utc(2026, 1, 1),
+    );
+
+class _FakeAccountRepo implements AccountRepository {
+  _FakeAccountRepo(this._default);
+  AccountEntity? _default;
+  AccountEntity? lastUpdated;
+
+  @override
+  Future<AccountEntity?> getDefault() async => _default;
+
+  @override
+  Future<AccountEntity> update(AccountEntity account) async {
+    lastUpdated = account;
+    _default = account;
+    return account;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeTxnRepo implements TransactionRepository {
+  _FakeTxnRepo(this._recent);
+  final List<TransactionEntity> _recent;
+
+  @override
+  Future<List<TransactionEntity>> getRecent({int limit = 5, String? accountId}) async =>
+      _recent;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   group('SaveCountryCurrencyUseCase', () {
-    test('persists country and currency, leaves other fields unchanged', () async {
+    test('persists country and currency, leaves other fields unchanged',
+        () async {
       final repo = _FakeRepo();
-      final useCase = SaveCountryCurrencyUseCase(repo);
+      final useCase = SaveCountryCurrencyUseCase(
+        repo,
+        _FakeAccountRepo(_account('SAR')),
+        _FakeTxnRepo(const []),
+      );
 
       await useCase('eg', 'EGP');
 
       final saved = await repo.getSettings();
       expect(saved.country, 'eg');
       expect(saved.currency, 'EGP');
-      // Other fields untouched.
       expect(saved.language, _defaults.language);
       expect(saved.theme, _defaults.theme);
     });
 
     test('overwrites a previous selection', () async {
       final repo = _FakeRepo();
-      final useCase = SaveCountryCurrencyUseCase(repo);
+      final useCase = SaveCountryCurrencyUseCase(
+        repo,
+        _FakeAccountRepo(_account('SAR')),
+        _FakeTxnRepo(const []),
+      );
 
       await useCase('ae', 'AED');
       await useCase('kw', 'KWD');
@@ -54,6 +108,49 @@ void main() {
       final saved = await repo.getSettings();
       expect(saved.country, 'kw');
       expect(saved.currency, 'KWD');
+    });
+
+    test('aligns the default account currency on a fresh setup (no txns)',
+        () async {
+      final accountRepo = _FakeAccountRepo(_account('SAR'));
+      final useCase = SaveCountryCurrencyUseCase(
+        _FakeRepo(),
+        accountRepo,
+        _FakeTxnRepo(const []),
+      );
+
+      await useCase('eg', 'EGP');
+
+      expect(accountRepo.lastUpdated, isNotNull);
+      expect(accountRepo.lastUpdated!.currency, 'EGP');
+    });
+
+    test('does NOT touch the account currency once transactions exist',
+        () async {
+      final accountRepo = _FakeAccountRepo(_account('SAR'));
+      final useCase = SaveCountryCurrencyUseCase(
+        _FakeRepo(),
+        accountRepo,
+        _FakeTxnRepo([
+          TransactionEntity(
+            id: 't1',
+            amount: 10,
+            currency: 'SAR',
+            type: TransactionTypeEntity.payment,
+            source: TransactionSourceEntity.bank,
+            occurredAt: DateTime.utc(2026, 1, 2),
+            rawMessage: 'x',
+            parseConfidence: 1.0,
+            status: TransactionStatus.confirmed,
+            createdAt: DateTime.utc(2026, 1, 2),
+            updatedAt: DateTime.utc(2026, 1, 2),
+          ),
+        ]),
+      );
+
+      await useCase('eg', 'EGP');
+
+      expect(accountRepo.lastUpdated, isNull);
     });
   });
 }

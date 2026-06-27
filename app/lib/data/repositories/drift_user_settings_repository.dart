@@ -25,12 +25,22 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
     await _db.customUpdate(
       '''
         UPDATE user_settings
-        SET country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
+        SET display_name = ?, phone_number = ?, avatar_path = ?,
+            country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
             notifications_json = ?, db_encryption_key_ref = ?,
             privacy_mode_enabled = ?, ai_consent_granted = ?
         WHERE id = ?;
       ''',
       variables: [
+        settings.displayName == null
+            ? const Variable<String>(null)
+            : Variable.withString(settings.displayName!),
+        settings.phoneNumber == null
+            ? const Variable<String>(null)
+            : Variable.withString(settings.phoneNumber!),
+        settings.avatarPath == null
+            ? const Variable<String>(null)
+            : Variable.withString(settings.avatarPath!),
         Variable.withString(settings.country),
         Variable.withString(settings.currency),
         Variable.withString(settings.language),

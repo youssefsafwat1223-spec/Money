@@ -77,8 +77,8 @@ class LocalNotificationService {
       requestSoundPermission: false,
     );
     const windows = WindowsInitializationSettings(
-      appName: 'مالي',
-      appUserModelId: 'Mali.App',
+      appName: 'قرش',
+      appUserModelId: 'Qirsh.App',
       guid: '2a4f4ea2-1d7f-4c7d-9c6f-f0fdf6e44e34',
     );
     const settings = InitializationSettings(

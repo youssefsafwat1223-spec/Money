@@ -17,6 +17,8 @@ enum TransactionSourceEntity {
 
 enum TransactionStatus { confirmed, pending, ignored }
 
+enum TransactionDirectionEntity { credit, debit, unknown }
+
 class TransactionEntity {
   const TransactionEntity({
     required this.id,
@@ -39,6 +41,7 @@ class TransactionEntity {
     this.accountId,
     this.foreignAmount,
     this.foreignCurrency,
+    this.direction,
   });
 
   final String id;
@@ -61,6 +64,7 @@ class TransactionEntity {
   final DateTime updatedAt;
   final double? foreignAmount;
   final String? foreignCurrency;
+  final TransactionDirectionEntity? direction;
 
   TransactionEntity copyWith({
     String? id,
@@ -83,6 +87,7 @@ class TransactionEntity {
     DateTime? updatedAt,
     double? foreignAmount,
     String? foreignCurrency,
+    TransactionDirectionEntity? direction,
   }) {
     return TransactionEntity(
       id: id ?? this.id,
@@ -105,6 +110,7 @@ class TransactionEntity {
       updatedAt: updatedAt ?? this.updatedAt,
       foreignAmount: foreignAmount ?? this.foreignAmount,
       foreignCurrency: foreignCurrency ?? this.foreignCurrency,
+      direction: direction ?? this.direction,
     );
   }
 }

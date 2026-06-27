@@ -91,7 +91,7 @@ class _IosShortcutVerifyScreenState
         }
       } catch (_) {}
     }
-    if (mounted) context.go('/onboarding/backup-info');
+    if (mounted) context.go('/onboarding/ai-consent');
   }
 
   void _paste() {
@@ -107,7 +107,8 @@ class _IosShortcutVerifyScreenState
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final currencyCode = ref.watch(onboardingSelectionProvider).currencyCode;
+    final currencyCode =
+        ref.watch(onboardingSelectionProvider)?.currencyCode ?? 'SAR';
     final keyword = currencyKeywords(currencyCode).first;
 
     return PremiumBackground(
@@ -162,7 +163,7 @@ class _IosShortcutVerifyScreenState
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'ارسل رسالة بنك تحتوي على هذه الكلمة للتأكد من أن الاختصار متصل بمالي.',
+                            'ارسل رسالة بنك تحتوي على هذه الكلمة للتأكد من أن الاختصار متصل بقرش.',
                             style: _alex(12, FontWeight.w700, 1.45, c.textMain),
                           ),
                         ),

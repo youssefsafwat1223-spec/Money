@@ -9,7 +9,7 @@ class AppL10nEn extends AppL10n {
   AppL10nEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => 'Mali';
+  String get appTitle => 'Qirsh';
 
   @override
   String get next => 'Next';
@@ -47,7 +47,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smsReadingDesc =>
-      'Share a bank message with Mali; we extract amount and merchant on your device.';
+      'Share a bank message with Qirsh; we extract amount and merchant on your device.';
 
   @override
   String get now => 'Now';
@@ -84,15 +84,15 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get howItWorksDesc =>
-      'Mali captures the meaning of the message and converts it into a category, amount, and merchant without manual entry.';
+      'Qirsh captures the meaning of the message and converts it into a category, amount, and merchant without manual entry.';
 
   @override
   String get howItWorksNote1 =>
-      'No need to select your bank — Mali recognizes it from the message text.';
+      'No need to select your bank — Qirsh recognizes it from the message text.';
 
   @override
   String get howItWorksNote2 =>
-      'If a new card appears, Mali adds it automatically from the last 4 digits.';
+      'If a new card appears, Qirsh adds it automatically from the last 4 digits.';
 
   @override
   String get howItWorksNote3 =>
@@ -206,22 +206,22 @@ class AppL10nEn extends AppL10n {
       'We never sell your data, and you have full freedom to delete it';
 
   @override
-  String get enableAutoTracking => 'Share bank messages with Mali';
+  String get enableAutoTracking => 'Share bank messages with Qirsh';
 
   @override
   String get setupAppleShortcut => 'Setup Apple Shortcut';
 
   @override
   String get autoTrackingSubtitleAndroid =>
-      'From Messages, share a bank SMS to Mali. We parse it on your device and add the transaction.';
+      'From Messages, share a bank SMS to Qirsh. We parse it on your device and add the transaction.';
 
   @override
   String get autoTrackingSubtitleIos =>
-      'Follow the steps once, and your iPhone will forward bank messages to Mali securely.';
+      'Follow the steps once, and your iPhone will forward bank messages to Qirsh securely.';
 
   @override
   String get smsActivationSnack =>
-      'You can share a bank SMS with Mali or paste it manually.';
+      'You can share a bank SMS with Qirsh or paste it manually.';
 
   @override
   String get howWillActivationWork => 'How will it work?';
@@ -272,7 +272,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get byContinuingAgree =>
-      'By continuing, you agree to Mali\'s Terms of Service and Privacy Policy.';
+      'By continuing, you agree to Qirsh\'s Terms of Service and Privacy Policy.';
 
   @override
   String get enterOtpCode => 'Enter Verification Code';
@@ -342,7 +342,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get iosShortcutSubtitle =>
-      'Due to iOS limitations, we use Apple\'s official Shortcuts app to pass bank messages to Mali automatically and securely.';
+      'Due to iOS limitations, we use Apple\'s official Shortcuts app to pass bank messages to Qirsh automatically and securely.';
 
   @override
   String get stepsLabel => 'Steps:';
@@ -367,7 +367,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smsPermissionRationaleBody =>
-      'Mali reads bank SMS on your device only to log your transactions automatically. We don\'t read personal messages and nothing leaves your phone.';
+      'Qirsh reads bank SMS on your device only to log your transactions automatically. We don\'t read personal messages and nothing leaves your phone.';
 
   @override
   String get listeningTitle => 'Armed — waiting for your first message';
@@ -403,7 +403,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get firstTxTrustLine =>
-      'You did nothing — Mali read your bank\'s SMS and logged it.';
+      'You did nothing — Qirsh read your bank\'s SMS and logged it.';
 
   @override
   String get firstTxContinue => 'Continue';
@@ -413,7 +413,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get firstTxNeedsCheckSub =>
-      'Mali isn\'t 100% sure — review it quickly.';
+      'Qirsh isn\'t 100% sure — review it quickly.';
 
   @override
   String get wrongCategoryTap => 'Wrong category? Tap to change it';

@@ -8,7 +8,7 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../common/section_hero_header.dart';
+import '../onboarding/widgets/neon_illustration.dart';
 import 'data_export.dart';
 
 class PrivacyScreen extends ConsumerWidget {
@@ -26,14 +26,19 @@ class PrivacyScreen extends ConsumerWidget {
       backgroundColor: c.bg,
       body: Column(
         children: [
-          const SectionHeroHeader(
-            title: 'الخصوصية والبيانات',
-            subtitle: 'بياناتك المالية على جهازك. النسخ الاحتياطي اختياري ومشفّر E2E. نجمع إحصاءات مجهولة فقط.',
-          ),
+          const _PrivacyHeader(),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(AppSpacing.gutter),
               children: [
+                const SizedBox(height: AppSpacing.s4),
+                const Center(
+                  child: NeonIllustration(
+                    icon: Icons.shield_rounded,
+                    size: 140,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s6),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.description_outlined),
@@ -110,5 +115,58 @@ class PrivacyScreen extends ConsumerWidget {
     await ref.read(dataWipeServiceProvider).wipeAll();
     await AppSession.instance.wipeAndReset();
     if (context.mounted) context.go('/onboarding');
+  }
+}
+
+class _PrivacyHeader extends StatelessWidget {
+  const _PrivacyHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        64,
+        AppSpacing.gutter,
+        AppSpacing.s5,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            c.cta.withValues(alpha: 0.12),
+            c.bg,
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (Navigator.of(context).canPop()) ...[
+                BackButton(color: c.textMain),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+              Expanded(
+                child: Text(
+                  'الخصوصية والبيانات',
+                  style: AppTypography.title1(c.textMain)
+                      .copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'بياناتك المالية على جهازك. النسخ الاحتياطي اختياري ومشفّر E2E. نجمع إحصاءات مجهولة فقط.',
+            style: AppTypography.caption(c.textMuted),
+          ),
+        ],
+      ),
+    );
   }
 }

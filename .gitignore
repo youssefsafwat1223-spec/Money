@@ -1,3 +1,59 @@
+# macOS / editor noise
 .DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+!.env.local.example
+admin/.env.local
+admin/.env.*.local
+supabase/.env
+supabase/.env.*
+
+# Node / Next.js admin
+node_modules/
+**/node_modules/
 admin/.next/
+admin/out/
+admin/tsconfig.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Flutter / Dart app
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/build/
+app/.pub-cache/
+app/.pub/
+app/ios/Pods/
+app/ios/.symlinks/
+app/android/.gradle/
+app/android/.kotlin/
+app/android/local.properties
+app/ios_backup_before_flutter_create/
+
+# Generated / local output
+*.log
+*.tmp
+*.bak
+*.tsbuildinfo
+app/test_output.txt
+tmp/
+_archive/
 supabase/.temp/
+
+# Local design/prototype archives kept out of deploys
+prototype/
+mockups/
+tmp_mali_icons/
+files (1)/
+files (1).zip

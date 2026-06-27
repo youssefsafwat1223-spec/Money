@@ -2,7 +2,10 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/backend/rules_client.dart';
+import '../../../core/utils/install_id.dart';
+import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_account_repository.dart';
 import '../../../data/repositories/drift_gamification_repository.dart';
 import '../../../data/repositories/drift_merchant_category_repository.dart';
@@ -16,6 +19,7 @@ import '../../../domain/usecases/engagement_usecase.dart';
 import '../../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../../../domain/usecases/resolve_bank_for_sender_usecase.dart';
 import '../../../domain/usecases/user_settings_usecases.dart';
+import '../../../engine/ai/ai_parser_client.dart';
 import '../../../engine/ai/bank_discovery_client.dart';
 import 'local_notification_service.dart';
 
@@ -58,6 +62,15 @@ class CapturedMessageProcessor {
       final notificationPreferences =
           await LoadNotificationPreferencesUseCase(settingsRepository).call();
       final senderBankMappingRepository = DriftSenderBankMappingRepository(db);
+      final aiParserClient = SupabaseConfig.isConfigured
+          ? SupabaseAiParserClient(
+              edgeFunctionUrl: '${SupabaseConfig.url}/functions/v1/parse-sms',
+              getAnonJwt: () async =>
+                  supabase.Supabase.instance.client.auth.currentSession
+                      ?.accessToken ??
+                  SupabaseConfig.anonKey,
+            )
+          : null;
       final bankDiscoveryClient = SupabaseConfig.isConfigured
           ? GeminiBankDiscoveryClient(
               edgeFunctionUrl:
@@ -72,7 +85,42 @@ class CapturedMessageProcessor {
           merchantCategoryRepository: DriftMerchantCategoryRepository(db),
           recordEngagementUseCase: engagementUseCase,
           loadBankProfiles: RulesClient(database: db).localBankProfiles,
+          loadRemoteKeywords: () async {
+            final settings = await settingsRepository.getSettings();
+            final country = settings.country;
+            return country.isEmpty
+                ? RemoteMerchantKeywordsDao(db).getAll()
+                : RemoteMerchantKeywordsDao(db).getActiveForCountry(country);
+          },
+          noteMerchantFeedback: (keyword) =>
+              PendingMerchantFeedbackDao(db).record(keyword),
+          resolveMerchantCategory: SupabaseConfig.isConfigured
+              ? (keyword) async {
+                  try {
+                    final settings = await settingsRepository.getSettings();
+                    final res = await supabase
+                        .Supabase.instance.client.functions
+                        .invoke('enrich-merchant', body: {
+                      'merchant_name': keyword,
+                      'country_code': settings.country,
+                      'write': true,
+                    });
+                    final data = res.data;
+                    if (data is Map && data['matched'] == true) {
+                      return data['category'] as String?;
+                    }
+                  } catch (_) {
+                    // Network/auth failure — fall back to the feedback queue.
+                  }
+                  return null;
+                }
+              : null,
+          aiClient: aiParserClient,
+          loadAiConsent: () async =>
+              (await settingsRepository.getSettings()).aiConsentGranted,
+          loadInstallId: InstallId.get,
           accountRepository: DriftAccountRepository(db),
+          dedupStore: DriftDedupStore(db),
           resolveBankForSenderUseCase: ResolveBankForSenderUseCase(
             mappingRepository: senderBankMappingRepository,
           ),
@@ -110,9 +158,10 @@ class CapturedMessageProcessor {
               );
             }
           case CapturedMessageDisposition.unprocessable:
-            await LocalNotificationService.instance.showLightCaptureNotification(
+            await LocalNotificationService.instance
+                .showLightCaptureNotification(
               title: 'رسالة لم نتمكن من تحليلها',
-              body: 'افتح مالي والصق الرسالة يدوياً للإضافة.',
+              body: 'افتح قرش والصق الرسالة يدوياً للإضافة.',
               preferences: notificationPreferences,
             );
         }

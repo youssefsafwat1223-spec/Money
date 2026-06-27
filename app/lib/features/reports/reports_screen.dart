@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
+import '../common/account_range_controls.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
 import '../common/premium_loading.dart';
 import '../common/widgets.dart';
-import '../common/section_hero_header.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
 import '../settings/settings_providers.dart';
 import 'reports_providers.dart';
@@ -25,7 +27,10 @@ class ReportsScreen extends ConsumerWidget {
           data: (settings) => settings.privacyModeEnabled,
           orElse: () => false,
         );
+    final currencyLabel = Currency.arabicLabel(
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
     final c = context.colors;
+
     return DefaultTabController(
       length: 3,
       child: Scaffold(
@@ -34,75 +39,84 @@ class ReportsScreen extends ConsumerWidget {
           error: (e, _) => Center(child: Text('حدث خطأ: $e')),
           data: (bundle) {
             final section = bundle.monthly;
-            return Column(
-              children: [
-                PremiumMotion(
-                  child: SectionHeroHeader(
-                    title: 'الرؤى',
-                    subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
-                    metrics: [
-                      SectionHeroMetric(
-                        value: _money(section.total, privacyMode: privacyMode),
-                        label: 'مصروف الشهر',
-                      ),
-                      SectionHeroMetric(
-                        value: _money(section.averageDaily,
-                            privacyMode: privacyMode),
-                        label: 'متوسط يومي',
-                      ),
-                      SectionHeroMetric(
-                        value: _money(section.highestDaily,
-                            privacyMode: privacyMode),
-                        label: 'أعلى يوم',
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(AppSpacing.gutter),
-                  child: Container(
-                    height: 48,
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: c.surface2,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                    child: TabBar(
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      dividerColor: Colors.transparent,
-                      labelColor: Colors.white,
-                      unselectedLabelColor: c.textLight,
-                      indicator: BoxDecoration(
-                        color: c.primary,
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                      tabs: const [
-                        Tab(text: 'نظرة عامة'),
-                        Tab(text: 'الاتجاهات'),
-                        Tab(text: 'التفاصيل'),
+            return NestedScrollView(
+              headerSliverBuilder: (context, innerBoxIsScrolled) {
+                return [
+                  SliverToBoxAdapter(
+                    child: Column(
+                      children: [
+                        _ReportsHeader(
+                          section: section,
+                          currencyLabel: currencyLabel,
+                          privacyMode: privacyMode,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: AppSpacing.gutter,
+                            vertical: AppSpacing.s2,
+                          ),
+                          child: AccountRangeControls(),
+                        ),
                       ],
                     ),
                   ),
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _OverviewTab(
-                        section: section,
-                        privacyMode: privacyMode,
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _TabBarDelegate(
+                      child: Container(
+                        height: 64.0,
+                        color: c.bg,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.gutter,
+                        ),
+                        alignment: Alignment.center,
+                        child: Container(
+                          height: 48,
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: c.surface2,
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                          child: TabBar(
+                            indicatorSize: TabBarIndicatorSize.tab,
+                            dividerColor: Colors.transparent,
+                            labelColor: Colors.white,
+                            unselectedLabelColor: c.textLight,
+                            indicator: BoxDecoration(
+                              color: c.primary,
+                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                            ),
+                            tabs: const [
+                              Tab(text: 'نظرة عامة'),
+                              Tab(text: 'الاتجاهات'),
+                              Tab(text: 'التفاصيل'),
+                            ],
+                          ),
+                        ),
                       ),
-                      _TrendsTab(
-                        section: section,
-                        privacyMode: privacyMode,
-                      ),
-                      _DetailsTab(
-                        section: section,
-                        privacyMode: privacyMode,
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ];
+              },
+              body: TabBarView(
+                children: [
+                  _OverviewTab(
+                    section: section,
+                    currencyLabel: currencyLabel,
+                    privacyMode: privacyMode,
+                  ),
+                  _TrendsTab(
+                    section: section,
+                    currencyLabel: currencyLabel,
+                    privacyMode: privacyMode,
+                  ),
+                  _DetailsTab(
+                    section: section,
+                    currencyLabel: currencyLabel,
+                    privacyMode: privacyMode,
+                  ),
+                ],
+              ),
             );
           },
         ),
@@ -111,8 +125,14 @@ class ReportsScreen extends ConsumerWidget {
   }
 }
 
-String _money(double amount, {required bool privacyMode}) {
-  return privacyMode ? '•••• ر' : '${Formatters.amount(amount)} ر';
+String _money(
+  double amount, {
+  required String currencyLabel,
+  required bool privacyMode,
+}) {
+  return privacyMode
+      ? '•••• $currencyLabel'
+      : '${Formatters.amount(amount)} $currencyLabel';
 }
 
 String _dateLabel(DateTime day) => '${day.day}/${day.month}';
@@ -120,10 +140,12 @@ String _dateLabel(DateTime day) => '${day.day}/${day.month}';
 class _OverviewTab extends StatelessWidget {
   const _OverviewTab({
     required this.section,
+    required this.currencyLabel,
     required this.privacyMode,
   });
 
   final ReportSection section;
+  final String currencyLabel;
   final bool privacyMode;
 
   @override
@@ -143,6 +165,7 @@ class _OverviewTab extends StatelessWidget {
         PremiumMotion(
           child: _PeriodCard(
             section: section,
+            currencyLabel: currencyLabel,
             privacyMode: privacyMode,
           ),
         ),
@@ -151,6 +174,7 @@ class _OverviewTab extends StatelessWidget {
           delay: const Duration(milliseconds: 70),
           child: _DailySpendCard(
             section: section,
+            currencyLabel: currencyLabel,
             privacyMode: privacyMode,
           ),
         ),
@@ -162,6 +186,7 @@ class _OverviewTab extends StatelessWidget {
             delay: const Duration(milliseconds: 120),
             child: CategoryDonutChart(
               slices: chartSlices,
+              currencyLabel: currencyLabel,
               centerLabel: 'توزيع التصنيفات',
             ),
           ),
@@ -179,10 +204,12 @@ class _OverviewTab extends StatelessWidget {
 class _TrendsTab extends StatelessWidget {
   const _TrendsTab({
     required this.section,
+    required this.currencyLabel,
     required this.privacyMode,
   });
 
   final ReportSection section;
+  final String currencyLabel;
   final bool privacyMode;
 
   @override
@@ -199,7 +226,7 @@ class _TrendsTab extends StatelessWidget {
             title: 'صرف غير معتاد',
             body: privacyMode
                 ? 'في يوم ${_dateLabel(anomaly.day)} كان الصرف أعلى من نمطك المعتاد. راجعه لو حابب تفهم السبب.'
-                : 'في يوم ${_dateLabel(anomaly.day)} صرفت ${_money(anomaly.total, privacyMode: false)}، وهو أعلى من متوسطك اليومي ${anomaly.ratio.toStringAsFixed(1)}×.',
+                : 'في يوم ${_dateLabel(anomaly.day)} صرفت ${_money(anomaly.total, currencyLabel: currencyLabel, privacyMode: false)}، وهو أعلى من متوسطك اليومي ${anomaly.ratio.toStringAsFixed(1)}×.',
             color: c.danger,
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -221,7 +248,7 @@ class _TrendsTab extends StatelessWidget {
           icon: AppLucideIcons.shapes,
           title: 'أعلى يوم صرف',
           body:
-              'أعلى يوم هذا الشهر وصل إلى ${_money(section.highestDaily, privacyMode: privacyMode)}.',
+              'أعلى يوم في الفترة وصل إلى ${_money(section.highestDaily, currencyLabel: currencyLabel, privacyMode: privacyMode)}.',
           color: c.primary,
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -241,10 +268,12 @@ class _TrendsTab extends StatelessWidget {
 class _DetailsTab extends StatelessWidget {
   const _DetailsTab({
     required this.section,
+    required this.currencyLabel,
     required this.privacyMode,
   });
 
   final ReportSection section;
+  final String currencyLabel;
   final bool privacyMode;
 
   @override
@@ -270,7 +299,13 @@ class _DetailsTab extends StatelessWidget {
               decoration: BoxDecoration(
                 color: c.surface,
                 borderRadius: BorderRadius.circular(AppRadius.card),
-                border: Border.all(color: c.border),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -288,7 +323,10 @@ class _DetailsTab extends StatelessWidget {
                     child: Text(merchant.name,
                         style: AppTypography.bodyStrong(c.textMain)),
                   ),
-                  Text(_money(merchant.total, privacyMode: privacyMode),
+                  Text(
+                      _money(merchant.total,
+                          currencyLabel: currencyLabel,
+                          privacyMode: privacyMode),
                       style: AppTypography.bodyStrong(c.textMain)),
                 ],
               ),
@@ -301,10 +339,12 @@ class _DetailsTab extends StatelessWidget {
 class _PeriodCard extends StatelessWidget {
   const _PeriodCard({
     required this.section,
+    required this.currencyLabel,
     required this.privacyMode,
   });
 
   final ReportSection section;
+  final String currencyLabel;
   final bool privacyMode;
 
   @override
@@ -315,16 +355,25 @@ class _PeriodCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.surface,
         borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('يونيو 2026', style: AppTypography.subhead(c.textLight)),
+          Text('الفترة المختارة', style: AppTypography.subhead(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
-          Text(_money(section.total, privacyMode: privacyMode),
+          Text(
+              _money(section.total,
+                  currencyLabel: currencyLabel, privacyMode: privacyMode),
               style: AppTypography.amountHero(c.textMain)),
-          Text('مصروف هذا الشهر', style: AppTypography.caption(c.textLight)),
+          Text('مصروف الفترة المختارة',
+              style: AppTypography.caption(c.textLight)),
         ],
       ),
     );
@@ -334,10 +383,12 @@ class _PeriodCard extends StatelessWidget {
 class _DailySpendCard extends StatelessWidget {
   const _DailySpendCard({
     required this.section,
+    required this.currencyLabel,
     required this.privacyMode,
   });
 
   final ReportSection section;
+  final String currencyLabel;
   final bool privacyMode;
 
   @override
@@ -348,7 +399,13 @@ class _DailySpendCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.surface,
         borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -368,19 +425,22 @@ class _DailySpendCard extends StatelessWidget {
               Expanded(
                 child: _MiniMetric(
                   label: 'المتوسط',
-                  value: _money(section.averageDaily, privacyMode: privacyMode),
+                  value: _money(section.averageDaily,
+                      currencyLabel: currencyLabel, privacyMode: privacyMode),
                 ),
               ),
               Expanded(
                 child: _MiniMetric(
                   label: 'الأعلى',
-                  value: _money(section.highestDaily, privacyMode: privacyMode),
+                  value: _money(section.highestDaily,
+                      currencyLabel: currencyLabel, privacyMode: privacyMode),
                 ),
               ),
               Expanded(
                 child: _MiniMetric(
                   label: 'الإجمالي',
-                  value: _money(section.total, privacyMode: privacyMode),
+                  value: _money(section.total,
+                      currencyLabel: currencyLabel, privacyMode: privacyMode),
                 ),
               ),
             ],
@@ -477,7 +537,13 @@ class _InsightCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.surface,
         borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -500,6 +566,203 @@ class _InsightCard extends StatelessWidget {
                 Text(body, style: AppTypography.caption(c.textLight)),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportsHeader extends StatelessWidget {
+  const _ReportsHeader({
+    required this.section,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final ReportSection section;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        64,
+        AppSpacing.gutter,
+        AppSpacing.s4,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            c.cta.withValues(alpha: 0.12),
+            c.bg,
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (Navigator.of(context).canPop()) ...[
+                BackButton(color: c.textMain),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+              Expanded(
+                child: Text(
+                  'الرؤى والتقارير',
+                  style: AppTypography.title1(c.textMain)
+                      .copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
+            style: AppTypography.caption(c.textMuted),
+          ),
+          const SizedBox(height: AppSpacing.s5),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.s4),
+            decoration: BoxDecoration(
+              color: c.surfaceCard,
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              border: Border.all(color: c.border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: c.cta.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        Icons.insights_rounded,
+                        color: c.cta,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'مصروف الفترة',
+                            style: AppTypography.caption(c.textSecondary),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _money(section.total,
+                                currencyLabel: currencyLabel,
+                                privacyMode: privacyMode),
+                            style: AppTypography.title2(c.textMain)
+                                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+                  child: Divider(color: c.border, height: 1),
+                ),
+                Row(
+                  children: [
+                    _HeaderMetric(
+                      label: 'متوسط يومي',
+                      value: _money(section.averageDaily,
+                          currencyLabel: currencyLabel,
+                          privacyMode: privacyMode),
+                    ),
+                    const _HeaderDivider(),
+                    _HeaderMetric(
+                      label: 'أعلى يوم',
+                      value: _money(section.highestDaily,
+                          currencyLabel: currencyLabel,
+                          privacyMode: privacyMode),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabBarDelegate extends SliverPersistentHeaderDelegate {
+  _TabBarDelegate({required this.child});
+  final Widget child;
+
+  @override
+  double get minExtent => 64.0;
+  @override
+  double get maxExtent => 64.0;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return child;
+  }
+
+  @override
+  bool shouldRebuild(covariant _TabBarDelegate oldDelegate) {
+    return oldDelegate.child != child;
+  }
+}
+
+class _HeaderDivider extends StatelessWidget {
+  const _HeaderDivider();
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 32,
+        color: context.colors.divider,
+      );
+}
+
+class _HeaderMetric extends StatelessWidget {
+  const _HeaderMetric({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: AppTypography.bodyStrong(c.textMain)
+                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: AppTypography.caption(c.textSecondary),
           ),
         ],
       ),

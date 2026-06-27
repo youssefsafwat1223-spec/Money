@@ -62,7 +62,7 @@ class _ListeningScreenState extends ConsumerState<ListeningScreen> {
         }
       } catch (_) {}
     }
-    if (mounted) context.go('/onboarding/backup-info');
+    if (mounted) context.go('/onboarding/ai-consent');
   }
 
   void _paste() {
@@ -111,7 +111,7 @@ class _ListeningScreenState extends ConsumerState<ListeningScreen> {
                       icon: Icons.sms_outlined,
                       title: 'رسائل البنك فقط',
                       body:
-                          'مالي ينتظر رسالة بنك أو رسالة تلصقها يدوياً، وبعدها يفتح لك مراجعة العملية.',
+                          'قرش ينتظر رسالة بنك أو رسالة تلصقها يدوياً، وبعدها يفتح لك مراجعة العملية.',
                       color: c.info,
                     ),
                     const SizedBox(height: 14),

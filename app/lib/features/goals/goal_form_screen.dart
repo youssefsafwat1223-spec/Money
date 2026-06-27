@@ -152,13 +152,17 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _amountController = TextEditingController();
+  final _autoSaveController = TextEditingController();
   DateTime? _deadline;
+  bool _autoSaveOn = false;
+  String _autoSavePeriod = 'monthly';
   bool _seeded = false;
 
   @override
   void dispose() {
     _nameController.dispose();
     _amountController.dispose();
+    _autoSaveController.dispose();
     super.dispose();
   }
 
@@ -249,20 +253,23 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: c.border.withValues(alpha: 0.3)),
             ),
-            child: ListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-              title: Text('الموعد النهائي',
-                  style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
-              subtitle: Text(
-                _deadline == null
-                    ? 'اختياري'
-                    : Formatters.fullDate(_deadline!, context),
-                style: _alex(12, FontWeight.w500, 1.2, c.textLight),
+            child: Material(
+              type: MaterialType.transparency,
+              child: ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                title: Text('الموعد النهائي',
+                    style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
+                subtitle: Text(
+                  _deadline == null
+                      ? 'اختياري'
+                      : Formatters.fullDate(_deadline!, context),
+                  style: _alex(12, FontWeight.w500, 1.2, c.textLight),
+                ),
+                trailing: Icon(Icons.calendar_today_outlined,
+                    color: c.textLight, size: 20),
+                onTap: _pickDeadline,
               ),
-              trailing: Icon(Icons.calendar_today_outlined,
-                  color: c.textLight, size: 20),
-              onTap: _pickDeadline,
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -298,7 +305,86 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               ],
             ),
           ),
-          const SizedBox(height: AppSpacing.s6),
+          const SizedBox(height: AppSpacing.s5),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.s4),
+            decoration: BoxDecoration(
+              color: c.surface.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: c.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('ادخار تلقائي',
+                              style: _alex(14, FontWeight.w800, 1.2, c.textMain)),
+                          const SizedBox(height: 2),
+                          Text('قرش يضيف المبلغ للهدف كل فترة تلقائياً',
+                              style: _alex(11, FontWeight.w600, 1.3, c.textLight)),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _autoSaveOn,
+                      onChanged: (v) => setState(() => _autoSaveOn = v),
+                    ),
+                  ],
+                ),
+                if (_autoSaveOn) ...[
+                  const SizedBox(height: AppSpacing.s3),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _autoSaveController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: InputDecoration(
+                            labelText: 'المبلغ',
+                            suffixText: cur,
+                            isDense: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: c.border),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _autoSavePeriod,
+                          isDense: true,
+                          decoration: InputDecoration(
+                            labelText: 'التكرار',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: c.border),
+                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                                value: 'weekly', child: Text('أسبوعي')),
+                            DropdownMenuItem(
+                                value: 'monthly', child: Text('شهري')),
+                          ],
+                          onChanged: (v) =>
+                              setState(() => _autoSavePeriod = v ?? 'monthly'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s5),
           SizedBox(
             height: 52,
             width: double.infinity,
@@ -343,6 +429,11 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     _nameController.text = goal.name;
     _amountController.text = goal.targetAmount.toStringAsFixed(0);
     _deadline = goal.deadline?.toLocal();
+    if (goal.hasAutoSave) {
+      _autoSaveOn = true;
+      _autoSaveController.text = goal.autoSaveAmount!.toStringAsFixed(0);
+      _autoSavePeriod = goal.autoSavePeriod ?? 'monthly';
+    }
     _seeded = true;
   }
 
@@ -385,24 +476,27 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-    await ref.read(saveGoalUseCaseProvider).call(
-          (widget.goal ??
-                  GoalEntity(
-                    id: IdGenerator.next(),
-                    name: _nameController.text.trim(),
-                    targetAmount: double.parse(_amountController.text),
-                    savedAmount: 0,
-                    deadline: _deadline?.toUtc(),
-                    vaultSkin: 'default_vault',
-                    status: 'active',
-                    createdAt: DateTime.now().toUtc(),
-                  ))
-              .copyWith(
-            name: _nameController.text.trim(),
-            targetAmount: double.parse(_amountController.text),
-            deadline: _deadline?.toUtc(),
-          ),
-        );
+    final accountId = widget.goal?.accountId ?? await _resolveAccountId();
+    final base = widget.goal;
+    final autoAmount = double.tryParse(_autoSaveController.text.trim()) ?? 0;
+    final autoOn = _autoSaveOn && autoAmount > 0;
+    final goal = GoalEntity(
+      id: base?.id ?? IdGenerator.next(),
+      name: _nameController.text.trim(),
+      accountId: accountId,
+      targetAmount: double.parse(_amountController.text),
+      savedAmount: base?.savedAmount ?? 0,
+      deadline: _deadline?.toUtc(),
+      vaultSkin: base?.vaultSkin ?? 'default_vault',
+      status: base?.status ?? 'active',
+      createdAt: base?.createdAt ?? DateTime.now().toUtc(),
+      autoSaveAmount: autoOn ? autoAmount : null,
+      autoSavePeriod: autoOn ? _autoSavePeriod : null,
+      // Start the schedule now so catch-up doesn't backfill from creation.
+      autoSaveLastRun:
+          autoOn ? (base?.autoSaveLastRun ?? DateTime.now().toUtc()) : null,
+    );
+    await ref.read(saveGoalUseCaseProvider).call(goal);
     if (!mounted) {
       return;
     }
@@ -413,5 +507,17 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       ref.invalidate(goalDetailsProvider(widget.goal!.id));
     }
     Navigator.of(context).pop();
+  }
+
+  Future<String?> _resolveAccountId() async {
+    final accountRepo = ref.read(accountRepositoryProvider);
+    final selectedId = ref.read(activeAccountIdProvider);
+    if (selectedId != null) {
+      final selected = await accountRepo.getById(selectedId);
+      if (selected != null) {
+        return selected.id;
+      }
+    }
+    return (await accountRepo.getDefault())?.id;
   }
 }

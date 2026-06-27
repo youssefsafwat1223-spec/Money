@@ -12,5 +12,11 @@ abstract class BillRepository {
 
   Future<BillEntity> save(BillEntity bill);
 
+  Future<List<BillPaymentEntity>> getPayments(String billId);
+
+  Future<BillPaymentEntity> recordPayment(BillPaymentEntity payment);
+
+  Future<List<String>> deletePaymentForTransaction(String transactionId);
+
   Future<void> delete(String id);
 }

@@ -25,6 +25,7 @@ class AchievementsView {
 }
 
 final achievementsViewProvider = FutureProvider<AchievementsView>((ref) async {
+  ref.watch(dbRevisionProvider);
   final repo = ref.watch(gamificationRepositoryProvider);
   return AchievementsView(
     achievements: await repo.getAchievements(),

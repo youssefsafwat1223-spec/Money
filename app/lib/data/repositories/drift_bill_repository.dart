@@ -80,10 +80,11 @@ class DriftBillRepository implements BillRepository {
             id, merchant_id, name, amount, currency, period, frequency, type,
             next_due_date, is_confirmed, reminder_on, custom_interval_days,
             note, created_at, status, account_id,
-            total_installments, paid_count, total_purchase_amount,
+            total_installments, paid_count, manual_paid_amount,
+            total_purchase_amount,
             lender_name, interest_rate
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
         variables: [
           Variable.withString(bill.id),
@@ -97,16 +98,35 @@ class DriftBillRepository implements BillRepository {
           Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
           Variable.withInt(boolToSql(bill.isConfirmed)),
           Variable.withInt(boolToSql(bill.reminderOn)),
-          bill.customIntervalDays == null ? const Variable<int>(null) : Variable.withInt(bill.customIntervalDays!),
-          bill.note == null ? const Variable<String>(null) : Variable.withString(bill.note!),
+          bill.customIntervalDays == null
+              ? const Variable<int>(null)
+              : Variable.withInt(bill.customIntervalDays!),
+          bill.note == null
+              ? const Variable<String>(null)
+              : Variable.withString(bill.note!),
           Variable.withString(dateTimeToSql(bill.createdAt.toUtc())),
           Variable.withString(bill.status.name),
-          bill.accountId == null ? const Variable<String>(null) : Variable.withString(bill.accountId!),
-          bill.totalInstallments == null ? const Variable<int>(null) : Variable.withInt(bill.totalInstallments!),
-          bill.paidCount == null ? const Variable<int>(null) : Variable.withInt(bill.paidCount!),
-          bill.totalPurchaseAmount == null ? const Variable<double>(null) : Variable.withReal(bill.totalPurchaseAmount!),
-          bill.lenderName == null ? const Variable<String>(null) : Variable.withString(bill.lenderName!),
-          bill.interestRate == null ? const Variable<double>(null) : Variable.withReal(bill.interestRate!),
+          bill.accountId == null
+              ? const Variable<String>(null)
+              : Variable.withString(bill.accountId!),
+          bill.totalInstallments == null
+              ? const Variable<int>(null)
+              : Variable.withInt(bill.totalInstallments!),
+          bill.paidCount == null
+              ? const Variable<int>(null)
+              : Variable.withInt(bill.paidCount!),
+          bill.manualPaidAmount == null
+              ? const Variable<double>(null)
+              : Variable.withReal(bill.manualPaidAmount!),
+          bill.totalPurchaseAmount == null
+              ? const Variable<double>(null)
+              : Variable.withReal(bill.totalPurchaseAmount!),
+          bill.lenderName == null
+              ? const Variable<String>(null)
+              : Variable.withString(bill.lenderName!),
+          bill.interestRate == null
+              ? const Variable<double>(null)
+              : Variable.withReal(bill.interestRate!),
         ],
       );
     } else {
@@ -117,7 +137,8 @@ class DriftBillRepository implements BillRepository {
               period = ?, frequency = ?, type = ?, next_due_date = ?,
               is_confirmed = ?, reminder_on = ?, custom_interval_days = ?,
               note = ?, status = ?, account_id = ?,
-              total_installments = ?, paid_count = ?, total_purchase_amount = ?,
+              total_installments = ?, paid_count = ?, manual_paid_amount = ?,
+              total_purchase_amount = ?,
               lender_name = ?, interest_rate = ?
           WHERE id = ?;
         ''',
@@ -132,15 +153,34 @@ class DriftBillRepository implements BillRepository {
           Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
           Variable.withInt(boolToSql(bill.isConfirmed)),
           Variable.withInt(boolToSql(bill.reminderOn)),
-          bill.customIntervalDays == null ? const Variable<int>(null) : Variable.withInt(bill.customIntervalDays!),
-          bill.note == null ? const Variable<String>(null) : Variable.withString(bill.note!),
+          bill.customIntervalDays == null
+              ? const Variable<int>(null)
+              : Variable.withInt(bill.customIntervalDays!),
+          bill.note == null
+              ? const Variable<String>(null)
+              : Variable.withString(bill.note!),
           Variable.withString(bill.status.name),
-          bill.accountId == null ? const Variable<String>(null) : Variable.withString(bill.accountId!),
-          bill.totalInstallments == null ? const Variable<int>(null) : Variable.withInt(bill.totalInstallments!),
-          bill.paidCount == null ? const Variable<int>(null) : Variable.withInt(bill.paidCount!),
-          bill.totalPurchaseAmount == null ? const Variable<double>(null) : Variable.withReal(bill.totalPurchaseAmount!),
-          bill.lenderName == null ? const Variable<String>(null) : Variable.withString(bill.lenderName!),
-          bill.interestRate == null ? const Variable<double>(null) : Variable.withReal(bill.interestRate!),
+          bill.accountId == null
+              ? const Variable<String>(null)
+              : Variable.withString(bill.accountId!),
+          bill.totalInstallments == null
+              ? const Variable<int>(null)
+              : Variable.withInt(bill.totalInstallments!),
+          bill.paidCount == null
+              ? const Variable<int>(null)
+              : Variable.withInt(bill.paidCount!),
+          bill.manualPaidAmount == null
+              ? const Variable<double>(null)
+              : Variable.withReal(bill.manualPaidAmount!),
+          bill.totalPurchaseAmount == null
+              ? const Variable<double>(null)
+              : Variable.withReal(bill.totalPurchaseAmount!),
+          bill.lenderName == null
+              ? const Variable<String>(null)
+              : Variable.withString(bill.lenderName!),
+          bill.interestRate == null
+              ? const Variable<double>(null)
+              : Variable.withReal(bill.interestRate!),
           Variable.withString(bill.id),
         ],
       );
@@ -150,6 +190,144 @@ class DriftBillRepository implements BillRepository {
       throw StateError('Failed to save bill: ${bill.id}');
     }
     return saved;
+  }
+
+  @override
+  Future<List<BillPaymentEntity>> getPayments(String billId) async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM bill_payments
+        WHERE bill_id = ?
+        ORDER BY paid_at DESC, period_start DESC;
+      ''',
+      variables: [Variable.withString(billId)],
+    ).get();
+    return rows.map(_paymentFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<BillPaymentEntity> recordPayment(BillPaymentEntity payment) async {
+    await _db.customInsert(
+      '''
+        INSERT INTO bill_payments(
+          id, bill_id, amount, currency, period_start, period_end, paid_at,
+          installment_index, transaction_id, note
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      ''',
+      variables: [
+        Variable.withString(payment.id),
+        Variable.withString(payment.billId),
+        Variable.withReal(payment.amount),
+        Variable.withString(payment.currency),
+        Variable.withString(dateTimeToSql(payment.periodStart.toUtc())),
+        Variable.withString(dateTimeToSql(payment.periodEnd.toUtc())),
+        Variable.withString(dateTimeToSql(payment.paidAt.toUtc())),
+        payment.installmentIndex == null
+            ? const Variable<int>(null)
+            : Variable.withInt(payment.installmentIndex!),
+        payment.transactionId == null
+            ? const Variable<String>(null)
+            : Variable.withString(payment.transactionId!),
+        payment.note == null
+            ? const Variable<String>(null)
+            : Variable.withString(payment.note!),
+      ],
+    );
+
+    final bill = await getById(payment.billId);
+    if (bill?.type == BillType.installment) {
+      final currentPaid = bill!.paidCount ?? 0;
+      final requestedPaid = payment.installmentIndex ?? currentPaid + 1;
+      final cappedPaid = bill.totalInstallments == null
+          ? requestedPaid
+          : requestedPaid.clamp(0, bill.totalInstallments!).toInt();
+      final nextPaidCount = cappedPaid < currentPaid ? currentPaid : cappedPaid;
+      await _db.customUpdate(
+        '''
+          UPDATE subscriptions
+          SET paid_count = ?
+          WHERE id = ?;
+        ''',
+        variables: [
+          Variable.withInt(nextPaidCount),
+          Variable.withString(payment.billId),
+        ],
+      );
+    }
+
+    final rows = await getPayments(payment.billId);
+    return rows.firstWhere((item) => item.id == payment.id);
+  }
+
+  @override
+  Future<List<String>> deletePaymentForTransaction(String transactionId) async {
+    var rows = await _db.customSelect(
+      '''
+        SELECT id, bill_id
+        FROM bill_payments
+        WHERE transaction_id = ?;
+      ''',
+      variables: [Variable.withString(transactionId)],
+    ).get();
+
+    if (rows.isEmpty) {
+      rows = await _db.customSelect(
+        '''
+          SELECT bp.id, bp.bill_id
+          FROM bill_payments bp
+          JOIN subscriptions s ON s.id = bp.bill_id
+          JOIN transactions t ON t.id = ?
+          WHERE bp.transaction_id IS NULL
+            AND bp.amount = t.amount
+            AND bp.currency = t.currency
+            AND bp.paid_at = t.occurred_at
+            AND (
+              s.name = t.raw_merchant OR
+              t.note LIKE '%' || s.name || '%'
+            );
+        ''',
+        variables: [Variable.withString(transactionId)],
+      ).get();
+    }
+
+    final billIds =
+        rows.map((row) => row.read<String>('bill_id')).toList(growable: false);
+    if (billIds.isEmpty) return const [];
+    final paymentIds =
+        rows.map((row) => row.read<String>('id')).toList(growable: false);
+
+    for (final paymentId in paymentIds) {
+      await _db.customUpdate(
+        'DELETE FROM bill_payments WHERE id = ?;',
+        variables: [Variable.withString(paymentId)],
+      );
+    }
+
+    for (final billId in billIds) {
+      final paidRow = await _db.customSelect(
+        '''
+          SELECT MAX(installment_index) AS paid_count
+          FROM bill_payments
+          WHERE bill_id = ?;
+        ''',
+        variables: [Variable.withString(billId)],
+      ).getSingle();
+      final paidCount = paidRow.readNullable<int>('paid_count') ?? 0;
+      await _db.customUpdate(
+        '''
+          UPDATE subscriptions
+          SET paid_count = ?
+          WHERE id = ? AND type = 'installment';
+        ''',
+        variables: [
+          Variable.withInt(paidCount),
+          Variable.withString(billId),
+        ],
+      );
+    }
+
+    return billIds;
   }
 
   BillEntity _fromRow(QueryRow row) {
@@ -173,14 +351,31 @@ class DriftBillRepository implements BillRepository {
       isConfirmed: sqlToBool(row.read<int>('is_confirmed')),
       customIntervalDays: row.readNullable<int>('custom_interval_days'),
       note: row.readNullable<String>('note'),
-      createdAt: created == null ? DateTime.now().toUtc() : dateTimeFromSql(created),
+      createdAt:
+          created == null ? DateTime.now().toUtc() : dateTimeFromSql(created),
       status: _parseStatus(row.readNullable<String>('status')),
       accountId: row.readNullable<String>('account_id'),
       totalInstallments: row.readNullable<int>('total_installments'),
       paidCount: row.readNullable<int>('paid_count'),
+      manualPaidAmount: row.readNullable<double>('manual_paid_amount'),
       totalPurchaseAmount: row.readNullable<double>('total_purchase_amount'),
       lenderName: row.readNullable<String>('lender_name'),
       interestRate: row.readNullable<double>('interest_rate'),
+    );
+  }
+
+  BillPaymentEntity _paymentFromRow(QueryRow row) {
+    return BillPaymentEntity(
+      id: row.read<String>('id'),
+      billId: row.read<String>('bill_id'),
+      amount: row.read<double>('amount'),
+      currency: row.read<String>('currency'),
+      periodStart: dateTimeFromSql(row.read<String>('period_start')),
+      periodEnd: dateTimeFromSql(row.read<String>('period_end')),
+      paidAt: dateTimeFromSql(row.read<String>('paid_at')),
+      installmentIndex: row.readNullable<int>('installment_index'),
+      transactionId: row.readNullable<String>('transaction_id'),
+      note: row.readNullable<String>('note'),
     );
   }
 
@@ -189,7 +384,8 @@ class DriftBillRepository implements BillRepository {
         orElse: () => BillType.subscription,
       );
 
-  BillFrequency _parseFrequency(String? value) => BillFrequency.values.firstWhere(
+  BillFrequency _parseFrequency(String? value) =>
+      BillFrequency.values.firstWhere(
         (frequency) => frequency.name == value,
         orElse: () => BillFrequency.monthly,
       );

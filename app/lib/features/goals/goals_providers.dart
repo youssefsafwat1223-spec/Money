@@ -5,8 +5,20 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 
 final goalsListProvider = FutureProvider<List<GoalEntity>>((ref) async {
+  ref.watch(dbRevisionProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
+  final selectedAccountId = ref.watch(activeAccountIdProvider);
+  final selectedAccount = selectedAccountId == null
+      ? null
+      : await accountRepo.getById(selectedAccountId);
+  final defaultAccount = await accountRepo.getDefault();
+  final accountId = (selectedAccount ?? defaultAccount)?.id;
   final goals = await ref.watch(goalRepositoryProvider).getAll();
-  return goals.where((goal) => goal.status == 'active').toList(growable: false);
+  return goals
+      .where((goal) =>
+          goal.status == 'active' &&
+          (accountId == null || goal.accountId == accountId))
+      .toList(growable: false);
 });
 
 final goalDetailsProvider =

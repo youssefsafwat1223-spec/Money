@@ -1,23 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../cards/brand_mark.dart';
 import '../common/premium_loading.dart';
-import '../common/app_header.dart';
-import '../common/app_screen_scaffold.dart';
+import '../common/transaction_direction.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../common/app_empty_state.dart';
 import '../common/app_transaction_row.dart';
 import '../common/app_button.dart';
+import '../common/app_sheet_scaffold.dart';
+import '../subscriptions/bill_details_sheet.dart';
 import '../subscriptions/bill_form_sheet.dart';
+import '../dashboard/dashboard_providers.dart';
+import 'manual_transaction_sheet.dart';
 import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
 
@@ -30,12 +36,12 @@ class TransactionsScreen extends ConsumerWidget {
     final billsAsync = ref.watch(billsViewProvider);
     final tab = ref.watch(transactionsPageTabProvider);
     final pendingOnly = ref.watch(transactionsPendingFilterProvider);
+    final currencyLabel = Currency.arabicLabel(
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final logos = ref.watch(merchantLogosProvider).valueOrNull ??
+        const <String, String>{};
 
-    return AppScreenScaffold(
-      header: AppHeader(
-        title: tab == 0 ? 'العمليات' : 'الفواتير',
-        showBack: false,
-      ),
+    return Scaffold(
       body: async.when(
         loading: () => const PremiumSkeletonPage(cardCount: 6),
         error: (e, _) => Center(child: Text('حدث خطأ: $e')),
@@ -46,175 +52,368 @@ class TransactionsScreen extends ConsumerWidget {
             groups.putIfAbsent(label, () => []).add(tx);
           }
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
-              AppSpacing.s2,
-              AppSpacing.gutter,
-              120,
-            ),
-            children: [
-              if (tab == 0)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.s4),
-                  child: Text(
-                    '${view.range.label} · كل التفاصيل تفتح من أسفل الشاشة.',
-                    style: AppTypography.callout(context.colors.textLight),
-                  ),
-                ),
-              if (pendingOnly)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                  child: Row(
+          final bills = billsAsync.valueOrNull?.bills ?? [];
+          final subs =
+              bills.where((b) => b.type == BillType.subscription).toList();
+          final insts =
+              bills.where((b) => b.type == BillType.installment).toList();
+          final activeSubs =
+              subs.where((b) => b.status == BillStatus.active).toList();
+
+          final monthlyTotal = activeSubs.fold<double>(
+            0,
+            (sum, bill) => sum + _monthlyAmount(bill),
+          );
+
+          return NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) {
+              return [
+                SliverToBoxAdapter(
+                  child: Column(
                     children: [
-                      Container(
+                      _TransactionsHeader(
+                        tab: tab,
+                        expenseTotal: view.expenseTotal,
+                        transactionsCount: view.transactions.length,
+                        pendingCount: view.pendingCount,
+                        subsCount: subs.length,
+                        instsCount: insts.length,
+                        monthlyTotal: monthlyTotal,
+                        currencyLabel: currencyLabel,
+                        onAdd: () {
+                          if (tab == 0) {
+                            ManualTransactionSheet.show(context);
+                          } else {
+                            BillFormSheet.show(context);
+                          }
+                        },
+                      ),
+                      Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: context.colors.accent.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: context.colors.accent
-                                  .withValues(alpha: 0.30)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                            horizontal: AppSpacing.gutter),
+                        child: Column(
                           children: [
-                            Icon(AppLucideIcons.alertTriangle,
-                                size: 14, color: context.colors.accent),
-                            const SizedBox(width: 6),
-                            Text('تصفية: قيد المراجعة',
-                                style:
-                                    AppTypography.caption(context.colors.accent)
-                                        .copyWith(fontWeight: FontWeight.w700)),
-                            const SizedBox(width: 8),
-                            GestureDetector(
-                              onTap: () => ref
-                                  .read(transactionsPendingFilterProvider
-                                      .notifier)
-                                  .state = false,
-                              child: Icon(Icons.close,
-                                  size: 14, color: context.colors.accent),
-                            ),
+                            const _ActiveAccountPicker(),
+                            const SizedBox(height: AppSpacing.s3),
+                            if (tab == 0) ...[
+                              if (pendingOnly) ...[
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: context.colors.accent
+                                            .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                            color: context.colors.accent
+                                                .withValues(alpha: 0.30)),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(AppLucideIcons.alertTriangle,
+                                              size: 14,
+                                              color: context.colors.accent),
+                                          const SizedBox(width: 6),
+                                          Text('تصفية: قيد المراجعة',
+                                              style: AppTypography.caption(
+                                                      context.colors.accent)
+                                                  .copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w700)),
+                                          const SizedBox(width: 8),
+                                          GestureDetector(
+                                            onTap: () => ref
+                                                .read(
+                                                    transactionsPendingFilterProvider
+                                                        .notifier)
+                                                .state = false,
+                                            child: Icon(Icons.close,
+                                                size: 14,
+                                                color: context.colors.accent),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    if (view.pendingCount > 0)
+                                      TextButton.icon(
+                                        onPressed: () => _confirmAllPending(
+                                            context, ref, view.transactions),
+                                        icon: Icon(Icons.done_all_rounded,
+                                            size: 18,
+                                            color: context.colors.success),
+                                        label: Text(
+                                          'تأكيد الكل',
+                                          style: AppTypography.caption(
+                                                  context.colors.success)
+                                              .copyWith(
+                                                  fontWeight: FontWeight.w800),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: AppSpacing.s3),
+                              ],
+                              if (!pendingOnly) ...[
+                                _DateRangeChips(range: view.range),
+                                const SizedBox(height: AppSpacing.s4),
+                              ],
+                            ],
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              if (!pendingOnly) _DateRangeChips(range: view.range),
-              if (!pendingOnly) const SizedBox(height: AppSpacing.s4),
-              AppPillTabBar(
-                tabs: const ['العمليات', 'الفواتير'],
-                selectedIndex: tab,
-                onSelected: (value) => ref
-                    .read(transactionsPageTabProvider.notifier)
-                    .state = value,
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _TabBarDelegate(
+                    child: Container(
+                      height: 64.0,
+                      color: context.colors.bg,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter,
+                      ),
+                      alignment: Alignment.center,
+                      child: AppPillTabBar(
+                        tabs: const ['العمليات', 'الفواتير'],
+                        selectedIndex: tab,
+                        onSelected: (value) => ref
+                            .read(transactionsPageTabProvider.notifier)
+                            .state = value,
+                      ),
+                    ),
+                  ),
+                ),
+              ];
+            },
+            body: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s3,
+                AppSpacing.gutter,
+                120,
               ),
-              const SizedBox(height: AppSpacing.s4),
-              if (tab == 0) ...[
-                // Metrics for transactions
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.s4),
-                  decoration: BoxDecoration(
-                    color: context.colors.surface2,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _MetricItem(
-                          label: 'عمليات',
-                          value: '${view.transactions.length}',
-                        ),
-                      ),
-                      Container(
-                          width: 1, height: 32, color: context.colors.border),
-                      Expanded(
-                        child: _MetricItem(
-                          label: 'مراجعة',
-                          value: '${view.pendingCount}',
-                        ),
-                      ),
-                      Container(
-                          width: 1, height: 32, color: context.colors.border),
-                      Expanded(
-                        child: _MetricItem(
-                          label: 'مصروف',
-                          value: '${Formatters.integer(view.expenseTotal)} ر',
-                        ),
-                      ),
+              children: [
+                if (tab == 0) ...[
+                  const _TransactionSearchField(),
+                  const SizedBox(height: AppSpacing.s3),
+                  const _KindFilterChips(),
+                  const SizedBox(height: AppSpacing.s4),
+                  if (view.transactions.isEmpty)
+                    const AppEmptyState(
+                      icon: AppLucideIcons.inbox,
+                      title: 'لا توجد عمليات في هذه الفترة',
+                      subtitle: 'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
+                    )
+                  else
+                    for (final entry in groups.entries) ...[
+                      _DateHeader(label: entry.key),
+                      for (final tx in entry.value)
+                        () {
+                          final category = view.catalog.byId(tx.categoryId);
+                          final title =
+                              tx.rawMerchant ?? category?.nameAr ?? 'عملية';
+                          return AppTransactionRow(
+                            title: title,
+                            amount: tx.amount,
+                            currency: Currency.arabicLabel(tx.currency),
+                            subtitle: category?.nameAr,
+                            categoryIcon: category?.icon,
+                            categoryColor: category?.color,
+                            brandLogoUrl: BrandMark.logoFor(title, logos),
+                            isPending: tx.status == TransactionStatus.pending,
+                            isAi: tx.source == TransactionSourceEntity.aiParsed,
+                            isDebit: transactionIsDebit(tx),
+                            onTap: () => TransactionDetailsScreen.showSheet(
+                              context,
+                              tx.id,
+                            ),
+                          );
+                        }(),
                     ],
+                ] else ...[
+                  billsAsync.when(
+                    loading: () => const Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                    error: (error, _) => Text('حدث خطأ: $error'),
+                    data: (bills) => _BillsTab(
+                      view: bills,
+                      currencyLabel: currencyLabel,
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.s4),
-
-                const _TransactionSearchField(),
-                const SizedBox(height: AppSpacing.s3),
-                const _KindFilterChips(),
-                const SizedBox(height: AppSpacing.s4),
-                if (view.transactions.isEmpty)
-                  const AppEmptyState(
-                    icon: AppLucideIcons.inbox,
-                    title: 'لا توجد عمليات في هذه الفترة',
-                    subtitle: 'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
-                  )
-                else
-                  for (final entry in groups.entries) ...[
-                    _DateHeader(label: entry.key),
-                    for (final tx in entry.value)
-                      () {
-                        final category = view.catalog.byId(tx.categoryId);
-                        return AppTransactionRow(
-                          title: tx.rawMerchant ?? category?.nameAr ?? 'عملية',
-                          amount: tx.amount,
-                          currency: Currency.arabicLabel(tx.currency),
-                          subtitle: category?.nameAr,
-                          categoryIcon: category?.icon,
-                          categoryColor: category?.color,
-                          isPending: tx.status == TransactionStatus.pending,
-                          isAi: tx.source == TransactionSourceEntity.aiParsed,
-                          isDebit: tx.type != TransactionTypeEntity.income &&
-                              tx.type != TransactionTypeEntity.refund,
-                          onTap: () => TransactionDetailsScreen.showSheet(
-                            context,
-                            tx.id,
-                          ),
-                        );
-                      }(),
-                  ],
-              ] else
-                billsAsync.when(
-                  loading: () => const Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                  error: (error, _) => Text('حدث خطأ: $error'),
-                  data: (bills) => _BillsTab(view: bills),
-                ),
-            ],
+                ],
+              ],
+            ),
           );
         },
       ),
     );
   }
+
+  Future<void> _confirmAllPending(
+    BuildContext context,
+    WidgetRef ref,
+    List<TransactionEntity> transactions,
+  ) async {
+    final pending = transactions
+        .where((t) => t.status == TransactionStatus.pending)
+        .toList();
+    if (pending.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تأكيد كل العمليات المعلّقة؟'),
+        content: Text('هيتم تأكيد ${pending.length} عملية بتصنيفاتها الحالية.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('تأكيد'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final repo = ref.read(transactionRepositoryProvider);
+    for (final tx in pending) {
+      await repo.confirm(tx.id);
+    }
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+    ref.read(transactionsPendingFilterProvider.notifier).state = false;
+  }
 }
 
-class _MetricItem extends StatelessWidget {
-  const _MetricItem({required this.label, required this.value});
-  final String label;
-  final String value;
+class _ActiveAccountPicker extends ConsumerWidget {
+  const _ActiveAccountPicker();
+
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(value,
-            style: AppTypography.title2(context.colors.textMain)
-                .copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 2),
-        Text(label, style: AppTypography.caption(context.colors.textLight)),
-      ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final accountsAsync = ref.watch(accountsProvider);
+    final selectedId = ref.watch(activeAccountIdProvider);
+    return accountsAsync.maybeWhen(
+      data: (accounts) {
+        if (accounts.isEmpty) return const SizedBox.shrink();
+        final defaultAccount = accounts.firstWhere(
+          (account) => account.isDefault,
+          orElse: () => accounts.first,
+        );
+        final account = accounts.firstWhere(
+          (item) => item.id == selectedId,
+          orElse: () => defaultAccount,
+        );
+        final c = context.colors;
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              onTap: () => _showAccountSheet(context, ref, account.id),
+              child: Container(
+                padding: const EdgeInsetsDirectional.fromSTEB(14, 8, 12, 8),
+                decoration: BoxDecoration(
+                  color: c.surfaceCard,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(color: c.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(AppLucideIcons.walletCards, size: 16, color: c.cta),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption(c.textPrimary)
+                          .copyWith(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.keyboard_arrow_down_rounded,
+                        size: 18, color: c.textMuted),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+
+  Future<void> _showAccountSheet(
+    BuildContext context,
+    WidgetRef ref,
+    String currentId,
+  ) {
+    final c = context.colors;
+    final container = ProviderScope.containerOf(context, listen: false);
+    final accounts =
+        ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: c.surface,
+      builder: (context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            0,
+            AppSpacing.gutter,
+            AppSpacing.gutter,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  'اختار الحساب',
+                  style: AppTypography.title2(c.textPrimary),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              for (final account in accounts)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    AppLucideIcons.walletCards,
+                    color: account.id == currentId ? c.cta : c.textMuted,
+                  ),
+                  title: Text(account.name),
+                  subtitle: Text(Currency.arabicLabel(account.currency)),
+                  trailing: account.id == currentId
+                      ? Icon(Icons.check_circle_rounded, color: c.cta)
+                      : null,
+                  onTap: () async {
+                    HapticFeedback.selectionClick();
+                    Navigator.of(context).pop();
+                    container.read(activeAccountIdProvider.notifier).state =
+                        account.id;
+                    await container
+                        .read(accountRepositoryProvider)
+                        .setDefault(account.id);
+                    container.invalidate(accountsProvider);
+                    container.invalidate(baseCurrencyProvider);
+                    container.invalidate(transactionsListProvider);
+                    container.invalidate(billsViewProvider);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -289,47 +488,78 @@ class _DateRangeChips extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    final presets = [
-      TransactionsDatePreset.thisMonth,
-      TransactionsDatePreset.previousMonth,
-      TransactionsDatePreset.last30Days,
-      TransactionsDatePreset.custom,
-    ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final preset in presets) ...[
-            ChoiceChip(
-              label: Text(_presetLabel(preset)),
-              selected: range.preset == preset,
-              selectedColor: c.primary.withValues(alpha: 0.16),
-              onSelected: (_) async {
-                if (preset == TransactionsDatePreset.custom) {
-                  await _showCustomRangeSheet(context, ref, range);
-                } else {
-                  ref.read(transactionsDateRangeProvider.notifier).state =
-                      _rangeForPreset(preset);
-                }
-              },
+    return Align(
+      alignment: Alignment.center,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            _showRangeSheet(context, ref, range);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: c.surfaceCard,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(color: c.border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-          ],
-        ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_month_rounded, color: c.cta, size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  range.label,
+                  style: AppTypography.subhead(c.textPrimary)
+                      .copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(width: 6),
+                Icon(Icons.keyboard_arrow_down_rounded,
+                    color: c.textMuted, size: 18),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
   String _presetLabel(TransactionsDatePreset preset) => switch (preset) {
+        TransactionsDatePreset.today => 'اليوم',
+        TransactionsDatePreset.thisWeek => 'هذا الأسبوع',
         TransactionsDatePreset.thisMonth => 'هذا الشهر',
         TransactionsDatePreset.previousMonth => 'الشهر السابق',
+        TransactionsDatePreset.last7Days => 'آخر 7 أيام',
         TransactionsDatePreset.last30Days => 'آخر 30 يوم',
+        TransactionsDatePreset.last90Days => 'آخر 90 يوم',
         TransactionsDatePreset.custom => 'مخصص',
       };
 
   TransactionsDateRange _rangeForPreset(TransactionsDatePreset preset) {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final weekStart =
+        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
     return switch (preset) {
+      TransactionsDatePreset.today => TransactionsDateRange(
+          preset: preset,
+          from: today,
+          to: now,
+        ),
+      TransactionsDatePreset.thisWeek => TransactionsDateRange(
+          preset: preset,
+          from: weekStart,
+          to: now,
+        ),
       TransactionsDatePreset.thisMonth => TransactionsDateRange(
           preset: preset,
           from: DateTime(now.year, now.month),
@@ -341,16 +571,26 @@ class _DateRangeChips extends ConsumerWidget {
           to: DateTime(now.year, now.month)
               .subtract(const Duration(seconds: 1)),
         ),
+      TransactionsDatePreset.last7Days => TransactionsDateRange(
+          preset: preset,
+          from: now.subtract(const Duration(days: 7)),
+          to: now,
+        ),
       TransactionsDatePreset.last30Days => TransactionsDateRange(
           preset: preset,
           from: now.subtract(const Duration(days: 30)),
+          to: now,
+        ),
+      TransactionsDatePreset.last90Days => TransactionsDateRange(
+          preset: preset,
+          from: now.subtract(const Duration(days: 90)),
           to: now,
         ),
       TransactionsDatePreset.custom => range,
     };
   }
 
-  Future<void> _showCustomRangeSheet(
+  Future<void> _showRangeSheet(
     BuildContext context,
     WidgetRef ref,
     TransactionsDateRange current,
@@ -359,67 +599,116 @@ class _DateRangeChips extends ConsumerWidget {
     var to = current.to;
     await showModalBottomSheet<void>(
       context: context,
-      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
-          return Padding(
-            padding: const EdgeInsets.all(AppSpacing.gutter),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'فترة مخصصة',
-                  style: AppTypography.title2(context.colors.textMain),
-                ),
-                ListTile(
-                  title: const Text('من'),
-                  subtitle: Text(Formatters.fullDate(from, context)),
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: from,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                    );
-                    if (picked != null) setState(() => from = picked);
-                  },
-                ),
-                ListTile(
-                  title: const Text('إلى'),
-                  subtitle: Text(Formatters.fullDate(to, context)),
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: to,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                    );
-                    if (picked != null) setState(() => to = picked);
-                  },
-                ),
-                FilledButton(
-                  onPressed: to.isBefore(from)
-                      ? null
-                      : () {
-                          ref
-                              .read(transactionsDateRangeProvider.notifier)
-                              .state = TransactionsDateRange(
-                            preset: TransactionsDatePreset.custom,
-                            from: from,
-                            to: DateTime(
-                              to.year,
-                              to.month,
-                              to.day,
-                              23,
-                              59,
-                              59,
-                            ),
-                          );
-                          Navigator.of(context).pop();
-                        },
-                  child: const Text('تطبيق'),
-                ),
-              ],
+          final c = context.colors;
+          return AppSheetScaffold(
+            title: 'اختار فترة العرض',
+            scrollable: true,
+            body: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final preset in TransactionsDatePreset.values)
+                        ChoiceChip(
+                          label: Text(_presetLabel(preset)),
+                          selected: current.preset == preset,
+                          selectedColor: c.primary.withValues(alpha: 0.16),
+                          onSelected: (_) {
+                            if (preset == TransactionsDatePreset.custom) {
+                              setState(() {});
+                              return;
+                            }
+                            ref
+                                .read(transactionsDateRangeProvider.notifier)
+                                .state = _rangeForPreset(preset);
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.s3),
+                    decoration: BoxDecoration(
+                      color: c.surfaceCard,
+                      borderRadius: BorderRadius.circular(AppRadius.card),
+                      border: Border.all(color: c.border),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Column(
+                        children: [
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('من'),
+                            subtitle: Text(Formatters.fullDate(from, context)),
+                            trailing: const Icon(Icons.calendar_month_outlined),
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: from,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 365)),
+                              );
+                              if (picked != null) setState(() => from = picked);
+                            },
+                          ),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('إلى'),
+                            subtitle: Text(Formatters.fullDate(to, context)),
+                            trailing: const Icon(Icons.calendar_month_outlined),
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: to,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 365)),
+                              );
+                              if (picked != null) setState(() => to = picked);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  FilledButton(
+                    onPressed: to.isBefore(from)
+                        ? null
+                        : () {
+                            ref
+                                .read(transactionsDateRangeProvider.notifier)
+                                .state = TransactionsDateRange(
+                              preset: TransactionsDatePreset.custom,
+                              from: from,
+                              to: DateTime(
+                                to.year,
+                                to.month,
+                                to.day,
+                                23,
+                                59,
+                                59,
+                              ),
+                            );
+                            Navigator.of(context).pop();
+                          },
+                    child: const Text('تطبيق الفترة المخصصة'),
+                  ),
+                  const SizedBox(height: AppSpacing.s5),
+                ],
+              ),
             ),
           );
         },
@@ -457,9 +746,13 @@ class _KindFilterChips extends ConsumerWidget {
 }
 
 class _BillsTab extends StatefulWidget {
-  const _BillsTab({required this.view});
+  const _BillsTab({
+    required this.view,
+    required this.currencyLabel,
+  });
 
   final BillsView view;
+  final String currencyLabel;
 
   @override
   State<_BillsTab> createState() => _BillsTabState();
@@ -510,10 +803,9 @@ class _BillsTabState extends State<_BillsTab> {
           monthlyTotal: monthlyTotal,
           activeCount: activeCount,
           nextThisWeek: nextThisWeek,
+          currencyLabel: widget.currencyLabel,
         ),
         const SizedBox(height: AppSpacing.s5),
-        _BillExample(type: _type),
-        const SizedBox(height: AppSpacing.s4),
         TextButton.icon(
           onPressed: () => _showBillsHelp(context, _type),
           icon: const Icon(Icons.help_outline, size: 18),
@@ -550,6 +842,7 @@ class _BillsTabState extends State<_BillsTab> {
           for (final suggestion in widget.view.suggestions.take(3)) ...[
             _SuggestionCard(
               suggestion: suggestion,
+              currencyLabel: widget.currencyLabel,
               onAdd: () => BillFormSheet.show(
                 context,
                 initialType: BillType.subscription,
@@ -562,15 +855,6 @@ class _BillsTabState extends State<_BillsTab> {
       ],
     );
   }
-
-  double _monthlyAmount(BillEntity bill) => switch (bill.frequency) {
-        BillFrequency.weekly => bill.amount * 4,
-        BillFrequency.monthly => bill.amount,
-        BillFrequency.yearly => bill.amount / 12,
-        BillFrequency.custom => bill.customIntervalDays == null
-            ? bill.amount
-            : bill.amount * (30 / bill.customIntervalDays!),
-      };
 
   void _showBillsHelp(BuildContext context, BillType type) {
     final c = context.colors;
@@ -587,14 +871,14 @@ class _BillsTabState extends State<_BillsTab> {
             children: [
               Text(
                 type == BillType.subscription
-                    ? 'إزاي مالي يتابع الاشتراكات؟'
-                    : 'إزاي مالي يتابع الأقساط؟',
+                    ? 'إزاي قرش يتابع الاشتراكات؟'
+                    : 'إزاي قرش يتابع الأقساط؟',
                 style: AppTypography.title2(c.textMain),
               ),
               const SizedBox(height: AppSpacing.s3),
               Text(
                 type == BillType.subscription
-                    ? 'مالي يتابع الأنماط المتكررة تلقائياً، وتقدر كمان تضيف اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.'
+                    ? 'قرش يتابع الأنماط المتكررة تلقائياً، وتقدر كمان تضيف اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.'
                     : 'أضف القسط يدويًا بالمبلغ وتاريخ الاستحقاق والتنبيه. لاحقًا نضيف المتبقي وعدد الأقساط.',
                 style: AppTypography.callout(c.textLight),
               ),
@@ -613,37 +897,30 @@ class _BillsHero extends StatelessWidget {
     required this.monthlyTotal,
     required this.activeCount,
     required this.nextThisWeek,
+    required this.currencyLabel,
   });
 
   final BillType type;
   final double monthlyTotal;
   final int activeCount;
   final int nextThisWeek;
+  final String currencyLabel;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final isSubscription = type == BillType.subscription;
-    final accent = c.accent;
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s5),
+      padding: const EdgeInsets.all(AppSpacing.s4),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [
-            Color(0xFF046E9B),
-            Color(0xFF034E73),
-            Color(0xFF012438),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(AppRadius.cardLg),
-        border: Border.all(color: c.accent.withValues(alpha: 0.24)),
+        color: c.cta,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF034F73).withValues(alpha: 0.22),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
+            color: c.cta.withValues(alpha: 0.20),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -653,29 +930,33 @@ class _BillsHero extends StatelessWidget {
           Row(
             children: [
               Text(
-                isSubscription ? 'الصرف الشهري' : 'الأقساط الشهرية',
+                isSubscription
+                    ? 'إجمالي الاشتراكات الشهرية'
+                    : 'إجمالي الأقساط الشهرية',
                 style:
-                    AppTypography.callout(Colors.white.withValues(alpha: 0.78)),
+                    AppTypography.caption(Colors.white.withValues(alpha: 0.72)),
               ),
               const Spacer(),
-              _HeroCircle(icon: Icons.calendar_month_outlined, color: accent),
-              const SizedBox(width: AppSpacing.s2),
-              _HeroCircle(icon: Icons.add, color: accent),
+              Icon(
+                isSubscription
+                    ? Icons.repeat_rounded
+                    : Icons.receipt_long_rounded,
+                color: Colors.white.withValues(alpha: 0.72),
+                size: 18,
+              ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 6),
           Text(
-            '${Formatters.integer(monthlyTotal)} ر',
-            style: AppTypography.display(Colors.white),
+            '${Formatters.amount(monthlyTotal)} $currencyLabel',
+            style: AppTypography.title1(Colors.white)
+                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
           ),
           const SizedBox(height: AppSpacing.s4),
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s4,
-              vertical: AppSpacing.s3,
-            ),
+                horizontal: AppSpacing.s3, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(AppRadius.card),
               border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
             ),
@@ -687,7 +968,8 @@ class _BillsHero extends StatelessWidget {
                 _Divider(color: Colors.white.withValues(alpha: 0.25)),
                 Expanded(
                   child: _HeroMetric(
-                    value: '${Formatters.integer(monthlyTotal * 12)} ر',
+                    value:
+                        '${Formatters.integer(monthlyTotal * 12)} $currencyLabel',
                     label: 'سنويًا',
                   ),
                 ),
@@ -703,26 +985,6 @@ class _BillsHero extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _HeroCircle extends StatelessWidget {
-  const _HeroCircle({required this.icon, required this.color});
-
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 38,
-      height: 38,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.18),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: Colors.white, size: 20),
     );
   }
 }
@@ -759,353 +1021,418 @@ class _Divider extends StatelessWidget {
   }
 }
 
-class _BillExample extends StatelessWidget {
-  const _BillExample({required this.type});
-
-  final BillType type;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final isSubscription = type == BillType.subscription;
-    return Column(
-      children: [
-        Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            color: c.surface2,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Icon(
-            isSubscription
-                ? AppLucideIcons.repeat
-                : Icons.receipt_long_outlined,
-            color: c.accent,
-            size: 34,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s3),
-        Text(
-          isSubscription ? 'اشتراكاتك، متابعة تلقائية' : 'أقساطك، متابعة واضحة',
-          textAlign: TextAlign.center,
-          style: AppTypography.headline(c.textMain),
-        ),
-        const SizedBox(height: AppSpacing.s1),
-        Text(
-          'مثال سريع للشكل بعد الإضافة',
-          style: AppTypography.callout(c.textLight),
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: Text(
-            'مثال',
-            style: AppTypography.caption(c.accent)
-                .copyWith(letterSpacing: 1.8, fontWeight: FontWeight.w900),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Container(
-          padding: const EdgeInsets.all(AppSpacing.s4),
-          decoration: BoxDecoration(
-            color: c.surface,
-            borderRadius: BorderRadius.circular(AppRadius.card),
-            boxShadow: [
-              BoxShadow(
-                color: c.primary.withValues(alpha: 0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: isSubscription
-              ? Row(
-                  children: [
-                    const BrandMark(name: 'Netflix', size: 50),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Netflix',
-                              style: AppTypography.bodyStrong(c.textMain)),
-                          Text('يتجدد بعد 3 أيام',
-                              style: AppTypography.caption(c.textLight)),
-                        ],
-                      ),
-                    ),
-                    Text('49 ر / شهر',
-                        style: AppTypography.bodyStrong(c.textMain)),
-                  ],
-                )
-              : Row(
-                  children: [
-                    const BrandMark(name: 'ValU', size: 50),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('ValU',
-                              style: AppTypography.bodyStrong(c.textMain)),
-                          const SizedBox(height: AppSpacing.s2),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                            child: LinearProgressIndicator(
-                              value: 3 / 12,
-                              minHeight: 6,
-                              backgroundColor: c.surface2,
-                              valueColor: AlwaysStoppedAnimation(c.accent),
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.s1),
-                          Text('3 من 12 مدفوعة',
-                              style: AppTypography.caption(c.textLight)),
-                        ],
-                      ),
-                    ),
-                    Text('1,500 ر / شهر',
-                        style: AppTypography.bodyStrong(c.textMain)),
-                  ],
-                ),
-        ),
-      ],
-    );
-  }
-}
-
 class _BillCard extends StatelessWidget {
   const _BillCard({required this.bill});
 
   final BillEntity bill;
 
-  int get _cycleDays => switch (bill.frequency) {
-        BillFrequency.weekly => 7,
-        BillFrequency.monthly => 30,
-        BillFrequency.yearly => 365,
-        BillFrequency.custom => bill.customIntervalDays ?? 30,
-      };
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final daysLeft = bill.nextDueDate.difference(DateTime.now()).inDays;
-    final cycle = _cycleDays;
-    final progress = ((cycle - daysLeft) / cycle).clamp(0.0, 1.0);
-    final isSoon = daysLeft <= 3;
-    final dueColor = isSoon ? c.accent : c.success;
-    final typeLabel = bill.type == BillType.subscription ? 'اشتراك' : 'قسط';
+    final currLabel = Currency.arabicLabel(bill.currency);
 
-    String dueLabel() {
-      if (daysLeft < 0) return 'مستحق الآن';
-      if (daysLeft == 0) return 'يُجدّد اليوم';
-      if (daysLeft == 1) return 'يُجدّد غدًا';
-      return 'باقي $daysLeft يوم';
+    final Color dueColor;
+    final String dueLabel;
+    final IconData dueIcon;
+
+    if (daysLeft < 0) {
+      dueColor = c.danger;
+      dueLabel = 'متأخر ${daysLeft.abs()} يوم';
+      dueIcon = Icons.warning_amber_rounded;
+    } else if (daysLeft == 0) {
+      dueColor = c.danger;
+      dueLabel = 'مستحق اليوم';
+      dueIcon = Icons.error_outline_rounded;
+    } else if (daysLeft <= 3) {
+      dueColor = c.accent;
+      dueLabel = 'بعد $daysLeft يوم';
+      dueIcon = Icons.event_rounded;
+    } else {
+      dueColor = c.textLight;
+      dueLabel = 'بعد $daysLeft يوم';
+      dueIcon = Icons.calendar_month_outlined;
     }
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.cardLg),
-      onTap: null,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s5),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              c.surface,
-              c.primary.withValues(alpha: isDark ? 0.10 : 0.05),
-            ],
+    if (bill.type == BillType.subscription) {
+      final statusColor = switch (bill.status) {
+        BillStatus.active => c.success,
+        BillStatus.paused => c.accent,
+        BillStatus.cancelled => c.textLight,
+      };
+      final statusLabel = switch (bill.status) {
+        BillStatus.active => 'نشط',
+        BillStatus.paused => 'متوقف',
+        BillStatus.cancelled => 'ملغي',
+      };
+      final freqLabel = switch (bill.frequency) {
+        BillFrequency.weekly => 'أسبوعي',
+        BillFrequency.monthly => 'شهري',
+        BillFrequency.yearly => 'سنوي',
+        BillFrequency.custom => 'مخصص',
+      };
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: AppSpacing.s2),
+        child: Material(
+          color: c.surfaceCard,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            side: BorderSide(color: c.border),
           ),
-          borderRadius: BorderRadius.circular(AppRadius.cardLg),
-          border: Border.all(color: c.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.05),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: c.surface2.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: c.border),
+          child: InkWell(
+            onTap: () => BillDetailsSheet.show(context, bill),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.s4),
+              child: Row(
+                children: [
+                  BrandMark(name: bill.name, size: 48),
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                bill.name,
+                                style: AppTypography.bodyStrong(c.textMain),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.10),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.pill),
+                                border: Border.all(
+                                    color: statusColor.withValues(alpha: 0.20)),
+                              ),
+                              child: Text(
+                                statusLabel,
+                                style: AppTypography.caption(statusColor)
+                                    .copyWith(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(dueIcon, size: 13, color: dueColor),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$freqLabel · $dueLabel',
+                              style: AppTypography.caption(dueColor),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  child: BrandMark(name: bill.name, size: 44),
-                ),
-                const SizedBox(width: AppSpacing.s4),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(width: AppSpacing.s3),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        bill.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.title2(c.textMain)
-                            .copyWith(fontWeight: FontWeight.bold),
+                        Formatters.amount(bill.amount),
+                        style: AppTypography.bodyStrong(c.textMain)
+                            .copyWith(fontFamily: 'Outfit'),
                       ),
-                      const SizedBox(height: 6),
-                      Row(
+                      Text(
+                        Currency.arabicLabel(bill.currency),
+                        style: AppTypography.caption(c.textLight),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      // Installment style
+      final hasProg =
+          bill.totalInstallments != null && bill.totalInstallments! > 0;
+      final progressVal = bill.installmentProgress;
+      final remaining = bill.remainingInstallments;
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: AppSpacing.s2),
+        child: Material(
+          color: c.surfaceCard,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            side: BorderSide(color: c.border),
+          ),
+          child: InkWell(
+            onTap: () => BillDetailsSheet.show(context, bill),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.s4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      BrandMark(name: bill.lenderName ?? bill.name, size: 44),
+                      const SizedBox(width: AppSpacing.s3),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              bill.name,
+                              style: AppTypography.bodyStrong(c.textMain),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (bill.lenderName != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                bill.lenderName!,
+                                style: AppTypography.caption(c.textLight),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.s2),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          _Tag(text: typeLabel, color: c.primary),
-                          const SizedBox(width: 6),
-                          _Tag(
-                            text: _frequencyLabel(bill.frequency),
-                            color: c.textLight,
+                          Text(
+                            Formatters.amount(bill.amount),
+                            style: AppTypography.bodyStrong(c.primary)
+                                .copyWith(fontFamily: 'Outfit'),
+                          ),
+                          Text(
+                            '$currLabel / قسط',
+                            style: AppTypography.caption(c.textLight),
                           ),
                         ],
                       ),
                     ],
                   ),
-                ),
-                if (bill.reminderOn)
-                  Icon(Icons.notifications_active_rounded,
-                      size: 18, color: c.accent),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  Formatters.amount(bill.amount),
-                  style: AppTypography.amountHero(c.textMain),
-                ),
-                const SizedBox(width: 6),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    Currency.arabicLabel(bill.currency),
-                    style: AppTypography.subhead(c.textLight),
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: dueColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(color: dueColor.withValues(alpha: 0.28)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  if (hasProg) ...[
+                    const SizedBox(height: AppSpacing.s4),
+                    Row(
+                      children: [
+                        Text(
+                          '${bill.paidCount ?? 0} من ${bill.totalInstallments} قسط مدفوع',
+                          style: AppTypography.caption(c.textLight),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'متبقي $remaining قسط',
+                          style: AppTypography.caption(c.primary)
+                              .copyWith(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                      child: SizedBox(
+                        height: 6,
+                        child: LinearProgressIndicator(
+                          value: progressVal,
+                          backgroundColor: c.surface2,
+                          valueColor: AlwaysStoppedAnimation(
+                            progressVal >= 1.0 ? c.success : c.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (bill.totalPurchaseAmount != null) ...[
+                    const SizedBox(height: AppSpacing.s3),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: c.bg,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: c.border),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            'القيمة الكلية: ',
+                            style: AppTypography.caption(c.textLight),
+                          ),
+                          Text(
+                            '${Formatters.amount(bill.totalPurchaseAmount!)} $currLabel',
+                            style: AppTypography.caption(c.textMain).copyWith(
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit'),
+                          ),
+                          if (bill.interestRate != null) ...[
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: c.accent.withValues(alpha: 0.10),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.pill),
+                              ),
+                              child: Text(
+                                'فائدة ${(bill.interestRate! * 100).toStringAsFixed(1)}%',
+                                style: AppTypography.caption(c.accent)
+                                    .copyWith(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (bill.safeManualPaidAmount > 0) ...[
+                    const SizedBox(height: AppSpacing.s3),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: c.success.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: c.success.withValues(alpha: 0.28),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.payments_outlined,
+                              size: 16, color: c.success),
+                          const SizedBox(width: 6),
+                          Text(
+                            'مدفوع يدويًا: ',
+                            style: AppTypography.caption(c.textLight),
+                          ),
+                          Text(
+                            '${Formatters.amount(bill.safeManualPaidAmount)} $currLabel',
+                            style: AppTypography.caption(c.success).copyWith(
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.s3),
+                  Row(
                     children: [
-                      Icon(Icons.schedule_rounded, size: 13, color: dueColor),
+                      Icon(dueIcon, size: 14, color: dueColor),
                       const SizedBox(width: 4),
                       Text(
-                        dueLabel(),
-                        style: AppTypography.caption(dueColor)
-                            .copyWith(fontWeight: FontWeight.w800),
+                        'القسط القادم: $dueLabel',
+                        style: AppTypography.caption(dueColor).copyWith(
+                            fontWeight:
+                                dueColor == c.danger ? FontWeight.bold : null),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 7,
-                backgroundColor: c.surface2,
-                valueColor: AlwaysStoppedAnimation(dueColor),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'التجديد القادم · ${Formatters.fullDate(bill.nextDueDate, context)}',
-              style: AppTypography.caption(c.textLight),
-            ),
-          ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _Tag extends StatelessWidget {
-  const _Tag({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: color.withValues(alpha: 0.22)),
-      ),
-      child: Text(
-        text,
-        style:
-            AppTypography.caption(color).copyWith(fontWeight: FontWeight.w800),
-      ),
-    );
+      );
+    }
   }
 }
 
 class _SuggestionCard extends StatelessWidget {
   const _SuggestionCard({
     required this.suggestion,
+    required this.currencyLabel,
     required this.onAdd,
   });
 
   final BillSuggestion suggestion;
+  final String currencyLabel;
   final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.card),
-      onTap: onAdd,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s4),
-        decoration: BoxDecoration(
-          color: c.accent.withValues(alpha: 0.08),
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.s2),
+      child: Material(
+        color: c.surfaceCard.withValues(alpha: 0.6),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: c.accent.withValues(alpha: 0.24)),
+          side: BorderSide(
+            color: c.border.withValues(alpha: 0.5),
+          ),
         ),
-        child: Row(
-          children: [
-            BrandMark(name: suggestion.name, size: 42),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    suggestion.name,
-                    style: AppTypography.bodyStrong(c.textMain),
+        child: InkWell(
+          onTap: onAdd,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.s4),
+            child: Row(
+              children: [
+                BrandMark(name: suggestion.name, size: 48),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        suggestion.name,
+                        style: AppTypography.bodyStrong(c.textMain),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'تكرر ${suggestion.monthsSeen} أشهر · اضغط للتفعيل',
+                        style: AppTypography.caption(c.textLight),
+                      ),
+                    ],
                   ),
-                  Text(
-                    'تكرر ${suggestion.monthsSeen} أشهر · اضغط للإضافة',
-                    style: AppTypography.caption(c.textLight),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(width: AppSpacing.s3),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${Formatters.amount(suggestion.averageAmount)} $currencyLabel/شهر',
+                      style: AppTypography.caption(c.textMain).copyWith(
+                          fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: c.cta.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add, size: 12, color: c.cta),
+                          const SizedBox(width: 2),
+                          Text(
+                            'إضافة',
+                            style: AppTypography.caption(c.cta)
+                                .copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            Text(
-              '${Formatters.amount(suggestion.averageAmount)} ر/شهر',
-              style: AppTypography.caption(c.accent),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1149,9 +1476,262 @@ class _DateHeader extends StatelessWidget {
   }
 }
 
-String _frequencyLabel(BillFrequency frequency) => switch (frequency) {
-      BillFrequency.weekly => 'أسبوعي',
-      BillFrequency.monthly => 'شهري',
-      BillFrequency.yearly => 'سنوي',
-      BillFrequency.custom => 'مخصص',
+double _monthlyAmount(BillEntity bill) => switch (bill.frequency) {
+      BillFrequency.weekly => bill.amount * 4,
+      BillFrequency.monthly => bill.amount,
+      BillFrequency.yearly => bill.amount / 12,
+      BillFrequency.custom => bill.customIntervalDays == null
+          ? bill.amount
+          : bill.amount * (30 / bill.customIntervalDays!),
     };
+
+class _TabBarDelegate extends SliverPersistentHeaderDelegate {
+  _TabBarDelegate({required this.child});
+  final Widget child;
+
+  @override
+  double get minExtent => 64.0;
+  @override
+  double get maxExtent => 64.0;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return child;
+  }
+
+  @override
+  bool shouldRebuild(covariant _TabBarDelegate oldDelegate) {
+    return oldDelegate.child != child;
+  }
+}
+
+class _AddButton extends StatelessWidget {
+  const _AddButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: c.surfaceCard,
+          shape: BoxShape.circle,
+          border: Border.all(color: c.border),
+        ),
+        child: Icon(Icons.add, color: c.cta, size: 22),
+      ),
+    );
+  }
+}
+
+class _HeaderDivider extends StatelessWidget {
+  const _HeaderDivider();
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 32,
+        color: context.colors.divider,
+      );
+}
+
+class _HeaderMetric extends StatelessWidget {
+  const _HeaderMetric({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: AppTypography.bodyStrong(c.textMain)
+                .copyWith(fontFamily: 'Outfit'),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: AppTypography.caption(c.textLight),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransactionsHeader extends StatelessWidget {
+  const _TransactionsHeader({
+    required this.tab,
+    required this.expenseTotal,
+    required this.transactionsCount,
+    required this.pendingCount,
+    required this.subsCount,
+    required this.instsCount,
+    required this.monthlyTotal,
+    required this.currencyLabel,
+    required this.onAdd,
+  });
+
+  final int tab;
+  final double expenseTotal;
+  final int transactionsCount;
+  final int pendingCount;
+  final int subsCount;
+  final int instsCount;
+  final double monthlyTotal;
+  final String currencyLabel;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        64,
+        AppSpacing.gutter,
+        AppSpacing.s4,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            c.cta.withValues(alpha: 0.12),
+            c.bg,
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (Navigator.of(context).canPop()) ...[
+                BackButton(color: c.textMain),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+              Expanded(
+                child: Text(
+                  tab == 0 ? 'العمليات' : 'الفواتير والاشتراكات',
+                  style: AppTypography.title1(c.textMain)
+                      .copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+              _AddButton(onTap: onAdd),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s5),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.s4),
+            decoration: BoxDecoration(
+              color: c.surfaceCard,
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              border: Border.all(color: c.border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: c.cta.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        tab == 0
+                            ? Icons.payments_outlined
+                            : Icons.receipt_long_rounded,
+                        color: c.cta,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            tab == 0
+                                ? 'إجمالي المصروفات للفترة'
+                                : 'إجمالي الصرف الشهري النشط',
+                            style: AppTypography.caption(c.textSecondary),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            tab == 0
+                                ? '${Formatters.amount(expenseTotal)} $currencyLabel'
+                                : '${Formatters.amount(monthlyTotal)} $currencyLabel',
+                            style: AppTypography.title2(c.textMain).copyWith(
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+                  child: Divider(color: c.border, height: 1),
+                ),
+                Row(
+                  children: tab == 0
+                      ? [
+                          _HeaderMetric(
+                              label: 'عملية للفترة',
+                              value: '$transactionsCount'),
+                          const _HeaderDivider(),
+                          _HeaderMetric(
+                              label: 'قيد المراجعة', value: '$pendingCount'),
+                          const _HeaderDivider(),
+                          _HeaderMetric(
+                            label: 'إجمالي المصروف',
+                            value:
+                                '${Formatters.amount(expenseTotal)} $currencyLabel',
+                          ),
+                        ]
+                      : [
+                          _HeaderMetric(
+                              label: 'اشتراك نشط', value: '$subsCount'),
+                          const _HeaderDivider(),
+                          _HeaderMetric(
+                              label: 'قسط جاري', value: '$instsCount'),
+                          const _HeaderDivider(),
+                          _HeaderMetric(
+                            label: 'المجموع سنوياً',
+                            value:
+                                '${Formatters.amount(monthlyTotal * 12)} $currencyLabel',
+                          ),
+                        ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

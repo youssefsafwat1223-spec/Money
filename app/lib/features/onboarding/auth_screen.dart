@@ -60,7 +60,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       if (mounted) {
         wasAuthenticated
             ? context.go('/backup')
-            : context.push('/onboarding/privacy-info');
+            : context.push('/onboarding/method-picker');
       }
     } catch (_) {
       if (mounted) {
@@ -118,13 +118,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       primaryLabel: context.l10n.sendOtpCode,
       onPrimary: _busy ? null : _emailContinue,
       primaryLoading: _busy,
-      secondaryLabel: 'المتابعة بدون حساب',
-      onSecondary: _busy
-          ? null
-          : () async {
-              await AppSession.instance.setIdentity(method: 'guest');
-              if (context.mounted) context.push('/onboarding/privacy-info');
-            },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -146,8 +139,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             decoration: InputDecoration(
               hintText: 'you@example.com',
               hintTextDirection: TextDirection.ltr,
-              hintStyle: _alex(14, FontWeight.w400, 1.4,
-                  c.textMuted.withValues(alpha: 0.7)),
+              hintStyle: _alex(
+                  14, FontWeight.w400, 1.4, c.textMuted.withValues(alpha: 0.7)),
               prefixIcon: Icon(Icons.mail_outline_rounded, color: c.textMuted),
               filled: true,
               fillColor: c.surfaceCard,
@@ -174,8 +167,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           SizedBox(
             height: 52,
             child: SignInWithAppleButton(
-              onPressed:
-                  _busy ? () {} : () => _provider(auth.signInWithApple),
+              onPressed: _busy ? () {} : () => _provider(auth.signInWithApple),
               text: context.l10n.continueWithApple,
               style: SignInWithAppleButtonStyle.black,
               borderRadius: BorderRadius.circular(16),

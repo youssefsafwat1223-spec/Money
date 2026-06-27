@@ -31,6 +31,11 @@ class Categories {
   static const home = Category('home', 'منزل');
   static const cafes = Category('cafes', 'كافيهات');
   static const maintenance = Category('maintenance', 'صيانة');
+  static const fitness = Category('fitness', 'لياقة ورياضة');
+  static const beauty = Category('beauty', 'عناية شخصية');
+  static const charity = Category('charity', 'تبرعات');
+  static const pets = Category('pets', 'حيوانات أليفة');
+  static const insurance = Category('insurance', 'تأمين');
   static const income = Category('income', 'دخل');
   static const other = Category('other', 'أخرى');
 
@@ -53,6 +58,11 @@ class Categories {
     home,
     cafes,
     maintenance,
+    fitness,
+    beauty,
+    charity,
+    pets,
+    insurance,
     income,
     other,
   ];

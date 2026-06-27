@@ -4,6 +4,49 @@ enum BillFrequency { weekly, monthly, yearly, custom }
 
 enum BillStatus { active, paused, cancelled }
 
+class BillPaymentEntity {
+  const BillPaymentEntity({
+    required this.id,
+    required this.billId,
+    required this.amount,
+    required this.currency,
+    required this.periodStart,
+    required this.periodEnd,
+    required this.paidAt,
+    this.installmentIndex,
+    this.transactionId,
+    this.note,
+  });
+
+  final String id;
+  final String billId;
+  final double amount;
+  final String currency;
+  final DateTime periodStart;
+  final DateTime periodEnd;
+  final DateTime paidAt;
+  final int? installmentIndex;
+  final String? transactionId;
+  final String? note;
+
+  BillPaymentEntity copyWith({
+    String? transactionId,
+  }) {
+    return BillPaymentEntity(
+      id: id,
+      billId: billId,
+      amount: amount,
+      currency: currency,
+      periodStart: periodStart,
+      periodEnd: periodEnd,
+      paidAt: paidAt,
+      installmentIndex: installmentIndex,
+      transactionId: transactionId ?? this.transactionId,
+      note: note,
+    );
+  }
+}
+
 class BillEntity {
   const BillEntity({
     required this.id,
@@ -24,6 +67,7 @@ class BillEntity {
     // installment-only fields
     this.totalInstallments,
     this.paidCount,
+    this.manualPaidAmount,
     this.totalPurchaseAmount,
     this.lenderName,
     this.interestRate,
@@ -48,6 +92,7 @@ class BillEntity {
   // installment-specific
   final int? totalInstallments;
   final int? paidCount;
+  final double? manualPaidAmount;
   final double? totalPurchaseAmount;
   final String? lenderName;
   final double? interestRate;
@@ -62,6 +107,10 @@ class BillEntity {
       (totalInstallments != null && totalInstallments! > 0 && paidCount != null)
           ? (paidCount! / totalInstallments!).clamp(0.0, 1.0)
           : 0.0;
+
+  double get safeManualPaidAmount => manualPaidAmount == null
+      ? 0
+      : manualPaidAmount!.clamp(0.0, double.infinity).toDouble();
 
   BillEntity copyWith({
     String? id,
@@ -81,6 +130,7 @@ class BillEntity {
     String? accountId,
     int? totalInstallments,
     int? paidCount,
+    double? manualPaidAmount,
     double? totalPurchaseAmount,
     String? lenderName,
     double? interestRate,
@@ -103,6 +153,7 @@ class BillEntity {
       accountId: accountId ?? this.accountId,
       totalInstallments: totalInstallments ?? this.totalInstallments,
       paidCount: paidCount ?? this.paidCount,
+      manualPaidAmount: manualPaidAmount ?? this.manualPaidAmount,
       totalPurchaseAmount: totalPurchaseAmount ?? this.totalPurchaseAmount,
       lenderName: lenderName ?? this.lenderName,
       interestRate: interestRate ?? this.interestRate,

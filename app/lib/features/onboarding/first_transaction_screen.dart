@@ -118,7 +118,7 @@ class _ConfirmedView extends ConsumerWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'كده مالي بدأ يفهم مصروفاتك',
+            'كده قرش بدأ يفهم مصروفاتك',
             textAlign: TextAlign.center,
             style: _alex(26, FontWeight.w800, 1.18, c.textMain),
           ),
@@ -255,7 +255,7 @@ class _PendingView extends ConsumerWidget {
                 const _PendingInfoRow(
                   icon: Icons.category_outlined,
                   title: 'مراجعة سريعة',
-                  subtitle: 'راجع المبلغ والتصنيف مرة واحدة قبل دخول مالي.',
+                  subtitle: 'راجع المبلغ والتصنيف مرة واحدة قبل دخول قرش.',
                 ),
               ],
             ),
@@ -433,7 +433,7 @@ class _ErrorView extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'لم نتمكن من عرض أول عملية الآن، لكن تقدر تدخل مالي وتضيف أو تراجع العملية يدوياً.',
+            'لم نتمكن من عرض أول عملية الآن، لكن تقدر تدخل قرش وتضيف أو تراجع العملية يدوياً.',
             textAlign: TextAlign.center,
             style: _alex(13, FontWeight.w600, 1.5, c.textLight),
           ),

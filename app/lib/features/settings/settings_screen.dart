@@ -5,10 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import '../../data/catalog/catalog_daos.dart';
 import '../../core/security/app_lock_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
@@ -21,6 +25,9 @@ import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../budgets/budgets_providers.dart';
+import '../cards/my_cards_screen.dart';
+import '../plans/plans_screen.dart';
+import '../common/app_card.dart';
 import '../common/category_catalog.dart';
 import '../common/motion.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -43,41 +50,14 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefsAsync = ref.watch(notificationPreferencesProvider);
     final settingsAsync = ref.watch(userSettingsProvider);
+    final countriesAsync = ref.watch(supportedCountriesProvider);
+    final currenciesAsync = ref.watch(activeCurrenciesProvider);
     final c = context.colors;
     final session = AppSession.instance;
     final email = session.email ?? '—';
     final method = _methodLabels[session.authMethod] ?? '—';
-    final countryValues = <String, String>{
-      if (ref.watch(supportedCountriesProvider).valueOrNull
-          case final countries?)
-        for (final country in countries)
-          country.code.toLowerCase(): country.nameAr,
-      if ((ref.watch(supportedCountriesProvider).valueOrNull ?? const [])
-          .isEmpty) ...const {
-        'sa': 'السعودية',
-        'ae': 'الإمارات',
-        'eg': 'مصر',
-        'kw': 'الكويت',
-        'qa': 'قطر',
-        'bh': 'البحرين',
-        'om': 'عمان',
-      },
-    };
-    final currencyValues = <String, String>{
-      if (ref.watch(activeCurrenciesProvider).valueOrNull
-          case final currencies?)
-        for (final currency in currencies)
-          currency.code: '${currency.code} - ${currency.nameAr}',
-      if ((ref.watch(activeCurrenciesProvider).valueOrNull ?? const [])
-          .isEmpty) ...const {
-        'SAR': 'SAR - ريال سعودي',
-        'AED': 'AED - درهم إماراتي',
-        'EGP': 'EGP - جنيه مصري',
-        'KWD': 'KWD - دينار كويتي',
-        'QAR': 'QAR - ريال قطري',
-        'USD': 'USD - دولار',
-      },
-    };
+    final countries = countriesAsync.valueOrNull ?? const <RemoteCountry>[];
+    final currencies = currenciesAsync.valueOrNull ?? const <RemoteCurrency>[];
 
     return Scaffold(
       body: ListView(
@@ -89,16 +69,114 @@ class SettingsScreen extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
             child: Column(
               children: [
+                settingsAsync.maybeWhen(
+                  data: (settings) => PremiumMotion(
+                    delay: const Duration(milliseconds: 40),
+                    child: _ProfileSettingsCard(
+                      settings: settings,
+                      email: email,
+                      method: method,
+                      countries: countries,
+                      currencies: currencies,
+                      catalogsLoading:
+                          countriesAsync.isLoading || currenciesAsync.isLoading,
+                      onAvatarTap: () => _pickProfileImage(
+                        context,
+                        ref,
+                        settings,
+                      ),
+                      onNameTap: () => _showProfileTextSheet(
+                        context,
+                        ref,
+                        title: 'الاسم',
+                        label: 'اسمك في التطبيق',
+                        initialValue: settings.displayName ?? '',
+                        apply: (value) =>
+                            settings.copyWith(displayName: value.trim()),
+                      ),
+                      onPhoneTap: () => _showProfileTextSheet(
+                        context,
+                        ref,
+                        title: 'رقم الموبايل',
+                        label: 'رقم الموبايل',
+                        keyboardType: TextInputType.phone,
+                        initialValue: settings.phoneNumber ?? '',
+                        apply: (value) =>
+                            settings.copyWith(phoneNumber: value.trim()),
+                      ),
+                      onCountryTap: countries.isEmpty
+                          ? null
+                          : () => _showSettingsPicker(
+                                context,
+                                ref,
+                                title: 'الدولة',
+                                current: settings.country.toUpperCase(),
+                                values: _countryValues(countries),
+                                save: (value) async {
+                                  final country = value.toUpperCase();
+                                  final currency = _preferredCurrencyForCountry(
+                                    country,
+                                    currencies,
+                                    settings.currency,
+                                  );
+                                  await ref
+                                      .read(saveCountryCurrencyUseCaseProvider)
+                                      .call(country, currency);
+                                },
+                              ),
+                      onCurrencyTap: currencies.isEmpty
+                          ? null
+                          : () => _showSettingsPicker(
+                                context,
+                                ref,
+                                title: 'العملة الأساسية',
+                                current: settings.currency.toUpperCase(),
+                                values: _currencyValuesForCountry(
+                                  settings.country,
+                                  currencies,
+                                ),
+                                save: (value) async {
+                                  await ref
+                                      .read(saveCountryCurrencyUseCaseProvider)
+                                      .call(
+                                        settings.country.toUpperCase(),
+                                        value.toUpperCase(),
+                                      );
+                                },
+                              ),
+                    ),
+                  ),
+                  orElse: () => const _ProfileSkeletonCard(),
+                ),
+                const SizedBox(height: AppSpacing.s5),
                 PremiumMotion(
-                  delay: const Duration(milliseconds: 50),
+                  delay: const Duration(milliseconds: 80),
                   child: _Section(
-                    title: 'الملف الشخصي والتحليل',
+                    title: 'إدارة المال',
                     children: [
                       _NavTile(
                         icon: Icons.account_balance_wallet_outlined,
                         title: 'الحسابات والمحافظ',
                         subtitle: 'حسابات متعددة، كل واحد بعملته الخاصة',
                         onTap: () => context.push('/accounts'),
+                      ),
+                      _NavTile(
+                        icon: Icons.credit_card_outlined,
+                        title: 'بطاقاتي',
+                        subtitle: 'كل بطاقاتك وحركتها، وأضف عملية لأي بطاقة',
+                        onTap: () => MyCardsScreen.open(context),
+                      ),
+                      _NavTile(
+                        icon: Icons.luggage_outlined,
+                        title: 'الخطط',
+                        subtitle: 'ميزانية لرحلة أو مناسبة، بتتابع نفسها',
+                        onTap: () => PlansScreen.open(context),
+                      ),
+                      _NavTile(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'الاشتراكات والفواتير',
+                        subtitle: 'تتبع اشتراكاتك وأقساطك والتزاماتك الدورية',
+                        onTap: () => context.push('/subscriptions'),
                       ),
                       _NavTile(
                         icon: Icons.bar_chart_outlined,
@@ -113,17 +191,17 @@ class SettingsScreen extends ConsumerWidget {
                         onTap: () => context.push('/achievements'),
                       ),
                       _NavTile(
-                        icon: Icons.receipt_long_outlined,
-                        title: 'الاشتراكات والفواتير',
-                        subtitle: 'تتبع اشتراكاتك وأقساطك والتزاماتك الدورية',
-                        onTap: () => context.push('/subscriptions'),
+                        icon: AppLucideIcons.inbox,
+                        title: 'التصنيفات',
+                        subtitle: 'مصروفات ودخل وتحويلات في مجموعات واضحة',
+                        onTap: () => _showCategoriesSheet(context, ref),
                       ),
                       if (Platform.isIOS)
                         _NavTile(
                           icon: Icons.ios_share_rounded,
                           title: 'إعداد اختصار آبل',
                           subtitle:
-                              'مرّر رسائل البنك تلقائياً إلى مالي عبر Shortcuts',
+                              'مرّر رسائل البنك تلقائياً إلى قرش عبر Shortcuts',
                           onTap: () => showIosShortcutSheet(context),
                         ),
                     ],
@@ -132,9 +210,9 @@ class SettingsScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.s5),
                 settingsAsync.maybeWhen(
                   data: (settings) => PremiumMotion(
-                    delay: const Duration(milliseconds: 75),
+                    delay: const Duration(milliseconds: 120),
                     child: _Section(
-                      title: 'التفضيلات العامة',
+                      title: 'اللغة والمظهر',
                       children: [
                         _NavTile(
                           icon: Icons.language_outlined,
@@ -150,66 +228,14 @@ class SettingsScreen extends ConsumerWidget {
                                 settings.copyWith(language: value),
                           ),
                         ),
-                        _NavTile(
-                          icon: Icons.flag_outlined,
-                          title: 'الدولة',
-                          subtitle:
-                              countryValues[settings.country.toLowerCase()] ??
-                                  _countryLabel(settings.country),
-                          onTap: () => _showSettingsPicker(
-                            context,
-                            ref,
-                            title: 'الدولة',
-                            current: settings.country,
-                            values: countryValues,
-                            apply: (value) => settings.copyWith(country: value),
-                          ),
-                        ),
-                        _NavTile(
-                          icon: Icons.payments_outlined,
-                          title: 'العملة الأساسية',
-                          subtitle: settings.currency,
-                          onTap: () => _showSettingsPicker(
-                            context,
-                            ref,
-                            title: 'العملة الأساسية',
-                            current: settings.currency,
-                            values: {
-                              settings.currency:
-                                  currencyValues[settings.currency] ??
-                                      settings.currency,
-                              ...currencyValues,
-                            },
-                            apply: (value) =>
-                                settings.copyWith(currency: value),
-                          ),
+                        _ThemeTile(
+                          value: themeModeFromKey(settings.theme),
+                          onChanged: (mode) => _saveTheme(ref, mode),
                         ),
                       ],
                     ),
                   ),
                   orElse: () => const SizedBox.shrink(),
-                ),
-                const SizedBox(height: AppSpacing.s5),
-                PremiumMotion(
-                  delay: const Duration(milliseconds: 100),
-                  child: _Section(
-                    title: 'القواعد والتفضيلات',
-                    children: [
-                      settingsAsync.maybeWhen(
-                        data: (settings) => _ThemeTile(
-                          value: themeModeFromKey(settings.theme),
-                          onChanged: (mode) => _saveTheme(ref, mode),
-                        ),
-                        orElse: () => const ListTile(title: Text('الثيم')),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.inbox,
-                        title: 'التصنيفات',
-                        subtitle: 'مصروفات ودخل وتحويلات في مجموعات واضحة',
-                        onTap: () => _showCategoriesSheet(context, ref),
-                      ),
-                    ],
-                  ),
                 ),
                 const SizedBox(height: AppSpacing.s5),
                 prefsAsync.when(
@@ -396,7 +422,7 @@ class SettingsScreen extends ConsumerWidget {
                       _NavTile(
                         icon: AppLucideIcons.alertTriangle,
                         title: 'عن التطبيق',
-                        subtitle: 'مالي / Mali',
+                        subtitle: 'قرش / Qirsh',
                         onTap: () => _showAboutApp(context),
                       ),
                       _NavTile(
@@ -472,19 +498,159 @@ class SettingsScreen extends ConsumerWidget {
     await AppSession.instance.signOut();
   }
 
+  Map<String, String> _countryValues(List<RemoteCountry> countries) {
+    return {
+      for (final country in countries)
+        country.code.toUpperCase():
+            '${country.flagEmoji} ${country.nameAr} · ${country.phonePrefix}',
+    };
+  }
+
+  Map<String, String> _currencyValuesForCountry(
+    String country,
+    List<RemoteCurrency> currencies,
+  ) {
+    final normalizedCountry = country.trim().toUpperCase();
+    final scoped = currencies
+        .where((currency) => currency.countryCodes.contains(normalizedCountry))
+        .toList(growable: false);
+    final source = scoped.isEmpty ? currencies : scoped;
+    return {
+      for (final currency in source)
+        currency.code.toUpperCase():
+            '${currency.code.toUpperCase()} · ${currency.nameAr} · ${currency.symbol}',
+    };
+  }
+
+  String _preferredCurrencyForCountry(
+    String country,
+    List<RemoteCurrency> currencies,
+    String current,
+  ) {
+    final normalizedCountry = country.trim().toUpperCase();
+    final normalizedCurrent = current.trim().toUpperCase();
+    final countryCurrencies = currencies
+        .where((currency) => currency.countryCodes.contains(normalizedCountry))
+        .toList(growable: false);
+    if (countryCurrencies.any(
+      (currency) => currency.code.toUpperCase() == normalizedCurrent,
+    )) {
+      return normalizedCurrent;
+    }
+    if (countryCurrencies.isNotEmpty) {
+      return countryCurrencies.first.code.toUpperCase();
+    }
+    return normalizedCurrent;
+  }
+
+  Future<void> _pickProfileImage(
+    BuildContext context,
+    WidgetRef ref,
+    UserSettingsEntity settings,
+  ) async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      imageQuality: 86,
+    );
+    if (picked == null) return;
+    final directory = await getApplicationDocumentsDirectory();
+    final extension = p.extension(picked.path).isEmpty
+        ? '.jpg'
+        : p.extension(picked.path).toLowerCase();
+    final avatarsDir = Directory(p.join(directory.path, 'profile'));
+    if (!await avatarsDir.exists()) {
+      await avatarsDir.create(recursive: true);
+    }
+    final destination = File(
+      p.join(avatarsDir.path, 'avatar$extension'),
+    );
+    await File(picked.path).copy(destination.path);
+    await ref.read(userSettingsRepositoryProvider).saveSettings(
+          settings.copyWith(avatarPath: destination.path),
+        );
+    _refreshSettingsDependents(ref);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم تحديث الصورة.')),
+    );
+  }
+
+  Future<void> _showProfileTextSheet(
+    BuildContext context,
+    WidgetRef ref, {
+    required String title,
+    required String label,
+    required String initialValue,
+    required UserSettingsEntity Function(String value) apply,
+    TextInputType keyboardType = TextInputType.text,
+  }) async {
+    final c = context.colors;
+    final controller = TextEditingController(text: initialValue);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s2,
+            AppSpacing.gutter,
+            MediaQuery.of(context).viewInsets.bottom + AppSpacing.s6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: AppTypography.title2(c.textMain)),
+              const SizedBox(height: AppSpacing.s4),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: keyboardType,
+                decoration: InputDecoration(
+                  labelText: label,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s5),
+              SizedBox(
+                height: 52,
+                child: FilledButton(
+                  onPressed: () async {
+                    await ref
+                        .read(userSettingsRepositoryProvider)
+                        .saveSettings(apply(controller.text));
+                    _refreshSettingsDependents(ref);
+                    if (context.mounted) Navigator.of(context).pop();
+                  },
+                  child: const Text('حفظ'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    // Do NOT dispose controller here – the sheet's exit animation may still
+    // reference it.  Because it is a local variable, it will be GC'd once
+    // the animation completes and all listeners are released.
+  }
+
+  void _refreshSettingsDependents(WidgetRef ref) {
+    refreshUserSettings(ref);
+    ref.invalidate(baseCurrencyProvider);
+    ref.invalidate(accountsProvider);
+    ref.invalidate(dashboardDataProvider);
+  }
+
   String _languageLabel(String value) => switch (value) {
         'en' => 'English',
         _ => 'العربية',
-      };
-
-  String _countryLabel(String value) => switch (value.toLowerCase()) {
-        'ae' => 'الإمارات',
-        'eg' => 'مصر',
-        'kw' => 'الكويت',
-        'qa' => 'قطر',
-        'bh' => 'البحرين',
-        'om' => 'عمان',
-        _ => 'السعودية',
       };
 
   Future<void> _showSettingsPicker(
@@ -493,7 +659,8 @@ class SettingsScreen extends ConsumerWidget {
     required String title,
     required String current,
     required Map<String, String> values,
-    required UserSettingsEntity Function(String value) apply,
+    UserSettingsEntity Function(String value)? apply,
+    Future<void> Function(String value)? save,
   }) {
     final c = context.colors;
     return showModalBottomSheet<void>(
@@ -515,7 +682,7 @@ class SettingsScreen extends ConsumerWidget {
             for (final entry in values.entries)
               RadioListTile<String>(
                 value: entry.key,
-                groupValue: title == 'الدولة' ? current.toLowerCase() : current,
+                groupValue: current,
                 secondary: title == 'الدولة'
                     ? _FlagAvatar(code: entry.key.toLowerCase(), size: 32)
                     : null,
@@ -532,10 +699,14 @@ class SettingsScreen extends ConsumerWidget {
                 activeColor: c.primary,
                 onChanged: (value) async {
                   if (value == null) return;
-                  await ref
-                      .read(userSettingsRepositoryProvider)
-                      .saveSettings(apply(value));
-                  refreshUserSettings(ref);
+                  if (save != null) {
+                    await save(value);
+                  } else if (apply != null) {
+                    await ref
+                        .read(userSettingsRepositoryProvider)
+                        .saveSettings(apply(value));
+                  }
+                  _refreshSettingsDependents(ref);
                   if (context.mounted) Navigator.of(context).pop();
                 },
               ),
@@ -671,7 +842,6 @@ class SettingsScreen extends ConsumerWidget {
               MediaQuery.of(context).viewInsets.bottom + AppSpacing.s6,
             ),
             child: ListView(
-              shrinkWrap: true,
               children: [
                 Text(
                   isEditing ? 'تعديل تصنيف' : 'إضافة تصنيف',
@@ -906,7 +1076,7 @@ class SettingsScreen extends ConsumerWidget {
     await Clipboard.setData(
       const ClipboardData(
         text:
-            'جرّب مالي: تطبيق عربي يساعدك تفهم مصروفاتك من رسائل البنك وتتابع ميزانيتك بسهولة.',
+            'جرّب قرش: تطبيق عربي يساعدك تفهم مصروفاتك من رسائل البنك وتتابع ميزانيتك بسهولة.',
       ),
     );
     if (!context.mounted) return;
@@ -920,7 +1090,7 @@ class SettingsScreen extends ConsumerWidget {
       context,
       title: 'عن التطبيق',
       body:
-          'مالي لتتبع المصروفات من رسائل البنك والإدخال اليدوي. بياناتك المالية تبقى على جهازك افتراضياً، والنسخ الاحتياطي اختياري ومشفّر end-to-end عند تفعيله.',
+          'قرش لتتبع المصروفات من رسائل البنك والإدخال اليدوي. بياناتك المالية تبقى على جهازك افتراضياً، والنسخ الاحتياطي اختياري ومشفّر end-to-end عند تفعيله.',
       actionLabel: 'تمام',
     );
   }
@@ -995,6 +1165,276 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
+class _ProfileSettingsCard extends StatelessWidget {
+  const _ProfileSettingsCard({
+    required this.settings,
+    required this.email,
+    required this.method,
+    required this.countries,
+    required this.currencies,
+    required this.catalogsLoading,
+    required this.onAvatarTap,
+    required this.onNameTap,
+    required this.onPhoneTap,
+    required this.onCountryTap,
+    required this.onCurrencyTap,
+  });
+
+  final UserSettingsEntity settings;
+  final String email;
+  final String method;
+  final List<RemoteCountry> countries;
+  final List<RemoteCurrency> currencies;
+  final bool catalogsLoading;
+  final VoidCallback onAvatarTap;
+  final VoidCallback onNameTap;
+  final VoidCallback onPhoneTap;
+  final VoidCallback? onCountryTap;
+  final VoidCallback? onCurrencyTap;
+
+  String _clean(String? value) => value?.trim() ?? '';
+
+  String _fallbackName() {
+    if (_clean(settings.displayName).isNotEmpty) {
+      return _clean(settings.displayName);
+    }
+    final local = email.split('@').first.trim();
+    if (local.isEmpty || local == '—') return 'صديق مالي';
+    return local.replaceAll('.', ' ').replaceAll('_', ' ');
+  }
+
+  RemoteCountry? _selectedCountry() {
+    final code = settings.country.toUpperCase();
+    for (final country in countries) {
+      if (country.code.toUpperCase() == code) return country;
+    }
+    return null;
+  }
+
+  RemoteCurrency? _selectedCurrency() {
+    final code = settings.currency.toUpperCase();
+    for (final currency in currencies) {
+      if (currency.code.toUpperCase() == code) return currency;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final name = _fallbackName();
+    final country = _selectedCountry();
+    final currency = _selectedCurrency();
+    final phone = _clean(settings.phoneNumber);
+    final avatarPath = _clean(settings.avatarPath);
+
+    return AppCard(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _ProfileAvatarButton(
+                path: avatarPath,
+                initials: name.isEmpty ? 'م' : name.substring(0, 1),
+                onTap: onAvatarTap,
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  onTap: onNameTap,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.headline(c.textMain),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '$email · $method',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.caption(c.textLight),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'تعديل الاسم',
+                onPressed: onNameTap,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          Divider(height: 1, color: c.border),
+          _ProfileActionRow(
+            icon: Icons.phone_iphone_outlined,
+            title: 'رقم الموبايل',
+            value: phone.isEmpty ? 'أضف رقمك' : phone,
+            onTap: onPhoneTap,
+          ),
+          Divider(height: 1, color: c.border),
+          _ProfileActionRow(
+            icon: Icons.flag_outlined,
+            title: 'الدولة',
+            value: country == null
+                ? (catalogsLoading ? 'تحميل الدول...' : settings.country)
+                : '${country.flagEmoji} ${country.nameAr}',
+            subtitle: country?.phonePrefix,
+            onTap: onCountryTap,
+          ),
+          Divider(height: 1, color: c.border),
+          _ProfileActionRow(
+            icon: Icons.payments_outlined,
+            title: 'العملة الأساسية',
+            value: currency == null
+                ? (catalogsLoading ? 'تحميل العملات...' : settings.currency)
+                : '${currency.code} · ${currency.nameAr}',
+            subtitle: currency?.symbol,
+            onTap: onCurrencyTap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileSkeletonCard extends StatelessWidget {
+  const _ProfileSkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const AppCard(
+      child: SizedBox(
+        height: 156,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
+  }
+}
+
+class _ProfileAvatarButton extends StatelessWidget {
+  const _ProfileAvatarButton({
+    required this.path,
+    required this.initials,
+    required this.onTap,
+  });
+
+  final String path;
+  final String initials;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final file = path.isEmpty ? null : File(path);
+    final hasImage = file != null && file.existsSync();
+    return InkWell(
+      customBorder: const CircleBorder(),
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: hasImage ? null : c.primaryGradient,
+              color: hasImage ? c.surface2 : null,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: hasImage
+                ? Image.file(file, fit: BoxFit.cover)
+                : Center(
+                    child: Text(
+                      initials,
+                      style: AppTypography.title2(Colors.white),
+                    ),
+                  ),
+          ),
+          Positioned(
+            right: -2,
+            bottom: -2,
+            child: Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: c.primary,
+                shape: BoxShape.circle,
+                border: Border.all(color: c.surface, width: 2),
+              ),
+              child: const Icon(
+                Icons.photo_camera_outlined,
+                size: 14,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileActionRow extends StatelessWidget {
+  const _ProfileActionRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.onTap,
+    this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String? subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      enabled: onTap != null,
+      leading: _TileIcon(icon: icon, color: c.primary),
+      title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
+      subtitle: subtitle == null || subtitle!.isEmpty
+          ? null
+          : Text(subtitle!, style: AppTypography.caption(c.textLight)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 150),
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.left,
+              style: AppTypography.caption(
+                onTap == null ? c.textMuted : c.textMain,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.chevron_left, color: c.textLight, size: 20),
+        ],
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
 class _SettingsHeader extends StatelessWidget {
   const _SettingsHeader({required this.email, required this.method});
 
@@ -1003,32 +1443,23 @@ class _SettingsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const headerText = Colors.white;
+    final c = context.colors;
     return Container(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
-        56,
+        64,
         AppSpacing.gutter,
-        AppSpacing.s5,
+        AppSpacing.s4,
       ),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           colors: [
-            Color(0xFF046E9B),
-            Color(0xFF034E73),
-            Color(0xFF012438),
+            c.cta.withValues(alpha: 0.12),
+            c.bg,
           ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
         ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF034F73).withValues(alpha: 0.25),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1036,68 +1467,24 @@ class _SettingsHeader extends StatelessWidget {
           Row(
             children: [
               if (Navigator.of(context).canPop()) ...[
-                const BackButton(color: Colors.white),
+                BackButton(color: c.textMain),
                 const SizedBox(width: AppSpacing.s2),
               ],
               Expanded(
                 child: Text(
                   'الإعدادات والملف الشخصي',
-                  style: AppTypography.title1(headerText)
+                  style: AppTypography.title1(c.textMain)
                       .copyWith(fontWeight: FontWeight.bold),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s4),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.18),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.25),
-                        width: 1.5),
-                  ),
-                  child: CircleAvatar(
-                    radius: 26,
-                    backgroundColor: Colors.white.withValues(alpha: 0.15),
-                    child:
-                        const Icon(Icons.person, size: 28, color: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        email,
-                        style: AppTypography.bodyStrong(headerText),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'الدخول عبر $method',
-                        style: AppTypography.caption(
-                          headerText.withValues(alpha: 0.72),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            '$email · الدخول عبر $method',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption(c.textLight),
           ),
         ],
       ),
@@ -1122,21 +1509,30 @@ class _Section extends StatelessWidget {
           child: Text(title, style: AppTypography.caption(c.textLight)),
         ),
         const SizedBox(height: AppSpacing.s2),
-        Material(
-          color: c.surface,
+        Container(
           clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(
+          decoration: BoxDecoration(
+            color: c.surface,
             borderRadius: BorderRadius.circular(AppRadius.card),
-            side: BorderSide(color: c.border),
-          ),
-          child: Column(
-            children: [
-              for (var i = 0; i < children.length; i++) ...[
-                children[i],
-                if (i != children.length - 1)
-                  Divider(height: 1, color: c.border),
-              ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
             ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: Column(
+              children: [
+                for (var i = 0; i < children.length; i++) ...[
+                  children[i],
+                  if (i != children.length - 1)
+                    Divider(height: 1, color: c.border),
+                ],
+              ],
+            ),
           ),
         ),
       ],
@@ -1168,45 +1564,56 @@ class _CategoryGroup extends StatelessWidget {
           child: Text(title, style: AppTypography.caption(c.textLight)),
         ),
         const SizedBox(height: AppSpacing.s2),
-        Material(
-          color: c.surface,
+        Container(
           clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(
+          decoration: BoxDecoration(
+            color: c.surface,
             borderRadius: BorderRadius.circular(AppRadius.card),
-            side: BorderSide(color: c.border),
-          ),
-          child: Column(
-            children: [
-              for (var i = 0; i < items.length; i++) ...[
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
-                  leading: CircleAvatar(
-                    backgroundColor: items[i].color.withValues(alpha: 0.12),
-                    child: Icon(items[i].icon, color: items[i].color, size: 18),
-                  ),
-                  title: Text(items[i].nameAr),
-                  subtitle: Text(items[i].key),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'تعديل',
-                        onPressed: () => onEdit(items[i]),
-                        icon: const Icon(Icons.edit_outlined),
-                      ),
-                      if (items[i].entity.sort >= 0)
-                        IconButton(
-                          tooltip: 'حذف',
-                          onPressed: () => onDelete(items[i]),
-                          icon: Icon(Icons.delete_outline, color: c.danger),
-                        ),
-                    ],
-                  ),
-                ),
-                if (i != items.length - 1) Divider(height: 1, color: c.border),
-              ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
             ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: Column(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
+                    leading: CircleAvatar(
+                      backgroundColor: items[i].color.withValues(alpha: 0.12),
+                      child:
+                          Icon(items[i].icon, color: items[i].color, size: 18),
+                    ),
+                    title: Text(items[i].nameAr),
+                    subtitle: Text(items[i].key),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'تعديل',
+                          onPressed: () => onEdit(items[i]),
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
+                        if (items[i].entity.sort >= 0)
+                          IconButton(
+                            tooltip: 'حذف',
+                            onPressed: () => onDelete(items[i]),
+                            icon: Icon(Icons.delete_outline, color: c.danger),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (i != items.length - 1)
+                    Divider(height: 1, color: c.border),
+                ],
+              ],
+            ),
           ),
         ),
       ],

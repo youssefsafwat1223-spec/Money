@@ -15,6 +15,7 @@ import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_bill_repository.dart';
+import '../../data/repositories/drift_plan_repository.dart';
 import '../../data/repositories/drift_budget_repository.dart';
 import '../../data/repositories/drift_category_repository.dart';
 import '../../data/repositories/drift_dedup_store.dart';
@@ -29,6 +30,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
 import '../../domain/repositories/bill_repository.dart';
+import '../../domain/repositories/plan_repository.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../../domain/repositories/gamification_repository.dart';
 import '../../domain/repositories/goal_repository.dart';
@@ -54,6 +56,16 @@ import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   throw UnimplementedError('AppDatabase must be provided from main().');
+});
+
+/// A monotonically-increasing counter that ticks on **every** database write
+/// (any table). Read-providers `ref.watch` this so the whole app reflects new
+/// data live — a captured/added transaction, a new account, a changed setting
+/// — without a hot restart or a manual `invalidate`.
+final dbRevisionProvider = StreamProvider<int>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  var revision = 0;
+  return db.tableUpdates().map((_) => ++revision);
 });
 
 final metricsClientProvider = Provider<MetricsClient>((ref) {
@@ -167,21 +179,49 @@ final accountRepositoryProvider = Provider<AccountRepository>((ref) {
 
 /// قائمة الحسابات (تتحدّث عند الإضافة/التعديل عبر invalidate).
 final accountsProvider = FutureProvider<List<AccountEntity>>((ref) async {
+  ref.watch(dbRevisionProvider);
   return ref.watch(accountRepositoryProvider).getAll();
 });
 
-/// عملة الأساس للعرض في الشاشات العامة (الأهداف/التقارير) — من الحساب
-/// الافتراضي وإلا إعدادات المستخدم.
+/// الحساب النشط عبر الشاشات الرئيسية. null يعني الحساب الافتراضي الحالي.
+final activeAccountIdProvider = StateProvider<String?>((ref) => null);
+
+/// عملة الأساس للعرض في الشاشات العامة — من الحساب النشط، ثم الافتراضي، ثم
+/// إعدادات المستخدم.
 final baseCurrencyProvider = FutureProvider<String>((ref) async {
-  final account = await ref.watch(accountRepositoryProvider).getDefault();
+  ref.watch(dbRevisionProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
+  final activeAccountId = ref.watch(activeAccountIdProvider);
+  final activeAccount = activeAccountId == null
+      ? null
+      : await accountRepo.getById(activeAccountId);
+  if (activeAccount != null) return activeAccount.currency;
+  final account = await accountRepo.getDefault();
   if (account != null) return account.currency;
   final settings =
       await ref.watch(userSettingsRepositoryProvider).getSettings();
   return settings.currency;
 });
 
+/// Admin-managed brand logos keyed by uppercase merchant keyword. Empty until
+/// the synced catalog carries `logo_url` values. UI resolves a merchant name
+/// against these to show a real logo.
+final merchantLogosProvider = FutureProvider<Map<String, String>>((ref) async {
+  final db = ref.watch(appDatabaseProvider);
+  final keywords = await RemoteMerchantKeywordsDao(db).getAll();
+  return {
+    for (final kw in keywords)
+      if (kw.logoUrl != null && kw.logoUrl!.isNotEmpty)
+        kw.keyword.toUpperCase(): kw.logoUrl!,
+  };
+});
+
 final billRepositoryProvider = Provider<BillRepository>((ref) {
   return DriftBillRepository(ref.watch(appDatabaseProvider));
+});
+
+final planRepositoryProvider = Provider<PlanRepository>((ref) {
+  return DriftPlanRepository(ref.watch(appDatabaseProvider));
 });
 
 final merchantCategoryRepositoryProvider =
@@ -237,7 +277,8 @@ final bankDiscoveryClientProvider = Provider<BankDiscoveryClient?>((ref) {
   return GeminiBankDiscoveryClient(
     edgeFunctionUrl: '${SupabaseConfig.url}/functions/v1/bank-discovery',
     getAnonJwt: () async =>
-        supabase.Supabase.instance.client.auth.currentSession?.accessToken,
+        supabase.Supabase.instance.client.auth.currentSession?.accessToken ??
+        SupabaseConfig.anonKey,
   );
 });
 
@@ -271,6 +312,10 @@ final senderBankMappingSyncServiceProvider =
 final installIdProvider = FutureProvider<String>((ref) => InstallId.get());
 
 final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
+  // Capture the DB once at build time. The async callbacks below run later
+  // (during a slow AI call); reading `ref` inside them would throw if this
+  // provider rebuilt in the meantime (e.g. installId resolving).
+  final db = ref.watch(appDatabaseProvider);
   return AddTransactionUseCase(
     transactionRepository: ref.watch(transactionRepositoryProvider),
     merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
@@ -278,7 +323,6 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     logMetric: ref.watch(metricsClientProvider).logEvent,
     loadBankProfiles: ref.watch(rulesClientProvider).localBankProfiles,
     loadRemoteKeywords: () async {
-      final db = ref.read(appDatabaseProvider);
       final settings = await DriftUserSettingsRepository(db).getSettings();
       final country = settings.country;
       return country.isEmpty
@@ -286,24 +330,48 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
           : RemoteMerchantKeywordsDao(db).getActiveForCountry(country);
     },
     noteMerchantFeedback: (keyword) =>
-        PendingMerchantFeedbackDao(ref.watch(appDatabaseProvider))
-            .record(keyword),
+        PendingMerchantFeedbackDao(db).record(keyword),
+    // Real-time category assist for unknown merchants: when neither rules nor
+    // AI know the merchant, the enrich-merchant Edge Function looks it up via
+    // Google Places, returns a category, and writes it to merchant_keywords for
+    // every device. Only available when the backend is configured.
+    resolveMerchantCategory: SupabaseConfig.isConfigured
+        ? (keyword) async {
+            try {
+              final settings =
+                  await DriftUserSettingsRepository(db).getSettings();
+              final res = await supabase.Supabase.instance.client.functions
+                  .invoke('enrich-merchant', body: {
+                'merchant_name': keyword,
+                'country_code': settings.country,
+                'write': true,
+              });
+              final data = res.data;
+              if (data is Map && data['matched'] == true) {
+                return data['category'] as String?;
+              }
+            } catch (_) {
+              // Network/auth failure — fall back to the feedback queue.
+            }
+            return null;
+          }
+        : null,
     accountRepository: ref.watch(accountRepositoryProvider),
-    dedupStore: DriftDedupStore(ref.watch(appDatabaseProvider)),
+    dedupStore: DriftDedupStore(db),
     aiClient: SupabaseConfig.isConfigured
         ? SupabaseAiParserClient(
             edgeFunctionUrl: '${SupabaseConfig.url}/functions/v1/parse-sms',
-            getAnonJwt: () async => supabase
-                .Supabase.instance.client.auth.currentSession?.accessToken,
+            getAnonJwt: () async =>
+                supabase.Supabase.instance.client.auth.currentSession
+                    ?.accessToken ??
+                SupabaseConfig.anonKey,
           )
         : null,
     loadAiConsent: () async {
-      final settings = await DriftUserSettingsRepository(
-        ref.read(appDatabaseProvider),
-      ).getSettings();
+      final settings = await DriftUserSettingsRepository(db).getSettings();
       return settings.aiConsentGranted;
     },
-    installId: ref.watch(installIdProvider).valueOrNull ?? '',
+    loadInstallId: InstallId.get,
     resolveBankForSenderUseCase: ref.watch(resolveBankForSenderUseCaseProvider),
     bankDiscoveryService: ref.watch(bankDiscoveryServiceProvider),
   );
@@ -315,6 +383,7 @@ final saveManualTransactionUseCaseProvider =
     transactionRepository: ref.watch(transactionRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
     logMetric: ref.watch(metricsClientProvider).logEvent,
+    accountRepository: ref.watch(accountRepositoryProvider),
   );
 });
 
@@ -432,5 +501,13 @@ final saveThemeModeUseCaseProvider = Provider<SaveThemeModeUseCase>((ref) {
 
 final saveCountryCurrencyUseCaseProvider =
     Provider<SaveCountryCurrencyUseCase>((ref) {
-  return SaveCountryCurrencyUseCase(ref.watch(userSettingsRepositoryProvider));
+  return SaveCountryCurrencyUseCase(
+    ref.watch(userSettingsRepositoryProvider),
+    ref.watch(accountRepositoryProvider),
+    ref.watch(transactionRepositoryProvider),
+  );
+});
+
+final saveLanguageUseCaseProvider = Provider<SaveLanguageUseCase>((ref) {
+  return SaveLanguageUseCase(ref.watch(userSettingsRepositoryProvider));
 });

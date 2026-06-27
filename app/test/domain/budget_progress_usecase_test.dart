@@ -61,6 +61,7 @@ class _FakeTransactionRepository implements TransactionRepository {
     required String categoryId,
     required DateTime from,
     required DateTime to,
+    String? accountId,
   }) async {
     if (from.day == 12) {
       return previousSpend;
@@ -125,6 +126,22 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<void> updateCard({
+    required String transactionId,
+    required String? cardLast4,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> updateAmount({
+    required String transactionId,
+    required double amount,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
     required DateTime to,
@@ -153,7 +170,8 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
-  Future<List<TransactionEntity>> getRecent({int limit = 5, String? accountId}) {
+  Future<List<TransactionEntity>> getRecent(
+      {int limit = 5, String? accountId}) {
     throw UnimplementedError();
   }
 
@@ -198,12 +216,13 @@ class _FakeTransactionRepository implements TransactionRepository {
     required DateTime from,
     required DateTime to,
     int limit = 3,
+    String? accountId,
   }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<List<RecurringCandidate>> recurringCandidates() {
+  Future<List<RecurringCandidate>> recurringCandidates({String? accountId}) {
     throw UnimplementedError();
   }
 

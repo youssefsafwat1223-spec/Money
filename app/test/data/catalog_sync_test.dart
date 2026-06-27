@@ -14,7 +14,12 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String?> readStoredKey() async => 'test-key';
 }
 
-RemoteBank _bank(String id, String shortCode, {String country = 'EG'}) =>
+RemoteBank _bank(
+  String id,
+  String shortCode, {
+  String country = 'EG',
+  List<String>? smsSenders,
+}) =>
     RemoteBank(
       id: id,
       nameAr: 'بنك',
@@ -22,7 +27,7 @@ RemoteBank _bank(String id, String shortCode, {String country = 'EG'}) =>
       shortCode: shortCode,
       logoUrl: null,
       countryCode: country,
-      smsSenders: [shortCode.toUpperCase()],
+      smsSenders: smsSenders ?? [shortCode.toUpperCase()],
       supportedCurrencies: ['EGP'],
       colorHex: '#000000',
       isActive: true,
@@ -140,7 +145,8 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
   group('RemoteBanksDao — delta write', () {
     test('upsertAll inserts multiple banks', () async {
-      await RemoteBanksDao(db).upsertAll([_bank('b1', 'nbe'), _bank('b2', 'cib')]);
+      await RemoteBanksDao(db)
+          .upsertAll([_bank('b1', 'nbe'), _bank('b2', 'cib')]);
       expect(await db.count('remote_banks'), 2);
     });
 
@@ -175,6 +181,16 @@ void main() {
       final found = await dao.getBankBySender('NBE');
       expect(found?.shortCode, 'nbe');
     });
+
+    test('getBankBySender tolerates ATM suffixes and sender separators',
+        () async {
+      final dao = RemoteBanksDao(db);
+      await dao.upsertAll([
+        _bank('b1', 'cib_eg', smsSenders: ['CIB', 'CIB Alerts']),
+      ]);
+      final found = await dao.getBankBySender('CIB-ATM');
+      expect(found?.shortCode, 'cib_eg');
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -205,16 +221,20 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
   group('FeatureFlagService — reads from Drift with rollout', () {
     test('getBool returns DB value at 100% rollout', () async {
-      await RemoteFeatureFlagsDao(db).replaceAll([_flag('enable_goals', 'false')]);
-      final svc = FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      await RemoteFeatureFlagsDao(db)
+          .replaceAll([_flag('enable_goals', 'false')]);
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
       await svc.init();
       expect(svc.getBool('enable_goals'), isFalse);
     });
 
     test('getBool falls back to default at 0% rollout', () async {
       // enable_goals default is true; rollout 0% means flag is skipped
-      await RemoteFeatureFlagsDao(db).replaceAll([_flag('enable_goals', 'false', rollout: 0)]);
-      final svc = FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      await RemoteFeatureFlagsDao(db)
+          .replaceAll([_flag('enable_goals', 'false', rollout: 0)]);
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
       await svc.init();
       expect(svc.getBool('enable_goals'), isTrue);
     });
@@ -223,7 +243,8 @@ void main() {
       await RemoteFeatureFlagsDao(db).replaceAll([
         _flag('parser_engine_version', 'v2', type: 'string'),
       ]);
-      final svc = FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
       await svc.init();
       expect(svc.getString('parser_engine_version'), 'v2');
     });
@@ -232,23 +253,28 @@ void main() {
       await RemoteFeatureFlagsDao(db).replaceAll([
         _flag('enable_goals', 'false', isActive: false),
       ]);
-      final svc = FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
       await svc.init();
       expect(svc.getBool('enable_goals'), isTrue); // default
     });
 
     test('isInitialised transitions false → true after init()', () async {
-      final svc = FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
       expect(svc.isInitialised, isFalse);
       await svc.init();
       expect(svc.isInitialised, isTrue);
     });
 
-    test('different installIds produce consistent bucket distribution', () async {
+    test('different installIds produce consistent bucket distribution',
+        () async {
       // This test verifies SHA-256 bucketing doesn't crash and returns bool.
-      await RemoteFeatureFlagsDao(db).replaceAll([_flag('enable_coupons', 'true', rollout: 50)]);
+      await RemoteFeatureFlagsDao(db)
+          .replaceAll([_flag('enable_coupons', 'true', rollout: 50)]);
       for (final id in ['user-a', 'user-b', 'user-c', 'user-d']) {
-        final svc = FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: id);
+        final svc =
+            FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: id);
         await svc.init();
         expect(svc.getBool('enable_coupons'), isA<bool>());
       }
@@ -288,7 +314,8 @@ void main() {
           validUntil: past,
         ),
       ]);
-      expect(await AnnouncementService(dao: dao).getActiveAnnouncements(), isEmpty);
+      expect(await AnnouncementService(dao: dao).getActiveAnnouncements(),
+          isEmpty);
     });
 
     test('hasForceUpdate returns true for force_update severity', () async {
@@ -309,18 +336,21 @@ void main() {
       await dao.setDismissed('a1');
       // Simulate server re-push of same announcement
       await dao.replaceAll([_announcement(id: 'a1')]);
-      expect(await AnnouncementService(dao: dao).getActiveAnnouncements(), isEmpty);
+      expect(await AnnouncementService(dao: dao).getActiveAnnouncements(),
+          isEmpty);
     });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
   group('SeedLoader — version metadata regression', () {
-    test('seedIfEmpty sets catalog_metadata for all syncable categories', () async {
+    test('seedIfEmpty sets catalog_metadata for all syncable categories',
+        () async {
       await const SeedLoader().seedIfEmpty(db);
       final meta = CatalogMetadataDao(db);
       for (final category in CatalogCategories.syncable) {
         final v = await meta.getVersion(category);
-        expect(v, isNotNull, reason: 'catalog_metadata missing for "$category"');
+        expect(v, isNotNull,
+            reason: 'catalog_metadata missing for "$category"');
         expect(v!.serverVersion, 0);
       }
     });

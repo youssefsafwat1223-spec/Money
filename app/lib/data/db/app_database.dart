@@ -10,7 +10,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 9;
+const int _targetSchemaVersion = 12;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -67,11 +67,28 @@ class AppDatabase extends GeneratedDatabase {
     return db;
   }
 
+  /// Deletes the on-disk encrypted database (and its WAL/SHM sidecars). Used by
+  /// the recovery screen when the file can't be decrypted/opened — the data is
+  /// unrecoverable without the key, so a clean recreate is the only way forward.
+  static Future<void> deleteDatabaseFile() async {
+    final directory = await getApplicationSupportDirectory();
+    for (final suffix in const ['', '-wal', '-shm']) {
+      final file =
+          File(p.join(directory.path, 'money_companion.sqlite$suffix'));
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+  }
+
   Future<void> initialize() async {
     await customStatement('PRAGMA foreign_keys = ON;');
     await _createSchema();
     await _runCompatibilityMigrations();
     await _seedIfNeeded();
+    await _dedupeCategoryRows();
+    await _backfillSystemTransactionCategories();
+    await _backfillTransactionDirections();
     await customStatement('PRAGMA user_version = $_targetSchemaVersion;');
   }
 
@@ -161,6 +178,7 @@ class AppDatabase extends GeneratedDatabase {
         updated_at TEXT NOT NULL,
         foreign_amount REAL NULL,
         foreign_currency TEXT NULL,
+        direction TEXT NULL CHECK(direction IN ('credit', 'debit', 'unknown')),
         FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE SET NULL,
         FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
       );
@@ -191,6 +209,7 @@ class AppDatabase extends GeneratedDatabase {
       CREATE TABLE IF NOT EXISTS goals(
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        account_id TEXT NULL,
         target_amount REAL NOT NULL,
         saved_amount REAL NOT NULL,
         deadline TEXT NULL,
@@ -253,6 +272,8 @@ class AppDatabase extends GeneratedDatabase {
       );
     ''');
 
+    await _createBillPaymentsTable();
+
     await customStatement('''
       CREATE TABLE IF NOT EXISTS parsing_rules(
         id TEXT PRIMARY KEY,
@@ -278,6 +299,9 @@ class AppDatabase extends GeneratedDatabase {
     await customStatement('''
       CREATE TABLE IF NOT EXISTS user_settings(
         id TEXT PRIMARY KEY,
+        display_name TEXT NULL,
+        phone_number TEXT NULL,
+        avatar_path TEXT NULL,
         country TEXT NOT NULL,
         currency TEXT NOT NULL,
         language TEXT NOT NULL,
@@ -309,6 +333,42 @@ class AppDatabase extends GeneratedDatabase {
     await _createRemoteMerchantKeywordsTable();
     await _createPendingMerchantFeedbackTable();
     await _createSenderBankMappingsTable();
+    await _createPlansTable();
+  }
+
+  /// خطط/مظاريف مؤقتة (سفر، عُرس، رمضان...) — ميزانية لفترة محددة بتتبّع تلقائياً
+  /// أي صرف في الفترة من الحسابات/الكروت المختارة. عضوية العمليات محسوبة ديناميكياً
+  /// (مفيش عمود على transactions)، فالجدول بيتعمل بـ IF NOT EXISTS لكل النسخ.
+  Future<void> _createPlansTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS plans(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        budget_amount REAL NOT NULL,
+        currency TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        account_ids TEXT NOT NULL DEFAULT '',
+        card_last4s TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        icon TEXT NULL,
+        created_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS plan_transaction_links(
+        plan_id TEXT NOT NULL,
+        transaction_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (plan_id, transaction_id),
+        FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+        FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_plan_transaction_links_transaction '
+      'ON plan_transaction_links(transaction_id);',
+    );
   }
 
   Future<void> _runCompatibilityMigrations() async {
@@ -320,6 +380,7 @@ class AppDatabase extends GeneratedDatabase {
       throw StateError('Unsupported database schema version: $version');
     }
     await _ensureColumn('transactions', 'note', 'TEXT NULL');
+    await _ensureColumn('remote_merchant_keywords', 'logo_url', 'TEXT');
     await _ensureColumn('subscriptions', 'name', "TEXT NOT NULL DEFAULT ''");
     await _ensureColumn(
       'subscriptions',
@@ -357,20 +418,30 @@ class AppDatabase extends GeneratedDatabase {
       'ai_consent_granted',
       'INTEGER NOT NULL DEFAULT 0',
     );
+    await _ensureColumn('user_settings', 'display_name', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'phone_number', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'avatar_path', 'TEXT NULL');
     // v2: ربط المعاملات/الاشتراكات بالحساب (multi-currency accounts).
     await _ensureColumn('transactions', 'account_id', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'account_id', 'TEXT NULL');
     await _ensureColumn(
         'budgets', 'show_on_header', 'INTEGER NOT NULL DEFAULT 0');
     await _ensureColumn('budgets', 'account_id', 'TEXT NULL');
+    await _ensureColumn('goals', 'account_id', 'TEXT NULL');
+    // recurring auto-save per goal (fixed amount every week/month).
+    await _ensureColumn('goals', 'auto_save_amount', 'REAL NULL');
+    await _ensureColumn('goals', 'auto_save_period', 'TEXT NULL');
+    await _ensureColumn('goals', 'auto_save_last_run', 'TEXT NULL');
     // subscription/installment extra fields
     await _ensureColumn(
         'subscriptions', 'status', "TEXT NOT NULL DEFAULT 'active'");
     await _ensureColumn('subscriptions', 'total_installments', 'INTEGER NULL');
     await _ensureColumn('subscriptions', 'paid_count', 'INTEGER NULL');
+    await _ensureColumn('subscriptions', 'manual_paid_amount', 'REAL NULL');
     await _ensureColumn('subscriptions', 'total_purchase_amount', 'REAL NULL');
     await _ensureColumn('subscriptions', 'lender_name', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'interest_rate', 'REAL NULL');
+    await _createBillPaymentsTable();
 
     if (version < 3) {
       await _createCatalogMetadataTable();
@@ -400,6 +471,14 @@ class AppDatabase extends GeneratedDatabase {
     if (version < 9) {
       await _ensureColumn('transactions', 'foreign_amount', 'REAL NULL');
       await _ensureColumn('transactions', 'foreign_currency', 'TEXT NULL');
+    }
+    await _ensureColumn(
+      'transactions',
+      'direction',
+      "TEXT NULL CHECK(direction IN ('credit', 'debit', 'unknown'))",
+    );
+    if (version < 10) {
+      await _backfillGoalsToDefaultAccount();
     }
   }
 
@@ -463,6 +542,31 @@ class AppDatabase extends GeneratedDatabase {
     ''');
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_dedup_hashes_occurred_at ON dedup_hashes(occurred_at);',
+    );
+  }
+
+  Future<void> _createBillPaymentsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS bill_payments(
+        id TEXT PRIMARY KEY,
+        bill_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        paid_at TEXT NOT NULL,
+        installment_index INTEGER NULL,
+        transaction_id TEXT NULL,
+        note TEXT NULL,
+        FOREIGN KEY (bill_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+      );
+    ''');
+    await _ensureColumn('bill_payments', 'transaction_id', 'TEXT NULL');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_bill_payments_bill_id ON bill_payments(bill_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_bill_payments_transaction_id ON bill_payments(transaction_id);',
     );
   }
 
@@ -619,7 +723,8 @@ class AppDatabase extends GeneratedDatabase {
         priority INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        logo_url TEXT
       );
     ''');
     await customStatement(
@@ -828,10 +933,26 @@ class AppDatabase extends GeneratedDatabase {
         'WHERE account_id IS NULL;',
       );
     }
+    await _backfillGoalsToDefaultAccount();
   }
 
+  Future<void> _backfillGoalsToDefaultAccount() async {
+    final row = await customSelect(
+      'SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;',
+    ).getSingleOrNull();
+    final accountId = row?.read<String>('id');
+    if (accountId == null) return;
+    await customStatement(
+      'UPDATE goals SET account_id = ${sqlString(accountId)} '
+      'WHERE account_id IS NULL;',
+    );
+  }
+
+  // Idempotently ensures every seed category (internal + new ones added in
+  // later app versions) exists. INSERT OR IGNORE keys off the UNIQUE `key`, so
+  // existing rows are untouched and only genuinely new categories are inserted.
   Future<void> _ensureInternalCategories() async {
-    for (final category in DatabaseSeed.categories.where((it) => it.sort < 0)) {
+    for (final category in DatabaseSeed.categories) {
       await customInsert(
         '''
           INSERT OR IGNORE INTO categories(id, key, name_ar, icon, color, is_income, sort_order)
@@ -848,6 +969,121 @@ class AppDatabase extends GeneratedDatabase {
         ],
       );
     }
+  }
+
+  // Repairs DBs that ended up with duplicate category rows (same `key`, which
+  // crashed category dropdowns). Repoints every FK reference to the canonical
+  // (lowest-rowid) row per key, then deletes the duplicates.
+  Future<void> _dedupeCategoryRows() async {
+    final dup = await customSelect(
+      'SELECT COUNT(*) - COUNT(DISTINCT key) AS d FROM categories;',
+    ).getSingle();
+    if (dup.read<int>('d') == 0) return;
+
+    for (final table in const [
+      'transactions',
+      'budgets',
+      'merchant_category_map'
+    ]) {
+      await customStatement('''
+        UPDATE $table SET category_id = (
+          SELECT c.id FROM categories c
+          WHERE c.key = (SELECT k.key FROM categories k WHERE k.id = $table.category_id)
+          ORDER BY c.rowid LIMIT 1
+        )
+        WHERE category_id IS NOT NULL
+          AND category_id NOT IN (
+            SELECT id FROM categories
+            WHERE rowid IN (SELECT MIN(rowid) FROM categories GROUP BY key)
+          );
+      ''');
+    }
+    await customStatement(
+      'DELETE FROM categories WHERE rowid NOT IN '
+      '(SELECT MIN(rowid) FROM categories GROUP BY key);',
+    );
+  }
+
+  Future<void> _backfillSystemTransactionCategories() async {
+    for (final entry in const {
+      'transfer': 'transfers',
+      'withdrawal': 'cash',
+      'income': 'income',
+    }.entries) {
+      await customUpdate(
+        '''
+          UPDATE transactions
+          SET category_id = (
+            SELECT id FROM categories WHERE key = ? LIMIT 1
+          )
+          WHERE type = ?
+            AND (
+              category_id IS NULL OR
+              category_id != (SELECT id FROM categories WHERE key = ? LIMIT 1)
+            );
+        ''',
+        variables: [
+          Variable.withString(entry.value),
+          Variable.withString(entry.key),
+          Variable.withString(entry.value),
+        ],
+      );
+    }
+    await customUpdate(
+      '''
+        UPDATE transactions
+        SET merchant_id = NULL, raw_merchant = NULL
+        WHERE type IN ('transfer', 'income');
+      ''',
+    );
+  }
+
+  Future<void> _backfillTransactionDirections() async {
+    await customUpdate(
+      '''
+        UPDATE transactions
+        SET direction = 'credit'
+        WHERE direction IS NULL
+          AND (
+            raw_message LIKE '%credited%' OR
+            raw_message LIKE '%received%' OR
+            raw_message LIKE '%incoming%' OR
+            raw_message LIKE '%إيداع%' OR
+            raw_message LIKE '%ايداع%' OR
+            raw_message LIKE '%إضافة%' OR
+            raw_message LIKE '%اضافة%' OR
+            raw_message LIKE '%تم إضافة%' OR
+            raw_message LIKE '%تم اضافة%' OR
+            raw_message LIKE '%حوالة واردة%' OR
+            raw_message LIKE '%مبلغ وارد%'
+          );
+      ''',
+    );
+    await customUpdate(
+      '''
+        UPDATE transactions
+        SET direction = 'debit'
+        WHERE direction IS NULL
+          AND (
+            type IN ('payment', 'withdrawal') OR
+            raw_message LIKE '%debited%' OR
+            raw_message LIKE '%deducted%' OR
+            raw_message LIKE '%withdrawn%' OR
+            raw_message LIKE '%purchase%' OR
+            raw_message LIKE '%خصم%' OR
+            raw_message LIKE '%شراء%' OR
+            raw_message LIKE '%سحب%' OR
+            raw_message LIKE '%مبلغ صادر%'
+          );
+      ''',
+    );
+    await customUpdate(
+      '''
+        UPDATE transactions
+        SET direction = 'unknown'
+        WHERE direction IS NULL;
+      ''',
+    );
   }
 
   Future<String?> _categoryIdByKey(String key) async {

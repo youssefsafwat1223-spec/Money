@@ -1,0 +1,18 @@
+name: native_glass_navbar
+description: Local vendored iOS native Liquid Glass tab bar for Money.
+version: 1.0.2
+publish_to: none
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: NativeLiquidTabBarPlugin

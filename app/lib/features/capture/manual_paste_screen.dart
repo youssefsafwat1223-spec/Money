@@ -4,15 +4,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../core/backend/supabase_config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../domain/entities/captured_message.dart';
+import '../../domain/entities/transaction_entity.dart';
 import '../../domain/usecases/add_transaction_usecase.dart';
 import '../dashboard/dashboard_providers.dart';
+import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
+import '../common/top_banner.dart';
 
 class ManualPasteScreen extends ConsumerStatefulWidget {
   const ManualPasteScreen({super.key, this.onTransactionAdded});
@@ -102,7 +106,10 @@ class _ManualPasteSheet extends StatelessWidget {
                     ],
                   ),
                 ),
-                Expanded(child: _ManualPasteContent(fullScreen: false, onTransactionAdded: onTransactionAdded)),
+                Expanded(
+                    child: _ManualPasteContent(
+                        fullScreen: false,
+                        onTransactionAdded: onTransactionAdded)),
               ],
             ),
           ),
@@ -114,7 +121,8 @@ class _ManualPasteSheet extends StatelessWidget {
 
 class _ManualPasteScreenState extends ConsumerState<ManualPasteScreen> {
   @override
-  Widget build(BuildContext context) => _ManualPasteContent(onTransactionAdded: widget.onTransactionAdded);
+  Widget build(BuildContext context) =>
+      _ManualPasteContent(onTransactionAdded: widget.onTransactionAdded);
 }
 
 class _ManualPasteContent extends ConsumerStatefulWidget {
@@ -145,6 +153,39 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     }
   }
 
+  /// Closes the paste sheet, then opens the review/confirm sheet on the root
+  /// navigator (so it isn't a fragile modal-on-modal that can fail to show).
+  Future<void> _openReview(String txId, String? notice) async {
+    if (widget.onTransactionAdded != null) {
+      if (mounted && notice != null) showTopInfo(context, notice);
+      if (mounted) Navigator.of(context).pop();
+      widget.onTransactionAdded!(txId);
+      return;
+    }
+    final rootContext = Navigator.of(context, rootNavigator: true).context;
+    if (mounted) Navigator.of(context).pop();
+    await showConfirmTransactionSheet(rootContext, txId,
+        secondaryNotice: notice);
+  }
+
+  Future<void> _openDuplicate(TransactionEntity tx, String? notice) async {
+    if (tx.status == TransactionStatus.pending || notice != null) {
+      await _openReview(tx.id, notice);
+      return;
+    }
+    if (widget.onTransactionAdded != null) {
+      if (mounted) {
+        showTopInfo(context, 'العملية موجودة بالفعل، فتحناها للمراجعة.');
+        Navigator.of(context).pop();
+      }
+      widget.onTransactionAdded!(tx.id);
+      return;
+    }
+    final rootContext = Navigator.of(context, rootNavigator: true).context;
+    if (mounted) Navigator.of(context).pop();
+    await TransactionDetailsScreen.showSheet(rootContext, tx.id);
+  }
+
   Future<void> _analyze() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _busy) return;
@@ -168,24 +209,49 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
       case AddTransactionOutcome.added:
         refreshTransactions(ref);
         ref.invalidate(dashboardDataProvider);
-        final txId = addResult.transaction!.id;
-        if (widget.onTransactionAdded != null) {
-          if (mounted) Navigator.of(context).pop();
-          widget.onTransactionAdded!(txId);
-        } else {
-          await showConfirmTransactionSheet(context, txId);
-          if (mounted) Navigator.of(context).pop();
-        }
+        await _openReview(
+          addResult.transaction!.id,
+          feeNoticeFor(addResult.secondary),
+        );
       case AddTransactionOutcome.duplicate:
-        _snack('هذه العملية مسجّلة بالفعل.');
+        refreshTransactions(ref);
+        ref.invalidate(dashboardDataProvider);
+        final existing = addResult.transaction;
+        final feeNotice = feeNoticeFor(addResult.secondary);
+        // Re-pasting may have added a missing fee, or the existing operation may
+        // still need review. If it is already confirmed, open its details
+        // instead of blocking the user with a dead-end duplicate message.
+        if (existing != null) {
+          await _openDuplicate(existing, feeNotice);
+        } else {
+          showTopError(context, 'هذه العملية مسجّلة بالفعل.');
+        }
       case AddTransactionOutcome.notTransaction:
-        _snack('ما قدرنا نقرأها كعملية — تأكّد من نص الرسالة.');
+        final settings =
+            await ref.read(userSettingsRepositoryProvider).getSettings();
+        if (!mounted) return;
+        if (!SupabaseConfig.isConfigured) {
+          showTopError(context,
+              'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.');
+        } else if (!settings.aiConsentGranted) {
+          showTopError(context,
+              'الذكاء الاصطناعي مقفول من الإعدادات — فعّل "اقتراحات الذكاء الاصطناعي" وجرب تاني.');
+        } else {
+          final reason = addResult.aiFailureReason;
+          final showAiFailure = reason != null &&
+              reason != 'null_response' &&
+              !reason.startsWith('http_502') &&
+              !reason.startsWith('http_503') &&
+              !reason.startsWith('http_504') &&
+              reason != 'network_or_timeout';
+          showTopError(
+            context,
+            !showAiFailure
+                ? 'ما قدرنا نقرأها كعملية حتى بعد محاولة الذكاء الاصطناعي — ابعتلي نص الرسالة.'
+                : 'فشل الذكاء الاصطناعي: $reason',
+          );
+        }
     }
-  }
-
-  void _snack(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

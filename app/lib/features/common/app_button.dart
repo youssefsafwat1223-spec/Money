@@ -266,6 +266,8 @@ class _AppButtonBaseState extends State<_AppButtonBase> {
                   disabledForegroundColor: widget.disabledFg,
                   elevation: 0,
                   shadowColor: Colors.transparent,
+                  minimumSize: Size(0, widget.height),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   padding:
                       const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
                   shape: RoundedRectangleBorder(

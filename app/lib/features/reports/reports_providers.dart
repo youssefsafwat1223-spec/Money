@@ -4,6 +4,7 @@ import '../../core/di/app_providers.dart';
 import '../../domain/entities/report_models.dart';
 import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
+import '../transactions/transactions_providers.dart';
 
 class ReportSection {
   const ReportSection({
@@ -66,16 +67,28 @@ DateTime _weekStartSaturday(DateTime now) {
 }
 
 final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
+  ref.watch(dbRevisionProvider);
   final txRepo = ref.watch(transactionRepositoryProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
+  final selectedAccountId = ref.watch(activeAccountIdProvider);
+  final selectedAccount = selectedAccountId == null
+      ? null
+      : await accountRepo.getById(selectedAccountId);
+  final defaultAccount = await accountRepo.getDefault();
+  final accountId = (selectedAccount ?? defaultAccount)?.id;
   final now = DateTime.now();
+  final range = ref.watch(transactionsDateRangeProvider);
+  final rangeEnd = range.to.isAfter(now) ? now : range.to;
 
   Future<ReportSection> section(
-      DateTime from, DateTime prevFrom, DateTime prevTo) async {
-    final total = await txRepo.expenseTotalBetween(from: from, to: now);
-    final prevTotal =
-        await txRepo.expenseTotalBetween(from: prevFrom, to: prevTo);
-    final breakdown = await txRepo.categoryBreakdown(from: from, to: now);
+      DateTime from, DateTime to, DateTime prevFrom, DateTime prevTo) async {
+    final total = await txRepo.expenseTotalBetween(
+        from: from, to: to, accountId: accountId);
+    final prevTotal = await txRepo.expenseTotalBetween(
+        from: prevFrom, to: prevTo, accountId: accountId);
+    final breakdown = await txRepo.categoryBreakdown(
+        from: from, to: to, accountId: accountId);
     final sumAll = breakdown.fold<double>(0, (s, i) => s + i.total);
     final topCategories = <CategorySlice>[];
     for (final item in breakdown.take(3)) {
@@ -87,9 +100,10 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
         percent: sumAll == 0 ? 0 : item.total / sumAll,
       ));
     }
-    final topMerchants =
-        await txRepo.merchantBreakdown(from: from, to: now, limit: 3);
-    final dailySpend = await txRepo.dailyExpenseTotals(from: from, to: now);
+    final topMerchants = await txRepo.merchantBreakdown(
+        from: from, to: to, limit: 3, accountId: accountId);
+    final dailySpend = await txRepo.dailyExpenseTotals(
+        from: from, to: to, accountId: accountId);
     return ReportSection(
       total: total,
       prevTotal: prevTotal,
@@ -104,15 +118,18 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
   final weekStart = _weekStartSaturday(now);
   final weekElapsed = now.difference(weekStart);
   final prevWeekStart = weekStart.subtract(const Duration(days: 7));
-  final weekly =
-      await section(weekStart, prevWeekStart, prevWeekStart.add(weekElapsed));
+  final weekly = await section(
+      weekStart, now, prevWeekStart, prevWeekStart.add(weekElapsed));
 
-  // شهري — مقارنة بنفس المدى من الشهر السابق.
-  final monthStart = DateTime(now.year, now.month);
-  final monthElapsed = now.difference(monthStart);
-  final prevMonthStart = DateTime(now.year, now.month - 1);
-  final monthly = await section(
-      monthStart, prevMonthStart, prevMonthStart.add(monthElapsed));
+  // الفترة المختارة — مقارنة بنفس طول الفترة السابقة.
+  final rangeStart =
+      DateTime(range.from.year, range.from.month, range.from.day);
+  final daysInRange =
+      rangeEnd.difference(rangeStart).inDays.abs().clamp(1, 3660) + 1;
+  final prevRangeStart = rangeStart.subtract(Duration(days: daysInRange));
+  final prevRangeEnd = rangeStart.subtract(const Duration(seconds: 1));
+  final monthly =
+      await section(rangeStart, rangeEnd, prevRangeStart, prevRangeEnd);
 
   return ReportsBundle(weekly: weekly, monthly: monthly);
 });

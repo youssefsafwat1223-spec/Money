@@ -6,6 +6,7 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
 import 'category_catalog.dart';
 import 'category_avatar.dart';
+import 'transaction_direction.dart';
 
 export 'app_error_state.dart';
 export 'app_budget_progress_card.dart';
@@ -48,10 +49,9 @@ class TransactionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isIncome = transaction.type == TransactionTypeEntity.income ||
-        transaction.type == TransactionTypeEntity.refund;
+    final isDebit = transactionIsDebit(transaction);
 
-    final amountColor = isIncome ? c.success : c.textPrimary;
+    final amountColor = isDebit ? c.textPrimary : c.success;
     final pending = transaction.status == TransactionStatus.pending;
 
     return Container(
@@ -154,7 +154,7 @@ class TransactionRow extends StatelessWidget {
                 Text(
                   hideAmount
                       ? '•••• ${transaction.currency}'
-                      : '${Formatters.signed(transaction.amount, isExpense: !isIncome)} ${transaction.currency}',
+                      : '${Formatters.signed(transaction.amount, isExpense: isDebit)} ${transaction.currency}',
                   style: AppTypography.bodyStrong(amountColor).copyWith(
                     fontWeight: FontWeight.bold,
                     letterSpacing: -0.2,

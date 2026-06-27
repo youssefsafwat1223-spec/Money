@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/repositories/account_repository.dart';
+import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
 import '../transactions/transactions_providers.dart';
 
@@ -53,6 +56,8 @@ class DashboardData {
     required this.todayIncome,
     required this.weekIncome,
     required this.balance,
+    required this.dailyBudgetLimit,
+    required this.weeklyBudgetLimit,
     required this.monthlyBudgetLimit,
     required this.monthlyBudgetRatio,
     required this.budgetPeriod,
@@ -82,11 +87,13 @@ class DashboardData {
   final double todayIncome;
   final double weekIncome;
   final double? balance;
+  final double dailyBudgetLimit;
+  final double weeklyBudgetLimit;
   final double monthlyBudgetLimit;
   final double monthlyBudgetRatio;
   final String currency;
 
-  /// دورة ميزانية «كل المصروفات» النشطة (null إن لم تُنشأ بعد).
+  /// Legacy label kept for older widgets; monthly is the main dashboard ring.
   final BudgetPeriod? budgetPeriod;
   final StreakEntity streak;
   final List<CategorySlice> topCategories;
@@ -126,10 +133,106 @@ class DashboardData {
       };
 }
 
-/// الحساب المختار في الـ dashboard (null = كل الحسابات).
-final dashboardAccountProvider = StateProvider<String?>((ref) => null);
+/// الحساب المختار في الـ dashboard (null = الحساب الافتراضي الحالي).
+final dashboardAccountProvider = activeAccountIdProvider;
+
+class _CurrencyAccountState {
+  const _CurrencyAccountState({
+    required this.accounts,
+    required this.transactions,
+  });
+
+  final List<AccountEntity> accounts;
+  final List<TransactionEntity> transactions;
+}
+
+String _normalizeCurrency(String currency) => currency.trim().toUpperCase();
+
+Future<_CurrencyAccountState> _ensureCurrencyAccounts({
+  required AccountRepository accountRepo,
+  required TransactionRepository txRepo,
+  required List<AccountEntity> initialAccounts,
+  required List<TransactionEntity> initialTransactions,
+  required String fallbackCurrency,
+}) async {
+  var accounts = List<AccountEntity>.of(initialAccounts);
+  var transactions = List<TransactionEntity>.of(initialTransactions);
+  final byCurrency = <String, AccountEntity>{
+    for (final account in accounts)
+      _normalizeCurrency(account.currency): account,
+  };
+
+  Future<AccountEntity> createAccount(String currency) async {
+    final now = DateTime.now().toUtc();
+    final account = await accountRepo.create(
+      AccountEntity(
+        id: '',
+        name: 'حساب $currency',
+        currency: currency,
+        type: AccountType.bank,
+        initialBalance: null,
+        currentBalance: null,
+        isDefault: accounts.isEmpty,
+        sortOrder: accounts.length,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    accounts = [...accounts, account];
+    byCurrency[currency] = account;
+    return account;
+  }
+
+  final baseCurrency = _normalizeCurrency(fallbackCurrency);
+  if (accounts.isEmpty && baseCurrency.isNotEmpty) {
+    await createAccount(baseCurrency);
+  }
+
+  final transactionCurrencies = {
+    for (final tx in transactions)
+      if (_normalizeCurrency(tx.currency).isNotEmpty)
+        _normalizeCurrency(tx.currency),
+  };
+  for (final currency in transactionCurrencies) {
+    if (!byCurrency.containsKey(currency)) {
+      await createAccount(currency);
+    }
+  }
+
+  var changed = false;
+  transactions = [
+    for (final tx in transactions)
+      if (tx.accountId == null &&
+          byCurrency.containsKey(_normalizeCurrency(tx.currency)))
+        () {
+          final account = byCurrency[_normalizeCurrency(tx.currency)]!;
+          changed = true;
+          return tx.copyWith(accountId: account.id);
+        }()
+      else
+        tx,
+  ];
+
+  if (changed) {
+    for (final tx in transactions) {
+      if (tx.accountId == null) continue;
+      final original =
+          initialTransactions.firstWhere((item) => item.id == tx.id);
+      if (original.accountId == null && original.accountId != tx.accountId) {
+        await txRepo.updateAccount(
+            transactionId: tx.id, accountId: tx.accountId!);
+      }
+    }
+  }
+
+  return _CurrencyAccountState(
+    accounts: accounts,
+    transactions: transactions,
+  );
+}
 
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
+  ref.watch(dbRevisionProvider);
   final txRepo = ref.watch(transactionRepositoryProvider);
   final goalRepo = ref.watch(goalRepositoryProvider);
   final budgetRepo = ref.watch(budgetRepositoryProvider);
@@ -138,12 +241,28 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
   final range = ref.watch(transactionsDateRangeProvider);
+  final settings = await userSettingsRepo.getSettings();
+  final initialAccounts = await accountRepo.getAll();
+  final initialTransactions = await txRepo.getAll();
+  final currencyAccountState = await _ensureCurrencyAccounts(
+    accountRepo: accountRepo,
+    txRepo: txRepo,
+    initialAccounts: initialAccounts,
+    initialTransactions: initialTransactions,
+    fallbackCurrency: settings.currency,
+  );
+  final accounts = currencyAccountState.accounts;
+  final allTransactions = currencyAccountState.transactions;
   final selectedAccountId = ref.watch(dashboardAccountProvider);
   final selectedAccount = selectedAccountId == null
       ? null
       : await accountRepo.getById(selectedAccountId);
-  // الحساب المختار غير موجود (حُذف) → ارجع لكل الحسابات.
-  final accountId = selectedAccount?.id;
+  // الحساب المختار غير موجود (حُذف) → ارجع للحساب الافتراضي، وليس كل الحسابات.
+  final defaultAccount = await accountRepo.getDefault();
+  final activeAccount = selectedAccount ??
+      defaultAccount ??
+      (accounts.isEmpty ? null : accounts.first);
+  final accountId = activeAccount?.id;
 
   final now = DateTime.now();
   final rangeStart =
@@ -182,39 +301,46 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     to: weekStart,
     accountId: accountId,
   );
-  final allTransactions = await txRepo.getAll();
   final pendingReview = allTransactions
-      .where((tx) => tx.status == TransactionStatus.pending)
+      .where((tx) =>
+          tx.status == TransactionStatus.pending &&
+          (accountId == null || tx.accountId == accountId))
       .take(3)
       .toList(growable: false);
   final pendingReviewTotal =
       pendingReview.fold<double>(0, (sum, tx) => sum + tx.amount);
   final saved = prevMonthExpenses - thisMonthExpenses;
-  // ميزانية «كل المصروفات» (الكلية) — تظهر في الـ Dashboard عند إنشائها فقط،
-  // أياً كانت دورتها (يومي/أسبوعي/شهري) بحساب صرف دورتها الحالية.
   final allBudgets = await budgetRepo.getAll();
-  final allExpensesBudget = allBudgets
-      .where((budget) => budget.isActive && budget.isAllExpenses)
+  final activeBudgets = allBudgets.where((budget) {
+    if (!budget.isActive) return false;
+    return accountId == null
+        ? budget.accountId == null
+        : budget.accountId == accountId;
+  }).toList(growable: false);
+  BudgetEntity? allExpensesFor(BudgetPeriod period) => activeBudgets
+      .where((budget) => budget.isAllExpenses && budget.period == period)
       .fold<BudgetEntity?>(null, (prev, budget) => budget);
-  double monthlyBudgetLimit = 0;
-  double monthlyBudgetRatio = 0;
-  if (allExpensesBudget != null) {
-    monthlyBudgetLimit = allExpensesBudget.amount;
-    final periodStart = switch (allExpensesBudget.period) {
-      BudgetPeriod.daily => today,
-      BudgetPeriod.weekly =>
-        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7)),
-      BudgetPeriod.monthly => rangeStart,
-    };
-    final spent = await txRepo.expenseTotalBetween(
-        from: periodStart, to: now, accountId: accountId);
-    monthlyBudgetRatio =
-        monthlyBudgetLimit == 0 ? 0.0 : spent / monthlyBudgetLimit;
-  }
 
-  // ميزانيات الهيدر — كل الميزانيات النشطة التي showOnHeader = true.
-  final headerBudgets = allBudgets.where((b) => b.isActive && b.showOnHeader).toList();
-  final accounts = await accountRepo.getAll();
+  final dailyBudget = allExpensesFor(BudgetPeriod.daily);
+  final weeklyBudget = allExpensesFor(BudgetPeriod.weekly);
+  final monthlyBudget = allExpensesFor(BudgetPeriod.monthly);
+  final dailyBudgetLimit = dailyBudget?.amount ?? 0;
+  final weeklyBudgetLimit = weeklyBudget?.amount ?? 0;
+  var monthlyBudgetLimit = monthlyBudget?.amount ?? 0;
+
+  // لو المستخدم وزّع دخله على مظاريف شهرية ومفيش ميزانية شهرية عامة،
+  // اعرض مجموع المظاريف كحد صرف شهري في الداشبورد بدون double count.
+  if (monthlyBudgetLimit <= 0) {
+    monthlyBudgetLimit = activeBudgets
+        .where((b) => !b.isAllExpenses && b.period == BudgetPeriod.monthly)
+        .fold<double>(0, (sum, b) => sum + b.amount);
+  }
+  final monthlyBudgetRatio =
+      monthlyBudgetLimit == 0 ? 0.0 : thisMonthExpenses / monthlyBudgetLimit;
+
+  // ميزانيات الهيدر للحساب النشط فقط.
+  final headerBudgets =
+      activeBudgets.where((b) => b.showOnHeader).toList(growable: false);
   final accountMap = {for (final a in accounts) a.id: a.name};
   final budgetsForHeader = <BudgetHeaderEntry>[];
   for (final budget in headerBudgets) {
@@ -225,19 +351,28 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       BudgetPeriod.monthly => rangeStart,
     };
     final bSpent = budget.isAllExpenses
-        ? await txRepo.expenseTotalBetween(from: ps, to: now, accountId: budget.accountId)
-        : await txRepo.categoryExpenseTotalBetween(categoryId: budget.categoryId, from: ps, to: now);
+        ? await txRepo.expenseTotalBetween(
+            from: ps, to: now, accountId: budget.accountId)
+        : await txRepo.categoryExpenseTotalBetween(
+            categoryId: budget.categoryId,
+            from: ps,
+            to: now,
+            accountId: budget.accountId ?? accountId,
+          );
     final bRatio = budget.amount == 0 ? 0.0 : bSpent / budget.amount;
     final catView = catalog.byId(budget.categoryId);
     budgetsForHeader.add(BudgetHeaderEntry(
       budgetId: budget.id,
-      label: budget.isAllExpenses ? 'كل المصروفات' : (catView?.nameAr ?? 'ميزانية'),
+      label: budget.isAllExpenses
+          ? 'كل المصروفات'
+          : (catView?.nameAr ?? 'ميزانية'),
       spent: bSpent,
       limit: budget.amount,
       ratio: bRatio,
       period: budget.period,
       accountId: budget.accountId,
-      accountName: budget.accountId != null ? accountMap[budget.accountId] : null,
+      accountName:
+          budget.accountId != null ? accountMap[budget.accountId] : null,
     ));
   }
 
@@ -262,14 +397,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       .toList(growable: false);
 
   final recent = await txRepo.getRecent(limit: 5, accountId: accountId);
-  // إجماليات منفصلة لكل عملة — فقط في وضع «كل الحسابات».
-  final currencyTotals = accountId == null
-      ? await txRepo.currencyTotalsBetween(from: rangeStart, to: rangeEnd)
-      : const <CurrencyTotal>[];
+  // الداشبورد يعرض عملة الحساب النشط فقط لتجنب جمع عملات مختلفة في رقم واحد.
+  const currencyTotals = <CurrencyTotal>[];
   final streak = await gamificationRepo.getStreak();
-  final settings = await userSettingsRepo.getSettings();
-  final subscriptions =
-      (await txRepo.recurringCandidates()).take(3).toList(growable: false);
+  final subscriptions = (await txRepo.recurringCandidates(accountId: accountId))
+      .take(3)
+      .toList(growable: false);
   final subscriptionsMonthlyTotal = subscriptions.fold<double>(
     0,
     (sum, item) => sum + item.averageAmount,
@@ -280,7 +413,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   final goals = await goalRepo.getAll();
   final activeGoal = goals
-      .where((g) => g.status == 'active')
+      .where((g) =>
+          g.status == 'active' &&
+          (accountId == null || g.accountId == accountId))
       .fold<GoalEntity?>(null, (best, g) {
     if (best == null) return g;
     return g.savedAmount / g.targetAmount > best.savedAmount / best.targetAmount
@@ -296,10 +431,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     todayIncome: todayIncome,
     weekIncome: weekIncome,
     balance: balance,
+    dailyBudgetLimit: dailyBudgetLimit,
+    weeklyBudgetLimit: weeklyBudgetLimit,
     monthlyBudgetLimit: monthlyBudgetLimit,
     monthlyBudgetRatio: monthlyBudgetRatio,
-    budgetPeriod: allExpensesBudget?.period,
-    currency: selectedAccount?.currency ?? settings.currency,
+    budgetPeriod: monthlyBudgetLimit > 0 ? BudgetPeriod.monthly : null,
+    currency: activeAccount?.currency ?? settings.currency,
     streak: streak,
     topCategories: topCategories,
     dailySpendTrend: dailySpendTrend,

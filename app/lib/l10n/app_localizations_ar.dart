@@ -9,7 +9,7 @@ class AppL10nAr extends AppL10n {
   AppL10nAr([String locale = 'ar']) : super(locale);
 
   @override
-  String get appTitle => 'مالي';
+  String get appTitle => 'قرش';
 
   @override
   String get next => 'التالي';
@@ -47,7 +47,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smsReadingDesc =>
-      'شارك رسالة البنك مع مالي، ونطلّع المبلغ والمتجر ونصنّفها على جهازك.';
+      'شارك رسالة البنك مع قرش، ونطلّع المبلغ والمتجر ونصنّفها على جهازك.';
 
   @override
   String get now => 'الآن';
@@ -84,15 +84,15 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get howItWorksDesc =>
-      'مالي يلتقط المعنى من الرسالة، ويحوّلها لتصنيف ومبلغ ومتجر بدون إدخال يدوي.';
+      'قرش يلتقط المعنى من الرسالة، ويحوّلها لتصنيف ومبلغ ومتجر بدون إدخال يدوي.';
 
   @override
   String get howItWorksNote1 =>
-      'مش محتاج تختار بنكك — مالي يتعرّف عليه من نص الرسالة.';
+      'مش محتاج تختار بنكك — قرش يتعرّف عليه من نص الرسالة.';
 
   @override
   String get howItWorksNote2 =>
-      'لو ظهرت بطاقة جديدة، مالي يضيفها تلقائياً من آخر 4 أرقام.';
+      'لو ظهرت بطاقة جديدة، قرش يضيفها تلقائياً من آخر 4 أرقام.';
 
   @override
   String get howItWorksNote3 =>
@@ -204,22 +204,22 @@ class AppL10nAr extends AppL10n {
   String get privacyRule3 => 'ما نبيع بياناتك أبداً، ولك كامل الحرية في حذفها';
 
   @override
-  String get enableAutoTracking => 'شارك رسائل البنك مع مالي';
+  String get enableAutoTracking => 'شارك رسائل البنك مع قرش';
 
   @override
   String get setupAppleShortcut => 'إعداد اختصار Apple';
 
   @override
   String get autoTrackingSubtitleAndroid =>
-      'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى مالي. سنحللها على جهازك ونضيف العملية.';
+      'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى قرش. سنحللها على جهازك ونضيف العملية.';
 
   @override
   String get autoTrackingSubtitleIos =>
-      'اتبع الخطوات مرة واحدة، وبعدها يمرّر iPhone رسائل البنك إلى مالي بأمان.';
+      'اتبع الخطوات مرة واحدة، وبعدها يمرّر iPhone رسائل البنك إلى قرش بأمان.';
 
   @override
   String get smsActivationSnack =>
-      'تقدر تشارك رسالة البنك مع مالي أو تلصقها يدويًا.';
+      'تقدر تشارك رسالة البنك مع قرش أو تلصقها يدويًا.';
 
   @override
   String get howWillActivationWork => 'كيف سيتم التفعيل؟';
@@ -270,7 +270,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get byContinuingAgree =>
-      'بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ مالي.';
+      'بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ قرش.';
 
   @override
   String get enterOtpCode => 'أدخل رمز التحقق';
@@ -343,7 +343,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get iosShortcutSubtitle =>
-      'بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ مالي تلقائياً وبأمان تام.';
+      'بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ قرش تلقائياً وبأمان تام.';
 
   @override
   String get stepsLabel => 'الخطوات:';
@@ -366,7 +366,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smsPermissionRationaleBody =>
-      'مالي يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.';
+      'قرش يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.';
 
   @override
   String get listeningTitle => 'جاهزين — بنستنى رسالتك الأولى';
@@ -401,7 +401,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get firstTxTrustLine =>
-      'إنت معملتش حاجة — مالي قرأ رسالة بنكك وسجّلها.';
+      'إنت معملتش حاجة — قرش قرأ رسالة بنكك وسجّلها.';
 
   @override
   String get firstTxContinue => 'تمام، كمّل';
@@ -410,7 +410,7 @@ class AppL10nAr extends AppL10n {
   String get firstTxNeedsCheck => 'محتاجة تأكيد سريع';
 
   @override
-  String get firstTxNeedsCheckSub => 'مالي مش متأكد 100% — راجعها بسرعة.';
+  String get firstTxNeedsCheckSub => 'قرش مش متأكد 100% — راجعها بسرعة.';
 
   @override
   String get wrongCategoryTap => 'الفئة مش صح؟ اضغط لتغييرها';

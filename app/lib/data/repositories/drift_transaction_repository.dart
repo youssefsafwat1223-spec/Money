@@ -8,6 +8,7 @@ import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../engine/parser/card_network.dart';
 import '../db/app_database.dart';
+import '../db/database_seed.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
@@ -85,25 +86,33 @@ class DriftTransactionRepository implements TransactionRepository {
     required TransactionEntity transaction,
     required String? categoryKey,
   }) async {
-    final merchantId = transaction.rawMerchant == null
+    final normalizedCategoryKey =
+        _categoryKeyForType(transaction.type, categoryKey);
+    final normalizedMerchant =
+        transaction.type == TransactionTypeEntity.transfer ||
+                transaction.type == TransactionTypeEntity.income
+            ? null
+            : transaction.rawMerchant?.trim();
+    final merchantId = normalizedMerchant == null || normalizedMerchant.isEmpty
         ? null
-        : await _resolveOrCreateMerchantId(transaction.rawMerchant!);
-    final categoryId =
-        categoryKey == null ? null : await _categoryIdByKey(categoryKey);
+        : await _resolveOrCreateMerchantId(normalizedMerchant);
+    final categoryId = normalizedCategoryKey == null
+        ? null
+        : await _categoryIdByKey(normalizedCategoryKey);
     final accountId = transaction.accountId ?? await _defaultAccountId();
 
     await _db.customStatement('''
       INSERT INTO transactions(
         id, amount, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
         card_last4, balance_after, note, occurred_at, raw_message, parse_confidence, status,
-        created_at, updated_at, foreign_amount, foreign_currency
+        created_at, updated_at, foreign_amount, foreign_currency, direction
       ) VALUES (
         ${sqlString(transaction.id)},
         ${transaction.amount},
         ${sqlString(transaction.currency)},
         ${sqlNullableString(accountId)},
         ${sqlNullableString(merchantId)},
-        ${sqlNullableString(transaction.rawMerchant)},
+        ${sqlNullableString(normalizedMerchant)},
         ${sqlNullableString(categoryId)},
         ${sqlString(transaction.type.name)},
         ${sqlString(transaction.source.name)},
@@ -117,7 +126,8 @@ class DriftTransactionRepository implements TransactionRepository {
         ${sqlString(dateTimeToSql(transaction.createdAt))},
         ${sqlString(dateTimeToSql(transaction.updatedAt))},
         ${sqlNullableNum(transaction.foreignAmount)},
-        ${sqlNullableString(transaction.foreignCurrency)}
+        ${sqlNullableString(transaction.foreignCurrency)},
+        ${sqlNullableString(transactionDirectionToSql(transaction.direction))}
       );
     ''');
 
@@ -133,7 +143,10 @@ class DriftTransactionRepository implements TransactionRepository {
     required String transactionId,
     required String categoryKey,
   }) async {
-    final categoryId = await _categoryIdByKey(categoryKey);
+    final existing = await getById(transactionId);
+    final normalizedCategoryKey =
+        _categoryKeyForType(existing?.type, categoryKey) ?? categoryKey;
+    final categoryId = await _categoryIdByKey(normalizedCategoryKey);
     if (categoryId == null) {
       throw StateError('Unknown category key: $categoryKey');
     }
@@ -170,7 +183,11 @@ class DriftTransactionRepository implements TransactionRepository {
     required String? note,
     String? accountId,
   }) async {
-    final trimmedMerchant = rawMerchant?.trim();
+    final normalizedCategoryId = categoryId ?? await _categoryIdForType(type);
+    final trimmedMerchant = type == TransactionTypeEntity.transfer ||
+            type == TransactionTypeEntity.income
+        ? null
+        : rawMerchant?.trim();
     final merchantId = trimmedMerchant == null || trimmedMerchant.isEmpty
         ? null
         : await _resolveOrCreateMerchantId(trimmedMerchant);
@@ -196,9 +213,9 @@ class DriftTransactionRepository implements TransactionRepository {
         trimmedMerchant == null || trimmedMerchant.isEmpty
             ? const Variable<String>(null)
             : Variable.withString(trimmedMerchant),
-        categoryId == null || categoryId.isEmpty
+        normalizedCategoryId == null || normalizedCategoryId.isEmpty
             ? const Variable<String>(null)
-            : Variable.withString(categoryId),
+            : Variable.withString(normalizedCategoryId),
         normalizedNote == null || normalizedNote.isEmpty
             ? const Variable<String>(null)
             : Variable.withString(normalizedNote),
@@ -223,6 +240,38 @@ class DriftTransactionRepository implements TransactionRepository {
       'UPDATE transactions SET account_id = ?, updated_at = ? WHERE id = ?;',
       variables: [
         Variable.withString(accountId),
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(transactionId),
+      ],
+    );
+  }
+
+  @override
+  Future<void> updateCard({
+    required String transactionId,
+    required String? cardLast4,
+  }) async {
+    await _db.customUpdate(
+      'UPDATE transactions SET card_last4 = ?, updated_at = ? WHERE id = ?;',
+      variables: [
+        cardLast4 == null
+            ? const Variable<String>(null)
+            : Variable.withString(cardLast4),
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(transactionId),
+      ],
+    );
+  }
+
+  @override
+  Future<void> updateAmount({
+    required String transactionId,
+    required double amount,
+  }) async {
+    await _db.customUpdate(
+      'UPDATE transactions SET amount = ?, updated_at = ? WHERE id = ?;',
+      variables: [
+        Variable.withReal(amount),
         Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
         Variable.withString(transactionId),
       ],
@@ -442,6 +491,7 @@ class DriftTransactionRepository implements TransactionRepository {
     required String categoryId,
     required DateTime from,
     required DateTime to,
+    String? accountId,
   }) async {
     final row = await _db.customSelect(
       '''
@@ -455,12 +505,13 @@ class DriftTransactionRepository implements TransactionRepository {
         WHERE status = 'confirmed'
           AND category_id = ?
           AND type IN ('payment', 'withdrawal', 'refund')
-          AND occurred_at BETWEEN ? AND ?;
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(categoryId),
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
       ],
     ).getSingle();
     return row.read<double>('total');
@@ -471,7 +522,9 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime from,
     required DateTime to,
     int limit = 3,
+    String? accountId,
   }) async {
+    final accountClause = accountId == null ? '' : ' AND t.account_id = ?';
     final rows = await _db.customSelect(
       '''
         SELECT m.raw_name AS name, CAST(SUM(t.amount) AS REAL) AS total
@@ -479,7 +532,7 @@ class DriftTransactionRepository implements TransactionRepository {
         INNER JOIN merchants m ON m.id = t.merchant_id
         WHERE t.type IN ('payment', 'withdrawal')
           AND t.status = 'confirmed'
-          AND t.occurred_at BETWEEN ? AND ?
+          AND t.occurred_at BETWEEN ? AND ?$accountClause
         GROUP BY t.merchant_id
         ORDER BY total DESC
         LIMIT ?;
@@ -487,6 +540,7 @@ class DriftTransactionRepository implements TransactionRepository {
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
         Variable.withInt(limit),
       ],
     ).get();
@@ -539,7 +593,9 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
-  Future<List<RecurringCandidate>> recurringCandidates() async {
+  Future<List<RecurringCandidate>> recurringCandidates(
+      {String? accountId}) async {
+    final accountClause = accountId == null ? '' : ' AND t.account_id = ?';
     final rows = await _db.customSelect(
       '''
         SELECT mid, name, avg_amount, months FROM (
@@ -551,11 +607,13 @@ class DriftTransactionRepository implements TransactionRepository {
           FROM transactions t
           INNER JOIN merchants m ON m.id = t.merchant_id
           WHERE t.type = 'payment' AND t.status = 'confirmed'
+            $accountClause
           GROUP BY t.merchant_id
         )
         WHERE months >= 2 AND (max_a - min_a) <= (avg_amount * 0.15)
         ORDER BY avg_amount DESC;
       ''',
+      variables: _accountVars(accountId),
     ).get();
     return rows
         .map((r) => RecurringCandidate(
@@ -581,7 +639,51 @@ class DriftTransactionRepository implements TransactionRepository {
       'SELECT id FROM categories WHERE key = ? LIMIT 1;',
       variables: [Variable.withString(categoryKey)],
     ).getSingleOrNull();
-    return row?.read<String>('id');
+    final existing = row?.read<String>('id');
+    if (existing != null) return existing;
+
+    final seeded = DatabaseSeed.categories
+        .where((category) => category.key == categoryKey)
+        .firstOrNull;
+    if (seeded == null) return null;
+
+    await _db.customInsert(
+      '''
+        INSERT OR IGNORE INTO categories(id, key, name_ar, icon, color, is_income, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+      ''',
+      variables: [
+        Variable.withString(seeded.id),
+        Variable.withString(seeded.key),
+        Variable.withString(seeded.nameAr),
+        Variable.withString(seeded.icon),
+        Variable.withString(seeded.color),
+        Variable.withInt(seeded.isIncome ? 1 : 0),
+        Variable.withInt(seeded.sort),
+      ],
+    );
+    final inserted = await _db.customSelect(
+      'SELECT id FROM categories WHERE key = ? LIMIT 1;',
+      variables: [Variable.withString(categoryKey)],
+    ).getSingleOrNull();
+    return inserted?.read<String>('id');
+  }
+
+  String? _categoryKeyForType(
+    TransactionTypeEntity? type,
+    String? requestedCategoryKey,
+  ) {
+    return switch (type) {
+      TransactionTypeEntity.transfer => 'transfers',
+      TransactionTypeEntity.withdrawal => 'cash',
+      TransactionTypeEntity.income => 'income',
+      _ => requestedCategoryKey,
+    };
+  }
+
+  Future<String?> _categoryIdForType(TransactionTypeEntity type) async {
+    final key = _categoryKeyForType(type, null);
+    return key == null ? null : _categoryIdByKey(key);
   }
 
   Future<String?> _merchantIdByRawName(String rawMerchant) async {

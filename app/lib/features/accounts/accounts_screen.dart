@@ -7,8 +7,8 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/account_entity.dart';
+import '../cards/my_cards_screen.dart';
 import '../dashboard/dashboard_providers.dart';
-import '../common/section_hero_header.dart';
 
 String _accountTypeLabel(AccountType type) => switch (type) {
       AccountType.cash => 'نقدي',
@@ -35,10 +35,7 @@ class AccountsScreen extends ConsumerWidget {
       backgroundColor: c.bg,
       body: Column(
         children: [
-          const SectionHeroHeader(
-            title: 'الحسابات والمحافظ',
-            subtitle: 'كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.',
-          ),
+          const _AccountsHeader(),
           Expanded(
             child: accountsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -75,6 +72,59 @@ class AccountsScreen extends ConsumerWidget {
   }
 }
 
+class _AccountsHeader extends StatelessWidget {
+  const _AccountsHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        64,
+        AppSpacing.gutter,
+        AppSpacing.s5,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            c.cta.withValues(alpha: 0.12),
+            c.bg,
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (Navigator.of(context).canPop()) ...[
+                BackButton(color: c.textMain),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+              Expanded(
+                child: Text(
+                  'الحسابات والمحافظ',
+                  style: AppTypography.title1(c.textMain)
+                      .copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.',
+            style: AppTypography.caption(c.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AccountCard extends ConsumerWidget {
   const _AccountCard({required this.account});
 
@@ -91,11 +141,19 @@ class _AccountCard extends ConsumerWidget {
         decoration: BoxDecoration(
           color: c.surface,
           borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(
-            color:
-                account.isDefault ? c.primary.withValues(alpha: 0.4) : c.border,
-            width: account.isDefault ? 1.5 : 1,
-          ),
+          border: account.isDefault
+              ? Border.all(
+                  color: c.primary.withValues(alpha: 0.4),
+                  width: 1.5,
+                )
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
           children: [
@@ -145,6 +203,22 @@ class _AccountCard extends ConsumerWidget {
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => MyCardsScreen.open(context),
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                width: 40,
+                height: 28,
+                margin: const EdgeInsetsDirectional.only(end: 4),
+                decoration: BoxDecoration(
+                  gradient: c.primaryGradient,
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                alignment: Alignment.center,
+                child: Icon(Icons.contactless,
+                    color: Colors.white.withValues(alpha: 0.9), size: 14),
               ),
             ),
             Icon(Icons.chevron_left, color: c.textLight, size: 20),

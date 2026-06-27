@@ -15,6 +15,7 @@ class AppCard extends StatelessWidget {
     this.onTap,
     this.padding,
     this.border,
+    this.color,
     this.gradient,
     this.variant = AppCardVariant.base,
     this.margin,
@@ -26,6 +27,7 @@ class AppCard extends StatelessWidget {
   final VoidCallback? onTap;
   final EdgeInsetsGeometry? padding;
   final Border? border;
+  final Color? color;
   final Gradient? gradient;
   final AppCardVariant variant;
   final EdgeInsetsGeometry? margin;
@@ -52,7 +54,7 @@ class AppCard extends StatelessWidget {
           width: 1.0,
         );
     final decoration = BoxDecoration(
-      color: effectiveGradient == null ? c.surfaceCard : null,
+      color: effectiveGradient == null ? (color ?? c.surfaceCard) : null,
       gradient: effectiveGradient,
       borderRadius: BorderRadius.circular(effectiveRadius),
       border: effectiveBorder,
@@ -61,11 +63,29 @@ class AppCard extends StatelessWidget {
           : AppShadows.card,
     );
 
+    final cardContent = Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(effectiveRadius),
+      clipBehavior: Clip.antiAlias,
+      child: onTap != null
+          ? InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(effectiveRadius),
+              child: Padding(
+                padding: padding ?? const EdgeInsets.all(AppSpacing.cardPadding),
+                child: child,
+              ),
+            )
+          : Padding(
+              padding: padding ?? const EdgeInsets.all(AppSpacing.cardPadding),
+              child: child,
+            ),
+    );
+
     final content = Container(
       margin: margin,
-      padding: padding ?? const EdgeInsets.all(AppSpacing.cardPadding),
       decoration: decoration,
-      child: child,
+      child: cardContent,
     );
 
     if (onTap == null) return content;
@@ -73,15 +93,7 @@ class AppCard extends StatelessWidget {
     return Semantics(
       label: semanticsLabel,
       button: true,
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(effectiveRadius),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(effectiveRadius),
-          child: content,
-        ),
-      ),
+      child: content,
     );
   }
 }

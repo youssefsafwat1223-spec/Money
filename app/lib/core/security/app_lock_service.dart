@@ -39,7 +39,7 @@ class AppLockService {
   Future<bool> authenticate() async {
     try {
       return await _auth.authenticate(
-        localizedReason: 'افتح مالي لحماية بياناتك المالية.',
+        localizedReason: 'افتح قرش لحماية بياناتك المالية.',
         options: const AuthenticationOptions(
           biometricOnly: false,
           stickyAuth: true,

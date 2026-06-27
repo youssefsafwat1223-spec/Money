@@ -100,7 +100,7 @@ abstract class AppL10n {
   /// No description provided for @appTitle.
   ///
   /// In ar, this message translates to:
-  /// **'مالي'**
+  /// **'قرش'**
   String get appTitle;
 
   /// No description provided for @next.
@@ -172,7 +172,7 @@ abstract class AppL10n {
   /// No description provided for @smsReadingDesc.
   ///
   /// In ar, this message translates to:
-  /// **'شارك رسالة البنك مع مالي، ونطلّع المبلغ والمتجر ونصنّفها على جهازك.'**
+  /// **'شارك رسالة البنك مع قرش، ونطلّع المبلغ والمتجر ونصنّفها على جهازك.'**
   String get smsReadingDesc;
 
   /// No description provided for @now.
@@ -244,19 +244,19 @@ abstract class AppL10n {
   /// No description provided for @howItWorksDesc.
   ///
   /// In ar, this message translates to:
-  /// **'مالي يلتقط المعنى من الرسالة، ويحوّلها لتصنيف ومبلغ ومتجر بدون إدخال يدوي.'**
+  /// **'قرش يلتقط المعنى من الرسالة، ويحوّلها لتصنيف ومبلغ ومتجر بدون إدخال يدوي.'**
   String get howItWorksDesc;
 
   /// No description provided for @howItWorksNote1.
   ///
   /// In ar, this message translates to:
-  /// **'مش محتاج تختار بنكك — مالي يتعرّف عليه من نص الرسالة.'**
+  /// **'مش محتاج تختار بنكك — قرش يتعرّف عليه من نص الرسالة.'**
   String get howItWorksNote1;
 
   /// No description provided for @howItWorksNote2.
   ///
   /// In ar, this message translates to:
-  /// **'لو ظهرت بطاقة جديدة، مالي يضيفها تلقائياً من آخر 4 أرقام.'**
+  /// **'لو ظهرت بطاقة جديدة، قرش يضيفها تلقائياً من آخر 4 أرقام.'**
   String get howItWorksNote2;
 
   /// No description provided for @howItWorksNote3.
@@ -466,7 +466,7 @@ abstract class AppL10n {
   /// No description provided for @enableAutoTracking.
   ///
   /// In ar, this message translates to:
-  /// **'شارك رسائل البنك مع مالي'**
+  /// **'شارك رسائل البنك مع قرش'**
   String get enableAutoTracking;
 
   /// No description provided for @setupAppleShortcut.
@@ -478,19 +478,19 @@ abstract class AppL10n {
   /// No description provided for @autoTrackingSubtitleAndroid.
   ///
   /// In ar, this message translates to:
-  /// **'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى مالي. سنحللها على جهازك ونضيف العملية.'**
+  /// **'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى قرش. سنحللها على جهازك ونضيف العملية.'**
   String get autoTrackingSubtitleAndroid;
 
   /// No description provided for @autoTrackingSubtitleIos.
   ///
   /// In ar, this message translates to:
-  /// **'اتبع الخطوات مرة واحدة، وبعدها يمرّر iPhone رسائل البنك إلى مالي بأمان.'**
+  /// **'اتبع الخطوات مرة واحدة، وبعدها يمرّر iPhone رسائل البنك إلى قرش بأمان.'**
   String get autoTrackingSubtitleIos;
 
   /// No description provided for @smsActivationSnack.
   ///
   /// In ar, this message translates to:
-  /// **'تقدر تشارك رسالة البنك مع مالي أو تلصقها يدويًا.'**
+  /// **'تقدر تشارك رسالة البنك مع قرش أو تلصقها يدويًا.'**
   String get smsActivationSnack;
 
   /// No description provided for @howWillActivationWork.
@@ -586,7 +586,7 @@ abstract class AppL10n {
   /// No description provided for @byContinuingAgree.
   ///
   /// In ar, this message translates to:
-  /// **'بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ مالي.'**
+  /// **'بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ قرش.'**
   String get byContinuingAgree;
 
   /// No description provided for @enterOtpCode.
@@ -718,7 +718,7 @@ abstract class AppL10n {
   /// No description provided for @iosShortcutSubtitle.
   ///
   /// In ar, this message translates to:
-  /// **'بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ مالي تلقائياً وبأمان تام.'**
+  /// **'بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ قرش تلقائياً وبأمان تام.'**
   String get iosShortcutSubtitle;
 
   /// No description provided for @stepsLabel.
@@ -760,7 +760,7 @@ abstract class AppL10n {
   /// No description provided for @smsPermissionRationaleBody.
   ///
   /// In ar, this message translates to:
-  /// **'مالي يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.'**
+  /// **'قرش يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.'**
   String get smsPermissionRationaleBody;
 
   /// No description provided for @listeningTitle.
@@ -826,7 +826,7 @@ abstract class AppL10n {
   /// No description provided for @firstTxTrustLine.
   ///
   /// In ar, this message translates to:
-  /// **'إنت معملتش حاجة — مالي قرأ رسالة بنكك وسجّلها.'**
+  /// **'إنت معملتش حاجة — قرش قرأ رسالة بنكك وسجّلها.'**
   String get firstTxTrustLine;
 
   /// No description provided for @firstTxContinue.
@@ -844,7 +844,7 @@ abstract class AppL10n {
   /// No description provided for @firstTxNeedsCheckSub.
   ///
   /// In ar, this message translates to:
-  /// **'مالي مش متأكد 100% — راجعها بسرعة.'**
+  /// **'قرش مش متأكد 100% — راجعها بسرعة.'**
   String get firstTxNeedsCheckSub;
 
   /// No description provided for @wrongCategoryTap.

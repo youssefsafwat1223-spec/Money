@@ -8,9 +8,9 @@ class AppGradients {
   /// Safe for both light and dark mode as a bold backdrop.
   static const LinearGradient brandHero = LinearGradient(
     colors: [
-      Color(0xFF0C0D11),
-      Color(0xFF17182A),
-      Color(0xFF2A235E),
+      Color(0xFF021B79),
+      Color(0xFF0340A5),
+      Color(0xFF55ABFF),
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
@@ -19,9 +19,9 @@ class AppGradients {
   /// Primary CTA gradient. Use only for prominent, intentional action moments.
   static const LinearGradient primaryCta = LinearGradient(
     colors: [
-      Color(0xFF8D7CFF),
-      Color(0xFF6C5CFF),
-      Color(0xFF4B3EE6),
+      Color(0xFF55ABFF),
+      Color(0xFF0340A5),
+      Color(0xFF021B79),
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
@@ -30,19 +30,19 @@ class AppGradients {
   /// Quiet card/sheet gradient for depth without blur-heavy effects.
   static const LinearGradient subtleSurface = LinearGradient(
     colors: [
-      Color(0xFF1D1F28),
-      Color(0xFF15161C),
+      Color(0xFF162646),
+      Color(0xFF0B1224),
     ],
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
   );
 
-  /// Illustration accent gradient for Mali's abstract finance visuals.
+  /// Illustration accent gradient for Qirsh's abstract finance visuals.
   static const LinearGradient accentIllustration = LinearGradient(
     colors: [
-      Color(0xFFF472B6),
-      Color(0xFF8D7CFF),
-      Color(0xFF3B82F6),
+      Color(0xFFFBC926),
+      Color(0xFFC3922D),
+      Color(0xFF0340A5),
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,

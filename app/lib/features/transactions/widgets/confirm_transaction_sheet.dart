@@ -9,6 +9,7 @@ import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../common/app_sheet_scaffold.dart';
 import '../../common/app_category_chip.dart';
 import '../../common/app_button.dart';
@@ -19,21 +20,41 @@ import '../transactions_providers.dart';
 
 Future<void> showConfirmTransactionSheet(
   BuildContext context,
-  String transactionId,
-) {
+  String transactionId, {
+  String? secondaryNotice,
+}) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _ConfirmSheet(transactionId: transactionId),
+    builder: (_) => _ConfirmSheet(
+      transactionId: transactionId,
+      secondaryNotice: secondaryNotice,
+    ),
   );
 }
 
+/// Builds the "we also found a fee/tax in another currency" note for a capture
+/// result, or null when the SMS held a single operation.
+String? feeNoticeFor(AddTransactionResult? secondary) {
+  if (secondary?.outcome != AddTransactionOutcome.added ||
+      secondary?.transaction == null) {
+    return null;
+  }
+  final fee = secondary!.transaction!;
+  return 'لقينا عمليتين في الرسالة: أضفنا كمان الرسوم/الضريبة '
+      '${fee.amount.toStringAsFixed(2)} ${fee.currency} (بعملة مختلفة).';
+}
+
 class _ConfirmSheet extends ConsumerStatefulWidget {
-  const _ConfirmSheet({required this.transactionId});
+  const _ConfirmSheet({required this.transactionId, this.secondaryNotice});
 
   final String transactionId;
+
+  /// A note shown when the same SMS held a second operation (e.g. a fee/tax in
+  /// a different currency) that was saved as its own transaction.
+  final String? secondaryNotice;
 
   @override
   ConsumerState<_ConfirmSheet> createState() => _ConfirmSheetState();
@@ -41,6 +62,50 @@ class _ConfirmSheet extends ConsumerStatefulWidget {
 
 class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
   String? _selectedCategoryKey;
+  final _priceController = TextEditingController();
+
+  @override
+  void dispose() {
+    _priceController.dispose();
+    super.dispose();
+  }
+
+  /// A foreign-currency spend parked in the home account with no home value yet
+  /// (amount 0). The user prices it by entering the home-currency amount.
+  bool _awaitingPricing(TransactionEntity tx) =>
+      tx.amount == 0 &&
+      tx.foreignAmount != null &&
+      tx.foreignCurrency != null;
+
+  /// Selectable categories with the currently-selected one pinned first, so it
+  /// is always visible (otherwise a selection like "أخرى" sits off-screen at the
+  /// end of the horizontal list and looks unselected).
+  List<CategoryView> _orderedCategories(
+      CategoryCatalog catalog, String? selectedKey) {
+    final cats = catalog.all
+        .where((it) => it.key != 'income' && it.key != 'all_expenses')
+        .toList();
+    if (selectedKey == null) return cats;
+    return [
+      ...cats.where((c) => c.key == selectedKey),
+      ...cats.where((c) => c.key != selectedKey),
+    ];
+  }
+
+  /// Why this transaction landed in review — shown to make the AI/parse
+  /// decision transparent (most actionable reason first).
+  String _pendingReason(TransactionEntity tx, String? categoryKey) {
+    if (categoryKey == null) {
+      return 'محتاجة تصنيف — اختَر التصنيف المناسب بالأسفل.';
+    }
+    if (tx.source == TransactionSourceEntity.aiParsed) {
+      return 'حلّلها الذكاء الاصطناعي — أكّد المبلغ والتصنيف.';
+    }
+    if (tx.parseConfidence < 0.92) {
+      return 'القراءة مش مؤكدة 100% — راجِع التفاصيل قبل التأكيد.';
+    }
+    return 'راجِع التفاصيل قبل التأكيد.';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,14 +125,19 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
 
     return AppSheetScaffold(
       title: 'مراجعة العملية',
+      scrollable: true,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       body: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Amount + Badge
-          Text('${Formatters.amount(tx.amount)} ${tx.currency}',
-              style: AppTypography.amountHero(c.textMain)),
+          // Amount + Badge (foreign amount shown until it is priced locally)
+          Text(
+            _awaitingPricing(tx)
+                ? '${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency}'
+                : '${Formatters.amount(tx.amount)} ${tx.currency}',
+            style: AppTypography.amountHero(c.textMain),
+          ),
           const SizedBox(height: AppSpacing.s2),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -86,9 +156,81 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
               ],
             ),
           ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            _pendingReason(tx, currentCategoryKey),
+            textAlign: TextAlign.center,
+            style: AppTypography.caption(c.textLight),
+          ),
+          if (widget.secondaryNotice != null) ...[
+            const SizedBox(height: AppSpacing.s3),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.s3),
+              decoration: BoxDecoration(
+                color: c.successBg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: c.success.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.call_split_rounded, size: 18, color: c.success),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.secondaryNotice!,
+                      style: AppTypography.caption(c.textPrimary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (tx.rawMerchant != null) ...[
             const SizedBox(height: AppSpacing.s4),
             Text(tx.rawMerchant!, style: AppTypography.headline(c.textMain)),
+          ],
+
+          if (_awaitingPricing(tx)) ...[
+            const SizedBox(height: AppSpacing.s4),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.s3),
+              decoration: BoxDecoration(
+                color: c.warningBg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: c.warning.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'عملية بعملة مختلفة (${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency}). '
+                    'اكتب قيمتها بـ ${Currency.arabicLabel(tx.currency)} عشان تتحسب — أو سيبها واعدّلها بعدين لما يوصلك المبلغ المخصوم.',
+                    style: AppTypography.caption(c.textMain),
+                  ),
+                  const SizedBox(height: AppSpacing.s2),
+                  TextField(
+                    controller: _priceController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'القيمة بـ ${Currency.arabicLabel(tx.currency)}',
+                      filled: true,
+                      fillColor: c.surface2.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
 
           const SizedBox(height: AppSpacing.s4),
@@ -104,8 +246,8 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                for (final cat in catalog.all.where(
-                    (it) => it.key != 'income' && it.key != 'all_expenses'))
+                for (final cat
+                    in _orderedCategories(catalog, currentCategoryKey))
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: AppCategoryChip(
@@ -155,7 +297,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
                   child: Text(
-                    '${Formatters.fullDate(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
+                    '${Formatters.dateWithWeekday(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
                     style: AppTypography.caption(c.textMain),
                   ),
                 ),
@@ -229,6 +371,16 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
           AppButton(
             label: 'تأكيد العملية',
             onPressed: () async {
+              // Price a foreign "awaiting pricing" spend if a value was typed.
+              if (_awaitingPricing(tx)) {
+                final priced = double.tryParse(_priceController.text.trim());
+                if (priced != null && priced > 0) {
+                  await ref.read(transactionRepositoryProvider).updateAmount(
+                        transactionId: tx.id,
+                        amount: priced,
+                      );
+                }
+              }
               if (tx.status == TransactionStatus.pending) {
                 await ref.read(confirmTransactionUseCaseProvider)(tx.id);
               }

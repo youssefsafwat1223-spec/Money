@@ -40,10 +40,20 @@ void main() {
     });
 
     test('first keyword is always the currency code', () {
-      for (final country in onboardingCountries.take(8)) {
-        final keywords = currencyKeywords(country.currencyCode);
-        expect(keywords.first, country.currencyCode,
-            reason: '${country.currencyCode}: first keyword must be the code');
+      const currencyCodes = [
+        'SAR',
+        'AED',
+        'EGP',
+        'KWD',
+        'QAR',
+        'BHD',
+        'OMR',
+        'JOD'
+      ];
+      for (final currencyCode in currencyCodes) {
+        final keywords = currencyKeywords(currencyCode);
+        expect(keywords.first, currencyCode,
+            reason: '$currencyCode: first keyword must be the code');
       }
     });
   });

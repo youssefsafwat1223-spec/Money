@@ -5,11 +5,13 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/supporting_entities.dart';
 
 final userSettingsProvider = FutureProvider<UserSettingsEntity>((ref) async {
+  ref.watch(dbRevisionProvider);
   return ref.watch(loadUserSettingsUseCaseProvider).call();
 });
 
 final notificationPreferencesProvider =
     FutureProvider<NotificationPreferences>((ref) async {
+  ref.watch(dbRevisionProvider);
   return ref.watch(loadNotificationPreferencesUseCaseProvider).call();
 });
 

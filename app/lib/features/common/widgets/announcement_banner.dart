@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/di/app_providers.dart';
+import '../../../core/theme/app_assets.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/utils/app_lucide_icons.dart';
 import '../../../data/catalog/catalog_daos.dart';
 
 class AnnouncementBanner extends ConsumerWidget {
@@ -43,11 +44,6 @@ class _BannerTile extends ConsumerWidget {
       'maintenance' => c.accent,
       _ => c.cta,
     };
-    final icon = switch (announcement.severity) {
-      'warning' => AppLucideIcons.alertTriangle,
-      'maintenance' => AppLucideIcons.wrench,
-      _ => AppLucideIcons.zap,
-    };
     final body = announcement.bodyAr?.trim();
     final hasBody = body != null && body.isNotEmpty;
     final actionLabel = announcement.actionLabelAr?.trim();
@@ -74,13 +70,11 @@ class _BannerTile extends ConsumerWidget {
           ],
         ),
         child: Material(
-          color: c.surface.withValues(alpha: 0.96),
+          color: c.surface.withValues(alpha: 0.98),
           borderRadius: BorderRadius.circular(AppRadius.card),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: announcement.actionUrl != null
-                ? () => _handleTap(context, announcement.actionUrl!)
-                : null,
+            onTap: () => _handleTap(context, announcement.actionUrl),
             child: Stack(
               children: [
                 PositionedDirectional(
@@ -100,16 +94,20 @@ class _BannerTile extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 38,
-                        height: 38,
+                        width: 44,
+                        height: 44,
+                        padding: const EdgeInsets.all(7),
                         decoration: BoxDecoration(
-                          color: accent.withValues(alpha: 0.13),
-                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          color: accent.withValues(alpha: 0.11),
+                          shape: BoxShape.circle,
                           border: Border.all(
                             color: accent.withValues(alpha: 0.22),
                           ),
                         ),
-                        child: Icon(icon, size: 20, color: accent),
+                        child: Image.asset(
+                          AppAssets.qirshCoin,
+                          filterQuality: FilterQuality.high,
+                        ),
                       ),
                       const SizedBox(width: AppSpacing.s3),
                       Expanded(
@@ -191,11 +189,15 @@ class _BannerTile extends ConsumerWidget {
     );
   }
 
-  void _handleTap(BuildContext context, String url) {
-    if (url.startsWith('/')) {
-      Navigator.of(context).pushNamed(url);
-    } else {
-      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  void _handleTap(BuildContext context, String? url) {
+    if (url == null || url.trim().isEmpty) {
+      context.push('/announcements');
+      return;
     }
+    if (url.startsWith('/')) {
+      context.push(url);
+      return;
+    }
+    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 }

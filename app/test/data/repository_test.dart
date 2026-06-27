@@ -5,11 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/utils/id_generator.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_bill_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/data/repositories/drift_merchant_category_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
@@ -31,10 +33,12 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 void main() {
   late AppDatabase db;
   late DriftTransactionRepository transactionRepository;
+  late DriftAccountRepository accountRepository;
   late DriftMerchantCategoryRepository merchantCategoryRepository;
   late DriftBudgetRepository budgetRepository;
   late DriftBillRepository billRepository;
   late DriftGoalRepository goalRepository;
+  late DriftUserSettingsRepository userSettingsRepository;
   late AddTransactionUseCase addTransaction;
   late ConfirmTransactionUseCase confirmTransaction;
   late CorrectCategoryUseCase correctCategory;
@@ -50,10 +54,12 @@ void main() {
       keyStore: _MemoryKeyStore(),
     );
     transactionRepository = DriftTransactionRepository(db);
+    accountRepository = DriftAccountRepository(db);
     merchantCategoryRepository = DriftMerchantCategoryRepository(db);
     budgetRepository = DriftBudgetRepository(db);
     billRepository = DriftBillRepository(db);
     goalRepository = DriftGoalRepository(db);
+    userSettingsRepository = DriftUserSettingsRepository(db);
     addTransaction = AddTransactionUseCase(
       transactionRepository: transactionRepository,
       merchantCategoryRepository: merchantCategoryRepository,
@@ -75,7 +81,8 @@ void main() {
   });
 
   test('first launch seeds categories and merchant mappings only', () async {
-    expect(await db.count('categories'), 21);
+    // 25 product categories + 1 internal "all expenses".
+    expect(await db.count('categories'), 26);
     final allExpensesCategory = await db.customSelect(
       'SELECT id FROM categories WHERE key = ? LIMIT 1;',
       variables: [Variable.withString(BudgetEntity.allExpensesCategoryKey)],
@@ -87,6 +94,189 @@ void main() {
     final userVersion =
         await db.customSelect('PRAGMA user_version;').getSingle();
     expect(userVersion.read<int>('user_version'), db.schemaVersion);
+  });
+
+  test(
+      'saving with a missing seeded category recreates it instead of falling back to other',
+      () async {
+    await db.customStatement("DELETE FROM categories WHERE key = 'transfers';");
+    expect(
+      await db
+          .customSelect("SELECT id FROM categories WHERE key = 'transfers';")
+          .getSingleOrNull(),
+      isNull,
+    );
+
+    final now = DateTime.utc(2026, 6, 27, 10, 0);
+    final saved = await transactionRepository.saveTransaction(
+      transaction: TransactionEntity(
+        id: IdGenerator.next(),
+        amount: 31.43,
+        currency: 'EGP',
+        type: TransactionTypeEntity.transfer,
+        source: TransactionSourceEntity.aiParsed,
+        occurredAt: now,
+        rawMessage: 'IPN transfer sent with amount of EGP 31.43',
+        parseConfidence: 0.79,
+        status: TransactionStatus.pending,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      categoryKey: 'transfers',
+    );
+
+    expect(saved.categoryId, isNotNull);
+    final categoryLookup = await db.customSelect(
+      '''
+        SELECT categories.key AS category_key
+        FROM transactions
+        INNER JOIN categories ON categories.id = transactions.category_id
+        WHERE transactions.id = ?;
+      ''',
+      variables: [Variable.withString(saved.id)],
+    ).getSingle();
+    expect(categoryLookup.read<String>('category_key'), 'transfers');
+  });
+
+  test('saving transfer with other category is normalized to transfers',
+      () async {
+    final now = DateTime.utc(2026, 6, 27, 10, 15);
+    final saved = await transactionRepository.saveTransaction(
+      transaction: TransactionEntity(
+        id: IdGenerator.next(),
+        amount: 250,
+        currency: 'EGP',
+        type: TransactionTypeEntity.transfer,
+        source: TransactionSourceEntity.aiParsed,
+        rawMerchant: 'Ahmed Hassan',
+        occurredAt: now,
+        rawMessage: 'Transfer sent with amount of EGP 250.00 to Ahmed Hassan',
+        parseConfidence: 0.79,
+        status: TransactionStatus.pending,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      categoryKey: 'other',
+    );
+
+    final lookup = await db.customSelect(
+      '''
+        SELECT categories.key AS category_key, transactions.raw_merchant AS raw_merchant
+        FROM transactions
+        INNER JOIN categories ON categories.id = transactions.category_id
+        WHERE transactions.id = ?;
+      ''',
+      variables: [Variable.withString(saved.id)],
+    ).getSingle();
+
+    expect(lookup.read<String>('category_key'), 'transfers');
+    expect(lookup.readNullable<String>('raw_merchant'), isNull);
+  });
+
+  test(
+      'startup backfills old wrong transfer categories and clears person names',
+      () async {
+    final now = DateTime.utc(2026, 6, 27, 10, 30);
+    final txId = IdGenerator.next();
+    final otherCategory = await db
+        .customSelect("SELECT id FROM categories WHERE key = 'other' LIMIT 1;")
+        .getSingle();
+    await db.customInsert(
+      '''
+        INSERT INTO transactions(
+          id, amount, currency, category_id, type, source, raw_merchant,
+          occurred_at, raw_message, parse_confidence, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      ''',
+      variables: [
+        Variable.withString(txId),
+        Variable.withReal(31.43),
+        Variable.withString('EGP'),
+        Variable.withString(otherCategory.read<String>('id')),
+        Variable.withString('transfer'),
+        Variable.withString('aiParsed'),
+        Variable.withString('Ahmed Hassan'),
+        Variable.withString(now.toUtc().toIso8601String()),
+        Variable.withString('old transfer saved as other'),
+        Variable.withReal(0.79),
+        Variable.withString('pending'),
+        Variable.withString(now.toUtc().toIso8601String()),
+        Variable.withString(now.toUtc().toIso8601String()),
+      ],
+    );
+
+    await db.initialize();
+
+    final categoryLookup = await db.customSelect(
+      '''
+        SELECT categories.key AS category_key, transactions.raw_merchant AS raw_merchant
+        FROM transactions
+        INNER JOIN categories ON categories.id = transactions.category_id
+        WHERE transactions.id = ?;
+      ''',
+      variables: [Variable.withString(txId)],
+    ).getSingle();
+    expect(categoryLookup.read<String>('category_key'), 'transfers');
+    expect(categoryLookup.readNullable<String>('raw_merchant'), isNull);
+  });
+
+  test('startup backfills old credited transfer direction', () async {
+    final now = DateTime.utc(2026, 6, 27, 13, 29);
+    final txId = IdGenerator.next();
+    final transferCategory = await db
+        .customSelect(
+            "SELECT id FROM categories WHERE key = 'transfers' LIMIT 1;")
+        .getSingle();
+    await db.customInsert(
+      '''
+        INSERT INTO transactions(
+          id, amount, currency, category_id, type, source,
+          occurred_at, raw_message, parse_confidence, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      ''',
+      variables: [
+        Variable.withString(txId),
+        Variable.withReal(9000),
+        Variable.withString('EGP'),
+        Variable.withString(transferCategory.read<String>('id')),
+        Variable.withString('transfer'),
+        Variable.withString('aiParsed'),
+        Variable.withString(now.toUtc().toIso8601String()),
+        Variable.withString(
+            'تم إضافة تحويل لحظي لبطاقتكم مسبقة الدفع بمبلغ 9000.00 جم'),
+        Variable.withReal(0.79),
+        Variable.withString('pending'),
+        Variable.withString(now.toUtc().toIso8601String()),
+        Variable.withString(now.toUtc().toIso8601String()),
+      ],
+    );
+
+    await db.initialize();
+
+    final row = await db.customSelect(
+      'SELECT direction FROM transactions WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(txId)],
+    ).getSingle();
+    expect(row.read<String>('direction'), 'credit');
+  });
+
+  test('user profile settings persist editable identity fields', () async {
+    final settings = await userSettingsRepository.getSettings();
+
+    await userSettingsRepository.saveSettings(
+      settings.copyWith(
+        displayName: 'يوسف',
+        phoneNumber: '+201001112223',
+        avatarPath: '/tmp/profile-avatar.jpg',
+      ),
+    );
+
+    final updated = await userSettingsRepository.getSettings();
+    expect(updated.displayName, 'يوسف');
+    expect(updated.phoneNumber, '+201001112223');
+    expect(updated.avatarPath, '/tmp/profile-avatar.jpg');
+    expect(updated.country, settings.country);
+    expect(updated.currency, settings.currency);
   });
 
   test('new merchant stays pending and de-duplicates within two minutes',
@@ -223,9 +413,11 @@ void main() {
   });
 
   test('goal CRUD and contributions update saved amount', () async {
+    final defaultAccount = await accountRepository.getDefault();
     final goal = GoalEntity(
       id: IdGenerator.next(),
       name: 'جهاز جديد',
+      accountId: defaultAccount?.id,
       targetAmount: 4000,
       savedAmount: 500,
       deadline: DateTime.utc(2026, 12, 1),
@@ -236,6 +428,7 @@ void main() {
 
     final savedGoal = await saveGoal(goal);
     expect(savedGoal.name, 'جهاز جديد');
+    expect(savedGoal.accountId, defaultAccount?.id);
 
     await addGoalContribution(
       GoalContributionEntity(
@@ -249,6 +442,7 @@ void main() {
 
     final updatedGoal = await goalRepository.getById(savedGoal.id);
     expect(updatedGoal?.savedAmount, 800);
+    expect(updatedGoal?.accountId, defaultAccount?.id);
 
     await deleteGoal(savedGoal.id);
     expect(await goalRepository.getById(savedGoal.id), isNull);
@@ -280,12 +474,34 @@ void main() {
       reminderOn: false,
       isConfirmed: true,
       createdAt: DateTime.utc(2026, 6, 1),
+      manualPaidAmount: 500,
     );
 
     final savedSubscription = await billRepository.save(subscription);
     final savedInstallment = await billRepository.save(installment);
     expect(savedSubscription.type, BillType.subscription);
     expect(savedInstallment.type, BillType.installment);
+    expect(savedInstallment.manualPaidAmount, 500);
+
+    final payment = await billRepository.recordPayment(
+      BillPaymentEntity(
+        id: IdGenerator.next(),
+        billId: savedInstallment.id,
+        amount: 250,
+        currency: 'SAR',
+        periodStart: DateTime.utc(2026, 7, 1),
+        periodEnd: DateTime.utc(2026, 7, 31),
+        paidAt: DateTime.utc(2026, 7, 2),
+        installmentIndex: 1,
+        note: 'دفعة يوليو',
+      ),
+    );
+    expect(payment.amount, 250);
+    final payments = await billRepository.getPayments(savedInstallment.id);
+    expect(payments.map((item) => item.id), contains(payment.id));
+    final installmentAfterPayment =
+        await billRepository.getById(savedInstallment.id);
+    expect(installmentAfterPayment?.paidCount, 1);
 
     final updated = await billRepository.save(
       savedSubscription.copyWith(

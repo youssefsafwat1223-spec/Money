@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// AppMotion — Centralized motion durations and curves for Mali.
+/// AppMotion — Centralized motion durations and curves for Qirsh.
 class AppMotion {
   AppMotion._();
 

@@ -7,7 +7,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>مالي</string>
+		<string>قرش</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
 		<key>CFBundleName</key>
-		<string>مالي</string>
+		<string>قرش</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -33,12 +33,14 @@
 				<string>Editor</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
-					<string>com.googleusercontent.apps.881903820931-25j4h02kniuvhlo4sb7sjqbbc9hf7ptd</string>
+					<string>com.googleusercontent.apps.881903820931-c4cttgekf9d3tcv3j2lt10ao2upk4b1m</string>
 				</array>
 			</dict>
 		</array>
 		<key>NSFaceIDUsageDescription</key>
 		<string>يستخدم مالي Face ID لحماية بياناتك المالية عند فتح التطبيق.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>اختر صورة شخصية لتظهر في ملفك ولوحة التحكم داخل مالي.</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

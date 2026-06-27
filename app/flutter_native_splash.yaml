@@ -1,8 +1,8 @@
 flutter_native_splash:
-  color: "#02131C"
-  image: assets/brand/branding_dark_1024.png
-  color_dark: "#02131C"
-  image_dark: assets/brand/branding_dark_1024.png
+  color: "#021B79"
+  image: assets/qirsh/qirsh_logo_full.png
+  color_dark: "#021B79"
+  image_dark: assets/qirsh/qirsh_logo_full.png
   android: true
   ios: true
   web: false

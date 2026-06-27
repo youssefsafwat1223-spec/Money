@@ -30,9 +30,8 @@ class BudgetProgressUseCase {
       final normalizedBudget = await _rollBudgetIfNeeded(budget, current);
       final period = _currentPeriodFor(normalizedBudget.period, current);
       final spent = await _spentForBudget(normalizedBudget, period);
-      final ratio = normalizedBudget.amount == 0
-          ? 0.0
-          : spent / normalizedBudget.amount;
+      final ratio =
+          normalizedBudget.amount == 0 ? 0.0 : spent / normalizedBudget.amount;
       final remaining = normalizedBudget.amount - spent;
       final health = ratio >= 1
           ? BudgetHealth.over
@@ -60,9 +59,7 @@ class BudgetProgressUseCase {
             kind: BudgetAlertKind.over100,
           ),
         );
-      } else if (ratio >= 0.8 &&
-          ratio < 1 &&
-          !normalizedBudget.alert80Sent) {
+      } else if (ratio >= 0.8 && ratio < 1 && !normalizedBudget.alert80Sent) {
         final updated = normalizedBudget.copyWith(alert80Sent: true);
         await _budgetRepository.save(updated);
         alerts.add(
@@ -141,12 +138,14 @@ class BudgetProgressUseCase {
       return _transactionRepository.expenseTotalBetween(
         from: period.$1,
         to: period.$2,
+        accountId: budget.accountId,
       );
     }
     return _transactionRepository.categoryExpenseTotalBetween(
       categoryId: budget.categoryId,
       from: period.$1,
       to: period.$2,
+      accountId: budget.accountId,
     );
   }
 }

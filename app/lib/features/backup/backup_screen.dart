@@ -9,7 +9,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
-import '../common/section_hero_header.dart';
 
 class BackupScreen extends ConsumerWidget {
   const BackupScreen({super.key});
@@ -23,11 +22,7 @@ class BackupScreen extends ConsumerWidget {
       backgroundColor: c.bg,
       body: Column(
         children: [
-          const SectionHeroHeader(
-            title: 'النسخ الاحتياطي والاستعادة',
-            subtitle:
-                'احفظ بياناتك المالية واسترجعها بأمان وسرية تامة في أي وقت.',
-          ),
+          const _BackupHeader(),
           Expanded(
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -38,6 +33,59 @@ class BackupScreen extends ConsumerWidget {
                   ? _EnabledView(status: status)
                   : const _EnableFlow(),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BackupHeader extends StatelessWidget {
+  const _BackupHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        64,
+        AppSpacing.gutter,
+        AppSpacing.s5,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            c.cta.withValues(alpha: 0.12),
+            c.bg,
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (Navigator.of(context).canPop()) ...[
+                BackButton(color: c.textMain),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+              Expanded(
+                child: Text(
+                  'النسخ الاحتياطي والاستعادة',
+                  style: AppTypography.title1(c.textMain)
+                      .copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'احفظ بياناتك المالية واسترجعها بأمان وسرية تامة في أي وقت.',
+            style: AppTypography.caption(c.textMuted),
           ),
         ],
       ),
@@ -60,7 +108,7 @@ class _GuestBackupGate extends StatelessWidget {
             style: AppTypography.headline(c.textMain)),
         const SizedBox(height: AppSpacing.s2),
         Text(
-          'تقدر تستخدم مالي محليًا بدون حساب. النسخ الاحتياطي يحتاج تسجيل دخول حتى نربط النسخة المشفّرة بك.',
+          'تقدر تستخدم قرش محليًا بدون حساب. النسخ الاحتياطي يحتاج تسجيل دخول حتى نربط النسخة المشفّرة بك.',
           style: AppTypography.body(c.textLight),
         ),
         const SizedBox(height: AppSpacing.s5),

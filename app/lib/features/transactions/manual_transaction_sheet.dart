@@ -15,23 +15,35 @@ import '../budgets/budgets_providers.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart';
+import '../subscriptions/subscriptions_providers.dart';
 import 'transactions_providers.dart';
 
 class ManualTransactionSheet extends ConsumerStatefulWidget {
-  const ManualTransactionSheet({super.key, this.transaction});
+  const ManualTransactionSheet({
+    super.key,
+    this.transaction,
+    this.initialCardLast4,
+  });
 
   final TransactionEntity? transaction;
+
+  /// لما تُفتح من صفحة بطاقة معيّنة: العملية الجديدة تُنسب لهذه البطاقة.
+  final String? initialCardLast4;
 
   static Future<void> show(
     BuildContext context, {
     TransactionEntity? transaction,
+    String? cardLast4,
   }) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ManualTransactionSheet(transaction: transaction),
+      builder: (_) => ManualTransactionSheet(
+        transaction: transaction,
+        initialCardLast4: cardLast4,
+      ),
     );
   }
 
@@ -61,7 +73,8 @@ class _ManualTransactionSheetState
     super.initState();
     final tx = widget.transaction;
     if (tx != null) {
-      _amount.text = tx.amount.toStringAsFixed(tx.amount.truncateToDouble() == tx.amount ? 0 : 2);
+      _amount.text = tx.amount
+          .toStringAsFixed(tx.amount.truncateToDouble() == tx.amount ? 0 : 2);
       _merchant.text = tx.rawMerchant ?? '';
       _note.text = tx.note ?? '';
       _currency.text = tx.currency;
@@ -72,8 +85,7 @@ class _ManualTransactionSheetState
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         // الحساب الافتراضي يحدّد العملة المبدئية.
-        final account =
-            await ref.read(accountRepositoryProvider).getDefault();
+        final account = await ref.read(accountRepositoryProvider).getDefault();
         if (mounted && account != null && _accountId == null) {
           setState(() {
             _accountId = account.id;
@@ -151,17 +163,21 @@ class _ManualTransactionSheetState
             );
       } else {
         await ref.read(saveManualTransactionUseCaseProvider)(
-              amount: amount,
-              currency: _currency.text.trim().toUpperCase(),
-              type: _type,
-              occurredAt: _occurredAt,
-              categoryKey: categoryKey!,
-              merchant: _merchant.text,
-              note: _note.text,
-              accountId: _accountId,
-            );
+          amount: amount,
+          currency: _currency.text.trim().toUpperCase(),
+          type: _type,
+          occurredAt: _occurredAt,
+          categoryKey: categoryKey!,
+          merchant: _merchant.text,
+          note: _note.text,
+          accountId: _accountId,
+          cardLast4: widget.initialCardLast4,
+        );
       }
       if (!mounted) return;
+      if (_isEditing) {
+        ref.invalidate(transactionByIdProvider(widget.transaction!.id));
+      }
       refreshTransactions(ref);
       refreshBudgets(ref);
       refreshAchievements(ref);
@@ -198,7 +214,17 @@ class _ManualTransactionSheetState
     setState(() => _busy = true);
     try {
       await ref.read(transactionRepositoryProvider).deleteTransaction(tx.id);
+      final affectedBillIds = await ref
+          .read(billRepositoryProvider)
+          .deletePaymentForTransaction(tx.id);
       if (!mounted) return;
+      for (final billId in affectedBillIds) {
+        ref.invalidate(billPaymentsProvider(billId));
+      }
+      if (affectedBillIds.isNotEmpty) {
+        ref.invalidate(savedBillsProvider);
+        ref.invalidate(billsViewProvider);
+      }
       refreshTransactions(ref);
       refreshBudgets(ref);
       ref.invalidate(dashboardDataProvider);
@@ -206,6 +232,28 @@ class _ManualTransactionSheetState
       Navigator.of(context).maybePop();
     } catch (_) {
       if (mounted) _snack('تعذر حذف العملية الآن.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmTransaction() async {
+    final tx = widget.transaction;
+    if (tx == null || _busy || tx.status == TransactionStatus.confirmed) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await ref.read(confirmTransactionUseCaseProvider)(tx.id);
+      if (!mounted) return;
+      ref.invalidate(transactionByIdProvider(tx.id));
+      refreshTransactions(ref);
+      refreshBudgets(ref);
+      refreshAchievements(ref);
+      ref.invalidate(dashboardDataProvider);
+      _snack('تم تأكيد العملية.');
+    } catch (_) {
+      if (mounted) _snack('تعذر تأكيد العملية الآن.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -235,7 +283,9 @@ class _ManualTransactionSheetState
   Widget _buildForm(BuildContext context, CategoryCatalog catalog) {
     final c = context.colors;
     final categories = catalog.all.where((category) {
-      if (_type == TransactionTypeEntity.income) return category.entity.isIncome;
+      if (_type == TransactionTypeEntity.income) {
+        return category.entity.isIncome;
+      }
       return !category.entity.isIncome;
     }).toList();
     if (_categoryKey == null && _categoryId == null && categories.isNotEmpty) {
@@ -243,7 +293,6 @@ class _ManualTransactionSheetState
     }
 
     return ListView(
-      shrinkWrap: true,
       padding: const EdgeInsets.only(
         left: AppSpacing.gutter,
         right: AppSpacing.gutter,
@@ -391,6 +440,23 @@ class _ManualTransactionSheetState
           label: Text(_isEditing ? 'حفظ التعديلات' : 'إضافة العملية'),
         ),
         if (_isEditing) ...[
+          const SizedBox(height: AppSpacing.s2),
+          FilledButton.icon(
+            onPressed: _busy ||
+                    widget.transaction!.status == TransactionStatus.confirmed
+                ? null
+                : _confirmTransaction,
+            icon: Icon(
+              widget.transaction!.status == TransactionStatus.confirmed
+                  ? Icons.verified_rounded
+                  : Icons.verified_outlined,
+            ),
+            label: Text(
+              widget.transaction!.status == TransactionStatus.confirmed
+                  ? 'العملية مؤكدة'
+                  : 'تأكيد العملية',
+            ),
+          ),
           const SizedBox(height: AppSpacing.s2),
           OutlinedButton.icon(
             onPressed: _busy ? null : _delete,

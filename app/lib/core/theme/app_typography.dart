@@ -3,7 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// الطباعة — Arabic-first premium typography for Mali.
+/// الطباعة — Arabic-first premium typography for Qirsh.
 class AppTypography {
   AppTypography._();
 

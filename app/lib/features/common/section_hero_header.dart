@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_gradients.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
@@ -20,6 +20,7 @@ class SectionHeroHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(
@@ -28,16 +29,8 @@ class SectionHeroHeader extends StatelessWidget {
         AppSpacing.gutter,
         AppSpacing.s6,
       ),
-      decoration: const BoxDecoration(
-        gradient: AppGradients.heroHeader,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(34)),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x40034F73),
-            blurRadius: 26,
-            offset: Offset(0, 14),
-          ),
-        ],
+      decoration: BoxDecoration(
+        color: c.bg,
       ),
       child: SafeArea(
         bottom: false,
@@ -47,29 +40,29 @@ class SectionHeroHeader extends StatelessWidget {
             Row(
               children: [
                 if (Navigator.of(context).canPop()) ...[
-                  const BackButton(color: Colors.white),
+                  BackButton(color: c.textPrimary),
                   const SizedBox(width: AppSpacing.s2),
                 ],
                 Expanded(
                   child: Text(
                     title,
-                    style: AppTypography.title1(Colors.white)
-                        .copyWith(fontWeight: FontWeight.bold),
+                    style: AppTypography.title2(c.textPrimary)
+                        .copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: AppSpacing.s2),
-            Text(subtitle, style: AppTypography.callout(Colors.white70)),
+            Text(subtitle, style: AppTypography.caption(c.textMuted)),
             if (metrics.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.s5),
               Container(
                 padding: const EdgeInsets.all(AppSpacing.s4),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: c.surfaceCard,
                   borderRadius: BorderRadius.circular(AppRadius.card),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.20),
+                    color: c.border,
                   ),
                 ),
                 child: Row(
@@ -80,7 +73,7 @@ class SectionHeroHeader extends StatelessWidget {
                         Container(
                           height: 42,
                           width: 1,
-                          color: Colors.white.withValues(alpha: 0.20),
+                          color: c.divider,
                         ),
                     ],
                   ],
@@ -112,19 +105,20 @@ class _MetricView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Column(
       children: [
         Text(
           metric.value,
           textAlign: TextAlign.center,
-          style: AppTypography.headline(Colors.white)
+          style: AppTypography.headline(c.textPrimary)
               .copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
         Text(
           metric.label,
           textAlign: TextAlign.center,
-          style: AppTypography.caption(Colors.white70),
+          style: AppTypography.caption(c.textSecondary),
         ),
       ],
     );

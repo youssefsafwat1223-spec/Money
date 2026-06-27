@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
+import '../cards/brand_mark.dart';
 import 'app_status_pill.dart';
 import 'category_avatar.dart';
 
@@ -23,6 +24,7 @@ class AppTransactionRow extends StatelessWidget {
     this.subtitle,
     this.categoryIcon,
     this.categoryColor,
+    this.brandLogoUrl,
     this.isPending = false,
     this.isAi = false,
     this.confidencePercent,
@@ -40,6 +42,10 @@ class AppTransactionRow extends StatelessWidget {
   final String? subtitle;
   final IconData? categoryIcon;
   final Color? categoryColor;
+
+  /// Admin-managed brand logo URL (resolved by the caller). When set, shows the
+  /// brand logo instead of the category icon.
+  final String? brandLogoUrl;
   final bool isPending;
   final bool isAi;
   final int? confidencePercent;
@@ -78,7 +84,9 @@ class AppTransactionRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                CategoryAvatar(icon: categoryIcon, color: categoryColor),
+                (brandLogoUrl != null || BrandMark.hasBrand(title))
+                    ? BrandMark(name: title, size: 44, logoUrl: brandLogoUrl)
+                    : CategoryAvatar(icon: categoryIcon, color: categoryColor),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(

@@ -27,12 +27,13 @@ class _CaptureMethodPickerScreenState
 
   void _toggle(int i) => setState(() => _open = _open == i ? null : i);
 
-  void _continue() => context.push('/onboarding/backup-info');
+  void _continue() => context.push('/onboarding/ai-consent');
 
   Future<void> _grantSms() async {
     if (_granting) return;
     setState(() => _granting = true);
-    final granted = await AndroidSmsCaptureService.instance.requestPermissions();
+    final granted =
+        await AndroidSmsCaptureService.instance.requestPermissions();
     if (!mounted) return;
     setState(() => _granting = false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -53,7 +54,7 @@ class _CaptureMethodPickerScreenState
         if (context.canPop()) context.pop();
       },
       title: 'كيفية إدخال معاملاتك',
-      subtitle: 'مالي يضيف عملياتك بـ 3 طرق. اضغط على كل طريقة لمعرفة التفاصيل.',
+      subtitle: 'قرش يضيف عملياتك بـ 3 طرق. اضغط على كل طريقة لمعرفة التفاصيل.',
       primaryLabel: 'التالي',
       onPrimary: _continue,
       child: Column(
@@ -63,7 +64,8 @@ class _CaptureMethodPickerScreenState
             color: c.cta,
             title: 'رسائل البنك (تلقائي)',
             platformTag: 'Android',
-            summary: 'للأندرويد: نقرأ رسائل البنك على جهازك ونضيف العملية تلقائياً.',
+            summary:
+                'للأندرويد: نقرأ رسائل البنك على جهازك ونضيف العملية تلقائياً.',
             expanded: _open == 0,
             onTap: () => _toggle(0),
             body: _SmsBody(granting: _granting, onGrant: _grantSms),
@@ -74,7 +76,7 @@ class _CaptureMethodPickerScreenState
             color: c.accent,
             title: 'اختصار iOS (تلقائي)',
             platformTag: 'iPhone',
-            summary: 'على iPhone نستخدم اختصار آبل لتمرير رسائل البنك لمالي.',
+            summary: 'على iPhone نستخدم اختصار آبل لتمرير رسائل البنك لقرش.',
             expanded: _open == 1,
             onTap: () => _toggle(1),
             body: const _ShortcutBody(),
@@ -84,7 +86,7 @@ class _CaptureMethodPickerScreenState
             icon: Icons.content_paste_rounded,
             color: c.success,
             title: 'اللصق اليدوي',
-            summary: 'حل احتياطي دائم: انسخ أي رسالة بنك والصقها في مالي.',
+            summary: 'حل احتياطي دائم: انسخ أي رسالة بنك والصقها في قرش.',
             expanded: _open == 2,
             onTap: () => _toggle(2),
             body: const _ManualBody(),
@@ -147,7 +149,7 @@ class _ExpandableMethod extends StatelessWidget {
                         colors: [
                           Color.lerp(color, Colors.white, 0.18)!,
                           color,
-                          Color.lerp(color, const Color(0xFF120A2E), 0.42)!,
+                          Color.lerp(color, const Color(0xFF021B79), 0.42)!,
                         ],
                       ),
                       borderRadius: BorderRadius.circular(14),
@@ -239,13 +241,13 @@ class _SmsBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _DetailStep('1', 'فعّل إذن الرسائل',
-            'اضغط الزر بالأسفل واسمح لمالي بقراءة رسائل البنك (أندرويد فقط).'),
+            'اضغط الزر بالأسفل واسمح لقرش بقراءة رسائل البنك (أندرويد فقط).'),
         const _DetailStep('2', 'استقبل رسالة البنك',
             'بعد أي عملية، تصلك رسالة من بنكك على نفس الجهاز.'),
         const _DetailStep('3', 'تحليل تلقائي على الجهاز',
-            'مالي يقرأ الرسالة محلياً ويحدّد المبلغ والتاجر والتصنيف — بدون إنترنت.'),
+            'قرش يقرأ الرسالة محلياً ويحدّد المبلغ والتاجر والتصنيف — بدون إنترنت.'),
         const _DetailStep('4', 'مراجعة عند الحاجة',
-            'لو مالي مش متأكد، يفتح لك مراجعة سريعة قبل إضافة العملية.'),
+            'لو قرش مش متأكد، يفتح لك مراجعة سريعة قبل إضافة العملية.'),
         if (Platform.isAndroid) ...[
           const SizedBox(height: 6),
           SizedBox(
@@ -283,16 +285,16 @@ class _ShortcutBody extends StatelessWidget {
             'اضغط New Automation أو علامة +، ثم اختر Message.'),
         _DetailStep('3', 'حدّد رسائل البنك',
             'في Message Contents اكتب رمز العملة مثل SAR، وكرّر لاحقاً لأي عملة إضافية.'),
-        _DetailStep('4', 'خلّيه يعمل فوراً',
-            'اختَر Run Immediately ثم اضغط Next.'),
-        _DetailStep('5', 'اختَر اختصار مالي',
+        _DetailStep(
+            '4', 'خلّيه يعمل فوراً', 'اختَر Run Immediately ثم اضغط Next.'),
+        _DetailStep('5', 'اختَر اختصار قرش',
             'اضغط New Blank Automation، وابحث عن Post Bank Status.'),
         _DetailStep('6', 'مرّر نص الرسالة',
-            'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.'),
+            'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل قرش نص رسالة البنك.'),
         _DetailStep('7', 'شغّله في الخلفية',
             'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.'),
         _DetailStep('8', 'احفظ الاختصار',
-            'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.'),
+            'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل قرش.'),
       ],
     );
   }
@@ -308,10 +310,10 @@ class _ManualBody extends StatelessWidget {
       children: [
         _DetailStep('1', 'انسخ نص الرسالة',
             'من تطبيق الرسائل، انسخ رسالة البنك بالكامل.'),
-        _DetailStep('2', 'افتح مالي واضغط إضافة',
-            'من زر + اختر «لصق رسالة بنك».'),
+        _DetailStep(
+            '2', 'افتح قرش واضغط إضافة', 'من زر + اختر «لصق رسالة بنك».'),
         _DetailStep('3', 'الصق وحلّل',
-            'الصق النص، ومالي يحلله على جهازك ويضيف العملية بعد مراجعة سريعة.'),
+            'الصق النص، وقرش يحلله على جهازك ويضيف العملية بعد مراجعة سريعة.'),
       ],
     );
   }

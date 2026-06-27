@@ -50,9 +50,11 @@ class DriftGoalRepository implements GoalRepository {
 
   @override
   Future<int> countAll() async {
-    final row = await _db.customSelect(
-      'SELECT COUNT(*) AS total FROM goals;',
-    ).getSingle();
+    final row = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS total FROM goals;',
+        )
+        .getSingle();
     return row.read<int>('total');
   }
 
@@ -91,31 +93,43 @@ class DriftGoalRepository implements GoalRepository {
   @override
   Future<GoalEntity> save(GoalEntity goal) async {
     final existing = await getById(goal.id);
+    final autoAmount =
+        goal.autoSaveAmount == null ? 'NULL' : '${goal.autoSaveAmount}';
+    final autoPeriod = sqlNullableString(goal.autoSavePeriod);
+    final autoLastRun = sqlNullableString(
+        goal.autoSaveLastRun == null ? null : dateTimeToSql(goal.autoSaveLastRun!));
     if (existing == null) {
       await _db.customStatement('''
         INSERT INTO goals(
-          id, name, target_amount, saved_amount, deadline, vault_skin, status, created_at
+          id, name, account_id, target_amount, saved_amount, deadline, vault_skin, status, created_at,
+          auto_save_amount, auto_save_period, auto_save_last_run
         ) VALUES (
           ${sqlString(goal.id)},
           ${sqlString(goal.name)},
+          ${sqlNullableString(goal.accountId)},
           ${goal.targetAmount},
           ${goal.savedAmount},
           ${sqlNullableString(goal.deadline == null ? null : dateTimeToSql(goal.deadline!))},
           ${sqlString(goal.vaultSkin)},
           ${sqlString(goal.status)},
-          ${sqlString(dateTimeToSql(goal.createdAt))}
+          ${sqlString(dateTimeToSql(goal.createdAt))},
+          $autoAmount, $autoPeriod, $autoLastRun
         );
       ''');
     } else {
       await _db.customStatement('''
         UPDATE goals
         SET name = ${sqlString(goal.name)},
+            account_id = ${sqlNullableString(goal.accountId)},
             target_amount = ${goal.targetAmount},
             saved_amount = ${goal.savedAmount},
             deadline = ${sqlNullableString(goal.deadline == null ? null : dateTimeToSql(goal.deadline!))},
             vault_skin = ${sqlString(goal.vaultSkin)},
             status = ${sqlString(goal.status)},
-            created_at = ${sqlString(dateTimeToSql(goal.createdAt))}
+            created_at = ${sqlString(dateTimeToSql(goal.createdAt))},
+            auto_save_amount = $autoAmount,
+            auto_save_period = $autoPeriod,
+            auto_save_last_run = $autoLastRun
         WHERE id = ${sqlString(goal.id)};
       ''');
     }

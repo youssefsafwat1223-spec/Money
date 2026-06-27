@@ -8,12 +8,14 @@ import '../../domain/entities/account_entity.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../common/category_catalog.dart';
 import 'budgets_providers.dart';
 
-TextStyle _alex(double size, FontWeight weight, double height, Color color, {bool tabular = false, List<Shadow>? shadows}) {
+TextStyle _alex(double size, FontWeight weight, double height, Color color,
+    {bool tabular = false, List<Shadow>? shadows}) {
   return GoogleFonts.inter(
     fontSize: size,
     fontWeight: weight,
@@ -153,7 +155,6 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   String? _categoryId;
   bool _alert80 = true;
   bool _alert100 = true;
-  bool _showOnHeader = false;
   String? _accountId;
   bool _didSeedInitialState = false;
   bool _suggestionLoading = false;
@@ -173,7 +174,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
         ? const AsyncValue<BudgetEntity?>.data(null)
         : ref.watch(budgetByIdProvider(widget.budgetId!));
     final categoriesAsync = ref.watch(categoryCatalogProvider);
-    final accounts = ref.watch(accountsProvider).valueOrNull ?? <AccountEntity>[];
+    final accounts =
+        ref.watch(accountsProvider).valueOrNull ?? <AccountEntity>[];
+    final selectedAccount = _selectedAccount(accounts);
+    final baseCurrency = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
+    final currencyLabel =
+        Currency.arabicLabel(selectedAccount?.currency ?? baseCurrency);
 
     return budgetAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -245,7 +251,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                     decoration: InputDecoration(
                       labelText: 'المبلغ',
                       labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
-                      suffixText: 'ريال',
+                      suffixText: currencyLabel,
                       suffixStyle: _alex(14, FontWeight.w800, 1.2, c.textMain),
                       filled: true,
                       fillColor: c.surface.withValues(alpha: 0.15),
@@ -284,22 +290,26 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                   ),
                   if (accounts.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.s4),
-                    DropdownButtonFormField<String?>(
-                      value: _accountId,
+                    DropdownButtonFormField<String>(
+                      value: selectedAccount?.id,
                       style: _alex(14, FontWeight.w700, 1.2, c.textMain),
                       decoration: InputDecoration(
-                        labelText: 'الحساب (اختياري)',
-                        labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
+                        labelText: 'الحساب',
+                        labelStyle:
+                            _alex(13, FontWeight.w700, 1.2, c.textLight),
                         filled: true,
                         fillColor: c.surface.withValues(alpha: 0.15),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 14),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                          borderSide: BorderSide(
+                              color: c.border.withValues(alpha: 0.3)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: c.border.withValues(alpha: 0.3)),
+                          borderSide: BorderSide(
+                              color: c.border.withValues(alpha: 0.3)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
@@ -307,17 +317,16 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                         ),
                       ),
                       items: [
-                        const DropdownMenuItem<String?>(
-                          value: null,
-                          child: Text('كل الحسابات'),
-                        ),
                         for (final acc in accounts)
-                          DropdownMenuItem<String?>(
+                          DropdownMenuItem<String>(
                             value: acc.id,
                             child: Text(acc.name),
                           ),
                       ],
-                      onChanged: (v) => setState(() => _accountId = v),
+                      onChanged: (v) {
+                        setState(() => _accountId = v);
+                        _refreshSuggestedAmount();
+                      },
                     ),
                   ],
                   if (budget == null) ...[
@@ -345,13 +354,6 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                     title: 'نبّهني عند 100%',
                     value: _alert100,
                     onChanged: (value) => setState(() => _alert100 = value),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSwitchRow(
-                    title: 'اعرض في الهيدر',
-                    subtitle: 'شريط التقدم يظهر في بطاقة الملخص بالأعلى',
-                    value: _showOnHeader,
-                    onChanged: (value) => setState(() => _showOnHeader = value),
                   ),
                   const SizedBox(height: AppSpacing.s5),
                   SizedBox(
@@ -439,7 +441,8 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
               children: [
                 Text(title, style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
                 if (subtitle != null)
-                  Text(subtitle, style: _alex(11, FontWeight.w500, 1.3, c.textLight)),
+                  Text(subtitle,
+                      style: _alex(11, FontWeight.w500, 1.3, c.textLight)),
               ],
             ),
           ),
@@ -461,6 +464,9 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       return;
     }
     final amount = double.parse(_amountController.text);
+    final accounts =
+        ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
+    final selectedAccount = _selectedAccount(accounts);
     final navigator = Navigator.of(context);
     final budget = (existing ??
             BudgetEntity(
@@ -479,8 +485,8 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       period: _period,
       alert80Sent: !_alert80,
       alert100Sent: !_alert100,
-      showOnHeader: _showOnHeader,
-      accountId: _accountId,
+      showOnHeader: false,
+      accountId: selectedAccount?.id,
     );
     await ref.read(saveBudgetUseCaseProvider).call(budget);
     if (!mounted) {
@@ -542,14 +548,30 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     _categoryId = budget.categoryId;
     _alert80 = !budget.alert80Sent;
     _alert100 = !budget.alert100Sent;
-    _showOnHeader = budget.showOnHeader;
     _accountId = budget.accountId;
+  }
+
+  AccountEntity? _selectedAccount(List<AccountEntity> accounts) {
+    if (accounts.isEmpty) return null;
+    final selectedId = _accountId;
+    if (selectedId != null) {
+      for (final account in accounts) {
+        if (account.id == selectedId) return account;
+      }
+    }
+    return accounts.firstWhere(
+      (account) => account.isDefault,
+      orElse: () => accounts.first,
+    );
   }
 
   Future<void> _refreshSuggestedAmount() async {
     final categoryId = _categoryId;
     if (categoryId == null || widget.budgetId != null) return;
-    final key = '$categoryId:${_period.name}';
+    final accounts =
+        ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
+    final accountId = _selectedAccount(accounts)?.id;
+    final key = '$categoryId:${_period.name}:$accountId';
     if (_suggestionKey == key && _suggestedAmount != null) return;
     setState(() {
       _suggestionKey = key;
@@ -561,7 +583,11 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
         .subtract(const Duration(days: 29));
     final txRepo = ref.read(transactionRepositoryProvider);
     final total = categoryId == BudgetEntity.allExpensesCategoryId
-        ? await txRepo.expenseTotalBetween(from: from, to: now)
+        ? await txRepo.expenseTotalBetween(
+            from: from,
+            to: now,
+            accountId: accountId,
+          )
         : await txRepo.categoryExpenseTotalBetween(
             categoryId: categoryId,
             from: from,

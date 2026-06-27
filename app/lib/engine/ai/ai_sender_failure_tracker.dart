@@ -15,13 +15,23 @@ class AiSenderFailureTracker {
   static const _suppressAfter = 3;
   final _counts = <String, int>{};
 
-  bool isSuppressed(String senderId) =>
-      (_counts[senderId] ?? 0) >= _suppressAfter;
+  bool isSuppressed(String senderId) {
+    final key = senderId.trim();
+    if (key.isEmpty) return false;
+    return (_counts[key] ?? 0) >= _suppressAfter;
+  }
 
-  void recordFailure(String senderId) =>
-      _counts[senderId] = (_counts[senderId] ?? 0) + 1;
+  void recordFailure(String senderId) {
+    final key = senderId.trim();
+    if (key.isEmpty) return;
+    _counts[key] = (_counts[key] ?? 0) + 1;
+  }
 
-  void recordSuccess(String senderId) => _counts.remove(senderId);
+  void recordSuccess(String senderId) {
+    final key = senderId.trim();
+    if (key.isEmpty) return;
+    _counts.remove(key);
+  }
 
   void resetForTest() => _counts.clear();
 }

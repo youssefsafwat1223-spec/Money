@@ -13,6 +13,7 @@ import 'core/theme/app_colors.dart';
 import 'core/theme/app_typography.dart';
 import 'core/theme/theme_mode_provider.dart';
 import 'core/i18n/locale_provider.dart';
+import 'features/common/mali_logo.dart';
 
 /// جذر التطبيق. Arabic-first / RTL، يدعم الوضعين.
 class MoneyApp extends ConsumerWidget {
@@ -24,7 +25,7 @@ class MoneyApp extends ConsumerWidget {
     final activeLocale = ref.watch(localeProvider);
 
     return MaterialApp.router(
-      title: 'مالي',
+      title: 'قرش',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
@@ -66,7 +67,8 @@ class _MaliSplash extends StatefulWidget {
   State<_MaliSplash> createState() => _MaliSplashState();
 }
 
-class _MaliSplashState extends State<_MaliSplash> with SingleTickerProviderStateMixin {
+class _MaliSplashState extends State<_MaliSplash>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   // Animations
@@ -190,7 +192,7 @@ class _MaliSplashState extends State<_MaliSplash> with SingleTickerProviderState
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'مالي',
+                        'قرش',
                         style: AppTypography.display(c.textMain),
                         textAlign: TextAlign.center,
                         textDirection: TextDirection.rtl,
@@ -200,7 +202,7 @@ class _MaliSplashState extends State<_MaliSplash> with SingleTickerProviderState
                         animation: _letterSpacing,
                         builder: (context, child) {
                           return Text(
-                            'M A L I',
+                            'Q I R S H',
                             style: AppTypography.caption(c.textLight).copyWith(
                               letterSpacing: _letterSpacing.value,
                               fontWeight: FontWeight.w700,
@@ -228,7 +230,8 @@ class _MaliSplashState extends State<_MaliSplash> with SingleTickerProviderState
                 },
                 child: SizedBox(
                   width: 48,
-                  child: _SleekLoadingIndicator(color: c.textLight.withValues(alpha: 0.4)),
+                  child: _SleekLoadingIndicator(
+                      color: c.textLight.withValues(alpha: 0.4)),
                 ),
               ),
             ),
@@ -239,7 +242,7 @@ class _MaliSplashState extends State<_MaliSplash> with SingleTickerProviderState
   }
 }
 
-/// لوجو «مالي» الهندسي — مرسوم ومتحرك برمجياً بقطع منفصلة.
+/// لوجو «قرش» الرسمي مع دخول ناعم.
 class _AnimatedMaliLogo extends StatelessWidget {
   const _AnimatedMaliLogo({
     required this.animation,
@@ -251,52 +254,16 @@ class _AnimatedMaliLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-
-    // Line 1: green, rotated -48 deg
-    final line1Width = Tween<double>(begin: 0.0, end: size * 0.76).animate(
-      CurvedAnimation(
-        parent: animation,
-        curve: const Interval(0.0, 0.45, curve: Curves.easeOutCubic),
-      ),
-    );
-
-    // Line 3: dark green, rotated 72 deg
-    final line3Width = Tween<double>(begin: 0.0, end: size * 0.34).animate(
-      CurvedAnimation(
-        parent: animation,
-        curve: const Interval(0.15, 0.55, curve: Curves.easeOutCubic),
-      ),
-    );
-
-    // Line 4: dark green, horizontal
-    final line4Width = Tween<double>(begin: 0.0, end: size * 0.44).animate(
-      CurvedAnimation(
-        parent: animation,
-        curve: const Interval(0.25, 0.65, curve: Curves.easeOutCubic),
-      ),
-    );
-
-    // Circle: amber
-    final circleScale = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: animation,
-        curve: const Interval(0.35, 0.75, curve: Curves.easeOutBack),
-      ),
-    );
-
-    // Line 2: green, rotated 45 deg
-    final line2Width = Tween<double>(begin: 0.0, end: size * 0.22).animate(
-      CurvedAnimation(
-        parent: animation,
-        curve: const Interval(0.45, 0.85, curve: Curves.easeOutCubic),
-      ),
-    );
-
     final logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: animation,
-        curve: const Interval(0.0, 0.3, curve: Curves.easeIn),
+        curve: const Interval(0.0, 0.42, curve: Curves.easeIn),
+      ),
+    );
+    final logoScale = Tween<double>(begin: 0.86, end: 1.0).animate(
+      CurvedAnimation(
+        parent: animation,
+        curve: const Interval(0.04, 0.8, curve: Curves.easeOutBack),
       ),
     );
 
@@ -305,101 +272,13 @@ class _AnimatedMaliLogo extends StatelessWidget {
       builder: (context, child) {
         return Opacity(
           opacity: logoOpacity.value,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // Line 1: green, rotated -48 deg
-                Positioned(
-                  left: size * 0.16,
-                  top: size * 0.44,
-                  child: Transform.rotate(
-                    angle: -48 * 3.141592653589793 / 180,
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      width: line1Width.value,
-                      height: size * 0.12,
-                      decoration: BoxDecoration(
-                        color: c.success,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                  ),
-                ),
-                
-                // Line 3: dark green, rotated 72 deg
-                Positioned(
-                  left: size * 0.18,
-                  top: size * 0.36,
-                  child: Transform.rotate(
-                    angle: 72 * 3.141592653589793 / 180,
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      width: line3Width.value,
-                      height: size * 0.11,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0A7A4F),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Line 4: dark green, horizontal
-                Positioned(
-                  left: size * 0.12,
-                  bottom: size * 0.18,
-                  child: Container(
-                    width: line4Width.value,
-                    height: size * 0.14,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0A7A4F),
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-
-                // Circle: amber
-                Positioned(
-                  left: size * 0.09,
-                  bottom: size * 0.18,
-                  width: size * 0.16,
-                  height: size * 0.16,
-                  child: Transform.scale(
-                    scale: circleScale.value,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: c.accent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Line 2: green, rotated 45 deg
-                Positioned(
-                  right: size * 0.02,
-                  top: size * 0.01,
-                  child: Transform.rotate(
-                    angle: 45 * 3.141592653589793 / 180,
-                    alignment: Alignment.center,
-                    child: Container(
-                      width: line2Width.value,
-                      height: size * 0.12,
-                      decoration: BoxDecoration(
-                        color: c.success,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          child: Transform.scale(
+            scale: logoScale.value,
+            child: child,
           ),
         );
       },
+      child: MaliLogo(size: size, glow: true),
     );
   }
 }
@@ -410,7 +289,8 @@ class _AmbientLiquidBackground extends StatefulWidget {
   final Widget child;
 
   @override
-  State<_AmbientLiquidBackground> createState() => _AmbientLiquidBackgroundState();
+  State<_AmbientLiquidBackground> createState() =>
+      _AmbientLiquidBackgroundState();
 }
 
 class _AmbientLiquidBackgroundState extends State<_AmbientLiquidBackground>
@@ -443,7 +323,7 @@ class _AmbientLiquidBackgroundState extends State<_AmbientLiquidBackground>
       animation: _driftController,
       builder: (context, child) {
         final t = _driftController.value * 2.0 * pi;
-        
+
         final dx1 = 0.25 * size.width * cos(t);
         final dy1 = 0.15 * size.height * sin(t);
 
@@ -468,8 +348,10 @@ class _AmbientLiquidBackgroundState extends State<_AmbientLiquidBackground>
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      (isDark ? c.primary : const Color(0xFFC7E3F0)).withValues(alpha: isDark ? 0.08 : 0.4),
-                      (isDark ? c.primary : const Color(0xFFC7E3F0)).withValues(alpha: 0.0),
+                      (isDark ? c.primary : const Color(0xFFC7E3F0))
+                          .withValues(alpha: isDark ? 0.08 : 0.4),
+                      (isDark ? c.primary : const Color(0xFFC7E3F0))
+                          .withValues(alpha: 0.0),
                     ],
                   ),
                 ),
@@ -486,8 +368,10 @@ class _AmbientLiquidBackgroundState extends State<_AmbientLiquidBackground>
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      (isDark ? c.accent : const Color(0xFFE3F6EC)).withValues(alpha: isDark ? 0.06 : 0.35),
-                      (isDark ? c.accent : const Color(0xFFE3F6EC)).withValues(alpha: 0.0),
+                      (isDark ? c.accent : const Color(0xFFE3F6EC))
+                          .withValues(alpha: isDark ? 0.06 : 0.35),
+                      (isDark ? c.accent : const Color(0xFFE3F6EC))
+                          .withValues(alpha: 0.0),
                     ],
                   ),
                 ),
@@ -581,7 +465,12 @@ class _RizonSplashGateState extends State<_RizonSplashGate> {
           curve: Curves.easeOut,
           child: IgnorePointer(
             ignoring: !_visible,
-            child: const _MaliSplash(),
+            // Material ancestor so splash Text doesn't get the debug
+            // "missing Material" yellow underline; transparent keeps visuals.
+            child: const Material(
+              type: MaterialType.transparency,
+              child: _MaliSplash(),
+            ),
           ),
         ),
       ],

@@ -27,6 +27,9 @@ class AppScreenScaffold extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
 
   /// مسافة إضافية في الأسفل لتجنب تغطية شريط التنقل العائم.
+  ///
+  /// يجب تطبيق هذه المسافة داخل الـ scrollable content نفسه، وليس حول جسم
+  /// الشاشة بالكامل، حتى لا يتم ضغط ارتفاع الصفحة عند وجود bottom navigation.
   final double? bottomNavPadding;
 
   /// مساحة ثابتة اختيارية أسفل المحتوى، مثل أزرار إجراءات الشاشة.
@@ -120,15 +123,13 @@ class AppScreenScaffold extends StatelessWidget {
       body: Stack(
         children: [
           Positioned.fill(child: baseBackground),
+          // Bottom spacing is owned by scrollable content. In the app shell,
+          // extendBody exposes the floating nav height through MediaQuery, and
+          // applying it here would shrink the whole page viewport.
           _MaybeSafeArea(
             enabled: safeArea,
-            bottom: bottomNavPadding == null,
-            child: Padding(
-              padding: EdgeInsetsDirectional.only(
-                bottom: bottomNavPadding ?? 0.0,
-              ),
-              child: bodyColumn,
-            ),
+            bottom: false,
+            child: bodyColumn,
           ),
         ],
       ),

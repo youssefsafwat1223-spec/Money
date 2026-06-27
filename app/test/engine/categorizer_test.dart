@@ -43,6 +43,32 @@ void main() {
       expect(r.categoryKey, Categories.other.key);
       expect(r.source, CategorySource.fallback);
     });
+
+    test('new category types map from merchant seeds', () {
+      expect(c.categorize(_txn(merchant: 'FITNESS TIME')).categoryKey,
+          Categories.fitness.key);
+      expect(c.categorize(_txn(merchant: 'صالون الرجال')).categoryKey,
+          Categories.beauty.key);
+      expect(c.categorize(_txn(merchant: 'تبرع لجمعية خيرية')).categoryKey,
+          Categories.charity.key);
+      expect(c.categorize(_txn(merchant: 'BUPA INSURANCE')).categoryKey,
+          Categories.insurance.key);
+      expect(c.categorize(_txn(merchant: 'عيادة بيطري')).categoryKey,
+          Categories.pets.key);
+    });
+
+    test('new Gulf/Egypt merchant seeds map correctly', () {
+      expect(c.categorize(_txn(merchant: 'ADNOC STATION 12')).categoryKey,
+          Categories.fuel.key);
+      expect(c.categorize(_txn(merchant: 'KOSHARY ABOU TAREK')).categoryKey,
+          Categories.restaurants.key);
+      expect(c.categorize(_txn(merchant: 'NAMSHI')).categoryKey,
+          Categories.shopping.key);
+      expect(c.categorize(_txn(merchant: 'كازيون')).categoryKey,
+          Categories.groceries.key);
+      expect(c.categorize(_txn(merchant: 'ANGHAMI')).categoryKey,
+          Categories.subscriptions.key);
+    });
   });
 
   group('Categorizer — قواعد النوع', () {

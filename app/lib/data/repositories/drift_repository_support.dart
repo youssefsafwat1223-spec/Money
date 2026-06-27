@@ -70,6 +70,25 @@ TransactionSourceEntity transactionSourceFromSql(String value) {
   }
 }
 
+TransactionDirectionEntity? transactionDirectionFromSql(String? value) {
+  return switch (value) {
+    'credit' => TransactionDirectionEntity.credit,
+    'debit' => TransactionDirectionEntity.debit,
+    'unknown' => TransactionDirectionEntity.unknown,
+    null => null,
+    _ => null,
+  };
+}
+
+String? transactionDirectionToSql(TransactionDirectionEntity? value) {
+  return switch (value) {
+    TransactionDirectionEntity.credit => 'credit',
+    TransactionDirectionEntity.debit => 'debit',
+    TransactionDirectionEntity.unknown => 'unknown',
+    null => null,
+  };
+}
+
 TransactionEntity transactionFromRow(QueryRow row) {
   final balance = row.readNullable<double>('balance_after');
   final amount = row.read<double>('amount');
@@ -90,6 +109,7 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final updatedAt = row.read<String>('updated_at');
   final foreignAmount = row.readNullable<double>('foreign_amount');
   final foreignCurrency = row.readNullable<String>('foreign_currency');
+  final direction = row.readNullable<String>('direction');
   return TransactionEntity(
     id: row.read<String>('id'),
     amount: amount,
@@ -111,6 +131,7 @@ TransactionEntity transactionFromRow(QueryRow row) {
     updatedAt: dateTimeFromSql(updatedAt),
     foreignAmount: foreignAmount,
     foreignCurrency: foreignCurrency,
+    direction: transactionDirectionFromSql(direction),
   );
 }
 
@@ -139,15 +160,21 @@ GoalEntity goalFromRow(QueryRow row) {
   final vaultSkin = row.read<String>('vault_skin');
   final status = row.read<String>('status');
   final createdAt = row.read<String>('created_at');
+  final autoSaveLastRun = row.readNullable<String>('auto_save_last_run');
   return GoalEntity(
     id: row.read<String>('id'),
     name: row.read<String>('name'),
+    accountId: row.readNullable<String>('account_id'),
     targetAmount: targetAmount,
     savedAmount: savedAmount,
     deadline: deadlineValue == null ? null : dateTimeFromSql(deadlineValue),
     vaultSkin: vaultSkin,
     status: status,
     createdAt: dateTimeFromSql(createdAt),
+    autoSaveAmount: row.readNullable<double>('auto_save_amount'),
+    autoSavePeriod: row.readNullable<String>('auto_save_period'),
+    autoSaveLastRun:
+        autoSaveLastRun == null ? null : dateTimeFromSql(autoSaveLastRun),
   );
 }
 
@@ -196,6 +223,9 @@ XpLevelEntity xpLevelFromRow(QueryRow row) {
 UserSettingsEntity userSettingsFromRow(QueryRow row) {
   return UserSettingsEntity(
     id: row.read<String>('id'),
+    displayName: row.readNullable<String>('display_name'),
+    phoneNumber: row.readNullable<String>('phone_number'),
+    avatarPath: row.readNullable<String>('avatar_path'),
     country: row.read<String>('country'),
     currency: row.read<String>('currency'),
     language: row.read<String>('language'),

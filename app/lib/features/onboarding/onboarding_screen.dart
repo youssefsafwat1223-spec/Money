@@ -2,11 +2,11 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../data/catalog/catalog_daos.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -43,7 +43,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _pageController = PageController();
   int _currentIndex = 0;
-  static const int _pageCount = 3;
+  static const int _pageCount = 2;
 
   @override
   void dispose() {
@@ -60,6 +60,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     } else {
       // Last page (Country) — persist selection then go to auth.
       final country = ref.read(onboardingSelectionProvider);
+      if (country == null) return;
       try {
         await ref
             .read(saveCountryCurrencyUseCaseProvider)
@@ -84,7 +85,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onPageChanged: (i) => setState(() => _currentIndex = i),
               children: const [
                 _WelcomePage(),
-                _HowItWorksPage(),
                 _CountryPage(),
               ],
             ),
@@ -196,10 +196,11 @@ class _WelcomePage extends StatelessWidget {
           const NeonIllustration(
             icon: Icons.account_balance_wallet_rounded,
             size: 200,
+            showBadge: false,
           ).animate().fade(duration: 700.ms).scale(curve: Curves.easeOutBack),
           const SizedBox(height: 40),
           Text(
-            'مرحباً بك في مالي',
+            'مرحباً بك في قرش',
             textAlign: TextAlign.center,
             style: _alex(28, FontWeight.w900, 1.3, c.textMain),
           ),
@@ -214,123 +215,6 @@ class _WelcomePage extends StatelessWidget {
     );
   }
 }
-
-class _HowItWorksPage extends StatelessWidget {
-  const _HowItWorksPage();
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      children: [
-        const SizedBox(height: 8),
-        Text('كيف يعمل مالي؟',
-            style: _alex(26, FontWeight.w900, 1.3, c.textMain)),
-        const SizedBox(height: 10),
-        Text('3 خطوات بسيطة لتحويل رسائلك إلى رؤى مالية ذكية',
-            style: _alex(14, FontWeight.w500, 1.55, c.textLight)),
-        const SizedBox(height: 28),
-        _StepCard(
-          n: '1',
-          icon: Icons.sms_rounded,
-          color: c.cta,
-          title: 'تصل الرسائل',
-          desc: 'نستقبل رسائل البنك تلقائياً، أو تلصقها يدوياً.',
-        ),
-        const SizedBox(height: 14),
-        _StepCard(
-          n: '2',
-          icon: Icons.psychology_rounded,
-          color: c.accent,
-          title: 'نفهمها بالذكاء الاصطناعي',
-          desc: 'نحلّل الرسالة ونحدّد المبلغ والتاجر والتصنيف تلقائياً.',
-        ),
-        const SizedBox(height: 14),
-        _StepCard(
-          n: '3',
-          icon: Icons.bar_chart_rounded,
-          color: c.success,
-          title: 'تعطيك صورة واضحة',
-          desc: 'تعرف مصروفاتك وميزانياتك وتقاريرك بسهولة.',
-        ),
-      ],
-    );
-  }
-}
-
-class _StepCard extends StatelessWidget {
-  const _StepCard({
-    required this.n,
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.desc,
-  });
-
-  final String n;
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String desc;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surfaceCard,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: c.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color.lerp(color, Colors.white, 0.18)!,
-                  color,
-                  Color.lerp(color, const Color(0xFF120A2E), 0.42)!,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.40),
-                  blurRadius: 14,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Icon(icon, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: AppSpacing.s4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('$n. $title',
-                    style: _alex(15, FontWeight.w800, 1.3, c.textMain)),
-                const SizedBox(height: 4),
-                Text(desc,
-                    style: _alex(12.5, FontWeight.w500, 1.5, c.textLight)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-
 
 // ── Country page (S4) ───────────────────────────────────────────────────────
 
@@ -353,13 +237,24 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
           builder: (context, setModalState) {
             final c = context.colors;
             final selected = ref.read(onboardingSelectionProvider);
-            final filteredCountries = onboardingCountries
+            final options = _countryOptions(
+              ref.read(supportedCountriesProvider).valueOrNull ??
+                  const <RemoteCountry>[],
+              ref.read(activeCurrenciesProvider).valueOrNull ??
+                  const <RemoteCurrency>[],
+            );
+            final normalizedSearch = searchQuery.trim().toLowerCase();
+            final filteredCountries = options
                 .where((country) =>
-                    country.name.contains(searchQuery) ||
-                    country.currency.contains(searchQuery) ||
-                    country.currencyCode
+                    country.nameAr.contains(searchQuery) ||
+                    country.nameEn.toLowerCase().contains(normalizedSearch) ||
+                    country.currencyNameAr.contains(searchQuery) ||
+                    country.currencyNameEn
                         .toLowerCase()
-                        .contains(searchQuery.toLowerCase()))
+                        .contains(normalizedSearch) ||
+                    country.currencyCode.toLowerCase().contains(
+                          normalizedSearch,
+                        ))
                 .toList();
 
             return BackdropFilter(
@@ -407,13 +302,11 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                               horizontal: 16, vertical: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide:
-                                BorderSide(color: c.border),
+                            borderSide: BorderSide(color: c.border),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide:
-                                BorderSide(color: c.accent),
+                            borderSide: BorderSide(color: c.accent),
                           ),
                         ),
                       ),
@@ -423,18 +316,17 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                         itemCount: filteredCountries.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 8),
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, i) {
                           final country = filteredCountries[i];
-                          final isSelected = country.code == selected.code;
+                          final isSelected = country.code == selected?.code;
                           return _CountryTile(
                             option: country,
                             selected: isSelected,
                             onTap: () {
                               ref
                                   .read(onboardingSelectionProvider.notifier)
-                                  .state = country;
+                                  .state = country.toSelection();
                               setModalState(() {});
                               Navigator.pop(context);
                             },
@@ -455,7 +347,24 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final countriesAsync = ref.watch(supportedCountriesProvider);
+    final currenciesAsync = ref.watch(activeCurrenciesProvider);
+    final countries = countriesAsync.valueOrNull ?? const <RemoteCountry>[];
+    final currencies = currenciesAsync.valueOrNull ?? const <RemoteCurrency>[];
+    final options = _countryOptions(countries, currencies);
     final selectedCountry = ref.watch(onboardingSelectionProvider);
+    final selectedOption = _selectedOption(options, selectedCountry);
+
+    if (selectedCountry == null && options.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final current = ref.read(onboardingSelectionProvider);
+        if (current == null) {
+          ref.read(onboardingSelectionProvider.notifier).state =
+              options.first.toSelection();
+        }
+      });
+    }
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
@@ -470,9 +379,15 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
         Text('البلد', style: _alex(13, FontWeight.w700, 1.2, c.textLight)),
         const SizedBox(height: 8),
         _DropdownField(
-          leading: _FlagAvatar(code: selectedCountry.code, size: 28),
-          label: selectedCountry.localizedName(context),
-          onTap: () => _showCountryPicker(context),
+          leading: _FlagAvatar(
+            code: selectedOption?.code ?? '',
+            emoji: selectedOption?.flagEmoji,
+            size: 28,
+          ),
+          label: selectedOption == null
+              ? 'تحميل الدول...'
+              : selectedOption.localizedName(context),
+          onTap: options.isEmpty ? () {} : () => _showCountryPicker(context),
         ),
         const SizedBox(height: 18),
         Text('العملة', style: _alex(13, FontWeight.w700, 1.2, c.textLight)),
@@ -487,11 +402,85 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
             ),
             child: Icon(Icons.payments_outlined, size: 16, color: c.cta),
           ),
-          label:
-              '${selectedCountry.localizedCurrency(context)} (${selectedCountry.currencyCode})',
-          onTap: () => _showCountryPicker(context),
+          label: selectedOption == null
+              ? 'تحميل العملات...'
+              : '${selectedOption.localizedCurrency(context)} (${selectedOption.currencyCode})',
+          onTap: options.isEmpty ? () {} : () => _showCountryPicker(context),
         ),
       ],
+    );
+  }
+
+  List<_CountryOption> _countryOptions(
+    List<RemoteCountry> countries,
+    List<RemoteCurrency> currencies,
+  ) {
+    return [
+      for (final country in countries)
+        if (_preferredCurrency(country, currencies) != null)
+          _CountryOption(
+              country: country,
+              currency: _preferredCurrency(country, currencies)!),
+    ];
+  }
+
+  RemoteCurrency? _preferredCurrency(
+    RemoteCountry country,
+    List<RemoteCurrency> currencies,
+  ) {
+    final code = country.code.trim().toUpperCase();
+    for (final currency in currencies) {
+      if (currency.countryCodes.contains(code)) return currency;
+    }
+    return null;
+  }
+
+  _CountryOption? _selectedOption(
+    List<_CountryOption> options,
+    OnboardingCountry? selected,
+  ) {
+    if (selected == null) return options.isEmpty ? null : options.first;
+    for (final option in options) {
+      if (option.code.toLowerCase() == selected.code.toLowerCase()) {
+        return option;
+      }
+    }
+    return options.isEmpty ? null : options.first;
+  }
+}
+
+class _CountryOption {
+  const _CountryOption({required this.country, required this.currency});
+
+  final RemoteCountry country;
+  final RemoteCurrency currency;
+
+  String get code => country.code.toLowerCase();
+  String get flagEmoji => country.flagEmoji;
+  String get currencyCode => currency.code.toUpperCase();
+  String get nameAr => country.nameAr;
+  String get nameEn => country.nameEn;
+  String get currencyNameAr => currency.nameAr;
+  String get currencyNameEn => currency.nameEn;
+
+  String localizedName(BuildContext context) {
+    return Localizations.localeOf(context).languageCode == 'en'
+        ? country.nameEn
+        : country.nameAr;
+  }
+
+  String localizedCurrency(BuildContext context) {
+    return Localizations.localeOf(context).languageCode == 'en'
+        ? currency.nameEn
+        : currency.nameAr;
+  }
+
+  OnboardingCountry toSelection() {
+    return OnboardingCountry(
+      code: code,
+      name: country.nameAr,
+      currency: currency.nameAr,
+      currencyCode: currencyCode,
     );
   }
 }
@@ -538,8 +527,9 @@ class _DropdownField extends StatelessWidget {
 }
 
 class _FlagAvatar extends StatelessWidget {
-  const _FlagAvatar({required this.code, this.size = 30});
+  const _FlagAvatar({required this.code, this.emoji, this.size = 30});
   final String code;
+  final String? emoji;
   final double size;
 
   @override
@@ -552,8 +542,7 @@ class _FlagAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.surface,
         shape: BoxShape.circle,
-        border: Border.all(
-            color: Colors.white.withValues(alpha: 0.72)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
         boxShadow: [
           BoxShadow(
             color: c.primary.withValues(alpha: 0.12),
@@ -563,10 +552,16 @@ class _FlagAvatar extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipOval(
-        child: SvgPicture.asset(
-          'assets/flags/$code.svg',
-          fit: BoxFit.cover,
+      child: Center(
+        child: Text(
+          emoji == null || emoji!.isEmpty ? code.toUpperCase() : emoji!,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize:
+                emoji == null || emoji!.isEmpty ? size * 0.32 : size * 0.54,
+            fontWeight: FontWeight.w800,
+            height: 1,
+          ),
         ),
       ),
     );
@@ -580,7 +575,7 @@ class _CountryTile extends StatelessWidget {
     required this.onTap,
   });
 
-  final OnboardingCountry option;
+  final _CountryOption option;
   final bool selected;
   final VoidCallback onTap;
 
@@ -599,14 +594,12 @@ class _CountryTile extends StatelessWidget {
               : c.surface.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected
-                ? c.accent.withValues(alpha: 0.36)
-                : c.border,
+            color: selected ? c.accent.withValues(alpha: 0.36) : c.border,
           ),
         ),
         child: Row(
           children: [
-            _FlagAvatar(code: option.code, size: 34),
+            _FlagAvatar(code: option.code, emoji: option.flagEmoji, size: 34),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

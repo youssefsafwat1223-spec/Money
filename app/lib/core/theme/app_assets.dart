@@ -10,9 +10,12 @@ class AppAssets {
   /// مسار شعار التطبيق للمظهر الداكن (Dark Mode)
   static const String logoDark = 'assets/logo/logo_dark.png';
 
+  static const String qirshCoin = 'assets/qirsh/qirsh_coin.png';
+  static const String qirshLogoFull = 'assets/qirsh/qirsh_logo_full.png';
+  static const String qirshLogoTagline = 'assets/qirsh/qirsh_logo_tagline.png';
+
   /// إرجاع الشعار المناسب بناءً على مظهر النظام أو التطبيق الحالي.
   static String getLogo(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    return brightness == Brightness.dark ? logoDark : logoLight;
+    return qirshLogoFull;
   }
 }

@@ -474,6 +474,6 @@ Future<void> _showAddContributionSheet(
       );
     },
   );
-  controller.dispose();
-  noteController.dispose();
+  // Do NOT dispose controllers here – the sheet's exit animation may still
+  // reference them. They will be GC'd when the method scope ends.
 }

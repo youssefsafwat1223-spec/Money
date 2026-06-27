@@ -3,6 +3,7 @@ import '../../data/catalog/catalog_daos.dart';
 import '../../engine/ai/ai_parser_client.dart';
 import '../../engine/ai/ai_sender_failure_tracker.dart';
 import '../../engine/ai/grounding_check.dart';
+import '../../engine/categorization/category.dart';
 import '../../engine/categorization/categorizer.dart';
 import '../../engine/categorization/merchant_category_map.dart';
 import '../../engine/dedup/transaction_dedup.dart';
@@ -10,11 +11,14 @@ import '../../engine/models/parsed_transaction.dart';
 import '../../engine/models/transaction_source.dart';
 import '../../engine/models/transaction_type.dart';
 import '../../engine/parser/bank_profile.dart';
+import '../../engine/parser/payment_aggregators.dart';
 import '../../engine/parser/bank_sender_filter.dart';
+import '../../engine/parser/direction_signal.dart';
 import '../../engine/parser/parser_engine.dart';
 import '../../engine/parser/parser_isolate.dart';
 import '../../engine/parser/parse_result.dart';
 import '../../engine/privacy/sms_sanitizer.dart';
+import '../entities/account_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../entities/transaction_entity.dart';
 import '../repositories/account_repository.dart';
@@ -32,38 +36,51 @@ class AddTransactionResult {
     this.parseResult,
     this.isNewMerchant = false,
     this.droppedByParser = false,
+    this.aiFailureReason,
+    this.secondary,
   });
 
   const AddTransactionResult.added(
       TransactionEntity transaction, ParseResult parseResult,
-      {bool isNewMerchant = false})
+      {bool isNewMerchant = false, AddTransactionResult? secondary})
       : this._(
           outcome: AddTransactionOutcome.added,
           transaction: transaction,
           parseResult: parseResult,
           isNewMerchant: isNewMerchant,
+          secondary: secondary,
         );
 
-  const AddTransactionResult.duplicate(TransactionEntity transaction)
+  const AddTransactionResult.duplicate(TransactionEntity transaction,
+      {AddTransactionResult? secondary})
       : this._(
           outcome: AddTransactionOutcome.duplicate,
           transaction: transaction,
+          secondary: secondary,
         );
 
   const AddTransactionResult.notTransaction(ParseResult parseResult,
-      {bool droppedByParser = false})
+      {bool droppedByParser = false, String? aiFailureReason})
       : this._(
           outcome: AddTransactionOutcome.notTransaction,
           parseResult: parseResult,
           droppedByParser: droppedByParser,
+          aiFailureReason: aiFailureReason,
         );
 
   final AddTransactionOutcome outcome;
   final TransactionEntity? transaction;
   final ParseResult? parseResult;
   final bool isNewMerchant;
+
   /// True when a bank-like message was not OTP/promo but couldn't be parsed.
   final bool droppedByParser;
+  final String? aiFailureReason;
+
+  /// A second transaction extracted from the same SMS — currently a fee/tax
+  /// line charged in a different currency than the main amount. Null when the
+  /// message holds a single operation.
+  final AddTransactionResult? secondary;
 
   bool get requiresConfirmation {
     if (outcome != AddTransactionOutcome.added || transaction == null) {
@@ -75,6 +92,74 @@ class AddTransactionResult {
 
 enum AddTransactionOutcome { added, duplicate, notTransaction }
 
+class _AiFirstAttempt {
+  const _AiFirstAttempt({
+    required this.senderId,
+    this.sanitizedSms,
+    this.response,
+    this.failureReason,
+  });
+
+  const _AiFirstAttempt.skipped([String? reason])
+      : senderId = '',
+        sanitizedSms = null,
+        response = null,
+        failureReason = reason;
+
+  final String senderId;
+  final String? sanitizedSms;
+  final AiParseResponse? response;
+  final String? failureReason;
+}
+
+class _AppliedAiParse {
+  const _AppliedAiParse({
+    required this.transaction,
+    required this.categoryKey,
+    required this.direction,
+  });
+
+  final ParsedTransaction transaction;
+  final String? categoryKey;
+  final TransactionDirectionEntity? direction;
+}
+
+Future<AccountEntity?> _accountForCurrency(
+  AccountRepository? repository,
+  String currency, {
+  AccountEntity? fallback,
+}) async {
+  final normalized = currency.trim().toUpperCase();
+  if (normalized.isEmpty) return fallback;
+  if (fallback != null && fallback.currency.toUpperCase() == normalized) {
+    return fallback;
+  }
+  if (repository == null) return fallback;
+
+  final accounts = await repository.getAll();
+  for (final account in accounts) {
+    if (account.currency.toUpperCase() == normalized) {
+      return account;
+    }
+  }
+
+  final now = DateTime.now().toUtc();
+  return repository.create(
+    AccountEntity(
+      id: '',
+      name: 'حساب $normalized',
+      currency: normalized,
+      type: AccountType.bank,
+      initialBalance: null,
+      currentBalance: null,
+      isDefault: accounts.isEmpty,
+      sortOrder: accounts.length,
+      createdAt: now,
+      updatedAt: now,
+    ),
+  );
+}
+
 class AddTransactionUseCase {
   AddTransactionUseCase({
     required TransactionRepository transactionRepository,
@@ -85,11 +170,14 @@ class AddTransactionUseCase {
     Future<List<BankProfile>> Function({String? senderId})? loadBankProfiles,
     Future<List<RemoteMerchantKeyword>> Function()? loadRemoteKeywords,
     Future<void> Function(String normalizedMerchant)? noteMerchantFeedback,
+    Future<String?> Function(String normalizedMerchant)?
+        resolveMerchantCategory,
     AccountRepository? accountRepository,
     DedupStore? dedupStore,
     AiParserClient? aiClient,
     Future<bool> Function()? loadAiConsent,
     String? installId,
+    Future<String> Function()? loadInstallId,
     ResolveBankForSenderUseCase? resolveBankForSenderUseCase,
     BankDiscoveryService? bankDiscoveryService,
   })  : _transactionRepository = transactionRepository,
@@ -100,11 +188,13 @@ class AddTransactionUseCase {
         _loadBankProfiles = loadBankProfiles,
         _loadRemoteKeywords = loadRemoteKeywords,
         _noteMerchantFeedback = noteMerchantFeedback,
+        _resolveMerchantCategory = resolveMerchantCategory,
         _accountRepository = accountRepository,
         _dedupStore = dedupStore,
         _aiClient = aiClient,
         _loadAiConsent = loadAiConsent,
         _installId = installId,
+        _loadInstallId = loadInstallId,
         _resolveBankForSenderUseCase = resolveBankForSenderUseCase,
         _bankDiscoveryService = bankDiscoveryService;
 
@@ -120,11 +210,14 @@ class AddTransactionUseCase {
       _loadBankProfiles;
   final Future<List<RemoteMerchantKeyword>> Function()? _loadRemoteKeywords;
   final Future<void> Function(String normalizedMerchant)? _noteMerchantFeedback;
+  final Future<String?> Function(String normalizedMerchant)?
+      _resolveMerchantCategory;
   final AccountRepository? _accountRepository;
   final DedupStore? _dedupStore;
   final AiParserClient? _aiClient;
   final Future<bool> Function()? _loadAiConsent;
   final String? _installId;
+  final Future<String> Function()? _loadInstallId;
   final ResolveBankForSenderUseCase? _resolveBankForSenderUseCase;
   final BankDiscoveryService? _bankDiscoveryService;
 
@@ -142,11 +235,17 @@ class AddTransactionUseCase {
     final defaultAccount = await _accountRepository?.getDefault();
 
     // Pre-classify message before parsing so we can surface unprocessable cases.
-    final isLikelyBank = BankSenderFilter.isLikelyBank(senderId, text: rawMessage);
+    final isLikelyBank =
+        BankSenderFilter.isLikelyBank(senderId, text: rawMessage);
     final wasIgnored = isLikelyBank
         ? ParserEngine.isIgnoredMessage(rawMessage,
             senderId: senderId, bankProfiles: bankProfiles)
         : false;
+
+    final aiFirstAttempt = await _tryAiParseFirst(
+      rawMessage: rawMessage,
+      senderId: senderId,
+    );
 
     final parseResult = await _parserIsolate.parse(
           rawMessage,
@@ -164,16 +263,58 @@ class AddTransactionUseCase {
       localeHint: defaultAccount?.currency,
     );
 
-    if (!parseResult.isTransaction || parseResult.transaction == null) {
-      // droppedByParser = bank-like sender, not OTP/promo, yet still unresolvable.
-      final droppedByParser = isLikelyBank && !wasIgnored;
-      return AddTransactionResult.notTransaction(parseResult,
-          droppedByParser: droppedByParser);
+    final localParsed =
+        parseResult.isTransaction ? parseResult.transaction : null;
+    if (localParsed != null) {
+      await _logMetric?.call('parse_success', dimension: parseResult.bankKey);
     }
-    await _logMetric?.call('parse_success', dimension: parseResult.bankKey);
 
-    final parsed = parseResult.transaction!;
+    final aiParsed = _applyAiResponse(
+      attempt: aiFirstAttempt,
+      rawMessage: rawMessage,
+      localParsed: localParsed,
+    );
+
+    ParsedTransaction parsed;
+    String? aiCategoryKey;
+    TransactionDirectionEntity? aiDirection;
+    if (aiParsed != null) {
+      parsed = aiParsed.transaction;
+      aiCategoryKey = aiParsed.categoryKey;
+      aiDirection = aiParsed.direction;
+      if (localParsed == null) {
+        await _logMetric?.call('ai_first_parse');
+      }
+    } else if (localParsed != null) {
+      parsed = localParsed;
+    } else {
+      final fallbackParsed = aiFirstAttempt.failureReason == null
+          ? _lastResortParse(rawMessage)
+          : null;
+      if (fallbackParsed != null) {
+        parsed = fallbackParsed;
+      } else {
+        // The AI had the first chance and the rule-based parser still couldn't
+        // read it. For a bank-like sender, surface that it was dropped by parsing
+        // so the UI can avoid a noisy "unreadable message" dead end.
+        final droppedByParser = isLikelyBank && !wasIgnored;
+        return AddTransactionResult.notTransaction(parseResult,
+            droppedByParser: droppedByParser,
+            aiFailureReason: aiFirstAttempt.failureReason ??
+                (aiFirstAttempt.response == null
+                    ? null
+                    : 'ai_response_rejected_by_grounding'));
+      }
+    }
     final occurredAt = parsed.occurredAt ?? DateTime.now().toUtc();
+
+    // Payment aggregators (Fawry, …) are gateways, not the real merchant. When
+    // the SMS reads "Fawry <merchant>", strip the gateway so the underlying
+    // merchant (e.g. the restaurant) drives dedup, categorization, and the
+    // brand logo instead of the gateway.
+    parsed = parsed.copyWith(
+      rawMerchant: PaymentAggregators.resolveMerchant(parsed.rawMerchant),
+    );
 
     // Hash-based dedup: catches no-merchant transactions the merchant check misses.
     // Hash key = {amount, currency, cardLast4, merchant_normalized, type} — no time.
@@ -184,9 +325,10 @@ class AddTransactionUseCase {
         amount: parsed.amount,
         currency: parsed.currency,
         cardLast4: parsed.cardLast4,
-        merchantNormalized: parsed.rawMerchant != null
-            ? TransactionDedup.normalizeMerchant(parsed.rawMerchant!)
-            : null,
+        merchantNormalized: _dedupFingerprint(
+          parsed,
+          rawMessage: rawMessage,
+        ),
         type: parsed.type.name,
       );
       final existingId = await _dedupStore.transactionIdFor(hash, occurredAt);
@@ -209,7 +351,7 @@ class AddTransactionUseCase {
     final isNewMerchant = merchant == null
         ? false
         : preCategory.source == CategorySource.fallback &&
-          !await _merchantCategoryRepository.hasCategoryForMerchant(merchant);
+            !await _merchantCategoryRepository.hasCategoryForMerchant(merchant);
 
     if (merchant != null) {
       final duplicate = await _transactionRepository.findDuplicate(
@@ -231,61 +373,75 @@ class AddTransactionUseCase {
       map: MerchantCategoryMap(learnedMap),
       remoteKeywords: remoteKeywords,
     );
-    final categoryResult = categorizer.categorize(parsed);
-
-    // ── AI cascade ────────────────────────────────────────────────────────────
-    // Fires only when confidence is below pending threshold (< 0.70).
-    // A generic rule-based parse that already reached pending-level confidence
-    // is saved as pending without spending an AI call, even if categorization
-    // falls back to Other.
     var effectiveParsed = parsed;
-    var effectiveCategory = categoryResult;
+    final hasAiCategory = aiCategoryKey != null;
+    final hasSpecificAiCategory = hasAiCategory &&
+        aiCategoryKey != Categories.other.key &&
+        Categories.byKey(aiCategoryKey) != Categories.other;
+    var effectiveCategory = hasAiCategory
+        ? CategoryResult(
+            Categories.byKey(aiCategoryKey).key,
+            hasSpecificAiCategory
+                ? CategorySource.keyword
+                : CategorySource.fallback,
+            hasSpecificAiCategory ? 0.85 : 0.3,
+          )
+        : categorizer.categorize(effectiveParsed);
 
-    final aiTriggered =
-        parsed.parseConfidence < 0.70 && !bankResolution.suppressesDiscovery;
-
-    if (aiTriggered && _aiClient != null) {
-      final consent = await _loadAiConsent?.call() ?? false;
-      final sid = senderId ?? '';
-      if (consent && !AiSenderFailureTracker.instance.isSuppressed(sid)) {
-        final sanitized =
-            SmsSanitizer.sanitize(rawMessage, detectedType: parsed.type);
-        final aiResponse = await _aiClient.parse(
-          sanitizedSms: sanitized,
-          senderId: sid,
-          installId: _installId ?? '',
-        );
-        if (aiResponse != null) {
-          if (!GroundingCheck.verify(
-            amount: aiResponse.amount,
-            sanitizedText: sanitized,
-          )) {
-            AiSenderFailureTracker.instance.recordFailure(sid);
-            return AddTransactionResult.notTransaction(parseResult);
-          }
-          AiSenderFailureTracker.instance.recordSuccess(sid);
-          final aiType = _parseTypeFromString(aiResponse.type) ?? parsed.type;
-          // Confidence capped at 0.79 — AI results always route to pending.
-          effectiveParsed = ParsedTransaction(
-            amount: aiResponse.amount,
-            currency: aiResponse.currency,
-            type: aiType,
-            source: TransactionSource.aiParsed,
-            rawMerchant: aiResponse.merchantName ?? parsed.rawMerchant,
-            cardLast4: parsed.cardLast4,
-            balanceAfter: parsed.balanceAfter,
-            occurredAt: parsed.occurredAt,
-            foreignAmount: parsed.foreignAmount,
-            foreignCurrency: parsed.foreignCurrency,
-            fundingSource: parsed.fundingSource,
-            parseConfidence: 0.79,
-          );
-          effectiveCategory = aiResponse.categoryKey != null
-              ? CategoryResult(
-                  aiResponse.categoryKey!, CategorySource.keyword, 0.85)
-              : categorizer.categorize(effectiveParsed);
-        }
-      }
+    // Transfer accounting — mirrors mainstream finance apps:
+    //   • internal / own-account move → neutral transfer (excluded from totals)
+    //   • a cash/ATM deposit (إيداع)   → neutral transfer (cash you already had)
+    //   • money RECEIVED from outside  → income  (counts toward income)
+    //   • money SENT outside           → expense (counts toward spending)
+    // Beneficiary/payer names are dropped (real people, not businesses). The
+    // wording grounds the direction, so it works for both the rule parser and AI.
+    // Resolve the money direction ONCE from all signals (AI → wording → type)
+    // so the income/expense bucket, the stored direction and the row's +/− can
+    // never disagree (an AI "credit" must not land in the expense total).
+    final resolvedDirection = aiDirection ??
+        _directionFromText(rawMessage) ??
+        _directionFromType(effectiveParsed.type);
+    final incoming = resolvedDirection == TransactionDirectionEntity.credit;
+    final isNeutralTransfer = _looksLikeInternalTransfer(rawMessage) ||
+        (incoming && effectiveParsed.type == TransactionType.withdrawal);
+    final isExternalTransfer = !isNeutralTransfer &&
+        (effectiveParsed.type == TransactionType.transfer ||
+            _looksLikeTransferMessage(rawMessage));
+    if (isNeutralTransfer) {
+      effectiveParsed = _replaceMerchant(
+        effectiveParsed.copyWith(type: TransactionType.transfer),
+        null,
+      );
+      effectiveCategory = CategoryResult(
+        Categories.transfers.key,
+        CategorySource.typeRule,
+        0.95,
+      );
+    } else if (isExternalTransfer) {
+      effectiveParsed = _replaceMerchant(
+        effectiveParsed.copyWith(
+          type: incoming ? TransactionType.income : TransactionType.payment,
+        ),
+        null,
+      );
+      effectiveCategory = CategoryResult(
+        incoming ? Categories.income.key : Categories.transfers.key,
+        CategorySource.typeRule,
+        0.9,
+      );
+    } else if (effectiveParsed.type == TransactionType.income) {
+      effectiveParsed = _replaceMerchant(effectiveParsed, null);
+      effectiveCategory = CategoryResult(
+        Categories.income.key,
+        CategorySource.typeRule,
+        0.95,
+      );
+    } else if (effectiveParsed.type == TransactionType.withdrawal) {
+      effectiveCategory = CategoryResult(
+        Categories.cash.key,
+        CategorySource.typeRule,
+        0.95,
+      );
     }
 
     // Anonymous merchant feedback — ONLY for POS/payment types.
@@ -299,24 +455,81 @@ class AddTransactionUseCase {
             effectiveParsed.type == TransactionType.refund;
     if (effectiveCategory.source == CategorySource.fallback &&
         effectiveParsed.rawMerchant != null &&
-        isBusinessMerchant &&
-        noter != null) {
+        isBusinessMerchant) {
       final normalized =
           TransactionDedup.normalizeMerchant(effectiveParsed.rawMerchant!);
       if (normalized.isNotEmpty) {
-        await noter(normalized);
+        // Real-time assist: rules and AI both fell back to "other", so ask the
+        // server (Google Places via enrich-merchant) to resolve a category. The
+        // function also writes the result into merchant_keywords, so every other
+        // device picks it up on the next catalog sync.
+        final resolver = _resolveMerchantCategory;
+        final resolved = resolver != null ? await resolver(normalized) : null;
+        if (resolved != null && resolved.isNotEmpty && resolved != 'other') {
+          effectiveCategory =
+              CategoryResult(resolved, CategorySource.keyword, 0.85);
+        } else if (noter != null) {
+          // Places couldn't resolve it either — keep the anonymous feedback
+          // queue so an admin can map it manually.
+          await noter(normalized);
+        }
+        if (effectiveCategory.categoryKey == Categories.other.key) {
+          effectiveCategory = CategoryResult(
+            _bestEffortMerchantCategory(normalized),
+            CategorySource.fallback,
+            0.55,
+          );
+        }
       }
     }
+    if (effectiveCategory.categoryKey == Categories.cash.key &&
+        effectiveParsed.type == TransactionType.payment &&
+        _looksLikeBankAtmCardTransaction(
+          rawMessage,
+          merchantName: effectiveParsed.rawMerchant,
+        )) {
+      effectiveParsed =
+          effectiveParsed.copyWith(type: TransactionType.withdrawal);
+    }
+    // Independent direction grounding: if the wording clearly contradicts the
+    // classified type (e.g. an "إيداع/deposit" message tagged as a payment),
+    // never auto-confirm — route it to pending for review regardless of score.
+    final directionContradiction =
+        DirectionSignal.contradicts(rawMessage, effectiveParsed.type);
     final canAutoConfirm =
         effectiveParsed.parseConfidence >= autoConfirmThreshold &&
             effectiveCategory.confidence >= categoryAutoConfirmThreshold &&
-            !isNewMerchant;
+            !isNewMerchant &&
+            !directionContradiction;
+    // Foreign-currency spend on a home-currency card. Instead of spawning a
+    // separate currency account, park it in the home account "awaiting pricing"
+    // (amount 0, excluded from totals) while keeping the original amount as the
+    // foreign value. The user supplies the home-currency value now or later.
+    // Skipped when a real account in that currency already exists.
+    final homeCurrency = defaultAccount?.currency.trim().toUpperCase();
+    final txCurrency = effectiveParsed.currency.trim().toUpperCase();
+    final isSpend = effectiveParsed.type == TransactionType.payment ||
+        effectiveParsed.type == TransactionType.withdrawal;
+    final foreignUnpriced = homeCurrency != null &&
+        homeCurrency.isNotEmpty &&
+        txCurrency.isNotEmpty &&
+        txCurrency != homeCurrency &&
+        isSpend &&
+        await _existingAccountForCurrency(txCurrency) == null;
+
+    final effectiveAccount = foreignUnpriced
+        ? defaultAccount
+        : await _accountForCurrency(
+            _accountRepository,
+            effectiveParsed.currency,
+            fallback: defaultAccount,
+          );
 
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
-      amount: effectiveParsed.amount,
-      currency: effectiveParsed.currency,
-      accountId: defaultAccount?.id,
+      amount: foreignUnpriced ? 0 : effectiveParsed.amount,
+      currency: foreignUnpriced ? homeCurrency : effectiveParsed.currency,
+      accountId: effectiveAccount?.id,
       merchantId: null,
       rawMerchant: effectiveParsed.rawMerchant,
       categoryId: null,
@@ -327,13 +540,16 @@ class AddTransactionUseCase {
       occurredAt: occurredAt.toUtc(),
       rawMessage: rawMessage,
       parseConfidence: effectiveParsed.parseConfidence,
-      status: canAutoConfirm
+      direction: resolvedDirection,
+      status: (canAutoConfirm && !foreignUnpriced)
           ? TransactionStatus.confirmed
           : TransactionStatus.pending,
       createdAt: now,
       updatedAt: now,
-      foreignAmount: effectiveParsed.foreignAmount,
-      foreignCurrency: effectiveParsed.foreignCurrency,
+      foreignAmount:
+          foreignUnpriced ? effectiveParsed.amount : effectiveParsed.foreignAmount,
+      foreignCurrency:
+          foreignUnpriced ? txCurrency : effectiveParsed.foreignCurrency,
     );
 
     final saved = await _transactionRepository.saveTransaction(
@@ -349,16 +565,19 @@ class AddTransactionUseCase {
       );
     }
 
-    // Mark dedup hash after successful save.
+    // Mark dedup hash after successful save. Keyed on the originally parsed
+    // identity (not the reclassified type) so it matches the pre-save lookup
+    // even when an external transfer is re-typed to income/expense.
     if (_dedupStore != null) {
       final hash = await TransactionDedup.computeHash(
-        amount: effectiveParsed.amount,
-        currency: effectiveParsed.currency,
-        cardLast4: effectiveParsed.cardLast4,
-        merchantNormalized: effectiveParsed.rawMerchant != null
-            ? TransactionDedup.normalizeMerchant(effectiveParsed.rawMerchant!)
-            : null,
-        type: effectiveParsed.type.name,
+        amount: parsed.amount,
+        currency: parsed.currency,
+        cardLast4: parsed.cardLast4,
+        merchantNormalized: _dedupFingerprint(
+          parsed,
+          rawMessage: rawMessage,
+        ),
+        type: parsed.type.name,
       );
       await _dedupStore.mark(
         hash,
@@ -367,12 +586,129 @@ class AddTransactionUseCase {
       );
     }
 
+    // Only now that the primary spend is genuinely new do we add any fee/tax
+    // line from the same SMS. Doing it here (not before the dedup checks) means
+    // re-pasting the same message — primary already a duplicate — can never add
+    // a second fee.
+    final secondary = await _maybeSaveFee(
+      rawMessage: rawMessage,
+      primary: parsed,
+      occurredAt: occurredAt,
+      defaultAccount: defaultAccount,
+    );
+
     await _logMetric?.call('first_transaction_captured');
     return AddTransactionResult.added(
       saved,
       parseResult,
       isNewMerchant: isNewMerchant,
+      secondary: secondary,
     );
+  }
+
+  /// A foreign-currency purchase often carries a separate fee/tax line in the
+  /// card's local currency (e.g. "الرسوم/الضريبة: SAR 7.44"). That is a second
+  /// money movement in a *different* currency, so it cannot be merged with the
+  /// main amount — it is saved as its own confirmed transaction with
+  /// independent dedup. Returns null when there is no distinct fee line.
+  /// Returns an existing account whose currency matches [currency], without
+  /// creating one. Used to tell a real multi-currency account apart from a
+  /// one-off foreign card purchase.
+  Future<AccountEntity?> _existingAccountForCurrency(String currency) async {
+    final repo = _accountRepository;
+    final normalized = currency.trim().toUpperCase();
+    if (repo == null || normalized.isEmpty) return null;
+    final accounts = await repo.getAll();
+    for (final account in accounts) {
+      if (account.currency.trim().toUpperCase() == normalized) return account;
+    }
+    return null;
+  }
+
+  Future<AddTransactionResult?> _maybeSaveFee({
+    required String rawMessage,
+    required ParsedTransaction primary,
+    required DateTime occurredAt,
+    AccountEntity? defaultAccount,
+  }) async {
+    final fee = _extractFeeAmount(rawMessage);
+    if (fee == null) return null;
+    final (amount, currency) = fee;
+    // Same currency as the main amount → part of one charge, not a second
+    // transaction; skip to avoid double counting.
+    if (currency.toUpperCase() == primary.currency.trim().toUpperCase()) {
+      return null;
+    }
+
+    Future<String> feeHash() => TransactionDedup.computeHash(
+          amount: amount,
+          currency: currency,
+          cardLast4: primary.cardLast4,
+          merchantNormalized: 'FEE',
+          type: TransactionType.payment.name,
+        );
+
+    if (_dedupStore != null) {
+      final existingId =
+          await _dedupStore.transactionIdFor(await feeHash(), occurredAt);
+      if (existingId != null) {
+        final existing = await _transactionRepository.getById(existingId);
+        if (existing != null) return AddTransactionResult.duplicate(existing);
+      }
+    }
+
+    final account = await _accountForCurrency(
+      _accountRepository,
+      currency,
+      fallback: defaultAccount,
+    );
+    final now = DateTime.now().toUtc();
+    final feeTx = TransactionEntity(
+      id: IdGenerator.next(),
+      amount: amount,
+      currency: currency,
+      accountId: account?.id,
+      merchantId: null,
+      rawMerchant: null,
+      categoryId: null,
+      type: TransactionTypeEntity.payment,
+      source: _mapSource(primary.source),
+      cardLast4: primary.cardLast4,
+      balanceAfter: null,
+      note: 'رسوم/ضريبة',
+      occurredAt: occurredAt.toUtc(),
+      rawMessage: rawMessage,
+      parseConfidence: 1.0,
+      direction: TransactionDirectionEntity.debit,
+      status: TransactionStatus.confirmed,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final saved = await _transactionRepository.saveTransaction(
+      transaction: feeTx,
+      categoryKey: Categories.bills.key,
+    );
+    if (_dedupStore != null) {
+      await _dedupStore.mark(
+        await feeHash(),
+        transactionId: feeTx.id,
+        occurredAt: occurredAt,
+      );
+    }
+    return AddTransactionResult.added(saved, ParseResult.notTransaction());
+  }
+
+  /// Extracts a fee/tax amount that appears AFTER a fee keyword
+  /// (الرسوم/الضريبة/fee/VAT/tax). Returns null when no such line exists.
+  static (double, String)? _extractFeeAmount(String rawMessage) {
+    final keyword = RegExp(
+      r'(?:الرسوم|الرسم|الضريبة|الضرائب|رسوم|ضريبة|fees?|vat|tax)',
+      caseSensitive: false,
+    ).firstMatch(rawMessage);
+    if (keyword == null) return null;
+    final fee = _extractAmountCurrency(rawMessage.substring(keyword.end));
+    if (fee == null || fee.$1 <= 0) return null;
+    return fee;
   }
 
   Future<List<BankProfile>> _safeLoadBankProfiles({String? senderId}) async {
@@ -433,6 +769,115 @@ class AddTransactionUseCase {
     }
   }
 
+  Future<String> _effectiveInstallId() async {
+    final cached = _installId;
+    if (cached != null && cached.isNotEmpty) return cached;
+    final loader = _loadInstallId;
+    if (loader == null) return '';
+    try {
+      return await loader();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<_AiFirstAttempt> _tryAiParseFirst({
+    required String rawMessage,
+    required String? senderId,
+  }) async {
+    if (_aiClient == null) return const _AiFirstAttempt.skipped('no_ai_client');
+    final consent = await _loadAiConsent?.call() ?? false;
+    if (!consent) return const _AiFirstAttempt.skipped('consent_off');
+    final sid = senderId ?? '';
+    if (AiSenderFailureTracker.instance.isSuppressed(sid)) {
+      return const _AiFirstAttempt.skipped('sender_suppressed');
+    }
+
+    final sanitized = SmsSanitizer.sanitize(
+      rawMessage,
+      detectedType: _privacyTypeHint(rawMessage),
+    );
+    AiParseResponse? response;
+    String? failureReason;
+    try {
+      response = await _aiClient.parse(
+        sanitizedSms: sanitized,
+        senderId: sid,
+        installId: await _effectiveInstallId(),
+      );
+    } on AiParseException catch (error) {
+      failureReason = error.reason;
+    } catch (_) {
+      failureReason = 'unexpected_ai_error';
+    }
+    return _AiFirstAttempt(
+      senderId: sid,
+      sanitizedSms: sanitized,
+      response: response,
+      failureReason: failureReason,
+    );
+  }
+
+  _AppliedAiParse? _applyAiResponse({
+    required _AiFirstAttempt attempt,
+    required String rawMessage,
+    required ParsedTransaction? localParsed,
+  }) {
+    final aiResponse = attempt.response;
+    final sanitized = attempt.sanitizedSms;
+    if (aiResponse == null || sanitized == null) return null;
+    if (!GroundingCheck.verify(
+      amount: aiResponse.amount,
+      sanitizedText: sanitized,
+    )) {
+      AiSenderFailureTracker.instance.recordFailure(attempt.senderId);
+      return null;
+    }
+    if (localParsed != null &&
+        !_amountsClose(aiResponse.amount, localParsed.amount)) {
+      AiSenderFailureTracker.instance.recordFailure(attempt.senderId);
+      return null;
+    }
+
+    AiSenderFailureTracker.instance.recordSuccess(attempt.senderId);
+    final aiType = _normalizeAiType(
+      rawMessage: rawMessage,
+      categoryKey: aiResponse.categoryKey,
+      fallback: _parseTypeFromString(aiResponse.type) ??
+          localParsed?.type ??
+          TransactionType.unknown,
+      merchantName: aiResponse.merchantName ?? localParsed?.rawMerchant,
+    );
+    final aiCategoryKey = aiResponse.categoryKey;
+    final hasSpecificAiCategory =
+        aiCategoryKey != null && aiCategoryKey != Categories.other.key;
+    final aiTrusted = localParsed != null &&
+        hasSpecificAiCategory &&
+        !DirectionSignal.contradicts(rawMessage, aiType);
+
+    return _AppliedAiParse(
+      categoryKey: aiCategoryKey,
+      direction: _parseAiDirection(aiResponse.direction),
+      transaction: ParsedTransaction(
+        amount: aiResponse.amount,
+        currency: aiResponse.currency,
+        type: aiType,
+        source: TransactionSource.aiParsed,
+        rawMerchant: PaymentAggregators.resolveMerchant(
+              aiResponse.merchantName,
+            ) ??
+            localParsed?.rawMerchant,
+        cardLast4: localParsed?.cardLast4,
+        balanceAfter: localParsed?.balanceAfter,
+        occurredAt: aiResponse.occurredAt ?? localParsed?.occurredAt,
+        foreignAmount: localParsed?.foreignAmount,
+        foreignCurrency: localParsed?.foreignCurrency,
+        fundingSource: localParsed?.fundingSource,
+        parseConfidence: aiTrusted ? 0.95 : 0.79,
+      ),
+    );
+  }
+
   static TransactionSourceEntity _mapSource(TransactionSource source) {
     switch (source) {
       case TransactionSource.bank:
@@ -446,6 +891,386 @@ class AddTransactionUseCase {
       case TransactionSource.aiParsed:
         return TransactionSourceEntity.aiParsed;
     }
+  }
+
+  static TransactionType _normalizeAiType({
+    required String rawMessage,
+    required String? categoryKey,
+    required TransactionType fallback,
+    String? merchantName,
+  }) {
+    final isTransferCategory = categoryKey == Categories.transfers.key;
+    if (isTransferCategory || _looksLikeTransferMessage(rawMessage)) {
+      return TransactionType.transfer;
+    }
+    if (categoryKey == Categories.cash.key &&
+        fallback == TransactionType.payment &&
+        _looksLikeBankAtmCardTransaction(
+          rawMessage,
+          merchantName: merchantName,
+        )) {
+      return TransactionType.withdrawal;
+    }
+    return fallback;
+  }
+
+  /// An explicit own-account / internal transfer: money the user moves between
+  /// their own accounts. Neutral — excluded from both income and expense.
+  static bool _looksLikeInternalTransfer(String rawMessage) {
+    final lower = rawMessage.toLowerCase();
+    return lower.contains('internal transfer') ||
+        lower.contains('own account') ||
+        lower.contains('self transfer') ||
+        lower.contains('between your accounts') ||
+        lower.contains('تحويل داخلي') ||
+        lower.contains('بين حساباتك') ||
+        lower.contains('بين حساباتكم') ||
+        lower.contains('لحسابك الآخر') ||
+        lower.contains('من حسابك إلى حسابك');
+  }
+
+  static bool _looksLikeTransferMessage(String rawMessage) {
+    final lower = rawMessage.toLowerCase();
+    return lower.contains('ipn transfer') ||
+        lower.contains('ipn ref') ||
+        lower.contains('instapay') ||
+        lower.contains('transfer sent') ||
+        lower.contains('transfer received') ||
+        lower.contains('outward transfer') ||
+        lower.contains('inward transfer') ||
+        lower.contains('internal transfer') ||
+        (lower.contains('credited by') && lower.contains(' from ')) ||
+        lower.contains('received from') ||
+        lower.contains('sent to') ||
+        (lower.contains('debited by') && lower.contains(' to ')) ||
+        lower.contains('انستاباي') ||
+        lower.contains('تحويل') ||
+        lower.contains('حوالة');
+  }
+
+  static ParsedTransaction _replaceMerchant(
+    ParsedTransaction transaction,
+    String? rawMerchant,
+  ) {
+    return ParsedTransaction(
+      amount: transaction.amount,
+      currency: transaction.currency,
+      type: transaction.type,
+      source: transaction.source,
+      rawMerchant: rawMerchant,
+      cardLast4: transaction.cardLast4,
+      balanceAfter: transaction.balanceAfter,
+      occurredAt: transaction.occurredAt,
+      foreignAmount: transaction.foreignAmount,
+      foreignCurrency: transaction.foreignCurrency,
+      fundingSource: transaction.fundingSource,
+      parseConfidence: transaction.parseConfidence,
+    );
+  }
+
+  static TransactionType? _privacyTypeHint(String rawMessage) {
+    final lower = rawMessage.toLowerCase();
+    final hasTransferWord = lower.contains('transfer') ||
+        lower.contains('تحويل') ||
+        lower.contains('حوالة');
+    final hasPaymentWord = lower.contains('debit card') ||
+        lower.contains('purchase') ||
+        lower.contains('payment') ||
+        lower.contains('successful transaction') ||
+        lower.contains('transaction of') ||
+        lower.contains('خصم') ||
+        lower.contains('شراء') ||
+        lower.contains('مشتريات') ||
+        lower.contains('دفع');
+    if (hasTransferWord) {
+      return TransactionType.transfer;
+    }
+    if (lower.contains('salary') || lower.contains('راتب')) {
+      return TransactionType.income;
+    }
+    if (hasPaymentWord) {
+      return TransactionType.payment;
+    }
+    if (lower.contains('إلى') || lower.contains('الى')) {
+      return TransactionType.transfer;
+    }
+    return null;
+  }
+
+  static ParsedTransaction? _lastResortParse(String rawMessage) {
+    final amountCurrency = _extractAmountCurrency(rawMessage);
+    if (amountCurrency == null) return null;
+    final lower = rawMessage.toLowerCase();
+    final merchant = _extractMerchantName(rawMessage);
+    final direction = DirectionSignal.detect(rawMessage);
+    final type = _lastResortType(
+      lower: lower,
+      direction: direction,
+      merchantName: merchant,
+    );
+
+    return ParsedTransaction(
+      amount: amountCurrency.$1,
+      currency: amountCurrency.$2,
+      type: type,
+      source: TransactionSource.unknown,
+      rawMerchant: merchant,
+      occurredAt: _extractLooseArabicDateTime(rawMessage),
+      parseConfidence: 0.55,
+    );
+  }
+
+  static DateTime? _extractLooseArabicDateTime(String rawMessage) {
+    final match = RegExp(
+      r'(?:يوم|بتاريخ)\s+([0-9]{1,2})(?:[/-]([0-9]{1,2}))?(?:[/-]([0-9]{2,4}))?.{0,24}?(?:الساعة|الساعه|at)?\s*([0-9]{1,2}):([0-9]{2})',
+      caseSensitive: false,
+    ).firstMatch(rawMessage);
+    if (match == null) return null;
+    final now = DateTime.now();
+    final day = int.parse(match.group(1)!);
+    final month =
+        match.group(2) == null ? now.month : int.parse(match.group(2)!);
+    final rawYear = match.group(3);
+    final year =
+        rawYear == null ? now.year : _normalizeLooseYear(int.parse(rawYear));
+    final hour = int.parse(match.group(4)!);
+    final minute = int.parse(match.group(5)!);
+    final parsed = DateTime(year, month, day, hour, minute);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+    if (rawYear == null && parsed.isAfter(now.add(const Duration(days: 1)))) {
+      final previousMonth = month == 1 ? 12 : month - 1;
+      final previousYear = month == 1 ? year - 1 : year;
+      return DateTime(previousYear, previousMonth, day, hour, minute);
+    }
+    return parsed;
+  }
+
+  static int _normalizeLooseYear(int year) {
+    if (year < 100) return 2000 + year;
+    return year;
+  }
+
+  static (double, String)? _extractAmountCurrency(String rawMessage) {
+    const codes = 'EGP|SAR|AED|USD|EUR|GBP|KWD|QAR|BHD|OMR|JOD';
+    const aliases = 'جم|جنيه';
+    final currencyBefore = RegExp(
+      '\\b($codes)\\b\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)',
+      caseSensitive: false,
+    );
+    final currencyAfter = RegExp(
+      '([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*\\b($codes)\\b',
+      caseSensitive: false,
+    );
+    final egyptianPoundAfter = RegExp(
+      '([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(?:$aliases)',
+      caseSensitive: false,
+    );
+    final amountWord = RegExp(
+      '(?:amount(?:\\s+of)?|مبلغ)\\s*(?:of\\s*)?\\b($codes)\\b\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)',
+      caseSensitive: false,
+    );
+
+    final match = amountWord.firstMatch(rawMessage) ??
+        currencyBefore.firstMatch(rawMessage);
+    if (match != null) {
+      final amount = double.tryParse(match.group(2)!.replaceAll(',', ''));
+      if (amount == null) return null;
+      return (amount, match.group(1)!.toUpperCase());
+    }
+
+    final reverse = currencyAfter.firstMatch(rawMessage);
+    if (reverse != null) {
+      final amount = double.tryParse(reverse.group(1)!.replaceAll(',', ''));
+      if (amount == null) return null;
+      return (amount, reverse.group(2)!.toUpperCase());
+    }
+    final egp = egyptianPoundAfter.firstMatch(rawMessage);
+    if (egp != null) {
+      final amount = double.tryParse(egp.group(1)!.replaceAll(',', ''));
+      if (amount == null) return null;
+      return (amount, 'EGP');
+    }
+    return null;
+  }
+
+  static String? _extractMerchantName(String rawMessage) {
+    final match = RegExp(
+      r'(?:@|\bat\b)\s*([^,.;\n]+)',
+      caseSensitive: false,
+    ).firstMatch(rawMessage);
+    final merchant = match?.group(1);
+    if (merchant == null) return null;
+    final cleaned = merchant
+        .replaceFirst(RegExp(r'\s+\bon\b.+$', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'\s+\d{1,2}[/-]\d{1,2}.*$'), '')
+        .replaceFirst(
+            RegExp(r'\s+\bat\b\s*\d{1,2}:\d{2}.*$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[.;،]+$'), '')
+        .trim();
+    return cleaned.isEmpty ? null : cleaned;
+  }
+
+  static TransactionType _lastResortType({
+    required String lower,
+    required TxnDirection? direction,
+    required String? merchantName,
+  }) {
+    if (lower.contains('ipn transfer') ||
+        lower.contains('transfer') ||
+        lower.contains('تحويل') ||
+        lower.contains('حوالة')) {
+      return TransactionType.transfer;
+    }
+    if (BankProfiles.detect('', senderId: merchantName ?? '') != null ||
+        lower.contains('atm') ||
+        lower.contains('cash withdrawal') ||
+        lower.contains('سحب')) {
+      return TransactionType.withdrawal;
+    }
+    if (direction == TxnDirection.credit &&
+        (lower.contains('salary') || lower.contains('راتب'))) {
+      return TransactionType.income;
+    }
+    return TransactionType.payment;
+  }
+
+  static String _bestEffortMerchantCategory(String merchantName) {
+    final upper = merchantName.toUpperCase();
+    bool hasAny(Iterable<String> needles) =>
+        needles.any((needle) => upper.contains(needle));
+
+    if (hasAny(const [
+      'CAFE',
+      'COFFEE',
+      'ESPRESSO',
+      'BAKERY',
+      'PATISSERIE',
+      'كافيه',
+      'قهوة',
+      'مخبز',
+    ])) {
+      return Categories.cafes.key;
+    }
+    if (hasAny(const [
+      'RESTAURANT',
+      'REST',
+      'BURGER',
+      'PIZZA',
+      'CHICKEN',
+      'GRILL',
+      'KITCHEN',
+      'FOOD',
+      'مطعم',
+      'بيتزا',
+      'برجر',
+      'مشويات',
+    ])) {
+      return Categories.restaurants.key;
+    }
+    if (hasAny(const [
+      'MARKET',
+      'MART',
+      'GROCERY',
+      'SUPERMARKET',
+      'HYPER',
+      'BAQALA',
+      'بقالة',
+      'سوبر',
+      'ماركت',
+    ])) {
+      return Categories.groceries.key;
+    }
+    if (hasAny(const [
+      'PHARMACY',
+      'PHARMA',
+      'CLINIC',
+      'HOSPITAL',
+      'MEDICAL',
+      'صيدلية',
+      'عيادة',
+      'مستشفى',
+    ])) {
+      return Categories.health.key;
+    }
+    if (hasAny(const [
+      'PETROL',
+      'FUEL',
+      'GAS',
+      'STATION',
+      'بنزين',
+      'وقود',
+    ])) {
+      return Categories.fuel.key;
+    }
+    if (hasAny(const [
+      'UBER',
+      'CAREEM',
+      'TAXI',
+      'BUS',
+      'METRO',
+      'TRAIN',
+      'TRANSPORT',
+      'تاكسي',
+      'مترو',
+      'مواصلات',
+    ])) {
+      return Categories.transport.key;
+    }
+    if (hasAny(const [
+      'TELECOM',
+      'MOBILE',
+      'INTERNET',
+      'ELECTRIC',
+      'WATER',
+      'UTILITY',
+      'فاتورة',
+      'كهرباء',
+      'مياه',
+      'انترنت',
+    ])) {
+      return Categories.bills.key;
+    }
+    if (hasAny(const ['GYM', 'FITNESS', 'SPORT', 'نادي', 'جيم'])) {
+      return Categories.fitness.key;
+    }
+    if (hasAny(const ['SALON', 'BEAUTY', 'BARBER', 'SPA', 'صالون', 'حلاق'])) {
+      return Categories.beauty.key;
+    }
+    if (hasAny(const [
+      'HOTEL',
+      'AIR',
+      'TRAVEL',
+      'FLIGHT',
+      'TOUR',
+      'فندق',
+      'طيران',
+      'سفر',
+    ])) {
+      return Categories.travel.key;
+    }
+    if (hasAny(const ['CINEMA', 'MOVIE', 'GAME', 'PLAY', 'سينما', 'العاب'])) {
+      return Categories.entertainment.key;
+    }
+    return Categories.shopping.key;
+  }
+
+  static bool _looksLikeBankAtmCardTransaction(
+    String rawMessage, {
+    required String? merchantName,
+  }) {
+    if (merchantName == null || merchantName.trim().isEmpty) return false;
+    final lower = rawMessage.toLowerCase();
+    final hasDebitCard = lower.contains('debit card');
+    final hasGenericTransaction = lower.contains('successful transaction') ||
+        lower.contains('transaction of');
+    if (!hasDebitCard || !hasGenericTransaction) return false;
+    return BankProfiles.detect('', senderId: merchantName) != null;
+  }
+
+  static bool _amountsClose(double left, double right) {
+    return (left - right).abs() < 0.01;
   }
 
   static TransactionType? _parseTypeFromString(String? raw) {
@@ -463,6 +1288,50 @@ class AddTransactionUseCase {
       default:
         return null;
     }
+  }
+
+  static String? _dedupFingerprint(
+    ParsedTransaction transaction, {
+    required String rawMessage,
+  }) {
+    if (transaction.type != TransactionType.transfer) {
+      return transaction.rawMerchant == null
+          ? null
+          : TransactionDedup.normalizeMerchant(transaction.rawMerchant!);
+    }
+    final reference = RegExp(
+      r'(?:ref(?:erence)?#?|رقم\s*مرجعي)\s*:?\s*([A-Za-z0-9]+)',
+      caseSensitive: false,
+    ).firstMatch(rawMessage);
+    if (reference != null) {
+      return 'TRANSFER_REF_${reference.group(1)!.toUpperCase()}';
+    }
+    return 'TRANSFER_MSG_${TransactionDedup.normalizeMerchant(rawMessage)}';
+  }
+
+  static TransactionDirectionEntity? _parseAiDirection(String? raw) {
+    return switch (raw) {
+      'credit' => TransactionDirectionEntity.credit,
+      'debit' => TransactionDirectionEntity.debit,
+      'unknown' => TransactionDirectionEntity.unknown,
+      _ => null,
+    };
+  }
+
+  static TransactionDirectionEntity? _directionFromText(String rawMessage) {
+    return switch (DirectionSignal.detect(rawMessage)) {
+      TxnDirection.credit => TransactionDirectionEntity.credit,
+      TxnDirection.debit => TransactionDirectionEntity.debit,
+      TxnDirection.unknown => null,
+    };
+  }
+
+  static TransactionDirectionEntity _directionFromType(TransactionType type) {
+    return switch (DirectionSignal.ofType(type)) {
+      TxnDirection.credit => TransactionDirectionEntity.credit,
+      TxnDirection.debit => TransactionDirectionEntity.debit,
+      TxnDirection.unknown => TransactionDirectionEntity.unknown,
+    };
   }
 
   static TransactionTypeEntity _mapType(TransactionType type) {
@@ -491,13 +1360,16 @@ class SaveManualTransactionUseCase {
     required TransactionRepository transactionRepository,
     RecordEngagementUseCase? recordEngagementUseCase,
     Future<void> Function(String key, {String? dimension})? logMetric,
+    AccountRepository? accountRepository,
   })  : _transactionRepository = transactionRepository,
         _recordEngagementUseCase = recordEngagementUseCase,
-        _logMetric = logMetric;
+        _logMetric = logMetric,
+        _accountRepository = accountRepository;
 
   final TransactionRepository _transactionRepository;
   final RecordEngagementUseCase? _recordEngagementUseCase;
   final Future<void> Function(String key, {String? dimension})? _logMetric;
+  final AccountRepository? _accountRepository;
 
   Future<TransactionEntity> call({
     required double amount,
@@ -508,15 +1380,20 @@ class SaveManualTransactionUseCase {
     String? merchant,
     String? note,
     String? accountId,
+    String? cardLast4,
   }) async {
     final now = DateTime.now().toUtc();
+    final normalizedCurrency = currency.trim().toUpperCase();
     final normalizedMerchant = merchant?.trim();
     final normalizedNote = note?.trim();
+    final effectiveAccount = accountId == null
+        ? await _accountForCurrency(_accountRepository, normalizedCurrency)
+        : null;
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
       amount: amount,
-      currency: currency.toUpperCase(),
-      accountId: accountId,
+      currency: normalizedCurrency,
+      accountId: accountId ?? effectiveAccount?.id,
       merchantId: null,
       rawMerchant: normalizedMerchant == null || normalizedMerchant.isEmpty
           ? null
@@ -524,7 +1401,7 @@ class SaveManualTransactionUseCase {
       categoryId: null,
       type: type,
       source: TransactionSourceEntity.unknown,
-      cardLast4: null,
+      cardLast4: (cardLast4 == null || cardLast4.isEmpty) ? null : cardLast4,
       balanceAfter: null,
       note: normalizedNote == null || normalizedNote.isEmpty
           ? null

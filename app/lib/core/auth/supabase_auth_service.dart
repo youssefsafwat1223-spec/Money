@@ -13,7 +13,7 @@ class SupabaseAuthService implements AuthService {
             GoogleSignIn(
               scopes: const ['email'],
               clientId:
-                  '881903820931-25j4h02kniuvhlo4sb7sjqbbc9hf7ptd.apps.googleusercontent.com',
+                  '881903820931-c4cttgekf9d3tcv3j2lt10ao2upk4b1m.apps.googleusercontent.com',
             );
 
   final supabase.SupabaseClient _client;
@@ -30,6 +30,10 @@ class SupabaseAuthService implements AuthService {
     if (idToken == null || idToken.isEmpty) {
       throw const AuthException('لم نستطع قراءة رمز دخول جوجل.');
     }
+    // The native iOS Google Sign-In SDK generates and hashes its own nonce
+    // inside the id_token without exposing the raw value, so we can't pass a
+    // matching nonce here. Supabase's Google provider must have "Skip nonce
+    // checks" enabled for this native flow to be accepted.
     final response = await _client.auth.signInWithIdToken(
       provider: supabase.OAuthProvider.google,
       idToken: idToken,

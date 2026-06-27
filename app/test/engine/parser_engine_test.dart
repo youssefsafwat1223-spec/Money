@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/engine/categorization/categorizer.dart';
+import 'package:money_companion/engine/categorization/category.dart';
 import 'package:money_companion/engine/models/transaction_source.dart';
 import 'package:money_companion/engine/models/transaction_type.dart';
 import 'package:money_companion/engine/parser/bank_profile.dart';
@@ -130,6 +132,40 @@ Amount SAR 50.00
           greaterThanOrEqualTo(ParserEngine.pendingThreshold));
       expect(t.parseConfidence, lessThan(0.92));
     });
+
+    test('BDC ATM debit-card abbreviation becomes cash category', () {
+      const sms =
+          'Your Debit Card **5398 had a Successful transaction of EGP 200.00 '
+          '@BDC OROBA,your available bal.EGP1204.74 for lost/stolen card '
+          'call 16607.';
+      final result = engine.parse(sms, senderId: 'BDC');
+      final tx = result.transaction!;
+      final category = Categorizer().categorize(tx);
+
+      expect(result.bankKey, 'bdc_eg');
+      expect(tx.amount, 200.0);
+      expect(tx.currency, 'EGP');
+      expect(tx.rawMerchant, 'BDC OROBA');
+      expect(tx.type, TransactionType.withdrawal);
+      expect(category.categoryKey, Categories.cash.key);
+    });
+
+    test('IPN transfer sent is parsed as outgoing transfer', () {
+      const sms =
+          'IPN transfer sent with amount of EGP 31.43 from 1938 on 15/03 '
+          'at 02:18 PM. Ref# 22762b03. For more details call 16607';
+      final result = engine.parse(sms, senderId: 'IPN', defaultCurrency: 'EGP');
+      final tx = result.transaction!;
+      final category = Categorizer().categorize(tx);
+
+      expect(result.bankKey, 'instapay_eg');
+      expect(tx.amount, 31.43);
+      expect(tx.currency, 'EGP');
+      expect(tx.type, TransactionType.transfer);
+      expect(tx.rawMerchant, isNull);
+      expect(tx.occurredAt, DateTime(DateTime.now().year, 3, 15, 14, 18));
+      expect(category.categoryKey, Categories.transfers.key);
+    });
   });
 
   group('ParserEngine — تجاهل غير المالي (§24.6)', () {
@@ -148,6 +184,20 @@ Amount SAR 50.00
         engine.parse(SampleMessages.stcPay, senderId: 'STCPay').bankKey,
         'stcpay',
       );
+    });
+
+    test('اختصارات البنوك في رسائل ATM/Alerts تُكتشف بعد تنضيف senderId', () {
+      expect(BankProfiles.detect('', senderId: 'CIB-ATM')?.bankKey, 'cib');
+      expect(BankProfiles.detect('', senderId: 'AHLYBANK-ATM')?.bankKey, 'nbe');
+      expect(
+        BankProfiles.detect('', senderId: 'BMISR-ATM')?.bankKey,
+        'banque_misr',
+      );
+      expect(
+        BankProfiles.detect('', senderId: 'QNBALAHLI')?.bankKey,
+        'qnb_alahli',
+      );
+      expect(BankProfiles.detect('', senderId: 'BDC-SMS')?.bankKey, 'bdc_eg');
     });
 
     test('profiles خارجية توسع كشف البنك بدون تغيير المحرك', () {

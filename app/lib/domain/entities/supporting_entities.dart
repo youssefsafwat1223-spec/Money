@@ -143,10 +143,16 @@ class UserSettingsEntity {
     required this.notificationsJson,
     required this.dbEncryptionKeyRef,
     required this.privacyModeEnabled,
+    this.displayName,
+    this.phoneNumber,
+    this.avatarPath,
     this.aiConsentGranted = false,
   });
 
   final String id;
+  final String? displayName;
+  final String? phoneNumber;
+  final String? avatarPath;
   final String country;
   final String currency;
   final String language;
@@ -155,6 +161,7 @@ class UserSettingsEntity {
   final String notificationsJson;
   final String dbEncryptionKeyRef;
   final bool privacyModeEnabled;
+
   /// User has opted in to AI suggestions (off by default).
   /// When true, low-confidence messages may be sent (sanitized) to an AI
   /// service for parsing or merchant categorization.
@@ -170,10 +177,16 @@ class UserSettingsEntity {
     String? notificationsJson,
     String? dbEncryptionKeyRef,
     bool? privacyModeEnabled,
+    String? displayName,
+    String? phoneNumber,
+    String? avatarPath,
     bool? aiConsentGranted,
   }) {
     return UserSettingsEntity(
       id: id ?? this.id,
+      displayName: displayName ?? this.displayName,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      avatarPath: avatarPath ?? this.avatarPath,
       country: country ?? this.country,
       currency: currency ?? this.currency,
       language: language ?? this.language,

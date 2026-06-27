@@ -1,5 +1,5 @@
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/logo/logo_dark.png"
-  # يمكنك تغيير المسار أعلاه إلى "assets/logo/logo_light.png" إذا كنت تفضل النسخة الفاتحة كأيقونة افتراضية للتطبيق.
+  remove_alpha_ios: true
+  image_path: "assets/qirsh/qirsh_app_icon_preview.png"

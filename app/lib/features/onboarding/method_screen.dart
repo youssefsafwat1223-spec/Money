@@ -66,7 +66,7 @@ class _OnboardingMethodScreenState
         // Keep onboarding smooth if the remote check is temporarily unavailable.
       }
     }
-    if (mounted) context.go('/onboarding/backup-info');
+    if (mounted) context.go('/onboarding/ai-consent');
   }
 
   Future<void> _requestSms() async {
@@ -99,23 +99,22 @@ class _OnboardingMethodScreenState
     final isAndroid = Platform.isAndroid;
     final shortcutCurrency =
         _shortcutCurrency(ref.watch(baseCurrencyProvider).valueOrNull);
-    final title = isAndroid
-        ? 'شارك رسائل البنك مع مالي'
-        : context.l10n.setupAppleShortcut;
+    final title =
+        isAndroid ? 'شارك رسائل البنك مع قرش' : context.l10n.setupAppleShortcut;
     final subtitle = isAndroid
-        ? 'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى مالي. سنحللها على جهازك ونضيف العملية.'
+        ? 'من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى قرش. سنحللها على جهازك ونضيف العملية.'
         : context.l10n.autoTrackingSubtitleIos;
     final steps = isAndroid
         ? (Localizations.localeOf(context).languageCode == 'en'
             ? const [
                 'Open the bank SMS in your Messages app.',
-                'Tap Share and choose Mali.',
-                'Mali parses the text on your device and asks for confirmation when needed.',
+                'Tap Share and choose Qirsh.',
+                'Qirsh parses the text on your device and asks for confirmation when needed.',
               ]
             : const [
                 'افتح رسالة البنك من تطبيق الرسائل.',
-                'اضغط مشاركة واختر مالي.',
-                'مالي يحلل النص على جهازك ويطلب التأكيد عند الحاجة.',
+                'اضغط مشاركة واختر قرش.',
+                'قرش يحلل النص على جهازك ويطلب التأكيد عند الحاجة.',
               ])
         : const <String>[];
 
@@ -356,12 +355,12 @@ class IosShortcutGuide extends StatelessWidget {
         const _ShortcutStep('Run Immediately',
             'Select Run Immediately then press Next.', Icons.bolt_rounded),
         const _ShortcutStep(
-            'Choose Mali Shortcut',
+            'Choose Qirsh Shortcut',
             'Press New Blank Automation, and search for Post Bank Status.',
             Icons.send_rounded),
         const _ShortcutStep(
             'Pass message text',
-            'Select Shortcut Input as input to the shortcut so Mali receives the bank message text.',
+            'Select Shortcut Input as input to the shortcut so Qirsh receives the bank message text.',
             Icons.text_snippet_outlined),
         const _ShortcutStep(
             'Run in background',
@@ -369,7 +368,7 @@ class IosShortcutGuide extends StatelessWidget {
             Icons.volume_off_rounded),
         const _ShortcutStep(
             'Save shortcut',
-            'Press Done. Then any matching bank message will be converted to a transaction inside Mali.',
+            'Press Done. Then any matching bank message will be converted to a transaction inside Qirsh.',
             Icons.check_circle_outline_rounded),
       ];
     }
@@ -389,12 +388,12 @@ class IosShortcutGuide extends StatelessWidget {
       const _ShortcutStep('خلّيه يعمل فوراً',
           'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
       const _ShortcutStep(
-          'اختَر اختصار مالي',
+          'اختَر اختصار قرش',
           'اضغط New Blank Automation، وابحث عن Post Bank Status.',
           Icons.send_rounded),
       const _ShortcutStep(
           'مرّر نص الرسالة',
-          'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل مالي نص رسالة البنك.',
+          'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل قرش نص رسالة البنك.',
           Icons.text_snippet_outlined),
       const _ShortcutStep(
           'شغّله في الخلفية',
@@ -402,7 +401,7 @@ class IosShortcutGuide extends StatelessWidget {
           Icons.volume_off_rounded),
       const _ShortcutStep(
           'احفظ الاختصار',
-          'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل مالي.',
+          'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل قرش.',
           Icons.check_circle_outline_rounded),
     ];
   }

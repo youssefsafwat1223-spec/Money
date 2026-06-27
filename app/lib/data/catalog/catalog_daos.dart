@@ -5,6 +5,21 @@ import 'package:drift/drift.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 
+String _compactSenderToken(String input) =>
+    input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u0600-\u06ff]+'), '');
+
+bool _senderMatchesAlias(String rawSender, String compactSender, String alias) {
+  final compactAlias = _compactSenderToken(alias);
+  if (compactAlias.isEmpty) return false;
+  final parts = rawSender
+      .split(RegExp(r'[^a-z0-9\u0600-\u06ff]+'))
+      .map(_compactSenderToken)
+      .where((part) => part.isNotEmpty);
+  return compactSender == compactAlias ||
+      compactSender.startsWith(compactAlias) ||
+      parts.contains(compactAlias);
+}
+
 class CatalogCategories {
   CatalogCategories._();
 
@@ -251,6 +266,7 @@ class RemoteBanksDao {
   Future<RemoteBank?> getBankBySender(String sender) async {
     final normalized = sender.trim().toLowerCase();
     if (normalized.isEmpty) return null;
+    final compactSender = _compactSenderToken(normalized);
     final rows = await _db.customSelect(
       '''
         SELECT *
@@ -263,7 +279,11 @@ class RemoteBanksDao {
     for (final row in rows) {
       final bank = _bankFromRow(row);
       final matched = bank.smsSenders.any(
-        (candidate) => normalized.contains(candidate.toLowerCase()),
+        (candidate) => _senderMatchesAlias(
+          normalized,
+          compactSender,
+          candidate,
+        ),
       );
       if (matched) return bank;
     }
@@ -908,6 +928,7 @@ class RemoteMerchantKeyword {
     required this.isActive,
     required this.isDeleted,
     required this.updatedAt,
+    this.logoUrl,
   });
 
   final String id;
@@ -920,6 +941,10 @@ class RemoteMerchantKeyword {
   final bool isDeleted;
   final String updatedAt;
 
+  /// Optional brand logo URL (admin-managed). When present the UI shows it
+  /// instead of a category icon / drawn brand mark.
+  final String? logoUrl;
+
   static RemoteMerchantKeyword fromJson(Map<String, Object?> json) {
     return RemoteMerchantKeyword(
       id: json['id'] as String,
@@ -931,6 +956,7 @@ class RemoteMerchantKeyword {
       isActive: _boolFromJson(json['is_active'], defaultValue: true),
       isDeleted: _boolFromJson(json['is_deleted']),
       updatedAt: json['updated_at'] as String,
+      logoUrl: json['logo_url'] as String?,
     );
   }
 }
@@ -946,9 +972,9 @@ class RemoteMerchantKeywordsDao {
         '''
           INSERT INTO remote_merchant_keywords(
             id, keyword, category_key, language, country_code,
-            priority, is_active, is_deleted, updated_at
+            priority, is_active, is_deleted, updated_at, logo_url
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             keyword = excluded.keyword,
             category_key = excluded.category_key,
@@ -957,7 +983,8 @@ class RemoteMerchantKeywordsDao {
             priority = excluded.priority,
             is_active = excluded.is_active,
             is_deleted = excluded.is_deleted,
-            updated_at = excluded.updated_at;
+            updated_at = excluded.updated_at,
+            logo_url = excluded.logo_url;
         ''',
         variables: [
           Variable.withString(kw.id),
@@ -969,6 +996,7 @@ class RemoteMerchantKeywordsDao {
           Variable.withInt(kw.isActive ? 1 : 0),
           Variable.withInt(kw.isDeleted ? 1 : 0),
           Variable.withString(kw.updatedAt),
+          Variable<String>(kw.logoUrl),
         ],
       );
     }
@@ -1008,6 +1036,7 @@ class RemoteMerchantKeywordsDao {
               isActive: r.read<int>('is_active') != 0,
               isDeleted: r.read<int>('is_deleted') != 0,
               updatedAt: r.read<String>('updated_at'),
+              logoUrl: r.readNullable<String>('logo_url'),
             ))
         .toList();
   }
@@ -1036,6 +1065,7 @@ class RemoteMerchantKeywordsDao {
               isActive: r.read<int>('is_active') != 0,
               isDeleted: r.read<int>('is_deleted') != 0,
               updatedAt: r.read<String>('updated_at'),
+              logoUrl: r.readNullable<String>('logo_url'),
             ))
         .toList();
   }
