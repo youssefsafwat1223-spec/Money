@@ -22,6 +22,8 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
+      groups:
+        - supabase
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -89,6 +91,8 @@ workflows:
     integrations:
       app_store_connect: codemagic_asc_api_key   # name of the ASC API key in Codemagic
     environment:
+      groups:
+        - supabase
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.youssefsafwat.mali
