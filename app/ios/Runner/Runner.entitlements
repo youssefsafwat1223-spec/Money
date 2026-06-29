@@ -8,7 +8,7 @@
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.youssefsafwat.mali.shared</string>
+		<string>group.com.youssefsafwat.mali</string>
 	</array>
 </dict>
 </plist>

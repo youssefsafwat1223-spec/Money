@@ -246,7 +246,7 @@ Reading the codebase reveals the iOS capture path is **fully implemented** at th
 | App Intent | `ios/BankMessageShortcuts/BankMessageShortcuts.swift` | ✅ Complete — `PostBankStatusIntent` exposes "Post Bank Status" to Shortcuts |
 | Share Extension | `ios/ShareBankMessage/ShareViewController.swift` | ✅ Exists |
 | Shared queue | `ios/Runner/SharedCaptureStore.swift` (+ copies in each target) | ✅ FIFO queue via App Group UserDefaults |
-| App Group | `ios/Runner/Runner.entitlements` | ✅ `group.com.youssefsafwat.mali.shared` |
+| App Group | `ios/Runner/Runner.entitlements` | ✅ `group.com.youssefsafwat.mali` |
 | Flutter drain | `lib/features/capture/services/native_capture_bridge.dart` | ✅ `consumePendingSharedMessages()` wired to `SharedCaptureStore.consumePendingPayloadsJSON()` |
 | Onboarding | `lib/features/onboarding/ios_shortcut_screen.dart` | ✅ 8-step guide with bilingual copy |
 | Setup docs | `ios/SHORTCUT_SETUP.md` | ✅ Exists |

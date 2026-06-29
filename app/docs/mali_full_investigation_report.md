@@ -47,7 +47,7 @@
          │
          ▼
 [SharedCaptureStore]  ← ios/Runner/SharedCaptureStore.swift
-  Storage: App Group UserDefaults ("group.com.youssefsafwat.mali.shared")
+  Storage: App Group UserDefaults ("group.com.youssefsafwat.mali")
   Key: "pending_bank_messages_v2"
   Format: JSON array of [{text, sender?}]
   FIFO queue — multiple messages never lost
