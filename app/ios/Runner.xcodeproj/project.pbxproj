@@ -21,12 +21,11 @@
 		A00100000000000000000003 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000003 /* SharedCaptureStore.swift */; };
 		A00100000000000000000004 /* BankMessageShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000004 /* BankMessageShortcuts.swift */; };
 		A00100000000000000000005 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000005 /* SharedCaptureStore.swift */; };
+		A00100000000000000000006 /* ShareBankMessage.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A00200000000000000000006 /* ShareBankMessage.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A00100000000000000000008 /* BankMessageShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000004 /* BankMessageShortcuts.swift */; };
 		B93C0F4478A971B2F42F8A21 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A86EAB171C9E468DE1E69B55 /* Pods_RunnerTests.framework */; };
 		D3F871868209BDF8B16B99EC /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4554B0DB3E19B2588962545 /* Pods_Runner.framework */; };
 		E82FB3FD2FE22DA000B7CE38 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = E82FB3FC2FE22DA000B7CE38 /* GoogleService-Info.plist */; };
-		A00100000000000000000006 /* ShareBankMessage.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A00200000000000000000006 /* ShareBankMessage.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A00100000000000000000007 /* BankMessageShortcuts.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A00200000000000000000007 /* BankMessageShortcuts.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,7 +56,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				A00100000000000000000006 /* ShareBankMessage.appex in Embed Foundation Extensions */,
-				A00100000000000000000007 /* BankMessageShortcuts.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -561,6 +559,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
+				A00100000000000000000008 /* BankMessageShortcuts.swift in Sources */,
 				A00100000000000000000001 /* SharedCaptureStore.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
