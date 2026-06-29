@@ -632,7 +632,7 @@ void main() {
     expect(result.outcome, AddTransactionOutcome.added);
     expect(saved!.amount, 2000);
     expect(saved!.currency, 'EGP');
-    expect(saved!.occurredAt, DateTime.utc(2026, 6, 14, 20, 10));
+    expect(saved!.occurredAt, DateTime(2026, 6, 14, 23, 10).toUtc());
     // Money received from outside → income (counts), payer name dropped.
     expect(saved!.type, TransactionTypeEntity.income);
     expect(saved!.rawMerchant, isNull);
@@ -690,9 +690,10 @@ void main() {
 
     expect(result.outcome, AddTransactionOutcome.added);
     expect(saved, isNotNull);
-    expect(saved!.occurredAt.day, 6);
-    expect(saved!.occurredAt.hour, 10);
-    expect(saved!.occurredAt.minute, 29);
+    final localTime = saved!.occurredAt.toLocal();
+    expect(localTime.day, 6);
+    expect(localTime.hour, 13);
+    expect(localTime.minute, 29);
   });
 
   test('AI category wins over local merchant keyword category', () async {
