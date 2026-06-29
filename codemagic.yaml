@@ -95,6 +95,7 @@ workflows:
         - supabase
       ios_signing:
         distribution_type: app_store
+        bundle_identifier: com.youssefsafwat.mali
       flutter: stable
       xcode: latest
       cocoapods: default
