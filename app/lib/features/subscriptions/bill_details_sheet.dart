@@ -190,7 +190,7 @@ class BillDetailsSheet extends ConsumerWidget {
                   ),
                   icon: const Icon(Icons.add_card_outlined),
                   label:
-                      Text(isInstallment ? 'تسجيل دفع قسط' : 'Record payment'),
+                      Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
                 ),
                 const SizedBox(height: AppSpacing.s3),
                 Row(
@@ -474,14 +474,38 @@ class _SummaryTile extends StatelessWidget {
   }
 }
 
-class _BillPaymentRow extends StatelessWidget {
+class _BillPaymentRow extends ConsumerWidget {
   const _BillPaymentRow({required this.payment, required this.bill});
 
   final BillPaymentEntity payment;
   final BillEntity bill;
 
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف الدفعة؟'),
+        content: const Text('هيتحذف سجل الدفع اليدوي ده نهائياً.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('حذف',
+                style: TextStyle(color: context.colors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(billRepositoryProvider).deletePayment(payment.id);
+    ref.invalidate(billPaymentsProvider(bill.id));
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final isInstallment = bill.type == BillType.installment;
     final title = isInstallment && payment.installmentIndex != null
@@ -542,6 +566,11 @@ class _BillPaymentRow extends StatelessWidget {
               fontWeight: FontWeight.w900,
               fontFamily: 'Outfit',
             ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          GestureDetector(
+            onTap: () => _delete(context, ref),
+            child: Icon(Icons.delete_outline, size: 18, color: c.danger),
           ),
         ],
       ),

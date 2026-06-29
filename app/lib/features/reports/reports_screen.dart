@@ -8,6 +8,8 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/entities/report_models.dart';
+import '../cards/brand_mark.dart';
 import '../common/account_range_controls.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
@@ -84,7 +86,8 @@ class ReportsScreen extends ConsumerWidget {
                             unselectedLabelColor: c.textLight,
                             indicator: BoxDecoration(
                               color: c.primary,
-                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
                             ),
                             tabs: const [
                               Tab(text: 'نظرة عامة'),
@@ -102,6 +105,7 @@ class ReportsScreen extends ConsumerWidget {
                 children: [
                   _OverviewTab(
                     section: section,
+                    weekly: bundle.weekly,
                     currencyLabel: currencyLabel,
                     privacyMode: privacyMode,
                   ),
@@ -140,28 +144,35 @@ String _dateLabel(DateTime day) => '${day.day}/${day.month}';
 class _OverviewTab extends StatelessWidget {
   const _OverviewTab({
     required this.section,
+    required this.weekly,
     required this.currencyLabel,
     required this.privacyMode,
   });
 
   final ReportSection section;
+  final ReportSection weekly;
   final String currencyLabel;
   final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    final chartSlices = [
-      for (final slice in section.topCategories)
-        SpendingChartSlice(
-          category: slice.category,
-          total: slice.total,
-          percent: slice.percent,
-        ),
-    ];
     return ListView(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s4,
+        AppSpacing.gutter,
+        AppSpacing.gutter,
+      ),
       children: [
+        if (weekly.total > 0) ...[
+          PremiumMotion(
+            child: _WeeklyInsightCard(
+              weekly: weekly,
+              currencyLabel: currencyLabel,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+        ],
         PremiumMotion(
           child: _PeriodCard(
             section: section,
@@ -169,32 +180,36 @@ class _OverviewTab extends StatelessWidget {
             privacyMode: privacyMode,
           ),
         ),
-        const SizedBox(height: AppSpacing.s5),
+        const SizedBox(height: AppSpacing.s4),
         PremiumMotion(
           delay: const Duration(milliseconds: 70),
-          child: _DailySpendCard(
-            section: section,
+          child: _WeeklySpendCard(
+            section: weekly,
             currencyLabel: currencyLabel,
             privacyMode: privacyMode,
           ),
         ),
         if (section.topCategories.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.s5),
-          Text('أكثر التصنيفات', style: AppTypography.title2(c.textMain)),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: AppSpacing.s4),
           PremiumMotion(
             delay: const Duration(milliseconds: 120),
-            child: CategoryDonutChart(
-              slices: chartSlices,
+            child: _CategoryDistributionCard(
+              section: section,
               currencyLabel: currencyLabel,
-              centerLabel: 'توزيع التصنيفات',
+              privacyMode: privacyMode,
             ),
           ),
+        ],
+        if (section.topMerchants.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.s4),
-          for (final slice in section.topCategories) ...[
-            _CategoryBar(slice: slice),
-            const SizedBox(height: AppSpacing.s3),
-          ],
+          PremiumMotion(
+            delay: const Duration(milliseconds: 160),
+            child: _MerchantRankingCard(
+              section: section,
+              currencyLabel: currencyLabel,
+              privacyMode: privacyMode,
+            ),
+          ),
         ],
       ],
     );
@@ -218,7 +233,12 @@ class _TrendsTab extends StatelessWidget {
     final delta = section.deltaPercent;
     final anomaly = section.anomaly;
     return ListView(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s4,
+        AppSpacing.gutter,
+        AppSpacing.gutter,
+      ),
       children: [
         if (anomaly != null) ...[
           _InsightCard(
@@ -233,8 +253,8 @@ class _TrendsTab extends StatelessWidget {
         ],
         _InsightCard(
           icon: delta == null || delta <= 0
-              ? AppLucideIcons.arrowLeftRight
-              : AppLucideIcons.arrowLeftRight,
+              ? Icons.trending_down_rounded
+              : Icons.trending_up_rounded,
           title: 'مقارنة بنفس الفترة السابقة',
           body: delta == null
               ? 'لسه محتاجين فترة سابقة فيها صرف عشان نعرض الاتجاه بدقة.'
@@ -278,59 +298,20 @@ class _DetailsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
-        Text('أكثر المتاجر', style: AppTypography.title2(c.textMain)),
-        const SizedBox(height: AppSpacing.s3),
-        if (section.topMerchants.isEmpty)
-          _InsightCard(
-            icon: AppLucideIcons.store,
-            title: 'لا توجد متاجر كافية',
-            body: 'ستظهر هنا أكثر المتاجر صرفاً بعد إضافة عمليات مؤكدة.',
-            color: c.textLight,
-          )
-        else
-          for (final merchant in section.topMerchants)
-            Container(
-              margin: const EdgeInsets.only(bottom: AppSpacing.s3),
-              padding: const EdgeInsets.all(AppSpacing.s4),
-              decoration: BoxDecoration(
-                color: c.surface,
-                borderRadius: BorderRadius.circular(AppRadius.card),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: c.primary.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                    child: Icon(AppLucideIcons.store, color: c.primary),
-                  ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: Text(merchant.name,
-                        style: AppTypography.bodyStrong(c.textMain)),
-                  ),
-                  Text(
-                      _money(merchant.total,
-                          currencyLabel: currencyLabel,
-                          privacyMode: privacyMode),
-                      style: AppTypography.bodyStrong(c.textMain)),
-                ],
-              ),
-            ),
+        _MerchantRankingCard(
+          section: section,
+          currencyLabel: currencyLabel,
+          privacyMode: privacyMode,
+        ),
+        const SizedBox(height: AppSpacing.s4),
+        _CategoryDistributionCard(
+          section: section,
+          currencyLabel: currencyLabel,
+          privacyMode: privacyMode,
+        ),
       ],
     );
   }
@@ -351,7 +332,7 @@ class _PeriodCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s5),
+      padding: const EdgeInsets.all(AppSpacing.s4),
       decoration: BoxDecoration(
         color: c.surface,
         borderRadius: BorderRadius.circular(AppRadius.card),
@@ -380,8 +361,8 @@ class _PeriodCard extends StatelessWidget {
   }
 }
 
-class _DailySpendCard extends StatelessWidget {
-  const _DailySpendCard({
+class _WeeklySpendCard extends StatelessWidget {
+  const _WeeklySpendCard({
     required this.section,
     required this.currencyLabel,
     required this.privacyMode,
@@ -395,7 +376,7 @@ class _DailySpendCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s5),
+      padding: const EdgeInsets.all(AppSpacing.s4),
       decoration: BoxDecoration(
         color: c.surface,
         borderRadius: BorderRadius.circular(AppRadius.card),
@@ -410,16 +391,21 @@ class _DailySpendCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('الصرف اليومي', style: AppTypography.title2(c.textMain)),
-          const SizedBox(height: AppSpacing.s4),
-          SizedBox(
-            height: 180,
-            width: double.infinity,
-            child: DailySpendBarChart(
-              values: section.dailySpend.map((day) => day.total).toList(),
-            ),
+          const _VisualSectionTitle(
+            icon: Icons.bar_chart_rounded,
+            title: 'استهلاك الأسبوع الحالي',
+            subtitle: 'آخر 7 أيام',
           ),
-          const Divider(height: AppSpacing.s6),
+          const SizedBox(height: AppSpacing.s4),
+          WeeklyCapsuleBarChart(
+            days: section.dailySpend,
+            currencyLabel: currencyLabel,
+            privacyMode: privacyMode,
+            height: 186,
+            barWidth: 24,
+            maxBarHeight: 78,
+          ),
+          const Divider(height: AppSpacing.s5),
           Row(
             children: [
               Expanded(
@@ -451,6 +437,150 @@ class _DailySpendCard extends StatelessWidget {
   }
 }
 
+class _CategoryDistributionCard extends StatelessWidget {
+  const _CategoryDistributionCard({
+    required this.section,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final ReportSection section;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final slices = [
+      for (final slice in section.topCategories)
+        SpendingChartSlice(
+          category: slice.category,
+          total: slice.total,
+          percent: slice.percent,
+          count: slice.count,
+        ),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _VisualSectionTitle(
+            icon: Icons.donut_large_rounded,
+            title: 'استهلاكك بالتصنيفات',
+            subtitle: _money(section.total,
+                currencyLabel: currencyLabel, privacyMode: privacyMode),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          CategoryDonutChart(
+            slices: slices.take(6).toList(),
+            currencyLabel: currencyLabel,
+            centerLabel: _money(section.total,
+                currencyLabel: currencyLabel, privacyMode: privacyMode),
+            compactCenter: true,
+            framed: false,
+            showLegend: false,
+            height: 142,
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          Wrap(
+            spacing: AppSpacing.s3,
+            runSpacing: AppSpacing.s3,
+            children: [
+              for (final slice in section.topCategories.take(8))
+                SizedBox(
+                  width: MediaQuery.sizeOf(context).width >= 430
+                      ? (MediaQuery.sizeOf(context).width -
+                              AppSpacing.gutter * 2 -
+                              AppSpacing.s3 * 3 -
+                              AppSpacing.s4 * 2) /
+                          2
+                      : double.infinity,
+                  child: _CategoryLegendTile(
+                    slice: slice,
+                    currencyLabel: currencyLabel,
+                    privacyMode: privacyMode,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MerchantRankingCard extends StatelessWidget {
+  const _MerchantRankingCard({
+    required this.section,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final ReportSection section;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final maxTotal = section.topMerchants.fold<double>(
+      1,
+      (max, merchant) => merchant.total > max ? merchant.total : max,
+    );
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _VisualSectionTitle(
+            icon: AppLucideIcons.store,
+            title: 'مصروفاتك في المتاجر',
+            subtitle: 'أكبر أماكن الصرف في الفترة',
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          if (section.topMerchants.isEmpty)
+            Text('ستظهر هنا أكثر المتاجر صرفاً بعد إضافة عمليات مؤكدة.',
+                style: AppTypography.caption(c.textLight))
+          else
+            for (final merchant in section.topMerchants.take(8)) ...[
+              _MerchantBarRow(
+                merchant: merchant,
+                maxTotal: maxTotal,
+                currencyLabel: currencyLabel,
+                privacyMode: privacyMode,
+              ),
+              if (merchant != section.topMerchants.take(8).last)
+                const SizedBox(height: AppSpacing.s3),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
 class _MiniMetric extends StatelessWidget {
   const _MiniMetric({required this.label, required this.value});
 
@@ -473,41 +603,146 @@ class _MiniMetric extends StatelessWidget {
   }
 }
 
-class _CategoryBar extends StatelessWidget {
-  const _CategoryBar({required this.slice});
+class _VisualSectionTitle extends StatelessWidget {
+  const _VisualSectionTitle({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
 
-  final CategorySlice slice;
+  final IconData icon;
+  final String title;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Row(
       children: [
-        CategoryAvatar(category: slice.category, size: 36),
+        Icon(icon, color: c.success, size: 22),
+        const SizedBox(width: AppSpacing.s2),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: AppTypography.headline(c.textMain)),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.caption(c.textLight),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CategoryLegendTile extends StatelessWidget {
+  const _CategoryLegendTile({
+    required this.slice,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final CategorySlice slice;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      children: [
+        CategoryAvatar(category: slice.category, size: 34),
+        const SizedBox(width: AppSpacing.s2),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '%${(slice.percent * 100).round()} ${slice.category.nameAr}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.subhead(c.textMain),
+              ),
+              Text(
+                '${_money(slice.total, currencyLabel: currencyLabel, privacyMode: privacyMode)}'
+                '${slice.count > 0 ? ' · ${slice.count} عملية' : ''}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.caption(c.textLight),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MerchantBarRow extends StatelessWidget {
+  const _MerchantBarRow({
+    required this.merchant,
+    required this.maxTotal,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final MerchantSpend merchant;
+  final double maxTotal;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final ratio =
+        maxTotal <= 0 ? 0.0 : (merchant.total / maxTotal).clamp(0.0, 1.0);
+    return Row(
+      children: [
+        BrandMark(name: merchant.name, size: 38),
         const SizedBox(width: AppSpacing.s3),
         Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Expanded(
-                    child: Text(slice.category.nameAr,
-                        style: AppTypography.subhead(c.textMain)),
+                    child: Text(
+                      merchant.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.subhead(c.textMain),
+                    ),
                   ),
-                  Text('${(slice.percent * 100).round()}%',
-                      style: AppTypography.caption(c.textLight)),
+                  Text(
+                    _money(merchant.total,
+                        currencyLabel: currencyLabel, privacyMode: privacyMode),
+                    style: AppTypography.caption(c.textSecondary)
+                        .copyWith(fontWeight: FontWeight.w800),
+                  ),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 7),
               ClipRRect(
                 borderRadius: BorderRadius.circular(AppRadius.pill),
                 child: LinearProgressIndicator(
-                  value: slice.percent,
-                  minHeight: 8,
+                  value: ratio,
+                  minHeight: 6,
                   backgroundColor: c.surface2,
-                  valueColor: AlwaysStoppedAnimation(slice.category.color),
+                  valueColor: AlwaysStoppedAnimation(c.primary),
                 ),
               ),
+              if (merchant.count > 0) ...[
+                const SizedBox(height: 3),
+                Text('${merchant.count} عملية',
+                    style: AppTypography.caption(c.textLight)),
+              ],
             ],
           ),
         ),
@@ -674,8 +909,9 @@ class _ReportsHeader extends StatelessWidget {
                             _money(section.total,
                                 currencyLabel: currencyLabel,
                                 privacyMode: privacyMode),
-                            style: AppTypography.title2(c.textMain)
-                                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            style: AppTypography.title2(c.textMain).copyWith(
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit'),
                           ),
                         ],
                       ),
@@ -712,6 +948,91 @@ class _ReportsHeader extends StatelessWidget {
   }
 }
 
+class _WeeklyInsightCard extends StatelessWidget {
+  const _WeeklyInsightCard({
+    required this.weekly,
+    required this.currencyLabel,
+  });
+
+  final ReportSection weekly;
+  final String currencyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final delta = weekly.deltaPercent;
+    final deltaSign = (delta ?? 0) < 0 ? '↓' : '↑';
+    final deltaColor = (delta ?? 0) < 0 ? c.success : c.danger;
+    final deltaText = delta == null
+        ? null
+        : '$deltaSign ${(delta.abs() * 100).toStringAsFixed(0)}% مقارنة بالأسبوع الماضي';
+
+    final bestDay = weekly.bestSavingsDay;
+    final topCat = weekly.topCategory;
+    final topMerchant = weekly.topMerchant;
+
+    final insights = <(IconData, String, Color)>[
+      if (deltaText != null)
+        (
+          (delta ?? 0) < 0
+              ? Icons.trending_down_rounded
+              : Icons.trending_up_rounded,
+          deltaText,
+          deltaColor,
+        ),
+      if (topCat != null)
+        (
+          Icons.category_outlined,
+          'أكثر فئة صرفًا: ${topCat.category.nameAr}',
+          c.accent,
+        ),
+      if (bestDay != null)
+        (
+          Icons.star_outline_rounded,
+          'أفضل يوم توفيرًا: ${bestDay.day.day}/${bestDay.day.month} '
+              '(${Formatters.amount(bestDay.total)} $currencyLabel)',
+          c.success,
+        ),
+      if (topMerchant != null)
+        (
+          Icons.store_outlined,
+          'أكثر متجر صرفًا: ${topMerchant.name} '
+              '(${Formatters.amount(topMerchant.total)} $currencyLabel)',
+          c.textMuted,
+        ),
+    ];
+
+    if (insights.isEmpty) return const SizedBox.shrink();
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('ملخص الأسبوع', style: AppTypography.bodyStrong(c.textMain)),
+          const SizedBox(height: AppSpacing.s3),
+          ...insights.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+              child: Row(
+                children: [
+                  Icon(item.$1, size: 15, color: item.$3),
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: Text(
+                      item.$2,
+                      style: AppTypography.caption(c.textMain),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   _TabBarDelegate({required this.child});
   final Widget child;
@@ -722,7 +1043,8 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => 64.0;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
     return child;
   }
 

@@ -415,13 +415,19 @@ class _CountryPageState extends ConsumerState<_CountryPage> {
     List<RemoteCountry> countries,
     List<RemoteCurrency> currencies,
   ) {
-    return [
+    final options = [
       for (final country in countries)
         if (_preferredCurrency(country, currencies) != null)
           _CountryOption(
               country: country,
               currency: _preferredCurrency(country, currencies)!),
     ];
+    options.sort((a, b) {
+      if (a.code == 'sa') return -1;
+      if (b.code == 'sa') return 1;
+      return a.localizedSortKey.compareTo(b.localizedSortKey);
+    });
+    return options;
   }
 
   RemoteCurrency? _preferredCurrency(
@@ -462,6 +468,7 @@ class _CountryOption {
   String get nameEn => country.nameEn;
   String get currencyNameAr => currency.nameAr;
   String get currencyNameEn => currency.nameEn;
+  String get localizedSortKey => nameAr.isNotEmpty ? nameAr : nameEn;
 
   String localizedName(BuildContext context) {
     return Localizations.localeOf(context).languageCode == 'en'

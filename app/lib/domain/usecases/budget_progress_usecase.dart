@@ -113,6 +113,13 @@ class BudgetProgressUseCase {
         return (RiyadhTime.startOfWeek(now), RiyadhTime.endOfWeek(now));
       case BudgetPeriod.monthly:
         return (RiyadhTime.startOfMonth(now), RiyadhTime.endOfMonth(now));
+      case BudgetPeriod.yearly:
+        final riyadh = RiyadhTime.toRiyadh(now);
+        final start = DateTime.utc(riyadh.year).subtract(RiyadhTime.offset);
+        final end = DateTime.utc(riyadh.year + 1)
+            .subtract(const Duration(milliseconds: 1))
+            .subtract(RiyadhTime.offset);
+        return (start, end);
     }
   }
 
@@ -125,6 +132,12 @@ class BudgetProgressUseCase {
       case BudgetPeriod.monthly:
         final riyadh = RiyadhTime.toRiyadh(start);
         final end = DateTime.utc(riyadh.year, riyadh.month + 1)
+            .subtract(RiyadhTime.offset);
+        return (start, end);
+      case BudgetPeriod.yearly:
+        final riyadh = RiyadhTime.toRiyadh(start);
+        final end = DateTime.utc(riyadh.year + 1)
+            .subtract(const Duration(milliseconds: 1))
             .subtract(RiyadhTime.offset);
         return (start, end);
     }

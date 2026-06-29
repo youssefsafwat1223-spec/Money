@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -20,6 +22,7 @@ import '../../data/repositories/drift_budget_repository.dart';
 import '../../data/repositories/drift_category_repository.dart';
 import '../../data/repositories/drift_dedup_store.dart';
 import '../../data/repositories/drift_gamification_repository.dart';
+import '../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_merchant_category_repository.dart';
 import '../../data/repositories/drift_sender_bank_mapping_repository.dart';
@@ -27,6 +30,7 @@ import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/entities/account_entity.dart';
+import '../../domain/entities/suspected_duplicate_entity.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
 import '../../domain/repositories/bill_repository.dart';
@@ -36,6 +40,7 @@ import '../../domain/repositories/gamification_repository.dart';
 import '../../domain/repositories/goal_repository.dart';
 import '../../domain/repositories/merchant_category_repository.dart';
 import '../../domain/repositories/sender_bank_mapping_repository.dart';
+import '../../domain/repositories/suspected_duplicate_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/repositories/user_settings_repository.dart';
 import '../../domain/services/bank_discovery_service.dart';
@@ -65,7 +70,19 @@ final appDatabaseProvider = Provider<AppDatabase>((ref) {
 final dbRevisionProvider = StreamProvider<int>((ref) {
   final db = ref.watch(appDatabaseProvider);
   var revision = 0;
-  return db.tableUpdates().map((_) => ++revision);
+  final controller = StreamController<int>();
+  void tick() {
+    if (!controller.isClosed) controller.add(++revision);
+  }
+
+  final tableSub = db.tableUpdates().listen((_) => tick());
+  final manualSub = db.manualRevisionStream.listen((_) => tick());
+  ref.onDispose(() async {
+    await tableSub.cancel();
+    await manualSub.cancel();
+    await controller.close();
+  });
+  return controller.stream;
 });
 
 final metricsClientProvider = Provider<MetricsClient>((ref) {
@@ -171,6 +188,17 @@ final supportedCountriesProvider = FutureProvider<List<RemoteCountry>>((ref) {
 
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
   return DriftTransactionRepository(ref.watch(appDatabaseProvider));
+});
+
+final suspectedDuplicateRepositoryProvider =
+    Provider<SuspectedDuplicateRepository>((ref) {
+  return DriftSuspectedDuplicateRepository(ref.watch(appDatabaseProvider));
+});
+
+final suspectedDuplicatesProvider =
+    FutureProvider<List<SuspectedDuplicateEntity>>((ref) async {
+  ref.watch(dbRevisionProvider);
+  return ref.watch(suspectedDuplicateRepositoryProvider).getAll();
 });
 
 final accountRepositoryProvider = Provider<AccountRepository>((ref) {
@@ -374,6 +402,8 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     loadInstallId: InstallId.get,
     resolveBankForSenderUseCase: ref.watch(resolveBankForSenderUseCaseProvider),
     bankDiscoveryService: ref.watch(bankDiscoveryServiceProvider),
+    suspectedDuplicateRepository:
+        ref.watch(suspectedDuplicateRepositoryProvider),
   );
 });
 

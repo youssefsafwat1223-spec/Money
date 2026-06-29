@@ -7,6 +7,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/account_entity.dart';
+import '../cards/bank_mark.dart';
 import '../cards/my_cards_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 
@@ -157,14 +158,10 @@ class _AccountCard extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: c.primary.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(_accountTypeIcon(account.type), color: c.primary),
+            BankMark(
+              accountName: account.name,
+              accountType: account.type,
+              size: 46,
             ),
             const SizedBox(width: AppSpacing.s3),
             Expanded(

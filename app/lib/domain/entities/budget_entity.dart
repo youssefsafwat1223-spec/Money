@@ -1,4 +1,4 @@
-enum BudgetPeriod { daily, weekly, monthly }
+enum BudgetPeriod { daily, weekly, monthly, yearly }
 
 class BudgetEntity {
   static const allExpensesCategoryId = '__all_expenses__';

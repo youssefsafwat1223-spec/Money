@@ -1,9 +1,14 @@
 /// مجموع إنفاق متجر خلال فترة (لأكثر المتاجر صرفاً).
 class MerchantSpend {
-  const MerchantSpend({required this.name, required this.total});
+  const MerchantSpend({
+    required this.name,
+    required this.total,
+    this.count = 0,
+  });
 
   final String name;
   final double total;
+  final int count;
 }
 
 /// اشتراك متكرر مُكتشَف (نفس المتجر بمبلغ متقارب عبر أشهر).

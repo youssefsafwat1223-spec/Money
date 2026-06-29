@@ -10,9 +10,13 @@ import '../../../data/repositories/drift_account_repository.dart';
 import '../../../data/repositories/drift_gamification_repository.dart';
 import '../../../data/repositories/drift_merchant_category_repository.dart';
 import '../../../data/repositories/drift_sender_bank_mapping_repository.dart';
+import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
+import 'package:drift/drift.dart' show Variable;
+
 import '../../../domain/entities/captured_message.dart';
+import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/bank_discovery_service.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../../domain/usecases/engagement_usecase.dart';
@@ -121,6 +125,7 @@ class CapturedMessageProcessor {
           loadInstallId: InstallId.get,
           accountRepository: DriftAccountRepository(db),
           dedupStore: DriftDedupStore(db),
+          suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
           resolveBankForSenderUseCase: ResolveBankForSenderUseCase(
             mappingRepository: senderBankMappingRepository,
           ),
@@ -136,6 +141,11 @@ class CapturedMessageProcessor {
       );
 
       final result = await ingestUseCase.fromCapturedMessage(message);
+
+      if (showNotifications &&
+          result.addTransactionResult.outcome == AddTransactionOutcome.added) {
+        await _checkBudgetAlert(db, notificationPreferences);
+      }
 
       if (showNotifications) {
         switch (result.disposition) {
@@ -173,6 +183,88 @@ class CapturedMessageProcessor {
         await db.close();
       }
     }
+  }
+
+  static Future<void> _checkBudgetAlert(
+    AppDatabase db,
+    NotificationPreferences prefs,
+  ) async {
+    // اسحب ميزانية الشهر الكلية (أول ميزانية نشطة من نوع all-expenses/monthly).
+    final budgetRows = await db.customSelect(
+      "SELECT amount FROM budgets "
+      "WHERE is_all_expenses = 1 AND period = 'monthly' AND is_active = 1 "
+      "LIMIT 1;",
+    ).get();
+    if (budgetRows.isEmpty) return;
+    final limit = budgetRows.first.read<double>('amount');
+    if (limit <= 0) return;
+
+    final now = DateTime.now().toUtc();
+    final monthStart =
+        DateTime.utc(now.year, now.month, 1).toIso8601String();
+    final spendRows = await db.customSelect(
+      "SELECT COALESCE(SUM(amount), 0.0) AS total FROM transactions "
+      "WHERE type = 'expense' AND status = 'confirmed' "
+      "AND occurred_at >= ? AND occurred_at <= ?;",
+      variables: [
+        Variable.withString(monthStart),
+        Variable.withString(now.toIso8601String()),
+      ],
+    ).get();
+    final spent = spendRows.first.read<double>('total');
+    final ratio = spent / limit;
+
+    // ثلاث عتبات: 75% / 90% / تجاوز 100%.
+    final bucket = ratio >= 1.0 ? 3 : ratio >= 0.9 ? 2 : ratio >= 0.75 ? 1 : 0;
+    if (bucket == 0) return;
+
+    // معرّف فريد لكل شهر + عتبة حتى لا يتكرر الإشعار.
+    final notifId = 94000 + (now.year * 12 + now.month) * 10 + bucket;
+
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final daysPassed = now.day.clamp(1, daysInMonth);
+    final daysRemaining = (daysInMonth - daysPassed).clamp(0, daysInMonth);
+    final dailyRate = spent / daysPassed;
+    final projected = spent + dailyRate * daysRemaining;
+    final remaining = (limit - spent).clamp(0.0, limit);
+
+    final currency =
+        (await db.customSelect("SELECT currency FROM accounts WHERE is_default = 1 LIMIT 1;").get())
+            .firstOrNull
+            ?.read<String>('currency') ??
+        '';
+
+    String fmt(double v) => v.toStringAsFixed(0);
+
+    late final String title, body;
+    if (bucket == 3) {
+      title = 'تجاوزت ميزانية الشهر';
+      body = 'صرفت ${fmt(spent - limit)} $currency زيادة عن ميزانيتك.';
+    } else if (bucket == 2) {
+      title = 'ميزانيتك على وشك الاكتمال';
+      body = 'بقيلك ${fmt(remaining)} $currency فقط — '
+          'معدلك الحالي سيستهلكها في $daysRemaining يوم.';
+    } else {
+      title = 'وصلت ٧٥٪ من ميزانيتك';
+      if (projected > limit) {
+        body = 'بقيلك ${fmt(remaining)} $currency. '
+            'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - limit)} $currency.';
+      } else {
+        body = 'بقيلك ${fmt(remaining)} $currency حتى نهاية الشهر.';
+      }
+    }
+
+    final type = bucket == 3
+        ? NotificationType.budgetOver
+        : NotificationType.budgetWarning;
+
+    await LocalNotificationService.instance.showBudgetAlert(
+      title: title,
+      body: body,
+      type: type,
+      preferences: prefs,
+      notifId: notifId,
+    );
   }
 
   static String _buildConfirmedBody(AddTransactionResult result) {

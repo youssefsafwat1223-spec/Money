@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
@@ -21,6 +22,8 @@ class AppDatabase extends GeneratedDatabase {
 
   final DatabaseKeyStore keyStore;
   final bool isEncrypted;
+  final _manualRevisionController = StreamController<int>.broadcast();
+  var _manualRevision = 0;
 
   @override
   int get schemaVersion => _targetSchemaVersion;
@@ -93,7 +96,65 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   @override
-  Future<void> close() => executor.close();
+  Future<void> close() async {
+    await _manualRevisionController.close();
+    await executor.close();
+  }
+
+  Stream<int> get manualRevisionStream => _manualRevisionController.stream;
+
+  @override
+  Future<int> customInsert(
+    String query, {
+    List<Variable> variables = const [],
+    Set<ResultSetImplementation<dynamic, dynamic>>? updates,
+  }) async {
+    final result = await super.customInsert(
+      query,
+      variables: variables,
+      updates: updates,
+    );
+    _notifyManualRevision();
+    return result;
+  }
+
+  @override
+  Future<int> customUpdate(
+    String query, {
+    List<Variable> variables = const [],
+    Set<ResultSetImplementation<dynamic, dynamic>>? updates,
+    UpdateKind? updateKind,
+  }) async {
+    final result = await super.customUpdate(
+      query,
+      variables: variables,
+      updates: updates,
+      updateKind: updateKind,
+    );
+    _notifyManualRevision();
+    return result;
+  }
+
+  @override
+  Future<void> customStatement(String statement, [List<dynamic>? args]) async {
+    await super.customStatement(statement, args);
+    if (_looksLikeDataWrite(statement)) {
+      _notifyManualRevision();
+    }
+  }
+
+  void _notifyManualRevision() {
+    if (_manualRevisionController.isClosed) return;
+    _manualRevisionController.add(++_manualRevision);
+  }
+
+  bool _looksLikeDataWrite(String sql) {
+    final trimmed = sql.trimLeft().toUpperCase();
+    return trimmed.startsWith('INSERT ') ||
+        trimmed.startsWith('UPDATE ') ||
+        trimmed.startsWith('DELETE ') ||
+        trimmed.startsWith('REPLACE ');
+  }
 
   Future<int> count(String table) async {
     final rows =
@@ -334,6 +395,23 @@ class AppDatabase extends GeneratedDatabase {
     await _createPendingMerchantFeedbackTable();
     await _createSenderBankMappingsTable();
     await _createPlansTable();
+    await _createSuspectedDuplicatesTable();
+  }
+
+  Future<void> _createSuspectedDuplicatesTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS suspected_duplicates(
+        id TEXT PRIMARY KEY,
+        raw_message TEXT NOT NULL,
+        sender_id TEXT NULL,
+        existing_transaction_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL,
+        raw_merchant TEXT NULL,
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    ''');
   }
 
   /// خطط/مظاريف مؤقتة (سفر، عُرس، رمضان...) — ميزانية لفترة محددة بتتبّع تلقائياً

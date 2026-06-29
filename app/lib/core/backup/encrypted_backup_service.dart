@@ -69,12 +69,18 @@ class EncryptedBackupService implements BackupService {
       key: _localKeyKey,
       value: base64Encode(await key.extractBytes()),
     );
-    await backupNow();
-    await _client.from('profiles').upsert({
-      'id': userId,
-      'email': _client.auth.currentUser?.email,
-      'auth_method': _client.auth.currentSession?.user.appMetadata['provider'],
-    });
+    try {
+      await backupNow();
+      await _client.from('profiles').upsert({
+        'id': userId,
+        'email': _client.auth.currentUser?.email,
+        'auth_method':
+            _client.auth.currentSession?.user.appMetadata['provider'],
+      });
+    } catch (_) {
+      await _clearLocalBackupState();
+      rethrow;
+    }
     return recovery;
   }
 
@@ -98,23 +104,27 @@ class EncryptedBackupService implements BackupService {
     );
     final bytes = blob.toBytes();
     final path = '$userId/backup.enc';
-    await _client.storage.from(_bucket).uploadBinary(
-          path,
-          bytes,
-          fileOptions: const supabase.FileOptions(
-            upsert: true,
-            contentType: 'application/octet-stream',
-          ),
-        );
-    final now = DateTime.now().toUtc();
-    await _client.from('backups').upsert({
-      'user_id': userId,
-      'blob_path': path,
-      'blob_version': 1,
-      'size_bytes': bytes.length,
-      'updated_at': now.toIso8601String(),
-    });
-    await _storage.write(key: _lastKey, value: now.toIso8601String());
+    try {
+      await _client.storage.from(_bucket).uploadBinary(
+            path,
+            bytes,
+            fileOptions: const supabase.FileOptions(
+              upsert: true,
+              contentType: 'application/octet-stream',
+            ),
+          );
+      final now = DateTime.now().toUtc();
+      await _client.from('backups').upsert({
+        'user_id': userId,
+        'blob_path': path,
+        'blob_version': 1,
+        'size_bytes': bytes.length,
+        'updated_at': now.toIso8601String(),
+      });
+      await _storage.write(key: _lastKey, value: now.toIso8601String());
+    } on supabase.StorageException catch (error) {
+      throw BackupException(backupStorageExceptionMessage(error));
+    }
   }
 
   @override
@@ -184,13 +194,20 @@ class EncryptedBackupService implements BackupService {
         List.generate(4, (_) => chars[rng.nextInt(chars.length)]).join();
     return '${block()}-${block()}-${block()}';
   }
+
+  Future<void> _clearLocalBackupState() async {
+    await _storage.delete(key: _enabledKey);
+    await _storage.delete(key: _saltKey);
+    await _storage.delete(key: _recoveryKey);
+    await _storage.delete(key: _lastKey);
+    await _storage.delete(key: _localKeyKey);
+  }
 }
 
-class BackupException implements Exception {
-  const BackupException(this.message);
-
-  final String message;
-
-  @override
-  String toString() => message;
+String backupStorageExceptionMessage(supabase.StorageException error) {
+  if (error.statusCode == '404' ||
+      error.message.toLowerCase().contains('bucket not found')) {
+    return 'إعداد النسخ الاحتياطي غير مكتمل: أنشئ Storage bucket باسم backups في Supabase ثم جرّب تاني.';
+  }
+  return 'فشل رفع النسخة الاحتياطية: ${error.message}';
 }

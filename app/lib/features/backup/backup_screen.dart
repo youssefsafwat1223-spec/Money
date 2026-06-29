@@ -30,8 +30,8 @@ class BackupScreen extends ConsumerWidget {
               data: (status) => isGuest
                   ? const _GuestBackupGate()
                   : status.enabled
-                  ? _EnabledView(status: status)
-                  : const _EnableFlow(),
+                      ? _EnabledView(status: status)
+                      : const _EnableFlow(),
             ),
           ),
         ],
@@ -184,6 +184,7 @@ class _EnableFlow extends ConsumerStatefulWidget {
 class _EnableFlowState extends ConsumerState<_EnableFlow> {
   final _passphrase = TextEditingController();
   String? _recoveryCode;
+  String? _error;
   bool _saved = false;
   bool _busy = false;
 
@@ -195,14 +196,34 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
 
   Future<void> _generate() async {
     if (_passphrase.text.length < 6 || _busy) return;
-    setState(() => _busy = true);
-    final code = await ref
-        .read(backupServiceProvider)
-        .enable(passphrase: _passphrase.text);
     setState(() {
-      _busy = false;
-      _recoveryCode = code;
+      _busy = true;
+      _error = null;
     });
+    try {
+      final code = await ref
+          .read(backupServiceProvider)
+          .enable(passphrase: _passphrase.text);
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _recoveryCode = code;
+      });
+    } on BackupException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = error.message;
+      });
+      ref.invalidate(backupStatusProvider);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'فشل تفعيل النسخ الاحتياطي. جرّب مرة تانية.';
+      });
+      ref.invalidate(backupStatusProvider);
+    }
   }
 
   @override
@@ -248,6 +269,30 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
               ),
             ),
           ),
+          if (_error != null) ...[
+            const SizedBox(height: AppSpacing.s3),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.s3),
+              decoration: BoxDecoration(
+                color: c.danger.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: c.danger.withValues(alpha: 0.24)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline_rounded, color: c.danger, size: 20),
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: AppTypography.caption(c.textMain),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.s4),
           SizedBox(
             height: 52,

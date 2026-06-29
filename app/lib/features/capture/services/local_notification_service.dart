@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Variable;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../../data/db/app_database.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/notification_planner.dart';
 import '../capture_runtime.dart';
@@ -42,6 +45,11 @@ class CaptureNotificationPayload {
   }
 }
 
+// Action identifiers — مطابقة للـ iOS category actions.
+const String _actionConfirm = 'confirm_tx';
+const String _actionDismiss = 'dismiss_tx';
+const String _reviewCategoryId = 'review_transaction';
+
 class LocalNotificationService {
   LocalNotificationService._();
 
@@ -71,17 +79,34 @@ class LocalNotificationService {
     tz.setLocalLocation(tz.getLocation('Asia/Riyadh'));
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const darwin = DarwinInitializationSettings(
+    final darwin = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
+      notificationCategories: [
+        DarwinNotificationCategory(
+          _reviewCategoryId,
+          actions: [
+            DarwinNotificationAction.plain(
+              _actionConfirm,
+              'تأكيد ✓',
+              // بدون foreground → يشتغل في الـ background بدون فتح التطبيق
+            ),
+            DarwinNotificationAction.plain(
+              _actionDismiss,
+              'تجاهل',
+              options: {DarwinNotificationActionOption.destructive},
+            ),
+          ],
+        ),
+      ],
     );
     const windows = WindowsInitializationSettings(
       appName: 'قرش',
       appUserModelId: 'Qirsh.App',
       guid: '2a4f4ea2-1d7f-4c7d-9c6f-f0fdf6e44e34',
     );
-    const settings = InitializationSettings(
+    final settings = InitializationSettings(
       android: android,
       iOS: darwin,
       macOS: darwin,
@@ -91,7 +116,8 @@ class LocalNotificationService {
     await _plugin.initialize(
       settings: settings,
       onDidReceiveNotificationResponse: (response) =>
-          _handleNotificationPayload(response.payload),
+          _handleNotificationPayload(response.payload,
+              actionId: response.actionId),
       onDidReceiveBackgroundNotificationResponse: _backgroundTapHandler,
     );
     _initialized = true;
@@ -144,11 +170,17 @@ class LocalNotificationService {
           channelDescription: 'تنبيهات العمليات التي تحتاج مراجعة',
           importance: Importance.max,
           priority: Priority.high,
+          actions: [
+            AndroidNotificationAction(_actionConfirm, 'تأكيد ✓'),
+            AndroidNotificationAction(_actionDismiss, 'تجاهل',
+                cancelNotification: true),
+          ],
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: false,
           presentSound: true,
+          categoryIdentifier: _reviewCategoryId,
         ),
       ),
       payload: CaptureNotificationPayload(
@@ -194,9 +226,10 @@ class LocalNotificationService {
     required String body,
     required NotificationType type,
     required NotificationPreferences preferences,
+    int? notifId,
   }) async {
     await _show(
-      id: title.hashCode ^ body.hashCode,
+      id: notifId ?? (title.hashCode ^ body.hashCode),
       title: title,
       body: body,
       notificationType: type,
@@ -432,10 +465,19 @@ class LocalNotificationService {
   String? _extractRoute(String? payload) =>
       CaptureNotificationPayload.tryDecode(payload)?.route;
 
-  void _handleNotificationPayload(String? payload) {
+  void _handleNotificationPayload(String? payload, {String? actionId}) {
     final transactionId = _extractTransactionId(payload);
     if (transactionId != null) {
-      CaptureRuntime.instance.requestConfirmation(transactionId);
+      if (actionId == _actionConfirm) {
+        // التطبيق في الـ foreground — نؤكد مباشرة عبر CaptureRuntime.
+        CaptureRuntime.instance.requestConfirmation(transactionId);
+      } else if (actionId == _actionDismiss) {
+        // تجاهل — لا نفتح شيئاً، فقط نحذف العملية المعلّقة في الـ background.
+        _runBackgroundAction(transactionId, confirm: false);
+      } else {
+        // ضغطة عادية على الـ notification → افتح الـ confirm sheet.
+        CaptureRuntime.instance.requestConfirmation(transactionId);
+      }
       return;
     }
     final route = _extractRoute(payload);
@@ -500,5 +542,37 @@ class LocalNotificationService {
   }
 
   @pragma('vm:entry-point')
-  static void _backgroundTapHandler(NotificationResponse response) {}
+  static void _backgroundTapHandler(NotificationResponse response) {
+    final actionId = response.actionId;
+    if (actionId != _actionConfirm && actionId != _actionDismiss) return;
+    final transactionId =
+        CaptureNotificationPayload.tryDecode(response.payload)?.transactionId;
+    if (transactionId == null) return;
+    _runBackgroundAction(transactionId, confirm: actionId == _actionConfirm);
+  }
+
+  static Future<void> _runBackgroundAction(String transactionId,
+      {required bool confirm}) async {
+    WidgetsFlutterBinding.ensureInitialized();
+    final db = await AppDatabase.open();
+    try {
+      if (confirm) {
+        await db.customUpdate(
+          "UPDATE transactions SET status = 'confirmed', updated_at = ? "
+          "WHERE id = ? AND status = 'pending';",
+          variables: [
+            Variable.withString(DateTime.now().toUtc().toIso8601String()),
+            Variable.withString(transactionId),
+          ],
+        );
+      } else {
+        await db.customUpdate(
+          "DELETE FROM transactions WHERE id = ? AND status = 'pending';",
+          variables: [Variable.withString(transactionId)],
+        );
+      }
+    } finally {
+      await db.close();
+    }
+  }
 }

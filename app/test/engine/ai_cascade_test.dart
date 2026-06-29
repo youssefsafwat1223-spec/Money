@@ -118,16 +118,36 @@ class _NoDedupStore implements DedupStore {
 class _SingleAccountRepo implements AccountRepository {
   _SingleAccountRepo(this._default);
   final AccountEntity _default;
+  final List<AccountEntity> _created = [];
+  List<AccountEntity> get created => _created;
 
   @override
   Future<AccountEntity?> getDefault() async => _default;
 
   @override
-  Future<List<AccountEntity>> getAll() async => [_default];
+  Future<List<AccountEntity>> getAll() async => [_default, ..._created];
 
   @override
-  Future<AccountEntity?> getById(String id) async =>
-      id == _default.id ? _default : null;
+  Future<AccountEntity?> getById(String id) async {
+    if (id == _default.id) return _default;
+    return _created.where((a) => a.id == id).firstOrNull;
+  }
+
+  @override
+  Future<AccountEntity> create(AccountEntity account) async {
+    final created = AccountEntity(
+      id: 'auto-${account.currency}',
+      name: account.name,
+      currency: account.currency,
+      type: account.type,
+      isDefault: account.isDefault,
+      sortOrder: account.sortOrder,
+      createdAt: account.createdAt,
+      updatedAt: account.updatedAt,
+    );
+    _created.add(created);
+    return created;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -1255,8 +1275,8 @@ void main() {
   });
 
   test(
-      'foreign spend on a home-currency card is parked in the home account '
-      'awaiting pricing (no USD account spawned)', () async {
+      'foreign currency SMS auto-creates an account in that currency '
+      'and saves the transaction there', () async {
     const fakeParsed = ParsedTransaction(
       amount: 99.0,
       currency: 'USD',
@@ -1267,26 +1287,27 @@ void main() {
       parseConfidence: 0.95,
     );
     TransactionEntity? saved;
+    final repo = _SingleAccountRepo(_homeAccount('SAR'));
     final useCase = AddTransactionUseCase(
       transactionRepository: _CapturingTransactionRepo(onSave: (t) => saved = t),
       merchantCategoryRepository: _StubMerchantRepo(),
       parserIsolate: _FakeParserIsolate(ParseResult.success(fakeParsed)),
       loadAiConsent: () async => false,
       dedupStore: _NoDedupStore(),
-      accountRepository: _SingleAccountRepo(_homeAccount('SAR')),
+      accountRepository: repo,
     );
 
     await useCase(rawMessage: 'شراء إنترنت مبلغ:99 USD من:APPLE.CO');
 
     expect(saved, isNotNull);
-    // Stored in the home (SAR) account, value awaiting the user's local amount.
-    expect(saved!.currency, 'SAR');
-    expect(saved!.accountId, 'home-acc');
-    expect(saved!.amount, 0);
-    expect(saved!.foreignAmount, 99.0);
-    expect(saved!.foreignCurrency, 'USD');
-    // Needs the user to price it → pending.
-    expect(saved!.status, TransactionStatus.pending);
+    // Transaction is stored in a newly created USD account with real amount.
+    expect(saved!.currency, 'USD');
+    expect(saved!.amount, 99.0);
+    expect(saved!.accountId, 'auto-USD');
+    expect(saved!.foreignAmount, isNull);
+    // Auto-created account → one extra account was created.
+    expect(repo.created, hasLength(1));
+    expect(repo.created.first.currency, 'USD');
   });
 
   test('foreign purchase + fee processed twice does NOT double-count',
@@ -1318,7 +1339,7 @@ void main() {
         );
 
     await build()(rawMessage: sms);
-    // One purchase (SAR 0, awaiting pricing) + one fee (SAR 7.44).
+    // SMS has SAR fee → foreignUnpriced: purchase parked as SAR 0 + fee SAR 7.44.
     expect(repo.saveCount, 2);
 
     final second = await build()(rawMessage: sms);

@@ -24,16 +24,19 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   String? authMethod;
   String? email;
+  bool _onboardingDone = false;
   StreamSubscription<supabase.AuthState>? _supabaseAuthSubscription;
 
   SessionStatus get status => value;
   bool get isGuest => authMethod == 'guest';
+  bool get hasCompletedOnboarding => _onboardingDone;
 
   Future<void> load() async {
     final done = await _storage.read(key: _kDone);
+    _onboardingDone = done == '1';
     authMethod = await _storage.read(key: _kMethod);
     email = await _storage.read(key: _kEmail);
-    value = done == '1'
+    value = _onboardingDone && authMethod != null
         ? SessionStatus.authenticated
         : SessionStatus.needsOnboarding;
   }
@@ -48,13 +51,20 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
     authMethod = method;
     this.email = email;
+    if (_onboardingDone) {
+      value = SessionStatus.authenticated;
+      unawaited(UserActivityService.onSignIn());
+    }
   }
 
   /// ينهي الـ onboarding بالكامل → ينتقل للتطبيق.
   Future<void> finishOnboarding() async {
     authMethod ??= await _storage.read(key: _kMethod);
     await _storage.write(key: _kDone, value: '1');
-    value = SessionStatus.authenticated;
+    _onboardingDone = true;
+    value = authMethod == null
+        ? SessionStatus.needsOnboarding
+        : SessionStatus.authenticated;
     unawaited(UserActivityService.onSignIn());
   }
 
@@ -74,7 +84,6 @@ class AppSession extends ValueNotifier<SessionStatus> {
     UserActivityService.onSignOut();
     await _storage.delete(key: _kMethod);
     await _storage.delete(key: _kEmail);
-    await _storage.write(key: _kDone, value: '0');
     authMethod = null;
     email = null;
     value = SessionStatus.needsOnboarding;
@@ -125,6 +134,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     await _storage.deleteAll();
     authMethod = null;
     email = null;
+    _onboardingDone = false;
     value = SessionStatus.needsOnboarding;
   }
 }

@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../domain/entities/report_models.dart';
 import '../category_catalog.dart';
 import '../widgets.dart';
 
@@ -15,11 +16,13 @@ class SpendingChartSlice {
     required this.category,
     required this.total,
     required this.percent,
+    this.count = 0,
   });
 
   final CategoryView category;
   final double total;
   final double percent;
+  final int count;
 }
 
 class CategoryDonutChart extends StatelessWidget {
@@ -29,12 +32,18 @@ class CategoryDonutChart extends StatelessWidget {
     this.height = 210,
     this.centerLabel = 'التصنيفات',
     this.currencyLabel = '',
+    this.compactCenter = false,
+    this.framed = true,
+    this.showLegend = true,
   });
 
   final List<SpendingChartSlice> slices;
   final double height;
   final String centerLabel;
   final String currencyLabel;
+  final bool compactCenter;
+  final bool framed;
+  final bool showLegend;
 
   @override
   Widget build(BuildContext context) {
@@ -46,13 +55,8 @@ class CategoryDonutChart extends StatelessWidget {
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.border),
-      ),
+    final content = Padding(
+      padding: framed ? const EdgeInsets.all(AppSpacing.s4) : EdgeInsets.zero,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 260;
@@ -68,19 +72,24 @@ class CategoryDonutChart extends StatelessWidget {
               size: chartSize,
               centerLabelColor: c.textPrimary,
               centerCaptionColor: c.textMuted,
+              centerLabel: centerLabel,
+              compactCenter: compactCenter,
             ),
           );
-          final legend = Column(
-            children: [
-              for (final slice in slices)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                  child: _LegendRow(
-                    slice: slice,
-                    currencyLabel: currencyLabel,
+          final legend = SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              children: [
+                for (final slice in slices)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+                    child: _LegendRow(
+                      slice: slice,
+                      currencyLabel: currencyLabel,
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           );
 
           if (compact) {
@@ -88,11 +97,15 @@ class CategoryDonutChart extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 chart,
-                const SizedBox(height: AppSpacing.s3),
-                legend,
+                if (showLegend) ...[
+                  const SizedBox(height: AppSpacing.s3),
+                  legend,
+                ],
               ],
             );
           }
+
+          if (!showLegend) return Center(child: chart);
 
           return Row(
             children: [
@@ -104,6 +117,186 @@ class CategoryDonutChart extends StatelessWidget {
         },
       ),
     );
+    if (!framed) return content;
+    return Container(
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: c.border),
+      ),
+      child: content,
+    );
+  }
+}
+
+class WeeklyCapsuleBarChart extends StatelessWidget {
+  const WeeklyCapsuleBarChart({
+    super.key,
+    required this.days,
+    required this.currencyLabel,
+    required this.privacyMode,
+    this.height = 250,
+    this.showCurrencyLabel = false,
+    this.barWidth = 28,
+    this.maxBarHeight = 90,
+  });
+
+  final List<DailySpend> days;
+  final String currencyLabel;
+  final bool privacyMode;
+  final double height;
+  final bool showCurrencyLabel;
+  final double barWidth;
+  final double maxBarHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final visibleDays = _lastSevenDays(days);
+    final maxValue = visibleDays.fold<double>(
+      1,
+      (max, day) => day.total > max ? day.total : max,
+    );
+    final palette = [
+      c.primary,
+      c.accent,
+      c.success,
+      c.cta,
+      c.danger,
+      c.warning,
+      c.textSecondary,
+    ];
+    return SizedBox(
+      height: height,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (var i = 0; i < visibleDays.length; i++) ...[
+            Expanded(
+              child: _CapsuleBar(
+                day: visibleDays[i],
+                maxValue: maxValue,
+                color: palette[i % palette.length],
+                currencyLabel: currencyLabel,
+                privacyMode: privacyMode,
+                showCurrencyLabel: showCurrencyLabel,
+                barWidth: barWidth,
+                maxBarHeight: maxBarHeight,
+              ),
+            ),
+            if (i != visibleDays.length - 1) const SizedBox(width: 7),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<DailySpend> _lastSevenDays(List<DailySpend> source) {
+    final sorted = [...source]..sort((a, b) => a.day.compareTo(b.day));
+    if (sorted.length >= 7) return sorted.sublist(sorted.length - 7);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final existing = {
+      for (final day in sorted)
+        DateTime(day.day.year, day.day.month, day.day.day): day,
+    };
+    return [
+      for (var i = 6; i >= 0; i--)
+        existing[today.subtract(Duration(days: i))] ??
+            DailySpend(day: today.subtract(Duration(days: i)), total: 0),
+    ];
+  }
+}
+
+class _CapsuleBar extends StatelessWidget {
+  const _CapsuleBar({
+    required this.day,
+    required this.maxValue,
+    required this.color,
+    required this.currencyLabel,
+    required this.privacyMode,
+    required this.showCurrencyLabel,
+    required this.barWidth,
+    required this.maxBarHeight,
+  });
+
+  final DailySpend day;
+  final double maxValue;
+  final Color color;
+  final String currencyLabel;
+  final bool privacyMode;
+  final bool showCurrencyLabel;
+  final double barWidth;
+  final double maxBarHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final ratio = maxValue <= 0 ? 0.0 : (day.total / maxValue).clamp(0.0, 1.0);
+    final barHeight = 24 + ratio * maxBarHeight;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        SizedBox(
+          height: showCurrencyLabel ? 46 : 32,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              children: [
+                Text(
+                  privacyMode ? '••••' : Formatters.amount(day.total),
+                  textAlign: TextAlign.center,
+                  style: AppTypography.caption(c.textSecondary)
+                      .copyWith(fontWeight: FontWeight.w800),
+                ),
+                if (showCurrencyLabel)
+                  Text(
+                    currencyLabel,
+                    style: AppTypography.caption(c.textMuted)
+                        .copyWith(fontSize: 10),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s1),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 280),
+          width: barWidth,
+          height: barHeight,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.20),
+                blurRadius: 14,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s1),
+        Text(
+          _weekdayLabel(day.day),
+          style: AppTypography.caption(c.textMuted).copyWith(fontSize: 10),
+          maxLines: 1,
+        ),
+      ],
+    );
+  }
+
+  String _weekdayLabel(DateTime day) {
+    const labels = [
+      'الإثنين',
+      'الثلاثاء',
+      'الأربعاء',
+      'الخميس',
+      'الجمعة',
+      'السبت',
+      'الأحد',
+    ];
+    return labels[day.weekday - 1];
   }
 }
 
@@ -113,12 +306,16 @@ class _Donut extends StatelessWidget {
     required this.size,
     required this.centerLabelColor,
     required this.centerCaptionColor,
+    required this.centerLabel,
+    required this.compactCenter,
   });
 
   final List<SpendingChartSlice> slices;
   final double size;
   final Color centerLabelColor;
   final Color centerCaptionColor;
+  final String centerLabel;
+  final bool compactCenter;
 
   @override
   Widget build(BuildContext context) {
@@ -147,13 +344,17 @@ class _Donut extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '${(slices.first.percent * 100).round()}%',
-                style: AppTypography.bodyStrong(centerLabelColor),
+                compactCenter
+                    ? centerLabel
+                    : '${(slices.first.percent * 100).round()}%',
+                style: AppTypography.bodyStrong(centerLabelColor).copyWith(
+                  fontSize: compactCenter ? 12 : null,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               Text(
-                slices.first.category.nameAr,
+                compactCenter ? 'إجمالي' : slices.first.category.nameAr,
                 style: AppTypography.caption(centerCaptionColor),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -346,6 +547,7 @@ class _LegendRow extends StatelessWidget {
                 [
                   Formatters.amount(slice.total),
                   if (currencyLabel.isNotEmpty) currencyLabel,
+                  if (slice.count > 0) '· ${slice.count} عملية',
                 ].join(' '),
                 style: AppTypography.caption(c.textMuted),
               ),

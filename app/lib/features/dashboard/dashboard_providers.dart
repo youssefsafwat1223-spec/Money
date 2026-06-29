@@ -40,11 +40,13 @@ class CategorySlice {
     required this.category,
     required this.total,
     required this.percent,
+    this.count = 0,
   });
 
   final CategoryView category;
   final double total;
   final double percent; // 0..1
+  final int count;
 }
 
 class DashboardData {
@@ -65,6 +67,8 @@ class DashboardData {
     required this.streak,
     required this.topCategories,
     required this.dailySpendTrend,
+    required this.weeklyDailySpend,
+    required this.topMerchants,
     required this.recent,
     required this.catalog,
     required this.pendingReview,
@@ -98,6 +102,8 @@ class DashboardData {
   final StreakEntity streak;
   final List<CategorySlice> topCategories;
   final List<double> dailySpendTrend;
+  final List<DailySpend> weeklyDailySpend;
+  final List<MerchantSpend> topMerchants;
   final List<TransactionEntity> recent;
   final CategoryCatalog catalog;
   final List<TransactionEntity> pendingReview;
@@ -124,11 +130,42 @@ class DashboardData {
     return (weekSpend - previousWeekSpend) / previousWeekSpend;
   }
 
+  // ─── درجة قرش ───────────────────────────────────────────────────────────────
+
+  /// التزام بالميزانية: 0-100. إذا لم تُحدَّد ميزانية → 75 (محايد).
+  double get budgetScore {
+    if (monthlyBudgetLimit <= 0) return 75;
+    return ((1 - monthlyBudgetRatio).clamp(0.0, 1.0) * 100);
+  }
+
+  /// معدل الادخار: 0-100. إذا لم يوجد دخل → 50 (محايد).
+  double get savingsScore {
+    if (incomeThisMonth <= 0) return 50;
+    return (((incomeThisMonth - spentThisMonth) / incomeThisMonth)
+            .clamp(0.0, 1.0) *
+        100);
+  }
+
+  /// انتظام التسجيل (streak): 0-100. 30 أسبوعًا = 100%.
+  double get streakScore =>
+      (streak.currentStreak / 30).clamp(0.0, 1.0) * 100;
+
+  /// تنوع الإنفاق بناءً على عدد الفئات: 0-100. 5 فئات أو أكثر = 100%.
+  double get diversityScore =>
+      (topCategories.length / 5).clamp(0.0, 1.0) * 100;
+
+  /// درجة قرش الإجمالية (0-100) — وزن مرجّح من المكونات الأربعة.
+  int get qirshScore =>
+      (budgetScore * 0.35 + savingsScore * 0.30 + streakScore * 0.20 + diversityScore * 0.15)
+          .round()
+          .clamp(0, 100);
+
   /// تسمية الفترة للعرض: «اليوم» / «الأسبوع» / «الشهر».
   String get budgetPeriodLabel => switch (budgetPeriod) {
         BudgetPeriod.daily => 'اليوم',
         BudgetPeriod.weekly => 'الأسبوع',
         BudgetPeriod.monthly => 'الشهر',
+        BudgetPeriod.yearly => 'السنة',
         null => 'الشهر',
       };
 }
@@ -277,11 +314,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
   final prevWeekStart = weekStart.subtract(const Duration(days: 7));
 
-  // «وفّرت» = مصروفات الفترة السابقة بنفس طول الفترة المختارة − الفترة الحالية.
+  // سارف/دخل الشهر ثابتان على الشهر الحالي بغض النظر عن الفلتر المختار.
+  final calendarMonthStart = DateTime(now.year, now.month, 1);
   final thisMonthExpenses = await txRepo.expenseTotalBetween(
-      from: rangeStart, to: rangeEnd, accountId: accountId);
+      from: calendarMonthStart, to: now, accountId: accountId);
   final thisMonthIncome = await txRepo.incomeTotalBetween(
-      from: rangeStart, to: rangeEnd, accountId: accountId);
+      from: calendarMonthStart, to: now, accountId: accountId);
   final balance = await txRepo.latestBalanceAfter(accountId: accountId);
   final prevMonthExpenses = await txRepo.expenseTotalBetween(
     from: previousStart,
@@ -349,6 +387,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       BudgetPeriod.weekly =>
         today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7)),
       BudgetPeriod.monthly => rangeStart,
+      BudgetPeriod.yearly => DateTime(now.year, 1, 1),
     };
     final bSpent = budget.isAllExpenses
         ? await txRepo.expenseTotalBetween(
@@ -388,6 +427,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
         category: view,
         total: item.total,
         percent: totalSpend == 0 ? 0 : item.total / totalSpend,
+        count: item.count,
       ),
     );
   }
@@ -395,8 +435,19 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
           from: rangeStart, to: rangeEnd, accountId: accountId))
       .map((day) => day.total)
       .toList(growable: false);
+  final weeklyDailySpend = await txRepo.dailyExpenseTotals(
+    from: weekStart,
+    to: now,
+    accountId: accountId,
+  );
+  final topMerchants = await txRepo.merchantBreakdown(
+    from: rangeStart,
+    to: rangeEnd,
+    limit: 5,
+    accountId: accountId,
+  );
 
-  final recent = await txRepo.getRecent(limit: 5, accountId: accountId);
+  final recent = await txRepo.getRecent(limit: 10, accountId: accountId);
   // الداشبورد يعرض عملة الحساب النشط فقط لتجنب جمع عملات مختلفة في رقم واحد.
   const currencyTotals = <CurrencyTotal>[];
   final streak = await gamificationRepo.getStreak();
@@ -440,6 +491,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     streak: streak,
     topCategories: topCategories,
     dailySpendTrend: dailySpendTrend,
+    weeklyDailySpend: weeklyDailySpend,
+    topMerchants: topMerchants,
     recent: recent,
     catalog: catalog,
     pendingReview: pendingReview,

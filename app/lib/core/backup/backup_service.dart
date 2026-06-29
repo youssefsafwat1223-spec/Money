@@ -14,6 +14,15 @@ class BackupStatus {
   final DateTime? lastBackupAt;
 }
 
+class BackupException implements Exception {
+  const BackupException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// واجهة النسخ الاحتياطي المشفّر (اختياري، مطفأ افتراضياً).
 ///
 /// TODO(Sprint5-backend): استبدل StubBackupService بتنفيذ E2E حقيقي:

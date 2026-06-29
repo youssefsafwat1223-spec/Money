@@ -20,10 +20,12 @@ import '../../engine/parser/parse_result.dart';
 import '../../engine/privacy/sms_sanitizer.dart';
 import '../entities/account_entity.dart';
 import '../entities/engagement_entities.dart';
+import '../entities/suspected_duplicate_entity.dart';
 import '../entities/transaction_entity.dart';
 import '../repositories/account_repository.dart';
 import '../repositories/dedup_store.dart';
 import '../repositories/merchant_category_repository.dart';
+import '../repositories/suspected_duplicate_repository.dart';
 import '../repositories/transaction_repository.dart';
 import '../services/bank_discovery_service.dart';
 import 'engagement_usecase.dart';
@@ -180,6 +182,7 @@ class AddTransactionUseCase {
     Future<String> Function()? loadInstallId,
     ResolveBankForSenderUseCase? resolveBankForSenderUseCase,
     BankDiscoveryService? bankDiscoveryService,
+    SuspectedDuplicateRepository? suspectedDuplicateRepository,
   })  : _transactionRepository = transactionRepository,
         _merchantCategoryRepository = merchantCategoryRepository,
         _parserIsolate = parserIsolate ?? const ParserIsolate(),
@@ -196,13 +199,15 @@ class AddTransactionUseCase {
         _installId = installId,
         _loadInstallId = loadInstallId,
         _resolveBankForSenderUseCase = resolveBankForSenderUseCase,
-        _bankDiscoveryService = bankDiscoveryService;
+        _bankDiscoveryService = bankDiscoveryService,
+        _suspectedDuplicateRepository = suspectedDuplicateRepository;
 
   static const double autoConfirmThreshold = 0.92;
   static const double categoryAutoConfirmThreshold = 0.80;
 
   final TransactionRepository _transactionRepository;
   final MerchantCategoryRepository _merchantCategoryRepository;
+  final SuspectedDuplicateRepository? _suspectedDuplicateRepository;
   final ParserIsolate _parserIsolate;
   final RecordEngagementUseCase? _recordEngagementUseCase;
   final Future<void> Function(String key, {String? dimension})? _logMetric;
@@ -224,6 +229,7 @@ class AddTransactionUseCase {
   Future<AddTransactionResult> call({
     required String rawMessage,
     String? senderId,
+    bool skipDedup = false,
   }) async {
     final loadedBankProfiles = await _safeLoadBankProfiles(senderId: senderId);
     final bankResolution = await _resolveBankForSender(
@@ -320,7 +326,7 @@ class AddTransactionUseCase {
     // Hash key = {amount, currency, cardLast4, merchant_normalized, type} — no time.
     // Time window (±5 min) is enforced in DedupStore via sliding julianday query,
     // so there are no fixed-bucket boundary misses.
-    if (_dedupStore != null) {
+    if (_dedupStore != null && !skipDedup) {
       final hash = await TransactionDedup.computeHash(
         amount: parsed.amount,
         currency: parsed.currency,
@@ -335,6 +341,13 @@ class AddTransactionUseCase {
       if (existingId != null) {
         final existing = await _transactionRepository.getById(existingId);
         if (existing != null) {
+          await _saveSuspectedDuplicate(
+            rawMessage: rawMessage,
+            senderId: senderId,
+            existingTransactionId: existingId,
+            parsed: parsed,
+            occurredAt: occurredAt,
+          );
           return AddTransactionResult.duplicate(existing);
         }
         // Hash exists but transaction was deleted; fall through and re-save.
@@ -353,13 +366,20 @@ class AddTransactionUseCase {
         : preCategory.source == CategorySource.fallback &&
             !await _merchantCategoryRepository.hasCategoryForMerchant(merchant);
 
-    if (merchant != null) {
+    if (merchant != null && !skipDedup) {
       final duplicate = await _transactionRepository.findDuplicate(
         amount: parsed.amount,
         rawMerchant: merchant,
         occurredAt: occurredAt,
       );
       if (duplicate != null) {
+        await _saveSuspectedDuplicate(
+          rawMessage: rawMessage,
+          senderId: senderId,
+          existingTransactionId: duplicate.id,
+          parsed: parsed,
+          occurredAt: occurredAt,
+        );
         return AddTransactionResult.duplicate(duplicate);
       }
     }
@@ -501,20 +521,27 @@ class AddTransactionUseCase {
             effectiveCategory.confidence >= categoryAutoConfirmThreshold &&
             !isNewMerchant &&
             !directionContradiction;
-    // Foreign-currency spend on a home-currency card. Instead of spawning a
-    // separate currency account, park it in the home account "awaiting pricing"
-    // (amount 0, excluded from totals) while keeping the original amount as the
-    // foreign value. The user supplies the home-currency value now or later.
-    // Skipped when a real account in that currency already exists.
+    // Foreign-currency spend on a home-currency card: park it in the home
+    // account with amount=0 ("awaiting pricing") so the user can enter the
+    // home-currency value later via the details screen.
+    // Only applies when the SMS itself contains a fee in the home currency —
+    // that fee proves the card is a home-currency card paying in a foreign
+    // currency (e.g. SAR card used for a USD purchase). Without that signal
+    // we assume the SMS belongs to a different account and auto-create one.
     final homeCurrency = defaultAccount?.currency.trim().toUpperCase();
     final txCurrency = effectiveParsed.currency.trim().toUpperCase();
     final isSpend = effectiveParsed.type == TransactionType.payment ||
         effectiveParsed.type == TransactionType.withdrawal;
+    final fee = _extractFeeAmount(rawMessage);
+    final hasHomeCurrencyFee = fee != null &&
+        homeCurrency != null &&
+        fee.$2.trim().toUpperCase() == homeCurrency;
     final foreignUnpriced = homeCurrency != null &&
         homeCurrency.isNotEmpty &&
         txCurrency.isNotEmpty &&
         txCurrency != homeCurrency &&
         isSpend &&
+        hasHomeCurrencyFee &&
         await _existingAccountForCurrency(txCurrency) == null;
 
     final effectiveAccount = foreignUnpriced
@@ -606,14 +633,28 @@ class AddTransactionUseCase {
     );
   }
 
-  /// A foreign-currency purchase often carries a separate fee/tax line in the
-  /// card's local currency (e.g. "الرسوم/الضريبة: SAR 7.44"). That is a second
-  /// money movement in a *different* currency, so it cannot be merged with the
-  /// main amount — it is saved as its own confirmed transaction with
-  /// independent dedup. Returns null when there is no distinct fee line.
-  /// Returns an existing account whose currency matches [currency], without
-  /// creating one. Used to tell a real multi-currency account apart from a
-  /// one-off foreign card purchase.
+  Future<void> _saveSuspectedDuplicate({
+    required String rawMessage,
+    required String? senderId,
+    required String existingTransactionId,
+    required ParsedTransaction parsed,
+    required DateTime occurredAt,
+  }) async {
+    final repo = _suspectedDuplicateRepository;
+    if (repo == null) return;
+    await repo.save(SuspectedDuplicateEntity(
+      id: IdGenerator.next(),
+      rawMessage: rawMessage,
+      senderId: senderId,
+      existingTransactionId: existingTransactionId,
+      amount: parsed.amount,
+      currency: parsed.currency,
+      rawMerchant: parsed.rawMerchant,
+      occurredAt: occurredAt,
+      createdAt: DateTime.now().toUtc(),
+    ));
+  }
+
   Future<AccountEntity?> _existingAccountForCurrency(String currency) async {
     final repo = _accountRepository;
     final normalized = currency.trim().toUpperCase();

@@ -565,6 +565,21 @@ class _SubscriptionCard extends StatelessWidget {
                                 ),
                               ],
                             ),
+                            if (bill.mightBeUnused) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(Icons.info_outline_rounded,
+                                      size: 12, color: c.warning),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    'قد لا تستخدم هذا الاشتراك',
+                                    style:
+                                        AppTypography.caption(c.warning),
+                                  ),
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: 6),
                             Row(
                               children: [

@@ -330,6 +330,14 @@ class DriftBillRepository implements BillRepository {
     return billIds;
   }
 
+  @override
+  Future<void> deletePayment(String paymentId) async {
+    await _db.customUpdate(
+      'DELETE FROM bill_payments WHERE id = ?;',
+      variables: [Variable.withString(paymentId)],
+    );
+  }
+
   BillEntity _fromRow(QueryRow row) {
     final name = row.readNullable<String>('name');
     final merchantName = row.readNullable<String>('merchant_name');

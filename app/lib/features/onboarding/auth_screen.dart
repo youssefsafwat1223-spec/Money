@@ -55,12 +55,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       final identity = await signIn();
       final wasAuthenticated =
           AppSession.instance.status == SessionStatus.authenticated;
+      final returningUser = AppSession.instance.hasCompletedOnboarding;
       await AppSession.instance
           .setIdentity(method: identity.method, email: identity.email);
       if (mounted) {
-        wasAuthenticated
-            ? context.go('/backup')
-            : context.push('/onboarding/method-picker');
+        if (wasAuthenticated) {
+          context.go('/backup');
+        } else if (returningUser) {
+          context.go('/');
+        } else {
+          context.push('/onboarding/method-picker');
+        }
       }
     } catch (_) {
       if (mounted) {

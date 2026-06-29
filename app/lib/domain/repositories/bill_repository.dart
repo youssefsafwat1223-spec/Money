@@ -18,5 +18,7 @@ abstract class BillRepository {
 
   Future<List<String>> deletePaymentForTransaction(String transactionId);
 
+  Future<void> deletePayment(String paymentId);
+
   Future<void> delete(String id);
 }

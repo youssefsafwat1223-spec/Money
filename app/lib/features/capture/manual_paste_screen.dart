@@ -9,14 +9,18 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/formatters.dart';
 import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/usecases/add_transaction_usecase.dart';
+import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
+import '../transactions/transactions_screen.dart' show showSuspectedDuplicateReviewSheet;
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 import '../common/top_banner.dart';
+import 'manual_paste_splitter.dart';
 
 class ManualPasteScreen extends ConsumerStatefulWidget {
   const ManualPasteScreen({super.key, this.onTransactionAdded});
@@ -139,6 +143,9 @@ class _ManualPasteContent extends ConsumerStatefulWidget {
 class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
   final _controller = TextEditingController();
   bool _busy = false;
+  int _processedCount = 0;
+  int _totalCount = 0;
+  List<_PasteBatchItem> _batchItems = const [];
 
   @override
   void dispose() {
@@ -187,10 +194,42 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
   }
 
   Future<void> _analyze() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _busy) return;
-    setState(() => _busy = true);
+    final messages = ManualPasteSplitter.split(_controller.text);
+    if (messages.isEmpty || _busy) return;
+    setState(() {
+      _busy = true;
+      _processedCount = 0;
+      _totalCount = messages.length;
+      _batchItems = const [];
+    });
 
+    if (messages.length == 1) {
+      final item = await _ingestOne(messages.first);
+      if (!mounted) return;
+      setState(() => _busy = false);
+      await _handleSingleResult(item);
+      return;
+    }
+
+    final items = <_PasteBatchItem>[];
+    for (final message in messages) {
+      final item = await _ingestOne(message);
+      items.add(item);
+      if (!mounted) return;
+      setState(() {
+        _processedCount = items.length;
+        _batchItems = List.unmodifiable(items);
+      });
+    }
+
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _showBatchResults(items);
+  }
+
+  Future<_PasteBatchItem> _ingestOne(String text) async {
     final result = await ref
         .read(ingestCapturedMessageUseCaseProvider)
         .fromCapturedMessage(
@@ -200,11 +239,11 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
             receivedAt: DateTime.now().toUtc(),
           ),
         );
-    final addResult = result.addTransactionResult;
+    return _PasteBatchItem(message: text, result: result);
+  }
 
-    if (!mounted) return;
-    setState(() => _busy = false);
-
+  Future<void> _handleSingleResult(_PasteBatchItem item) async {
+    final addResult = item.addResult;
     switch (addResult.outcome) {
       case AddTransactionOutcome.added:
         refreshTransactions(ref);
@@ -254,22 +293,93 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     }
   }
 
+  Future<void> _openBatchItem(
+    BuildContext hostContext,
+    _PasteBatchItem item,
+  ) async {
+    final result = item.addResult;
+    final tx = result.transaction;
+    if (tx == null) {
+      showTopError(context, 'مفيش عملية نفتحها للرسالة دي.');
+      return;
+    }
+    final feeNotice = feeNoticeFor(result.secondary);
+    if (result.outcome == AddTransactionOutcome.added &&
+        result.requiresConfirmation) {
+      await showConfirmTransactionSheet(hostContext, tx.id,
+          secondaryNotice: feeNotice);
+      refreshTransactions(ref);
+      ref.invalidate(dashboardDataProvider);
+      return;
+    }
+    if (result.outcome == AddTransactionOutcome.duplicate) {
+      final dupe = await ref
+          .read(suspectedDuplicateRepositoryProvider)
+          .getByExistingTransactionId(tx.id);
+      if (!hostContext.mounted) return;
+      if (dupe != null) {
+        await showSuspectedDuplicateReviewSheet(hostContext, dupe);
+        refreshTransactions(ref);
+        ref.invalidate(dashboardDataProvider);
+        return;
+      }
+      await TransactionDetailsScreen.showSheet(hostContext, tx.id);
+      refreshTransactions(ref);
+      ref.invalidate(dashboardDataProvider);
+      return;
+    }
+    await TransactionDetailsScreen.showSheet(hostContext, tx.id);
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+  }
+
+  Future<void> _showBatchResults(List<_PasteBatchItem> items) async {
+    final rootContext = Navigator.of(context, rootNavigator: true).context;
+    await showModalBottomSheet<void>(
+      context: rootContext,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return _BatchResultsSheet(
+          items: items,
+          onOpenItem: (item) async {
+            await _openBatchItem(sheetContext, item);
+          },
+          onConfirm: () {
+            Navigator.of(sheetContext).pop();
+            if (mounted && Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final summary = _BatchSummary.from(_batchItems);
 
     final content = Padding(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Text(
+            'ممكن تلصق رسالة واحدة أو كذا رسالة، وكل رسالة هتتحلل لوحدها.',
+            style: AppTypography.caption(c.textMuted),
+          ),
+          const SizedBox(height: AppSpacing.s2),
           TextField(
             controller: _controller,
-            maxLines: 6,
+            minLines: 5,
+            maxLines: 8,
             style: AppTypography.body(c.textMain),
             decoration: InputDecoration(
-              hintText: 'الصق نص رسالة البنك هنا...',
+              hintText: 'الصق نص رسالة البنك هنا...\nممكن كذا رسالة ورا بعض.',
               filled: true,
               fillColor: isDark
                   ? Colors.white.withValues(alpha: 0.05)
@@ -301,6 +411,15 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
               ),
             ),
           ),
+          if (_busy) ...[
+            const SizedBox(height: AppSpacing.s3),
+            _BatchProgressCard(
+              busy: _busy,
+              processed: _processedCount,
+              total: _totalCount,
+              summary: summary,
+            ),
+          ],
           const Spacer(),
           SizedBox(
             height: 52,
@@ -318,7 +437,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2.5, color: Colors.white),
                     )
-                  : Text('حلّل وأضف',
+                  : Text('حلّل الرسائل',
                       style: AppTypography.bodyStrong(Colors.white)),
             ),
           ),
@@ -329,6 +448,421 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     return Scaffold(
       appBar: AppBar(title: const Text('ألصق رسالة البنك')),
       body: content,
+    );
+  }
+}
+
+class _PasteBatchItem {
+  const _PasteBatchItem({
+    required this.message,
+    required this.result,
+  });
+
+  final String message;
+  final CapturedMessageResult result;
+
+  AddTransactionResult get addResult => result.addTransactionResult;
+
+  bool needsReview({Set<String> confirmedIds = const {}}) {
+    final tx = addResult.transaction;
+    return addResult.outcome == AddTransactionOutcome.added &&
+        tx != null &&
+        tx.status == TransactionStatus.pending &&
+        !confirmedIds.contains(tx.id);
+  }
+
+  String get title {
+    final tx = addResult.transaction;
+    if (tx?.rawMerchant != null && tx!.rawMerchant!.trim().isNotEmpty) {
+      return tx.rawMerchant!;
+    }
+    final firstLine = message.split(RegExp(r'\r?\n')).first.trim();
+    return firstLine.length > 48
+        ? '${firstLine.substring(0, 48)}...'
+        : firstLine;
+  }
+
+  String statusLabel({Set<String> confirmedIds = const {}}) {
+    return switch (addResult.outcome) {
+      AddTransactionOutcome.added =>
+        needsReview(confirmedIds: confirmedIds) ? 'محتاج مراجعة' : 'اتضاف',
+      AddTransactionOutcome.duplicate => 'مكرر',
+      AddTransactionOutcome.notTransaction => 'غير مفهوم',
+    };
+  }
+}
+
+class _BatchSummary {
+  const _BatchSummary({
+    required this.added,
+    required this.review,
+    required this.duplicate,
+    required this.failed,
+  });
+
+  final int added;
+  final int review;
+  final int duplicate;
+  final int failed;
+
+  factory _BatchSummary.from(
+    List<_PasteBatchItem> items, {
+    Set<String> confirmedIds = const {},
+  }) {
+    var added = 0;
+    var review = 0;
+    var duplicate = 0;
+    var failed = 0;
+    for (final item in items) {
+      switch (item.addResult.outcome) {
+        case AddTransactionOutcome.added:
+          added++;
+          if (item.needsReview(confirmedIds: confirmedIds)) review++;
+        case AddTransactionOutcome.duplicate:
+          duplicate++;
+        case AddTransactionOutcome.notTransaction:
+          failed++;
+      }
+    }
+    return _BatchSummary(
+      added: added,
+      review: review,
+      duplicate: duplicate,
+      failed: failed,
+    );
+  }
+}
+
+class _BatchProgressCard extends StatelessWidget {
+  const _BatchProgressCard({
+    required this.busy,
+    required this.processed,
+    required this.total,
+    required this.summary,
+  });
+
+  final bool busy;
+  final int processed;
+  final int total;
+  final _BatchSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final progress = total <= 0 ? 0.0 : processed / total;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: c.surface2.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                busy ? Icons.auto_awesome_rounded : Icons.done_all_rounded,
+                color: busy ? c.cta : c.success,
+                size: 18,
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Text(
+                  busy ? 'بنحلل $processed من $total' : 'ملخص الرسائل',
+                  style: AppTypography.subhead(c.textMain),
+                ),
+              ),
+            ],
+          ),
+          if (busy) ...[
+            const SizedBox(height: AppSpacing.s2),
+            LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+          ] else ...[
+            const SizedBox(height: AppSpacing.s2),
+            Text(
+              'اتضاف ${summary.added} · مكرر ${summary.duplicate} · محتاج مراجعة ${summary.review} · غير مفهوم ${summary.failed}',
+              style: AppTypography.caption(c.textMuted),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _BatchResultsSheet extends ConsumerStatefulWidget {
+  const _BatchResultsSheet({
+    required this.items,
+    required this.onOpenItem,
+    required this.onConfirm,
+  });
+
+  final List<_PasteBatchItem> items;
+  final ValueChanged<_PasteBatchItem> onOpenItem;
+  final VoidCallback onConfirm;
+
+  @override
+  ConsumerState<_BatchResultsSheet> createState() => _BatchResultsSheetState();
+}
+
+class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
+  bool _confirming = false;
+  final Set<String> _confirmedIds = {};
+
+  Future<void> _confirmAll() async {
+    if (_confirming) return;
+    setState(() => _confirming = true);
+    final pendingIds = widget.items
+        .map((item) => item.addResult.transaction)
+        .whereType<TransactionEntity>()
+        .where((tx) =>
+            tx.status == TransactionStatus.pending &&
+            !(tx.amount == 0 &&
+                tx.foreignAmount != null &&
+                tx.foreignCurrency != null))
+        .map((tx) => tx.id)
+        .toSet();
+    for (final id in pendingIds) {
+      await ref.read(confirmTransactionUseCaseProvider)(id);
+    }
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+    if (!mounted) return;
+    setState(() {
+      _confirming = false;
+      _confirmedIds.addAll(pendingIds);
+    });
+    widget.onConfirm();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final summary =
+        _BatchSummary.from(widget.items, confirmedIds: _confirmedIds);
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            height: MediaQuery.sizeOf(context).height * 0.72,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? c.surface.withValues(alpha: 0.94)
+                  : Colors.white.withValues(alpha: 0.96),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
+                width: 1.5,
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  AppSpacing.s3,
+                  AppSpacing.gutter,
+                  AppSpacing.gutter,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: 44,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: c.textLight.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: c.success.withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.done_all_rounded,
+                              color: c.success, size: 22),
+                        ),
+                        const SizedBox(width: AppSpacing.s3),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ملخص الرسائل',
+                                style: AppTypography.headline(c.textMain),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'تم تحليل ${widget.items.length} رسائل من اللصق.',
+                                style: AppTypography.caption(c.textMuted),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                    _BatchProgressCard(
+                      busy: false,
+                      processed: widget.items.length,
+                      total: widget.items.length,
+                      summary: summary,
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: EdgeInsets.zero,
+                        itemCount: widget.items.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: AppSpacing.s2),
+                        itemBuilder: (context, index) {
+                          final item = widget.items[index];
+                          return _BatchResultTile(
+                            index: index,
+                            item: item,
+                            confirmedIds: _confirmedIds,
+                            onOpen: () => widget.onOpenItem(item),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                    SizedBox(
+                      height: 52,
+                      child: FilledButton(
+                        onPressed: _confirming ? null : _confirmAll,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: c.cta,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: _confirming
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                'تأكيد',
+                                style: AppTypography.bodyStrong(Colors.white),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BatchResultTile extends StatelessWidget {
+  const _BatchResultTile({
+    required this.index,
+    required this.item,
+    required this.confirmedIds,
+    required this.onOpen,
+  });
+
+  final int index;
+  final _PasteBatchItem item;
+  final Set<String> confirmedIds;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final tx = item.addResult.transaction;
+    final canOpen = tx != null;
+    final needsReview = item.needsReview(confirmedIds: confirmedIds);
+    final statusColor = switch (item.addResult.outcome) {
+      AddTransactionOutcome.added => needsReview ? c.warning : c.success,
+      AddTransactionOutcome.duplicate => c.textMuted,
+      AddTransactionOutcome.notTransaction => c.danger,
+    };
+    final amount = tx == null
+        ? null
+        : '${Formatters.amount(tx.amount)} ${tx.currency.toUpperCase()}';
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '${index + 1}',
+              style: AppTypography.caption(statusColor)
+                  .copyWith(fontWeight: FontWeight.w900),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.subhead(c.textMain),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  amount == null
+                      ? item.statusLabel(confirmedIds: confirmedIds)
+                      : '${item.statusLabel(confirmedIds: confirmedIds)} · $amount',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption(statusColor),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          TextButton(
+            onPressed: canOpen ? onOpen : null,
+            child: Text(needsReview ? 'راجع' : 'افتح'),
+          ),
+        ],
+      ),
     );
   }
 }

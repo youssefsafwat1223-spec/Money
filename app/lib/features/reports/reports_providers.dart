@@ -37,6 +37,21 @@ class ReportSection {
     if (dailySpend.isEmpty) return 0;
     return dailySpend.map((day) => day.total).reduce((a, b) => a > b ? a : b);
   }
+
+  /// أفضل يوم توفيرًا = اليوم الوحيد بأقل إنفاق غير صفري.
+  DailySpend? get bestSavingsDay {
+    final active = dailySpend.where((d) => d.total > 0).toList();
+    if (active.isEmpty) return null;
+    return active.reduce((a, b) => a.total < b.total ? a : b);
+  }
+
+  /// أكبر فئة إنفاق.
+  CategorySlice? get topCategory =>
+      topCategories.isEmpty ? null : topCategories.first;
+
+  /// أكبر متجر إنفاقًا.
+  MerchantSpend? get topMerchant =>
+      topMerchants.isEmpty ? null : topMerchants.first;
 }
 
 class SpendingAnomaly {
@@ -91,17 +106,18 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
         from: from, to: to, accountId: accountId);
     final sumAll = breakdown.fold<double>(0, (s, i) => s + i.total);
     final topCategories = <CategorySlice>[];
-    for (final item in breakdown.take(3)) {
+    for (final item in breakdown.take(18)) {
       final view = catalog.byId(item.categoryId);
       if (view == null) continue;
       topCategories.add(CategorySlice(
         category: view,
         total: item.total,
         percent: sumAll == 0 ? 0 : item.total / sumAll,
+        count: item.count,
       ));
     }
     final topMerchants = await txRepo.merchantBreakdown(
-        from: from, to: to, limit: 3, accountId: accountId);
+        from: from, to: to, limit: 8, accountId: accountId);
     final dailySpend = await txRepo.dailyExpenseTotals(
         from: from, to: to, accountId: accountId);
     return ReportSection(

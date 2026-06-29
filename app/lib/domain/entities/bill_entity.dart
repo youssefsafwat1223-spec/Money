@@ -108,6 +108,21 @@ class BillEntity {
           ? (paidCount! / totalInstallments!).clamp(0.0, 1.0)
           : 0.0;
 
+  /// صحيح إذا كان الاشتراك يبدو غير مستخدم — لم يُسجَّل دفع منذ أطول من دورة ونصف.
+  bool get mightBeUnused {
+    if (type != BillType.subscription || status != BillStatus.active) {
+      return false;
+    }
+    final periodDays = switch (frequency) {
+      BillFrequency.weekly => 7,
+      BillFrequency.monthly => 30,
+      BillFrequency.yearly => 365,
+      BillFrequency.custom => customIntervalDays ?? 30,
+    };
+    final daysPast = DateTime.now().difference(nextDueDate).inDays;
+    return daysPast > (periodDays * 1.5).round();
+  }
+
   double get safeManualPaidAmount => manualPaidAmount == null
       ? 0
       : manualPaidAmount!.clamp(0.0, double.infinity).toDouble();

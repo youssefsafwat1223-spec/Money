@@ -37,6 +37,10 @@ import '../../features/goals/goals_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/transactions/transaction_details_screen.dart';
 
+String onboardingEntryPathForSession(AppSession session) {
+  return session.hasCompletedOnboarding ? '/onboarding/auth' : '/onboarding';
+}
+
 /// موجّه التطبيق (go_router).
 final appRouter = GoRouter(
   initialLocation: '/',
@@ -48,7 +52,7 @@ final appRouter = GoRouter(
         (state.matchedLocation == '/onboarding/auth' ||
             state.matchedLocation == '/onboarding/otp');
     if (status == SessionStatus.needsOnboarding && !inOnboarding) {
-      return '/onboarding';
+      return onboardingEntryPathForSession(AppSession.instance);
     }
     if (status == SessionStatus.authenticated &&
         inOnboarding &&

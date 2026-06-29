@@ -448,7 +448,7 @@ At:19/04/26 11:07''',
     expectedType: TransactionType.income,
     expectedAmount: 300.56,
     expectedCurrency: 'SAR',
-    expectedOccurredAt: DateTime(2026, 3, 9, 11, 17),
+    expectedOccurredAt: DateTime(2026, 3, 9, 23, 17),
     expectedStatus: ExpectedSmsStatus.pending,
   ),
   BankSmsGoldenFixture(

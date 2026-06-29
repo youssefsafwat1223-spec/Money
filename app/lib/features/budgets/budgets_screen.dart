@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
@@ -167,10 +168,14 @@ class BudgetsScreen extends ConsumerWidget {
                           'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
                     ),
                   ] else if (tab == 1) ...[
+                    _HistoryPeriodFilterRow(ref: ref),
+                    const SizedBox(height: AppSpacing.s2),
                     ..._budgetHistoryChildren(
                       context,
                       data,
-                      entries: historyEntries,
+                      entries: _applyHistoryFilter(
+                          historyEntries,
+                          ref.watch(budgetsHistoryPeriodFilterProvider)),
                       currencyLabel: currencyLabel,
                     ),
                   ] else ...[
@@ -219,18 +224,29 @@ class BudgetsScreen extends ConsumerWidget {
         ),
       ];
     }
-    return [
-      for (final history in entries) ...[
-        _BudgetCard(
-          entry: history.progress,
+    // Entries arrive sorted by periodStart desc. Group consecutive entries by
+    // their month so the user reads the log as "how did each past period go".
+    final widgets = <Widget>[];
+    int? year;
+    int? month;
+    for (final history in entries) {
+      final start = history.progress.periodStart;
+      if (start.year != year || start.month != month) {
+        year = start.year;
+        month = start.month;
+        if (widgets.isNotEmpty) {
+          widgets.add(const SizedBox(height: AppSpacing.s4));
+        }
+        widgets.add(_MonthHeader(label: Formatters.monthYear(start, context)));
+        widgets.add(const SizedBox(height: AppSpacing.s2));
+      }
+      final entryCurrency =
+          _entryCurrencyLabel(data, history.progress, currencyLabel);
+      widgets.add(
+        _BudgetHistoryRow(
+          history: history,
           category: data.catalog.byId(history.budget.categoryId),
-          accountName: data.accountName(
-            history.budget.accountId,
-            showGlobalLabel: true,
-          ),
-          currencyLabel:
-              _entryCurrencyLabel(data, history.progress, currencyLabel),
-          periodStateLabel: history.isCurrent ? 'جارية' : 'منتهية',
+          currencyLabel: entryCurrency,
           onTap: () => _BudgetPeriodDetailsSheet.show(
             context,
             history: history,
@@ -239,13 +255,13 @@ class BudgetsScreen extends ConsumerWidget {
               history.budget.accountId,
               showGlobalLabel: true,
             ),
-            currencyLabel:
-                _entryCurrencyLabel(data, history.progress, currencyLabel),
+            currencyLabel: entryCurrency,
           ),
         ),
-        const SizedBox(height: AppSpacing.s4),
-      ],
-    ];
+      );
+      widgets.add(const SizedBox(height: AppSpacing.s2));
+    }
+    return widgets;
   }
 
   List<Widget> _budgetEntryChildren(
@@ -329,6 +345,83 @@ class BudgetsScreen extends ConsumerWidget {
       }
     }
     return fallback;
+  }
+}
+
+List<BudgetHistoryEntry> _applyHistoryFilter(
+  List<BudgetHistoryEntry> entries,
+  BudgetPeriod? filter,
+) {
+  if (filter == null) return entries;
+  return entries.where((e) => e.budget.period == filter).toList();
+}
+
+String _budgetPeriodDateLabel(
+    BudgetProgressEntry entry, BuildContext context) {
+  final s = entry.periodStart;
+  final e = entry.periodEnd;
+  switch (entry.budget.period) {
+    case BudgetPeriod.daily:
+      return Formatters.fullDate(s, context);
+    case BudgetPeriod.weekly:
+      return '${s.day}/${s.month} — ${e.day}/${e.month}';
+    case BudgetPeriod.monthly:
+      return Formatters.monthYear(s, context);
+    case BudgetPeriod.yearly:
+      return '${s.year}';
+  }
+}
+
+class _HistoryPeriodFilterRow extends StatelessWidget {
+  const _HistoryPeriodFilterRow({required this.ref});
+  final WidgetRef ref;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final selected = ref.watch(budgetsHistoryPeriodFilterProvider);
+    final options = <(BudgetPeriod?, String)>[
+      (null, 'الكل'),
+      (BudgetPeriod.daily, 'يومي'),
+      (BudgetPeriod.weekly, 'أسبوعي'),
+      (BudgetPeriod.monthly, 'شهري'),
+      (BudgetPeriod.yearly, 'سنوي'),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final (period, label) in options) ...[
+            GestureDetector(
+              onTap: () => ref
+                  .read(budgetsHistoryPeriodFilterProvider.notifier)
+                  .state = period,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.s3, vertical: AppSpacing.s1 + 2),
+                decoration: BoxDecoration(
+                  color: selected == period
+                      ? c.primary
+                      : c.surfaceCard,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(
+                    color: selected == period ? c.primary : c.border,
+                  ),
+                ),
+                child: Text(
+                  label,
+                  style: AppTypography.caption(
+                    selected == period ? Colors.white : c.textSecondary,
+                  ).copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s2),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -621,7 +714,6 @@ class _BudgetCard extends StatelessWidget {
     required this.accountName,
     required this.currencyLabel,
     required this.onTap,
-    this.periodStateLabel,
     this.onDelete,
   });
 
@@ -630,7 +722,6 @@ class _BudgetCard extends StatelessWidget {
   final String accountName;
   final String currencyLabel;
   final VoidCallback onTap;
-  final String? periodStateLabel;
   final VoidCallback? onDelete;
 
   @override
@@ -647,11 +738,10 @@ class _BudgetCard extends StatelessWidget {
             ? 'اقتربت'
             : 'آمن';
     final periodLabel = switch (entry.budget.period) {
-      _ => switch (entry.budget.period.name) {
-          'daily' => 'يومي',
-          'weekly' => 'أسبوعي',
-          _ => 'شهري',
-        }
+      BudgetPeriod.daily => 'يومي',
+      BudgetPeriod.weekly => 'أسبوعي',
+      BudgetPeriod.monthly => 'شهري',
+      BudgetPeriod.yearly => 'سنوي',
     };
     return AppCard(
       onTap: onTap,
@@ -693,7 +783,7 @@ class _BudgetCard extends StatelessWidget {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
-                          'ميزانية $periodLabel',
+                          'ميزانية $periodLabel · ${_budgetPeriodDateLabel(entry, context)}',
                           style: AppTypography.footnote(c.textSecondary),
                         ),
                         if (accountName.isNotEmpty) ...[
@@ -712,29 +802,7 @@ class _BudgetCard extends StatelessWidget {
                             ),
                           ),
                         ],
-                        if (periodStateLabel != null) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: progressColor.withValues(alpha: 0.10),
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.pill),
-                            ),
-                            child: Text(
-                              periodStateLabel!,
-                              style: AppTypography.caption(progressColor)
-                                  .copyWith(fontSize: 10),
-                            ),
-                          ),
-                        ],
                       ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${entry.periodStart.day}/${entry.periodStart.month} — ${entry.periodEnd.day}/${entry.periodEnd.month}',
-                      style: AppTypography.footnote(c.textSecondary)
-                          .copyWith(fontSize: 10),
                     ),
                   ],
                 ),
@@ -838,6 +906,157 @@ class _BudgetCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthHeader extends StatelessWidget {
+  const _MonthHeader({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.s2, bottom: AppSpacing.s1),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: AppTypography.footnote(c.textSecondary)
+                .copyWith(fontWeight: FontWeight.w800, fontFamily: 'Outfit'),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          Expanded(child: Divider(color: c.border, height: 1)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact, result-focused row for the budgets log. Answers one question per
+/// past period: did the user stay within the limit (وفّرت) or go over (تجاوزت)?
+class _BudgetHistoryRow extends StatelessWidget {
+  const _BudgetHistoryRow({
+    required this.history,
+    required this.category,
+    required this.currencyLabel,
+    required this.onTap,
+  });
+
+  final BudgetHistoryEntry history;
+  final CategoryView? category;
+  final String currencyLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final entry = history.progress;
+    final isGeneral = entry.budget.isAllExpenses;
+    final isOver = entry.remaining < 0;
+    final progressColor = c.budgetState(entry.ratio);
+    final iconColor = category?.color ?? progressColor;
+    final periodLabel = switch (entry.budget.period) {
+      BudgetPeriod.daily => 'يومي',
+      BudgetPeriod.weekly => 'أسبوعي',
+      BudgetPeriod.monthly => 'شهري',
+      BudgetPeriod.yearly => 'سنوي',
+    };
+    final title = isGeneral ? 'كل المصروفات' : category?.nameAr ?? 'تصنيف';
+    final dateLabel = _budgetPeriodDateLabel(entry, context);
+    final subtitle = history.isCurrent
+        ? 'ميزانية $periodLabel · $dateLabel · جارية'
+        : 'ميزانية $periodLabel · $dateLabel';
+
+    final String resultText;
+    final Color resultColor;
+    final IconData? resultIcon;
+    if (history.isCurrent) {
+      resultText = isOver
+          ? 'تجاوزت ${Formatters.integer(entry.remaining.abs())}'
+          : 'باقي ${Formatters.integer(entry.remaining)}';
+      resultColor = isOver ? c.danger : c.textSecondary;
+      resultIcon = null;
+    } else if (isOver) {
+      resultText = 'تجاوزت ${Formatters.integer(entry.remaining.abs())}';
+      resultColor = c.danger;
+      resultIcon = Icons.warning_amber_rounded;
+    } else {
+      resultText = 'وفّرت ${Formatters.integer(entry.remaining)}';
+      resultColor = c.success;
+      resultIcon = Icons.check_circle_outline;
+    }
+
+    return AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: Icon(
+              isGeneral
+                  ? Icons.account_balance_wallet_outlined
+                  : category?.icon ?? Icons.category_outlined,
+              color: iconColor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTypography.subhead(c.textPrimary),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: AppTypography.caption(c.textSecondary),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    if (resultIcon != null) ...[
+                      Icon(resultIcon, size: 14, color: resultColor),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      resultText,
+                      style: AppTypography.caption(resultColor)
+                          .copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${Formatters.integer(entry.spent)} / ${Formatters.integer(entry.budget.amount)}',
+                style: AppTypography.subhead(c.textPrimary)
+                    .copyWith(fontFamily: 'Outfit'),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                currencyLabel,
+                style: AppTypography.caption(c.textSecondary),
+              ),
+            ],
           ),
         ],
       ),
@@ -1030,6 +1249,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
   String _periodLabel(String period) => switch (period) {
         'daily' => 'ميزانية يومية',
         'weekly' => 'ميزانية أسبوعية',
+        'yearly' => 'ميزانية سنوية',
         _ => 'ميزانية شهرية',
       };
 

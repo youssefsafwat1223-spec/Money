@@ -599,6 +599,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       BudgetPeriod.daily => dailyAverage,
       BudgetPeriod.weekly => dailyAverage * 7,
       BudgetPeriod.monthly => dailyAverage * 30,
+      BudgetPeriod.yearly => dailyAverage * 365,
     };
     setState(() {
       _suggestionLoading = false;
@@ -633,6 +634,7 @@ class _BudgetSuggestionCard extends StatelessWidget {
       BudgetPeriod.daily => 'يومية',
       BudgetPeriod.weekly => 'أسبوعية',
       BudgetPeriod.monthly => 'شهرية',
+      BudgetPeriod.yearly => 'سنوية',
     };
     final value = amount?.toStringAsFixed(0);
     return Container(
@@ -715,6 +717,7 @@ class _PeriodSelector extends StatelessWidget {
               _buildSegment(context, BudgetPeriod.daily, 'يومي'),
               _buildSegment(context, BudgetPeriod.weekly, 'أسبوعي'),
               _buildSegment(context, BudgetPeriod.monthly, 'شهري'),
+              _buildSegment(context, BudgetPeriod.yearly, 'سنوي'),
             ],
           ),
         ),

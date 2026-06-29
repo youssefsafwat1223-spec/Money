@@ -23,6 +23,7 @@ import '../common/app_sheet_scaffold.dart';
 import '../subscriptions/bill_details_sheet.dart';
 import '../subscriptions/bill_form_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
+import '../../domain/entities/suspected_duplicate_entity.dart';
 import 'manual_transaction_sheet.dart';
 import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
@@ -95,6 +96,7 @@ class TransactionsScreen extends ConsumerWidget {
                           children: [
                             const _ActiveAccountPicker(),
                             const SizedBox(height: AppSpacing.s3),
+                            const _SuspectedDuplicatesBanner(),
                             if (tab == 0) ...[
                               if (pendingOnly) ...[
                                 Row(
@@ -1733,5 +1735,226 @@ class _TransactionsHeader extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ─── Suspected Duplicates ────────────────────────────────────────────────────
+
+class _SuspectedDuplicatesBanner extends ConsumerWidget {
+  const _SuspectedDuplicatesBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dupes = ref.watch(suspectedDuplicatesProvider).valueOrNull ?? [];
+    if (dupes.isEmpty) return const SizedBox.shrink();
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+      child: GestureDetector(
+        onTap: () => _SuspectedDuplicatesSheet.show(context),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: c.accent.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: c.accent.withValues(alpha: 0.28)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.copy_rounded, size: 16, color: c.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${dupes.length} ${dupes.length == 1 ? 'عملية مشبوهة' : 'عمليات مشبوهة'} — اضغط للمراجعة',
+                  style: AppTypography.caption(c.accent)
+                      .copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Icon(Icons.chevron_left, size: 16, color: c.accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> showSuspectedDuplicateReviewSheet(
+    BuildContext context, SuspectedDuplicateEntity dupe) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: context.colors.surface,
+    builder: (_) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+        child: _SuspectedDuplicateCard(dupe: dupe),
+      ),
+    ),
+  );
+}
+
+class _SuspectedDuplicatesSheet extends ConsumerWidget {
+  const _SuspectedDuplicatesSheet();
+
+  static Future<void> show(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: context.colors.surface,
+      builder: (_) => const Directionality(
+        textDirection: TextDirection.rtl,
+        child: _SuspectedDuplicatesSheet(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final dupes = ref.watch(suspectedDuplicatesProvider).valueOrNull ?? [];
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      maxChildSize: 0.92,
+      builder: (_, controller) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('عمليات مشبوهة',
+                      style: AppTypography.title2(c.textMain)),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final repo = ref.read(suspectedDuplicateRepositoryProvider);
+                    for (final d in dupes) {
+                      await repo.delete(d.id);
+                    }
+                    ref.invalidate(suspectedDuplicatesProvider);
+                    if (context.mounted) Navigator.of(context).pop();
+                  },
+                  child: Text('تجاهل الكل',
+                      style: AppTypography.caption(c.textMuted)),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: dupes.isEmpty
+                ? Center(
+                    child: Text('لا توجد عمليات مشبوهة',
+                        style: AppTypography.body(c.textMuted)),
+                  )
+                : ListView.separated(
+                    controller: controller,
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                    itemCount: dupes.length,
+                    separatorBuilder: (_, __) =>
+                        const SizedBox(height: AppSpacing.s3),
+                    itemBuilder: (_, i) =>
+                        _SuspectedDuplicateCard(dupe: dupes[i]),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SuspectedDuplicateCard extends ConsumerWidget {
+  const _SuspectedDuplicateCard({required this.dupe});
+
+  final SuspectedDuplicateEntity dupe;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: BoxDecoration(
+        color: c.surface2,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  dupe.rawMerchant ?? 'عملية',
+                  style: AppTypography.bodyStrong(c.textMain),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '${Formatters.amount(dupe.amount)} ${dupe.currency}',
+                style: AppTypography.bodyStrong(c.textMain),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            Formatters.dateWithWeekday(dupe.occurredAt, context),
+            style: AppTypography.caption(c.textMuted),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _dismiss(ref),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.textMuted,
+                    side: BorderSide(color: c.border.withValues(alpha: 0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: const Text('تجاهل'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () => _confirmAsReal(context, ref),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: c.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: const Text('مش مكررة — احفظها'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _dismiss(WidgetRef ref) async {
+    await ref.read(suspectedDuplicateRepositoryProvider).delete(dupe.id);
+    ref.invalidate(suspectedDuplicatesProvider);
+  }
+
+  Future<void> _confirmAsReal(BuildContext context, WidgetRef ref) async {
+    final addUseCase = ref.read(addTransactionUseCaseProvider);
+    final result = await addUseCase(
+      rawMessage: dupe.rawMessage,
+      senderId: dupe.senderId,
+      skipDedup: true,
+    );
+    await ref.read(suspectedDuplicateRepositoryProvider).delete(dupe.id);
+    ref.invalidate(suspectedDuplicatesProvider);
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+    if (context.mounted && result.transaction != null) {
+      await TransactionDetailsScreen.showSheet(context, result.transaction!.id);
+    }
   }
 }

@@ -108,12 +108,14 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
     List<BudgetEntity> source, {
     String? fallbackAccountId,
   }) async {
+    final now = DateTime.now();
     final entries = <BudgetProgressEntry>[];
     for (final budget in source) {
+      final period = _currentPeriodFor(budget, now);
       entries.add(await buildEntry(
         budget,
-        from: range.from,
-        to: range.to,
+        from: period.from,
+        to: period.to,
         fallbackAccountId: fallbackAccountId,
       ));
     }
@@ -225,6 +227,7 @@ List<_BudgetPeriodWindow> _budgetPeriodsInRange(
     BudgetPeriod.daily => _dailyPeriods(anchor, from, to, now),
     BudgetPeriod.weekly => _weeklyPeriods(anchor, from, to, now),
     BudgetPeriod.monthly => _monthlyPeriods(anchor, from, to, now),
+    BudgetPeriod.yearly => _yearlyPeriods(from, to, now),
   };
 }
 
@@ -280,18 +283,34 @@ List<_BudgetPeriodWindow> _monthlyPeriods(
   DateTime to,
   DateTime now,
 ) {
-  var index = _monthDiff(anchor, from) - 1;
-  if (index < 0) index = 0;
+  // Always use calendar months (1st → last day), ignoring anchor.day.
+  var current = DateTime(from.year, from.month, 1);
   final periods = <_BudgetPeriodWindow>[];
-  while (true) {
-    final start = _addMonthsClamped(anchor, index);
-    if (start.isAfter(to)) break;
-    final rawEnd = _addMonthsClamped(anchor, index + 1)
+  while (!current.isAfter(to)) {
+    final start = current;
+    final rawEnd = DateTime(current.year, current.month + 1, 1)
         .subtract(const Duration(milliseconds: 1));
     if (!rawEnd.isBefore(from)) {
       periods.add(_periodWindow(start, rawEnd, now));
     }
-    index += 1;
+    current = DateTime(current.year, current.month + 1, 1);
+  }
+  return periods;
+}
+
+List<_BudgetPeriodWindow> _yearlyPeriods(
+  DateTime from,
+  DateTime to,
+  DateTime now,
+) {
+  final periods = <_BudgetPeriodWindow>[];
+  for (var year = from.year; year <= to.year; year++) {
+    final start = DateTime(year, 1, 1);
+    final rawEnd =
+        DateTime(year + 1, 1, 1).subtract(const Duration(milliseconds: 1));
+    if (!rawEnd.isBefore(from) && !start.isAfter(to)) {
+      periods.add(_periodWindow(start, rawEnd, now));
+    }
   }
   return periods;
 }
@@ -304,7 +323,7 @@ _BudgetPeriodWindow _periodWindow(
   final isCurrent = !now.isBefore(start) && !now.isAfter(rawEnd);
   return _BudgetPeriodWindow(
     start: start,
-    end: isCurrent ? now : rawEnd,
+    end: rawEnd, // Always show the full period range, not clamped to today
     isCurrent: isCurrent,
   );
 }
@@ -315,20 +334,45 @@ DateTime _dateOnly(DateTime value) =>
 DateTime _endOfDay(DateTime value) =>
     DateTime(value.year, value.month, value.day, 23, 59, 59, 999);
 
-int _monthDiff(DateTime from, DateTime to) =>
-    (to.year - from.year) * 12 + (to.month - from.month);
 
-DateTime _addMonthsClamped(DateTime anchor, int months) {
-  final totalMonths = anchor.month - 1 + months;
-  final year = anchor.year + totalMonths ~/ 12;
-  final month = totalMonths % 12 + 1;
-  final day = anchor.day.clamp(1, _daysInMonth(year, month));
-  return DateTime(year, month, day);
+/// Returns the start/end of the budget's CURRENT active period.
+/// Monthly → 1st of month → last day of month (calendar month).
+/// Yearly  → Jan 1 → Dec 31 (calendar year).
+/// Weekly  → rolling window from startDate anchor.
+/// Daily   → today only.
+({DateTime from, DateTime to}) _currentPeriodFor(
+    BudgetEntity budget, DateTime now) {
+  final today = _dateOnly(now);
+  switch (budget.period) {
+    case BudgetPeriod.daily:
+      return (from: today, to: _endOfDay(today));
+    case BudgetPeriod.weekly:
+      final anchor = _dateOnly(budget.startDate);
+      final daysSince = today.difference(anchor).inDays;
+      final weeksElapsed = daysSince >= 0 ? daysSince ~/ 7 : 0;
+      final start = anchor.add(Duration(days: weeksElapsed * 7));
+      final rawEnd = start
+          .add(const Duration(days: 7))
+          .subtract(const Duration(milliseconds: 1));
+      return (from: start, to: rawEnd.isAfter(now) ? now : rawEnd);
+    case BudgetPeriod.monthly:
+      final start = DateTime(now.year, now.month, 1);
+      final rawEnd = DateTime(now.year, now.month + 1, 1)
+          .subtract(const Duration(milliseconds: 1));
+      return (from: start, to: rawEnd);
+    case BudgetPeriod.yearly:
+      final start = DateTime(now.year, 1, 1);
+      final rawEnd =
+          DateTime(now.year + 1, 1, 1).subtract(const Duration(milliseconds: 1));
+      return (from: start, to: rawEnd);
+  }
 }
 
-int _daysInMonth(int year, int month) => DateTime(year, month + 1, 0).day;
-
 final budgetsPageTabProvider = StateProvider<int>((ref) => 0);
+
+/// null = show all periods in the history tab
+final budgetsHistoryPeriodFilterProvider =
+    StateProvider<BudgetPeriod?>((ref) => null);
 
 final budgetByIdProvider =
     FutureProvider.family<BudgetEntity?, String>((ref, id) async {

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../core/session/app_session.dart';
@@ -17,6 +18,8 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
+import '../../domain/entities/report_models.dart';
+import '../cards/bank_mark.dart';
 import '../cards/brand_mark.dart';
 import '../cards/my_cards_screen.dart';
 import '../budgets/budgets_providers.dart';
@@ -124,6 +127,7 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.s4),
+                  const AnnouncementBanner(),
                   Padding(
                     padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.gutter),
@@ -146,6 +150,12 @@ class DashboardScreen extends ConsumerWidget {
                         if (data.isEmpty)
                           _emptyState(context)
                         else ...[
+                          PremiumMotion(
+                            delay: const Duration(milliseconds: 75),
+                            child: _weeklySpendVisualCard(context, data,
+                                privacyMode: privacyMode),
+                          ),
+                          const SizedBox(height: AppSpacing.s4),
                           if (data.pendingReviewCount > 0) ...[
                             PremiumMotion(
                               child: _reviewCard(context, ref, data,
@@ -153,8 +163,19 @@ class DashboardScreen extends ConsumerWidget {
                             ),
                             const SizedBox(height: AppSpacing.s5),
                           ],
-                          PremiumMotion(child: _whereMoneyWent(context, data)),
-                          const SizedBox(height: AppSpacing.s5),
+                          PremiumMotion(
+                            child: _whereMoneyWent(context, data,
+                                privacyMode: privacyMode),
+                          ),
+                          const SizedBox(height: AppSpacing.s4),
+                          if (data.topMerchants.isNotEmpty) ...[
+                            PremiumMotion(
+                              delay: const Duration(milliseconds: 75),
+                              child: _merchantRankingVisualCard(context, data,
+                                  privacyMode: privacyMode),
+                            ),
+                            const SizedBox(height: AppSpacing.s4),
+                          ],
                           PremiumMotion(
                             delay: const Duration(milliseconds: 80),
                             child: _recentMiniCard(context, ref, data,
@@ -183,6 +204,14 @@ class DashboardScreen extends ConsumerWidget {
                               data.subscriptions.isNotEmpty) ...[
                             PremiumMotion(
                               child: _nextUpSection(context, data,
+                                  privacyMode: privacyMode),
+                            ),
+                            const SizedBox(height: AppSpacing.s5),
+                          ],
+                          if (!data.isEmpty) ...[
+                            PremiumMotion(
+                              delay: const Duration(milliseconds: 100),
+                              child: _qirshScoreCard(context, data,
                                   privacyMode: privacyMode),
                             ),
                             const SizedBox(height: AppSpacing.s5),
@@ -907,6 +936,7 @@ class DashboardScreen extends ConsumerWidget {
       BudgetPeriod.daily => 'اليوم',
       BudgetPeriod.weekly => 'الأسبوع',
       BudgetPeriod.monthly => 'الشهر',
+      BudgetPeriod.yearly => 'السنة',
     };
     await showModalBottomSheet<void>(
       context: context,
@@ -948,6 +978,7 @@ class DashboardScreen extends ConsumerWidget {
                     .subtract(
                         Duration(days: (now.weekday - DateTime.saturday) % 7)),
                 BudgetPeriod.monthly => DateTime(now.year, now.month),
+                BudgetPeriod.yearly => DateTime(now.year),
               };
               final budget = BudgetEntity(
                 id: existing?.id ?? IdGenerator.next(),
@@ -1244,7 +1275,11 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _whereMoneyWent(BuildContext context, DashboardData data) {
+  Widget _whereMoneyWent(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
     final c = context.colors;
     final chartSlices = [
       for (final slice in data.topCategories)
@@ -1252,6 +1287,7 @@ class DashboardScreen extends ConsumerWidget {
           category: slice.category,
           total: slice.total,
           percent: slice.percent,
+          count: slice.count,
         ),
     ];
     if (chartSlices.isEmpty) {
@@ -1289,9 +1325,110 @@ class DashboardScreen extends ConsumerWidget {
           CategoryDonutChart(
             slices: chartSlices,
             currencyLabel: _currencyLabel(data.currency),
-            centerLabel: 'إجمالي المصروفات',
-            height: 150,
+            centerLabel: _money(data.spentThisMonth, data.currency,
+                privacyMode: privacyMode),
+            height: 136,
+            compactCenter: true,
+            framed: false,
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _weeklySpendVisualCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
+    final c = context.colors;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bar_chart_rounded, color: c.success, size: 21),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('استهلاك الأسبوع الحالي',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodyStrong(c.textPrimary)),
+                    const SizedBox(height: 2),
+                    Text('آخر 7 أيام حسب الحساب المختار',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption(c.textMuted)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          WeeklyCapsuleBarChart(
+            days: data.weeklyDailySpend,
+            currencyLabel: _currencyLabel(data.currency),
+            privacyMode: privacyMode,
+            height: 168,
+            barWidth: 24,
+            maxBarHeight: 76,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _merchantRankingVisualCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
+    final c = context.colors;
+    final maxTotal = data.topMerchants.fold<double>(
+      1,
+      (max, merchant) => merchant.total > max ? merchant.total : max,
+    );
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(AppLucideIcons.store, color: c.success, size: 21),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('مصروفاتك في المتاجر',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodyStrong(c.textPrimary)),
+                    const SizedBox(height: 2),
+                    Text('أكبر أماكن الصرف في الفترة',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption(c.textMuted)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          for (final merchant in data.topMerchants.take(4)) ...[
+            _MerchantMiniRow(
+              merchant: merchant,
+              maxTotal: maxTotal,
+              currency: data.currency,
+              privacyMode: privacyMode,
+            ),
+            if (merchant != data.topMerchants.take(4).last)
+              const SizedBox(height: AppSpacing.s2),
+          ],
         ],
       ),
     );
@@ -1332,7 +1469,7 @@ class DashboardScreen extends ConsumerWidget {
     DashboardData data, {
     required bool privacyMode,
   }) {
-    final items = data.recent.take(4).toList();
+    final items = data.recent.take(10).toList();
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1486,6 +1623,86 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  Widget _qirshScoreCard(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
+    final c = context.colors;
+    final score = data.qirshScore;
+    final color = score >= 80
+        ? c.success
+        : score >= 60
+            ? c.warning
+            : c.danger;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('درجة قرش',
+                    style: AppTypography.bodyStrong(c.textMain)),
+              ),
+              AnimatedAmountText(
+                amount: score.toDouble(),
+                color: color,
+                style: AppTypography.title1(color)
+                    .copyWith(fontWeight: FontWeight.w900),
+              ),
+              Text(' / 100',
+                  style: AppTypography.caption(c.textMuted)),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          Row(
+            children: [
+              _scorePill(c, 'الميزانية', data.budgetScore),
+              const SizedBox(width: AppSpacing.s2),
+              _scorePill(c, 'الادخار', data.savingsScore),
+              const SizedBox(width: AppSpacing.s2),
+              _scorePill(c, 'الانتظام', data.streakScore),
+              const SizedBox(width: AppSpacing.s2),
+              _scorePill(c, 'التنوع', data.diversityScore),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _scorePill(AppColors c, String label, double score) {
+    final color = score >= 80
+        ? c.success
+        : score >= 60
+            ? c.warning
+            : c.danger;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          children: [
+            Text('${score.round()}',
+                style: AppTypography.caption(color)
+                    .copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 2),
+            Text(label,
+                style: AppTypography.caption(c.textMuted),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _emptyState(BuildContext context) {
     return AppEmptyState(
       icon: AppLucideIcons.receipt,
@@ -1567,6 +1784,8 @@ class _AccountSwitcher extends ConsumerWidget {
                       _AccountChip(
                         label:
                             '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                        accountName: account.name,
+                        accountType: account.type,
                         selected: activeId == account.id,
                         onTap: () async {
                           container
@@ -1620,17 +1839,23 @@ class _AccountSwitcher extends ConsumerWidget {
 class _AccountChip extends StatelessWidget {
   const _AccountChip({
     required this.label,
+    required this.accountName,
+    required this.accountType,
     required this.selected,
     required this.onTap,
   });
 
   final String label;
+  final String accountName;
+  final AccountType accountType;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final bankColor = bankColorFor(accountName);
+    final hasBankLogo = bankShortCodeFor(accountName) != null;
     return Padding(
       padding: const EdgeInsets.only(left: 8),
       child: GestureDetector(
@@ -1640,18 +1865,41 @@ class _AccountChip extends StatelessWidget {
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          padding: const EdgeInsets.only(
+              left: 8, right: 14, top: 5, bottom: 5),
           decoration: BoxDecoration(
             color: selected ? c.cta : c.surfaceCard,
             borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(color: selected ? c.cta : c.border),
           ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: AppTypography.caption(
-              selected ? c.onCta : c.textSecondary,
-            ).copyWith(fontWeight: FontWeight.w800),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (hasBankLogo) ...[
+                BankMark(
+                  accountName: accountName,
+                  accountType: accountType,
+                  size: 22,
+                ),
+                const SizedBox(width: 6),
+              ] else ...[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: selected ? Colors.white.withValues(alpha: 0.7) : bankColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: AppTypography.caption(
+                  selected ? c.onCta : c.textSecondary,
+                ).copyWith(fontWeight: FontWeight.w800),
+              ),
+            ],
           ),
         ),
       ),
@@ -1877,6 +2125,71 @@ class _DashboardHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MerchantMiniRow extends StatelessWidget {
+  const _MerchantMiniRow({
+    required this.merchant,
+    required this.maxTotal,
+    required this.currency,
+    required this.privacyMode,
+  });
+
+  final MerchantSpend merchant;
+  final double maxTotal;
+  final String currency;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final ratio =
+        maxTotal <= 0 ? 0.0 : (merchant.total / maxTotal).clamp(0.0, 1.0);
+    final amountText = privacyMode
+        ? '•••• ${Currency.arabicLabel(currency.toUpperCase())}'
+        : '${Formatters.amount(merchant.total)} '
+            '${Currency.arabicLabel(currency.toUpperCase())}';
+    return Row(
+      children: [
+        BrandMark(name: merchant.name, size: 36),
+        const SizedBox(width: AppSpacing.s3),
+        Expanded(
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      merchant.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.subhead(c.textPrimary),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.s2),
+                  Text(
+                    amountText,
+                    style: AppTypography.caption(c.textSecondary)
+                        .copyWith(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                child: LinearProgressIndicator(
+                  value: ratio,
+                  minHeight: 6,
+                  backgroundColor: c.surface2,
+                  valueColor: AlwaysStoppedAnimation(c.primary),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -461,7 +461,9 @@ class DriftTransactionRepository implements TransactionRepository {
   }) async {
     final rows = await _db.customSelect(
       '''
-        SELECT category_id AS cid, CAST(SUM(amount) AS REAL) AS total
+        SELECT category_id AS cid,
+               CAST(SUM(amount) AS REAL) AS total,
+               COUNT(*) AS tx_count
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
           AND status = 'confirmed'
@@ -481,6 +483,7 @@ class DriftTransactionRepository implements TransactionRepository {
           (r) => CategorySpend(
             categoryId: r.read<String>('cid'),
             total: r.read<double>('total'),
+            count: r.read<int>('tx_count'),
           ),
         )
         .toList();
@@ -527,7 +530,9 @@ class DriftTransactionRepository implements TransactionRepository {
     final accountClause = accountId == null ? '' : ' AND t.account_id = ?';
     final rows = await _db.customSelect(
       '''
-        SELECT m.raw_name AS name, CAST(SUM(t.amount) AS REAL) AS total
+        SELECT m.raw_name AS name,
+               CAST(SUM(t.amount) AS REAL) AS total,
+               COUNT(*) AS tx_count
         FROM transactions t
         INNER JOIN merchants m ON m.id = t.merchant_id
         WHERE t.type IN ('payment', 'withdrawal')
@@ -548,6 +553,7 @@ class DriftTransactionRepository implements TransactionRepository {
         .map((r) => MerchantSpend(
               name: r.read<String>('name'),
               total: r.read<double>('total'),
+              count: r.read<int>('tx_count'),
             ))
         .toList();
   }
