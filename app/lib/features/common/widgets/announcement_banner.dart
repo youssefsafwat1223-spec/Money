@@ -15,23 +15,34 @@ class AnnouncementBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final campaignsAsync = ref.watch(activeDashboardCampaignsProvider);
-    final campaigns = campaignsAsync.valueOrNull;
-    if (campaigns != null && campaigns.isNotEmpty) {
-      return _CampaignBannerTile(campaign: campaigns.first);
-    }
+    final campaigns = campaignsAsync.valueOrNull ?? [];
 
     final announcementsAsync = ref.watch(activeAnnouncementsProvider);
-    return announcementsAsync.when(
-      data: (announcements) {
-        final visible = announcements
-            .where((a) => !a.isForceUpdate && !a.isDismissed)
-            .toList();
-        if (visible.isEmpty) return const SizedBox.shrink();
-        final a = visible.first;
-        return _BannerTile(announcement: a);
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+    final announcements = announcementsAsync.valueOrNull
+            ?.where((a) => !a.isForceUpdate && !a.isDismissed)
+            .toList() ??
+        [];
+
+    final allItems = <Widget>[
+      for (final c in campaigns) _CampaignBannerTile(campaign: c),
+      for (final a in announcements) _BannerTile(announcement: a),
+    ];
+
+    if (allItems.isEmpty) return const SizedBox.shrink();
+    if (allItems.length == 1) return allItems.first;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const PageScrollPhysics(),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: allItems.map((item) {
+          return SizedBox(
+            width: MediaQuery.of(context).size.width,
+            child: item,
+          );
+        }).toList(),
+      ),
     );
   }
 }
