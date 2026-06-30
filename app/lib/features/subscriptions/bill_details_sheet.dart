@@ -503,7 +503,7 @@ class _BillPaymentRow extends ConsumerWidget {
     if (payment.transactionId != null) {
       await ref
           .read(transactionRepositoryProvider)
-          .delete(payment.transactionId!);
+          .deleteTransaction(payment.transactionId!);
     }
     await ref.read(billRepositoryProvider).deletePayment(payment.id);
     ref.invalidate(billPaymentsProvider(bill.id));
