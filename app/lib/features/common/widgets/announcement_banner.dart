@@ -29,17 +29,30 @@ class AnnouncementBanner extends ConsumerWidget {
     ];
 
     if (allItems.isEmpty) return const SizedBox.shrink();
-    if (allItems.length == 1) return allItems.first;
+    if (allItems.length == 1) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+        child: allItems.first,
+      );
+    }
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      physics: const PageScrollPhysics(),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: allItems.map((item) {
-          return SizedBox(
-            width: MediaQuery.of(context).size.width,
-            child: item,
+        children: allItems.asMap().entries.map((entry) {
+          final isLast = entry.key == allItems.length - 1;
+          return Padding(
+            padding:
+                EdgeInsetsDirectional.only(end: isLast ? 0 : AppSpacing.s3),
+            child: SizedBox(
+              width: MediaQuery.of(context).size.width -
+                  (AppSpacing.gutter * 2) -
+                  24,
+              child: entry.value,
+            ),
           );
         }).toList(),
       ),
@@ -84,142 +97,138 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
     final actionLabel = widget.campaign.actionLabelAr?.trim();
     final hasAction = actionLabel != null && actionLabel.isNotEmpty;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.xxl),
-          boxShadow: [
-            BoxShadow(
-              color: start.withValues(alpha: isDark ? 0.20 : 0.24),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadius.xxl),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => _handleTap(context),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: AlignmentDirectional.topStart,
-                        end: AlignmentDirectional.bottomEnd,
-                        colors: [start, end],
-                      ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        boxShadow: [
+          BoxShadow(
+            color: start.withValues(alpha: isDark ? 0.20 : 0.24),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _handleTap(context),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: AlignmentDirectional.topStart,
+                      end: AlignmentDirectional.bottomEnd,
+                      colors: [start, end],
                     ),
                   ),
                 ),
-                PositionedDirectional(
-                  top: -44,
-                  start: -26,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
+              ),
+              PositionedDirectional(
+                top: -44,
+                start: -26,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.08),
                   ),
                 ),
-                PositionedDirectional(
-                  bottom: -58,
-                  end: -28,
-                  child: Container(
-                    width: 150,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: 0.07),
-                    ),
+              ),
+              PositionedDirectional(
+                bottom: -58,
+                end: -28,
+                child: Container(
+                  width: 150,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.black.withValues(alpha: 0.07),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsetsDirectional.fromSTEB(
-                    AppSpacing.s5,
-                    AppSpacing.s5,
-                    AppSpacing.s4,
-                    AppSpacing.s5,
-                  ),
-                  child: Directionality(
-                    textDirection: TextDirection.rtl,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                widget.campaign.titleAr,
-                                textAlign: TextAlign.right,
-                                style:
-                                    AppTypography.title(Colors.white).copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.22,
-                                ),
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
+              ),
+              Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(
+                  AppSpacing.s5,
+                  AppSpacing.s5,
+                  AppSpacing.s4,
+                  AppSpacing.s5,
+                ),
+                child: Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.campaign.titleAr,
+                              textAlign: TextAlign.right,
+                              style: AppTypography.title(Colors.white).copyWith(
+                                fontWeight: FontWeight.w900,
+                                height: 1.22,
                               ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            if (widget.campaign.isDismissible) ...[
-                              const SizedBox(width: AppSpacing.s2),
-                              _CampaignDismissButton(
-                                campaignId: widget.campaign.id,
-                              ),
-                            ],
+                          ),
+                          if (widget.campaign.isDismissible) ...[
+                            const SizedBox(width: AppSpacing.s2),
+                            _CampaignDismissButton(
+                              campaignId: widget.campaign.id,
+                            ),
                           ],
-                        ),
-                        if (hasBody) ...[
-                          const SizedBox(height: AppSpacing.s2),
-                          Text(
-                            body,
-                            textAlign: TextAlign.right,
-                            style: AppTypography.body(
-                              Colors.white.withValues(alpha: 0.82),
-                            ).copyWith(height: 1.35),
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                          ),
                         ],
-                        if (hasAction) ...[
-                          const SizedBox(height: AppSpacing.s3),
-                          Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.s3,
-                                vertical: 7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.16),
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.pill),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.18),
-                                ),
-                              ),
-                              child: Text(
-                                actionLabel,
-                                style: AppTypography.caption(Colors.white)
-                                    .copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      if (hasBody) ...[
+                        const SizedBox(height: AppSpacing.s2),
+                        Text(
+                          body,
+                          textAlign: TextAlign.right,
+                          style: AppTypography.body(
+                            Colors.white.withValues(alpha: 0.82),
+                          ).copyWith(height: 1.35),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      if (hasAction) ...[
+                        const SizedBox(height: AppSpacing.s3),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.s3,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.16),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.18),
                               ),
                             ),
+                            child: Text(
+                              actionLabel,
+                              style: AppTypography.caption(Colors.white)
+                                  .copyWith(fontWeight: FontWeight.w900),
+                            ),
                           ),
-                        ],
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -272,139 +281,136 @@ class _BannerTile extends ConsumerWidget {
         actionLabel != null &&
         actionLabel.isNotEmpty;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.xxl),
-          boxShadow: [
-            BoxShadow(
-              color: colors.start.withValues(alpha: isDark ? 0.20 : 0.24),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadius.xxl),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => _handleTap(context, announcement.actionUrl),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: AlignmentDirectional.topStart,
-                        end: AlignmentDirectional.bottomEnd,
-                        colors: [colors.start, colors.end],
-                      ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        boxShadow: [
+          BoxShadow(
+            color: colors.start.withValues(alpha: isDark ? 0.20 : 0.24),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _handleTap(context, announcement.actionUrl),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: AlignmentDirectional.topStart,
+                      end: AlignmentDirectional.bottomEnd,
+                      colors: [colors.start, colors.end],
                     ),
                   ),
                 ),
-                PositionedDirectional(
-                  top: -44,
-                  start: -26,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
+              ),
+              PositionedDirectional(
+                top: -44,
+                start: -26,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.08),
                   ),
                 ),
-                PositionedDirectional(
-                  bottom: -58,
-                  end: -28,
-                  child: Container(
-                    width: 150,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: 0.07),
-                    ),
+              ),
+              PositionedDirectional(
+                bottom: -58,
+                end: -28,
+                child: Container(
+                  width: 150,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.black.withValues(alpha: 0.07),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsetsDirectional.fromSTEB(
-                    AppSpacing.s5,
-                    AppSpacing.s5,
-                    AppSpacing.s4,
-                    AppSpacing.s5,
-                  ),
-                  child: Directionality(
-                    textDirection: TextDirection.rtl,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                announcement.titleAr,
-                                textAlign: TextAlign.right,
-                                style: AppTypography.title(colors.fg).copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.22,
-                                ),
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
+              ),
+              Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(
+                  AppSpacing.s5,
+                  AppSpacing.s5,
+                  AppSpacing.s4,
+                  AppSpacing.s5,
+                ),
+                child: Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              announcement.titleAr,
+                              textAlign: TextAlign.right,
+                              style: AppTypography.title(colors.fg).copyWith(
+                                fontWeight: FontWeight.w900,
+                                height: 1.22,
                               ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            if (announcement.isDismissible) ...[
-                              const SizedBox(width: AppSpacing.s2),
-                              _DismissButton(announcementId: announcement.id),
-                            ],
+                          ),
+                          if (announcement.isDismissible) ...[
+                            const SizedBox(width: AppSpacing.s2),
+                            _DismissButton(announcementId: announcement.id),
                           ],
-                        ),
-                        if (hasBody) ...[
-                          const SizedBox(height: AppSpacing.s2),
-                          Text(
-                            body,
-                            textAlign: TextAlign.right,
-                            style: AppTypography.body(
-                              colors.fg.withValues(alpha: 0.82),
-                            ).copyWith(height: 1.35),
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                          ),
                         ],
-                        if (hasAction) ...[
-                          const SizedBox(height: AppSpacing.s3),
-                          Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.s3,
-                                vertical: 7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.16),
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.pill),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.18),
-                                ),
-                              ),
-                              child: Text(
-                                actionLabel,
-                                style: AppTypography.caption(colors.fg)
-                                    .copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      if (hasBody) ...[
+                        const SizedBox(height: AppSpacing.s2),
+                        Text(
+                          body,
+                          textAlign: TextAlign.right,
+                          style: AppTypography.body(
+                            colors.fg.withValues(alpha: 0.82),
+                          ).copyWith(height: 1.35),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      if (hasAction) ...[
+                        const SizedBox(height: AppSpacing.s3),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.s3,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.16),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.18),
                               ),
                             ),
+                            child: Text(
+                              actionLabel,
+                              style: AppTypography.caption(colors.fg)
+                                  .copyWith(fontWeight: FontWeight.w900),
+                            ),
                           ),
-                        ],
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
