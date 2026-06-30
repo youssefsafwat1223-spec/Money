@@ -31,6 +31,7 @@ import '../common/app_card.dart';
 import '../common/category_catalog.dart';
 import '../common/motion.dart';
 import '../dashboard/dashboard_providers.dart';
+import '../capture/services/local_notification_service.dart';
 import '../onboarding/method_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'data_export.dart';
@@ -329,6 +330,13 @@ class SettingsScreen extends ConsumerWidget {
                           onTap: () =>
                               _showQuietHoursSheet(context, ref, prefs),
                         ),
+                        _NavTile(
+                          icon: Icons.notification_add_outlined,
+                          title: 'اختبار إشعارات قرش',
+                          subtitle:
+                              'يرسل إشعاراً من قرش نفسه. لا يقرأ إشعارات البنك أو الرسائل.',
+                          onTap: () => _sendTestNotification(context),
+                        ),
                       ],
                     ),
                   ),
@@ -485,6 +493,16 @@ class SettingsScreen extends ConsumerWidget {
     await ref.read(saveThemeModeUseCaseProvider).call(themeModeToKey(mode));
     refreshUserSettings(ref);
     ref.invalidate(persistedThemeModeProvider);
+  }
+
+  Future<void> _sendTestNotification(BuildContext context) async {
+    await LocalNotificationService.instance.showTestNotification();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('أرسلنا إشعاراً تجريبياً من قرش.'),
+      ),
+    );
   }
 
   Future<void> _signOut() async {

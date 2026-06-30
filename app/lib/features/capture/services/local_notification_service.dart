@@ -221,6 +221,30 @@ class LocalNotificationService {
     );
   }
 
+  Future<void> showTestNotification() async {
+    await requestPermissionsIfNeeded();
+    await _plugin.show(
+      id: 99001,
+      title: 'إشعار تجريبي من قرش',
+      body:
+          'لو ظهر الإشعار ده، إذن إشعارات قرش شغال. ده لا يعني قراءة إشعارات البنك.',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _lightChannelId,
+          'التقاط العمليات',
+          channelDescription: 'إشعارات خفيفة عند التقاط عملية مؤكدة',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: false,
+          presentSound: true,
+        ),
+      ),
+    );
+  }
+
   Future<void> showBudgetAlert({
     required String title,
     required String body,

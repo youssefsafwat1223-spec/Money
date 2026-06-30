@@ -3,9 +3,9 @@ import Foundation
 
 /// App Intent exposed to the Shortcuts app as "Process Bank SMS".
 ///
-/// Accepts the raw bank SMS text and an optional sender name, stores them in the
-/// shared App Group queue, and launches the host app so Flutter can run the
-/// existing parsing pipeline (ParserEngine + AddTransactionUseCase) on resume.
+/// Accepts the raw bank SMS text, stores it in the shared App Group queue, and
+/// launches the host app so Flutter can run the existing parsing pipeline
+/// (ParserEngine + AddTransactionUseCase) on resume.
 @available(iOS 16.0, *)
 struct PostBankStatusIntent: AppIntent {
   static var title: LocalizedStringResource = "Process Bank SMS"
@@ -25,18 +25,14 @@ struct PostBankStatusIntent: AppIntent {
   )
   var message: String
 
-  @Parameter(
-    title: "Sender",
-    description: "Optional sender name or short code (e.g. the bank name)."
-  )
-  var sender: String?
-
   static var parameterSummary: some ParameterSummary {
-    Summary("Process \(\.$message) from \(\.$sender)")
+    Summary("Process Bank SMS") {
+      \.$message
+    }
   }
 
   func perform() async throws -> some IntentResult {
-    SharedCaptureStore.enqueue(text: message, sender: sender)
+    SharedCaptureStore.enqueue(text: message, sender: nil)
     return .result()
   }
 }
