@@ -1,17 +1,17 @@
 import AppIntents
 import Foundation
 
-/// App Intent exposed to the Shortcuts app as "Post Bank Status".
+/// App Intent exposed to the Shortcuts app as "Process Bank SMS".
 ///
 /// Accepts the raw bank SMS text and an optional sender name, stores them in the
 /// shared App Group queue, and launches the host app so Flutter can run the
 /// existing parsing pipeline (ParserEngine + AddTransactionUseCase) on resume.
 @available(iOS 16.0, *)
 struct PostBankStatusIntent: AppIntent {
-  static var title: LocalizedStringResource = "Post Bank Status"
+  static var title: LocalizedStringResource = "Process Bank SMS"
 
   static var description = IntentDescription(
-    "Send a bank SMS to Mali so it parses the amount, merchant and category and adds the transaction."
+    "Process a bank SMS in Mali so it parses the amount, merchant and category and adds the transaction."
   )
 
   /// false = silent background capture; app stays closed or in background.
@@ -19,7 +19,7 @@ struct PostBankStatusIntent: AppIntent {
   static var openAppWhenRun: Bool = false
 
   @Parameter(
-    title: "Message",
+    title: "SMS Text",
     description: "The raw bank SMS text.",
     inputOptions: String.IntentInputOptions(multiline: true)
   )
@@ -32,7 +32,7 @@ struct PostBankStatusIntent: AppIntent {
   var sender: String?
 
   static var parameterSummary: some ParameterSummary {
-    Summary("Post \(\.$message) from \(\.$sender) to Mali")
+    Summary("Process \(\.$message) from \(\.$sender)")
   }
 
   func perform() async throws -> some IntentResult {
@@ -49,10 +49,11 @@ struct BankMessageShortcuts: AppShortcutsProvider {
       intent: PostBankStatusIntent(),
       phrases: [
         "Post Bank Status to \(.applicationName)",
+        "Process Bank SMS with \(.applicationName)",
         "Add a bank message to \(.applicationName)",
         "Send bank SMS to \(.applicationName)"
       ],
-      shortTitle: "Post Bank Status",
+      shortTitle: "Process Bank SMS",
       systemImageName: "creditcard"
     )
   }
