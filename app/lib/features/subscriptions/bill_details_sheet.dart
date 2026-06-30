@@ -500,8 +500,14 @@ class _BillPaymentRow extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
+    if (payment.transactionId != null) {
+      await ref
+          .read(transactionRepositoryProvider)
+          .delete(payment.transactionId!);
+    }
     await ref.read(billRepositoryProvider).deletePayment(payment.id);
     ref.invalidate(billPaymentsProvider(bill.id));
+    ref.invalidate(dashboardDataProvider);
   }
 
   @override
