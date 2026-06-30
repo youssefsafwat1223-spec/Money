@@ -20,6 +20,8 @@ import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/services/notification_planner.dart';
+import '../../domain/usecases/add_transaction_usecase.dart';
+import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../achievements/achievements_providers.dart';
 import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
 import '../budgets/budgets_providers.dart';
@@ -119,6 +121,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(ref.read(appDatabaseProvider).pruneOldDedupHashes());
 
     final ingestUseCase = ref.read(ingestCapturedMessageUseCaseProvider);
+    final notificationPreferences =
+        await ref.read(loadNotificationPreferencesUseCaseProvider).call();
 
     String? pendingConfirmationId;
     String? pendingSecondaryNotice;
@@ -132,6 +136,10 @@ class _AppShellState extends ConsumerState<AppShell> {
         receivedAt: DateTime.now().toUtc(),
       );
       final result = await ingestUseCase.fromCapturedMessage(captured);
+      await _showCapturedMessageNotification(
+        result,
+        notificationPreferences,
+      );
       if (result.transactionId != null &&
           result.addTransactionResult.requiresConfirmation) {
         pendingConfirmationId = result.transactionId;
@@ -172,6 +180,60 @@ class _AppShellState extends ConsumerState<AppShell> {
       return mapping;
     }
     return null;
+  }
+
+  Future<void> _showCapturedMessageNotification(
+    CapturedMessageResult result,
+    NotificationPreferences preferences,
+  ) async {
+    switch (result.disposition) {
+      case CapturedMessageDisposition.ignored:
+        return;
+      case CapturedMessageDisposition.notifyOnly:
+        await LocalNotificationService.instance.showLightCaptureNotification(
+          title: 'تم التقاط العملية',
+          body: _buildCapturedConfirmedBody(result.addTransactionResult),
+          preferences: preferences,
+        );
+      case CapturedMessageDisposition.requestConfirmation:
+        final transaction = result.addTransactionResult.transaction;
+        if (transaction == null) return;
+        await LocalNotificationService.instance.showReviewNotification(
+          transactionId: transaction.id,
+          body: _buildCapturedReviewBody(result.addTransactionResult),
+          preferences: preferences,
+        );
+      case CapturedMessageDisposition.unprocessable:
+        await LocalNotificationService.instance.showLightCaptureNotification(
+          title: 'رسالة لم نتمكن من تحليلها',
+          body: 'افتح قرش والصق الرسالة يدوياً للإضافة.',
+          preferences: preferences,
+        );
+    }
+  }
+
+  String _buildCapturedConfirmedBody(AddTransactionResult result) {
+    final transaction = result.transaction;
+    if (transaction == null) {
+      return 'أضفنا العملية إلى سجلك.';
+    }
+    final merchant = transaction.rawMerchant;
+    final amount = transaction.amount.toStringAsFixed(2);
+    return merchant == null
+        ? 'أضفنا عملية بقيمة $amount ${transaction.currency}.'
+        : 'أضفنا $amount ${transaction.currency} لدى $merchant.';
+  }
+
+  String _buildCapturedReviewBody(AddTransactionResult result) {
+    final transaction = result.transaction;
+    if (transaction == null) {
+      return 'راجِع العملية الجديدة وأكّدها.';
+    }
+    final merchant = transaction.rawMerchant;
+    final amount = transaction.amount.toStringAsFixed(2);
+    return merchant == null
+        ? 'راجِع عملية بقيمة $amount ${transaction.currency}.'
+        : 'راجِع $amount ${transaction.currency} لدى $merchant.';
   }
 
   Future<void> _syncEngagement() async {

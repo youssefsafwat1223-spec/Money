@@ -83,16 +83,23 @@ class NativeCaptureBridge {
         continue;
       }
       final rawSender = (item['sender'] as String?)?.trim();
+      final rawSource = (item['source'] as String?)?.trim();
       messages.add(
         SharedCapturedMessage(
           text: text,
           source: Platform.isIOS
-              ? CapturedMessageSource.iosShare
+              ? _iosCapturedSource(rawSource)
               : CapturedMessageSource.androidShare,
           sender: (rawSender == null || rawSender.isEmpty) ? null : rawSender,
         ),
       );
     }
     return messages;
+  }
+
+  static CapturedMessageSource _iosCapturedSource(String? source) {
+    return source == 'shortcut'
+        ? CapturedMessageSource.iosShortcut
+        : CapturedMessageSource.iosShare;
   }
 }

@@ -59,11 +59,11 @@ class IosShortcutScreen extends ConsumerWidget {
             Icons.insert_drive_file_outlined),
         const _Step(
             'Send to App',
-            'Search for "Process Bank SMS", choose the "Shortcut Input" variable and ensure it is correct.',
+            'Search for "Process Bank SMS". In SMS Text, choose "Shortcut Input".',
             Icons.send_rounded),
         const _Step(
-            'Silent Run',
-            'Disable "Show When Run" to run in the background.',
+            'Final shape',
+            'It should show: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input.',
             Icons.volume_off_rounded),
         const _Step('Save', 'Press Save in the top and setup is completed.',
             Icons.check_circle_outline_rounded),
@@ -88,9 +88,11 @@ class IosShortcutScreen extends ConsumerWidget {
           Icons.insert_drive_file_outlined),
       const _Step(
           'إرسال للتطبيق',
-          'ابحث عن «Process Bank SMS»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.',
+          'ابحث عن «Process Bank SMS». في SMS Text اختَر «Shortcut Input».',
           Icons.send_rounded),
-      const _Step('تشغيل صامت', 'أوقف «Show When Run» ليشتغل بالخلفية.',
+      const _Step(
+          'الشكل النهائي',
+          'لازم يظهر: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input.',
           Icons.volume_off_rounded),
       const _Step('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.',
           Icons.check_circle_outline_rounded),

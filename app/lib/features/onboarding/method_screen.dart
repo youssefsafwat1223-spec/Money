@@ -360,11 +360,11 @@ class IosShortcutGuide extends StatelessWidget {
             Icons.send_rounded),
         const _ShortcutStep(
             'Pass message text',
-            'Select Shortcut Input as input to the shortcut so Qirsh receives the bank message text.',
+            'The action should show SMS Text. Set SMS Text to Shortcut Input.',
             Icons.text_snippet_outlined),
         const _ShortcutStep(
-            'Run in background',
-            'Disable Show When Run so the addition happens silently.',
+            'Match the final shape',
+            'It should be: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input.',
             Icons.volume_off_rounded),
         const _ShortcutStep(
             'Save shortcut',
@@ -393,11 +393,11 @@ class IosShortcutGuide extends StatelessWidget {
           Icons.send_rounded),
       const _ShortcutStep(
           'مرّر نص الرسالة',
-          'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل قرش نص رسالة البنك.',
+          'لازم يظهر حقل SMS Text. اختَر له Shortcut Input.',
           Icons.text_snippet_outlined),
       const _ShortcutStep(
-          'شغّله في الخلفية',
-          'أوقف Show When Run حتى الإضافة تتم بدون إزعاج.',
+          'طابق الشكل النهائي',
+          'لازم يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input.',
           Icons.volume_off_rounded),
       const _ShortcutStep(
           'احفظ الاختصار',

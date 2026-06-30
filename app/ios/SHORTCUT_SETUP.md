@@ -113,13 +113,15 @@ macOS runner) to produce the `.ipa`, then sideload with your usual tool.
 
 ### As a Shortcut (manual)
 - Open **Shortcuts → +** → search the action **"Process Bank SMS"**.
-- Pass it text (e.g. *Get Text from Input* / *Clipboard*), optionally set **Sender**.
+- Pass it text through **SMS Text**. In a Message automation, set **SMS Text**
+  to **Shortcut Input**.
 - Run it → Mali opens and the transaction appears for confirmation.
 
 ### Near-automatic (Personal Automation)
 - Shortcuts app → **Automation → + → Message** → *Message Contains* the bank's name,
   or *When I get a message from* the bank's short code.
-- Action: **Process Bank SMS**, Message = *Shortcut Input* (the message text).
+- Action: **Process Bank SMS**, **SMS Text** = *Shortcut Input* (the message text).
+- Final shape should be: **Receive messages as input** → **Process Bank SMS**.
 - Turn **Run Immediately** on. iOS still shows a tap/notification for SMS triggers,
   but no manual copy/paste is needed.
 

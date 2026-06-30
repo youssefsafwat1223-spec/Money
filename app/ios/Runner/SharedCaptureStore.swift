@@ -1,7 +1,7 @@
 import Foundation
 
 /// Shared store between the Flutter host app, the Share Extension, and the
-/// "Post Bank Status" App Intent. Persists captured bank messages in the App
+/// "Process Bank SMS" App Intent. Persists captured bank messages in the App
 /// Group container as a FIFO queue so multiple messages are never lost.
 ///
 /// IMPORTANT: must be identical in all three targets (Runner, ShareBankMessage,
@@ -19,15 +19,20 @@ enum SharedCaptureStore {
   struct Payload: Codable {
     let text: String
     let sender: String?
+    let source: String?
   }
 
   /// Adds a captured bank message to the queue.
-  static func enqueue(text: String, sender: String? = nil) {
+  static func enqueue(text: String, sender: String? = nil, source: String? = nil) {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
     let cleanSender = sender?.trimmingCharacters(in: .whitespacesAndNewlines)
     var queue = loadQueue()
-    queue.append(Payload(text: trimmed, sender: (cleanSender?.isEmpty ?? true) ? nil : cleanSender))
+    queue.append(Payload(
+      text: trimmed,
+      sender: (cleanSender?.isEmpty ?? true) ? nil : cleanSender,
+      source: source
+    ))
     saveQueue(queue)
   }
 
@@ -42,7 +47,7 @@ enum SharedCaptureStore {
     var queue = loadQueue()
     if let legacy = defaults?.string(forKey: legacyKey),
        !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      queue.append(Payload(text: legacy, sender: nil))
+      queue.append(Payload(text: legacy, sender: nil, source: nil))
       defaults?.removeObject(forKey: legacyKey)
     }
     guard !queue.isEmpty else { return nil }

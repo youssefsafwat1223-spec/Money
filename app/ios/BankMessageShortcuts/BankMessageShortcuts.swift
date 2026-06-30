@@ -26,7 +26,7 @@ struct PostBankStatusIntent: AppIntent {
   var message: String
 
   func perform() async throws -> some IntentResult {
-    SharedCaptureStore.enqueue(text: message, sender: nil)
+    SharedCaptureStore.enqueue(text: message, sender: nil, source: "shortcut")
     return .result()
   }
 }
@@ -38,7 +38,7 @@ struct BankMessageShortcuts: AppShortcutsProvider {
     AppShortcut(
       intent: PostBankStatusIntent(),
       phrases: [
-        "Post Bank Status to \(.applicationName)",
+        "Process Bank SMS in \(.applicationName)",
         "Process Bank SMS with \(.applicationName)",
         "Add a bank message to \(.applicationName)",
         "Send bank SMS to \(.applicationName)"
