@@ -59,7 +59,7 @@ class IosShortcutScreen extends ConsumerWidget {
             Icons.insert_drive_file_outlined),
         const _Step(
             'Send to App',
-            'Search for "Post Bank Status", choose the "Shortcut Input" variable and ensure it is correct.',
+            'Search for "Process Bank SMS", choose the "Shortcut Input" variable and ensure it is correct.',
             Icons.send_rounded),
         const _Step(
             'Silent Run',
@@ -88,7 +88,7 @@ class IosShortcutScreen extends ConsumerWidget {
           Icons.insert_drive_file_outlined),
       const _Step(
           'إرسال للتطبيق',
-          'ابحث عن «Post Bank Status»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.',
+          'ابحث عن «Process Bank SMS»، اختر المتغير «Shortcut Input» وتأكد أنه صحيح.',
           Icons.send_rounded),
       const _Step('تشغيل صامت', 'أوقف «Show When Run» ليشتغل بالخلفية.',
           Icons.volume_off_rounded),

@@ -1,9 +1,9 @@
-# iOS "Post Bank Status" — Shortcut & Share Extension Setup
+# iOS "Process Bank SMS" — Shortcut & Share Extension Setup
 
 This guide wires the **fully implemented** iOS capture path so a bank SMS can reach
 Mali's existing parsing pipeline (`ParserEngine` → `AddTransactionUseCase`) two ways:
 
-1. **App Intent / Shortcut** — an action named **"Post Bank Status"** that takes the
+1. **App Intent / Shortcut** — an action named **"Process Bank SMS"** that takes the
    raw SMS text (and an optional sender) and launches Mali.
 2. **Share Extension** — share any selected text into Mali from the share sheet.
 
@@ -112,14 +112,14 @@ macOS runner) to produce the `.ipa`, then sideload with your usual tool.
 ## 5. Using it
 
 ### As a Shortcut (manual)
-- Open **Shortcuts → +** → search the action **"Post Bank Status"**.
+- Open **Shortcuts → +** → search the action **"Process Bank SMS"**.
 - Pass it text (e.g. *Get Text from Input* / *Clipboard*), optionally set **Sender**.
 - Run it → Mali opens and the transaction appears for confirmation.
 
 ### Near-automatic (Personal Automation)
 - Shortcuts app → **Automation → + → Message** → *Message Contains* the bank's name,
   or *When I get a message from* the bank's short code.
-- Action: **Post Bank Status**, Message = *Shortcut Input* (the message text).
+- Action: **Process Bank SMS**, Message = *Shortcut Input* (the message text).
 - Turn **Run Immediately** on. iOS still shows a tap/notification for SMS triggers,
   but no manual copy/paste is needed.
 
@@ -132,7 +132,7 @@ macOS runner) to produce the `.ipa`, then sideload with your usual tool.
 ## 6. How the data flows
 
 ```
-Shortcut "Post Bank Status"            Share sheet → Mali
+Shortcut "Process Bank SMS"            Share sheet → Mali
         │  (message, sender?)                │  (selected text)
         ▼                                    ▼
 PostBankStatusIntent.perform()      ShareViewController.didSelectPost()

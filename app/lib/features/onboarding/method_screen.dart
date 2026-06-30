@@ -356,7 +356,7 @@ class IosShortcutGuide extends StatelessWidget {
             'Select Run Immediately then press Next.', Icons.bolt_rounded),
         const _ShortcutStep(
             'Choose Qirsh Shortcut',
-            'Press New Blank Automation, and search for Post Bank Status.',
+            'Press New Blank Automation, and search for Process Bank SMS.',
             Icons.send_rounded),
         const _ShortcutStep(
             'Pass message text',
@@ -389,7 +389,7 @@ class IosShortcutGuide extends StatelessWidget {
           'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
       const _ShortcutStep(
           'اختَر اختصار قرش',
-          'اضغط New Blank Automation، وابحث عن Post Bank Status.',
+          'اضغط New Blank Automation، وابحث عن Process Bank SMS.',
           Icons.send_rounded),
       const _ShortcutStep(
           'مرّر نص الرسالة',

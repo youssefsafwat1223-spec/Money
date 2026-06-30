@@ -288,7 +288,7 @@ class _ShortcutBody extends StatelessWidget {
         _DetailStep(
             '4', 'خلّيه يعمل فوراً', 'اختَر Run Immediately ثم اضغط Next.'),
         _DetailStep('5', 'اختَر اختصار قرش',
-            'اضغط New Blank Automation، وابحث عن Post Bank Status.'),
+            'اضغط New Blank Automation، وابحث عن Process Bank SMS.'),
         _DetailStep('6', 'مرّر نص الرسالة',
             'اختَر Shortcut Input كمدخل للاختصار حتى يستقبل قرش نص رسالة البنك.'),
         _DetailStep('7', 'شغّله في الخلفية',
