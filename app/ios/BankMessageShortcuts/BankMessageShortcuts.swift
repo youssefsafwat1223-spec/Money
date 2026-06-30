@@ -26,9 +26,7 @@ struct PostBankStatusIntent: AppIntent {
   var message: String
 
   static var parameterSummary: some ParameterSummary {
-    Summary("Process Bank SMS") {
-      \.$message
-    }
+    Summary("Process Bank SMS \.$message")
   }
 
   func perform() async throws -> some IntentResult {
