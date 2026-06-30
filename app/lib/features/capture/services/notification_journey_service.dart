@@ -58,7 +58,16 @@ class NotificationJourneyService {
         route: journey.route,
       );
       final updatedInbox =
-          preferences.inboxState.markJourneySent(journey.id, now);
+          preferences.inboxState.markJourneySent(journey.id, now).addHistory(
+                NotificationHistoryEntry(
+                  id: journey.id,
+                  kind: 'journey',
+                  title: journey.title,
+                  body: journey.body,
+                  route: journey.route,
+                  sentAt: now,
+                ),
+              );
       await _savePreferences(preferences.copyWith(inboxState: updatedInbox));
       break;
     }
@@ -108,7 +117,19 @@ class NotificationJourneyService {
       preferences = await _loadPreferences();
       final updatedInbox = preferences.inboxState
           .markMarketingSent(campaign.id, now)
-          .markImpression(campaign.id);
+          .markImpression(campaign.id)
+          .addHistory(
+            NotificationHistoryEntry(
+              id: campaign.id,
+              kind: 'campaign',
+              title: campaign.titleAr,
+              body: campaign.bodyAr?.trim().isNotEmpty == true
+                  ? campaign.bodyAr!.trim()
+                  : campaign.titleAr,
+              route: campaign.actionRoute,
+              sentAt: now,
+            ),
+          );
       await _savePreferences(preferences.copyWith(inboxState: updatedInbox));
       break;
     }

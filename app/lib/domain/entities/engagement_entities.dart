@@ -266,6 +266,7 @@ class NotificationInboxState {
     this.impressionCounts = const {},
     this.dismissedCampaignIds = const {},
     this.sentJourneyIds = const {},
+    this.history = const [],
   });
 
   final DateTime? firstSeenAt;
@@ -274,6 +275,7 @@ class NotificationInboxState {
   final Map<String, int> impressionCounts;
   final Set<String> dismissedCampaignIds;
   final Set<String> sentJourneyIds;
+  final List<NotificationHistoryEntry> history;
 
   bool hasDismissed(String id) => dismissedCampaignIds.contains(id);
 
@@ -292,6 +294,7 @@ class NotificationInboxState {
     Map<String, int>? impressionCounts,
     Set<String>? dismissedCampaignIds,
     Set<String>? sentJourneyIds,
+    List<NotificationHistoryEntry>? history,
   }) {
     return NotificationInboxState(
       firstSeenAt: clearFirstSeenAt ? null : firstSeenAt ?? this.firstSeenAt,
@@ -302,6 +305,7 @@ class NotificationInboxState {
       impressionCounts: impressionCounts ?? this.impressionCounts,
       dismissedCampaignIds: dismissedCampaignIds ?? this.dismissedCampaignIds,
       sentJourneyIds: sentJourneyIds ?? this.sentJourneyIds,
+      history: history ?? this.history,
     );
   }
 
@@ -322,6 +326,14 @@ class NotificationInboxState {
       sentCampaignAt: sent,
       sentJourneyIds: {...sentJourneyIds, id},
     );
+  }
+
+  NotificationInboxState addHistory(NotificationHistoryEntry entry) {
+    final next = [
+      entry,
+      ...history.where((item) => item.id != entry.id),
+    ];
+    return copyWith(history: next.take(80).toList());
   }
 
   NotificationInboxState markImpression(String id) {
@@ -345,6 +357,7 @@ class NotificationInboxState {
       'impressionCounts': impressionCounts,
       'dismissedCampaignIds': dismissedCampaignIds.toList(),
       'sentJourneyIds': sentJourneyIds.toList(),
+      'history': history.map((entry) => entry.toJson()).toList(),
     };
   }
 
@@ -358,6 +371,7 @@ class NotificationInboxState {
       impressionCounts: _readIntMap(json['impressionCounts']),
       dismissedCampaignIds: _readStringSet(json['dismissedCampaignIds']),
       sentJourneyIds: _readStringSet(json['sentJourneyIds']),
+      history: _readHistory(json['history']),
     );
   }
 
@@ -391,6 +405,57 @@ class NotificationInboxState {
       return value.map((item) => item.toString()).toSet();
     }
     return const {};
+  }
+
+  static List<NotificationHistoryEntry> _readHistory(Object? value) {
+    if (value is! Iterable) return const [];
+    return value
+        .whereType<Map<Object?, Object?>>()
+        .map(
+            (item) => item.map((key, value) => MapEntry(key.toString(), value)))
+        .map(NotificationHistoryEntry.fromJson)
+        .toList();
+  }
+}
+
+class NotificationHistoryEntry {
+  const NotificationHistoryEntry({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.body,
+    required this.sentAt,
+    this.route,
+  });
+
+  final String id;
+  final String kind;
+  final String title;
+  final String body;
+  final DateTime sentAt;
+  final String? route;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'kind': kind,
+      'title': title,
+      'body': body,
+      'sentAt': sentAt.toUtc().toIso8601String(),
+      'route': route,
+    };
+  }
+
+  static NotificationHistoryEntry fromJson(Map<String, dynamic> json) {
+    return NotificationHistoryEntry(
+      id: json['id']?.toString() ?? '',
+      kind: json['kind']?.toString() ?? 'notification',
+      title: json['title']?.toString() ?? '',
+      body: json['body']?.toString() ?? '',
+      sentAt: DateTime.tryParse(json['sentAt']?.toString() ?? '')?.toUtc() ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      route: json['route']?.toString(),
+    );
   }
 }
 

@@ -351,6 +351,13 @@ class SettingsScreen extends ConsumerWidget {
                               'يرسل إشعاراً من قرش نفسه. لا يقرأ إشعارات البنك أو الرسائل.',
                           onTap: () => _sendTestNotification(context),
                         ),
+                        _NavTile(
+                          icon: Icons.inbox_outlined,
+                          title: 'مركز رسائل قرش',
+                          subtitle:
+                              'تاريخ الإشعارات والحملات والإعلانات داخل التطبيق.',
+                          onTap: () => context.push('/announcements'),
+                        ),
                       ],
                     ),
                   ),

@@ -30,6 +30,16 @@ void main() {
           dismissedCampaignIds: {'trust'},
           sentJourneyIds: {'welcome'},
           impressionCounts: const {'trust': 1},
+          history: [
+            NotificationHistoryEntry(
+              id: 'welcome',
+              kind: 'journey',
+              title: 'أهلاً بك في قرش',
+              body: 'خلّينا نبدأ.',
+              route: '/settings',
+              sentAt: DateTime.utc(2026, 6, 30, 9),
+            ),
+          ],
         ),
       );
 
@@ -39,6 +49,8 @@ void main() {
       expect(parsed.inboxState.hasDismissed('trust'), isTrue);
       expect(parsed.inboxState.hasSentJourney('welcome'), isTrue);
       expect(parsed.inboxState.impressionsFor('trust'), 1);
+      expect(parsed.inboxState.history.single.title, 'أهلاً بك في قرش');
+      expect(parsed.inboxState.history.single.route, '/settings');
     });
   });
 }
