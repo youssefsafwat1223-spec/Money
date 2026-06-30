@@ -53,6 +53,7 @@ Future<void> _bootstrap() async {
   }
   final initialCaptureTransactionId =
       await LocalNotificationService.instance.initialize();
+  await LocalNotificationService.instance.requestPermissionsIfNeeded();
   final AppDatabase database;
   try {
     database = await AppDatabase.open();
@@ -158,8 +159,7 @@ class _DatabaseRecoveryAppState extends State<_DatabaseRecoveryApp> {
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 2))
+                              child: CircularProgressIndicator(strokeWidth: 2))
                           : const Text('إعادة تعيين البيانات'),
                     ),
                   ),
