@@ -248,6 +248,20 @@ class SettingsScreen extends ConsumerWidget {
                     child: _Section(
                       title: 'الإشعارات والتنبيهات',
                       children: [
+                        const _TrustNoticeTile(
+                          text:
+                              'قرش يرسل إشعارات من نفسه لمساعدتك. لا يقرأ إشعارات البنك أو رسائل SMS من النظام.',
+                        ),
+                        _SwitchTile(
+                          title: 'رسائل ونصائح قرش',
+                          icon: Icons.campaign_outlined,
+                          iconColor: c.primary,
+                          value: prefs.marketingMessages,
+                          onChanged: (value) => _savePrefs(
+                            ref,
+                            prefs.copyWith(marketingMessages: value),
+                          ),
+                        ),
                         _SwitchTile(
                           title: 'تنبيهات تأكيد العمليات',
                           icon: Icons.rate_review_outlined,
@@ -1799,6 +1813,37 @@ class _NavTile extends StatelessWidget {
           : Text(subtitle!, style: AppTypography.caption(c.textLight)),
       trailing: Icon(Icons.chevron_left, color: c.textLight, size: 20),
       onTap: onTap,
+    );
+  }
+}
+
+class _TrustNoticeTile extends StatelessWidget {
+  const _TrustNoticeTile({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s4,
+        vertical: AppSpacing.s3,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TileIcon(icon: Icons.verified_user_outlined, color: c.success),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTypography.caption(c.textLight).copyWith(height: 1.45),
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

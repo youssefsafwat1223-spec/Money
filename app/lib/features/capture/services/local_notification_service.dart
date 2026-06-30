@@ -56,6 +56,7 @@ class LocalNotificationService {
   static final LocalNotificationService instance = LocalNotificationService._();
   static const String _reviewChannelId = 'capture_review';
   static const String _lightChannelId = 'capture_light';
+  static const String _marketingChannelId = 'qirsh_growth';
   static const String _budgetChannelId = 'budget_alerts';
   static const String _achievementChannelId = 'achievement_alerts';
   static const String _streakChannelId = 'streak_reminders';
@@ -242,6 +243,41 @@ class LocalNotificationService {
           presentSound: true,
         ),
       ),
+    );
+  }
+
+  Future<void> showMarketingNotification({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationPreferences preferences,
+    String route = '/dashboard',
+  }) async {
+    await _show(
+      id: id,
+      title: title,
+      body: body,
+      notificationType: NotificationType.marketing,
+      preferences: preferences,
+      details: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _marketingChannelId,
+          'رسائل ونصائح قرش',
+          channelDescription:
+              'إشعارات من قرش تساعدك تكمل الإعداد وتكتشف ملخصاتك',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: false,
+          presentSound: true,
+        ),
+      ),
+      payload: CaptureNotificationPayload(
+        kind: 'growth',
+        route: route,
+      ).encode(),
     );
   }
 

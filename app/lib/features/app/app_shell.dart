@@ -78,6 +78,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       unawaited(UserActivityService.ping()); // cold start — always writes
       await _consumeSharedInput();
       await _syncEngagement();
+      unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
       _drainCelebrations();
       final initialTransactionId =
           CaptureRuntime.instance.takeInitialConfirmation();
@@ -106,6 +107,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
     await _consumeSharedInput();
     await _syncEngagement();
+    unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
     _drainCelebrations();
   }
 
@@ -140,6 +142,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         message.sender,
       );
     }
+    unawaited(
+      ref.read(notificationJourneyServiceProvider).evaluateAfterCapture(),
+    );
     if (!mounted) return;
 
     _refreshAll();

@@ -15,6 +15,7 @@ const NAV = [
   { href: "/categories",    label: "Categories",    icon: Tag },
   { href: "/flags",         label: "Feature Flags", icon: ToggleLeft },
   { href: "/announcements", label: "Announcements", icon: Megaphone },
+  { href: "/campaigns",     label: "Campaigns",     icon: Megaphone },
   { href: "/parser-lab",    label: "Parser Lab",    icon: FlaskConical },
 ];
 

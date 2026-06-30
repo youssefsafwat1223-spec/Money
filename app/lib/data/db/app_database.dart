@@ -11,7 +11,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 12;
+const int _targetSchemaVersion = 13;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -356,6 +356,7 @@ class AppDatabase extends GeneratedDatabase {
     await _createRemoteCategoriesTable();
     await _createRemoteFeatureFlagsTable();
     await _createRemoteAnnouncementsTable();
+    await _createRemoteGrowthCampaignsTable();
 
     await customStatement('''
       CREATE TABLE IF NOT EXISTS user_settings(
@@ -542,6 +543,9 @@ class AppDatabase extends GeneratedDatabase {
     }
     if (version < 7) {
       await _createSenderBankMappingsTable();
+    }
+    if (version < 13) {
+      await _createRemoteGrowthCampaignsTable();
     }
     if (version < 8) {
       await _ensureColumn('sender_bank_mappings', 'reason', 'TEXT NULL');
@@ -785,6 +789,33 @@ class AppDatabase extends GeneratedDatabase {
         priority INTEGER NOT NULL DEFAULT 0,
         is_dismissed INTEGER NOT NULL DEFAULT 0,
         dismissed_at TEXT NULL,
+        synced_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  Future<void> _createRemoteGrowthCampaignsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_growth_campaigns(
+        id TEXT PRIMARY KEY,
+        title_ar TEXT NOT NULL,
+        title_en TEXT NOT NULL,
+        body_ar TEXT NULL,
+        body_en TEXT NULL,
+        type TEXT NOT NULL,
+        target_segment TEXT NOT NULL,
+        action_label_ar TEXT NULL,
+        action_label_en TEXT NULL,
+        action_route TEXT NULL,
+        action_url TEXT NULL,
+        valid_from TEXT NOT NULL,
+        valid_until TEXT NULL,
+        max_impressions INTEGER NULL,
+        cooldown_hours INTEGER NOT NULL DEFAULT 24,
+        is_dismissible INTEGER NOT NULL DEFAULT 1,
+        once_per_user INTEGER NOT NULL DEFAULT 0,
+        priority INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
         synced_at TEXT NOT NULL
       );
     ''');

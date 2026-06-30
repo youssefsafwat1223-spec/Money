@@ -71,6 +71,7 @@ class GoalDetailsEntity {
 enum NotificationType {
   captureReview,
   captureLight,
+  marketing,
   budgetWarning,
   budgetOver,
   achievements,
@@ -84,6 +85,7 @@ class NotificationPreferences {
   const NotificationPreferences({
     this.captureReview = true,
     this.captureLight = true,
+    this.marketingMessages = true,
     this.budgetWarning = true,
     this.budgetOver = true,
     this.achievements = true,
@@ -98,10 +100,12 @@ class NotificationPreferences {
     this.lastRestaurantReductionMonthKey,
     this.lastMonthWithoutOverrunKey,
     this.notifiedGoalMilestones = const {},
+    this.inboxState = const NotificationInboxState(),
   });
 
   final bool captureReview;
   final bool captureLight;
+  final bool marketingMessages;
   final bool budgetWarning;
   final bool budgetOver;
   final bool achievements;
@@ -116,6 +120,7 @@ class NotificationPreferences {
   final String? lastRestaurantReductionMonthKey;
   final String? lastMonthWithoutOverrunKey;
   final Map<String, int> notifiedGoalMilestones;
+  final NotificationInboxState inboxState;
 
   bool isEnabled(NotificationType type) {
     switch (type) {
@@ -123,6 +128,8 @@ class NotificationPreferences {
         return captureReview;
       case NotificationType.captureLight:
         return captureLight;
+      case NotificationType.marketing:
+        return marketingMessages;
       case NotificationType.budgetWarning:
         return budgetWarning;
       case NotificationType.budgetOver:
@@ -143,6 +150,7 @@ class NotificationPreferences {
   NotificationPreferences copyWith({
     bool? captureReview,
     bool? captureLight,
+    bool? marketingMessages,
     bool? budgetWarning,
     bool? budgetOver,
     bool? achievements,
@@ -157,10 +165,12 @@ class NotificationPreferences {
     String? lastRestaurantReductionMonthKey,
     String? lastMonthWithoutOverrunKey,
     Map<String, int>? notifiedGoalMilestones,
+    NotificationInboxState? inboxState,
   }) {
     return NotificationPreferences(
       captureReview: captureReview ?? this.captureReview,
       captureLight: captureLight ?? this.captureLight,
+      marketingMessages: marketingMessages ?? this.marketingMessages,
       budgetWarning: budgetWarning ?? this.budgetWarning,
       budgetOver: budgetOver ?? this.budgetOver,
       achievements: achievements ?? this.achievements,
@@ -179,6 +189,7 @@ class NotificationPreferences {
           lastMonthWithoutOverrunKey ?? this.lastMonthWithoutOverrunKey,
       notifiedGoalMilestones:
           notifiedGoalMilestones ?? this.notifiedGoalMilestones,
+      inboxState: inboxState ?? this.inboxState,
     );
   }
 
@@ -186,6 +197,7 @@ class NotificationPreferences {
     return {
       'captureReview': captureReview,
       'captureLight': captureLight,
+      'marketingMessages': marketingMessages,
       'budgetWarning': budgetWarning,
       'budgetOver': budgetOver,
       'achievements': achievements,
@@ -200,6 +212,7 @@ class NotificationPreferences {
       'lastRestaurantReductionMonthKey': lastRestaurantReductionMonthKey,
       'lastMonthWithoutOverrunKey': lastMonthWithoutOverrunKey,
       'notifiedGoalMilestones': notifiedGoalMilestones,
+      'notificationInboxState': inboxState.toJson(),
     };
   }
 
@@ -210,6 +223,7 @@ class NotificationPreferences {
     return NotificationPreferences(
       captureReview: json['captureReview'] as bool? ?? true,
       captureLight: json['captureLight'] as bool? ?? true,
+      marketingMessages: json['marketingMessages'] as bool? ?? true,
       budgetWarning: json['budgetWarning'] as bool? ?? true,
       budgetOver: json['budgetOver'] as bool? ?? true,
       achievements: json['achievements'] as bool? ?? true,
@@ -227,6 +241,9 @@ class NotificationPreferences {
       notifiedGoalMilestones: _readGoalMilestones(
         json['notifiedGoalMilestones'],
       ),
+      inboxState: NotificationInboxState.fromJson(
+        json['notificationInboxState'] as Map<String, dynamic>?,
+      ),
     );
   }
 
@@ -238,6 +255,142 @@ class NotificationPreferences {
         milestone is int ? milestone : int.tryParse('$milestone') ?? 0,
       ),
     );
+  }
+}
+
+class NotificationInboxState {
+  const NotificationInboxState({
+    this.firstSeenAt,
+    this.lastMarketingNotificationAt,
+    this.sentCampaignAt = const {},
+    this.impressionCounts = const {},
+    this.dismissedCampaignIds = const {},
+    this.sentJourneyIds = const {},
+  });
+
+  final DateTime? firstSeenAt;
+  final DateTime? lastMarketingNotificationAt;
+  final Map<String, DateTime> sentCampaignAt;
+  final Map<String, int> impressionCounts;
+  final Set<String> dismissedCampaignIds;
+  final Set<String> sentJourneyIds;
+
+  bool hasDismissed(String id) => dismissedCampaignIds.contains(id);
+
+  bool hasSentJourney(String id) => sentJourneyIds.contains(id);
+
+  int impressionsFor(String id) => impressionCounts[id] ?? 0;
+
+  DateTime? lastSentFor(String id) => sentCampaignAt[id];
+
+  NotificationInboxState copyWith({
+    DateTime? firstSeenAt,
+    bool clearFirstSeenAt = false,
+    DateTime? lastMarketingNotificationAt,
+    bool clearLastMarketingNotificationAt = false,
+    Map<String, DateTime>? sentCampaignAt,
+    Map<String, int>? impressionCounts,
+    Set<String>? dismissedCampaignIds,
+    Set<String>? sentJourneyIds,
+  }) {
+    return NotificationInboxState(
+      firstSeenAt: clearFirstSeenAt ? null : firstSeenAt ?? this.firstSeenAt,
+      lastMarketingNotificationAt: clearLastMarketingNotificationAt
+          ? null
+          : lastMarketingNotificationAt ?? this.lastMarketingNotificationAt,
+      sentCampaignAt: sentCampaignAt ?? this.sentCampaignAt,
+      impressionCounts: impressionCounts ?? this.impressionCounts,
+      dismissedCampaignIds: dismissedCampaignIds ?? this.dismissedCampaignIds,
+      sentJourneyIds: sentJourneyIds ?? this.sentJourneyIds,
+    );
+  }
+
+  NotificationInboxState markMarketingSent(String id, DateTime sentAt) {
+    final sent = Map<String, DateTime>.from(sentCampaignAt);
+    sent[id] = sentAt.toUtc();
+    return copyWith(
+      lastMarketingNotificationAt: sentAt.toUtc(),
+      sentCampaignAt: sent,
+    );
+  }
+
+  NotificationInboxState markJourneySent(String id, DateTime sentAt) {
+    final sent = Map<String, DateTime>.from(sentCampaignAt);
+    sent[id] = sentAt.toUtc();
+    return copyWith(
+      lastMarketingNotificationAt: sentAt.toUtc(),
+      sentCampaignAt: sent,
+      sentJourneyIds: {...sentJourneyIds, id},
+    );
+  }
+
+  NotificationInboxState markImpression(String id) {
+    final counts = Map<String, int>.from(impressionCounts);
+    counts[id] = (counts[id] ?? 0) + 1;
+    return copyWith(impressionCounts: counts);
+  }
+
+  NotificationInboxState markDismissed(String id) {
+    return copyWith(dismissedCampaignIds: {...dismissedCampaignIds, id});
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'firstSeenAt': firstSeenAt?.toUtc().toIso8601String(),
+      'lastMarketingNotificationAt':
+          lastMarketingNotificationAt?.toUtc().toIso8601String(),
+      'sentCampaignAt': sentCampaignAt.map(
+        (key, value) => MapEntry(key, value.toUtc().toIso8601String()),
+      ),
+      'impressionCounts': impressionCounts,
+      'dismissedCampaignIds': dismissedCampaignIds.toList(),
+      'sentJourneyIds': sentJourneyIds.toList(),
+    };
+  }
+
+  static NotificationInboxState fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const NotificationInboxState();
+    return NotificationInboxState(
+      firstSeenAt: _readDate(json['firstSeenAt']),
+      lastMarketingNotificationAt:
+          _readDate(json['lastMarketingNotificationAt']),
+      sentCampaignAt: _readDateMap(json['sentCampaignAt']),
+      impressionCounts: _readIntMap(json['impressionCounts']),
+      dismissedCampaignIds: _readStringSet(json['dismissedCampaignIds']),
+      sentJourneyIds: _readStringSet(json['sentJourneyIds']),
+    );
+  }
+
+  static DateTime? _readDate(Object? value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString())?.toUtc();
+  }
+
+  static Map<String, DateTime> _readDateMap(Object? value) {
+    if (value is! Map) return const {};
+    final result = <String, DateTime>{};
+    for (final entry in value.entries) {
+      final parsed = _readDate(entry.value);
+      if (parsed != null) result[entry.key.toString()] = parsed;
+    }
+    return result;
+  }
+
+  static Map<String, int> _readIntMap(Object? value) {
+    if (value is! Map) return const {};
+    return value.map(
+      (key, count) => MapEntry(
+        key.toString(),
+        count is int ? count : int.tryParse('$count') ?? 0,
+      ),
+    );
+  }
+
+  static Set<String> _readStringSet(Object? value) {
+    if (value is Iterable) {
+      return value.map((item) => item.toString()).toSet();
+    }
+    return const {};
   }
 }
 

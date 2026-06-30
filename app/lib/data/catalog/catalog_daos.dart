@@ -1462,3 +1462,177 @@ class RemoteAnnouncementsDao {
     );
   }
 }
+
+// Growth campaigns
+// ─────────────────────────────────────────────────────────
+
+class RemoteGrowthCampaign {
+  const RemoteGrowthCampaign({
+    required this.id,
+    required this.titleAr,
+    required this.titleEn,
+    required this.bodyAr,
+    required this.bodyEn,
+    required this.type,
+    required this.targetSegment,
+    required this.actionLabelAr,
+    required this.actionLabelEn,
+    required this.actionRoute,
+    required this.actionUrl,
+    required this.validFrom,
+    required this.validUntil,
+    required this.maxImpressions,
+    required this.cooldownHours,
+    required this.isDismissible,
+    required this.oncePerUser,
+    required this.priority,
+    required this.isActive,
+    required this.syncedAt,
+  });
+
+  final String id;
+  final String titleAr;
+  final String titleEn;
+  final String? bodyAr;
+  final String? bodyEn;
+  final String type;
+  final String targetSegment;
+  final String? actionLabelAr;
+  final String? actionLabelEn;
+  final String? actionRoute;
+  final String? actionUrl;
+  final DateTime validFrom;
+  final DateTime? validUntil;
+  final int? maxImpressions;
+  final int cooldownHours;
+  final bool isDismissible;
+  final bool oncePerUser;
+  final int priority;
+  final bool isActive;
+  final DateTime syncedAt;
+
+  static RemoteGrowthCampaign fromJson(Map<String, Object?> json) {
+    return RemoteGrowthCampaign(
+      id: json['id'].toString(),
+      titleAr: json['title_ar'].toString(),
+      titleEn: json['title_en'].toString(),
+      bodyAr: _optionalString(json['body_ar']),
+      bodyEn: _optionalString(json['body_en']),
+      type: json['type'].toString(),
+      targetSegment: json['target_segment'].toString(),
+      actionLabelAr: _optionalString(json['action_label_ar']),
+      actionLabelEn: _optionalString(json['action_label_en']),
+      actionRoute: _optionalString(json['action_route']),
+      actionUrl: _optionalString(json['action_url']),
+      validFrom: _dateTimeFromJson(json['valid_from']),
+      validUntil: json['valid_until'] != null
+          ? _dateTimeFromJson(json['valid_until'])
+          : null,
+      maxImpressions: (json['max_impressions'] as num?)?.toInt(),
+      cooldownHours: (json['cooldown_hours'] as num?)?.toInt() ?? 24,
+      isDismissible: json['is_dismissible'] as bool? ?? true,
+      oncePerUser: json['once_per_user'] as bool? ?? false,
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      isActive: json['is_active'] as bool? ?? true,
+      syncedAt: DateTime.now().toUtc(),
+    );
+  }
+}
+
+class RemoteGrowthCampaignsDao {
+  RemoteGrowthCampaignsDao(this._db);
+
+  final AppDatabase _db;
+
+  Future<void> replaceAll(List<RemoteGrowthCampaign> campaigns) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.transaction(() async {
+      await _db.customStatement('DELETE FROM remote_growth_campaigns;');
+      for (final c in campaigns) {
+        await _db.customInsert(
+          '''
+            INSERT INTO remote_growth_campaigns(
+              id, title_ar, title_en, body_ar, body_en, type, target_segment,
+              action_label_ar, action_label_en, action_route, action_url,
+              valid_from, valid_until, max_impressions, cooldown_hours,
+              is_dismissible, once_per_user, priority, is_active, synced_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          ''',
+          variables: [
+            Variable.withString(c.id),
+            Variable.withString(c.titleAr),
+            Variable.withString(c.titleEn),
+            _nullableString(c.bodyAr),
+            _nullableString(c.bodyEn),
+            Variable.withString(c.type),
+            Variable.withString(c.targetSegment),
+            _nullableString(c.actionLabelAr),
+            _nullableString(c.actionLabelEn),
+            _nullableString(c.actionRoute),
+            _nullableString(c.actionUrl),
+            Variable.withString(dateTimeToSql(c.validFrom)),
+            c.validUntil != null
+                ? Variable.withString(dateTimeToSql(c.validUntil!))
+                : const Variable<String>(null),
+            c.maxImpressions != null
+                ? Variable.withInt(c.maxImpressions!)
+                : const Variable<int>(null),
+            Variable.withInt(c.cooldownHours),
+            Variable.withInt(boolToSql(c.isDismissible)),
+            Variable.withInt(boolToSql(c.oncePerUser)),
+            Variable.withInt(c.priority),
+            Variable.withInt(boolToSql(c.isActive)),
+            Variable.withString(now),
+          ],
+        );
+      }
+    });
+  }
+
+  Future<List<RemoteGrowthCampaign>> getActiveByType(String type) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM remote_growth_campaigns
+        WHERE is_active = 1
+          AND type = ?
+          AND valid_from <= ?
+          AND (valid_until IS NULL OR valid_until >= ?)
+        ORDER BY priority DESC, valid_from ASC;
+      ''',
+      variables: [
+        Variable.withString(type),
+        Variable.withString(now),
+        Variable.withString(now),
+      ],
+    ).get();
+    return rows.map(_campaignFromRow).toList();
+  }
+
+  RemoteGrowthCampaign _campaignFromRow(QueryRow row) {
+    final validUntilRaw = row.readNullable<String>('valid_until');
+    return RemoteGrowthCampaign(
+      id: row.read<String>('id'),
+      titleAr: row.read<String>('title_ar'),
+      titleEn: row.read<String>('title_en'),
+      bodyAr: row.readNullable<String>('body_ar'),
+      bodyEn: row.readNullable<String>('body_en'),
+      type: row.read<String>('type'),
+      targetSegment: row.read<String>('target_segment'),
+      actionLabelAr: row.readNullable<String>('action_label_ar'),
+      actionLabelEn: row.readNullable<String>('action_label_en'),
+      actionRoute: row.readNullable<String>('action_route'),
+      actionUrl: row.readNullable<String>('action_url'),
+      validFrom: dateTimeFromSql(row.read<String>('valid_from')),
+      validUntil: validUntilRaw != null ? dateTimeFromSql(validUntilRaw) : null,
+      maxImpressions: row.readNullable<int>('max_impressions'),
+      cooldownHours: row.read<int>('cooldown_hours'),
+      isDismissible: sqlToBool(row.read<int>('is_dismissible')),
+      oncePerUser: sqlToBool(row.read<int>('once_per_user')),
+      priority: row.read<int>('priority'),
+      isActive: sqlToBool(row.read<int>('is_active')),
+      syncedAt: dateTimeFromSql(row.read<String>('synced_at')),
+    );
+  }
+}

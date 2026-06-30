@@ -43,6 +43,7 @@ class CatalogSyncService {
         ...stale.map((c) => syncCategory(c, countryCode: countryCode)),
         syncFlags(countryCode: countryCode),
         syncAnnouncements(countryCode: countryCode),
+        syncGrowthCampaigns(countryCode: countryCode),
       ]);
       // Refresh in-memory flag cache after sync
       await _featureFlagService.init();
@@ -111,6 +112,37 @@ class CatalogSyncService {
       await RemoteAnnouncementsDao(_database).replaceAll(announcements);
     } catch (e) {
       debugPrint('Catalog announcements sync skipped: $e');
+    }
+  }
+
+  Future<void> syncGrowthCampaigns({String? countryCode}) async {
+    try {
+      final response = await _client.functions.invoke(
+        'catalog-campaigns',
+        method: supabase.HttpMethod.get,
+        headers: const {
+          'X-App-Version': String.fromEnvironment('APP_VERSION'),
+        },
+        queryParameters: {
+          if (countryCode != null && countryCode.isNotEmpty)
+            'country': countryCode.trim().toUpperCase(),
+        },
+      );
+      if (response.status < 200 || response.status >= 300) return;
+      final data = response.data;
+      final items = data is List
+          ? data
+          : data is Map && data['campaigns'] is List
+              ? data['campaigns'] as List
+              : <Object?>[];
+      final campaigns = items
+          .whereType<Map<Object?, Object?>>()
+          .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))
+          .map(RemoteGrowthCampaign.fromJson)
+          .toList();
+      await RemoteGrowthCampaignsDao(_database).replaceAll(campaigns);
+    } catch (e) {
+      debugPrint('Catalog campaigns sync skipped: $e');
     }
   }
 

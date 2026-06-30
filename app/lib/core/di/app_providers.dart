@@ -12,6 +12,7 @@ import '../../data/catalog/announcement_service.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../data/catalog/catalog_sync_service.dart';
 import '../../data/catalog/feature_flag_service.dart';
+import '../../data/catalog/growth_campaign_service.dart';
 import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
@@ -57,6 +58,7 @@ import '../../domain/usecases/save_goal_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/app/celebration_runtime.dart';
 import '../../features/capture/services/local_notification_service.dart';
+import '../../features/capture/services/notification_journey_service.dart';
 import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
@@ -109,6 +111,21 @@ final announcementServiceProvider = Provider<AnnouncementService>((ref) {
 final activeAnnouncementsProvider =
     FutureProvider<List<RemoteAnnouncement>>((ref) {
   return ref.watch(announcementServiceProvider).getActiveAnnouncements();
+});
+
+final growthCampaignServiceProvider = Provider<GrowthCampaignService>((ref) {
+  return GrowthCampaignService(
+    database: ref.watch(appDatabaseProvider),
+    dao: RemoteGrowthCampaignsDao(ref.watch(appDatabaseProvider)),
+    loadPreferences: ref.watch(loadNotificationPreferencesUseCaseProvider),
+    savePreferences: ref.watch(saveNotificationPreferencesUseCaseProvider),
+  );
+});
+
+final activeDashboardCampaignsProvider =
+    FutureProvider<List<RemoteGrowthCampaign>>((ref) {
+  ref.watch(dbRevisionProvider);
+  return ref.watch(growthCampaignServiceProvider).visibleDashboardBanners();
 });
 
 final hasForceUpdateProvider = FutureProvider<bool>((ref) async {
@@ -517,6 +534,16 @@ final saveNotificationPreferencesUseCaseProvider =
     Provider<SaveNotificationPreferencesUseCase>((ref) {
   return SaveNotificationPreferencesUseCase(
     ref.watch(userSettingsRepositoryProvider),
+  );
+});
+
+final notificationJourneyServiceProvider =
+    Provider<NotificationJourneyService>((ref) {
+  return NotificationJourneyService(
+    database: ref.watch(appDatabaseProvider),
+    loadPreferences: ref.watch(loadNotificationPreferencesUseCaseProvider),
+    savePreferences: ref.watch(saveNotificationPreferencesUseCaseProvider),
+    campaignsDao: RemoteGrowthCampaignsDao(ref.watch(appDatabaseProvider)),
   );
 });
 
