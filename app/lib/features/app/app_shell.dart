@@ -29,7 +29,6 @@ import '../capture/services/local_notification_service.dart';
 import '../capture/services/native_capture_bridge.dart';
 import '../../core/tracking/user_activity_service.dart';
 import '../common/category_catalog.dart';
-import '../common/widgets/announcement_banner.dart';
 import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
@@ -352,13 +351,6 @@ class _AppShellState extends ConsumerState<AppShell> {
             // محتوى الصفحة الرئيسي — بدون SafeArea علوي حتى يمتد الهيدر
             // المتدرّج خلف شريط الحالة (كل شاشة تتكفّل بالمساحة الآمنة داخليًا).
             IndexedStack(index: index, children: pages),
-            // Announcement banner — shown above content, below celebrations.
-            const Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(bottom: false, child: AnnouncementBanner()),
-            ),
             if (_activeCelebration != null)
               Positioned(
                 top: AppSpacing.s5,

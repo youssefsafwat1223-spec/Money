@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/di/app_providers.dart';
-import '../../../core/theme/app_assets.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -39,10 +38,23 @@ class _BannerTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = Theme.of(context).extension<AppColors>()!;
-    final accent = switch (announcement.severity) {
-      'warning' => c.warning,
-      'maintenance' => c.accent,
-      _ => c.cta,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = switch (announcement.severity) {
+      'warning' => (
+          start: c.warning,
+          end: const Color(0xFFB45309),
+          fg: Colors.white,
+        ),
+      'maintenance' => (
+          start: c.accent,
+          end: const Color(0xFF7C3AED),
+          fg: Colors.white,
+        ),
+      _ => (
+          start: isDark ? const Color(0xFF0F766E) : const Color(0xFF0F8F73),
+          end: isDark ? const Color(0xFF115E59) : const Color(0xFF12A17E),
+          fg: Colors.white,
+        ),
     };
     final body = announcement.bodyAr?.trim();
     final hasBody = body != null && body.isNotEmpty;
@@ -52,133 +64,134 @@ class _BannerTile extends ConsumerWidget {
         actionLabel.isNotEmpty;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s2,
-        AppSpacing.gutter,
-        0,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.card),
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 24,
-              offset: const Offset(0, 12),
+              color: colors.start.withValues(alpha: isDark ? 0.20 : 0.24),
+              blurRadius: 22,
+              offset: const Offset(0, 10),
             ),
           ],
         ),
         child: Material(
-          color: c.surface.withValues(alpha: 0.98),
-          borderRadius: BorderRadius.circular(AppRadius.card),
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: () => _handleTap(context, announcement.actionUrl),
             child: Stack(
               children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: AlignmentDirectional.topStart,
+                        end: AlignmentDirectional.bottomEnd,
+                        colors: [colors.start, colors.end],
+                      ),
+                    ),
+                  ),
+                ),
                 PositionedDirectional(
-                  top: 0,
-                  bottom: 0,
-                  start: 0,
-                  child: Container(width: 5, color: accent),
+                  top: -44,
+                  start: -26,
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                ),
+                PositionedDirectional(
+                  bottom: -58,
+                  end: -28,
+                  child: Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.07),
+                    ),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsetsDirectional.fromSTEB(
+                    AppSpacing.s5,
+                    AppSpacing.s5,
                     AppSpacing.s4,
-                    AppSpacing.s3,
-                    AppSpacing.s3,
-                    AppSpacing.s3,
+                    AppSpacing.s5,
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: 0.11),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: accent.withValues(alpha: 0.22),
-                          ),
-                        ),
-                        child: Image.asset(
-                          AppAssets.qirshCoin,
-                          filterQuality: FilterQuality.high,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.s3),
-                      Expanded(
-                        child: Column(
+                  child: Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              announcement.titleAr,
-                              style: AppTypography.bodyStrong(c.textPrimary),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (hasBody) ...[
-                              const SizedBox(height: 3),
-                              Text(
-                                body,
-                                style: AppTypography.footnote(c.textSecondary),
-                                maxLines: 2,
+                            Expanded(
+                              child: Text(
+                                announcement.titleAr,
+                                textAlign: TextAlign.right,
+                                style: AppTypography.title(colors.fg).copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.22,
+                                ),
+                                maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ],
-                            if (hasAction) ...[
-                              const SizedBox(height: AppSpacing.s2),
-                              Align(
-                                alignment: AlignmentDirectional.centerStart,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.s3,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: accent.withValues(alpha: 0.12),
-                                    borderRadius:
-                                        BorderRadius.circular(AppRadius.pill),
-                                  ),
-                                  child: Text(
-                                    actionLabel,
-                                    style: AppTypography.caption(accent)
-                                        .copyWith(fontWeight: FontWeight.w800),
-                                  ),
-                                ),
-                              ),
+                            ),
+                            if (announcement.isDismissible) ...[
+                              const SizedBox(width: AppSpacing.s2),
+                              _DismissButton(announcementId: announcement.id),
                             ],
                           ],
                         ),
-                      ),
-                      if (announcement.isDismissible) ...[
-                        const SizedBox(width: AppSpacing.s2),
-                        SizedBox(
-                          width: 34,
-                          height: 34,
-                          child: IconButton(
-                            padding: EdgeInsets.zero,
-                            onPressed: () => ref
-                                .read(announcementServiceProvider)
-                                .dismiss(announcement.id)
-                                .then(
-                                  (_) => ref
-                                      .invalidate(activeAnnouncementsProvider),
-                                ),
-                            icon: Icon(
-                              Icons.close_rounded,
-                              size: 18,
-                              color: c.textMuted,
-                            ),
-                            tooltip: 'إخفاء',
+                        if (hasBody) ...[
+                          const SizedBox(height: AppSpacing.s2),
+                          Text(
+                            body,
+                            textAlign: TextAlign.right,
+                            style: AppTypography.body(
+                              colors.fg.withValues(alpha: 0.82),
+                            ).copyWith(height: 1.35),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
+                        ],
+                        if (hasAction) ...[
+                          const SizedBox(height: AppSpacing.s3),
+                          Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.s3,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.16),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.pill),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.18),
+                                ),
+                              ),
+                              child: Text(
+                                actionLabel,
+                                style: AppTypography.caption(colors.fg)
+                                    .copyWith(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ],
@@ -199,5 +212,32 @@ class _BannerTile extends ConsumerWidget {
       return;
     }
     launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+}
+
+class _DismissButton extends ConsumerWidget {
+  const _DismissButton({required this.announcementId});
+
+  final String announcementId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SizedBox.square(
+      dimension: 34,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.white.withValues(alpha: 0.16),
+          foregroundColor: Colors.white,
+          shape: const CircleBorder(),
+        ),
+        onPressed: () =>
+            ref.read(announcementServiceProvider).dismiss(announcementId).then(
+                  (_) => ref.invalidate(activeAnnouncementsProvider),
+                ),
+        icon: const Icon(Icons.close_rounded, size: 18),
+        tooltip: 'إخفاء',
+      ),
+    );
   }
 }
