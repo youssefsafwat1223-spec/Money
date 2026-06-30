@@ -126,16 +126,25 @@ class DashboardScreen extends ConsumerWidget {
                       data.range,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.s4),
+                  const Padding(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        PremiumMotion(child: _AccountSwitcher()),
+                        SizedBox(height: AppSpacing.s4),
+                      ],
+                    ),
+                  ),
                   const AnnouncementBanner(),
+                  const SizedBox(height: AppSpacing.s4),
                   Padding(
                     padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.gutter),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const PremiumMotion(child: _AccountSwitcher()),
-                        const SizedBox(height: AppSpacing.s4),
                         PremiumMotion(
                           delay: const Duration(milliseconds: 60),
                           child: _financialOverviewCard(context, ref, data,
@@ -1652,8 +1661,7 @@ class DashboardScreen extends ConsumerWidget {
                 style: AppTypography.title1(color)
                     .copyWith(fontWeight: FontWeight.w900),
               ),
-              Text(' / 100',
-                  style: AppTypography.caption(c.textMuted)),
+              Text(' / 100', style: AppTypography.caption(c.textMuted)),
             ],
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -1865,8 +1873,7 @@ class _AccountChip extends StatelessWidget {
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.only(
-              left: 8, right: 14, top: 5, bottom: 5),
+          padding: const EdgeInsets.only(left: 8, right: 14, top: 5, bottom: 5),
           decoration: BoxDecoration(
             color: selected ? c.cta : c.surfaceCard,
             borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -1887,7 +1894,9 @@ class _AccountChip extends StatelessWidget {
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
-                    color: selected ? Colors.white.withValues(alpha: 0.7) : bankColor,
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.7)
+                        : bankColor,
                     shape: BoxShape.circle,
                   ),
                 ),
