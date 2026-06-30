@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase";
 import { Plus, Trash2, Save, Megaphone } from "lucide-react";
 import { fmtDate } from "@/lib/utils";
 
@@ -25,14 +24,19 @@ const severityStyle: Record<string, string> = {
 };
 
 export default function AnnouncementsPage() {
-  const supabase = createClient();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [form, setForm] = useState<Announcement | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    supabase.from("announcements").select("*").order("priority", { ascending: false })
-      .then(({ data }) => setAnnouncements((data ?? []) as Announcement[]));
+    fetch("/api/announcements")
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Failed to load announcements");
+        setAnnouncements((json.announcements ?? []) as Announcement[]);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load announcements"));
   }, []);
 
   function set(field: keyof Announcement, value: unknown) {
@@ -42,21 +46,38 @@ export default function AnnouncementsPage() {
   async function save() {
     if (!form) return;
     setSaving(true);
+    setError("");
     const payload = { ...form, valid_until: form.valid_until || null };
-    if (form.id) {
-      const { data } = await supabase.from("announcements").update(payload).eq("id", form.id).select().single();
-      setAnnouncements(prev => prev.map(a => a.id === form.id ? data as Announcement : a));
-    } else {
-      const { data } = await supabase.from("announcements").insert(payload).select().single();
-      if (data) setAnnouncements(prev => [data as Announcement, ...prev]);
+    const res = await fetch("/api/announcements", {
+      method: form.id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error ?? "Failed to save announcement");
+      setSaving(false);
+      return;
     }
+    const saved = json.announcement as Announcement;
+    setAnnouncements(prev =>
+      form.id ? prev.map(a => a.id === form.id ? saved : a) : [saved, ...prev],
+    );
     setSaving(false);
     setForm(null);
   }
 
   async function remove(id: string) {
     if (!confirm("Delete announcement?")) return;
-    await supabase.from("announcements").delete().eq("id", id);
+    setError("");
+    const res = await fetch(`/api/announcements?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      setError(json.error ?? "Failed to delete announcement");
+      return;
+    }
     setAnnouncements(prev => prev.filter(a => a.id !== id));
   }
 
@@ -74,6 +95,12 @@ export default function AnnouncementsPage() {
       </div>
 
       {/* Form */}
+      {error && (
+        <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       {form && (
         <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
           <h2 className="text-sm font-semibold text-gray-700">{form.id ? "Edit" : "New"} Announcement</h2>
