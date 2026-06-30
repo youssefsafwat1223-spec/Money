@@ -89,6 +89,38 @@ String? transactionDirectionToSql(TransactionDirectionEntity? value) {
   };
 }
 
+ComparisonTimestampSource comparisonTimestampSourceFromSql(String? value) {
+  return switch (value) {
+    'sms_body' => ComparisonTimestampSource.smsBody,
+    'received_at' => ComparisonTimestampSource.receivedAt,
+    null => ComparisonTimestampSource.receivedAt,
+    _ => ComparisonTimestampSource.receivedAt,
+  };
+}
+
+String comparisonTimestampSourceToSql(ComparisonTimestampSource value) {
+  return switch (value) {
+    ComparisonTimestampSource.smsBody => 'sms_body',
+    ComparisonTimestampSource.receivedAt => 'received_at',
+  };
+}
+
+DuplicateStatus duplicateStatusFromSql(String? value) {
+  return switch (value) {
+    'suspicious_duplicate' => DuplicateStatus.suspiciousDuplicate,
+    'normal' => DuplicateStatus.normal,
+    null => DuplicateStatus.normal,
+    _ => DuplicateStatus.normal,
+  };
+}
+
+String duplicateStatusToSql(DuplicateStatus value) {
+  return switch (value) {
+    DuplicateStatus.normal => 'normal',
+    DuplicateStatus.suspiciousDuplicate => 'suspicious_duplicate',
+  };
+}
+
 TransactionEntity transactionFromRow(QueryRow row) {
   final balance = row.readNullable<double>('balance_after');
   final amount = row.read<double>('amount');
@@ -110,6 +142,16 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final foreignAmount = row.readNullable<double>('foreign_amount');
   final foreignCurrency = row.readNullable<String>('foreign_currency');
   final direction = row.readNullable<String>('direction');
+  final transactionTimeFromSms =
+      row.readNullable<String>('transaction_time_from_sms');
+  final smsReceivedAt = row.readNullable<String>('sms_received_at');
+  final comparisonTimestamp = row.readNullable<String>('comparison_timestamp');
+  final comparisonTimestampSource =
+      row.readNullable<String>('comparison_timestamp_source');
+  final duplicateStatus = row.readNullable<String>('duplicate_status');
+  final possibleDuplicateOfTransactionId =
+      row.readNullable<String>('possible_duplicate_of_transaction_id');
+  final duplicateReason = row.readNullable<String>('duplicate_reason');
   return TransactionEntity(
     id: row.read<String>('id'),
     amount: amount,
@@ -132,6 +174,19 @@ TransactionEntity transactionFromRow(QueryRow row) {
     foreignAmount: foreignAmount,
     foreignCurrency: foreignCurrency,
     direction: transactionDirectionFromSql(direction),
+    transactionTimeFromSms: transactionTimeFromSms == null
+        ? null
+        : dateTimeFromSql(transactionTimeFromSms),
+    smsReceivedAt:
+        smsReceivedAt == null ? null : dateTimeFromSql(smsReceivedAt),
+    comparisonTimestamp: comparisonTimestamp == null
+        ? null
+        : dateTimeFromSql(comparisonTimestamp),
+    comparisonTimestampSource:
+        comparisonTimestampSourceFromSql(comparisonTimestampSource),
+    duplicateStatus: duplicateStatusFromSql(duplicateStatus),
+    possibleDuplicateOfTransactionId: possibleDuplicateOfTransactionId,
+    duplicateReason: duplicateReason,
   );
 }
 

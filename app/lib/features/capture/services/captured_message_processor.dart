@@ -167,6 +167,13 @@ class CapturedMessageProcessor {
                 preferences: notificationPreferences,
               );
             }
+          case CapturedMessageDisposition.suspiciousDuplicate:
+            await LocalNotificationService.instance
+                .showLightCaptureNotification(
+              title: 'عملية مشابهة موجودة',
+              body: 'راجع Smart Inbox عشان تأكدها كعملية جديدة أو تتجاهلها.',
+              preferences: notificationPreferences,
+            );
           case CapturedMessageDisposition.unprocessable:
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
@@ -190,18 +197,19 @@ class CapturedMessageProcessor {
     NotificationPreferences prefs,
   ) async {
     // اسحب ميزانية الشهر الكلية (أول ميزانية نشطة من نوع all-expenses/monthly).
-    final budgetRows = await db.customSelect(
-      "SELECT amount FROM budgets "
-      "WHERE is_all_expenses = 1 AND period = 'monthly' AND is_active = 1 "
-      "LIMIT 1;",
-    ).get();
+    final budgetRows = await db
+        .customSelect(
+          "SELECT amount FROM budgets "
+          "WHERE is_all_expenses = 1 AND period = 'monthly' AND is_active = 1 "
+          "LIMIT 1;",
+        )
+        .get();
     if (budgetRows.isEmpty) return;
     final limit = budgetRows.first.read<double>('amount');
     if (limit <= 0) return;
 
     final now = DateTime.now().toUtc();
-    final monthStart =
-        DateTime.utc(now.year, now.month, 1).toIso8601String();
+    final monthStart = DateTime.utc(now.year, now.month, 1).toIso8601String();
     final spendRows = await db.customSelect(
       "SELECT COALESCE(SUM(amount), 0.0) AS total FROM transactions "
       "WHERE type = 'expense' AND status = 'confirmed' "
@@ -215,7 +223,13 @@ class CapturedMessageProcessor {
     final ratio = spent / limit;
 
     // ثلاث عتبات: 75% / 90% / تجاوز 100%.
-    final bucket = ratio >= 1.0 ? 3 : ratio >= 0.9 ? 2 : ratio >= 0.75 ? 1 : 0;
+    final bucket = ratio >= 1.0
+        ? 3
+        : ratio >= 0.9
+            ? 2
+            : ratio >= 0.75
+                ? 1
+                : 0;
     if (bucket == 0) return;
 
     // معرّف فريد لكل شهر + عتبة حتى لا يتكرر الإشعار.
@@ -228,8 +242,10 @@ class CapturedMessageProcessor {
     final projected = spent + dailyRate * daysRemaining;
     final remaining = (limit - spent).clamp(0.0, limit);
 
-    final currency =
-        (await db.customSelect("SELECT currency FROM accounts WHERE is_default = 1 LIMIT 1;").get())
+    final currency = (await db
+                .customSelect(
+                    "SELECT currency FROM accounts WHERE is_default = 1 LIMIT 1;")
+                .get())
             .firstOrNull
             ?.read<String>('currency') ??
         '';

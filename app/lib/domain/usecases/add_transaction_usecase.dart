@@ -17,6 +17,7 @@ import '../../engine/parser/direction_signal.dart';
 import '../../engine/parser/parser_engine.dart';
 import '../../engine/parser/parser_isolate.dart';
 import '../../engine/parser/parse_result.dart';
+import '../../engine/parser/transaction_timestamp_extractor.dart';
 import '../../engine/privacy/sms_sanitizer.dart';
 import '../entities/account_entity.dart';
 import '../entities/engagement_entities.dart';
@@ -40,6 +41,8 @@ class AddTransactionResult {
     this.droppedByParser = false,
     this.aiFailureReason,
     this.secondary,
+    this.suspectedDuplicateId,
+    this.duplicateReason,
   });
 
   const AddTransactionResult.added(
@@ -61,6 +64,17 @@ class AddTransactionResult {
           secondary: secondary,
         );
 
+  const AddTransactionResult.suspiciousDuplicate(
+    TransactionEntity transaction, {
+    String? suspectedDuplicateId,
+    String? duplicateReason,
+  }) : this._(
+          outcome: AddTransactionOutcome.suspiciousDuplicate,
+          transaction: transaction,
+          suspectedDuplicateId: suspectedDuplicateId,
+          duplicateReason: duplicateReason,
+        );
+
   const AddTransactionResult.notTransaction(ParseResult parseResult,
       {bool droppedByParser = false, String? aiFailureReason})
       : this._(
@@ -78,6 +92,8 @@ class AddTransactionResult {
   /// True when a bank-like message was not OTP/promo but couldn't be parsed.
   final bool droppedByParser;
   final String? aiFailureReason;
+  final String? suspectedDuplicateId;
+  final String? duplicateReason;
 
   /// A second transaction extracted from the same SMS — currently a fee/tax
   /// line charged in a different currency than the main amount. Null when the
@@ -92,7 +108,12 @@ class AddTransactionResult {
   }
 }
 
-enum AddTransactionOutcome { added, duplicate, notTransaction }
+enum AddTransactionOutcome {
+  added,
+  duplicate,
+  suspiciousDuplicate,
+  notTransaction,
+}
 
 class _AiFirstAttempt {
   const _AiFirstAttempt({
@@ -230,6 +251,7 @@ class AddTransactionUseCase {
     required String rawMessage,
     String? senderId,
     bool skipDedup = false,
+    DateTime? smsReceivedAt,
   }) async {
     final loadedBankProfiles = await _safeLoadBankProfiles(senderId: senderId);
     final bankResolution = await _resolveBankForSender(
@@ -312,7 +334,19 @@ class AddTransactionUseCase {
                     : 'ai_response_rejected_by_grounding'));
       }
     }
-    final occurredAt = parsed.occurredAt ?? DateTime.now().toUtc();
+    final now = DateTime.now().toUtc();
+    final receivedAt = (smsReceivedAt ?? now).toUtc();
+    final transactionTimeFromSms =
+        (parsed.occurredAt ?? TransactionTimestampExtractor.extract(rawMessage))
+            ?.toUtc();
+    final comparisonTimestamp = transactionTimeFromSms ?? receivedAt;
+    final comparisonTimestampSource = transactionTimeFromSms == null
+        ? ComparisonTimestampSource.receivedAt
+        : ComparisonTimestampSource.smsBody;
+    final occurredAt = comparisonTimestamp;
+    if (parsed.occurredAt == null && transactionTimeFromSms != null) {
+      parsed = parsed.copyWith(occurredAt: transactionTimeFromSms);
+    }
 
     // Payment aggregators (Fawry, …) are gateways, not the real merchant. When
     // the SMS reads "Fawry <merchant>", strip the gateway so the underlying
@@ -322,40 +356,7 @@ class AddTransactionUseCase {
       rawMerchant: PaymentAggregators.resolveMerchant(parsed.rawMerchant),
     );
 
-    // Hash-based dedup: catches no-merchant transactions the merchant check misses.
-    // Hash key = {amount, currency, cardLast4, merchant_normalized, type} — no time.
-    // Time window (±5 min) is enforced in DedupStore via sliding julianday query,
-    // so there are no fixed-bucket boundary misses.
-    if (_dedupStore != null && !skipDedup) {
-      final hash = await TransactionDedup.computeHash(
-        amount: parsed.amount,
-        currency: parsed.currency,
-        cardLast4: parsed.cardLast4,
-        merchantNormalized: _dedupFingerprint(
-          parsed,
-          rawMessage: rawMessage,
-        ),
-        type: parsed.type.name,
-      );
-      final existingId = await _dedupStore.transactionIdFor(hash, occurredAt);
-      if (existingId != null) {
-        final existing = await _transactionRepository.getById(existingId);
-        if (existing != null) {
-          await _saveSuspectedDuplicate(
-            rawMessage: rawMessage,
-            senderId: senderId,
-            existingTransactionId: existingId,
-            parsed: parsed,
-            occurredAt: occurredAt,
-          );
-          return AddTransactionResult.duplicate(existing);
-        }
-        // Hash exists but transaction was deleted; fall through and re-save.
-      }
-    }
-
     final merchant = parsed.rawMerchant;
-    final now = DateTime.now().toUtc();
     // Pre-categorize to determine if keyword match exists — known merchants
     // (Starbucks, Amazon, etc.) should not require confirmation even on first visit.
     final preCategory = Categorizer(
@@ -366,21 +367,32 @@ class AddTransactionUseCase {
         : preCategory.source == CategorySource.fallback &&
             !await _merchantCategoryRepository.hasCategoryForMerchant(merchant);
 
-    if (merchant != null && !skipDedup) {
-      final duplicate = await _transactionRepository.findDuplicate(
+    if (!skipDedup) {
+      final duplicate = await _transactionRepository.findSuspiciousDuplicate(
         amount: parsed.amount,
-        rawMerchant: merchant,
-        occurredAt: occurredAt,
+        currency: parsed.currency,
+        merchantOrDescription: parsed.rawMerchant ?? rawMessage,
+        cardLast4: parsed.cardLast4,
+        comparisonTimestamp: comparisonTimestamp,
       );
       if (duplicate != null) {
-        await _saveSuspectedDuplicate(
+        const reason = 'same amount, currency, merchant and comparison time';
+        final suspectedId = await _saveSuspectedDuplicate(
           rawMessage: rawMessage,
           senderId: senderId,
           existingTransactionId: duplicate.id,
           parsed: parsed,
           occurredAt: occurredAt,
+          cardLast4: parsed.cardLast4,
+          comparisonTimestamp: comparisonTimestamp,
+          comparisonTimestampSource: comparisonTimestampSource,
+          duplicateReason: reason,
         );
-        return AddTransactionResult.duplicate(duplicate);
+        return AddTransactionResult.suspiciousDuplicate(
+          duplicate,
+          suspectedDuplicateId: suspectedId,
+          duplicateReason: reason,
+        );
       }
     }
 
@@ -573,10 +585,16 @@ class AddTransactionUseCase {
           : TransactionStatus.pending,
       createdAt: now,
       updatedAt: now,
-      foreignAmount:
-          foreignUnpriced ? effectiveParsed.amount : effectiveParsed.foreignAmount,
+      foreignAmount: foreignUnpriced
+          ? effectiveParsed.amount
+          : effectiveParsed.foreignAmount,
       foreignCurrency:
           foreignUnpriced ? txCurrency : effectiveParsed.foreignCurrency,
+      transactionTimeFromSms: transactionTimeFromSms,
+      smsReceivedAt: receivedAt,
+      comparisonTimestamp: comparisonTimestamp,
+      comparisonTimestampSource: comparisonTimestampSource,
+      duplicateStatus: DuplicateStatus.normal,
     );
 
     final saved = await _transactionRepository.saveTransaction(
@@ -622,6 +640,9 @@ class AddTransactionUseCase {
       primary: parsed,
       occurredAt: occurredAt,
       defaultAccount: defaultAccount,
+      transactionTimeFromSms: transactionTimeFromSms,
+      smsReceivedAt: receivedAt,
+      comparisonTimestampSource: comparisonTimestampSource,
     );
 
     await _logMetric?.call('first_transaction_captured');
@@ -633,17 +654,22 @@ class AddTransactionUseCase {
     );
   }
 
-  Future<void> _saveSuspectedDuplicate({
+  Future<String?> _saveSuspectedDuplicate({
     required String rawMessage,
     required String? senderId,
     required String existingTransactionId,
     required ParsedTransaction parsed,
     required DateTime occurredAt,
+    String? cardLast4,
+    DateTime? comparisonTimestamp,
+    ComparisonTimestampSource? comparisonTimestampSource,
+    String? duplicateReason,
   }) async {
     final repo = _suspectedDuplicateRepository;
-    if (repo == null) return;
+    if (repo == null) return null;
+    final id = IdGenerator.next();
     await repo.save(SuspectedDuplicateEntity(
-      id: IdGenerator.next(),
+      id: id,
       rawMessage: rawMessage,
       senderId: senderId,
       existingTransactionId: existingTransactionId,
@@ -651,8 +677,13 @@ class AddTransactionUseCase {
       currency: parsed.currency,
       rawMerchant: parsed.rawMerchant,
       occurredAt: occurredAt,
+      cardLast4: cardLast4,
+      comparisonTimestamp: comparisonTimestamp,
+      comparisonTimestampSource: comparisonTimestampSource,
+      duplicateReason: duplicateReason,
       createdAt: DateTime.now().toUtc(),
     ));
+    return id;
   }
 
   Future<AccountEntity?> _existingAccountForCurrency(String currency) async {
@@ -671,6 +702,9 @@ class AddTransactionUseCase {
     required ParsedTransaction primary,
     required DateTime occurredAt,
     AccountEntity? defaultAccount,
+    DateTime? transactionTimeFromSms,
+    DateTime? smsReceivedAt,
+    required ComparisonTimestampSource comparisonTimestampSource,
   }) async {
     final fee = _extractFeeAmount(rawMessage);
     if (fee == null) return null;
@@ -724,6 +758,11 @@ class AddTransactionUseCase {
       status: TransactionStatus.confirmed,
       createdAt: now,
       updatedAt: now,
+      transactionTimeFromSms: transactionTimeFromSms,
+      smsReceivedAt: smsReceivedAt,
+      comparisonTimestamp: occurredAt.toUtc(),
+      comparisonTimestampSource: comparisonTimestampSource,
+      duplicateStatus: DuplicateStatus.normal,
     );
     final saved = await _transactionRepository.saveTransaction(
       transaction: feeTx,
@@ -1402,15 +1441,18 @@ class SaveManualTransactionUseCase {
     RecordEngagementUseCase? recordEngagementUseCase,
     Future<void> Function(String key, {String? dimension})? logMetric,
     AccountRepository? accountRepository,
+    SuspectedDuplicateRepository? suspectedDuplicateRepository,
   })  : _transactionRepository = transactionRepository,
         _recordEngagementUseCase = recordEngagementUseCase,
         _logMetric = logMetric,
-        _accountRepository = accountRepository;
+        _accountRepository = accountRepository,
+        _suspectedDuplicateRepository = suspectedDuplicateRepository;
 
   final TransactionRepository _transactionRepository;
   final RecordEngagementUseCase? _recordEngagementUseCase;
   final Future<void> Function(String key, {String? dimension})? _logMetric;
   final AccountRepository? _accountRepository;
+  final SuspectedDuplicateRepository? _suspectedDuplicateRepository;
 
   Future<TransactionEntity> call({
     required double amount,
@@ -1427,6 +1469,46 @@ class SaveManualTransactionUseCase {
     final normalizedCurrency = currency.trim().toUpperCase();
     final normalizedMerchant = merchant?.trim();
     final normalizedNote = note?.trim();
+    final comparisonTimestamp = occurredAt.toUtc();
+    final description = normalizedMerchant == null || normalizedMerchant.isEmpty
+        ? (normalizedNote == null || normalizedNote.isEmpty
+            ? 'Manual transaction'
+            : normalizedNote)
+        : normalizedMerchant;
+    final possibleDuplicate =
+        await _transactionRepository.findSuspiciousDuplicate(
+      amount: amount,
+      currency: normalizedCurrency,
+      merchantOrDescription: description,
+      cardLast4: cardLast4,
+      comparisonTimestamp: comparisonTimestamp,
+    );
+    if (possibleDuplicate != null && _suspectedDuplicateRepository != null) {
+      final rawMessage = _manualRawMessage(
+        amount: amount,
+        currency: normalizedCurrency,
+        merchant: normalizedMerchant,
+        note: normalizedNote,
+        occurredAt: comparisonTimestamp,
+      );
+      await _suspectedDuplicateRepository.save(SuspectedDuplicateEntity(
+        id: IdGenerator.next(),
+        rawMessage: rawMessage,
+        senderId: null,
+        existingTransactionId: possibleDuplicate.id,
+        amount: amount,
+        currency: normalizedCurrency,
+        rawMerchant: normalizedMerchant,
+        occurredAt: comparisonTimestamp,
+        cardLast4: cardLast4,
+        comparisonTimestamp: comparisonTimestamp,
+        comparisonTimestampSource: ComparisonTimestampSource.receivedAt,
+        duplicateReason:
+            'same amount, currency, merchant and manual comparison time',
+        createdAt: now,
+      ));
+      return possibleDuplicate;
+    }
     final effectiveAccount = accountId == null
         ? await _accountForCurrency(_accountRepository, normalizedCurrency)
         : null;
@@ -1455,6 +1537,10 @@ class SaveManualTransactionUseCase {
       status: TransactionStatus.confirmed,
       createdAt: now,
       updatedAt: now,
+      smsReceivedAt: now,
+      comparisonTimestamp: comparisonTimestamp,
+      comparisonTimestampSource: ComparisonTimestampSource.receivedAt,
+      duplicateStatus: DuplicateStatus.normal,
     );
 
     final saved = await _transactionRepository.saveTransaction(
@@ -1469,5 +1555,25 @@ class SaveManualTransactionUseCase {
     }
     await _logMetric?.call('manual_transaction_added');
     return saved;
+  }
+
+  String _manualRawMessage({
+    required double amount,
+    required String currency,
+    required String? merchant,
+    required String? note,
+    required DateTime occurredAt,
+  }) {
+    final buffer = StringBuffer()
+      ..writeln('Manual transaction')
+      ..writeln('مبلغ:$currency ${amount.toStringAsFixed(2)}');
+    if (merchant != null && merchant.isNotEmpty) {
+      buffer.writeln('لدى:$merchant');
+    }
+    if (note != null && note.isNotEmpty) {
+      buffer.writeln('ملاحظة:$note');
+    }
+    buffer.writeln('في:${occurredAt.toIso8601String().substring(0, 16)}');
+    return buffer.toString().trim();
   }
 }

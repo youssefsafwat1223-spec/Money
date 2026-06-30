@@ -99,9 +99,9 @@ void main() {
     });
   });
 
-  // ─── Sliding-window store ────────────────────────────────────────────────
+  // ─── Exact timestamp store ───────────────────────────────────────────────
 
-  group('DriftDedupStore — sliding ±5-min window', () {
+  group('DriftDedupStore — exact comparison timestamp', () {
     late AppDatabase db;
     late DriftDedupStore store;
 
@@ -115,8 +115,7 @@ void main() {
 
     tearDown(() => db.close());
 
-    Future<String> hashFor(String merchant) =>
-        TransactionDedup.computeHash(
+    Future<String> hashFor(String merchant) => TransactionDedup.computeHash(
           amount: 99.0,
           currency: 'SAR',
           cardLast4: '5678',
@@ -133,34 +132,31 @@ void main() {
       expect(found, equals('txn-1'));
     });
 
-    test('2 minutes later → still duplicate (within ±5 min window)', () async {
+    test('2 minutes later → not a duplicate', () async {
       final stored = DateTime.utc(2026, 6, 16, 10, 3, 0);
       final query = DateTime.utc(2026, 6, 16, 10, 5, 0); // 2 min later
       final hash = await hashFor('MCDONALDS');
       await store.mark(hash, transactionId: 'txn-2', occurredAt: stored);
 
       final found = await store.transactionIdFor(hash, query);
-      expect(found, equals('txn-2'));
+      expect(found, isNull);
     });
 
-    // ── CONCERN 2 test: real duplicate split across a 5-min bucket boundary ──
     test(
-      'duplicate across fixed-bucket boundary (10:04:30 vs 10:05:30) → still caught by sliding window',
+      'same hash but different exact timestamp stays separate',
       () async {
-        // With a fixed 5-min bucket: floor(10:04:30)=10:00 ≠ floor(10:05:30)=10:05
-        // → would be two different hashes → missed. With sliding window: 60 s apart → caught.
         final bankTime = DateTime.utc(2026, 6, 16, 10, 4, 30);
-        final walletTime = DateTime.utc(2026, 6, 16, 10, 5, 30); // 60 s later
+        final walletTime = DateTime.utc(2026, 6, 16, 10, 5, 30);
         final hash = await hashFor('PANDA');
         await store.mark(hash, transactionId: 'txn-3', occurredAt: bankTime);
 
         final found = await store.transactionIdFor(hash, walletTime);
-        expect(found, equals('txn-3'),
-            reason: '60 s apart is well within the ±300 s window');
+        expect(found, isNull,
+            reason: 'Different comparison timestamps are real transactions');
       },
     );
 
-    test('7 minutes apart → NOT a duplicate (outside ±5 min window)', () async {
+    test('7 minutes apart → not a duplicate', () async {
       final t1 = DateTime.utc(2026, 6, 16, 10, 0, 0);
       final t2 = DateTime.utc(2026, 6, 16, 10, 7, 0); // 7 min later
       final hash = await hashFor('HERFY');
@@ -177,18 +173,19 @@ void main() {
       () async {
         final t = DateTime.utc(2026, 6, 16, 12, 0, 0);
         final coffeeHash = await hashFor('STARBUCKS');
-        final groceryHash = await hashFor('PANDA'); // same amount, different merchant
+        final groceryHash =
+            await hashFor('PANDA'); // same amount, different merchant
 
-        await store.mark(coffeeHash, transactionId: 'txn-coffee', occurredAt: t);
+        await store.mark(coffeeHash,
+            transactionId: 'txn-coffee', occurredAt: t);
 
-        // 2 minutes later, same amount on same card but at Panda → must NOT be blocked
         final found = await store.transactionIdFor(
           groceryHash,
-          t.add(const Duration(minutes: 2)),
+          t,
         );
         expect(found, isNull,
             reason:
-                'Starbucks 24 SAR must not block a Panda 24 SAR 2 min later');
+                'Starbucks 24 SAR must not block a Panda 24 SAR at the same time');
       },
     );
   });

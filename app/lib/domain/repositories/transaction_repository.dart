@@ -10,6 +10,14 @@ abstract class TransactionRepository {
     required DateTime occurredAt,
   });
 
+  Future<TransactionEntity?> findSuspiciousDuplicate({
+    required double amount,
+    required String currency,
+    required String merchantOrDescription,
+    String? cardLast4,
+    required DateTime comparisonTimestamp,
+  });
+
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,

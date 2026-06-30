@@ -4,8 +4,11 @@ import '../../core/utils/id_generator.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
 import '../../domain/repositories/suspected_duplicate_repository.dart';
 import '../db/app_database.dart';
+import '../db/sql_value_codec.dart';
+import 'drift_repository_support.dart';
 
-class DriftSuspectedDuplicateRepository implements SuspectedDuplicateRepository {
+class DriftSuspectedDuplicateRepository
+    implements SuspectedDuplicateRepository {
   const DriftSuspectedDuplicateRepository(this._db);
 
   final AppDatabase _db;
@@ -16,8 +19,10 @@ class DriftSuspectedDuplicateRepository implements SuspectedDuplicateRepository 
       '''
         INSERT OR IGNORE INTO suspected_duplicates(
           id, raw_message, sender_id, existing_transaction_id,
-          amount, currency, raw_merchant, occurred_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+          amount, currency, raw_merchant, occurred_at, card_last4,
+          comparison_timestamp, comparison_timestamp_source, duplicate_reason,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
       variables: [
         Variable.withString(entity.id.isEmpty ? IdGenerator.next() : entity.id),
@@ -31,17 +36,34 @@ class DriftSuspectedDuplicateRepository implements SuspectedDuplicateRepository 
         entity.rawMerchant != null
             ? Variable.withString(entity.rawMerchant!)
             : const Variable(null),
-        Variable.withString(entity.occurredAt.toUtc().toIso8601String()),
-        Variable.withString(entity.createdAt.toUtc().toIso8601String()),
+        Variable.withString(dateTimeToSql(entity.occurredAt)),
+        entity.cardLast4 != null
+            ? Variable.withString(entity.cardLast4!)
+            : const Variable(null),
+        entity.comparisonTimestamp != null
+            ? Variable.withString(dateTimeToSql(entity.comparisonTimestamp!))
+            : const Variable(null),
+        entity.comparisonTimestampSource != null
+            ? Variable.withString(
+                comparisonTimestampSourceToSql(
+                    entity.comparisonTimestampSource!),
+              )
+            : const Variable(null),
+        entity.duplicateReason != null
+            ? Variable.withString(entity.duplicateReason!)
+            : const Variable(null),
+        Variable.withString(dateTimeToSql(entity.createdAt)),
       ],
     );
   }
 
   @override
   Future<List<SuspectedDuplicateEntity>> getAll() async {
-    final rows = await _db.customSelect(
-      'SELECT * FROM suspected_duplicates ORDER BY created_at DESC;',
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM suspected_duplicates ORDER BY created_at DESC;',
+        )
+        .get();
     return rows.map(_fromRow).toList();
   }
 
@@ -72,8 +94,17 @@ class DriftSuspectedDuplicateRepository implements SuspectedDuplicateRepository 
       amount: row.read<double>('amount'),
       currency: row.read<String>('currency'),
       rawMerchant: row.readNullable<String>('raw_merchant'),
-      occurredAt: DateTime.parse(row.read<String>('occurred_at')).toLocal(),
-      createdAt: DateTime.parse(row.read<String>('created_at')).toLocal(),
+      occurredAt: dateTimeFromSql(row.read<String>('occurred_at')).toLocal(),
+      createdAt: dateTimeFromSql(row.read<String>('created_at')).toLocal(),
+      cardLast4: row.readNullable<String>('card_last4'),
+      comparisonTimestamp: row.readNullable<String>('comparison_timestamp') ==
+              null
+          ? null
+          : dateTimeFromSql(row.read<String>('comparison_timestamp')).toLocal(),
+      comparisonTimestampSource: comparisonTimestampSourceFromSql(
+        row.readNullable<String>('comparison_timestamp_source'),
+      ),
+      duplicateReason: row.readNullable<String>('duplicate_reason'),
     );
   }
 }

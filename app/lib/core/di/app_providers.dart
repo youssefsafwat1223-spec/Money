@@ -431,6 +431,8 @@ final saveManualTransactionUseCaseProvider =
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
     logMetric: ref.watch(metricsClientProvider).logEvent,
     accountRepository: ref.watch(accountRepositoryProvider),
+    suspectedDuplicateRepository:
+        ref.watch(suspectedDuplicateRepositoryProvider),
   );
 });
 

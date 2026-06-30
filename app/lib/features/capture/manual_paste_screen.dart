@@ -17,7 +17,8 @@ import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
-import '../transactions/transactions_screen.dart' show showSuspectedDuplicateReviewSheet;
+import '../transactions/transactions_screen.dart'
+    show showSuspectedDuplicateReviewSheet;
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 import '../common/top_banner.dart';
 import 'manual_paste_splitter.dart';
@@ -265,6 +266,23 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
         } else {
           showTopError(context, 'هذه العملية مسجّلة بالفعل.');
         }
+      case AddTransactionOutcome.suspiciousDuplicate:
+        refreshTransactions(ref);
+        ref.invalidate(dashboardDataProvider);
+        final existing = addResult.transaction;
+        if (existing == null) {
+          showTopError(context, 'عملية مشابهة موجودة وتحتاج مراجعة.');
+          return;
+        }
+        final dupe = await ref
+            .read(suspectedDuplicateRepositoryProvider)
+            .getByExistingTransactionId(existing.id);
+        if (!mounted) return;
+        if (dupe != null) {
+          await showSuspectedDuplicateReviewSheet(context, dupe);
+        } else {
+          showTopError(context, 'عملية مشابهة موجودة وتحتاج مراجعة.');
+        }
       case AddTransactionOutcome.notTransaction:
         final settings =
             await ref.read(userSettingsRepositoryProvider).getSettings();
@@ -312,7 +330,8 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
       ref.invalidate(dashboardDataProvider);
       return;
     }
-    if (result.outcome == AddTransactionOutcome.duplicate) {
+    if (result.outcome == AddTransactionOutcome.duplicate ||
+        result.outcome == AddTransactionOutcome.suspiciousDuplicate) {
       final dupe = await ref
           .read(suspectedDuplicateRepositoryProvider)
           .getByExistingTransactionId(tx.id);
@@ -487,6 +506,7 @@ class _PasteBatchItem {
       AddTransactionOutcome.added =>
         needsReview(confirmedIds: confirmedIds) ? 'محتاج مراجعة' : 'اتضاف',
       AddTransactionOutcome.duplicate => 'مكرر',
+      AddTransactionOutcome.suspiciousDuplicate => 'شبيه للمراجعة',
       AddTransactionOutcome.notTransaction => 'غير مفهوم',
     };
   }
@@ -519,6 +539,8 @@ class _BatchSummary {
           added++;
           if (item.needsReview(confirmedIds: confirmedIds)) review++;
         case AddTransactionOutcome.duplicate:
+          duplicate++;
+        case AddTransactionOutcome.suspiciousDuplicate:
           duplicate++;
         case AddTransactionOutcome.notTransaction:
           failed++;
@@ -805,6 +827,7 @@ class _BatchResultTile extends StatelessWidget {
     final statusColor = switch (item.addResult.outcome) {
       AddTransactionOutcome.added => needsReview ? c.warning : c.success,
       AddTransactionOutcome.duplicate => c.textMuted,
+      AddTransactionOutcome.suspiciousDuplicate => c.warning,
       AddTransactionOutcome.notTransaction => c.danger,
     };
     final amount = tx == null

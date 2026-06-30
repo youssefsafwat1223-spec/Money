@@ -8,10 +8,6 @@ class DriftDedupStore implements DedupStore {
 
   final AppDatabase _db;
 
-  /// Sliding ±300 s window using SQLite julianday arithmetic.
-  /// No fixed-bucket boundary issue: a duplicate arriving 3 min before or after
-  /// the stored time is always caught.
-  ///
   /// Joins `transactions` and skips deleted ones (status 'ignored'): once the
   /// user deletes a transaction, re-adding the same SMS must be allowed again,
   /// otherwise the stale hash would keep reporting "already recorded".
@@ -23,11 +19,7 @@ class DriftDedupStore implements DedupStore {
         LEFT JOIN transactions t ON t.id = d.transaction_id
         WHERE d.hash = ?
           AND (t.status IS NULL OR t.status != 'ignored')
-          AND ABS(
-            CAST(
-              (julianday(?) - julianday(d.occurred_at)) * 86400.0
-            AS INTEGER)
-          ) <= 300
+          AND d.occurred_at = ?
         LIMIT 1;
       ''',
       variables: [

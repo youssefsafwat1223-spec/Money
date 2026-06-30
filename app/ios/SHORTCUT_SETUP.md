@@ -4,11 +4,14 @@ This guide wires the **fully implemented** iOS capture path so a bank SMS can re
 Mali's existing parsing pipeline (`ParserEngine` → `AddTransactionUseCase`) two ways:
 
 1. **App Intent / Shortcut** — an action named **"Process Bank SMS"** that takes the
-   raw SMS text (and an optional sender) and launches Mali.
+   raw SMS text plus optional metadata and stores it in Mali's App Group queue
+   without opening the Flutter UI whenever iOS allows background execution.
 2. **Share Extension** — share any selected text into Mali from the share sheet.
 
-Both write to a shared **App Group** FIFO queue. When Mali opens or resumes, Flutter
-drains the queue and runs the normal parsing/confirm flow.
+Both write to a shared **App Group** FIFO queue. If Mali is already running, the
+native layer posts a lightweight notification to Flutter that pending messages
+exist. When Mali opens, resumes, or receives that native callback, Flutter drains
+the queue and runs the normal parsing/confirm flow.
 
 > iOS cannot read SMS automatically (no API for it). This Shortcut + Share Extension
 > approach is the supported way to feed bank messages in. Pair it with a Personal
@@ -22,8 +25,9 @@ drains the queue and runs the normal parsing/confirm flow.
 | --- | --- | --- |
 | `ios/Runner/AppDelegate.swift` | Runner | Method channel `money_companion/native_capture`; handles `consumePendingSharedMessages`. |
 | `ios/Runner/SharedCaptureStore.swift` | Runner | FIFO queue in the App Group. |
-| `ios/BankMessageShortcuts/BankMessageShortcuts.swift` | **BankMessageShortcuts** (App Intents ext.) | `PostBankStatusIntent` + `AppShortcutsProvider`. |
-| `ios/BankMessageShortcuts/SharedCaptureStore.swift` | BankMessageShortcuts | Identical copy of the queue. |
+| `ios/BankMessageShortcuts/BankMessageShortcuts.swift` | **BankMessageShortcuts** (App Intents ext.) | `PostBankStatusIntent`, capture service, dependency injection seam, and `AppShortcutsProvider`. |
+| `ios/BankMessageShortcuts/SharedCaptureStore.swift` | BankMessageShortcuts | Identical copy of the queue with structured payloads, pending status, locale, received time, and pending-queue dedupe. |
+| `ios/BankMessageShortcuts/Localizable.xcstrings` | BankMessageShortcuts | English + Arabic App Intent localization. |
 | `ios/ShareBankMessage/ShareViewController.swift` | **ShareBankMessage** (Share ext.) | Enqueues shared text. |
 | `ios/ShareBankMessage/SharedCaptureStore.swift` | ShareBankMessage | Identical copy of the queue. |
 
@@ -115,12 +119,14 @@ macOS runner) to produce the `.ipa`, then sideload with your usual tool.
 - Open **Shortcuts → +** → search the action **"Process Bank SMS"**.
 - Pass it text through **SMS Text**. In a Message automation, set **SMS Text**
   to **Shortcut Input**.
-- Run it → Mali opens and the transaction appears for confirmation.
+- Run it → the payload is stored silently when iOS allows it. Mali processes it
+  when the app is available.
 
 ### Near-automatic (Personal Automation)
 - Shortcuts app → **Automation → + → Message** → *Message Contains* the bank's name,
   or *When I get a message from* the bank's short code.
 - Action: **Process Bank SMS**, **SMS Text** = *Shortcut Input* (the message text).
+  Optional fields such as sender, received date, and locale can be left empty.
 - Final shape should be: **Receive messages as input** → **Process Bank SMS**.
 - Turn **Run Immediately** on. iOS still shows a tap/notification for SMS triggers,
   but no manual copy/paste is needed.
@@ -148,7 +154,7 @@ PostBankStatusIntent.perform()      ShareViewController.didSelectPost()
         NativeCaptureBridge.consumePendingSharedMessages()
                               ▼
         AppShell._consumeSharedInput() loops each message →
-        CapturedMessageProcessor.process(rawMessage, senderId) →
+        CapturedMessageProcessor.process(rawMessage, senderId, receivedAt) →
         ParserEngine + AddTransactionUseCase → confirm sheet
 ```
 

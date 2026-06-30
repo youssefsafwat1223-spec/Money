@@ -59,6 +59,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   CelebrationEvent? _activeCelebration;
   Timer? _celebrationTimer;
   bool _isBottomBarVisible = true;
+  bool _isConsumingSharedInput = false;
 
   @override
   void initState() {
@@ -74,6 +75,10 @@ class _AppShellState extends ConsumerState<AppShell> {
         CaptureRuntime.instance.bankDiscoveryRequests.listen(
       _openBankDiscoverySheet,
     );
+    NativeCaptureBridge.setPendingMessagesHandler(() async {
+      if (!mounted) return;
+      await _consumeSharedInput();
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       unawaited(syncCatalog(ref, force: true));
@@ -100,6 +105,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     _confirmSubscription?.cancel();
     _navigationSubscription?.cancel();
     _bankDiscoverySubscription?.cancel();
+    NativeCaptureBridge.setPendingMessagesHandler(null);
     _lifecycleListener.dispose();
     super.dispose();
   }
@@ -114,57 +120,63 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _consumeSharedInput() async {
-    final messages = await NativeCaptureBridge.consumePendingSharedMessages();
-    if (messages.isEmpty) return;
+    if (_isConsumingSharedInput) return;
+    _isConsumingSharedInput = true;
+    try {
+      final messages = await NativeCaptureBridge.consumePendingSharedMessages();
+      if (messages.isEmpty) return;
 
-    // Prune old dedup hashes opportunistically on each drain cycle.
-    unawaited(ref.read(appDatabaseProvider).pruneOldDedupHashes());
+      // Prune old dedup hashes opportunistically on each drain cycle.
+      unawaited(ref.read(appDatabaseProvider).pruneOldDedupHashes());
 
-    final ingestUseCase = ref.read(ingestCapturedMessageUseCaseProvider);
-    final notificationPreferences =
-        await ref.read(loadNotificationPreferencesUseCaseProvider).call();
+      final ingestUseCase = ref.read(ingestCapturedMessageUseCaseProvider);
+      final notificationPreferences =
+          await ref.read(loadNotificationPreferencesUseCaseProvider).call();
 
-    String? pendingConfirmationId;
-    String? pendingSecondaryNotice;
-    SenderBankMappingEntity? pendingBankDiscovery;
+      String? pendingConfirmationId;
+      String? pendingSecondaryNotice;
+      SenderBankMappingEntity? pendingBankDiscovery;
 
-    for (final message in messages) {
-      final captured = CapturedMessage(
-        text: message.text,
-        senderId: message.sender,
-        source: message.source,
-        receivedAt: DateTime.now().toUtc(),
-      );
-      final result = await ingestUseCase.fromCapturedMessage(captured);
-      await _showCapturedMessageNotification(
-        result,
-        notificationPreferences,
-      );
-      if (result.transactionId != null &&
-          result.addTransactionResult.requiresConfirmation) {
-        pendingConfirmationId = result.transactionId;
-        pendingSecondaryNotice =
-            feeNoticeFor(result.addTransactionResult.secondary);
+      for (final message in messages) {
+        final captured = CapturedMessage(
+          text: message.text,
+          senderId: message.sender,
+          source: message.source,
+          receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
+        );
+        final result = await ingestUseCase.fromCapturedMessage(captured);
+        await _showCapturedMessageNotification(
+          result,
+          notificationPreferences,
+        );
+        if (result.transactionId != null &&
+            result.addTransactionResult.requiresConfirmation) {
+          pendingConfirmationId = result.transactionId;
+          pendingSecondaryNotice =
+              feeNoticeFor(result.addTransactionResult.secondary);
+        }
+        pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
+          message.sender,
+        );
       }
-      pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
-        message.sender,
+      unawaited(
+        ref.read(notificationJourneyServiceProvider).evaluateAfterCapture(),
       );
-    }
-    unawaited(
-      ref.read(notificationJourneyServiceProvider).evaluateAfterCapture(),
-    );
-    if (!mounted) return;
+      if (!mounted) return;
 
-    _refreshAll();
+      _refreshAll();
 
-    if (pendingConfirmationId != null) {
-      await _openConfirmSheet(
-        pendingConfirmationId,
-        secondaryNotice: pendingSecondaryNotice,
-      );
-    }
-    if (pendingBankDiscovery != null) {
-      await _openBankDiscoverySheet(pendingBankDiscovery);
+      if (pendingConfirmationId != null) {
+        await _openConfirmSheet(
+          pendingConfirmationId,
+          secondaryNotice: pendingSecondaryNotice,
+        );
+      }
+      if (pendingBankDiscovery != null) {
+        await _openBankDiscoverySheet(pendingBankDiscovery);
+      }
+    } finally {
+      _isConsumingSharedInput = false;
     }
   }
 
@@ -201,6 +213,12 @@ class _AppShellState extends ConsumerState<AppShell> {
         await LocalNotificationService.instance.showReviewNotification(
           transactionId: transaction.id,
           body: _buildCapturedReviewBody(result.addTransactionResult),
+          preferences: preferences,
+        );
+      case CapturedMessageDisposition.suspiciousDuplicate:
+        await LocalNotificationService.instance.showLightCaptureNotification(
+          title: 'عملية مشابهة موجودة',
+          body: 'راجع Smart Inbox عشان تأكدها كعملية جديدة أو تتجاهلها.',
           preferences: preferences,
         );
       case CapturedMessageDisposition.unprocessable:

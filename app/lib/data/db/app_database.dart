@@ -11,7 +11,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 13;
+const int _targetSchemaVersion = 14;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -240,6 +240,15 @@ class AppDatabase extends GeneratedDatabase {
         foreign_amount REAL NULL,
         foreign_currency TEXT NULL,
         direction TEXT NULL CHECK(direction IN ('credit', 'debit', 'unknown')),
+        transaction_time_from_sms TEXT NULL,
+        sms_received_at TEXT NULL,
+        comparison_timestamp TEXT NULL,
+        comparison_timestamp_source TEXT NOT NULL DEFAULT 'received_at'
+          CHECK(comparison_timestamp_source IN ('sms_body', 'received_at')),
+        duplicate_status TEXT NOT NULL DEFAULT 'normal'
+          CHECK(duplicate_status IN ('normal', 'suspicious_duplicate')),
+        possible_duplicate_of_transaction_id TEXT NULL,
+        duplicate_reason TEXT NULL,
         FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE SET NULL,
         FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
       );
@@ -250,6 +259,10 @@ class AppDatabase extends GeneratedDatabase {
     );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_transactions_merchant_amount ON transactions(merchant_id, amount);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transactions_duplicate_exact '
+      'ON transactions(amount, currency, comparison_timestamp);',
     );
 
     await customStatement('''
@@ -410,6 +423,10 @@ class AppDatabase extends GeneratedDatabase {
         currency TEXT NOT NULL,
         raw_merchant TEXT NULL,
         occurred_at TEXT NOT NULL,
+        card_last4 TEXT NULL,
+        comparison_timestamp TEXT NULL,
+        comparison_timestamp_source TEXT NULL,
+        duplicate_reason TEXT NULL,
         created_at TEXT NOT NULL
       );
     ''');
@@ -521,6 +538,7 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn('subscriptions', 'lender_name', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'interest_rate', 'REAL NULL');
     await _createBillPaymentsTable();
+    await _createSuspectedDuplicatesTable();
 
     if (version < 3) {
       await _createCatalogMetadataTable();
@@ -558,6 +576,45 @@ class AppDatabase extends GeneratedDatabase {
       'transactions',
       'direction',
       "TEXT NULL CHECK(direction IN ('credit', 'debit', 'unknown'))",
+    );
+    await _ensureColumn(
+        'transactions', 'transaction_time_from_sms', 'TEXT NULL');
+    await _ensureColumn('transactions', 'sms_received_at', 'TEXT NULL');
+    await _ensureColumn('transactions', 'comparison_timestamp', 'TEXT NULL');
+    await _ensureColumn(
+      'transactions',
+      'comparison_timestamp_source',
+      "TEXT NOT NULL DEFAULT 'received_at' "
+          "CHECK(comparison_timestamp_source IN ('sms_body', 'received_at'))",
+    );
+    await _ensureColumn(
+      'transactions',
+      'duplicate_status',
+      "TEXT NOT NULL DEFAULT 'normal' "
+          "CHECK(duplicate_status IN ('normal', 'suspicious_duplicate'))",
+    );
+    await _ensureColumn(
+      'transactions',
+      'possible_duplicate_of_transaction_id',
+      'TEXT NULL',
+    );
+    await _ensureColumn('transactions', 'duplicate_reason', 'TEXT NULL');
+    await _ensureColumn('suspected_duplicates', 'card_last4', 'TEXT NULL');
+    await _ensureColumn(
+      'suspected_duplicates',
+      'comparison_timestamp',
+      'TEXT NULL',
+    );
+    await _ensureColumn(
+      'suspected_duplicates',
+      'comparison_timestamp_source',
+      'TEXT NULL',
+    );
+    await _ensureColumn(
+        'suspected_duplicates', 'duplicate_reason', 'TEXT NULL');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transactions_duplicate_exact '
+      'ON transactions(amount, currency, comparison_timestamp);',
     );
     if (version < 10) {
       await _backfillGoalsToDefaultAccount();

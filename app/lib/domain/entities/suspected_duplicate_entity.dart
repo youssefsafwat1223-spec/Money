@@ -1,3 +1,5 @@
+import 'transaction_entity.dart';
+
 class SuspectedDuplicateEntity {
   const SuspectedDuplicateEntity({
     required this.id,
@@ -9,6 +11,10 @@ class SuspectedDuplicateEntity {
     this.rawMerchant,
     required this.occurredAt,
     required this.createdAt,
+    this.cardLast4,
+    this.comparisonTimestamp,
+    this.comparisonTimestampSource,
+    this.duplicateReason,
   });
 
   final String id;
@@ -20,4 +26,8 @@ class SuspectedDuplicateEntity {
   final String? rawMerchant;
   final DateTime occurredAt;
   final DateTime createdAt;
+  final String? cardLast4;
+  final DateTime? comparisonTimestamp;
+  final ComparisonTimestampSource? comparisonTimestampSource;
+  final String? duplicateReason;
 }

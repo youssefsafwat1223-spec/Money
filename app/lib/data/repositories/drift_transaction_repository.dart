@@ -6,6 +6,7 @@ import '../../domain/entities/category_spend.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
+import '../../domain/services/duplicate_transaction_detector.dart';
 import '../../engine/parser/card_network.dart';
 import '../db/app_database.dart';
 import '../db/database_seed.dart';
@@ -55,21 +56,66 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE merchant_id = ?
           AND amount = ?
-          AND occurred_at BETWEEN ? AND ?
+          AND occurred_at = ?
         ORDER BY occurred_at DESC
         LIMIT 1;
       ''',
       variables: [
         Variable.withString(merchantId),
         Variable.withReal(amount),
-        Variable.withString(dateTimeToSql(
-            occurredAt.toUtc().subtract(const Duration(minutes: 2)))),
-        Variable.withString(
-            dateTimeToSql(occurredAt.toUtc().add(const Duration(minutes: 2)))),
+        Variable.withString(dateTimeToSql(occurredAt.toUtc())),
       ],
     ).getSingleOrNull();
 
     return rows == null ? null : transactionFromRow(rows);
+  }
+
+  @override
+  Future<TransactionEntity?> findSuspiciousDuplicate({
+    required double amount,
+    required String currency,
+    required String merchantOrDescription,
+    String? cardLast4,
+    required DateTime comparisonTimestamp,
+  }) async {
+    final timestampSql = dateTimeToSql(comparisonTimestamp.toUtc());
+    final rows = await _db.customSelect(
+      '''
+        SELECT *
+        FROM transactions
+        WHERE status != 'ignored'
+          AND (
+            (amount = ? AND UPPER(currency) = ?)
+            OR (foreign_amount = ? AND UPPER(foreign_currency) = ?)
+          )
+          AND (
+            comparison_timestamp = ?
+            OR (comparison_timestamp IS NULL AND occurred_at = ?)
+          )
+        ORDER BY occurred_at DESC;
+      ''',
+      variables: [
+        Variable.withReal(amount),
+        Variable.withString(currency.trim().toUpperCase()),
+        Variable.withReal(amount),
+        Variable.withString(currency.trim().toUpperCase()),
+        Variable.withString(timestampSql),
+        Variable.withString(timestampSql),
+      ],
+    ).get();
+    final candidates = rows.map(transactionFromRow).toList();
+    final result = const DuplicateTransactionDetector().detect(
+      input: DuplicateTransactionInput(
+        amount: amount,
+        currency: currency,
+        merchantOrDescription: merchantOrDescription,
+        cardLast4: cardLast4,
+        comparisonTimestamp: comparisonTimestamp,
+        comparisonTimestampSource: ComparisonTimestampSource.receivedAt,
+      ),
+      existingTransactions: candidates,
+    );
+    return result.existing;
   }
 
   @override
@@ -105,7 +151,10 @@ class DriftTransactionRepository implements TransactionRepository {
       INSERT INTO transactions(
         id, amount, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
         card_last4, balance_after, note, occurred_at, raw_message, parse_confidence, status,
-        created_at, updated_at, foreign_amount, foreign_currency, direction
+        created_at, updated_at, foreign_amount, foreign_currency, direction,
+        transaction_time_from_sms, sms_received_at, comparison_timestamp,
+        comparison_timestamp_source, duplicate_status,
+        possible_duplicate_of_transaction_id, duplicate_reason
       ) VALUES (
         ${sqlString(transaction.id)},
         ${transaction.amount},
@@ -127,7 +176,14 @@ class DriftTransactionRepository implements TransactionRepository {
         ${sqlString(dateTimeToSql(transaction.updatedAt))},
         ${sqlNullableNum(transaction.foreignAmount)},
         ${sqlNullableString(transaction.foreignCurrency)},
-        ${sqlNullableString(transactionDirectionToSql(transaction.direction))}
+        ${sqlNullableString(transactionDirectionToSql(transaction.direction))},
+        ${sqlNullableString(transaction.transactionTimeFromSms == null ? null : dateTimeToSql(transaction.transactionTimeFromSms!))},
+        ${sqlNullableString(transaction.smsReceivedAt == null ? null : dateTimeToSql(transaction.smsReceivedAt!))},
+        ${sqlNullableString(transaction.comparisonTimestamp == null ? null : dateTimeToSql(transaction.comparisonTimestamp!))},
+        ${sqlString(comparisonTimestampSourceToSql(transaction.comparisonTimestampSource))},
+        ${sqlString(duplicateStatusToSql(transaction.duplicateStatus))},
+        ${sqlNullableString(transaction.possibleDuplicateOfTransactionId)},
+        ${sqlNullableString(transaction.duplicateReason)}
       );
     ''');
 

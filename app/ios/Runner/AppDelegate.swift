@@ -4,6 +4,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var captureChannel: FlutterMethodChannel?
+  private var didRegisterPendingMessagesObserver = false
 
   override func application(
     _ application: UIApplication,
@@ -42,6 +43,8 @@ import UIKit
         result(SharedCaptureStore.consumePendingText())
       case "consumePendingSharedMessages":
         result(SharedCaptureStore.consumePendingPayloadsJSON())
+      case "hasPendingSharedMessages":
+        result(SharedCaptureStore.hasPendingMessages())
       case "hasSmsPermission":
         result(false)
       case "openAppSettings":
@@ -54,6 +57,32 @@ import UIKit
       }
     }
     captureChannel = channel
+    registerPendingMessagesObserverIfNeeded()
+  }
+
+  private func registerPendingMessagesObserverIfNeeded() {
+    guard !didRegisterPendingMessagesObserver else { return }
+    didRegisterPendingMessagesObserver = true
+    let observer = UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())
+    CFNotificationCenterAddObserver(
+      CFNotificationCenterGetDarwinNotifyCenter(),
+      observer,
+      { _, observer, _, _, _ in
+        guard let observer else { return }
+        let appDelegate = Unmanaged<AppDelegate>
+          .fromOpaque(observer)
+          .takeUnretainedValue()
+        DispatchQueue.main.async {
+          appDelegate.captureChannel?.invokeMethod(
+            "pendingSharedMessagesAvailable",
+            arguments: nil
+          )
+        }
+      },
+      SharedCaptureStore.pendingMessagesNotificationName as CFString,
+      nil,
+      .deliverImmediately
+    )
   }
 
   private func rootFlutterViewController() -> FlutterViewController? {

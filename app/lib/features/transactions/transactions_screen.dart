@@ -20,6 +20,7 @@ import '../common/app_empty_state.dart';
 import '../common/app_transaction_row.dart';
 import '../common/app_button.dart';
 import '../common/app_sheet_scaffold.dart';
+import '../common/category_catalog.dart';
 import '../subscriptions/bill_details_sheet.dart';
 import '../subscriptions/bill_form_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -27,6 +28,7 @@ import '../../domain/entities/suspected_duplicate_entity.dart';
 import 'manual_transaction_sheet.dart';
 import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
+import 'widgets/change_category_sheet.dart';
 
 class TransactionsScreen extends ConsumerWidget {
   const TransactionsScreen({super.key});
@@ -1875,6 +1877,11 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
+    final existingAsync = ref.watch(transactionByIdProvider(
+      dupe.existingTransactionId,
+    ));
+    final existing = existingAsync.valueOrNull;
+    final timestamp = dupe.comparisonTimestamp ?? dupe.occurredAt;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s4),
       decoration: BoxDecoration(
@@ -1886,9 +1893,11 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
         children: [
           Row(
             children: [
+              Icon(Icons.content_copy_rounded, size: 18, color: c.warning),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  dupe.rawMerchant ?? 'عملية',
+                  'عملية مشابهة موجودة',
                   style: AppTypography.bodyStrong(c.textMain),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1902,7 +1911,31 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            Formatters.dateWithWeekday(dupe.occurredAt, context),
+            'العملية دي شبه عملية موجودة بنفس المبلغ والتاجر والوقت.',
+            style: AppTypography.caption(c.textMuted),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _DuplicateInfoRow(
+            label: 'الجديدة',
+            merchant: dupe.rawMerchant ?? 'بدون تاجر واضح',
+            amount: '${Formatters.amount(dupe.amount)} ${dupe.currency}',
+            time:
+                '${Formatters.dateWithWeekday(timestamp, context)} · ${Formatters.time(timestamp)}',
+          ),
+          if (existing != null) ...[
+            const SizedBox(height: AppSpacing.s2),
+            _DuplicateInfoRow(
+              label: 'الموجودة',
+              merchant: existing.rawMerchant ?? 'بدون تاجر واضح',
+              amount:
+                  '${Formatters.amount(existing.amount)} ${existing.currency}',
+              time:
+                  '${Formatters.dateWithWeekday(existing.comparisonTimestamp ?? existing.occurredAt, context)} · ${Formatters.time(existing.comparisonTimestamp ?? existing.occurredAt)}',
+            ),
+          ],
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            'مصدر الوقت: ${_timestampSourceLabel(dupe.comparisonTimestampSource)}',
             style: AppTypography.caption(c.textMuted),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -1916,7 +1949,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
                     side: BorderSide(color: c.border.withValues(alpha: 0.5)),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
-                  child: const Text('تجاهل'),
+                  child: const Text('تجاهل التكرار'),
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
@@ -1927,7 +1960,31 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
                     backgroundColor: c.primary,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
-                  child: const Text('مش مكررة — احفظها'),
+                  child: const Text('احفظ كجديدة'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: existing == null
+                      ? null
+                      : () => _editExisting(context, ref, existing),
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('تعديل العملية'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: existing == null
+                      ? null
+                      : () => _changeCategory(context, ref, existing),
+                  icon: const Icon(Icons.category_outlined, size: 16),
+                  label: const Text('تغيير التصنيف'),
                 ),
               ),
             ],
@@ -1935,6 +1992,12 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _timestampSourceLabel(ComparisonTimestampSource? source) {
+    return source == ComparisonTimestampSource.smsBody
+        ? 'وقت العملية داخل SMS'
+        : 'وقت استلام الرسالة';
   }
 
   Future<void> _dismiss(WidgetRef ref) async {
@@ -1948,6 +2011,10 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
       rawMessage: dupe.rawMessage,
       senderId: dupe.senderId,
       skipDedup: true,
+      smsReceivedAt:
+          dupe.comparisonTimestampSource == ComparisonTimestampSource.receivedAt
+              ? dupe.comparisonTimestamp ?? dupe.occurredAt
+              : null,
     );
     await ref.read(suspectedDuplicateRepositoryProvider).delete(dupe.id);
     ref.invalidate(suspectedDuplicatesProvider);
@@ -1956,5 +2023,80 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
     if (context.mounted && result.transaction != null) {
       await TransactionDetailsScreen.showSheet(context, result.transaction!.id);
     }
+  }
+
+  Future<void> _editExisting(
+    BuildContext context,
+    WidgetRef ref,
+    TransactionEntity existing,
+  ) async {
+    await ManualTransactionSheet.show(context, transaction: existing);
+    ref.invalidate(transactionByIdProvider(existing.id));
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+  }
+
+  Future<void> _changeCategory(
+    BuildContext context,
+    WidgetRef ref,
+    TransactionEntity existing,
+  ) async {
+    final catalog = await ref.read(categoryCatalogProvider.future);
+    if (!context.mounted) return;
+    await showChangeCategorySheet(context, existing, catalog);
+    ref.invalidate(transactionByIdProvider(existing.id));
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+  }
+}
+
+class _DuplicateInfoRow extends StatelessWidget {
+  const _DuplicateInfoRow({
+    required this.label,
+    required this.merchant,
+    required this.amount,
+    required this.time,
+  });
+
+  final String label;
+  final String merchant;
+  final String amount;
+  final String time;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppTypography.caption(c.textMuted)),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  merchant,
+                  style: AppTypography.bodyStrong(c.textMain),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Text(amount, style: AppTypography.bodyStrong(c.textMain)),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(time, style: AppTypography.caption(c.textMuted)),
+        ],
+      ),
+    );
   }
 }

@@ -56,13 +56,25 @@ class _StubTransactionRepo implements TransactionRepository {
     required double amount,
     required String rawMerchant,
     required DateTime occurredAt,
-  }) async => null;
+  }) async =>
+      null;
+
+  @override
+  Future<TransactionEntity?> findSuspiciousDuplicate({
+    required double amount,
+    required String currency,
+    required String merchantOrDescription,
+    String? cardLast4,
+    required DateTime comparisonTimestamp,
+  }) async =>
+      null;
 
   @override
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
-  }) async => transaction;
+  }) async =>
+      transaction;
 
   @override
   Future<TransactionEntity?> getById(String id) async => null;
@@ -92,8 +104,7 @@ class _NoDedupStore implements DedupStore {
       null;
   @override
   Future<void> mark(String hash,
-          {required String transactionId,
-          required DateTime occurredAt}) async {}
+      {required String transactionId, required DateTime occurredAt}) async {}
 }
 
 AddTransactionUseCase _makeUseCase({
@@ -123,9 +134,9 @@ void main() {
           parsedTxn: ParsedTransaction(
             amount: 500.0,
             currency: 'SAR',
-            type: TransactionType.transfer,   // ← transfer type
+            type: TransactionType.transfer, // ← transfer type
             source: TransactionSource.bank,
-            rawMerchant: 'SARRAA ALASMARI',   // ← real person name as merchant
+            rawMerchant: 'SARRAA ALASMARI', // ← real person name as merchant
             occurredAt: _now,
             parseConfidence: 0.75,
           ),
@@ -149,9 +160,10 @@ void main() {
           parsedTxn: ParsedTransaction(
             amount: 45.0,
             currency: 'SAR',
-            type: TransactionType.payment,    // ← POS/payment type
+            type: TransactionType.payment, // ← POS/payment type
             source: TransactionSource.bank,
-            rawMerchant: 'HALA BOUTIQUE XYZ 123', // ← business name, truly not in seeds
+            rawMerchant:
+                'HALA BOUTIQUE XYZ 123', // ← business name, truly not in seeds
             occurredAt: _now,
             parseConfidence: 0.75,
           ),
@@ -178,7 +190,7 @@ void main() {
           parsedTxn: ParsedTransaction(
             amount: 8500.0,
             currency: 'SAR',
-            type: TransactionType.income,   // ← income
+            type: TransactionType.income, // ← income
             source: TransactionSource.bank,
             rawMerchant: 'MOHAMMED ALGHAMDI', // ← could be a person
             occurredAt: _now,

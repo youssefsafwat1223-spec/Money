@@ -10,6 +10,7 @@ import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_bill_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/data/repositories/drift_merchant_category_repository.dart';
+import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
@@ -63,6 +64,7 @@ void main() {
     addTransaction = AddTransactionUseCase(
       transactionRepository: transactionRepository,
       merchantCategoryRepository: merchantCategoryRepository,
+      suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
     );
     confirmTransaction = ConfirmTransactionUseCase(transactionRepository);
     correctCategory = CorrectCategoryUseCase(
@@ -279,7 +281,7 @@ void main() {
     expect(updated.currency, settings.currency);
   });
 
-  test('new merchant stays pending and de-duplicates within two minutes',
+  test('new merchant stays pending and exact duplicate goes to Smart Inbox',
       () async {
     const rawMessage = 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\n'
         'لدى:BURGER BOUTIQUE\nفي:2026-04-08 12:45\nالرصيد:SAR 2,310.50';
@@ -292,8 +294,9 @@ void main() {
     expect(await db.count('transactions'), 1);
 
     final duplicateResult = await addTransaction(rawMessage: rawMessage);
-    expect(duplicateResult.outcome, AddTransactionOutcome.duplicate);
+    expect(duplicateResult.outcome, AddTransactionOutcome.suspiciousDuplicate);
     expect(await db.count('transactions'), 1);
+    expect(await db.count('suspected_duplicates'), 1);
   });
 
   test('trusted sender and known merchant can auto-confirm', () async {

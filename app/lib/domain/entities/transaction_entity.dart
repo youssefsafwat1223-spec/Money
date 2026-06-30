@@ -19,6 +19,10 @@ enum TransactionStatus { confirmed, pending, ignored }
 
 enum TransactionDirectionEntity { credit, debit, unknown }
 
+enum ComparisonTimestampSource { smsBody, receivedAt }
+
+enum DuplicateStatus { normal, suspiciousDuplicate }
+
 class TransactionEntity {
   const TransactionEntity({
     required this.id,
@@ -42,6 +46,13 @@ class TransactionEntity {
     this.foreignAmount,
     this.foreignCurrency,
     this.direction,
+    this.transactionTimeFromSms,
+    this.smsReceivedAt,
+    this.comparisonTimestamp,
+    this.comparisonTimestampSource = ComparisonTimestampSource.receivedAt,
+    this.duplicateStatus = DuplicateStatus.normal,
+    this.possibleDuplicateOfTransactionId,
+    this.duplicateReason,
   });
 
   final String id;
@@ -65,6 +76,13 @@ class TransactionEntity {
   final double? foreignAmount;
   final String? foreignCurrency;
   final TransactionDirectionEntity? direction;
+  final DateTime? transactionTimeFromSms;
+  final DateTime? smsReceivedAt;
+  final DateTime? comparisonTimestamp;
+  final ComparisonTimestampSource comparisonTimestampSource;
+  final DuplicateStatus duplicateStatus;
+  final String? possibleDuplicateOfTransactionId;
+  final String? duplicateReason;
 
   TransactionEntity copyWith({
     String? id,
@@ -88,6 +106,13 @@ class TransactionEntity {
     double? foreignAmount,
     String? foreignCurrency,
     TransactionDirectionEntity? direction,
+    DateTime? transactionTimeFromSms,
+    DateTime? smsReceivedAt,
+    DateTime? comparisonTimestamp,
+    ComparisonTimestampSource? comparisonTimestampSource,
+    DuplicateStatus? duplicateStatus,
+    String? possibleDuplicateOfTransactionId,
+    String? duplicateReason,
   }) {
     return TransactionEntity(
       id: id ?? this.id,
@@ -111,6 +136,16 @@ class TransactionEntity {
       foreignAmount: foreignAmount ?? this.foreignAmount,
       foreignCurrency: foreignCurrency ?? this.foreignCurrency,
       direction: direction ?? this.direction,
+      transactionTimeFromSms:
+          transactionTimeFromSms ?? this.transactionTimeFromSms,
+      smsReceivedAt: smsReceivedAt ?? this.smsReceivedAt,
+      comparisonTimestamp: comparisonTimestamp ?? this.comparisonTimestamp,
+      comparisonTimestampSource:
+          comparisonTimestampSource ?? this.comparisonTimestampSource,
+      duplicateStatus: duplicateStatus ?? this.duplicateStatus,
+      possibleDuplicateOfTransactionId: possibleDuplicateOfTransactionId ??
+          this.possibleDuplicateOfTransactionId,
+      duplicateReason: duplicateReason ?? this.duplicateReason,
     );
   }
 }

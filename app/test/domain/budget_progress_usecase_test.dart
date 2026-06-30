@@ -160,6 +160,17 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<TransactionEntity?> findSuspiciousDuplicate({
+    required double amount,
+    required String currency,
+    required String merchantOrDescription,
+    String? cardLast4,
+    required DateTime comparisonTimestamp,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<TransactionEntity>> getAll() {
     throw UnimplementedError();
   }

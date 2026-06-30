@@ -6,6 +6,7 @@ import 'package:money_companion/domain/repositories/dedup_store.dart';
 import 'package:money_companion/domain/repositories/merchant_category_repository.dart';
 import 'package:money_companion/domain/repositories/sender_bank_mapping_repository.dart';
 import 'package:money_companion/domain/repositories/transaction_repository.dart';
+import 'package:money_companion/domain/services/duplicate_transaction_detector.dart';
 import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
 import 'package:money_companion/domain/usecases/resolve_bank_for_sender_usecase.dart';
 import 'package:money_companion/engine/ai/ai_parser_client.dart';
@@ -39,6 +40,16 @@ class _StubTransactionRepo implements TransactionRepository {
     required double amount,
     required String rawMerchant,
     required DateTime occurredAt,
+  }) async =>
+      null;
+
+  @override
+  Future<TransactionEntity?> findSuspiciousDuplicate({
+    required double amount,
+    required String currency,
+    required String merchantOrDescription,
+    String? cardLast4,
+    required DateTime comparisonTimestamp,
   }) async =>
       null;
 
@@ -179,6 +190,28 @@ class _StoringTransactionRepo implements TransactionRepository {
     required DateTime occurredAt,
   }) async =>
       null;
+
+  @override
+  Future<TransactionEntity?> findSuspiciousDuplicate({
+    required double amount,
+    required String currency,
+    required String merchantOrDescription,
+    String? cardLast4,
+    required DateTime comparisonTimestamp,
+  }) async {
+    final result = const DuplicateTransactionDetector().detect(
+      input: DuplicateTransactionInput(
+        amount: amount,
+        currency: currency,
+        merchantOrDescription: merchantOrDescription,
+        cardLast4: cardLast4,
+        comparisonTimestamp: comparisonTimestamp,
+        comparisonTimestampSource: ComparisonTimestampSource.receivedAt,
+      ),
+      existingTransactions: byId.values,
+    );
+    return result.existing;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -1290,7 +1323,8 @@ void main() {
     TransactionEntity? saved;
     final repo = _SingleAccountRepo(_homeAccount('SAR'));
     final useCase = AddTransactionUseCase(
-      transactionRepository: _CapturingTransactionRepo(onSave: (t) => saved = t),
+      transactionRepository:
+          _CapturingTransactionRepo(onSave: (t) => saved = t),
       merchantCategoryRepository: _StubMerchantRepo(),
       parserIsolate: _FakeParserIsolate(ParseResult.success(fakeParsed)),
       loadAiConsent: () async => false,
@@ -1346,7 +1380,7 @@ void main() {
     final second = await build()(rawMessage: sms);
     // Re-processing the same SMS adds nothing.
     expect(repo.saveCount, 2);
-    expect(second.outcome, AddTransactionOutcome.duplicate);
+    expect(second.outcome, AddTransactionOutcome.suspiciousDuplicate);
 
     final sarAmounts = repo.byId.values
         .where((t) => t.currency == 'SAR')
@@ -1447,7 +1481,8 @@ void main() {
     ));
     TransactionEntity? saved;
     final useCase = AddTransactionUseCase(
-      transactionRepository: _CapturingTransactionRepo(onSave: (t) => saved = t),
+      transactionRepository:
+          _CapturingTransactionRepo(onSave: (t) => saved = t),
       merchantCategoryRepository: _StubMerchantRepo(),
       parserIsolate: _FakeParserIsolate(ParseResult.notTransaction()),
       loadAiConsent: () async => true,

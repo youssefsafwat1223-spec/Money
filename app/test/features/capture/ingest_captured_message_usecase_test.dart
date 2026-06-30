@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_merchant_category_repository.dart';
+import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/captured_message.dart';
 import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
@@ -30,6 +31,7 @@ void main() {
       AddTransactionUseCase(
         transactionRepository: DriftTransactionRepository(db),
         merchantCategoryRepository: DriftMerchantCategoryRepository(db),
+        suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
       ),
     );
   });
@@ -82,7 +84,8 @@ void main() {
     expect(result.transactionId, isNotNull);
   });
 
-  test('duplicate capture is ignored silently', () async {
+  test('duplicate capture goes to Smart Inbox instead of silent ignore',
+      () async {
     const rawMessage = 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\n'
         'لدى:BURGER BOUTIQUE\nفي:2026-04-08 12:45\nالرصيد:SAR 2,310.50';
 
@@ -90,9 +93,11 @@ void main() {
     final duplicate = await ingestCapturedMessage(rawMessage: rawMessage);
 
     expect(first.disposition, CapturedMessageDisposition.requestConfirmation);
-    expect(duplicate.disposition, CapturedMessageDisposition.ignored);
+    expect(
+        duplicate.disposition, CapturedMessageDisposition.suspiciousDuplicate);
     expect(duplicate.addTransactionResult.outcome,
-        AddTransactionOutcome.duplicate);
+        AddTransactionOutcome.suspiciousDuplicate);
+    expect(await db.count('suspected_duplicates'), 1);
   });
 
   test('non-transaction capture is ignored silently', () async {

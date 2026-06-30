@@ -5,8 +5,8 @@ import 'package:cryptography/cryptography.dart';
 /// Computes a dedup hash for a parsed transaction.
 ///
 /// The hash covers time-invariant fields only: amount, currency, card, merchant,
-/// and type. The time-window check (±5 min) is enforced at query time in
-/// [DriftDedupStore], so there are no fixed-bucket boundary misses.
+/// and type. The timestamp check is exact and happens at query time in
+/// [DriftDedupStore].
 ///
 /// Two distinct transactions with the same amount but different merchants → different
 /// hashes, even within the same minute.

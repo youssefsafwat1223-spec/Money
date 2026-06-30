@@ -5,6 +5,8 @@ enum CapturedMessageDisposition {
   ignored,
   notifyOnly,
   requestConfirmation,
+  suspiciousDuplicate,
+
   /// A bank-like message was received but could not be parsed (not OTP/promo).
   /// The user should be prompted to add it manually.
   unprocessable,
@@ -47,12 +49,18 @@ class IngestCapturedMessageUseCase {
     final result = await _addTransactionUseCase(
       rawMessage: message.text,
       senderId: message.senderId,
+      smsReceivedAt: message.receivedAt,
     );
 
     switch (result.outcome) {
       case AddTransactionOutcome.duplicate:
         return CapturedMessageResult(
           disposition: CapturedMessageDisposition.ignored,
+          addTransactionResult: result,
+        );
+      case AddTransactionOutcome.suspiciousDuplicate:
+        return CapturedMessageResult(
+          disposition: CapturedMessageDisposition.suspiciousDuplicate,
           addTransactionResult: result,
         );
       case AddTransactionOutcome.notTransaction:
