@@ -6,14 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/backend/supabase_config.dart';
-import '../../core/backup/backup_service.dart';
 import '../../core/di/app_providers.dart';
+import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../capture/services/android_sms_capture_service.dart';
-import '../settings/settings_providers.dart';
 import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
@@ -54,19 +52,8 @@ class _OnboardingMethodScreenState
   bool _busy = false;
 
   Future<void> _finish() async {
-    if (SupabaseConfig.isConfigured) {
-      try {
-        final hasBackup =
-            await ref.read(backupServiceProvider).hasRemoteBackup();
-        if (mounted && hasBackup) {
-          context.push('/onboarding/restore');
-          return;
-        }
-      } catch (_) {
-        // Keep onboarding smooth if the remote check is temporarily unavailable.
-      }
-    }
-    if (mounted) context.go('/onboarding/ai-consent');
+    await AppSession.instance.finishOnboarding();
+    if (mounted) context.go('/');
   }
 
   Future<void> _requestSms() async {
@@ -79,17 +66,8 @@ class _OnboardingMethodScreenState
   }
 
   Future<void> _startIosVerify() async {
-    if (SupabaseConfig.isConfigured) {
-      try {
-        final hasBackup =
-            await ref.read(backupServiceProvider).hasRemoteBackup();
-        if (mounted && hasBackup) {
-          context.push('/onboarding/restore');
-          return;
-        }
-      } catch (_) {}
-    }
-    if (mounted) context.push('/onboarding/ios-verify');
+    await AppSession.instance.finishOnboarding();
+    if (mounted) context.go('/');
   }
 
   @override
@@ -270,9 +248,6 @@ class _OnboardingMethodScreenState
                         ],
                       ),
                     ),
-                  // AI consent opt-in
-                  _AiConsentCard(ref: ref),
-                  const SizedBox(height: 18),
                   SizedBox(
                     height: 52,
                     child: DecoratedBox(
@@ -627,120 +602,6 @@ class _IosShortcutSheet extends ConsumerWidget {
           ),
           const SizedBox(height: 18),
         ],
-      ),
-    );
-  }
-}
-
-/// AI consent opt-in card shown during onboarding setup.
-/// Mirrors the toggle in Settings → الخصوصية.
-class _AiConsentCard extends ConsumerWidget {
-  const _AiConsentCard({required this.ref});
-
-  final WidgetRef ref;
-
-  @override
-  Widget build(BuildContext context, WidgetRef widgetRef) {
-    final c = context.colors;
-    final settingsAsync = widgetRef.watch(userSettingsProvider);
-    final granted = settingsAsync.maybeWhen(
-      data: (s) => s.aiConsentGranted,
-      orElse: () => false,
-    );
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: granted
-            ? c.successBg.withValues(alpha: 0.72)
-            : c.surfaceCard.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: granted
-              ? c.success.withValues(alpha: 0.24)
-              : c.border.withValues(alpha: 0.75),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: (granted ? c.success : c.accent).withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: (granted ? c.success : c.accent).withValues(alpha: 0.22),
-              ),
-            ),
-            child: Icon(Icons.auto_awesome_outlined,
-                size: 20, color: granted ? c.success : c.accent),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'اقتراحات الذكاء الاصطناعي',
-                  style: _alex(13, FontWeight.w800, 1.2, c.textMain),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'للبنوك غير المعروفة، نرسل نصاً مُعقَّماً بدون أرقام بطاقات أو أسماء شخصية لخدمة ذكاء اصطناعي لتحليله. يمكن تغييره لاحقاً من الإعدادات.',
-                  style: _alex(11, FontWeight.w600, 1.45, c.textLight),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    _ConsentPill(label: 'اختياري', color: c.info),
-                    _ConsentPill(label: 'نص معقّم', color: c.accent),
-                    _ConsentPill(
-                        label: granted ? 'مفعّل' : 'غير مفعّل',
-                        color: granted ? c.success : c.warning),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Switch.adaptive(
-            value: granted,
-            activeColor: c.success,
-            onChanged: (value) async {
-              final repo = widgetRef.read(userSettingsRepositoryProvider);
-              final settings = await repo.getSettings();
-              await repo
-                  .saveSettings(settings.copyWith(aiConsentGranted: value));
-              refreshUserSettings(widgetRef);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConsentPill extends StatelessWidget {
-  const _ConsentPill({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        label,
-        style: _alex(10, FontWeight.w800, 1.1, color),
       ),
     );
   }

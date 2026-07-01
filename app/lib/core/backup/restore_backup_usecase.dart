@@ -7,7 +7,9 @@ class RestoreBackupUseCase {
 
   final AppDatabase _db;
 
+  // accounts must come before tables that FK into it.
   static const _restoreOrder = [
+    'accounts',
     'merchants',
     'merchant_category_map',
     'transactions',
@@ -20,6 +22,7 @@ class RestoreBackupUseCase {
     'subscriptions',
   ];
 
+  // Delete in reverse FK order — children before parents.
   static const _deleteOrder = [
     'subscriptions',
     'goal_contributions',
@@ -31,6 +34,7 @@ class RestoreBackupUseCase {
     'achievements',
     'streaks',
     'user_settings',
+    'accounts',
   ];
 
   Future<void> call(Map<String, dynamic> snapshot) async {
@@ -48,6 +52,10 @@ class RestoreBackupUseCase {
       }
       await _db.customStatement('PRAGMA foreign_keys = ON;');
     });
+
+    // For old backups that predate the accounts table: create a default account
+    // and backfill account_id on all orphaned records.
+    await _db.runPostRestoreSetup();
   }
 
   Future<void> _insertRow(String table, Map<String, dynamic> row) async {

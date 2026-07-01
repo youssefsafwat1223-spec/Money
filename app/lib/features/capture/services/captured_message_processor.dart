@@ -284,26 +284,60 @@ class CapturedMessageProcessor {
   }
 
   static String _buildConfirmedBody(AddTransactionResult result) {
-    final transaction = result.transaction;
-    if (transaction == null) {
-      return 'أضفنا العملية إلى سجلك.';
-    }
-    final merchant = transaction.rawMerchant;
-    final amount = transaction.amount.toStringAsFixed(2);
-    return merchant == null
-        ? 'أضفنا عملية بقيمة $amount ${transaction.currency}.'
-        : 'أضفنا $amount ${transaction.currency} لدى $merchant.';
+    final tx = result.transaction;
+    if (tx == null) return 'أضفنا العملية إلى سجلك.';
+    final amount = _fmtAmount(tx.amount);
+    final parts = <String>['$amount ${tx.currency}'];
+    if (tx.rawMerchant != null) parts.add(tx.rawMerchant!);
+    final cat = _categoryLabel(tx.categoryId);
+    if (cat != null) parts.add(cat);
+    return 'أضفنا ${parts.join(' · ')}.';
   }
 
   static String _buildReviewBody(AddTransactionResult result) {
-    final transaction = result.transaction;
-    if (transaction == null) {
-      return 'راجِع العملية الجديدة وأكّدها.';
-    }
-    final merchant = transaction.rawMerchant;
-    final amount = transaction.amount.toStringAsFixed(2);
-    return merchant == null
-        ? 'راجِع عملية بقيمة $amount ${transaction.currency}.'
-        : 'راجِع $amount ${transaction.currency} لدى $merchant.';
+    final tx = result.transaction;
+    if (tx == null) return 'راجِع العملية الجديدة وأكّدها.';
+    final amount = _fmtAmount(tx.amount);
+    final parts = <String>['$amount ${tx.currency}'];
+    if (tx.rawMerchant != null) parts.add(tx.rawMerchant!);
+    final cat = _categoryLabel(tx.categoryId);
+    if (cat != null) parts.add(cat);
+    return 'راجِع ${parts.join(' · ')} وأكّدها.';
+  }
+
+  static String _fmtAmount(double amount) {
+    return amount == amount.truncateToDouble()
+        ? amount.toInt().toString()
+        : amount.toStringAsFixed(2);
+  }
+
+  static String? _categoryLabel(String? key) {
+    return switch (key) {
+      'restaurants' => 'مطاعم 🍔',
+      'cafes' => 'مقاهي ☕',
+      'groceries' => 'بقالة 🛒',
+      'transport' => 'مواصلات 🚗',
+      'fuel' => 'وقود ⛽',
+      'bills' => 'فواتير 📱',
+      'shopping' => 'تسوق 🛍',
+      'health' => 'صحة 🏥',
+      'education' => 'تعليم 📚',
+      'entertainment' => 'ترفيه 🎬',
+      'subscriptions' => 'اشتراكات 📲',
+      'transfers' => 'تحويل 💸',
+      'cash' => 'كاش 💵',
+      'travel' => 'سفر ✈️',
+      'gifts' => 'هدايا 🎁',
+      'kids' => 'أطفال 👶',
+      'home' => 'منزل 🏠',
+      'maintenance' => 'صيانة 🔧',
+      'fitness' => 'رياضة 💪',
+      'beauty' => 'جمال 💅',
+      'charity' => 'خيرية 🤲',
+      'pets' => 'حيوانات 🐾',
+      'insurance' => 'تأمين 🛡️',
+      'income' => 'دخل 💰',
+      _ => null,
+    };
   }
 }

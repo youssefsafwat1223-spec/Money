@@ -6,8 +6,21 @@ class BackupSnapshotBuilder {
   final AppDatabase _db;
 
   static const _tables = <String, List<String>>{
+    'accounts': [
+      'id',
+      'name',
+      'currency',
+      'type',
+      'initial_balance',
+      'current_balance',
+      'is_default',
+      'sort_order',
+      'created_at',
+      'updated_at',
+    ],
     'transactions': [
       'id',
+      'account_id',
       'amount',
       'currency',
       'merchant_id',
@@ -25,6 +38,7 @@ class BackupSnapshotBuilder {
     ],
     'budgets': [
       'id',
+      'account_id',
       'category_id',
       'amount',
       'period',
@@ -35,6 +49,7 @@ class BackupSnapshotBuilder {
     ],
     'goals': [
       'id',
+      'account_id',
       'name',
       'target_amount',
       'saved_amount',
@@ -91,6 +106,7 @@ class BackupSnapshotBuilder {
     ],
     'subscriptions': [
       'id',
+      'account_id',
       'merchant_id',
       'name',
       'amount',
@@ -114,7 +130,8 @@ class BackupSnapshotBuilder {
       final rows = await _db.customSelect(
         'SELECT $columns FROM ${entry.key};',
       ).get();
-      tables[entry.key] = rows.map((row) => Map<String, Object?>.from(row.data)).toList();
+      tables[entry.key] =
+          rows.map((row) => Map<String, Object?>.from(row.data)).toList();
     }
     return {
       'version': 1,

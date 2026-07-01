@@ -102,6 +102,9 @@ class SupabaseAiParserClient implements AiParserClient {
 
         if (response.statusCode == 200) {
           final json = jsonDecode(response.body) as Map<String, dynamic>;
+          if (json['is_transaction'] == false) {
+            return null; // AI explicitly says this is not a transaction
+          }
           if (json['amount'] == null || json['currency'] == null) {
             throw const AiParseException('missing_amount_or_currency');
           }

@@ -317,7 +317,14 @@ Deno.serve(async (req) => {
 Return ONLY a JSON object. Omit fields you cannot determine. Amount MUST appear in the message.
 Current date for missing year/month inference: ${today}.
 
-Fields:
+FIRST: decide if this is a real financial transaction.
+If the message is NOT a real financial transaction — e.g. it is an OTP/verification code,
+a balance enquiry reply, a marketing/promotional offer, a fraud alert with no actual debit/credit,
+a general bank notification, or any non-transactional communication — return ONLY:
+{"is_transaction": false}
+Do NOT attempt to extract amount or other fields for non-transaction messages.
+
+Fields (for transaction messages only):
 - amount: number (required)
 - currency: ISO code like "SAR", "EGP", "AED" (required)
 - merchant_name: string (business name for payment/POS only — omit for transfers).
@@ -396,6 +403,13 @@ Return ONLY valid JSON. No markdown, no explanation.`;
     return new Response(JSON.stringify({ error: 'ai_parse_failed' }), {
       status: 502, headers: corsHeaders,
     });
+  }
+
+  if (parsed?.is_transaction === false) {
+    return new Response(
+      JSON.stringify({ is_transaction: false }),
+      { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
+    );
   }
 
   if (!parsed || typeof parsed.amount !== 'number' || !parsed.currency) {

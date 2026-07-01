@@ -843,7 +843,7 @@ void main() {
     );
   });
 
-  test('AI-first also sees locally ignored messages before they are ignored',
+  test('AI is skipped for locally ignored messages (OTP, promo, etc.)',
       () async {
     final countingClient = _CountingAiClient();
     final useCase = AddTransactionUseCase(
@@ -860,7 +860,8 @@ void main() {
       senderId: 'BANKOTP',
     );
 
-    expect(countingClient.callCount, 1);
+    // OTP messages are ignored by the local parser → AI must not be called.
+    expect(countingClient.callCount, 0);
     expect(result.outcome, AddTransactionOutcome.notTransaction);
     expect(result.droppedByParser, isFalse);
   });

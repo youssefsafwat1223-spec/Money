@@ -55,28 +55,39 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       _busy = true;
       _error = null;
     });
-    final identity = await ref
-        .read(authServiceProvider)
-        .verifyEmailCode(email: widget.email, code: code);
-    if (identity == null) {
-      setState(() {
-        _busy = false;
-        _error = context.l10n.invalidOtpCode;
-      });
-      return;
-    }
-    final wasAuthenticated =
-        AppSession.instance.status == SessionStatus.authenticated;
-    final returningUser = AppSession.instance.hasCompletedOnboarding;
-    await AppSession.instance
-        .setIdentity(method: identity.method, email: identity.email);
-    if (mounted) {
-      if (wasAuthenticated) {
-        context.go('/backup');
-      } else if (returningUser) {
-        context.go('/');
-      } else {
-        context.push('/onboarding/method-picker');
+    try {
+      final identity = await ref
+          .read(authServiceProvider)
+          .verifyEmailCode(email: widget.email, code: code);
+      if (identity == null) {
+        if (mounted) {
+          setState(() => _error = context.l10n.invalidOtpCode);
+        }
+        return;
+      }
+      final wasAuthenticated =
+          AppSession.instance.status == SessionStatus.authenticated;
+      final returningUser = AppSession.instance.hasCompletedOnboarding;
+      await AppSession.instance
+          .setIdentity(method: identity.method, email: identity.email);
+      if (mounted) {
+        if (wasAuthenticated) {
+          context.go('/');
+        } else if (returningUser) {
+          context.go('/');
+        } else {
+          context.go('/onboarding/setup');
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'تعذر التحقق من الرمز الآن. حاول مرة أخرى.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
       }
     }
   }

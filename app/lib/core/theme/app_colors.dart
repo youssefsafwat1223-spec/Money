@@ -171,45 +171,45 @@ class AppColors extends ThemeExtension<AppColors> {
     gradB: Color(0xFF021B79),
   );
 
-  // ===== Dark Mode =====
+  // ===== Dark Mode — Luxe Noir =====
   static const AppColors dark = AppColors(
-    bg: Color(0xFF0B0F19),
-    surface: Color(0xFF131924),
-    surfaceElevated: Color(0xFF1E2535),
-    surfaceCard: Color(0xFF181F2E),
-    surfaceMuted: Color(0xFF2A3347),
-    primary: Color(0xFF55ABFF),
-    onPrimary: Color(0xFF0B0F19),
-    cta: Color(0xFF55ABFF),
-    onCta: Color(0xFFFFFFFF),
-    ctaSoft: Color(0xFF1E2535),
-    accent: Color(0xFFFBC926),
+    bg: Color(0xFF000000),
+    surface: Color(0xFF111111),
+    surfaceElevated: Color(0xFF1A1A1A),
+    surfaceCard: Color(0xFF161616),
+    surfaceMuted: Color(0xFF252525),
+    primary: Color(0xFFDAA520), // Luxurious Gold
+    onPrimary: Color(0xFF000000),
+    cta: Color(0xFFDAA520),
+    onCta: Color(0xFF000000),
+    ctaSoft: Color(0xFF2A2006),
+    accent: Color(0xFFDAA520),
     income: Color(0xFF22C55E),
     expense: Color(0xFFEF4444),
     success: Color(0xFF34D399),
     warning: Color(0xFFF59E0B),
     danger: Color(0xFFF87171),
-    info: Color(0xFF38BDF8),
-    neutral: Color(0xFF8892A6),
-    disabled: Color(0xFF1E2535),
-    disabledFg: Color(0xFF4F5A6E),
-    border: Color(0xFF2A3347),
-    divider: Color(0xFF1E2535),
-    textPrimary: Color(0xFFF8FAFC),
-    textSecondary: Color(0xFF8295A5),
-    textMuted: Color(0xFF4F5A6E),
-    onSurface: Color(0xFFF8FAFC),
-    onSurfaceMuted: Color(0xFF8295A5),
-    successBg: Color(0xFF143322),
-    dangerBg: Color(0xFF2B1519),
-    warningBg: Color(0xFF2D2012),
-    infoBg: Color(0xFF18283F),
-    onSuccess: Color(0xFF0B0F19),
+    info: Color(0xFFC0C0C0), // Sleek Silver
+    neutral: Color(0xFF6B7280),
+    disabled: Color(0xFF222222),
+    disabledFg: Color(0xFF4B5563),
+    border: Color(0xFF2A2A2A),
+    divider: Color(0xFF1A1A1A),
+    textPrimary: Color(0xFFF5F5F5), // Soft White
+    textSecondary: Color(0xFFC0C0C0), // Sleek Silver
+    textMuted: Color(0xFF8A8A8A),
+    onSurface: Color(0xFFF5F5F5),
+    onSurfaceMuted: Color(0xFFC0C0C0),
+    successBg: Color(0xFF0D2B1D),
+    dangerBg: Color(0xFF2B1515),
+    warningBg: Color(0xFF2B1E00),
+    infoBg: Color(0xFF1A1A1A),
+    onSuccess: Color(0xFF000000),
     onDanger: Color(0xFFFFFFFF),
-    onWarning: Color(0xFF0B0F19),
-    onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF55ABFF),
-    gradB: Color(0xFFFBC926),
+    onWarning: Color(0xFF000000),
+    onInfo: Color(0xFF000000),
+    gradA: Color(0xFFDAA520), // Luxurious Gold
+    gradB: Color(0xFF8B4513), // Earthy Brown
   );
 
   @override

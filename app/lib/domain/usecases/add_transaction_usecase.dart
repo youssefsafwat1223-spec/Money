@@ -270,10 +270,12 @@ class AddTransactionUseCase {
             senderId: senderId, bankProfiles: bankProfiles)
         : false;
 
-    final aiFirstAttempt = await _tryAiParseFirst(
-      rawMessage: rawMessage,
-      senderId: senderId,
-    );
+    final aiFirstAttempt = wasIgnored
+        ? const _AiFirstAttempt.skipped('message_ignored')
+        : await _tryAiParseFirst(
+            rawMessage: rawMessage,
+            senderId: senderId,
+          );
 
     final parseResult = await _parserIsolate.parse(
           rawMessage,

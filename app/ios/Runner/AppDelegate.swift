@@ -1,8 +1,9 @@
+import AppIntents
 import Flutter
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate {
   private var captureChannel: FlutterMethodChannel?
   private var didRegisterPendingMessagesObserver = false
 
@@ -13,18 +14,15 @@ import UIKit
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
     }
+    GeneratedPluginRegistrant.register(with: self)
     let didFinish = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     configureNativeCaptureChannelIfNeeded()
+    BankMessageShortcuts.updateAppShortcutParameters()
     return didFinish
   }
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
-    configureNativeCaptureChannelIfNeeded()
-  }
-
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     configureNativeCaptureChannelIfNeeded()
   }
 
