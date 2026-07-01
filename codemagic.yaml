@@ -24,7 +24,7 @@ workflows:
     environment:
       groups:
         - supabase
-      flutter: stable
+      flutter: 3.44.2
       xcode: latest
       cocoapods: default
       vars:
@@ -96,7 +96,7 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.youssefsafwat.mali
-      flutter: stable
+      flutter: 3.44.2
       xcode: latest
       cocoapods: default
     scripts:
