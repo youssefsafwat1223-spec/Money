@@ -66,7 +66,6 @@ struct PostBankStatusIntent: AppIntent {
 }
 
 /// Registers Mali shortcuts with the Shortcuts app and Siri.
-@available(iOS 16.0, *)
 struct BankMessageShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
     AppShortcut(

@@ -1,6 +1,7 @@
 import 'package:cryptography/cryptography.dart';
 import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:money_companion/core/backup/backup_crypto.dart';
@@ -18,10 +19,13 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late AppDatabase sourceDevice;
   late AppDatabase targetDevice;
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     sourceDevice = await AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),

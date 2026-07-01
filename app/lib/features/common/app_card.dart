@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_gradients.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 
@@ -40,8 +39,16 @@ class AppCard extends StatelessWidget {
     final effectiveRadius = radius ?? AppRadius.card;
     final effectiveGradient = gradient ??
         switch (variant) {
-          AppCardVariant.gradient => AppGradients.subtleSurface,
-          AppCardVariant.danger => AppGradients.danger,
+          AppCardVariant.gradient => LinearGradient(
+            colors: [c.surfaceElevated, c.surface],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          AppCardVariant.danger => LinearGradient(
+            colors: [c.dangerBg, c.surface],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           _ => null,
         };
     final effectiveBorder = border ??

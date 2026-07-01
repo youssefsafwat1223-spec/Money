@@ -47,6 +47,7 @@ void main() {
 
   test('quiet hours move scheduled notifications to allowed morning time', () {
     const preferences = NotificationPreferences(
+      quietHoursEnabled: true,
       quietHoursStartHour: 23,
       quietHoursEndHour: 8,
     );
@@ -56,6 +57,15 @@ void main() {
     );
 
     expect(next, DateTime(2026, 6, 13, 8));
+  });
+
+  test('quiet hours are off by default', () {
+    final next = planner.nextAllowedRiyadh(
+      DateTime(2026, 6, 12, 23, 30),
+      const NotificationPreferences(),
+    );
+
+    expect(next, DateTime(2026, 6, 12, 23, 30));
   });
 
   test('goal milestone crossing 48 to 52 fires 50 once', () {

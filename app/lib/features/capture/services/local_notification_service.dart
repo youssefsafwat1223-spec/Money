@@ -152,15 +152,17 @@ class LocalNotificationService {
 
   Future<void> showReviewNotification({
     required String transactionId,
+    String title = 'أكّد عملية',
     required String body,
     required NotificationPreferences preferences,
   }) async {
+    debugPrint('[Notif] showReviewNotification captureReview=${preferences.captureReview}');
     if (!preferences.captureReview) {
       return;
     }
     await _show(
       id: transactionId.hashCode,
-      title: 'أكّد عملية',
+      title: title,
       body: body,
       notificationType: NotificationType.captureReview,
       preferences: preferences,
@@ -178,7 +180,8 @@ class LocalNotificationService {
           ],
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: true,
           categoryIdentifier: _reviewCategoryId,
@@ -196,6 +199,7 @@ class LocalNotificationService {
     required String body,
     required NotificationPreferences preferences,
   }) async {
+    debugPrint('[Notif] showLightCapture captureLight=${preferences.captureLight}');
     if (!preferences.captureLight) {
       return;
     }
@@ -214,7 +218,8 @@ class LocalNotificationService {
           priority: Priority.low,
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: false,
         ),
@@ -238,7 +243,8 @@ class LocalNotificationService {
           priority: Priority.high,
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: true,
         ),
@@ -269,7 +275,8 @@ class LocalNotificationService {
           priority: Priority.defaultPriority,
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: true,
         ),
@@ -303,7 +310,8 @@ class LocalNotificationService {
           priority: Priority.high,
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: true,
         ),
@@ -331,7 +339,8 @@ class LocalNotificationService {
           priority: Priority.defaultPriority,
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: true,
         ),
@@ -378,7 +387,8 @@ class LocalNotificationService {
           priority: Priority.defaultPriority,
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: false,
         ),
@@ -435,7 +445,8 @@ class LocalNotificationService {
           priority: Priority.defaultPriority,
         ),
         iOS: DarwinNotificationDetails(
-          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
           presentBadge: false,
           presentSound: true,
         ),
@@ -456,6 +467,7 @@ class LocalNotificationService {
     required NotificationDetails details,
     String? payload,
   }) async {
+    debugPrint('[Notif] _show type=$notificationType enabled=${preferences.isEnabled(notificationType)}');
     if (!preferences.isEnabled(notificationType)) {
       return;
     }
@@ -463,8 +475,11 @@ class LocalNotificationService {
       await initialize();
     }
 
+    // Capture notifications (bank SMS results) are time-sensitive — show immediately.
+    final isCaptureNotification = notificationType == NotificationType.captureReview ||
+        notificationType == NotificationType.captureLight;
     final now = tz.TZDateTime.now(tz.local);
-    if (_isQuietHour(now, preferences)) {
+    if (!isCaptureNotification && _isQuietHour(now, preferences)) {
       await _plugin.zonedSchedule(
         id: id,
         title: title,
@@ -477,6 +492,7 @@ class LocalNotificationService {
       return;
     }
 
+    debugPrint('[Notif] plugin.show id=$id title=$title');
     await _plugin.show(
       id: id,
       title: title,
@@ -484,12 +500,14 @@ class LocalNotificationService {
       notificationDetails: details,
       payload: payload,
     );
+    debugPrint('[Notif] plugin.show done');
   }
 
   bool _isQuietHour(
     tz.TZDateTime dateTime,
     NotificationPreferences preferences,
   ) {
+    if (!preferences.quietHoursEnabled) return false;
     final hour = dateTime.hour;
     if (preferences.quietHoursStartHour > preferences.quietHoursEndHour) {
       return hour >= preferences.quietHoursStartHour ||
@@ -558,7 +576,8 @@ class LocalNotificationService {
             priority: Priority.defaultPriority,
           ),
           iOS: DarwinNotificationDetails(
-            presentAlert: true,
+            presentBanner: true,
+          presentList: true,
             presentBadge: false,
             presentSound: false,
           ),
@@ -573,7 +592,8 @@ class LocalNotificationService {
             priority: Priority.defaultPriority,
           ),
           iOS: DarwinNotificationDetails(
-            presentAlert: true,
+            presentBanner: true,
+          presentList: true,
             presentBadge: false,
             presentSound: false,
           ),

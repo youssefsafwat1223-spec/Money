@@ -33,7 +33,7 @@ class AnnouncementsScreen extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            Image.asset(AppAssets.qirshCoin, width: 42, height: 42),
+            Image.asset(AppAssets.getCoin(context), width: 42, height: 42),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Column(
@@ -162,11 +162,14 @@ class _MessageCard extends ConsumerWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           Row(
+            mainAxisSize: MainAxisSize.max,
             children: [
               if (item.actionLabel != null)
-                FilledButton(
-                  onPressed: () => _openAction(context, item),
-                  child: Text(item.actionLabel!),
+                Flexible(
+                  child: FilledButton(
+                    onPressed: () => _openAction(context, item),
+                    child: Text(item.actionLabel!),
+                  ),
                 ),
               const Spacer(),
               if (item.dismissible)

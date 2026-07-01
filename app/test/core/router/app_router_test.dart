@@ -4,6 +4,7 @@ import 'package:money_companion/core/router/app_router.dart';
 import 'package:money_companion/core/session/app_session.dart';
 
 void main() {
+  FlutterSecureStorage.setMockInitialValues({});
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {

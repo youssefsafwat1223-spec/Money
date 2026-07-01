@@ -276,11 +276,13 @@ XpLevelEntity xpLevelFromRow(QueryRow row) {
 }
 
 UserSettingsEntity userSettingsFromRow(QueryRow row) {
+  final dateOfBirth = row.readNullable<String>('date_of_birth');
   return UserSettingsEntity(
     id: row.read<String>('id'),
     displayName: row.readNullable<String>('display_name'),
     phoneNumber: row.readNullable<String>('phone_number'),
     avatarPath: row.readNullable<String>('avatar_path'),
+    dateOfBirth: dateOfBirth == null ? null : dateTimeFromSql(dateOfBirth),
     country: row.read<String>('country'),
     currency: row.read<String>('currency'),
     language: row.read<String>('language'),
@@ -290,6 +292,6 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
     privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
     aiConsentGranted:
-        sqlToBool(row.readNullable<int>('ai_consent_granted') ?? 0),
+        sqlToBool(row.readNullable<int>('ai_consent_granted') ?? 1),
   );
 }

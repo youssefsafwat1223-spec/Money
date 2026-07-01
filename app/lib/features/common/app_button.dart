@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_gradients.dart';
 import '../../core/theme/app_motion.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
@@ -44,7 +43,7 @@ class AppPrimaryButton extends StatelessWidget {
       disabledBg: c.disabled,
       disabledFg: c.disabledFg,
       side: null,
-      gradient: AppGradients.primaryCta,
+      gradient: c.primaryGradient,
       shadow: AppShadows.ctaGlow,
     );
   }
@@ -180,7 +179,7 @@ class AppDangerButton extends StatelessWidget {
               color: disabled ? c.border : c.danger,
               width: 1.5,
             ),
-      gradient: filled && !disabled ? AppGradients.danger : null,
+      gradient: filled && !disabled ? LinearGradient(colors: [c.danger, c.danger.withValues(alpha: 0.8)]) : null,
       shadow: null,
     );
   }

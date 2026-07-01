@@ -17,6 +17,7 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/captured_message.dart';
+import '../../domain/entities/transaction_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/services/notification_planner.dart';
@@ -124,6 +125,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     _isConsumingSharedInput = true;
     try {
       final messages = await NativeCaptureBridge.consumePendingSharedMessages();
+      debugPrint('[Capture] consumeSharedInput: ${messages.length} messages');
       if (messages.isEmpty) return;
 
       // Prune old dedup hashes opportunistically on each drain cycle.
@@ -138,6 +140,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       SenderBankMappingEntity? pendingBankDiscovery;
 
       for (final message in messages) {
+        debugPrint('[Capture] processing: source=${message.source} sender=${message.sender}');
         final captured = CapturedMessage(
           text: message.text,
           senderId: message.sender,
@@ -145,6 +148,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
         );
         final result = await ingestUseCase.fromCapturedMessage(captured);
+        debugPrint('[Capture] disposition=${result.disposition} txId=${result.transactionId}');
         await _showCapturedMessageNotification(
           result,
           notificationPreferences,
@@ -202,56 +206,111 @@ class _AppShellState extends ConsumerState<AppShell> {
       case CapturedMessageDisposition.ignored:
         return;
       case CapturedMessageDisposition.notifyOnly:
+        final (:title, :body) = _buildConfirmedNotification(result.addTransactionResult);
         await LocalNotificationService.instance.showLightCaptureNotification(
-          title: 'تم التقاط العملية',
-          body: _buildCapturedConfirmedBody(result.addTransactionResult),
+          title: title,
+          body: body,
           preferences: preferences,
         );
       case CapturedMessageDisposition.requestConfirmation:
         final transaction = result.addTransactionResult.transaction;
         if (transaction == null) return;
+        final (:title, :body) = _buildReviewNotification(result.addTransactionResult);
         await LocalNotificationService.instance.showReviewNotification(
           transactionId: transaction.id,
-          body: _buildCapturedReviewBody(result.addTransactionResult),
+          title: title,
+          body: body,
           preferences: preferences,
         );
       case CapturedMessageDisposition.suspiciousDuplicate:
+        final tx = result.addTransactionResult.transaction;
+        final dupeBody = tx != null
+            ? '${_fmtAmount(tx.amount)} ${tx.currency}${tx.rawMerchant != null ? " لدى ${tx.rawMerchant}" : ""} — موجودة مسبقاً؟'
+            : 'افتح قرش وراجع الـ Smart Inbox.';
         await LocalNotificationService.instance.showLightCaptureNotification(
-          title: 'عملية مشابهة موجودة',
-          body: 'راجع Smart Inbox عشان تأكدها كعملية جديدة أو تتجاهلها.',
+          title: 'عملية مشابهة',
+          body: dupeBody,
           preferences: preferences,
         );
       case CapturedMessageDisposition.unprocessable:
         await LocalNotificationService.instance.showLightCaptureNotification(
-          title: 'رسالة لم نتمكن من تحليلها',
+          title: 'رسالة غير مدعومة',
           body: 'افتح قرش والصق الرسالة يدوياً للإضافة.',
           preferences: preferences,
         );
     }
   }
 
-  String _buildCapturedConfirmedBody(AddTransactionResult result) {
-    final transaction = result.transaction;
-    if (transaction == null) {
-      return 'أضفنا العملية إلى سجلك.';
+  ({String title, String body}) _buildConfirmedNotification(AddTransactionResult result) {
+    final tx = result.transaction;
+    if (tx == null) return (title: 'تم التقاط العملية', body: 'أضفنا العملية إلى سجلك.');
+
+    final amt = '${_fmtAmount(tx.amount)} ${tx.currency}';
+    final merchant = tx.rawMerchant;
+    final balance = tx.balanceAfter != null
+        ? ' · رصيدك ${_fmtAmount(tx.balanceAfter!)} ${tx.currency}'
+        : '';
+
+    switch (tx.type) {
+      case TransactionTypeEntity.income:
+        return (
+          title: 'إيداع ✓',
+          body: merchant != null ? '$amt من $merchant$balance' : '$amt في حسابك$balance',
+        );
+      case TransactionTypeEntity.refund:
+        return (
+          title: 'استرداد ✓',
+          body: merchant != null ? '$amt من $merchant$balance' : '$amt$balance',
+        );
+      case TransactionTypeEntity.transfer:
+        return (
+          title: 'تحويل ✓',
+          body: '$amt$balance',
+        );
+      default:
+        return (
+          title: 'خصم ✓',
+          body: merchant != null ? '$amt لدى $merchant$balance' : '$amt من حسابك$balance',
+        );
     }
-    final merchant = transaction.rawMerchant;
-    final amount = transaction.amount.toStringAsFixed(2);
-    return merchant == null
-        ? 'أضفنا عملية بقيمة $amount ${transaction.currency}.'
-        : 'أضفنا $amount ${transaction.currency} لدى $merchant.';
   }
 
-  String _buildCapturedReviewBody(AddTransactionResult result) {
-    final transaction = result.transaction;
-    if (transaction == null) {
-      return 'راجِع العملية الجديدة وأكّدها.';
+  ({String title, String body}) _buildReviewNotification(AddTransactionResult result) {
+    final tx = result.transaction;
+    if (tx == null) return (title: 'أكّد العملية', body: 'اضغط لمراجعة العملية وتأكيدها.');
+
+    final amt = '${_fmtAmount(tx.amount)} ${tx.currency}';
+    final merchant = tx.rawMerchant;
+
+    switch (tx.type) {
+      case TransactionTypeEntity.income:
+        return (
+          title: 'أكّد الإيداع',
+          body: merchant != null ? '$amt من $merchant' : '$amt في حسابك',
+        );
+      case TransactionTypeEntity.refund:
+        return (
+          title: 'أكّد الاسترداد',
+          body: merchant != null ? '$amt من $merchant' : amt,
+        );
+      case TransactionTypeEntity.transfer:
+        return (
+          title: 'أكّد التحويل',
+          body: amt,
+        );
+      default:
+        return (
+          title: 'أكّد الخصم',
+          body: merchant != null ? '$amt لدى $merchant' : '$amt من حسابك',
+        );
     }
-    final merchant = transaction.rawMerchant;
-    final amount = transaction.amount.toStringAsFixed(2);
-    return merchant == null
-        ? 'راجِع عملية بقيمة $amount ${transaction.currency}.'
-        : 'راجِع $amount ${transaction.currency} لدى $merchant.';
+  }
+
+  String _fmtAmount(double amount) {
+    if (amount == amount.truncateToDouble()) {
+      return amount.toStringAsFixed(0);
+    }
+    return amount.toStringAsFixed(2);
   }
 
   Future<void> _syncEngagement() async {

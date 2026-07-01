@@ -7,23 +7,16 @@ import '../../features/achievements/achievements_screen.dart';
 import '../../features/announcements/announcements_screen.dart';
 import '../../features/app/app_shell.dart';
 import '../../features/backup/backup_screen.dart';
-import '../../features/onboarding/auth_screen.dart';
 import '../../features/onboarding/first_transaction_screen.dart';
 import '../../features/onboarding/ios_shortcut_screen.dart';
-import '../../features/onboarding/ios_shortcut_verify_screen.dart';
-import '../../features/onboarding/language_selection_screen.dart';
 import '../../features/onboarding/listening_screen.dart';
+import '../../features/onboarding/luxe_onboarding_screen.dart';
 import '../../features/onboarding/method_screen.dart';
-import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/onboarding/otp_screen.dart';
 import '../../features/onboarding/restore_prompt_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/settings/privacy_screen.dart';
 import '../../features/onboarding/capture_method_picker_screen.dart';
-import '../../features/onboarding/ai_consent_screen.dart';
-import '../../features/onboarding/privacy_info_screen.dart';
-import '../../features/onboarding/backup_info_screen.dart';
-import '../../features/onboarding/completion_screen.dart';
 import '../../features/subscriptions/subscriptions_screen.dart';
 import '../../features/budgets/budget_form_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
@@ -70,17 +63,20 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/onboarding',
       name: 'onboarding',
-      builder: (context, state) => const LanguageSelectionScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/intro',
-      name: 'onboarding-intro',
-      builder: (context, state) => const OnboardingScreen(),
+      builder: (context, state) => const LuxeOnboardingScreen(),
     ),
     GoRoute(
       path: '/onboarding/auth',
       name: 'onboarding-auth',
-      builder: (context, state) => const AuthScreen(),
+      builder: (context, state) => const LuxeOnboardingScreen(skipStory: true),
+    ),
+    GoRoute(
+      path: '/onboarding/setup',
+      name: 'onboarding-setup',
+      builder: (context, state) => const LuxeOnboardingScreen(
+        skipStory: true,
+        initialPage: 1,
+      ),
     ),
     GoRoute(
       path: '/onboarding/privacy',
@@ -96,26 +92,6 @@ final appRouter = GoRouter(
       path: '/onboarding/manual',
       name: 'onboarding-manual',
       builder: (context, state) => const ManualPasteScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/ai-consent',
-      name: 'onboarding-ai-consent',
-      builder: (context, state) => const AiConsentScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/privacy-info',
-      name: 'onboarding-privacy-info',
-      builder: (context, state) => const PrivacyInfoScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/backup-info',
-      name: 'onboarding-backup-info',
-      builder: (context, state) => const BackupInfoScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/completion',
-      name: 'onboarding-completion',
-      builder: (context, state) => const CompletionScreen(),
     ),
     GoRoute(
       path: '/onboarding/method',
@@ -183,11 +159,6 @@ final appRouter = GoRouter(
       path: '/onboarding/listening',
       name: 'onboarding-listening',
       builder: (context, state) => const ListeningScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/ios-verify',
-      name: 'onboarding-ios-verify',
-      builder: (context, state) => const IosShortcutVerifyScreen(),
     ),
     GoRoute(
       path: '/onboarding/first-transaction',

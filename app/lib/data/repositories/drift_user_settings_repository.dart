@@ -26,6 +26,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       '''
         UPDATE user_settings
         SET display_name = ?, phone_number = ?, avatar_path = ?,
+            date_of_birth = ?,
             country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
             notifications_json = ?, db_encryption_key_ref = ?,
             privacy_mode_enabled = ?, ai_consent_granted = ?
@@ -41,6 +42,10 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
         settings.avatarPath == null
             ? const Variable<String>(null)
             : Variable.withString(settings.avatarPath!),
+        settings.dateOfBirth == null
+            ? const Variable<String>(null)
+            : Variable.withString(
+                settings.dateOfBirth!.toUtc().toIso8601String()),
         Variable.withString(settings.country),
         Variable.withString(settings.currency),
         Variable.withString(settings.language),

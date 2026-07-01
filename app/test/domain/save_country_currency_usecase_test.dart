@@ -67,7 +67,8 @@ class _FakeTxnRepo implements TransactionRepository {
   final List<TransactionEntity> _recent;
 
   @override
-  Future<List<TransactionEntity>> getRecent({int limit = 5, String? accountId}) async =>
+  Future<List<TransactionEntity>> getRecent(
+          {int limit = 5, String? accountId}) async =>
       _recent;
 
   @override
@@ -151,6 +152,23 @@ void main() {
       await useCase('eg', 'EGP');
 
       expect(accountRepo.lastUpdated, isNull);
+    });
+  });
+
+  group('SaveDateOfBirthUseCase', () {
+    test('persists date of birth and leaves existing settings unchanged',
+        () async {
+      final repo = _FakeRepo();
+      final useCase = SaveDateOfBirthUseCase(repo);
+      final dateOfBirth = DateTime.utc(1998, 4, 12);
+
+      await useCase(dateOfBirth);
+
+      final saved = await repo.getSettings();
+      expect(saved.dateOfBirth, dateOfBirth);
+      expect(saved.country, _defaults.country);
+      expect(saved.currency, _defaults.currency);
+      expect(saved.language, _defaults.language);
     });
   });
 }

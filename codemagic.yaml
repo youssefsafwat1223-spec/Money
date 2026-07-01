@@ -44,7 +44,9 @@ workflows:
 
       - name: Flutter test
         working_directory: app
-        script: flutter test
+        script: |
+          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+          flutter test
 
       - name: Build unsigned iOS (.app)
         working_directory: app
@@ -113,6 +115,7 @@ workflows:
         script: |
           flutter gen-l10n
           flutter analyze
+          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
           flutter test
 
       - name: Build signed IPA

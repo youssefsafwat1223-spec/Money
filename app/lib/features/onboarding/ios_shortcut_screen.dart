@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/app_spacing.dart';
@@ -252,6 +253,40 @@ class IosShortcutScreen extends ConsumerWidget {
                         ),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+                SizedBox(
+                  height: 52,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: maliPrimaryActionGradient(context),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: c.primary.withValues(alpha: 0.22),
+                          blurRadius: 14,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        await AppSession.instance.finishOnboarding();
+                        if (context.mounted) context.go('/');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                      ),
+                      child: Text(
+                        'تم، ابدأ استخدام قرش',
+                        style: _alex(14, FontWeight.w800, 1.2,
+                            maliPrimaryActionForeground(context)),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 32),

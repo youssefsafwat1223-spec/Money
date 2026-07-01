@@ -1,10 +1,17 @@
 import 'dart:io';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/encrypted_backup_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+  });
+
   test('maps missing storage bucket into an actionable backup error', () {
     const error = supabase.StorageException(
       'Bucket not found',

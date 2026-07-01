@@ -9,11 +9,10 @@ import 'package:money_companion/l10n/app_localizations.dart';
 import 'core/router/app_router.dart';
 import 'core/security/app_lock_gate.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/app_assets.dart';
 import 'core/theme/app_colors.dart';
-import 'core/theme/app_typography.dart';
 import 'core/theme/theme_mode_provider.dart';
 import 'core/i18n/locale_provider.dart';
-import 'features/common/mali_logo.dart';
 
 /// جذر التطبيق. Arabic-first / RTL، يدعم الوضعين.
 class MoneyApp extends ConsumerWidget {
@@ -73,9 +72,7 @@ class _MaliSplashState extends State<_MaliSplash>
 
   // Animations
   late final Animation<double> _textOpacity;
-  late final Animation<Offset> _textSlide;
   late final Animation<double> _textScale;
-  late final Animation<double> _letterSpacing;
   late final Animation<double> _loadingOpacity;
 
   @override
@@ -93,27 +90,10 @@ class _MaliSplashState extends State<_MaliSplash>
         curve: const Interval(0.25, 0.75, curve: Curves.easeIn),
       ),
     );
-    _textSlide = Tween<Offset>(
-      begin: const Offset(0, 0.15),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.25, 0.8, curve: Curves.easeOutExpo),
-      ),
-    );
     _textScale = Tween<double>(begin: 0.95, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
         curve: const Interval(0.25, 0.8, curve: Curves.easeOutExpo),
-      ),
-    );
-
-    // Subtitle Converging animation (tracking-out-contract)
-    _letterSpacing = Tween<double>(begin: 20.0, end: 6.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.3, 0.85, curve: Curves.easeOutExpo),
       ),
     );
 
@@ -144,78 +124,17 @@ class _MaliSplashState extends State<_MaliSplash>
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Spectacular Geometric Logo Assembly
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    if (isDark)
-                      Container(
-                        width: 140,
-                        height: 140,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: c.primary.withValues(alpha: 0.12),
-                              blurRadius: 44,
-                              spreadRadius: 12,
-                            ),
-                          ],
-                        ),
-                      ),
-                    _AnimatedMaliLogo(
-                      animation: _controller,
-                      size: 96,
-                    ),
-                  ],
+            AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) => Opacity(
+                opacity: _textOpacity.value,
+                child: Transform.scale(scale: _textScale.value, child: child),
+              ),
+              child: Image.asset(
+                  AppAssets.getLogoTagline(context),
+                  width: isDark ? 230 : 260,
+                  filterQuality: FilterQuality.high,
                 ),
-                const SizedBox(height: 32),
-                // Animated Titles
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, child) {
-                    return Opacity(
-                      opacity: _textOpacity.value,
-                      child: Transform.scale(
-                        scale: _textScale.value,
-                        child: FractionalTranslation(
-                          translation: _textSlide.value,
-                          child: child,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'قرش',
-                        style: AppTypography.display(c.textMain),
-                        textAlign: TextAlign.center,
-                        textDirection: TextDirection.rtl,
-                      ),
-                      const SizedBox(height: 8),
-                      AnimatedBuilder(
-                        animation: _letterSpacing,
-                        builder: (context, child) {
-                          return Text(
-                            'Q I R S H',
-                            style: AppTypography.caption(c.textLight).copyWith(
-                              letterSpacing: _letterSpacing.value,
-                              fontWeight: FontWeight.w700,
-                            ),
-                            textAlign: TextAlign.center,
-                            textDirection: TextDirection.ltr,
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ),
             // Sleek breathing loading bar at the bottom
             Positioned(
@@ -242,46 +161,6 @@ class _MaliSplashState extends State<_MaliSplash>
   }
 }
 
-/// لوجو «قرش» الرسمي مع دخول ناعم.
-class _AnimatedMaliLogo extends StatelessWidget {
-  const _AnimatedMaliLogo({
-    required this.animation,
-    required this.size,
-  });
-
-  final Animation<double> animation;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: animation,
-        curve: const Interval(0.0, 0.42, curve: Curves.easeIn),
-      ),
-    );
-    final logoScale = Tween<double>(begin: 0.86, end: 1.0).animate(
-      CurvedAnimation(
-        parent: animation,
-        curve: const Interval(0.04, 0.8, curve: Curves.easeOutBack),
-      ),
-    );
-
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, child) {
-        return Opacity(
-          opacity: logoOpacity.value,
-          child: Transform.scale(
-            scale: logoScale.value,
-            child: child,
-          ),
-        );
-      },
-      child: MaliLogo(size: size, glow: true),
-    );
-  }
-}
 
 /// خلفية سائلة ومضيئة — Drift Ambient Background
 class _AmbientLiquidBackground extends StatefulWidget {

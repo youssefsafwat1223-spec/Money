@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backend/rules_client.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -16,9 +17,12 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late AppDatabase db;
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     db = await AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),

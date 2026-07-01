@@ -40,10 +40,10 @@ class AppShadows {
     ),
   ];
 
-  /// ctaGlow - Very restrained violet presence for primary actions only.
+  /// ctaGlow - Gold glow for primary actions.
   static const List<BoxShadow> ctaGlow = [
     BoxShadow(
-      color: Color(0x246C5CFF),
+      color: Color(0x44FBC926),
       blurRadius: 18,
       offset: Offset(0, 8),
     ),

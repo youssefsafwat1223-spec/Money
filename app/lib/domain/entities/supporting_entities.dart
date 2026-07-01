@@ -146,13 +146,15 @@ class UserSettingsEntity {
     this.displayName,
     this.phoneNumber,
     this.avatarPath,
-    this.aiConsentGranted = false,
+    this.dateOfBirth,
+    this.aiConsentGranted = true,
   });
 
   final String id;
   final String? displayName;
   final String? phoneNumber;
   final String? avatarPath;
+  final DateTime? dateOfBirth;
   final String country;
   final String currency;
   final String language;
@@ -180,6 +182,7 @@ class UserSettingsEntity {
     String? displayName,
     String? phoneNumber,
     String? avatarPath,
+    DateTime? dateOfBirth,
     bool? aiConsentGranted,
   }) {
     return UserSettingsEntity(
@@ -187,6 +190,7 @@ class UserSettingsEntity {
       displayName: displayName ?? this.displayName,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       avatarPath: avatarPath ?? this.avatarPath,
+      dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       country: country ?? this.country,
       currency: currency ?? this.currency,
       language: language ?? this.language,

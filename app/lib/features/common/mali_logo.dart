@@ -17,7 +17,7 @@ class MaliLogo extends StatelessWidget {
     final r = radius ?? size * 0.24;
 
     final Widget logoContent = Image.asset(
-      AppAssets.qirshCoin,
+      AppAssets.getCoin(context),
       width: size,
       height: size,
       fit: BoxFit.contain,

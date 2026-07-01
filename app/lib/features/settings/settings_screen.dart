@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/backend/supabase_config.dart';
+import '../../core/theme/app_assets.dart';
 import '../../core/di/app_providers.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../core/security/app_lock_service.dart';
@@ -336,14 +337,26 @@ class SettingsScreen extends ConsumerWidget {
                           onChanged: (value) => _savePrefs(
                               ref, prefs.copyWith(goalMilestone: value)),
                         ),
-                        _NavTile(
+                        _SwitchTile(
                           icon: AppLucideIcons.moon,
+                          iconColor: c.textMuted,
                           title: 'ساعات الهدوء',
-                          subtitle:
-                              '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
-                          onTap: () =>
-                              _showQuietHoursSheet(context, ref, prefs),
+                          subtitle: prefs.quietHoursEnabled
+                              ? '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00'
+                              : 'معطّل',
+                          value: prefs.quietHoursEnabled,
+                          onChanged: (value) => _savePrefs(
+                              ref, prefs.copyWith(quietHoursEnabled: value)),
                         ),
+                        if (prefs.quietHoursEnabled)
+                          _NavTile(
+                            icon: Icons.access_time_outlined,
+                            title: 'تعديل وقت الهدوء',
+                            subtitle:
+                                '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
+                            onTap: () =>
+                                _showQuietHoursSheet(context, ref, prefs),
+                          ),
                         _NavTile(
                           icon: Icons.notification_add_outlined,
                           title: 'اختبار إشعارات قرش',
@@ -1516,6 +1529,7 @@ class _SettingsHeader extends StatelessWidget {
                       .copyWith(fontWeight: FontWeight.bold),
                 ),
               ),
+              Image.asset(AppAssets.getCoin(context), width: 44, height: 44),
             ],
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -1859,7 +1873,7 @@ class _SwitchTile extends StatelessWidget {
   const _SwitchTile({
     required this.title,
     required this.icon,
-    required this.iconColor,
+    this.iconColor,
     required this.value,
     required this.onChanged,
     this.subtitle,
@@ -1868,7 +1882,7 @@ class _SwitchTile extends StatelessWidget {
   final String title;
   final String? subtitle;
   final IconData icon;
-  final Color iconColor;
+  final Color? iconColor;
   final bool value;
   final ValueChanged<bool> onChanged;
 
@@ -1878,7 +1892,7 @@ class _SwitchTile extends StatelessWidget {
     return SwitchListTile(
       contentPadding:
           const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
-      secondary: _TileIcon(icon: icon, color: iconColor),
+      secondary: _TileIcon(icon: icon, color: iconColor ?? c.primary),
       value: value,
       onChanged: onChanged,
       activeColor: c.primary,

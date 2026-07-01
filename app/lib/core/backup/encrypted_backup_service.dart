@@ -28,6 +28,7 @@ class EncryptedBackupService implements BackupService {
   static const _recoveryKey = 'backup_recovery_code';
   static const _lastKey = 'backup_last_at';
   static const _localKeyKey = 'backup_local_key';
+  static const _keySlotsKey = 'backup_key_slots';
 
   final AppDatabase _database;
   final supabase.SupabaseClient _client;
@@ -59,16 +60,29 @@ class EncryptedBackupService implements BackupService {
   @override
   Future<String> enable({required String passphrase}) async {
     final userId = _userId();
-    final salt = _crypto.randomBytes(16);
+    final normalizedPassphrase = passphrase.trim();
     final recovery = _generateRecoveryCode();
-    final key = await _crypto.deriveKey(passphrase: passphrase, salt: salt);
+    final keyBytes = _crypto.randomBytes(32);
+    final keySlots = [
+      await _crypto.createKeySlot(
+        type: 'password',
+        secret: normalizedPassphrase,
+        keyBytes: keyBytes,
+      ),
+      await _crypto.createKeySlot(
+        type: 'recovery',
+        secret: recovery,
+        keyBytes: keyBytes,
+      ),
+    ];
     await _storage.write(key: _enabledKey, value: '1');
-    await _storage.write(key: _saltKey, value: base64Encode(salt));
     await _storage.write(key: _recoveryKey, value: recovery);
+    await _storage.write(key: _keySlotsKey, value: _encodeKeySlots(keySlots));
     await _storage.write(
       key: _localKeyKey,
-      value: base64Encode(await key.extractBytes()),
+      value: base64Encode(keyBytes),
     );
+    await _storage.delete(key: _saltKey);
     try {
       await backupNow();
       await _client.from('profiles').upsert({
@@ -92,16 +106,47 @@ class EncryptedBackupService implements BackupService {
 
     final saltRaw = await _storage.read(key: _saltKey);
     final keyRaw = await _storage.read(key: _localKeyKey);
-    if (saltRaw == null || keyRaw == null) {
+    final slotsRaw = await _storage.read(key: _keySlotsKey);
+    final recoveryRaw = await _storage.read(key: _recoveryKey);
+    if (keyRaw == null ||
+        ((slotsRaw == null || slotsRaw.isEmpty) && saltRaw == null)) {
       throw const BackupException('النسخ الاحتياطي يحتاج تفعيل جديد.');
     }
 
     final snapshot = await BackupSnapshotBuilder(_database).build();
-    final blob = await _crypto.encryptJsonWithKey(
-      json: snapshot,
-      key: SecretKey(base64Decode(keyRaw)),
-      salt: base64Decode(saltRaw),
-    );
+    final keyBytes = base64Decode(keyRaw);
+    final shouldUpgradeLegacyBackup =
+        (slotsRaw == null || slotsRaw.isEmpty) && recoveryRaw != null;
+    final blob = shouldUpgradeLegacyBackup
+        ? await _crypto.encryptJsonWithRawKey(
+            json: snapshot,
+            keyBytes: keyBytes,
+            keySlots: [
+              await _crypto.createKeySlot(
+                type: 'recovery',
+                secret: recoveryRaw,
+                keyBytes: keyBytes,
+              ),
+            ],
+            salt: base64Decode(saltRaw!),
+          )
+        : slotsRaw == null || slotsRaw.isEmpty
+            ? await _crypto.encryptJsonWithKey(
+                json: snapshot,
+                key: SecretKey(keyBytes),
+                salt: base64Decode(saltRaw!),
+              )
+            : await _crypto.encryptJsonWithRawKey(
+                json: snapshot,
+                keyBytes: keyBytes,
+                keySlots: _decodeKeySlots(slotsRaw),
+              );
+    if (shouldUpgradeLegacyBackup) {
+      await _storage.write(
+        key: _keySlotsKey,
+        value: _encodeKeySlots(blob.keySlots),
+      );
+    }
     final bytes = blob.toBytes();
     final path = '$userId/backup.enc';
     try {
@@ -117,7 +162,7 @@ class EncryptedBackupService implements BackupService {
       await _client.from('backups').upsert({
         'user_id': userId,
         'blob_path': path,
-        'blob_version': 1,
+        'blob_version': blob.version,
         'size_bytes': bytes.length,
         'updated_at': now.toIso8601String(),
       });
@@ -140,6 +185,7 @@ class EncryptedBackupService implements BackupService {
     await _storage.delete(key: _recoveryKey);
     await _storage.delete(key: _lastKey);
     await _storage.delete(key: _localKeyKey);
+    await _storage.delete(key: _keySlotsKey);
   }
 
   @override
@@ -153,21 +199,57 @@ class EncryptedBackupService implements BackupService {
     final bytes = await _client.storage.from(_bucket).download(path);
     try {
       final blob = EncryptedBackupBlob.fromBytes(bytes);
-      final snapshot = await _crypto.decryptJson(
-        blob: blob,
-        passphrase: passphrase,
-      );
+      List<int>? keyBytes;
+      Map<String, dynamic> snapshot;
+      if (blob.keySlots.isEmpty) {
+        snapshot = await _crypto.decryptJson(
+          blob: blob,
+          passphrase: passphrase.trim(),
+        );
+      } else {
+        try {
+          keyBytes = await _crypto.unwrapKeyFromSlots(
+            keySlots: blob.keySlots,
+            secret: passphrase,
+          );
+          snapshot = await _crypto.decryptJsonWithRawKey(
+            blob: blob,
+            keyBytes: keyBytes,
+          );
+        } on SecretBoxAuthenticationError {
+          final legacyKey = await _crypto.deriveKey(
+            passphrase: passphrase.trim(),
+            salt: blob.salt,
+          );
+          keyBytes = await legacyKey.extractBytes();
+          snapshot = await _crypto.decryptJsonWithRawKey(
+            blob: blob,
+            keyBytes: keyBytes,
+          );
+        }
+      }
       await RestoreBackupUseCase(_database)(snapshot);
       await _storage.write(key: _enabledKey, value: '1');
-      await _storage.write(key: _saltKey, value: base64Encode(blob.salt));
-      final key = await _crypto.deriveKey(
-        passphrase: passphrase,
-        salt: blob.salt,
-      );
-      await _storage.write(
-        key: _localKeyKey,
-        value: base64Encode(await key.extractBytes()),
-      );
+      if (keyBytes == null) {
+        await _storage.write(key: _saltKey, value: base64Encode(blob.salt));
+        final key = await _crypto.deriveKey(
+          passphrase: passphrase.trim(),
+          salt: blob.salt,
+        );
+        await _storage.write(
+          key: _localKeyKey,
+          value: base64Encode(await key.extractBytes()),
+        );
+        await _storage.delete(key: _keySlotsKey);
+      } else {
+        await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes));
+        await _storage.write(
+          key: _keySlotsKey,
+          value: _encodeKeySlots(blob.keySlots),
+        );
+        await _storage.delete(key: _saltKey);
+        await _storage.delete(key: _recoveryKey);
+      }
       await _storage.write(
         key: _lastKey,
         value: DateTime.now().toUtc().toIso8601String(),
@@ -201,6 +283,15 @@ class EncryptedBackupService implements BackupService {
     await _storage.delete(key: _recoveryKey);
     await _storage.delete(key: _lastKey);
     await _storage.delete(key: _localKeyKey);
+    await _storage.delete(key: _keySlotsKey);
+  }
+
+  String _encodeKeySlots(List<BackupKeySlot> slots) {
+    return jsonEncode(slots.map((slot) => slot.toJson()).toList());
+  }
+
+  List<BackupKeySlot> _decodeKeySlots(String raw) {
+    return BackupKeySlot.listFromJson(jsonDecode(raw));
   }
 }
 

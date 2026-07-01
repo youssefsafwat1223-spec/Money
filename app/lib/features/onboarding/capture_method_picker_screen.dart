@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../capture/services/android_sms_capture_service.dart';
@@ -27,7 +28,20 @@ class _CaptureMethodPickerScreenState
 
   void _toggle(int i) => setState(() => _open = _open == i ? null : i);
 
-  void _continue() => context.push('/onboarding/ai-consent');
+  Future<void> _continue() async {
+    if (_open == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اختر طريقة إدخال المعاملات أولاً.')),
+      );
+      return;
+    }
+    if (_open == 1) {
+      context.push('/onboarding/ios-shortcut');
+    } else {
+      await AppSession.instance.finishOnboarding();
+      if (mounted) context.go('/');
+    }
+  }
 
   Future<void> _grantSms() async {
     if (_granting) return;
@@ -57,6 +71,7 @@ class _CaptureMethodPickerScreenState
       subtitle: 'قرش يضيف عملياتك بـ 3 طرق. اضغط على كل طريقة لمعرفة التفاصيل.',
       primaryLabel: 'التالي',
       onPrimary: _continue,
+      primaryDisabled: _open == null,
       child: Column(
         children: [
           _ExpandableMethod(

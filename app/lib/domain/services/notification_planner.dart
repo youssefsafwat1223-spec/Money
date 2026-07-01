@@ -184,6 +184,7 @@ class NotificationPlanner {
     DateTime dateTime,
     NotificationPreferences preferences,
   ) {
+    if (!preferences.quietHoursEnabled) return false;
     final hour = dateTime.hour;
     if (preferences.quietHoursStartHour > preferences.quietHoursEndHour) {
       return hour >= preferences.quietHoursStartHour ||

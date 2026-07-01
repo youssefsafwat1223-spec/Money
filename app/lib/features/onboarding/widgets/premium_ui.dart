@@ -2,7 +2,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_gradients.dart';
 import '../../../core/theme/app_shadows.dart';
 import '../../../core/theme/app_spacing.dart';
 
@@ -109,7 +108,6 @@ class GlassCard extends StatelessWidget {
       padding: padding ?? const EdgeInsets.all(AppSpacing.cardPaddingLarge),
       decoration: BoxDecoration(
         color: baseColor,
-        gradient: color == null && isDark ? AppGradients.subtleSurface : null,
         borderRadius: BorderRadius.circular(AppRadius.cardLg),
         border: finalBorder,
         boxShadow: isDark ? null : AppShadows.card,
@@ -177,13 +175,14 @@ class OnboardingHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s5),
       decoration: BoxDecoration(
-        gradient: AppGradients.brandHero,
+        color: const Color(0xFF141400),
         borderRadius: BorderRadius.circular(AppRadius.cardLg),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-        boxShadow: AppShadows.elevatedCard,
+        border: Border.all(color: c.accent.withValues(alpha: 0.25)),
+        boxShadow: AppShadows.ctaGlow,
       ),
       child: Column(
         children: [
@@ -193,11 +192,12 @@ class OnboardingHeroCard extends StatelessWidget {
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  gradient: AppGradients.accentIllustration,
+                  color: c.accent.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(AppRadius.xl),
-                  boxShadow: AppShadows.ctaGlow,
+                  border: Border.all(
+                      color: c.accent.withValues(alpha: 0.35)),
                 ),
-                child: Icon(icon, color: Colors.white, size: 28),
+                child: Icon(icon, color: c.cta, size: 28),
               ),
               const SizedBox(width: AppSpacing.s4),
               Expanded(

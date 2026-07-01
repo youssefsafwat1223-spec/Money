@@ -59,6 +59,15 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
       }
       if (!mounted) return;
       context.go(widget.onboardingFlow ? '/' : '/backup');
+    } on BackupException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = _useRecoveryCode &&
+                error.message.contains('كلمة مرور النسخة الاحتياطية')
+            ? context.l10n.recoveryCodeIncorrect
+            : error.message;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -136,7 +145,10 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                     child: const NeonIllustration(
                       icon: Icons.cloud_done_rounded,
                       size: 140,
-                    ).animate().fade(duration: 800.ms).scale(curve: Curves.easeOutBack),
+                    )
+                        .animate()
+                        .fade(duration: 800.ms)
+                        .scale(curve: Curves.easeOutBack),
                   ),
                   const SizedBox(height: AppSpacing.s4),
                   Text(
@@ -185,7 +197,12 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                   const SizedBox(height: AppSpacing.s2),
                   TextField(
                     controller: _passphrase,
-                    obscureText: true,
+                    obscureText: !_useRecoveryCode,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    textCapitalization: _useRecoveryCode
+                        ? TextCapitalization.characters
+                        : TextCapitalization.none,
                     style: AppTypography.body(c.textMain),
                     decoration: InputDecoration(
                       errorText: _error,

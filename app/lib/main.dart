@@ -53,7 +53,6 @@ Future<void> _bootstrap() async {
   }
   final initialCaptureTransactionId =
       await LocalNotificationService.instance.initialize();
-  await LocalNotificationService.instance.requestPermissionsIfNeeded();
   final AppDatabase database;
   try {
     database = await AppDatabase.open();

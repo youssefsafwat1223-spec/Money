@@ -13,7 +13,7 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/app_gradients.dart';
+
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -41,6 +41,9 @@ import '../app/app_shell.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
+
+final _dashboardBudgetPeriodProvider =
+    StateProvider<BudgetPeriod>((ref) => BudgetPeriod.monthly);
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -470,9 +473,13 @@ class DashboardScreen extends ConsumerWidget {
     final spent = data.spentThisMonth;
     final ratio = data.monthlyBudgetRatio;
 
+    final selectedPeriod = ref.watch(_dashboardBudgetPeriodProvider);
+    final isCtaDark = Theme.of(context).brightness == Brightness.light;
+    final onCta = c.onCta;
+
     return AppCard(
       color: c.cta,
-      border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      border: Border.all(color: onCta.withValues(alpha: 0.12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -482,11 +489,11 @@ class DashboardScreen extends ConsumerWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
+                  color: onCta.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.query_stats_rounded,
-                    color: Colors.white, size: 21),
+                child: Icon(Icons.query_stats_rounded,
+                    color: onCta, size: 21),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
@@ -494,99 +501,144 @@ class DashboardScreen extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('ملخص الحساب',
-                        style: AppTypography.bodyStrong(Colors.white)),
+                        style: AppTypography.bodyStrong(onCta)),
                     const SizedBox(height: 2),
                     Text(_rangeLabel(data.range, context),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption(
-                            Colors.white.withValues(alpha: 0.70))),
+                            onCta.withValues(alpha: 0.70))),
                   ],
                 ),
               ),
-              if (hasBudget) _budgetRing(context, ratio, darkBg: true),
+              if (hasBudget) _budgetRing(context, ratio, darkBg: isCtaDark),
             ],
           ),
           const SizedBox(height: AppSpacing.s4),
-          Text('مصروفات الفترة',
-              style:
-                  AppTypography.caption(Colors.white.withValues(alpha: 0.70))),
-          const SizedBox(height: 6),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: AlignmentDirectional.centerStart,
-            child: Text(
-              _money(spent, data.currency, privacyMode: privacyMode),
-              style: AppTypography.title1(Colors.white)
-                  .copyWith(fontWeight: FontWeight.w900),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          _snapshotMetric(
-            context,
-            title: 'دخل الفترة',
-            value: _money(
-              data.incomeThisMonth,
-              data.currency,
-              privacyMode: privacyMode,
-            ),
-            tone: c.success,
-            darkBg: true,
-          ),
-          const SizedBox(height: AppSpacing.s3),
           Row(
             children: [
               Expanded(
-                child: _budgetSpendMetric(
+                child: _snapshotMetric(
                   context,
-                  ref,
-                  title: 'صرف اليوم',
-                  period: BudgetPeriod.daily,
-                  value: _spendVsLimit(
-                    data.todaySpend,
-                    data.dailyBudgetLimit,
-                    data.currency,
-                    privacyMode: privacyMode,
-                  ),
-                  tone: c.danger,
-                  darkBg: true,
+                  title: 'مصروفات الفترة',
+                  value: _money(spent, data.currency, privacyMode: privacyMode),
+                  tone: isCtaDark ? Colors.white : Colors.black,
+                  darkBg: isCtaDark,
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
-                child: _budgetSpendMetric(
+                child: _snapshotMetric(
                   context,
-                  ref,
-                  title: 'صرف الأسبوع',
-                  period: BudgetPeriod.weekly,
-                  value: _spendVsLimit(
-                    data.weekSpend,
-                    data.weeklyBudgetLimit,
+                  title: 'دخل الفترة',
+                  value: _money(
+                    data.incomeThisMonth,
                     data.currency,
                     privacyMode: privacyMode,
                   ),
-                  tone: c.accent,
-                  darkBg: true,
+                  tone: c.success,
+                  darkBg: isCtaDark,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s3),
-          _budgetSpendMetric(
-            context,
-            ref,
-            title: 'صرف الشهر',
-            period: BudgetPeriod.monthly,
-            value: _spendVsLimit(
-              data.spentThisMonth,
-              data.monthlyBudgetLimit,
-              data.currency,
-              privacyMode: privacyMode,
+          const SizedBox(height: AppSpacing.s5),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: onCta.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            tone: c.warning,
-            darkBg: true,
+            padding: const EdgeInsets.all(2),
+            child: Row(
+              children: [
+                _budgetTab(context, ref, 'اليوم', BudgetPeriod.daily, selectedPeriod, onCta),
+                _budgetTab(context, ref, 'الأسبوع', BudgetPeriod.weekly, selectedPeriod, onCta),
+                _budgetTab(context, ref, 'الشهر', BudgetPeriod.monthly, selectedPeriod, onCta),
+              ],
+            ),
           ),
+          const SizedBox(height: AppSpacing.s3),
+          if (selectedPeriod == BudgetPeriod.daily)
+            _budgetSpendMetric(
+              context,
+              ref,
+              title: 'صرف اليوم',
+              period: BudgetPeriod.daily,
+              value: _spendVsLimit(
+                data.todaySpend,
+                data.dailyBudgetLimit,
+                data.currency,
+                privacyMode: privacyMode,
+              ),
+              tone: c.danger,
+              darkBg: isCtaDark,
+            )
+          else if (selectedPeriod == BudgetPeriod.weekly)
+            _budgetSpendMetric(
+              context,
+              ref,
+              title: 'صرف الأسبوع',
+              period: BudgetPeriod.weekly,
+              value: _spendVsLimit(
+                data.weekSpend,
+                data.weeklyBudgetLimit,
+                data.currency,
+                privacyMode: privacyMode,
+              ),
+              tone: c.accent,
+              darkBg: isCtaDark,
+            )
+          else
+            _budgetSpendMetric(
+              context,
+              ref,
+              title: 'صرف الشهر',
+              period: BudgetPeriod.monthly,
+              value: _spendVsLimit(
+                data.spentThisMonth,
+                data.monthlyBudgetLimit,
+                data.currency,
+                privacyMode: privacyMode,
+              ),
+              tone: c.warning,
+              darkBg: isCtaDark,
+            ),
         ],
+      ),
+    );
+  }
+
+  Widget _budgetTab(
+    BuildContext context,
+    WidgetRef ref,
+    String label,
+    BudgetPeriod period,
+    BudgetPeriod selected,
+    Color onCta,
+  ) {
+    final isSelected = period == selected;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          ref.read(_dashboardBudgetPeriodProvider.notifier).state = period;
+        },
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? onCta.withValues(alpha: 0.2) : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.md - 2),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: AppTypography.caption(
+              isSelected ? onCta : onCta.withValues(alpha: 0.6),
+            ).copyWith(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
+          ),
+        ),
       ),
     );
   }
@@ -665,11 +717,11 @@ class DashboardScreen extends ConsumerWidget {
                     width: 54,
                     height: 54,
                     decoration: BoxDecoration(
-                      gradient: AppGradients.brandHero,
+                      gradient: c.primaryGradient,
                       borderRadius: BorderRadius.circular(18),
                     ),
-                    child: const Icon(AppLucideIcons.inbox,
-                        color: Colors.white, size: 26),
+                    child: Icon(AppLucideIcons.inbox,
+                        color: c.onPrimary, size: 26),
                   ),
                   PositionedDirectional(
                     top: -6,
@@ -1997,7 +2049,7 @@ class _DashboardHeader extends StatelessWidget {
       height: 44,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        gradient: hasImage ? null : AppGradients.brandHero,
+        gradient: hasImage ? null : c.primaryGradient,
         shape: BoxShape.circle,
         color: hasImage ? c.surface2 : null,
       ),

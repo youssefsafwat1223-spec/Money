@@ -377,6 +377,7 @@ class AppDatabase extends GeneratedDatabase {
         display_name TEXT NULL,
         phone_number TEXT NULL,
         avatar_path TEXT NULL,
+        date_of_birth TEXT NULL,
         country TEXT NOT NULL,
         currency TEXT NOT NULL,
         language TEXT NOT NULL,
@@ -512,11 +513,12 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn(
       'user_settings',
       'ai_consent_granted',
-      'INTEGER NOT NULL DEFAULT 0',
+      'INTEGER NOT NULL DEFAULT 1',
     );
     await _ensureColumn('user_settings', 'display_name', 'TEXT NULL');
     await _ensureColumn('user_settings', 'phone_number', 'TEXT NULL');
     await _ensureColumn('user_settings', 'avatar_path', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'date_of_birth', 'TEXT NULL');
     // v2: ربط المعاملات/الاشتراكات بالحساب (multi-currency accounts).
     await _ensureColumn('transactions', 'account_id', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'account_id', 'TEXT NULL');
@@ -1040,7 +1042,7 @@ class AppDatabase extends GeneratedDatabase {
           INSERT INTO user_settings(
             id, country, currency, language, theme, input_method, notifications_json, db_encryption_key_ref, privacy_mode_enabled
           )
-          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', ?, 0);
+          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursEnabled":false,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', ?, 0);
         ''',
         variables: [
           Variable.withString(IdGenerator.next()),
@@ -1051,6 +1053,10 @@ class AppDatabase extends GeneratedDatabase {
 
     await _ensureDefaultAccount();
   }
+
+  /// يُستدعى بعد استعادة نسخة احتياطية لضمان وجود حساب افتراضي وربط
+  /// أي سجلات يتيمة (account_id = NULL) به.
+  Future<void> runPostRestoreSetup() => _ensureDefaultAccount();
 
   /// ينشئ حساباً افتراضياً واحداً من عملة المستخدم الحالية، ويربط كل العمليات
   /// والاشتراكات القائمة (بدون حساب) به. آمن وبدون فقدان بيانات.

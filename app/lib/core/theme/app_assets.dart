@@ -10,12 +10,36 @@ class AppAssets {
   /// مسار شعار التطبيق للمظهر الداكن (Dark Mode)
   static const String logoDark = 'assets/logo/logo_dark.png';
 
+  /// العملة الزرقاء — للـ light mode
   static const String qirshCoin = 'assets/qirsh/qirsh_coin.png';
+
+  /// العملة الذهبية — للـ dark mode
+  static const String qirshCoinGold = 'assets/qirsh/qirsh_coin_gold.png';
+
   static const String qirshLogoFull = 'assets/qirsh/qirsh_logo_full.png';
   static const String qirshLogoTagline = 'assets/qirsh/qirsh_logo_tagline.png';
 
-  /// إرجاع الشعار المناسب بناءً على مظهر النظام أو التطبيق الحالي.
-  static String getLogo(BuildContext context) {
-    return qirshLogoFull;
+  /// الشعار الذهبي مع الـ slogan (أبيض) — لـ dark mode
+  static const String qirshLogoTaglineGold =
+      'assets/qirsh/qirsh_logo_tagline_gold.png';
+
+  /// بانرات الـ Onboarding
+  static const String bannerOnboarding1 = 'assets/qirsh/banner_onboarding_1.jpg';
+  static const String bannerOnboarding2 = 'assets/qirsh/banner_onboarding_2.jpg';
+
+  /// العملة المناسبة حسب الثيم (زرقاء light / ذهبية dark)
+  static String getCoin(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return brightness == Brightness.dark ? qirshCoinGold : qirshCoin;
   }
+
+  /// الشعار مع الـ slogan حسب الثيم
+  static String getLogoTagline(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return brightness == Brightness.dark
+        ? qirshLogoTaglineGold
+        : qirshLogoTagline;
+  }
+
+  static String getLogo(BuildContext context) => qirshLogoFull;
 }

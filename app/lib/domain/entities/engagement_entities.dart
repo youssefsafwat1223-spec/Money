@@ -93,6 +93,7 @@ class NotificationPreferences {
     this.weeklyReport = true,
     this.subscriptionReminder = true,
     this.goalMilestone = true,
+    this.quietHoursEnabled = false,
     this.quietHoursStartHour = 23,
     this.quietHoursEndHour = 8,
     this.lastDailyBudgetRewardDate,
@@ -113,6 +114,7 @@ class NotificationPreferences {
   final bool weeklyReport;
   final bool subscriptionReminder;
   final bool goalMilestone;
+  final bool quietHoursEnabled;
   final int quietHoursStartHour;
   final int quietHoursEndHour;
   final String? lastDailyBudgetRewardDate;
@@ -158,6 +160,7 @@ class NotificationPreferences {
     bool? weeklyReport,
     bool? subscriptionReminder,
     bool? goalMilestone,
+    bool? quietHoursEnabled,
     int? quietHoursStartHour,
     int? quietHoursEndHour,
     String? lastDailyBudgetRewardDate,
@@ -178,6 +181,7 @@ class NotificationPreferences {
       weeklyReport: weeklyReport ?? this.weeklyReport,
       subscriptionReminder: subscriptionReminder ?? this.subscriptionReminder,
       goalMilestone: goalMilestone ?? this.goalMilestone,
+      quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
       quietHoursStartHour: quietHoursStartHour ?? this.quietHoursStartHour,
       quietHoursEndHour: quietHoursEndHour ?? this.quietHoursEndHour,
       lastDailyBudgetRewardDate:
@@ -205,6 +209,7 @@ class NotificationPreferences {
       'weeklyReport': weeklyReport,
       'subscriptionReminder': subscriptionReminder,
       'goalMilestone': goalMilestone,
+      'quietHoursEnabled': quietHoursEnabled,
       'quietHoursStartHour': quietHoursStartHour,
       'quietHoursEndHour': quietHoursEndHour,
       'lastDailyBudgetRewardDate': lastDailyBudgetRewardDate,
@@ -231,6 +236,7 @@ class NotificationPreferences {
       weeklyReport: json['weeklyReport'] as bool? ?? true,
       subscriptionReminder: json['subscriptionReminder'] as bool? ?? true,
       goalMilestone: json['goalMilestone'] as bool? ?? true,
+      quietHoursEnabled: json['quietHoursEnabled'] as bool? ?? false,
       quietHoursStartHour: json['quietHoursStartHour'] as int? ?? 23,
       quietHoursEndHour: json['quietHoursEndHour'] as int? ?? 8,
       lastDailyBudgetRewardDate: json['lastDailyBudgetRewardDate'] as String?,

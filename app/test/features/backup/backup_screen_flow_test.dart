@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_service.dart';
 import 'package:money_companion/core/session/app_session.dart';
@@ -46,6 +47,7 @@ class _FakeBackupService implements BackupService {
 
 void main() {
   setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
     AppSession.instance.authMethod = 'email';
   });
 

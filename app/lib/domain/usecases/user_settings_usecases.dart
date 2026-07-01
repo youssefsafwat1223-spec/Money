@@ -86,6 +86,19 @@ class SaveCountryCurrencyUseCase {
   }
 }
 
+class SaveDateOfBirthUseCase {
+  SaveDateOfBirthUseCase(this._repository);
+
+  final UserSettingsRepository _repository;
+
+  Future<UserSettingsEntity> call(DateTime dateOfBirth) async {
+    final settings = await _repository.getSettings();
+    return _repository.saveSettings(
+      settings.copyWith(dateOfBirth: dateOfBirth),
+    );
+  }
+}
+
 class SaveLanguageUseCase {
   SaveLanguageUseCase(this._repository);
 

@@ -72,7 +72,7 @@ class NeonIllustration extends StatelessWidget {
             color: c.accent,
           ),
           Image.asset(
-            AppAssets.qirshCoin,
+            AppAssets.getCoin(context),
             width: coin,
             height: coin,
             fit: BoxFit.contain,
@@ -88,12 +88,12 @@ class NeonIllustration extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: const LinearGradient(
+                  gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Color(0xFFFBC926),
-                      Color(0xFFC3922D),
+                      c.gradA,
+                      c.gradB,
                     ],
                   ),
                   border: Border.all(

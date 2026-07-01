@@ -195,15 +195,15 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
   }
 
   Future<void> _generate() async {
-    if (_passphrase.text.length < 6 || _busy) return;
+    final passphrase = _passphrase.text.trim();
+    if (passphrase.length < 6 || _busy) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final code = await ref
-          .read(backupServiceProvider)
-          .enable(passphrase: _passphrase.text);
+      final code =
+          await ref.read(backupServiceProvider).enable(passphrase: passphrase);
       if (!mounted) return;
       setState(() {
         _busy = false;
