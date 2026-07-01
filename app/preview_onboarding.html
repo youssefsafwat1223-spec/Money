@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>قرش — Onboarding Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a1a;
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    font-family: -apple-system, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    flex-wrap: wrap;
+  }
+
+  .label {
+    color: #888;
+    font-size: 12px;
+    text-align: center;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* Phone shell */
+  .phone {
+    width: 375px;
+    height: 812px;
+    background: #000;
+    border-radius: 54px;
+    border: 1.5px solid #333;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.6), inset 0 0 0 1px #222;
+    flex-shrink: 0;
+  }
+
+  .screen {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Status bar */
+  .status-bar {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    flex-shrink: 0;
+  }
+  .status-time { color: #fff; font-size: 15px; font-weight: 600; }
+  .status-icons { display: flex; gap: 6px; align-items: center; color: #fff; font-size: 12px; }
+
+  /* ═══════════════════════════════════
+     SCREEN 1 — Cinematic Welcome
+  ═══════════════════════════════════ */
+  .welcome-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0 48px;
+    position: relative;
+  }
+
+  /* Ambient gold glow behind logo */
+  .glow-ring {
+    position: absolute;
+    top: 110px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(251,201,38,0.18) 0%, rgba(251,201,38,0.04) 55%, transparent 75%);
+    animation: pulse-glow 3s ease-in-out infinite;
+  }
+  @keyframes pulse-glow {
+    0%, 100% { transform: translateX(-50%) scale(1); opacity: 1; }
+    50% { transform: translateX(-50%) scale(1.12); opacity: 0.7; }
+  }
+
+  /* Logo icon */
+  .logo-wrap {
+    margin-top: 90px;
+    animation: spring-in 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.2s both;
+  }
+  @keyframes spring-in {
+    from { transform: scale(0.4) translateY(20px); opacity: 0; }
+    to   { transform: scale(1) translateY(0);      opacity: 1; }
+  }
+  .logo-icon {
+    width: 96px;
+    height: 96px;
+    border-radius: 24px;
+    background: linear-gradient(145deg, #FBC926, #E8A800);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 1px rgba(251,201,38,0.3), 0 8px 32px rgba(251,201,38,0.35);
+    font-size: 48px;
+    line-height: 1;
+  }
+
+  /* Tagline below logo */
+  .logo-tagline {
+    margin-top: 12px;
+    text-align: center;
+    font-size: 13px;
+    color: rgba(251,201,38,0.7);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    animation: fade-up 0.6s ease 0.8s both;
+  }
+
+  /* Main content */
+  .welcome-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 32px;
+    text-align: center;
+    gap: 0;
+  }
+
+  /* Typewriter heading */
+  .heading {
+    font-size: 52px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    overflow: hidden;
+    white-space: nowrap;
+    width: 0;
+    animation: typewriter 0.8s steps(3) 1.2s forwards;
+  }
+  @keyframes typewriter {
+    from { width: 0; }
+    to   { width: 130px; }
+  }
+  /* Gold dot after typewriter */
+  .heading-dot {
+    color: #FBC926;
+    opacity: 0;
+    animation: fade-in 0.3s ease 2.1s forwards;
+  }
+  @keyframes fade-in {
+    to { opacity: 1; }
+  }
+
+  .sub-heading {
+    font-size: 18px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+    margin-top: 12px;
+    animation: fade-up 0.5s ease 2.3s both;
+    opacity: 0;
+  }
+  .body-text {
+    font-size: 15px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.5);
+    margin-top: 10px;
+    line-height: 1.6;
+    animation: fade-up 0.5s ease 2.6s both;
+    opacity: 0;
+  }
+  .gold-statement {
+    margin-top: 24px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #FBC926;
+    letter-spacing: 0.5px;
+    animation: fade-up 0.5s ease 2.9s both;
+    opacity: 0;
+  }
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Bottom CTA */
+  .welcome-bottom {
+    padding: 0 28px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    animation: slide-up 0.6s cubic-bezier(0.34,1.3,0.64,1) 3.2s both;
+    opacity: 0;
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(28px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .cta-btn {
+    height: 56px;
+    background: #FBC926;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    font-weight: 800;
+    color: #000;
+    box-shadow: 0 6px 24px rgba(251,201,38,0.4);
+    cursor: pointer;
+  }
+  .skip-btn {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+  }
+
+  /* ═══════════════════════════════════
+     SCREEN 2 — Country / Currency
+  ═══════════════════════════════════ */
+  .setup-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .setup-hero {
+    padding: 24px 28px 20px;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .setup-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(251,201,38,0.12);
+    border: 1px solid rgba(251,201,38,0.25);
+    border-radius: 99px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #FBC926;
+    margin-bottom: 16px;
+  }
+  .setup-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.2;
+  }
+  .setup-subtitle {
+    font-size: 14px;
+    color: rgba(255,255,255,0.45);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  .setup-body {
+    flex: 1;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .field-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .field-box {
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .field-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .field-flag { font-size: 24px; }
+  .field-arrow { color: #555; font-size: 18px; }
+
+  .currency-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    padding: 8px 14px;
+    border-radius: 99px;
+    font-size: 14px;
+    font-weight: 700;
+    border: 1.5px solid #2a2a2a;
+    color: rgba(255,255,255,0.6);
+    background: #111;
+    cursor: pointer;
+  }
+  .chip.selected {
+    background: rgba(251,201,38,0.14);
+    border-color: rgba(251,201,38,0.5);
+    color: #FBC926;
+  }
+
+  .setup-footer {
+    padding: 16px 28px 40px;
+  }
+
+  /* ═══════════════════════════════════
+     SCREEN 3 — Method Picker
+  ═══════════════════════════════════ */
+  .method-option {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 18px;
+    padding: 18px 18px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .method-option.active {
+    border-color: rgba(251,201,38,0.5);
+    background: rgba(251,201,38,0.06);
+  }
+  .method-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  .method-icon.gold  { background: rgba(251,201,38,0.15); }
+  .method-icon.blue  { background: rgba(100,160,255,0.12); }
+  .method-icon.green { background: rgba(52,211,153,0.12); }
+  .method-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: #fff;
+  }
+  .method-desc {
+    font-size: 13px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 3px;
+    line-height: 1.5;
+  }
+  .method-badge {
+    margin-top: 6px;
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    color: #34D399;
+    background: rgba(52,211,153,0.12);
+    border-radius: 99px;
+    padding: 3px 8px;
+  }
+
+  /* Divider */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: rgba(255,255,255,0.2);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #222;
+  }
+
+  /* ═══════════════════════════════════
+     Shared phase layout (screens 5–10)
+  ═══════════════════════════════════ */
+  .phase-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .phase-hero {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 32px;
+    text-align: center;
+    gap: 10px;
+  }
+  .phase-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(251,201,38,0.1);
+    border: 1px solid rgba(251,201,38,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    margin-bottom: 8px;
+  }
+  .phase-title {
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.2;
+  }
+  .phase-subtitle {
+    font-size: 13px;
+    color: rgba(255,255,255,0.4);
+    line-height: 1.5;
+  }
+
+  /* Glass card at bottom of each phase */
+  .glass-card {
+    margin: 0 20px 36px;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.08);
+    border-radius: 28px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .card-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #FBC926;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  /* Goal option rows */
+  .goal-option {
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 13px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+  .goal-option.selected {
+    background: rgba(251,201,38,0.1);
+    border-color: rgba(251,201,38,0.5);
+  }
+  .goal-option .goal-emoji { font-size: 20px; flex-shrink: 0; }
+  .goal-option .goal-text { flex: 1; font-size: 13px; font-weight: 700; color: #fff; }
+  .goal-option .goal-check {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #FBC926;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #000; flex-shrink: 0;
+  }
+  .goal-option .goal-circle {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.15);
+    flex-shrink: 0;
+  }
+
+  /* Language cards */
+  .lang-card {
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+  .lang-card.selected {
+    background: rgba(251,201,38,0.1);
+    border-color: rgba(251,201,38,0.5);
+  }
+  .lang-card .lang-info { flex: 1; }
+  .lang-card .lang-name { font-size: 16px; font-weight: 800; color: #fff; }
+  .lang-card .lang-tag { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 2px; }
+  .lang-card .lang-dot {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #FBC926;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #000;
+  }
+  .lang-card .lang-dot-empty {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.2);
+  }
+
+  /* Picker row (dropdown field reuse) */
+  .picker-row {
+    background: rgba(255,255,255,0.06);
+    border: 1.5px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 13px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .picker-icon {
+    width: 30px; height: 30px;
+    background: rgba(251,201,38,0.15);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .picker-value { flex: 1; font-size: 14px; font-weight: 600; color: #fff; }
+  .picker-arrow { color: rgba(255,255,255,0.3); font-size: 16px; }
+
+  /* iOS step list */
+  .step-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+  }
+  .step-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(251,201,38,0.15);
+    border: 1px solid rgba(251,201,38,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; color: #FBC926;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .step-body { flex: 1; }
+  .step-title { font-size: 12px; font-weight: 800; color: #fff; }
+  .step-desc { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; line-height: 1.4; }
+
+  /* Shared primary button */
+  .btn-primary {
+    height: 52px;
+    background: #FBC926;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    color: #000;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .btn-ghost {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.35);
+    cursor: pointer;
+  }
+
+  /* Notif preview card */
+  .notif-preview {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .notif-icon {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #FBC926;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .notif-title { font-size: 11px; font-weight: 800; color: #FBC926; }
+  .notif-body { font-size: 11px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════
+     SCREEN 1 — Cinematic Welcome
+═══════════════════════════════════ -->
+<div>
+<div class="label">① Welcome — Cinematic Intro</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+
+    <div class="welcome-screen">
+      <!-- Gold ambient glow -->
+      <div class="glow-ring"></div>
+
+      <!-- Logo -->
+      <div class="logo-wrap">
+        <div class="logo-icon">🪙</div>
+        <div class="logo-tagline">QIRSH</div>
+      </div>
+
+      <!-- Typewriter + staggered text -->
+      <div class="welcome-content">
+        <div>
+          <span class="heading">قـرش</span><span class="heading-dot">.</span>
+        </div>
+        <div class="sub-heading">تتبّع مصروفاتك بلا جهد</div>
+        <div class="body-text">رسائل البنك تتحول لتقارير تلقائياً.<br>بدون تدخّل، بدون تعقيد.</div>
+        <div class="gold-statement">⚡ على جهازك. خاص. مجاني.</div>
+      </div>
+
+      <!-- CTA + skip -->
+      <div class="welcome-bottom">
+        <div class="cta-btn">ابدأ الآن</div>
+        <div class="skip-btn">سجّل دخول</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 2 — Country & Currency
+═══════════════════════════════════ -->
+<div>
+<div class="label">② Country & Currency</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+
+    <div class="setup-screen">
+      <div class="setup-hero">
+        <div class="setup-badge">🌍 الخطوة 1 من 2</div>
+        <div class="setup-title">أنت من أي بلد؟</div>
+        <div class="setup-subtitle">نستخدمها لمعرفة بنوكك وعملتك الافتراضية.</div>
+      </div>
+
+      <div class="setup-body">
+        <!-- Country -->
+        <div>
+          <div class="field-label">البلد</div>
+          <div class="field-box">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="field-flag">🇸🇦</span>
+              <span class="field-value">المملكة العربية السعودية</span>
+            </div>
+            <span class="field-arrow">›</span>
+          </div>
+        </div>
+
+        <!-- Currency -->
+        <div>
+          <div class="field-label">العملة الرئيسية</div>
+          <div class="currency-chips">
+            <div class="chip selected">ر.س SAR</div>
+            <div class="chip">د.إ AED</div>
+            <div class="chip">ج.م EGP</div>
+            <div class="chip">KWD</div>
+            <div class="chip">USD</div>
+            <div class="chip">EUR</div>
+          </div>
+        </div>
+
+        <!-- Accounts hint -->
+        <div style="background:#111;border:1px solid #1e1e1e;border-radius:14px;padding:14px 16px;display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#FBC926;font-size:16px">💡</span>
+          <span style="font-size:13px;color:rgba(255,255,255,0.45);line-height:1.5">تقدر تضيف حسابات بعملات متعددة لاحقاً من الإعدادات.</span>
+        </div>
+      </div>
+
+      <div class="setup-footer">
+        <div class="cta-btn">التالي</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 3 — Method Picker
+═══════════════════════════════════ -->
+<div>
+<div class="label">③ Capture Method</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+
+    <div class="setup-screen">
+      <div class="setup-hero">
+        <div class="setup-badge">⚡ الخطوة 2 من 2</div>
+        <div class="setup-title">كيف تضيف عملياتك؟</div>
+        <div class="setup-subtitle">اختر طريقة الالتقاط — تقدر تغيّرها في أي وقت.</div>
+      </div>
+
+      <div class="setup-body" style="gap:10px">
+        <!-- iOS Shortcut -->
+        <div class="method-option active">
+          <div class="method-icon gold">⚡</div>
+          <div>
+            <div class="method-title">اختصار iOS تلقائي</div>
+            <div class="method-desc">كل رسالة بنك تتحول لعملية تلقائياً بدون فتح التطبيق.</div>
+            <span class="method-badge">موصى به</span>
+          </div>
+        </div>
+
+        <div class="divider">أو</div>
+
+        <!-- Android Share -->
+        <div class="method-option">
+          <div class="method-icon blue">📤</div>
+          <div>
+            <div class="method-title">مشاركة رسالة البنك</div>
+            <div class="method-desc">شارك الرسالة مع قرش من تطبيق الرسائل مباشرة.</div>
+          </div>
+        </div>
+
+        <!-- Manual paste -->
+        <div class="method-option">
+          <div class="method-icon green">📋</div>
+          <div>
+            <div class="method-title">لصق يدوي</div>
+            <div class="method-desc">انسخ الرسالة والصقها داخل قرش — يعمل دائماً.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="setup-footer">
+        <div class="cta-btn">إعداد الاختصار</div>
+        <div class="skip-btn" style="color:rgba(255,255,255,0.35);text-align:center;padding-top:10px;font-size:13px">تأجيل، إضافة يدوياً</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 4 — Auth (returning user)
+═══════════════════════════════════ -->
+<div>
+<div class="label">④ Auth Screen</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+
+    <div class="setup-screen">
+      <!-- Small logo at top -->
+      <div style="padding:32px 28px 16px;display:flex;flex-direction:column;align-items:center">
+        <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(145deg,#FBC926,#E8A800);display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 4px 20px rgba(251,201,38,0.3)">🪙</div>
+        <div style="margin-top:20px;font-size:24px;font-weight:800;color:#fff;text-align:center">أهلاً بعودتك 👋</div>
+        <div style="margin-top:6px;font-size:14px;color:rgba(255,255,255,0.4);text-align:center">سجّل دخولك لمزامنة بياناتك</div>
+      </div>
+
+      <div style="flex:1;padding:8px 28px;display:flex;flex-direction:column;gap:12px">
+        <!-- Google -->
+        <div style="height:54px;background:#fff;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:15px;font-weight:700;color:#111;cursor:pointer">
+          <span style="font-size:20px">G</span> متابعة مع Google
+        </div>
+        <!-- Apple -->
+        <div style="height:54px;background:#fff;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:15px;font-weight:700;color:#111;cursor:pointer">
+          <span style="font-size:20px"></span> متابعة مع Apple
+        </div>
+
+        <div class="divider" style="margin:4px 0">أو</div>
+
+        <!-- Email field -->
+        <div style="background:#111;border:1.5px solid #2a2a2a;border-radius:14px;padding:14px 16px">
+          <div style="font-size:11px;font-weight:700;color:#555;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">البريد الإلكتروني</div>
+          <div style="font-size:15px;color:rgba(255,255,255,0.3)">you@example.com</div>
+        </div>
+
+        <div class="cta-btn" style="background:#FBC926">إرسال رمز الدخول</div>
+
+        <div style="text-align:center;font-size:12px;color:rgba(255,255,255,0.25);margin-top:4px;line-height:1.6">
+          باستمرارك، أنت توافق على <span style="color:rgba(255,255,255,0.45)">شروط الاستخدام</span><br>وسياسة الخصوصية
+        </div>
+      </div>
+
+      <div style="padding:0 28px 40px">
+        <div class="skip-btn" style="color:rgba(255,255,255,0.3)">متابعة كضيف بدون حساب</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     SCREEN 5 — Goals
+═══════════════════════════════════ -->
+<div>
+<div class="label">⑤ Goals</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+    <div class="phase-screen">
+      <div class="phase-hero">
+        <div class="phase-title">ما هي أهدافك المالية؟</div>
+        <div class="phase-subtitle">اختر أهدافك لنقوم بتخصيص تجربتك في قرش.</div>
+      </div>
+      <div class="glass-card">
+        <div class="goal-option selected">
+          <span class="goal-emoji">📊</span>
+          <span class="goal-text">تتبع المصروفات اليومية بدقة</span>
+          <span class="goal-check">✓</span>
+        </div>
+        <div class="goal-option selected">
+          <span class="goal-emoji">💰</span>
+          <span class="goal-text">التخطيط لبناء ميزانية ذكية</span>
+          <span class="goal-check">✓</span>
+        </div>
+        <div class="goal-option">
+          <span class="goal-emoji">💳</span>
+          <span class="goal-text">إدارة وتقليل الاشتراكات</span>
+          <span class="goal-circle"></span>
+        </div>
+        <div class="goal-option">
+          <span class="goal-emoji">🎯</span>
+          <span class="goal-text">تحقيق أهداف ادخارية محددة</span>
+          <span class="goal-circle"></span>
+        </div>
+        <div class="btn-primary">التالي</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 6 — Biometrics
+═══════════════════════════════════ -->
+<div>
+<div class="label">⑥ Biometrics</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+    <div class="phase-screen">
+      <div class="phase-hero">
+        <div class="phase-icon">🔑</div>
+        <div class="phase-title">أمان بياناتك المالية أولاً</div>
+        <div class="phase-subtitle">قم بتفعيل الحماية بالبصمة للوصول السريع والآمن لمصروفاتك.</div>
+      </div>
+      <div class="glass-card">
+        <div class="btn-primary">تفعيل الحماية بالبصمة</div>
+        <div class="btn-ghost">تخطي الآن</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 7 — Notifications
+═══════════════════════════════════ -->
+<div>
+<div class="label">⑦ Notifications</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+    <div class="phase-screen">
+      <div class="phase-hero">
+        <div class="notif-preview" style="width:100%;max-width:300px">
+          <div class="notif-icon">🔔</div>
+          <div>
+            <div class="notif-title">قرش • تنبيه الاشتراكات</div>
+            <div class="notif-body">سيتم تجديد اشتراك Netflix غداً (50 ر.س)</div>
+          </div>
+        </div>
+        <div class="phase-title">لا تفوت أي تنبيه مهم</div>
+        <div class="phase-subtitle">احصل على تنبيهات فورية لمواعيد تجديد الاشتراكات وتجاوز الميزانيات.</div>
+      </div>
+      <div class="glass-card">
+        <div class="btn-primary">تفعيل التنبيهات الذكية</div>
+        <div class="btn-ghost">تخطي الآن</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 8 — Language
+═══════════════════════════════════ -->
+<div>
+<div class="label">⑧ Language</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+    <div class="phase-screen">
+      <div class="phase-hero">
+        <div class="phase-title">اختر لغتك المفضلة</div>
+        <div class="phase-subtitle">يمكنك تغيير اللغة من الإعدادات في أي وقت</div>
+      </div>
+      <div class="glass-card">
+        <div class="lang-card selected">
+          <div class="lang-info">
+            <div class="lang-name">العربية</div>
+            <div class="lang-tag">RTL</div>
+          </div>
+          <div class="lang-dot">✓</div>
+        </div>
+        <div class="lang-card">
+          <div class="lang-info">
+            <div class="lang-name" dir="ltr">English</div>
+            <div class="lang-tag" dir="ltr">LTR</div>
+          </div>
+          <div class="lang-dot-empty"></div>
+        </div>
+        <div class="btn-primary">التالي</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 9 — Date of Birth
+═══════════════════════════════════ -->
+<div>
+<div class="label">⑨ Date of Birth</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+    <div class="phase-screen">
+      <div class="phase-hero">
+        <div class="phase-title">تاريخ الميلاد</div>
+        <div class="phase-subtitle">نستخدمه لتخصيص تجربة قرش بدون عرضه داخل التطبيق.</div>
+      </div>
+      <div class="glass-card">
+        <div class="card-section-label">تاريخ الميلاد</div>
+        <div class="picker-row">
+          <div class="picker-icon">🎂</div>
+          <span class="picker-value">2000-01-15</span>
+          <span class="picker-arrow">›</span>
+        </div>
+        <div class="btn-primary">التالي</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SCREEN 10 — iOS Shortcut
+═══════════════════════════════════ -->
+<div>
+<div class="label">⑩ iOS Shortcut</div>
+<div class="phone">
+  <div class="screen">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <span class="status-icons">●●● ▲ 🔋</span>
+    </div>
+    <div class="phase-screen">
+      <div class="phase-hero" style="gap:6px">
+        <div style="font-size:32px">🍎</div>
+        <div class="phase-title">إعداد اختصار iOS</div>
+        <div class="phase-subtitle">اتبع هذه الخطوات لالتقاط رسائل البنك تلقائياً.</div>
+      </div>
+      <div class="glass-card" style="overflow-y:auto;max-height:460px">
+        <div class="step-item">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">احذف القديم</div>
+            <div class="step-desc">افتح Shortcuts وروح لتبويب Automation. لو فيه automation قديم، احذفه.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">جديد (+)</div>
+            <div class="step-desc">اضغط New Automation (+) ومرر للأسفل حتى تلقى «Message».</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">حدد الرسائل</div>
+            <div class="step-desc">اضغط على «Message Contents» واكتب رمز العملة مثل SAR.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-title">بدون تأكيد</div>
+            <div class="step-desc">فعّل «Run Immediately» واضغط Next.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">5</div>
+          <div class="step-body">
+            <div class="step-title">اختصار فارغ</div>
+            <div class="step-desc">اضغط «New Blank Automation».</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">6</div>
+          <div class="step-body">
+            <div class="step-title">إرسال للتطبيق</div>
+            <div class="step-desc">ابحث عن «Process Bank SMS». في SMS Text اختر «Shortcut Input».</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">7</div>
+          <div class="step-body">
+            <div class="step-title">الشكل النهائي</div>
+            <div class="step-desc">Receive messages as input ثم Process Bank SMS.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">8</div>
+          <div class="step-body">
+            <div class="step-title">حفظ</div>
+            <div class="step-desc">اضغط زر الحفظ في الأعلى وتم الإعداد.</div>
+          </div>
+        </div>
+        <div class="btn-primary" style="margin-top:8px">تم الإعداد ✓</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</body>
+</html>

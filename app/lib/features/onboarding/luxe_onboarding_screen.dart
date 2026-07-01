@@ -177,47 +177,29 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
   final FocusNode _emailFocusNode = FocusNode();
   bool _emailFocused = false;
 
-  // Story state
-  int _storyIndex = 0;
-  bool _showAuth = true;
-  Timer? _storyTimer;
+  bool _showCta = false;
+  bool _showAuth = false;
+  Timer? _ctaTimer;
 
   @override
   void initState() {
     super.initState();
     _emailFocusNode.addListener(() {
-      setState(() {
-        _emailFocused = _emailFocusNode.hasFocus;
-      });
+      setState(() => _emailFocused = _emailFocusNode.hasFocus);
     });
     if (widget.skipStory) {
-      _storyIndex = 4;
+      _showCta = true;
       _showAuth = true;
     } else {
-      _startStory();
-    }
-  }
-
-  void _startStory() {
-    _storyTimer = Timer.periodic(const Duration(milliseconds: 3800), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      setState(() {
-        if (_storyIndex < 4) {
-          _storyIndex++;
-        } else {
-          _showAuth = true;
-          timer.cancel();
-        }
+      _ctaTimer = Timer(const Duration(milliseconds: 3200), () {
+        if (mounted) setState(() => _showCta = true);
       });
-    });
+    }
   }
 
   @override
   void dispose() {
-    _storyTimer?.cancel();
+    _ctaTimer?.cancel();
     _emailController.dispose();
     _emailFocusNode.dispose();
     super.dispose();
@@ -271,21 +253,6 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
     }
   }
 
-  Widget _buildAvatar(Color color, IconData icon) {
-    return Align(
-      widthFactor: 0.7,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.black, width: 3)),
-        child: Icon(icon, color: Colors.white, size: 24),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = ref.read(authServiceProvider);
@@ -303,14 +270,7 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
 
     return Column(
       children: [
-        Expanded(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 1200),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: _buildStoryContent(isDark),
-          ),
-        ),
+        Expanded(child: _buildCinematicWelcome(isDark)),
         if (_showAuth)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
@@ -423,126 +383,114 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
           )
               .animate()
               .fade(duration: 800.ms)
-              .slideY(begin: 0.2, end: 0, curve: Curves.easeOutBack),
+              .slideY(begin: 0.2, end: 0, curve: Curves.easeOutBack)
+        else if (_showCta)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+            child: Column(
+              children: [
+                AppPrimaryButton(
+                  label: 'ابدأ الآن',
+                  onTap: () => setState(() => _showAuth = true),
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () => setState(() => _showAuth = true),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'سجّل دخول',
+                      style: _alex(14, FontWeight.w600, 1.2,
+                          Colors.white.withValues(alpha: 0.4)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+              .animate()
+              .fade(duration: 600.ms)
+              .slideY(begin: 0.3, end: 0, curve: Curves.easeOutBack),
       ],
     );
   }
 
-  Widget _buildStoryContent(bool isDark) {
-    if (_storyIndex == 0) {
-      // Centered breathing/glowing logo splash
-      return const Center(
-        key: ValueKey(0),
-        child: _LogoMark(isSplash: true),
-      );
-    } else if (_storyIndex == 1) {
-      return const Column(
-        key: ValueKey(1),
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _LogoMark(isSplash: false),
-          SizedBox(height: 24),
-          _TypewriterText(
-              text: 'قرش', size: 56, weight: FontWeight.w900, color: _kGold),
-          SizedBox(height: 12),
-          _TypewriterText(
-              text: 'لنمو مالي ذكي وحياة أسهل.',
-              size: 16,
-              weight: FontWeight.w600),
-        ],
-      );
-    } else if (_storyIndex == 2) {
-      return const Column(
-        key: ValueKey(2),
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _TypewriterText(
-              text: 'قرش تطبيق يساعدك تتحكم في مصروفاتك،',
-              size: 16,
-              weight: FontWeight.w500),
-          SizedBox(height: 8),
-          _TypewriterText(
-              text: 'تخطط بذكاء، وتحقق أهدافك المالية',
-              size: 16,
-              weight: FontWeight.w500),
-          SizedBox(height: 8),
-          _TypewriterText(
-              text: 'من خلال تقارير ذكية وتنبيهات لحظية،',
-              size: 16,
-              weight: FontWeight.w500),
-          SizedBox(height: 8),
-          _TypewriterText(
-              text: 'وتجربة بسيطة صممت لك.', size: 16, weight: FontWeight.w500),
-        ],
-      );
-    } else if (_storyIndex == 3) {
-      return Column(
-        key: const ValueKey(3),
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const _TypewriterText(
-              text: 'نؤمن أن كل قرش له قيمة،',
-              size: 16,
-              weight: FontWeight.w500,
-              color: _kGold),
-          const SizedBox(height: 8),
-          const _TypewriterText(
-              text: 'ونحن هنا عشان نساعدك تستثمرها بحكمة.',
-              size: 16,
-              weight: FontWeight.w500,
-              color: _kGold),
-          const SizedBox(height: 48),
-          const Icon(Icons.favorite_rounded, color: _kGold, size: 24)
-              .animate()
-              .scale(
-                  delay: 1.seconds, duration: 500.ms, curve: Curves.elasticOut),
-          const SizedBox(height: 16),
-          _TypewriterText(
-              text: 'من فريق قرش،',
-              size: 14,
-              weight: FontWeight.w500,
-              color: isDark ? Colors.white70 : const Color(0xFF555555)),
-          const SizedBox(height: 4),
-          _TypewriterText(
-              text: 'شكراً لأنك جزء من رحلتنا.',
-              size: 14,
-              weight: FontWeight.w500,
-              color: isDark ? Colors.white70 : const Color(0xFF555555)),
-        ],
-      );
-    } else {
-      return Column(
-        key: const ValueKey(4),
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const _TypewriterText(
-              text: 'متحمسين نبدأ معك', size: 28, weight: FontWeight.w800),
-          const SizedBox(height: 12),
-          const _TypewriterText(
-              text: 'لنكتب لك الخير ونساعدك تصنع فرقاً في حياتك.',
-              size: 14,
-              weight: FontWeight.w500,
-              color: _kGold),
-          const SizedBox(height: 40),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildAvatar(const Color(0xFFC0C0C0), Icons.person),
-              _buildAvatar(const Color(0xFF8B4513), Icons.person_3),
-              _buildAvatar(const Color(0xFFDAA520), Icons.person_4),
-            ],
-          )
-              .animate()
-              .fade(delay: 1.seconds, duration: 800.ms)
-              .slideY(begin: 0.5, end: 0),
-          const SizedBox(height: 16),
-          const _TypewriterText(
-              text: 'انضم لمجتمع قرش وابدأ رحلتك المالية بثقة',
-              size: 15,
-              weight: FontWeight.w700),
-        ],
-      );
-    }
+  Widget _buildCinematicWelcome(bool isDark) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Ambient gold glow ring (breathing)
+        Container(
+          width: 260,
+          height: 260,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [
+                _kGold.withValues(alpha: 0.14),
+                _kGold.withValues(alpha: 0.03),
+                Colors.transparent,
+              ],
+              stops: const [0.0, 0.55, 1.0],
+            ),
+          ),
+        )
+            .animate(onPlay: (c) => c.repeat(reverse: true))
+            .scale(
+              duration: 3.seconds,
+              begin: const Offset(0.88, 0.88),
+              end: const Offset(1.12, 1.12),
+              curve: Curves.easeInOut,
+            ),
+        // Content
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Coin logo — springs in
+            const _LogoMark(isSplash: false),
+            const SizedBox(height: 20),
+            // "قـرش" typewriter with 700 ms delay
+            const _TypewriterText(
+              text: 'قـرش',
+              size: 52,
+              weight: FontWeight.w900,
+              color: _kGold,
+              delay: Duration(milliseconds: 700),
+            ),
+            const SizedBox(height: 12),
+            // Subtitle
+            Text(
+              'تتبّع مصروفاتك بلا جهد',
+              style: _alex(18, FontWeight.w700, 1.3,
+                  Colors.white.withValues(alpha: 0.9)),
+              textAlign: TextAlign.center,
+            )
+                .animate()
+                .fade(delay: 1600.ms, duration: 500.ms)
+                .slideY(
+                    begin: 0.25,
+                    end: 0,
+                    delay: 1600.ms,
+                    duration: 500.ms,
+                    curve: Curves.easeOut),
+            const SizedBox(height: 8),
+            // Body
+            Text(
+              'رسائل البنك تتحول لتقارير تلقائياً.\nبدون تدخّل، بدون تعقيد.',
+              style: _alex(14, FontWeight.w500, 1.6,
+                  Colors.white.withValues(alpha: 0.45)),
+              textAlign: TextAlign.center,
+            ).animate().fade(delay: 2100.ms, duration: 500.ms),
+            const SizedBox(height: 20),
+            // Gold statement
+            Text(
+              '⚡ على جهازك. خاص. مجاني.',
+              style: _alex(13, FontWeight.w700, 1.2, _kGold),
+            ).animate().fade(delay: 2600.ms, duration: 500.ms),
+          ],
+        ),
+      ],
+    );
   }
 
   Widget _buildEmailInput(AuthService auth) {
@@ -1910,15 +1858,18 @@ class _IosStep {
 }
 
 class _TypewriterText extends StatefulWidget {
-  const _TypewriterText(
-      {required this.text,
-      required this.size,
-      required this.weight,
-      this.color});
+  const _TypewriterText({
+    required this.text,
+    required this.size,
+    required this.weight,
+    this.color,
+    this.delay = Duration.zero,
+  });
   final String text;
   final double size;
   final FontWeight weight;
   final Color? color;
+  final Duration delay;
 
   @override
   State<_TypewriterText> createState() => _TypewriterTextState();
@@ -1926,11 +1877,21 @@ class _TypewriterText extends StatefulWidget {
 
 class _TypewriterTextState extends State<_TypewriterText> {
   int _chars = 0;
+  Timer? _delayTimer;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
+    if (widget.delay > Duration.zero) {
+      _delayTimer = Timer(widget.delay, _startTyping);
+    } else {
+      _startTyping();
+    }
+  }
+
+  void _startTyping() {
+    if (!mounted) return;
     _timer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -1951,6 +1912,7 @@ class _TypewriterTextState extends State<_TypewriterText> {
 
   @override
   void dispose() {
+    _delayTimer?.cancel();
     _timer?.cancel();
     super.dispose();
   }
