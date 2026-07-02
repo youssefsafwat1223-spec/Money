@@ -22,6 +22,7 @@ import 'features/cards/brand_mark.dart';
 import 'data/repositories/drift_sender_bank_mapping_repository.dart';
 import 'data/sync/sender_bank_mapping_sync_service.dart';
 import 'features/capture/capture_runtime.dart';
+import 'features/capture/services/capture_device_registration_service.dart';
 import 'features/capture/services/local_notification_service.dart';
 
 Future<void> main() async {
@@ -71,6 +72,13 @@ Future<void> _bootstrap() async {
   _bindNotificationHistory(database);
   await _registerBrandLogos();
   await initFeatureFlagService(database);
+  unawaited(
+    CaptureDeviceRegistrationService(
+      settingsRepository: DriftUserSettingsRepository(database),
+    ).syncNativeState().catchError((_) {
+      // Capture backend registration is optional; local fallback remains active.
+    }),
+  );
   // Apply any due recurring auto-saves toward goals (catch-up on launch).
   try {
     await RunGoalAutoSavesUseCase(DriftGoalRepository(database)).call();

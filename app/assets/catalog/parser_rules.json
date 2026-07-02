@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "_readme": "Shared preview-parsing rules used by BOTH the iOS App Intent (Swift) and the Dart mirror (lib/engine/parser/shared_preview_parser.dart). Regexes must stay compatible with Dart RegExp AND NSRegularExpression (ICU): no named groups, no \\b (differs for Arabic), group 1 is always the extracted value. Matching is case-insensitive. Pipeline: normalize digits -> apply currencyReplacements in order -> strip thousands separators -> match. Flutter's ParserEngine stays the source of truth; these rules only power the immediate notification preview.",
+  "normalization": {
+    "decimalMarks": ["٫"],
+    "thousandsMarks": ["٬"],
+    "currencyReplacements": [
+      { "pattern": "ر\\.س\\.?", "replacement": "SAR" },
+      { "pattern": "د\\.إ\\.?", "replacement": "AED" },
+      { "pattern": "ج\\.م\\.?", "replacement": "EGP" },
+      { "pattern": "﷼", "replacement": "SAR" },
+      { "pattern": "ريال\\s+سعودي", "replacement": "SAR" },
+      { "pattern": "ريال\\s+قطري", "replacement": "QAR" },
+      { "pattern": "ريال\\s+عماني", "replacement": "OMR" },
+      { "pattern": "درهم\\s+إماراتي|درهم\\s+اماراتي|درهم", "replacement": "AED" },
+      { "pattern": "جنيه\\s+مصري|جنيه", "replacement": "EGP" },
+      { "pattern": "دينار\\s+كويتي", "replacement": "KWD" },
+      { "pattern": "دينار\\s+بحريني", "replacement": "BHD" },
+      { "pattern": "دولار\\s+أمريكي|دولار\\s+امريكي|دولار", "replacement": "USD" },
+      { "pattern": "ريال", "replacement": "SAR" }
+    ]
+  },
+  "currencyPattern": "(?:^|[^A-Za-z])(SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP)(?![A-Za-z])",
+  "ignoreKeywords": [
+    "otp",
+    "one time password",
+    "verification code",
+    "security code",
+    "رمز الدخول",
+    "رمز التحقق",
+    "كود التحقق",
+    "لا تشاركه",
+    "عرض خاص",
+    "promo",
+    "promotion",
+    "marketing",
+    "coupon",
+    "مبروك",
+    "جائزة",
+    "prize",
+    "winner"
+  ],
+  "debitKeywords": [
+    "عملية شراء",
+    "شراء",
+    "خصم",
+    "سحب",
+    "مدى",
+    "سداد",
+    "مشتريات",
+    "pos",
+    "purchase",
+    "debit",
+    "withdraw",
+    "payment",
+    "paid",
+    "spent"
+  ],
+  "creditKeywords": [
+    "إيداع",
+    "ايداع",
+    "حوالة واردة",
+    "حواله وارده",
+    "تحويل وارد",
+    "استرداد",
+    "راتب",
+    "credited",
+    "credit",
+    "deposit",
+    "received",
+    "refund",
+    "salary"
+  ],
+  "amountPatterns": [
+    "(?:بمبلغ|بقيمة|مبلغ|قيمة)[\\s:]*([0-9]+(?:\\.[0-9]+)?)",
+    "(?:SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP)\\s*([0-9]+(?:\\.[0-9]+)?)",
+    "([0-9]+(?:\\.[0-9]+)?)\\s*(?:SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP)",
+    "(?:amount|amt)[\\s:]*([0-9]+(?:\\.[0-9]+)?)"
+  ],
+  "merchantPatterns": [
+    "(?:لدى|لدي)[\\s:]+([^\\n\\r؛;,]{2,40})",
+    "(?:at|@)\\s+([A-Za-z0-9&.'\\- ]{2,40})",
+    "(?:من|from)\\s+(?!حساب|بطاق|card|account)([^\\n\\r؛;,]{2,40})",
+    "(?:عند)\\s+(?!حساب)([^\\n\\r؛;,]{2,40})"
+  ],
+  "merchantStopPattern": "\\s+(?:في|بتاريخ|بمبلغ|بقيمة|بواسطة|برقم|on|via|using|with|dated|ending)\\s.*$",
+  "last4Patterns": [
+    "(?:بطاق[ةت]\\S*|ببطاقة|card)[^0-9\\n\\r]{0,20}([0-9]{4})(?![0-9])",
+    "(?:حساب\\S*|account|a/c)[^0-9\\n\\r]{0,20}([0-9]{4})(?![0-9])",
+    "[*Xx•]{2,}\\s*([0-9]{4})(?![0-9])"
+  ],
+  "examples": [
+    {
+      "name": "ksa_pos_debit_ar",
+      "sender": "AlRajhiBank",
+      "text": "عملية شراء\nبطاقة مدى **1234\nمبلغ: 57.50 ر.س\nلدى: STARBUCKS\nفي 2026-07-01",
+      "expect": {
+        "outcome": "debit",
+        "amount": 57.5,
+        "currency": "SAR",
+        "merchant": "STARBUCKS",
+        "last4": "1234"
+      }
+    },
+    {
+      "name": "ksa_pos_debit_en",
+      "sender": "SNB",
+      "text": "Purchase of SAR 89.00 at AMAZON.SA with card ending 5678",
+      "expect": {
+        "outcome": "debit",
+        "amount": 89.0,
+        "currency": "SAR",
+        "merchant": "AMAZON.SA",
+        "last4": "5678"
+      }
+    },
+    {
+      "name": "arabic_indic_digits_debit",
+      "sender": "AlinmaBank",
+      "text": "تم خصم ١٥٠.٥٠ ريال من بطاقتك رقم ٩٨٧٦ لدى مطعم البيك",
+      "expect": {
+        "outcome": "debit",
+        "amount": 150.5,
+        "currency": "SAR",
+        "merchant": "مطعم البيك",
+        "last4": "9876"
+      }
+    },
+    {
+      "name": "salary_credit_ar",
+      "sender": "Riyad Bank",
+      "text": "تم إيداع راتب بمبلغ 12,500.00 ريال في حسابك **3210",
+      "expect": {
+        "outcome": "credit",
+        "amount": 12500.0,
+        "currency": "SAR",
+        "last4": "3210"
+      }
+    },
+    {
+      "name": "incoming_transfer_aed",
+      "sender": "EmiratesNBD",
+      "text": "حوالة واردة بمبلغ 500 د.إ من AHMED ALI",
+      "expect": {
+        "outcome": "credit",
+        "amount": 500.0,
+        "currency": "AED",
+        "merchant": "AHMED ALI"
+      }
+    },
+    {
+      "name": "egp_wallet_debit",
+      "sender": "CIB",
+      "text": "تم خصم 250 ج.م من بطاقتك 4321 لدى فودافون كاش",
+      "expect": {
+        "outcome": "debit",
+        "amount": 250.0,
+        "currency": "EGP",
+        "merchant": "فودافون كاش",
+        "last4": "4321"
+      }
+    },
+    {
+      "name": "usd_credit_en",
+      "sender": "HSBC",
+      "text": "Your account XX9012 has been credited with USD 1,000.00 salary transfer",
+      "expect": {
+        "outcome": "credit",
+        "amount": 1000.0,
+        "currency": "USD",
+        "last4": "9012"
+      }
+    },
+    {
+      "name": "otp_ignored",
+      "sender": "AlRajhiBank",
+      "text": "رمز التحقق الخاص بك هو 123456 لا تشاركه مع أحد",
+      "expect": { "outcome": "ignored" }
+    },
+    {
+      "name": "promo_ignored",
+      "sender": "STC",
+      "text": "عرض خاص! خصم 50% لدى ماكدونالدز",
+      "expect": { "outcome": "ignored" }
+    },
+    {
+      "name": "no_transaction_low_confidence",
+      "sender": "SNB",
+      "text": "عزيزي العميل تم تحديث بيانات حسابك بنجاح",
+      "expect": { "outcome": "unknown" }
+    }
+  ]
+}

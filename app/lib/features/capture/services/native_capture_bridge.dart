@@ -32,24 +32,85 @@ class SharedCapturedMessage {
   final DateTime? receivedAt;
 }
 
+class ApnsTokenInfo {
+  const ApnsTokenInfo({
+    required this.token,
+    required this.environment,
+  });
+
+  final String token;
+  final String environment;
+}
+
+class CaptureNotificationRoute {
+  const CaptureNotificationRoute({
+    this.payloadId,
+    this.transactionId,
+    this.smartInboxItemId,
+    this.notificationType,
+    this.source,
+    this.receivedAt,
+  });
+
+  final String? payloadId;
+  final String? transactionId;
+  final String? smartInboxItemId;
+  final String? notificationType;
+  final String? source;
+  final DateTime? receivedAt;
+}
+
 class NativeCaptureBridge {
   NativeCaptureBridge._();
 
   static const MethodChannel _channel =
       MethodChannel('money_companion/native_capture');
   static Future<void> Function()? _pendingMessagesHandler;
+  static Future<void> Function(ApnsTokenInfo token)? _apnsTokenHandler;
+  static Future<void> Function()? _notificationRouteHandler;
 
   static void setPendingMessagesHandler(
     Future<void> Function()? handler,
   ) {
     _pendingMessagesHandler = handler;
-    if (handler == null) {
+    _configureMethodHandler();
+  }
+
+  static void setApnsTokenUpdatedHandler(
+    Future<void> Function(ApnsTokenInfo token)? handler,
+  ) {
+    _apnsTokenHandler = handler;
+    _configureMethodHandler();
+  }
+
+  static void setNotificationRouteHandler(
+    Future<void> Function()? handler,
+  ) {
+    _notificationRouteHandler = handler;
+    _configureMethodHandler();
+  }
+
+  static void _configureMethodHandler() {
+    if (_pendingMessagesHandler == null &&
+        _apnsTokenHandler == null &&
+        _notificationRouteHandler == null) {
       _channel.setMethodCallHandler(null);
       return;
     }
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'pendingSharedMessagesAvailable') {
         await _pendingMessagesHandler?.call();
+        return null;
+      }
+      if (call.method == 'apnsTokenUpdated') {
+        final token = _tokenInfoFrom(call.arguments);
+        if (token != null) {
+          await _apnsTokenHandler?.call(token);
+        }
+        return null;
+      }
+      if (call.method == 'pendingNotificationRouteAvailable') {
+        await _notificationRouteHandler?.call();
         return null;
       }
       throw MissingPluginException('Unknown native capture callback');
@@ -79,6 +140,52 @@ class NativeCaptureBridge {
           false;
     } on MissingPluginException {
       return false;
+    }
+  }
+
+  static Future<void> setBackendConfig({
+    required bool cloudProcessingEnabled,
+    required String installId,
+    required String backendUrl,
+    required String anonKey,
+    bool aiConsentGranted = false,
+    String? deviceSecret,
+  }) async {
+    if (!Platform.isIOS) {
+      return;
+    }
+    try {
+      await _channel.invokeMethod<void>('setCaptureBackendConfig', {
+        'cloudProcessingEnabled': cloudProcessingEnabled,
+        'installId': installId,
+        'deviceSecret': deviceSecret,
+        'backendUrl': backendUrl,
+        'anonKey': anonKey,
+        'aiConsentGranted': aiConsentGranted,
+      });
+    } on MissingPluginException {
+      return;
+    }
+  }
+
+  static Future<ApnsTokenInfo?> registerForRemoteNotifications() async {
+    if (!Platform.isIOS) return null;
+    try {
+      final result = await _channel
+          .invokeMethod<Object?>('registerForRemoteNotifications');
+      return _tokenInfoFrom(result);
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  static Future<ApnsTokenInfo?> getApnsToken() async {
+    if (!Platform.isIOS) return null;
+    try {
+      final result = await _channel.invokeMethod<Object?>('getApnsToken');
+      return _tokenInfoFrom(result);
+    } on MissingPluginException {
+      return null;
     }
   }
 
@@ -158,6 +265,39 @@ class NativeCaptureBridge {
     return messages;
   }
 
+  static Future<List<CaptureNotificationRoute>>
+      consumePendingNotificationRoutes() async {
+    if (!Platform.isIOS) return const [];
+    final String? json;
+    try {
+      json = await _channel
+          .invokeMethod<String>('consumePendingNotificationRoutes');
+    } on MissingPluginException {
+      return const [];
+    }
+    if (json == null || json.trim().isEmpty) return const [];
+    final List<dynamic> decoded;
+    try {
+      decoded = jsonDecode(json) as List<dynamic>;
+    } on FormatException {
+      return const [];
+    }
+    return [
+      for (final item in decoded)
+        if (item is Map)
+          CaptureNotificationRoute(
+            payloadId: _emptyToNull(item['payloadId'] as String?),
+            transactionId: _emptyToNull(item['transactionId'] as String?),
+            smartInboxItemId: _emptyToNull(item['smartInboxItemId'] as String?),
+            notificationType: _emptyToNull(item['notificationType'] as String?),
+            source: _emptyToNull(item['source'] as String?),
+            receivedAt: item['receivedAt'] is String
+                ? DateTime.tryParse(item['receivedAt'] as String)?.toUtc()
+                : null,
+          ),
+    ];
+  }
+
   static CapturedMessageSource _iosCapturedSource(String? source) {
     return source == 'ios_shortcut' || source == 'shortcut'
         ? CapturedMessageSource.iosShortcut
@@ -175,5 +315,13 @@ class NativeCaptureBridge {
   static String? _emptyToNull(String? value) {
     if (value == null || value.isEmpty) return null;
     return value;
+  }
+
+  static ApnsTokenInfo? _tokenInfoFrom(Object? value) {
+    if (value is! Map) return null;
+    final token = _emptyToNull(value['token'] as String?);
+    final environment = _emptyToNull(value['environment'] as String?);
+    if (token == null || environment == null) return null;
+    return ApnsTokenInfo(token: token, environment: environment);
   }
 }

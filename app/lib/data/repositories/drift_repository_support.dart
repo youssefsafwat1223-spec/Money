@@ -294,5 +294,7 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     // NULL = لم يوافق صراحةً بعد → opt-in افتراضياً مرفوض.
     aiConsentGranted:
         sqlToBool(row.readNullable<int>('ai_consent_granted') ?? 0),
+    cloudProcessingEnabled:
+        sqlToBool(row.readNullable<int>('cloud_processing_enabled') ?? 0),
   );
 }

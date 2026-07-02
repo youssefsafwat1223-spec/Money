@@ -18,6 +18,15 @@ enum SharedCaptureStore {
   private static let legacyKey = "pending_bank_message_text"
   private static let pendingCountKey = "pending_bank_messages_count"
   private static let latestPayloadIDKey = "pending_bank_messages_latest_id"
+  private static let cloudProcessingEnabledKey = "cloud_processing_enabled"
+  private static let deviceSecretKey = "device_secret"
+  private static let backendURLKey = "backend_url"
+  private static let anonKeyKey = "backend_anon_key"
+  private static let installIDKey = "install_id"
+  private static let aiConsentGrantedKey = "ai_consent_granted"
+  private static let apnsTokenKey = "apns_token"
+  private static let apnsEnvironmentKey = "apns_environment"
+  private static let pendingNotificationRoutesKey = "pending_notification_routes_v1"
 
   private static var defaults: UserDefaults? {
     UserDefaults(suiteName: appGroupIdentifier)
@@ -27,7 +36,33 @@ enum SharedCaptureStore {
 
   enum CaptureStatus: String, Codable {
     case pending
+    case sent
     case failed
+  }
+
+  struct BackendConfig {
+    let cloudProcessingEnabled: Bool
+    let installID: String?
+    let deviceSecret: String?
+    let backendURL: String?
+    let anonKey: String?
+
+    var canUseBackend: Bool {
+      cloudProcessingEnabled &&
+        !(installID?.isEmpty ?? true) &&
+        !(deviceSecret?.isEmpty ?? true) &&
+        !(backendURL?.isEmpty ?? true) &&
+        !(anonKey?.isEmpty ?? true)
+    }
+  }
+
+  struct NotificationRoutePayload: Codable {
+    let payloadId: String?
+    let transactionId: String?
+    let smartInboxItemId: String?
+    let notificationType: String?
+    let source: String?
+    let receivedAt: String?
   }
 
   enum EnqueueResult {
@@ -48,6 +83,7 @@ enum SharedCaptureStore {
     let locale: String?
     let status: String?
     let failureReason: String?
+    let sentAt: String?
     let createdAt: String?
   }
 
@@ -63,7 +99,10 @@ enum SharedCaptureStore {
     senderID: String? = nil,
     source: String? = nil,
     receivedAt: Date = Date(),
-    localeIdentifier: String? = nil
+    localeIdentifier: String? = nil,
+    status: CaptureStatus = .pending,
+    sentAt: Date? = nil,
+    failureReason: String? = nil
   ) -> EnqueueResult {
     guard defaults != nil else {
       return .failed("App Group storage is unavailable.")
@@ -98,8 +137,9 @@ enum SharedCaptureStore {
       source: cleanSource,
       receivedAt: receivedAtString,
       locale: locale,
-      status: CaptureStatus.pending.rawValue,
-      failureReason: nil,
+      status: status.rawValue,
+      failureReason: clean(failureReason),
+      sentAt: sentAt.map { isoFormatter.string(from: $0) },
       createdAt: createdAtString
     )
 
@@ -157,6 +197,7 @@ enum SharedCaptureStore {
         locale: Locale.autoupdatingCurrent.identifier,
         status: CaptureStatus.pending.rawValue,
         failureReason: nil,
+        sentAt: nil,
         createdAt: receivedAt
       ))
     }
@@ -194,9 +235,99 @@ enum SharedCaptureStore {
     return first.text
   }
 
+  static func backendConfig() -> BackendConfig {
+    BackendConfig(
+      cloudProcessingEnabled: defaults?.bool(forKey: cloudProcessingEnabledKey) ?? false,
+      installID: clean(defaults?.string(forKey: installIDKey)),
+      deviceSecret: clean(defaults?.string(forKey: deviceSecretKey)),
+      backendURL: clean(defaults?.string(forKey: backendURLKey)),
+      anonKey: clean(defaults?.string(forKey: anonKeyKey))
+    )
+  }
+
+  static func setBackendConfig(
+    cloudProcessingEnabled: Bool,
+    installID: String?,
+    deviceSecret: String?,
+    backendURL: String?,
+    anonKey: String?,
+    aiConsentGranted: Bool
+  ) {
+    defaults?.set(cloudProcessingEnabled, forKey: cloudProcessingEnabledKey)
+    defaults?.set(aiConsentGranted, forKey: aiConsentGrantedKey)
+    setOrRemove(installID, forKey: installIDKey)
+    setOrRemove(deviceSecret, forKey: deviceSecretKey)
+    setOrRemove(backendURL, forKey: backendURLKey)
+    setOrRemove(anonKey, forKey: anonKeyKey)
+    defaults?.synchronize()
+  }
+
+  static func setApnsToken(_ token: String?, environment: String?) {
+    setOrRemove(token, forKey: apnsTokenKey)
+    setOrRemove(environment, forKey: apnsEnvironmentKey)
+    defaults?.synchronize()
+  }
+
+  static func apnsTokenInfo() -> (token: String, environment: String)? {
+    guard let token = clean(defaults?.string(forKey: apnsTokenKey)),
+          let environment = clean(defaults?.string(forKey: apnsEnvironmentKey)) else {
+      return nil
+    }
+    return (token, environment)
+  }
+
+  static func enqueueNotificationRoute(userInfo: [AnyHashable: Any]) {
+    let payload = NotificationRoutePayload(
+      payloadId: clean(userInfo["payloadId"] as? String),
+      transactionId: clean(userInfo["transactionId"] as? String),
+      smartInboxItemId: clean(userInfo["smartInboxItemId"] as? String),
+      notificationType: clean(userInfo["notificationType"] as? String),
+      source: clean(userInfo["source"] as? String),
+      receivedAt: isoFormatter.string(from: Date())
+    )
+    guard payload.payloadId != nil ||
+      payload.transactionId != nil ||
+      payload.smartInboxItemId != nil else {
+      return
+    }
+    var queue = loadNotificationRoutes()
+    queue.append(payload)
+    if queue.count > 10 {
+      queue.removeFirst(queue.count - 10)
+    }
+    if let data = try? JSONEncoder().encode(queue) {
+      defaults?.set(data, forKey: pendingNotificationRoutesKey)
+      defaults?.synchronize()
+    }
+  }
+
+  static func consumePendingNotificationRoutesJSON() -> String? {
+    let queue = loadNotificationRoutes()
+    guard !queue.isEmpty,
+          let data = try? JSONEncoder().encode(queue),
+          let json = String(data: data, encoding: .utf8) else {
+      return nil
+    }
+    defaults?.removeObject(forKey: pendingNotificationRoutesKey)
+    defaults?.synchronize()
+    return json
+  }
+
+  static func isoString(from date: Date) -> String {
+    isoFormatter.string(from: date)
+  }
+
   private static func loadQueue() -> [Payload] {
     guard let data = defaults?.data(forKey: queueKey),
           let queue = try? JSONDecoder().decode([Payload].self, from: data) else {
+      return []
+    }
+    return queue
+  }
+
+  private static func loadNotificationRoutes() -> [NotificationRoutePayload] {
+    guard let data = defaults?.data(forKey: pendingNotificationRoutesKey),
+          let queue = try? JSONDecoder().decode([NotificationRoutePayload].self, from: data) else {
       return []
     }
     return queue
@@ -245,7 +376,15 @@ enum SharedCaptureStore {
     return (trimmed?.isEmpty ?? true) ? nil : trimmed
   }
 
-  private static func makePayloadID(
+  private static func setOrRemove(_ value: String?, forKey key: String) {
+    if let cleanValue = clean(value) {
+      defaults?.set(cleanValue, forKey: key)
+    } else {
+      defaults?.removeObject(forKey: key)
+    }
+  }
+
+  static func makePayloadID(
     text: String,
     sender: String?,
     senderName: String?,

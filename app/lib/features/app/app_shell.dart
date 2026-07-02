@@ -28,6 +28,7 @@ import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
 import '../capture/capture_runtime.dart';
 import '../capture/services/capture_notification_content.dart';
+import '../capture/services/capture_sync_service.dart';
 import '../capture/services/local_notification_service.dart';
 import '../capture/services/pending_notification_actions.dart';
 import '../capture/services/native_capture_bridge.dart';
@@ -86,12 +87,29 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (!mounted) return;
       await _consumeSharedInput();
     });
+    NativeCaptureBridge.setApnsTokenUpdatedHandler((token) async {
+      try {
+        await ref
+            .read(captureDeviceRegistrationServiceProvider)
+            .syncApnsToken(token);
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('[Capture] APNs token sync skipped: $error');
+        }
+      }
+    });
+    NativeCaptureBridge.setNotificationRouteHandler(() async {
+      if (!mounted) return;
+      await _drainPendingNotificationRoutes();
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       unawaited(syncCatalog(ref, force: true));
       unawaited(UserActivityService.ping()); // cold start — always writes
+      await _syncNativeCaptureState();
       await _drainPendingNotificationActions();
       await _consumeSharedInput();
+      await _drainPendingNotificationRoutes();
       await _syncEngagement();
       unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
       _drainCelebrations();
@@ -115,6 +133,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     _navigationSubscription?.cancel();
     _bankDiscoverySubscription?.cancel();
     NativeCaptureBridge.setPendingMessagesHandler(null);
+    NativeCaptureBridge.setApnsTokenUpdatedHandler(null);
+    NativeCaptureBridge.setNotificationRouteHandler(null);
     _lifecycleListener.dispose();
     super.dispose();
   }
@@ -122,16 +142,38 @@ class _AppShellState extends ConsumerState<AppShell> {
   Future<void> _onResume() async {
     unawaited(syncCatalog(ref));
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
+    await _syncNativeCaptureState();
     await _consumeSharedInput();
+    await _drainPendingNotificationRoutes();
     await _syncEngagement();
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
     _drainCelebrations();
+  }
+
+  Future<void> _syncNativeCaptureState() async {
+    try {
+      await ref
+          .read(captureDeviceRegistrationServiceProvider)
+          .syncNativeState();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[Capture] native state sync skipped: $error');
+      }
+    }
   }
 
   Future<void> _consumeSharedInput() async {
     if (_isConsumingSharedInput) return;
     _isConsumingSharedInput = true;
     try {
+      CaptureSyncResult? backendSync;
+      try {
+        backendSync = await ref.read(captureSyncServiceProvider).sync();
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('[Capture] backend sync skipped: $error');
+        }
+      }
       final messages = await NativeCaptureBridge.consumePendingSharedMessages();
       if (kDebugMode) {
         debugPrint('[Capture] consumeSharedInput: ${messages.length} messages');
@@ -150,6 +192,21 @@ class _AppShellState extends ConsumerState<AppShell> {
       SenderBankMappingEntity? pendingBankDiscovery;
 
       for (final message in messages) {
+        if (message.id != null) {
+          final alreadySynced =
+              backendSync?.importedPayloadIds.contains(message.id) ?? false;
+          final alreadyImported = alreadySynced ||
+              await ref
+                  .read(captureSyncServiceProvider)
+                  .isPayloadImported(message.id!);
+          if (alreadyImported) {
+            if (kDebugMode) {
+              debugPrint(
+                  '[Capture] skip imported backend payload ${message.id}');
+            }
+            continue;
+          }
+        }
         if (kDebugMode) {
           debugPrint(
             '[Capture] processing: source=${message.source} '
@@ -418,6 +475,58 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
+  Future<void> _drainPendingNotificationRoutes() async {
+    final routes = await NativeCaptureBridge.consumePendingNotificationRoutes();
+    if (routes.isEmpty) return;
+    CaptureSyncResult? syncResult;
+    try {
+      syncResult = await ref.read(captureSyncServiceProvider).sync();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[Capture] notification route sync skipped: $error');
+      }
+    }
+    _refreshAll();
+    if (!mounted) return;
+    final route = routes.last;
+    final target = await _routeForCaptureNotification(route, syncResult);
+    _handleNotificationRoute(target);
+  }
+
+  Future<String> _routeForCaptureNotification(
+    CaptureNotificationRoute route,
+    CaptureSyncResult? syncResult,
+  ) async {
+    final type = route.notificationType;
+    if (type == 'needs_review' || type == 'suspicious_duplicate') {
+      return '/smart-inbox';
+    }
+    final direct = route.transactionId;
+    if (direct != null &&
+        direct.isNotEmpty &&
+        !direct.startsWith('rejected:')) {
+      return '/transaction/$direct';
+    }
+    final payloadId = route.payloadId ?? route.smartInboxItemId;
+    if (payloadId != null && payloadId.isNotEmpty) {
+      if (syncResult?.importedPayloadIds.contains(payloadId) ?? false) {
+        final txId = await ref
+            .read(captureSyncServiceProvider)
+            .transactionIdForPayload(payloadId);
+        if (txId != null && !txId.startsWith('rejected:')) {
+          return '/transaction/$txId';
+        }
+      }
+      final txId = await ref
+          .read(captureSyncServiceProvider)
+          .transactionIdForPayload(payloadId);
+      if (txId != null && !txId.startsWith('rejected:')) {
+        return '/transaction/$txId';
+      }
+    }
+    return '/smart-inbox';
+  }
+
   Future<void> _openBankDiscoverySheet(SenderBankMappingEntity mapping) async {
     if (!mounted) {
       return;
@@ -429,6 +538,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (!mounted) return;
     if (route == '/reports') {
       context.push('/reports');
+      return;
+    }
+    if (route.startsWith('/transaction/')) {
+      context.push(route);
+      return;
+    }
+    if (route == '/smart-inbox') {
+      ref.read(shellIndexProvider.notifier).state = 1;
+      ref.read(transactionsPageTabProvider.notifier).state = 0;
+      ref.read(transactionsPendingFilterProvider.notifier).state = true;
       return;
     }
     if (route == '/') {

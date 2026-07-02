@@ -385,7 +385,8 @@ class AppDatabase extends GeneratedDatabase {
         input_method TEXT NOT NULL,
         notifications_json TEXT NOT NULL,
         db_encryption_key_ref TEXT NOT NULL,
-        privacy_mode_enabled INTEGER NOT NULL DEFAULT 0
+        privacy_mode_enabled INTEGER NOT NULL DEFAULT 0,
+        cloud_processing_enabled INTEGER NOT NULL DEFAULT 0
       );
     ''');
 
@@ -514,6 +515,11 @@ class AppDatabase extends GeneratedDatabase {
       'user_settings',
       'ai_consent_granted',
       'INTEGER NOT NULL DEFAULT 1',
+    );
+    await _ensureColumn(
+      'user_settings',
+      'cloud_processing_enabled',
+      'INTEGER NOT NULL DEFAULT 0',
     );
     await _ensureColumn('user_settings', 'display_name', 'TEXT NULL');
     await _ensureColumn('user_settings', 'phone_number', 'TEXT NULL');

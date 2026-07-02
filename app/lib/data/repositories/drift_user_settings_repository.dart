@@ -29,7 +29,8 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
             date_of_birth = ?,
             country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
             notifications_json = ?, db_encryption_key_ref = ?,
-            privacy_mode_enabled = ?, ai_consent_granted = ?
+            privacy_mode_enabled = ?, ai_consent_granted = ?,
+            cloud_processing_enabled = ?
         WHERE id = ?;
       ''',
       variables: [
@@ -55,6 +56,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
         Variable.withString(settings.dbEncryptionKeyRef),
         Variable.withInt(settings.privacyModeEnabled ? 1 : 0),
         Variable.withInt(settings.aiConsentGranted ? 1 : 0),
+        Variable.withInt(settings.cloudProcessingEnabled ? 1 : 0),
         Variable.withString(settings.id),
       ],
     );

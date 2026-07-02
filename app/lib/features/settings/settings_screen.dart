@@ -414,6 +414,37 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                       settingsAsync.maybeWhen(
                         data: (settings) => _SwitchTile(
+                          title: 'معالجة رسائل البنك عبر خادم قرش',
+                          subtitle:
+                              'اختياري ومغلق افتراضياً. نرسل نصاً مُعقماً '
+                              'إلى خادم قرش لإظهار إشعار فوري بنفس نتيجة العملية، '
+                              'ويمكنك إيقافه في أي وقت.',
+                          icon: Icons.cloud_sync_outlined,
+                          iconColor: c.primary,
+                          value: settings.cloudProcessingEnabled,
+                          onChanged: (value) async {
+                            final nextSettings = settings.copyWith(
+                              cloudProcessingEnabled: value,
+                            );
+                            await ref
+                                .read(userSettingsRepositoryProvider)
+                                .saveSettings(nextSettings);
+                            refreshUserSettings(ref);
+                            try {
+                              await ref
+                                  .read(
+                                      captureDeviceRegistrationServiceProvider)
+                                  .syncNativeState();
+                            } catch (_) {
+                              // Syncing native state is best-effort; fallback
+                              // capture stays local if registration fails.
+                            }
+                          },
+                        ),
+                        orElse: () => const SizedBox.shrink(),
+                      ),
+                      settingsAsync.maybeWhen(
+                        data: (settings) => _SwitchTile(
                           title: 'اقتراحات الذكاء الاصطناعي',
                           subtitle: 'للرسائل التي يعجز المحرك عن تحليلها، '
                               'نرسل نصاً مُعقَّماً (بدون أرقام بطاقات أو أسماء) '
@@ -422,12 +453,23 @@ class SettingsScreen extends ConsumerWidget {
                           iconColor: c.accent,
                           value: settings.aiConsentGranted,
                           onChanged: (value) async {
+                            final nextSettings = settings.copyWith(
+                              aiConsentGranted: value,
+                            );
                             await ref
                                 .read(userSettingsRepositoryProvider)
-                                .saveSettings(settings.copyWith(
-                                  aiConsentGranted: value,
-                                ));
+                                .saveSettings(nextSettings);
                             refreshUserSettings(ref);
+                            try {
+                              await ref
+                                  .read(
+                                      captureDeviceRegistrationServiceProvider)
+                                  .syncNativeState();
+                            } catch (_) {
+                              // Native consent sync is best-effort. If it
+                              // cannot sync, backend capture remains disabled
+                              // by the service's fail-safe path where possible.
+                            }
                           },
                         ),
                         orElse: () => const SizedBox.shrink(),

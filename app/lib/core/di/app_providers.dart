@@ -59,6 +59,9 @@ import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/app/celebration_runtime.dart';
 import '../../features/capture/services/local_notification_service.dart';
 import '../../features/capture/services/notification_journey_service.dart';
+import '../../features/capture/services/capture_backend_client.dart';
+import '../../features/capture/services/capture_device_registration_service.dart';
+import '../../features/capture/services/capture_sync_service.dart';
 import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
@@ -355,6 +358,35 @@ final senderBankMappingSyncServiceProvider =
 });
 
 final installIdProvider = FutureProvider<String>((ref) => InstallId.get());
+
+final captureBackendClientProvider = Provider<CaptureBackendClient?>((ref) {
+  if (!SupabaseConfig.isConfigured) return null;
+  return CaptureBackendClient(
+    supabaseUrl: SupabaseConfig.url,
+    anonKey: SupabaseConfig.anonKey,
+  );
+});
+
+final captureDeviceRegistrationServiceProvider =
+    Provider<CaptureDeviceRegistrationService>((ref) {
+  return CaptureDeviceRegistrationService(
+    settingsRepository:
+        DriftUserSettingsRepository(ref.watch(appDatabaseProvider)),
+    client: ref.watch(captureBackendClientProvider),
+  );
+});
+
+final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return CaptureSyncService(
+    settingsRepository: DriftUserSettingsRepository(db),
+    transactionRepository: DriftTransactionRepository(db),
+    dedupStore: DriftDedupStore(db),
+    suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
+    registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
+    client: ref.watch(captureBackendClientProvider),
+  );
+});
 
 final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
   // Capture the DB once at build time. The async callbacks below run later

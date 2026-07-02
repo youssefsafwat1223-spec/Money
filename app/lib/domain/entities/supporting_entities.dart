@@ -149,6 +149,7 @@ class UserSettingsEntity {
     this.dateOfBirth,
     // opt-in: تُسأل صراحةً في الـ onboarding (مرحلة موافقة الذكاء الاصطناعي).
     this.aiConsentGranted = false,
+    this.cloudProcessingEnabled = false,
   });
 
   final String id;
@@ -170,6 +171,11 @@ class UserSettingsEntity {
   /// service for parsing or merchant categorization.
   final bool aiConsentGranted;
 
+  /// User has explicitly allowed sanitized SMS processing on Qirsh backend.
+  /// This is separate from AI: cloud processing can run deterministic rules,
+  /// while AI still requires [aiConsentGranted].
+  final bool cloudProcessingEnabled;
+
   UserSettingsEntity copyWith({
     String? id,
     String? country,
@@ -185,6 +191,7 @@ class UserSettingsEntity {
     String? avatarPath,
     DateTime? dateOfBirth,
     bool? aiConsentGranted,
+    bool? cloudProcessingEnabled,
   }) {
     return UserSettingsEntity(
       id: id ?? this.id,
@@ -201,6 +208,8 @@ class UserSettingsEntity {
       dbEncryptionKeyRef: dbEncryptionKeyRef ?? this.dbEncryptionKeyRef,
       privacyModeEnabled: privacyModeEnabled ?? this.privacyModeEnabled,
       aiConsentGranted: aiConsentGranted ?? this.aiConsentGranted,
+      cloudProcessingEnabled:
+          cloudProcessingEnabled ?? this.cloudProcessingEnabled,
     );
   }
 }

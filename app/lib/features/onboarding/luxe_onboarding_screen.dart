@@ -690,6 +690,14 @@ class _AiConsentPhaseState extends ConsumerState<_AiConsentPhase> {
         settings.copyWith(aiConsentGranted: granted),
       );
       refreshUserSettings(ref);
+      try {
+        await ref
+            .read(captureDeviceRegistrationServiceProvider)
+            .syncNativeState();
+      } catch (_) {
+        // Best-effort. The native sync service clears stale AI consent before
+        // any backend registration attempt that might fail.
+      }
     } catch (error) {
       debugPrint('[Onboarding] saveAiConsent failed: $error');
     }

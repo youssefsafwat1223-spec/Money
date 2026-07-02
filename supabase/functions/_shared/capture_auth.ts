@@ -1,0 +1,70 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+export const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+};
+
+export function serviceClient() {
+  return createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  );
+}
+
+export function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+export async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function installHash(installId: string): Promise<string> {
+  return (await sha256Hex(installId)).slice(0, 32);
+}
+
+export function readString(data: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+export async function verifyDevice(
+  supabase: ReturnType<typeof serviceClient>,
+  installId: string,
+  deviceSecret: string,
+): Promise<{ ok: true; installIdHash: string } | { ok: false; status: number; error: string }> {
+  if (!installId || !deviceSecret) {
+    return { ok: false, status: 400, error: 'missing_device_credentials' };
+  }
+  const installIdHash = await installHash(installId);
+  const deviceSecretHash = await sha256Hex(deviceSecret);
+  const { data, error } = await supabase
+    .from('capture_devices')
+    .select('device_secret_hash')
+    .eq('install_id_hash', installIdHash)
+    .maybeSingle();
+  if (error) return { ok: false, status: 500, error: 'device_lookup_failed' };
+  if (!data || data.device_secret_hash !== deviceSecretHash) {
+    return { ok: false, status: 401, error: 'invalid_device_secret' };
+  }
+  await supabase
+    .from('capture_devices')
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq('install_id_hash', installIdHash);
+  return { ok: true, installIdHash };
+}
