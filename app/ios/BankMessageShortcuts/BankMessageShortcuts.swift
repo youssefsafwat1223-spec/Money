@@ -13,12 +13,17 @@ struct PostBankStatusIntent: AppIntent {
     "Processes a bank SMS and imports the transaction into Mali."
   )
 
-  /// Keeps Shortcut automations silent whenever iOS allows it. The intent only
-  /// captures the payload into the App Group; Flutter drains it when available.
+  /// Keeps the app from opening by default on pre-iOS 26 systems while still
+  /// letting Shortcuts expose its normal "Show When Run" control.
   static var openAppWhenRun: Bool = false
 
+  @available(iOS 26.0, *)
+  static var supportedModes: IntentModes {
+    [.background, .foreground(.dynamic)]
+  }
+
   static var parameterSummary: some ParameterSummary {
-    Summary("Process \(\.$smsText)")
+    Summary("Process \(\.$smsText) from \(\.$senderName)")
   }
 
   @Parameter(
@@ -28,10 +33,7 @@ struct PostBankStatusIntent: AppIntent {
   )
   var smsText: String
 
-  @Parameter(
-    title: "Sender Name",
-    description: "The sender name shown by Messages."
-  )
+  @Parameter(title: "Sender", description: "The sender shown by Messages.")
   var senderName: String?
 
   @Parameter(
@@ -52,7 +54,7 @@ struct PostBankStatusIntent: AppIntent {
   )
   var deviceLocale: String?
 
-  func perform() async throws -> some IntentResult {
+  func perform() async -> some IntentResult {
     let request = BankSMSCaptureRequest(
       smsText: smsText,
       senderName: senderName,
@@ -60,7 +62,8 @@ struct PostBankStatusIntent: AppIntent {
       receivedAt: dateReceived,
       localeIdentifier: deviceLocale
     )
-    _ = try BankSMSCaptureService().capture(request)
+    _ = try? BankSMSCaptureService().capture(request)
+
     return .result()
   }
 }
@@ -123,10 +126,19 @@ struct BankSMSCaptureService {
       text: trimmedText,
       senderName: request.senderName,
       senderID: request.senderID,
-      source: "shortcut",
+      source: "ios_shortcut",
       receivedAt: request.receivedAt ?? Date(),
       localeIdentifier: (locale?.isEmpty ?? true) ? fallbackLocale : locale
     )
+
+    #if DEBUG
+      debugPrint(
+        "[MaliShortcut] received smsLength=\(trimmedText.count) " +
+        "senderNameSet=\(!(request.senderName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)) " +
+        "senderIDSet=\(!(request.senderID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)) " +
+        "receivedAt=\((request.receivedAt ?? Date()).ISO8601Format()) source=ios_shortcut"
+      )
+    #endif
 
     if case let .failed(reason) = result {
       throw ProcessBankSMSError.captureFailed(reason)

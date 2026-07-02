@@ -15,6 +15,7 @@ void main() {
 
     expect(AppSession.instance.status, SessionStatus.needsOnboarding);
     expect(AppSession.instance.hasCompletedOnboarding, isFalse);
+    expect(AppSession.instance.hasSeenWelcomeManifesto, isFalse);
     expect(AppSession.instance.authMethod, isNull);
   });
 
@@ -63,6 +64,18 @@ void main() {
 
     expect(AppSession.instance.status, SessionStatus.needsOnboarding);
     expect(AppSession.instance.hasCompletedOnboarding, isTrue);
+    expect(AppSession.instance.hasSeenWelcomeManifesto, isTrue);
     expect(AppSession.instance.authMethod, isNull);
+  });
+
+  test('wipe reset makes the first-launch welcome eligible again', () async {
+    await AppSession.instance.markWelcomeManifestoSeen();
+
+    expect(AppSession.instance.hasSeenWelcomeManifesto, isTrue);
+
+    await AppSession.instance.wipeAndReset();
+
+    expect(AppSession.instance.hasSeenWelcomeManifesto, isFalse);
+    expect(AppSession.instance.status, SessionStatus.needsOnboarding);
   });
 }

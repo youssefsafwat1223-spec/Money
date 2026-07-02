@@ -54,8 +54,10 @@ class IosShortcutScreen extends ConsumerWidget {
             'Filter Messages',
             'Press "Message Contents" and type currency code e.g. $currencyCode.',
             Icons.filter_alt_outlined),
-        const _Step('Run Immediately',
-            'Enable "Run Immediately" and press Next.', Icons.bolt_rounded),
+        const _Step(
+            'Run Immediately',
+            'Enable "Run Immediately". If "Notify When Run" appears, turn it off, then press Next.',
+            Icons.bolt_rounded),
         const _Step('Blank Automation', 'Press "New Blank Automation".',
             Icons.insert_drive_file_outlined),
         const _Step(
@@ -64,7 +66,7 @@ class IosShortcutScreen extends ConsumerWidget {
             Icons.send_rounded),
         const _Step(
             'Final shape',
-            'It should show: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input.',
+            'It should show: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input. Open action details and turn off "Show When Run" if visible.',
             Icons.volume_off_rounded),
         const _Step('Save', 'Press Save in the top and setup is completed.',
             Icons.check_circle_outline_rounded),
@@ -83,7 +85,9 @@ class IosShortcutScreen extends ConsumerWidget {
           'حدّد الرسائل',
           'اضغط على «Message Contents» واكتب رمز العملة مثل $currencyCode.',
           Icons.filter_alt_outlined),
-      const _Step('بدون تأكيد', 'فعّل «Run Immediately» واضغط Next.',
+      const _Step(
+          'بدون تأكيد',
+          'فعّل «Run Immediately». لو ظهر «Notify When Run» اقفله، ثم اضغط Next.',
           Icons.bolt_rounded),
       const _Step('اختصار فارغ', 'اضغط «New Blank Automation».',
           Icons.insert_drive_file_outlined),
@@ -93,7 +97,7 @@ class IosShortcutScreen extends ConsumerWidget {
           Icons.send_rounded),
       const _Step(
           'الشكل النهائي',
-          'لازم يظهر: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input.',
+          'لازم يظهر: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input. افتح تفاصيل الأكشن واقفل «Show When Run» لو ظهر.',
           Icons.volume_off_rounded),
       const _Step('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.',
           Icons.check_circle_outline_rounded),

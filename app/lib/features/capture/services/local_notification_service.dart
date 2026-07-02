@@ -11,6 +11,7 @@ import '../../../data/db/app_database.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/notification_planner.dart';
 import '../capture_runtime.dart';
+import 'pending_notification_actions.dart';
 
 class CaptureNotificationPayload {
   const CaptureNotificationPayload({
@@ -69,6 +70,11 @@ class LocalNotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+
+  /// حافظة سجل الإشعارات داخل التطبيق (شاشة الرسائل). تُضبط عند الإقلاع
+  /// بمستودع الإعدادات؛ كل إشعار يُعرض يُسجَّل هنا أيضاً حتى يجده المستخدم
+  /// لاحقاً حتى لو فاتته الـ banner.
+  Future<void> Function(NotificationHistoryEntry entry)? historyStore;
 
   Future<String?> initialize() async {
     if (_initialized) {
@@ -489,6 +495,7 @@ class LocalNotificationService {
         payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       );
+      await _recordHistory(id, title, body, notificationType, payload);
       return;
     }
 
@@ -501,6 +508,39 @@ class LocalNotificationService {
       payload: payload,
     );
     debugPrint('[Notif] plugin.show done');
+    await _recordHistory(id, title, body, notificationType, payload);
+  }
+
+  /// يسجّل الإشعار في سجل الرسائل داخل التطبيق. إشعارات الـ marketing
+  /// تُسجَّل بالفعل من NotificationJourneyService/GrowthCampaignService
+  /// بمعرّفات أدق فلا تُكرَّر هنا.
+  Future<void> _recordHistory(
+    int id,
+    String title,
+    String body,
+    NotificationType type,
+    String? payload,
+  ) async {
+    final store = historyStore;
+    if (store == null || type == NotificationType.marketing) {
+      return;
+    }
+    final decoded = CaptureNotificationPayload.tryDecode(payload);
+    try {
+      await store(
+        NotificationHistoryEntry(
+          id: decoded?.transactionId ?? 'notif_$id',
+          kind: type.name,
+          title: title,
+          body: body,
+          route: decoded?.route ??
+              (decoded?.transactionId != null ? '/transactions' : null),
+          sentAt: DateTime.now().toUtc(),
+        ),
+      );
+    } catch (_) {
+      // السجل ثانوي — لا يؤثر على عرض الإشعار نفسه.
+    }
   }
 
   bool _isQuietHour(
@@ -547,11 +587,14 @@ class LocalNotificationService {
     final transactionId = _extractTransactionId(payload);
     if (transactionId != null) {
       if (actionId == _actionConfirm) {
-        // التطبيق في الـ foreground — نؤكد مباشرة عبر CaptureRuntime.
-        CaptureRuntime.instance.requestConfirmation(transactionId);
+        // التطبيق شغال — تأكيد مباشر عبر الـ usecase (يسجّل الـ engagement
+        // ويحدّث الواجهة) بدلاً من فتح شاشة التأكيد.
+        CaptureRuntime.instance
+            .requestQuickAction(transactionId, confirm: true);
       } else if (actionId == _actionDismiss) {
-        // تجاهل — لا نفتح شيئاً، فقط نحذف العملية المعلّقة في الـ background.
-        _runBackgroundAction(transactionId, confirm: false);
+        // تجاهل — حذف عبر الـ repository المفتوح بدلاً من فتح اتصال DB ثانٍ.
+        CaptureRuntime.instance
+            .requestQuickAction(transactionId, confirm: false);
       } else {
         // ضغطة عادية على الـ notification → افتح الـ confirm sheet.
         CaptureRuntime.instance.requestConfirmation(transactionId);
@@ -634,7 +677,15 @@ class LocalNotificationService {
   static Future<void> _runBackgroundAction(String transactionId,
       {required bool confirm}) async {
     WidgetsFlutterBinding.ensureInitialized();
-    final db = await AppDatabase.open();
+    final AppDatabase db;
+    try {
+      db = await AppDatabase.open();
+    } catch (_) {
+      // الجهاز غالباً مقفول ومفتاح التشفير غير متاح من الـ Keychain —
+      // نحفظ الإجراء ونطبّقه عند أول فتح للتطبيق بدلاً من فقدانه.
+      await PendingNotificationActions.record(transactionId, confirm: confirm);
+      return;
+    }
     try {
       if (confirm) {
         await db.customUpdate(
@@ -651,6 +702,8 @@ class LocalNotificationService {
           variables: [Variable.withString(transactionId)],
         );
       }
+    } catch (_) {
+      await PendingNotificationActions.record(transactionId, confirm: confirm);
     } finally {
       await db.close();
     }

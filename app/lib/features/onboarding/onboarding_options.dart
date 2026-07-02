@@ -6,9 +6,6 @@ final onboardingSelectionProvider = StateProvider<OnboardingCountry?>(
   (_) => null,
 );
 
-/// Holds the date of birth picked during the first-run setup.
-final onboardingDateOfBirthProvider = StateProvider<DateTime?>((_) => null);
-
 /// Returns SMS filter keywords for a currency code.
 List<String> currencyKeywords(String currencyCode) {
   switch (currencyCode.trim().toUpperCase()) {

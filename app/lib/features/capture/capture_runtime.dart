@@ -2,6 +2,14 @@ import 'dart:async';
 
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 
+/// إجراء سريع من أزرار الإشعار (تأكيد ✓ / تجاهل) أثناء عمل التطبيق.
+class CaptureQuickAction {
+  const CaptureQuickAction({required this.transactionId, required this.confirm});
+
+  final String transactionId;
+  final bool confirm;
+}
+
 class CaptureRuntime {
   CaptureRuntime._();
 
@@ -9,6 +17,8 @@ class CaptureRuntime {
 
   final StreamController<String> _confirmRequests =
       StreamController<String>.broadcast();
+  final StreamController<CaptureQuickAction> _quickActionRequests =
+      StreamController<CaptureQuickAction>.broadcast();
   final StreamController<String> _navigationRequests =
       StreamController<String>.broadcast();
   final StreamController<SenderBankMappingEntity> _bankDiscoveryRequests =
@@ -17,12 +27,20 @@ class CaptureRuntime {
   String? _pendingInitialRoute;
 
   Stream<String> get confirmRequests => _confirmRequests.stream;
+  Stream<CaptureQuickAction> get quickActionRequests =>
+      _quickActionRequests.stream;
   Stream<String> get navigationRequests => _navigationRequests.stream;
   Stream<SenderBankMappingEntity> get bankDiscoveryRequests =>
       _bankDiscoveryRequests.stream;
 
   void requestConfirmation(String transactionId) {
     _confirmRequests.add(transactionId);
+  }
+
+  void requestQuickAction(String transactionId, {required bool confirm}) {
+    _quickActionRequests.add(
+      CaptureQuickAction(transactionId: transactionId, confirm: confirm),
+    );
   }
 
   void requestBankDiscoveryConfirmation(SenderBankMappingEntity mapping) {

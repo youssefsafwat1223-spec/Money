@@ -567,10 +567,6 @@ final saveCountryCurrencyUseCaseProvider =
   );
 });
 
-final saveDateOfBirthUseCaseProvider = Provider<SaveDateOfBirthUseCase>((ref) {
-  return SaveDateOfBirthUseCase(ref.watch(userSettingsRepositoryProvider));
-});
-
 final saveLanguageUseCaseProvider = Provider<SaveLanguageUseCase>((ref) {
   return SaveLanguageUseCase(ref.watch(userSettingsRepositoryProvider));
 });

@@ -291,7 +291,8 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     notificationsJson: row.read<String>('notifications_json'),
     dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
     privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
+    // NULL = لم يوافق صراحةً بعد → opt-in افتراضياً مرفوض.
     aiConsentGranted:
-        sqlToBool(row.readNullable<int>('ai_consent_granted') ?? 1),
+        sqlToBool(row.readNullable<int>('ai_consent_granted') ?? 0),
   );
 }

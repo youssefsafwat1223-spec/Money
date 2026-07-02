@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -17,18 +18,18 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/captured_message.dart';
-import '../../domain/entities/transaction_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/services/notification_planner.dart';
-import '../../domain/usecases/add_transaction_usecase.dart';
 import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../achievements/achievements_providers.dart';
 import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
 import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
 import '../capture/capture_runtime.dart';
+import '../capture/services/capture_notification_content.dart';
 import '../capture/services/local_notification_service.dart';
+import '../capture/services/pending_notification_actions.dart';
 import '../capture/services/native_capture_bridge.dart';
 import '../../core/tracking/user_activity_service.dart';
 import '../common/category_catalog.dart';
@@ -55,6 +56,7 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> {
   late final AppLifecycleListener _lifecycleListener;
   StreamSubscription<String>? _confirmSubscription;
+  StreamSubscription<CaptureQuickAction>? _quickActionSubscription;
   StreamSubscription<String>? _navigationSubscription;
   StreamSubscription<SenderBankMappingEntity>? _bankDiscoverySubscription;
   CelebrationEvent? _activeCelebration;
@@ -68,6 +70,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     _lifecycleListener = AppLifecycleListener(onResume: _onResume);
     _confirmSubscription = CaptureRuntime.instance.confirmRequests.listen(
       _openConfirmSheet,
+    );
+    _quickActionSubscription =
+        CaptureRuntime.instance.quickActionRequests.listen(
+      _applyQuickAction,
     );
     _navigationSubscription = CaptureRuntime.instance.navigationRequests.listen(
       _handleNotificationRoute,
@@ -84,6 +90,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       unawaited(syncCatalog(ref, force: true));
       unawaited(UserActivityService.ping()); // cold start — always writes
+      await _drainPendingNotificationActions();
       await _consumeSharedInput();
       await _syncEngagement();
       unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
@@ -104,6 +111,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   void dispose() {
     _celebrationTimer?.cancel();
     _confirmSubscription?.cancel();
+    _quickActionSubscription?.cancel();
     _navigationSubscription?.cancel();
     _bankDiscoverySubscription?.cancel();
     NativeCaptureBridge.setPendingMessagesHandler(null);
@@ -125,7 +133,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     _isConsumingSharedInput = true;
     try {
       final messages = await NativeCaptureBridge.consumePendingSharedMessages();
-      debugPrint('[Capture] consumeSharedInput: ${messages.length} messages');
+      if (kDebugMode) {
+        debugPrint('[Capture] consumeSharedInput: ${messages.length} messages');
+      }
       if (messages.isEmpty) return;
 
       // Prune old dedup hashes opportunistically on each drain cycle.
@@ -140,7 +150,14 @@ class _AppShellState extends ConsumerState<AppShell> {
       SenderBankMappingEntity? pendingBankDiscovery;
 
       for (final message in messages) {
-        debugPrint('[Capture] processing: source=${message.source} sender=${message.sender}');
+        if (kDebugMode) {
+          debugPrint(
+            '[Capture] processing: source=${message.source} '
+            'senderSet=${message.sender != null} '
+            'receivedAt=${message.receivedAt?.toIso8601String()} '
+            'textLength=${message.text.length}',
+          );
+        }
         final captured = CapturedMessage(
           text: message.text,
           senderId: message.sender,
@@ -148,7 +165,12 @@ class _AppShellState extends ConsumerState<AppShell> {
           receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
         );
         final result = await ingestUseCase.fromCapturedMessage(captured);
-        debugPrint('[Capture] disposition=${result.disposition} txId=${result.transactionId}');
+        if (kDebugMode) {
+          debugPrint(
+            '[Capture] disposition=${result.disposition} '
+            'hasTransaction=${result.transactionId != null}',
+          );
+        }
         await _showCapturedMessageNotification(
           result,
           notificationPreferences,
@@ -206,30 +228,30 @@ class _AppShellState extends ConsumerState<AppShell> {
       case CapturedMessageDisposition.ignored:
         return;
       case CapturedMessageDisposition.notifyOnly:
-        final (:title, :body) = _buildConfirmedNotification(result.addTransactionResult);
+        final content = buildConfirmedCaptureContent(
+            result.addTransactionResult.transaction);
         await LocalNotificationService.instance.showLightCaptureNotification(
-          title: title,
-          body: body,
+          title: content.title,
+          body: content.body,
           preferences: preferences,
         );
       case CapturedMessageDisposition.requestConfirmation:
         final transaction = result.addTransactionResult.transaction;
         if (transaction == null) return;
-        final (:title, :body) = _buildReviewNotification(result.addTransactionResult);
+        final content =
+            buildReviewCaptureContent(result.addTransactionResult.transaction);
         await LocalNotificationService.instance.showReviewNotification(
           transactionId: transaction.id,
-          title: title,
-          body: body,
+          title: content.title,
+          body: content.body,
           preferences: preferences,
         );
       case CapturedMessageDisposition.suspiciousDuplicate:
-        final tx = result.addTransactionResult.transaction;
-        final dupeBody = tx != null
-            ? '${_fmtAmount(tx.amount)} ${tx.currency}${tx.rawMerchant != null ? " لدى ${tx.rawMerchant}" : ""} — موجودة مسبقاً؟'
-            : 'افتح قرش وراجع الـ Smart Inbox.';
+        final content = buildDuplicateCaptureContent(
+            result.addTransactionResult.transaction);
         await LocalNotificationService.instance.showLightCaptureNotification(
-          title: 'عملية مشابهة',
-          body: dupeBody,
+          title: content.title,
+          body: content.body,
           preferences: preferences,
         );
       case CapturedMessageDisposition.unprocessable:
@@ -239,78 +261,6 @@ class _AppShellState extends ConsumerState<AppShell> {
           preferences: preferences,
         );
     }
-  }
-
-  ({String title, String body}) _buildConfirmedNotification(AddTransactionResult result) {
-    final tx = result.transaction;
-    if (tx == null) return (title: 'تم التقاط العملية', body: 'أضفنا العملية إلى سجلك.');
-
-    final amt = '${_fmtAmount(tx.amount)} ${tx.currency}';
-    final merchant = tx.rawMerchant;
-    final balance = tx.balanceAfter != null
-        ? ' · رصيدك ${_fmtAmount(tx.balanceAfter!)} ${tx.currency}'
-        : '';
-
-    switch (tx.type) {
-      case TransactionTypeEntity.income:
-        return (
-          title: 'إيداع ✓',
-          body: merchant != null ? '$amt من $merchant$balance' : '$amt في حسابك$balance',
-        );
-      case TransactionTypeEntity.refund:
-        return (
-          title: 'استرداد ✓',
-          body: merchant != null ? '$amt من $merchant$balance' : '$amt$balance',
-        );
-      case TransactionTypeEntity.transfer:
-        return (
-          title: 'تحويل ✓',
-          body: '$amt$balance',
-        );
-      default:
-        return (
-          title: 'خصم ✓',
-          body: merchant != null ? '$amt لدى $merchant$balance' : '$amt من حسابك$balance',
-        );
-    }
-  }
-
-  ({String title, String body}) _buildReviewNotification(AddTransactionResult result) {
-    final tx = result.transaction;
-    if (tx == null) return (title: 'أكّد العملية', body: 'اضغط لمراجعة العملية وتأكيدها.');
-
-    final amt = '${_fmtAmount(tx.amount)} ${tx.currency}';
-    final merchant = tx.rawMerchant;
-
-    switch (tx.type) {
-      case TransactionTypeEntity.income:
-        return (
-          title: 'أكّد الإيداع',
-          body: merchant != null ? '$amt من $merchant' : '$amt في حسابك',
-        );
-      case TransactionTypeEntity.refund:
-        return (
-          title: 'أكّد الاسترداد',
-          body: merchant != null ? '$amt من $merchant' : amt,
-        );
-      case TransactionTypeEntity.transfer:
-        return (
-          title: 'أكّد التحويل',
-          body: amt,
-        );
-      default:
-        return (
-          title: 'أكّد الخصم',
-          body: merchant != null ? '$amt لدى $merchant' : '$amt من حسابك',
-        );
-    }
-  }
-
-  String _fmtAmount(double amount) {
-    if (amount == amount.truncateToDouble()) {
-      return amount.toStringAsFixed(0);
-    }
-    return amount.toStringAsFixed(2);
   }
 
   Future<void> _syncEngagement() async {
@@ -432,6 +382,40 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
     await _syncEngagement();
     _drainCelebrations();
+  }
+
+  /// زر "تأكيد ✓" أو "تجاهل" من الإشعار والتطبيق شغال — ينفَّذ مباشرة
+  /// عبر نفس مسار الشاشات (usecase/repository) ثم تحديث الواجهة.
+  Future<void> _applyQuickAction(CaptureQuickAction action) async {
+    try {
+      if (action.confirm) {
+        await ref.read(confirmTransactionUseCaseProvider)(action.transactionId);
+      } else {
+        await ref
+            .read(transactionRepositoryProvider)
+            .deleteTransaction(action.transactionId);
+      }
+    } catch (_) {
+      // العملية قد تكون أُكّدت/حُذفت من مكان آخر بالفعل.
+    }
+    if (!mounted) return;
+    _refreshAll();
+    await _syncEngagement();
+    _drainCelebrations();
+  }
+
+  /// إجراءات فشلت في الـ background (جهاز مقفول → Keychain غير متاح) —
+  /// تُطبَّق هنا عند أول فتح.
+  Future<void> _drainPendingNotificationActions() async {
+    final actions = await PendingNotificationActions.drain();
+    for (final action in actions) {
+      await _applyQuickAction(
+        CaptureQuickAction(
+          transactionId: action.transactionId,
+          confirm: action.confirm,
+        ),
+      );
+    }
   }
 
   Future<void> _openBankDiscoverySheet(SenderBankMappingEntity mapping) async {

@@ -327,8 +327,10 @@ class IosShortcutGuide extends StatelessWidget {
             'Select bank messages',
             'In Message Contents type currency code e.g. $currencyCode, repeat later for additional currencies.',
             Icons.filter_alt_outlined),
-        const _ShortcutStep('Run Immediately',
-            'Select Run Immediately then press Next.', Icons.bolt_rounded),
+        const _ShortcutStep(
+            'Run Immediately',
+            'Select Run Immediately. If Notify When Run appears, turn it off, then press Next.',
+            Icons.bolt_rounded),
         const _ShortcutStep(
             'Choose Qirsh Shortcut',
             'Press New Blank Automation, and search for Process Bank SMS.',
@@ -339,7 +341,7 @@ class IosShortcutGuide extends StatelessWidget {
             Icons.text_snippet_outlined),
         const _ShortcutStep(
             'Match the final shape',
-            'It should be: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input.',
+            'It should be: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input. Open action details and turn off Show When Run if visible.',
             Icons.volume_off_rounded),
         const _ShortcutStep(
             'Save shortcut',
@@ -360,8 +362,10 @@ class IosShortcutGuide extends StatelessWidget {
           'حدّد رسائل البنك',
           'في Message Contents اكتب رمز العملة مثل $currencyCode، وكرّر لاحقاً لأي عملة إضافية.',
           Icons.filter_alt_outlined),
-      const _ShortcutStep('خلّيه يعمل فوراً',
-          'اختَر Run Immediately ثم اضغط Next.', Icons.bolt_rounded),
+      const _ShortcutStep(
+          'خلّيه يعمل فوراً',
+          'اختَر Run Immediately. لو ظهر Notify When Run اقفله، ثم اضغط Next.',
+          Icons.bolt_rounded),
       const _ShortcutStep(
           'اختَر اختصار قرش',
           'اضغط New Blank Automation، وابحث عن Process Bank SMS.',
@@ -372,7 +376,7 @@ class IosShortcutGuide extends StatelessWidget {
           Icons.text_snippet_outlined),
       const _ShortcutStep(
           'طابق الشكل النهائي',
-          'لازم يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input.',
+          'لازم يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input. افتح تفاصيل الأكشن واقفل Show When Run لو ظهر.',
           Icons.volume_off_rounded),
       const _ShortcutStep(
           'احفظ الاختصار',

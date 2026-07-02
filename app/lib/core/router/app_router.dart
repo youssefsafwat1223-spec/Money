@@ -13,6 +13,7 @@ import '../../features/onboarding/listening_screen.dart';
 import '../../features/onboarding/luxe_onboarding_screen.dart';
 import '../../features/onboarding/method_screen.dart';
 import '../../features/onboarding/otp_screen.dart';
+import '../../features/onboarding/qirsh_welcome_manifesto_screen.dart';
 import '../../features/onboarding/restore_prompt_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/settings/privacy_screen.dart';
@@ -31,7 +32,10 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/transactions/transaction_details_screen.dart';
 
 String onboardingEntryPathForSession(AppSession session) {
-  return session.hasCompletedOnboarding ? '/onboarding/auth' : '/onboarding';
+  if (session.hasCompletedOnboarding || session.hasSeenWelcomeManifesto) {
+    return '/onboarding/auth';
+  }
+  return '/onboarding';
 }
 
 /// موجّه التطبيق (go_router).
@@ -39,13 +43,23 @@ final appRouter = GoRouter(
   initialLocation: '/',
   refreshListenable: AppSession.instance,
   redirect: (context, state) {
-    final status = AppSession.instance.status;
+    final session = AppSession.instance;
+    final status = session.status;
+    final inWelcome = state.matchedLocation == '/welcome';
     final inOnboarding = state.matchedLocation.startsWith('/onboarding');
-    final guestUpgrade = AppSession.instance.isGuest &&
+    final guestUpgrade = session.isGuest &&
         (state.matchedLocation == '/onboarding/auth' ||
             state.matchedLocation == '/onboarding/otp');
+    if (!session.hasSeenWelcomeManifesto) {
+      return inWelcome ? null : '/welcome';
+    }
+    if (inWelcome) {
+      return status == SessionStatus.authenticated
+          ? '/'
+          : onboardingEntryPathForSession(session);
+    }
     if (status == SessionStatus.needsOnboarding && !inOnboarding) {
-      return onboardingEntryPathForSession(AppSession.instance);
+      return onboardingEntryPathForSession(session);
     }
     if (status == SessionStatus.authenticated &&
         inOnboarding &&
@@ -55,6 +69,11 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
+    GoRoute(
+      path: '/welcome',
+      name: 'welcome-manifesto',
+      builder: (context, state) => const QirshWelcomeManifestoScreen(),
+    ),
     GoRoute(
       path: '/',
       name: 'home',
@@ -68,14 +87,19 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/onboarding/auth',
       name: 'onboarding-auth',
-      builder: (context, state) => const LuxeOnboardingScreen(skipStory: true),
+      // صفحة الدخول هي الصفحة 1 (بعد اختيار اللغة).
+      builder: (context, state) => const LuxeOnboardingScreen(
+        skipStory: true,
+        initialPage: 1,
+      ),
     ),
     GoRoute(
       path: '/onboarding/setup',
       name: 'onboarding-setup',
+      // ما بعد الدخول يبدأ من صفحة الدولة/العملة (2).
       builder: (context, state) => const LuxeOnboardingScreen(
         skipStory: true,
-        initialPage: 1,
+        initialPage: 2,
       ),
     ),
     GoRoute(

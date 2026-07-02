@@ -34,7 +34,9 @@ import '../common/app_insight_card.dart';
 import '../common/app_empty_state.dart';
 import '../coupons/coupon_widgets.dart';
 import '../coupons/coupons_providers.dart';
+import '../../core/security/app_lock_service.dart';
 import '../goals/goal_details_screen.dart';
+import '../goals/goals_providers.dart';
 import '../plans/plans_screen.dart';
 import '../settings/settings_providers.dart';
 import '../app/app_shell.dart';
@@ -141,6 +143,11 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                   ),
                   const AnnouncementBanner(),
+                  const Padding(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                    child: _SetupNudgeCard(),
+                  ),
                   const SizedBox(height: AppSpacing.s4),
                   Padding(
                     padding: const EdgeInsets.symmetric(
@@ -1805,6 +1812,122 @@ class DashboardScreen extends ConsumerWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Setup Nudge ─────────────────────────────────────────────────────────────
+
+/// إخفاء بطاقة "كمّل إعدادك" لهذه الجلسة فقط — تعود تلقائياً عند إعادة الفتح
+/// وتختفي نهائياً بمجرد إتمام الخطوتين.
+final _setupNudgeDismissedProvider = StateProvider<bool>((_) => false);
+
+final _appLockEnabledProvider = FutureProvider<bool>(
+  (_) => AppLockService.instance.isEnabled(),
+);
+
+/// الخطوات المؤجَّلة من الـ onboarding (قفل البصمة + أول هدف ادخار).
+class _SetupNudgeCard extends ConsumerWidget {
+  const _SetupNudgeCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(_setupNudgeDismissedProvider)) {
+      return const SizedBox.shrink();
+    }
+    final hasGoals =
+        ref.watch(goalsListProvider).valueOrNull?.isNotEmpty ?? true;
+    final lockEnabled = ref.watch(_appLockEnabledProvider).valueOrNull ?? true;
+    if (hasGoals && lockEnabled) {
+      return const SizedBox.shrink();
+    }
+    final c = context.colors;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.s4),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text('كمّل إعداد قرش ✨',
+                      style: AppTypography.bodyStrong(c.textPrimary)),
+                ),
+                InkWell(
+                  onTap: () => ref
+                      .read(_setupNudgeDismissedProvider.notifier)
+                      .state = true,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Icon(Icons.close_rounded,
+                      size: 18, color: c.textSecondary),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            Wrap(
+              spacing: AppSpacing.s2,
+              runSpacing: AppSpacing.s2,
+              children: [
+                if (!lockEnabled)
+                  _SetupNudgeChip(
+                    icon: Icons.fingerprint_rounded,
+                    label: 'فعّل قفل البصمة',
+                    onTap: () =>
+                        ref.read(shellIndexProvider.notifier).state = 3,
+                  ),
+                if (!hasGoals)
+                  _SetupNudgeChip(
+                    icon: Icons.savings_outlined,
+                    label: 'أضف هدف ادخار',
+                    onTap: () =>
+                        ref.read(shellIndexProvider.notifier).state = 2,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SetupNudgeChip extends StatelessWidget {
+  const _SetupNudgeChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: c.accent.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: c.accent.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: c.accent),
+            const SizedBox(width: 6),
+            Text(label,
+                style: AppTypography.footnote(c.accent)
+                    .copyWith(fontWeight: FontWeight.w700)),
+          ],
+        ),
       ),
     );
   }

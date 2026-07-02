@@ -21,7 +21,6 @@ import 'onboarding_options.dart';
 import 'widgets/luxe_starry_bg.dart';
 import '../../core/theme/app_assets.dart';
 
-import '../../core/security/app_lock_service.dart';
 import '../capture/services/local_notification_service.dart';
 
 const _kGold = Color(0xFFDAA520);
@@ -60,20 +59,15 @@ class LuxeOnboardingScreen extends ConsumerStatefulWidget {
 
 class _LuxeOnboardingScreenState extends ConsumerState<LuxeOnboardingScreen> {
   late final PageController _pageController;
-  double _bgOffset = 0.0;
+  late int _currentPage;
+
+  static final int _pageCount = Platform.isIOS ? 6 : 5;
 
   @override
   void initState() {
     super.initState();
-    _bgOffset = widget.initialPage.toDouble();
+    _currentPage = widget.initialPage;
     _pageController = PageController(initialPage: widget.initialPage);
-    _pageController.addListener(() {
-      if (_pageController.hasClients) {
-        setState(() {
-          _bgOffset = _pageController.page ?? 0.0;
-        });
-      }
-    });
   }
 
   @override
@@ -89,11 +83,15 @@ class _LuxeOnboardingScreenState extends ConsumerState<LuxeOnboardingScreen> {
     );
   }
 
-  void _onCountryFinished() {
-    _nextPage();
+  void _previousPage() {
+    HapticFeedback.lightImpact();
+    _pageController.previousPage(
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeInOutCubic,
+    );
   }
 
-  void _onProfileFinished() {
+  void _onAiConsentFinished() {
     if (Platform.isIOS) {
       _nextPage();
     } else {
@@ -111,13 +109,9 @@ class _LuxeOnboardingScreenState extends ConsumerState<LuxeOnboardingScreen> {
         await ref
             .read(saveCountryCurrencyUseCaseProvider)
             .call(country.code, country.currencyCode);
-      } catch (_) {}
-    }
-    final dateOfBirth = ref.read(onboardingDateOfBirthProvider);
-    if (dateOfBirth != null) {
-      try {
-        await ref.read(saveDateOfBirthUseCaseProvider).call(dateOfBirth);
-      } catch (_) {}
+      } catch (error) {
+        debugPrint('[Onboarding] saveCountryCurrency failed: $error');
+      }
     }
     if (!mounted) return;
     if (finishOnboarding) {
@@ -130,28 +124,96 @@ class _LuxeOnboardingScreenState extends ConsumerState<LuxeOnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // لا يمكن الرجوع قبل نقطة الدخول (مثلاً بعد تسجيل الدخول لا نرجع
+    // لشاشة الدخول نفسها).
+    final canGoBack = _currentPage > widget.initialPage;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          Positioned.fill(child: LuxeStarryBackground(offset: _bgOffset)),
+          // الخلفية تعيد الرسم مع تحرك الصفحات دون إعادة بناء الـ PageView.
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _pageController,
+              builder: (context, _) {
+                final offset = _pageController.hasClients
+                    ? _pageController.page ?? _currentPage.toDouble()
+                    : _currentPage.toDouble();
+                return LuxeStarryBackground(offset: offset);
+              },
+            ),
+          ),
           SafeArea(
-            child: PageView(
-              controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(),
+            child: Stack(
               children: [
-                _StorytellingPhase(skipStory: widget.skipStory),
-                _GoalsPhase(onNext: _nextPage),
-                _BiometricsPhase(onNext: _nextPage),
-                _NotificationsPhase(onNext: _nextPage),
-                _LanguageSelectionPhase(onNext: _nextPage),
-                _CountrySelectionPhase(onNext: _onCountryFinished),
-                _DateOfBirthPhase(onNext: _onProfileFinished),
-                if (Platform.isIOS) ...[
-                  _IosShortcutPhase(
-                    onNext: () => _finishFlow(finishOnboarding: true),
+                PageView(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  onPageChanged: (page) => setState(() => _currentPage = page),
+                  children: [
+                    _LanguageSelectionPhase(onNext: _nextPage),
+                    _StorytellingPhase(skipStory: widget.skipStory),
+                    _CountrySelectionPhase(onNext: _nextPage),
+                    _NotificationsPhase(onNext: _nextPage),
+                    _AiConsentPhase(onNext: _onAiConsentFinished),
+                    if (Platform.isIOS)
+                      _IosShortcutPhase(
+                        onNext: () => _finishFlow(finishOnboarding: true),
+                      ),
+                  ],
+                ),
+                PositionedDirectional(
+                  top: 4,
+                  start: 4,
+                  child: IgnorePointer(
+                    ignoring: !canGoBack,
+                    child: AnimatedOpacity(
+                      opacity: canGoBack ? 1 : 0,
+                      duration: const Duration(milliseconds: 250),
+                      child: IconButton(
+                        onPressed: _previousPage,
+                        icon: const Icon(Icons.arrow_back_rounded,
+                            color: Colors.white70),
+                        tooltip: 'رجوع',
+                      ),
+                    ),
                   ),
-                ]
+                ),
+                PositionedDirectional(
+                  top: 16,
+                  end: 20,
+                  child: Text(
+                    '${_currentPage + 1}/$_pageCount',
+                    style: _alex(13, FontWeight.w700, 1.2, Colors.white54,
+                        tabular: true),
+                  ),
+                ),
+                Positioned(
+                  bottom: 10,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < _pageCount; i++)
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          width: i == _currentPage ? 18 : 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: i == _currentPage
+                                ? _kGold
+                                : i < _currentPage
+                                    ? _kGold.withValues(alpha: 0.45)
+                                    : Colors.white24,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -434,9 +496,7 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
               stops: const [0.0, 0.55, 1.0],
             ),
           ),
-        )
-            .animate(onPlay: (c) => c.repeat(reverse: true))
-            .scale(
+        ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(
               duration: 3.seconds,
               begin: const Offset(0.88, 0.88),
               end: const Offset(1.12, 1.12),
@@ -464,15 +524,12 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
               style: _alex(18, FontWeight.w700, 1.3,
                   Colors.white.withValues(alpha: 0.9)),
               textAlign: TextAlign.center,
-            )
-                .animate()
-                .fade(delay: 1600.ms, duration: 500.ms)
-                .slideY(
-                    begin: 0.25,
-                    end: 0,
-                    delay: 1600.ms,
-                    duration: 500.ms,
-                    curve: Curves.easeOut),
+            ).animate().fade(delay: 1600.ms, duration: 500.ms).slideY(
+                begin: 0.25,
+                end: 0,
+                delay: 1600.ms,
+                duration: 500.ms,
+                curve: Curves.easeOut),
             const SizedBox(height: 8),
             // Body
             Text(
@@ -610,194 +667,35 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
   }
 }
 
-// ── Phase 2: Goals Selection ───────────────────────────────────────────
+// ── مرحلة موافقة الذكاء الاصطناعي ────────────────────────────────────────────
 
-class _GoalsPhase extends StatefulWidget {
-  const _GoalsPhase({required this.onNext});
+class _AiConsentPhase extends ConsumerStatefulWidget {
+  const _AiConsentPhase({required this.onNext});
   final VoidCallback onNext;
 
   @override
-  State<_GoalsPhase> createState() => _GoalsPhaseState();
+  ConsumerState<_AiConsentPhase> createState() => _AiConsentPhaseState();
 }
 
-class _GoalsPhaseState extends State<_GoalsPhase> {
-  final Set<String> _selectedGoals = {};
+class _AiConsentPhaseState extends ConsumerState<_AiConsentPhase> {
+  bool _busy = false;
 
-  final List<Map<String, String>> _goals = [
-    {
-      'id': 'track',
-      'title': 'تتبع المصروفات اليومية بدقة',
-      'icon': '📊',
-    },
-    {
-      'id': 'budget',
-      'title': 'التخطيط لبناء ميزانية ذكية',
-      'icon': '💰',
-    },
-    {
-      'id': 'subscriptions',
-      'title': 'إدارة وتقليل الاشتراكات',
-      'icon': '💳',
-    },
-    {
-      'id': 'saving',
-      'title': 'تحقيق أهداف ادخارية محددة',
-      'icon': '🎯',
-    },
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A1A);
-
-    final cardBg = isDark
-        ? Colors.black.withValues(alpha: 0.4)
-        : Colors.white.withValues(alpha: 0.65);
-    final cardBorder = isDark
-        ? Colors.white.withValues(alpha: 0.1)
-        : Colors.black.withValues(alpha: 0.08);
-    final shadowColor = isDark
-        ? Colors.black.withValues(alpha: 0.3)
-        : Colors.black.withValues(alpha: 0.05);
-
-    return Column(
-      children: [
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const _TypewriterText(
-                  text: 'ما هي أهدافك المالية؟',
-                  size: 24,
-                  weight: FontWeight.w800),
-              const SizedBox(height: 12),
-              _TypewriterText(
-                  text: 'اختر أهدافك لنقوم بتخصيص تجربتك في قرش.',
-                  size: 14,
-                  weight: FontWeight.w500,
-                  color: isDark ? Colors.white70 : const Color(0xFF555555)),
-            ],
-          ),
-        ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: cardBorder, width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                  color: shadowColor,
-                  blurRadius: 30,
-                  offset: const Offset(0, 10))
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(32),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ..._goals.map((goal) {
-                      final isSelected = _selectedGoals.contains(goal['id']);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: InkWell(
-                          onTap: () {
-                            HapticFeedback.lightImpact();
-                            setState(() {
-                              if (isSelected) {
-                                _selectedGoals.remove(goal['id']);
-                              } else {
-                                _selectedGoals.add(goal['id']!);
-                              }
-                            });
-                          },
-                          borderRadius: BorderRadius.circular(16),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? _kGold.withValues(alpha: 0.15)
-                                  : textPrimary.withValues(alpha: 0.05),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                  color: isSelected ? _kGold : cardBorder,
-                                  width: 1.5),
-                            ),
-                            child: Row(
-                              children: [
-                                Text(goal['icon']!,
-                                    style: const TextStyle(fontSize: 22)),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Text(goal['title']!,
-                                      style: _alex(14, FontWeight.w700, 1.2,
-                                          textPrimary)),
-                                ),
-                                if (isSelected)
-                                  const Icon(Icons.check_circle_rounded,
-                                      color: _kGold, size: 20)
-                                else
-                                  Icon(Icons.circle_outlined,
-                                      color: textPrimary.withValues(alpha: 0.2),
-                                      size: 20),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 12),
-                    AppPrimaryButton(
-                      label: 'التالي',
-                      onTap: () {
-                        HapticFeedback.mediumImpact();
-                        widget.onNext();
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        )
-            .animate()
-            .fade(duration: 800.ms)
-            .slideY(begin: 0.2, end: 0, curve: Curves.easeOutBack),
-      ],
-    );
-  }
-}
-
-// ── Phase 3: Biometrics Protection ─────────────────────────────────────
-
-class _BiometricsPhase extends StatefulWidget {
-  const _BiometricsPhase({required this.onNext});
-  final VoidCallback onNext;
-
-  @override
-  State<_BiometricsPhase> createState() => _BiometricsPhaseState();
-}
-
-class _BiometricsPhaseState extends State<_BiometricsPhase> {
-  bool _loading = false;
-
-  Future<void> _enableBiometrics() async {
-    setState(() => _loading = true);
+  Future<void> _choose(bool granted) async {
+    if (_busy) return;
+    setState(() => _busy = true);
     try {
-      final success = await AppLockService.instance.setEnabled(true);
-      if (success) {
-        await HapticFeedback.heavyImpact();
-      }
-    } catch (_) {}
-    setState(() => _loading = false);
+      final repository = ref.read(userSettingsRepositoryProvider);
+      final settings = await repository.getSettings();
+      await repository.saveSettings(
+        settings.copyWith(aiConsentGranted: granted),
+      );
+      refreshUserSettings(ref);
+    } catch (error) {
+      debugPrint('[Onboarding] saveAiConsent failed: $error');
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    HapticFeedback.mediumImpact();
     widget.onNext();
   }
 
@@ -836,33 +734,31 @@ class _BiometricsPhaseState extends State<_BiometricsPhase> {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.fingerprint_rounded,
-                    color: _kGold, size: 60),
+                child: const Icon(Icons.auto_awesome_rounded,
+                    color: _kGold, size: 52),
               )
                   .animate(
                       onPlay: (controller) => controller.repeat(reverse: true))
                   .scale(
                       end: const Offset(1.08, 1.08),
                       duration: 1500.ms,
-                      curve: Curves.easeInOut)
-                  .boxShadow(
-                      end: BoxShadow(
-                          color: _kGold.withValues(alpha: 0.3),
-                          blurRadius: 30,
-                          spreadRadius: 5),
-                      duration: 1500.ms),
+                      curve: Curves.easeInOut),
               const SizedBox(height: 32),
               const _TypewriterText(
-                  text: 'أمان بياناتك المالية أولاً',
-                  size: 24,
+                  text: 'ذكاء اصطناعي يحترم خصوصيتك',
+                  size: 22,
                   weight: FontWeight.w800),
               const SizedBox(height: 12),
-              _TypewriterText(
-                  text:
-                      'قم بتفعيل الحماية بالبصمة للوصول السريع والآمن لمصروفاتك.',
-                  size: 14,
-                  weight: FontWeight.w500,
-                  color: isDark ? Colors.white70 : const Color(0xFF555555)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: _TypewriterText(
+                    text: 'للرسائل التي يعجز المحرك عن تحليلها، نرسل نصاً '
+                        'مُعقَّماً (بدون أرقام بطاقات أو أسماء) لخدمة ذكاء '
+                        'اصطناعي. المبالغ والتواريخ تبقى على جهازك.',
+                    size: 13,
+                    weight: FontWeight.w500,
+                    color: isDark ? Colors.white70 : const Color(0xFF555555)),
+              ),
             ],
           ),
         ),
@@ -890,18 +786,15 @@ class _BiometricsPhaseState extends State<_BiometricsPhase> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     AppPrimaryButton(
-                      label: 'تفعيل الحماية بالبصمة',
-                      loading: _loading,
-                      onTap: _enableBiometrics,
+                      label: 'تفعيل الاقتراحات الذكية',
+                      loading: _busy,
+                      onTap: () => _choose(true),
                     ),
                     const SizedBox(height: 12),
                     TextButton(
-                      onPressed: () {
-                        HapticFeedback.lightImpact();
-                        widget.onNext();
-                      },
-                      child: Text('تخطي الآن',
-                          style: _alex(14, FontWeight.w600, 1.2,
+                      onPressed: _busy ? null : () => _choose(false),
+                      child: Text('لا شكراً، بدون ذكاء اصطناعي',
+                          style: _alex(13, FontWeight.w700, 1.2,
                               textPrimary.withValues(alpha: 0.5))),
                     ),
                   ],
@@ -1517,141 +1410,6 @@ class _CountrySelectionPhaseState
   }
 }
 
-// ── Phase 7: Date of birth ───────────────────────────────────────────────────
-
-class _DateOfBirthPhase extends ConsumerWidget {
-  const _DateOfBirthPhase({required this.onNext});
-  final VoidCallback onNext;
-
-  Future<void> _pickDate(BuildContext context, WidgetRef ref) async {
-    final now = DateTime.now();
-    final lastDate = DateTime(now.year - 13, now.month, now.day);
-    final firstDate = DateTime(now.year - 100, now.month, now.day);
-    final current = ref.read(onboardingDateOfBirthProvider);
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: current ?? DateTime(now.year - 25, now.month, now.day),
-      firstDate: firstDate,
-      lastDate: lastDate,
-      helpText: 'اختر تاريخ الميلاد',
-      cancelText: 'إلغاء',
-      confirmText: 'تم',
-    );
-    if (picked != null) {
-      ref.read(onboardingDateOfBirthProvider.notifier).state =
-          DateTime.utc(picked.year, picked.month, picked.day);
-    }
-  }
-
-  String _format(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    return '${date.year}-$month-$day';
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final selected = ref.watch(onboardingDateOfBirthProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark
-        ? Colors.black.withValues(alpha: 0.4)
-        : Colors.white.withValues(alpha: 0.65);
-    final cardBorder = isDark
-        ? Colors.white.withValues(alpha: 0.1)
-        : Colors.black.withValues(alpha: 0.08);
-    final shadowColor = isDark
-        ? Colors.black.withValues(alpha: 0.3)
-        : Colors.black.withValues(alpha: 0.05);
-
-    return Column(
-      children: [
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const _TypewriterText(
-                text: 'تاريخ الميلاد',
-                size: 24,
-                weight: FontWeight.w800,
-              ),
-              const SizedBox(height: 12),
-              _TypewriterText(
-                text: 'نستخدمه لتخصيص تجربة قرش\nبدون عرضه داخل التطبيق.',
-                size: 14,
-                weight: FontWeight.w500,
-                color: isDark ? Colors.white70 : const Color(0xFF555555),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: cardBorder, width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: shadowColor,
-                blurRadius: 30,
-                offset: const Offset(0, 10),
-              )
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(32),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'تاريخ الميلاد',
-                      style: _alex(13, FontWeight.w700, 1.2, _kGold),
-                    ),
-                    const SizedBox(height: 8),
-                    _DropdownField(
-                      leading: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: _kGold.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.cake_outlined,
-                          size: 18,
-                          color: _kGold,
-                        ),
-                      ),
-                      label:
-                          selected == null ? 'اختر التاريخ' : _format(selected),
-                      onTap: () => _pickDate(context, ref),
-                    ),
-                    const SizedBox(height: 24),
-                    AppPrimaryButton(
-                      label: 'التالي',
-                      disabled: selected == null,
-                      onTap: selected == null ? null : onNext,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ).animate().fade(duration: 800.ms).slideY(
-              begin: 0.2,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-      ],
-    );
-  }
-}
-
 // ── Phase 7: iOS Shortcut Instructions ─────────────────────────────────
 
 class _IosShortcutPhase extends ConsumerWidget {
@@ -1672,8 +1430,10 @@ class _IosShortcutPhase extends ConsumerWidget {
             'Filter Messages',
             'Press "Message Contents" and type "$currencyCode".',
             Icons.filter_alt_outlined),
-        const _IosStep('Run Immediately',
-            'Enable "Run Immediately" and press Next.', Icons.bolt_rounded),
+        const _IosStep(
+            'Run Immediately',
+            'Enable "Run Immediately". If "Notify When Run" appears, turn it off, then press Next.',
+            Icons.bolt_rounded),
         const _IosStep('Blank Automation', 'Press "New Blank Automation".',
             Icons.insert_drive_file_outlined),
         const _IosStep(
@@ -1682,7 +1442,7 @@ class _IosShortcutPhase extends ConsumerWidget {
             Icons.send_rounded),
         const _IosStep(
             'Final Shape',
-            'Receive messages as input -> Process Bank SMS.',
+            'Receive messages as input -> Process Bank SMS. Open action details and turn off "Show When Run" if visible.',
             Icons.volume_off_rounded),
         const _IosStep('Save', 'Press Save in the top right to complete.',
             Icons.check_circle_outline_rounded),
@@ -1701,7 +1461,9 @@ class _IosShortcutPhase extends ConsumerWidget {
           'حدّد الرسائل',
           'اضغط على «Message Contents» واكتب رمز العملة مثل $currencyCode.',
           Icons.filter_alt_outlined),
-      const _IosStep('بدون تأكيد', 'فعّل «Run Immediately» واضغط Next.',
+      const _IosStep(
+          'بدون تأكيد',
+          'فعّل «Run Immediately». لو ظهر «Notify When Run» اقفله، ثم اضغط Next.',
           Icons.bolt_rounded),
       const _IosStep('اختصار فارغ', 'اضغط «New Blank Automation».',
           Icons.insert_drive_file_outlined),
@@ -1711,7 +1473,7 @@ class _IosShortcutPhase extends ConsumerWidget {
           Icons.send_rounded),
       const _IosStep(
           'الشكل النهائي',
-          'لازم يظهر: Receive messages as input ثم Process Bank SMS.',
+          'لازم يظهر: Receive messages as input ثم Process Bank SMS. افتح تفاصيل الأكشن واقفل «Show When Run» لو ظهر.',
           Icons.volume_off_rounded),
       const _IosStep('حفظ', 'اضغط زر الحفظ في الأعلى وتم الإعداد.',
           Icons.check_circle_outline_rounded),
@@ -1948,7 +1710,8 @@ class _LogoMark extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'قرش',
-            style: _alex(48, FontWeight.w900, 1.2, isDark ? Colors.white : const Color(0xFF1A1A1A)),
+            style: _alex(48, FontWeight.w900, 1.2,
+                isDark ? Colors.white : const Color(0xFF1A1A1A)),
           ),
         ],
       ).animate(onPlay: (controller) => controller.repeat(reverse: true)).scale(

@@ -16,6 +16,8 @@ import 'data/catalog/seed_loader.dart';
 import 'data/repositories/drift_goal_repository.dart';
 import 'domain/usecases/run_goal_auto_saves_usecase.dart';
 import 'data/db/app_database.dart';
+import 'data/repositories/drift_user_settings_repository.dart';
+import 'domain/usecases/user_settings_usecases.dart';
 import 'features/cards/brand_mark.dart';
 import 'data/repositories/drift_sender_bank_mapping_repository.dart';
 import 'data/sync/sender_bank_mapping_sync_service.dart';
@@ -66,6 +68,7 @@ Future<void> _bootstrap() async {
   // Seed catalog tables from bundled assets and load feature flags before the
   // first frame so flags have real values (not just defaults) immediately.
   await const SeedLoader().seedIfEmpty(database);
+  _bindNotificationHistory(database);
   await _registerBrandLogos();
   await initFeatureFlagService(database);
   // Apply any due recurring auto-saves toward goals (catch-up on launch).
@@ -186,6 +189,24 @@ Future<void> _registerBrandLogos() async {
   } catch (_) {
     // Logos are optional; ignore manifest read failures.
   }
+}
+
+/// يربط الإشعارات المعروضة بسجل الرسائل داخل التطبيق حتى تظهر في
+/// شاشة الرسائل حتى لو فاتت المستخدم الـ banner.
+void _bindNotificationHistory(AppDatabase database) {
+  final settingsRepository = DriftUserSettingsRepository(database);
+  final loadPreferences =
+      LoadNotificationPreferencesUseCase(settingsRepository);
+  final savePreferences =
+      SaveNotificationPreferencesUseCase(settingsRepository);
+  LocalNotificationService.instance.historyStore = (entry) async {
+    final preferences = await loadPreferences();
+    await savePreferences(
+      preferences.copyWith(
+        inboxState: preferences.inboxState.addHistory(entry),
+      ),
+    );
+  };
 }
 
 void _startSenderBankMappingSync(

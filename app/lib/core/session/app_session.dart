@@ -21,24 +21,40 @@ class AppSession extends ValueNotifier<SessionStatus> {
   static const String _kDone = 'onboarding_done';
   static const String _kMethod = 'auth_method';
   static const String _kEmail = 'auth_email';
+  static const String _kWelcomeManifestoSeen = 'welcome_manifesto_seen';
 
   String? authMethod;
   String? email;
   bool _onboardingDone = false;
+  bool _welcomeManifestoSeen = false;
   StreamSubscription<supabase.AuthState>? _supabaseAuthSubscription;
 
   SessionStatus get status => value;
   bool get isGuest => authMethod == 'guest';
   bool get hasCompletedOnboarding => _onboardingDone;
+  bool get hasSeenWelcomeManifesto => _welcomeManifestoSeen;
 
   Future<void> load() async {
     final done = await _storage.read(key: _kDone);
     _onboardingDone = done == '1';
+    final welcomeSeen = await _storage.read(key: _kWelcomeManifestoSeen);
+    _welcomeManifestoSeen = welcomeSeen == '1' || _onboardingDone;
+    if (_onboardingDone && welcomeSeen != '1') {
+      await _storage.write(key: _kWelcomeManifestoSeen, value: '1');
+    }
     authMethod = await _storage.read(key: _kMethod);
     email = await _storage.read(key: _kEmail);
     value = _onboardingDone && authMethod != null
         ? SessionStatus.authenticated
         : SessionStatus.needsOnboarding;
+  }
+
+  /// يعلّم شاشة الترحيب السينمائية كمرئية حتى لا تظهر إلا مرة واحدة.
+  Future<void> markWelcomeManifestoSeen() async {
+    if (_welcomeManifestoSeen) return;
+    await _storage.write(key: _kWelcomeManifestoSeen, value: '1');
+    _welcomeManifestoSeen = true;
+    notifyListeners();
   }
 
   /// يخزّن هوية الدخول دون إنهاء الـ onboarding (تبقى خطوة الطريقة بعدها).
@@ -135,6 +151,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     authMethod = null;
     email = null;
     _onboardingDone = false;
+    _welcomeManifestoSeen = false;
     value = SessionStatus.needsOnboarding;
   }
 }

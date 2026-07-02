@@ -25,6 +25,7 @@ import '../../../domain/usecases/resolve_bank_for_sender_usecase.dart';
 import '../../../domain/usecases/user_settings_usecases.dart';
 import '../../../engine/ai/ai_parser_client.dart';
 import '../../../engine/ai/bank_discovery_client.dart';
+import 'capture_notification_content.dart';
 import 'local_notification_service.dart';
 
 class CapturedMessageProcessor {
@@ -65,6 +66,17 @@ class CapturedMessageProcessor {
       );
       final notificationPreferences =
           await LoadNotificationPreferencesUseCase(settingsRepository).call();
+      // في الـ background isolate لا يكون historyStore مضبوطاً من main —
+      // نربطه هنا حتى تظهر إشعارات الالتقاط في شاشة الرسائل أيضاً.
+      LocalNotificationService.instance.historyStore ??= (entry) async {
+        final preferences =
+            await LoadNotificationPreferencesUseCase(settingsRepository).call();
+        await SaveNotificationPreferencesUseCase(settingsRepository).call(
+          preferences.copyWith(
+            inboxState: preferences.inboxState.addHistory(entry),
+          ),
+        );
+      };
       final senderBankMappingRepository = DriftSenderBankMappingRepository(db);
       final aiParserClient = SupabaseConfig.isConfigured
           ? SupabaseAiParserClient(
@@ -152,26 +164,33 @@ class CapturedMessageProcessor {
           case CapturedMessageDisposition.ignored:
             break;
           case CapturedMessageDisposition.notifyOnly:
+            final content =
+                buildConfirmedCaptureContent(result.addTransactionResult.transaction);
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
-              title: 'تم التقاط العملية',
-              body: _buildConfirmedBody(result.addTransactionResult),
+              title: content.title,
+              body: content.body,
               preferences: notificationPreferences,
             );
           case CapturedMessageDisposition.requestConfirmation:
             final transaction = result.addTransactionResult.transaction;
             if (transaction != null) {
+              final content =
+                  buildReviewCaptureContent(result.addTransactionResult.transaction);
               await LocalNotificationService.instance.showReviewNotification(
                 transactionId: transaction.id,
-                body: _buildReviewBody(result.addTransactionResult),
+                title: content.title,
+                body: content.body,
                 preferences: notificationPreferences,
               );
             }
           case CapturedMessageDisposition.suspiciousDuplicate:
+            final content =
+                buildDuplicateCaptureContent(result.addTransactionResult.transaction);
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
-              title: 'عملية مشابهة موجودة',
-              body: 'راجع Smart Inbox عشان تأكدها كعملية جديدة أو تتجاهلها.',
+              title: content.title,
+              body: content.body,
               preferences: notificationPreferences,
             );
           case CapturedMessageDisposition.unprocessable:
@@ -283,61 +302,4 @@ class CapturedMessageProcessor {
     );
   }
 
-  static String _buildConfirmedBody(AddTransactionResult result) {
-    final tx = result.transaction;
-    if (tx == null) return 'أضفنا العملية إلى سجلك.';
-    final amount = _fmtAmount(tx.amount);
-    final parts = <String>['$amount ${tx.currency}'];
-    if (tx.rawMerchant != null) parts.add(tx.rawMerchant!);
-    final cat = _categoryLabel(tx.categoryId);
-    if (cat != null) parts.add(cat);
-    return 'أضفنا ${parts.join(' · ')}.';
-  }
-
-  static String _buildReviewBody(AddTransactionResult result) {
-    final tx = result.transaction;
-    if (tx == null) return 'راجِع العملية الجديدة وأكّدها.';
-    final amount = _fmtAmount(tx.amount);
-    final parts = <String>['$amount ${tx.currency}'];
-    if (tx.rawMerchant != null) parts.add(tx.rawMerchant!);
-    final cat = _categoryLabel(tx.categoryId);
-    if (cat != null) parts.add(cat);
-    return 'راجِع ${parts.join(' · ')} وأكّدها.';
-  }
-
-  static String _fmtAmount(double amount) {
-    return amount == amount.truncateToDouble()
-        ? amount.toInt().toString()
-        : amount.toStringAsFixed(2);
-  }
-
-  static String? _categoryLabel(String? key) {
-    return switch (key) {
-      'restaurants' => 'مطاعم 🍔',
-      'cafes' => 'مقاهي ☕',
-      'groceries' => 'بقالة 🛒',
-      'transport' => 'مواصلات 🚗',
-      'fuel' => 'وقود ⛽',
-      'bills' => 'فواتير 📱',
-      'shopping' => 'تسوق 🛍',
-      'health' => 'صحة 🏥',
-      'education' => 'تعليم 📚',
-      'entertainment' => 'ترفيه 🎬',
-      'subscriptions' => 'اشتراكات 📲',
-      'transfers' => 'تحويل 💸',
-      'cash' => 'كاش 💵',
-      'travel' => 'سفر ✈️',
-      'gifts' => 'هدايا 🎁',
-      'kids' => 'أطفال 👶',
-      'home' => 'منزل 🏠',
-      'maintenance' => 'صيانة 🔧',
-      'fitness' => 'رياضة 💪',
-      'beauty' => 'جمال 💅',
-      'charity' => 'خيرية 🤲',
-      'pets' => 'حيوانات 🐾',
-      'insurance' => 'تأمين 🛡️',
-      'income' => 'دخل 💰',
-      _ => null,
-    };
-  }
 }

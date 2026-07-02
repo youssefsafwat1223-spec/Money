@@ -159,7 +159,7 @@ class NativeCaptureBridge {
   }
 
   static CapturedMessageSource _iosCapturedSource(String? source) {
-    return source == 'shortcut'
+    return source == 'ios_shortcut' || source == 'shortcut'
         ? CapturedMessageSource.iosShortcut
         : CapturedMessageSource.iosShare;
   }

@@ -147,7 +147,8 @@ class UserSettingsEntity {
     this.phoneNumber,
     this.avatarPath,
     this.dateOfBirth,
-    this.aiConsentGranted = true,
+    // opt-in: تُسأل صراحةً في الـ onboarding (مرحلة موافقة الذكاء الاصطناعي).
+    this.aiConsentGranted = false,
   });
 
   final String id;

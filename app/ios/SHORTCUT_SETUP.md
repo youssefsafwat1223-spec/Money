@@ -128,8 +128,9 @@ macOS runner) to produce the `.ipa`, then sideload with your usual tool.
 - Action: **Process Bank SMS**, **SMS Text** = *Shortcut Input* (the message text).
   Optional fields such as sender, received date, and locale can be left empty.
 - Final shape should be: **Receive messages as input** → **Process Bank SMS**.
-- Turn **Run Immediately** on. iOS still shows a tap/notification for SMS triggers,
-  but no manual copy/paste is needed.
+- Turn **Run Immediately** on. If Shortcuts shows **Notify When Run**, turn it
+  off. Open the **Process Bank SMS** action details and turn **Show When Run**
+  off if it appears.
 
 ### Share sheet
 - In Messages, long-press the bank SMS → **Share** (or select text → Share) → **Mali**.
