@@ -56,7 +56,10 @@ class LocalNotificationService {
 
   static final LocalNotificationService instance = LocalNotificationService._();
   static const String _reviewChannelId = 'capture_review';
-  static const String _lightChannelId = 'capture_light';
+  // v2 because Android keeps the original channel importance forever after it
+  // is created. The old capture_light channel was low importance, so confirmed
+  // captures could be saved without a visible banner.
+  static const String _lightChannelId = 'capture_light_v2';
   static const String _marketingChannelId = 'qirsh_growth';
   static const String _budgetChannelId = 'budget_alerts';
   static const String _achievementChannelId = 'achievement_alerts';
@@ -162,7 +165,8 @@ class LocalNotificationService {
     required String body,
     required NotificationPreferences preferences,
   }) async {
-    debugPrint('[Notif] showReviewNotification captureReview=${preferences.captureReview}');
+    debugPrint(
+        '[Notif] showReviewNotification captureReview=${preferences.captureReview}');
     if (!preferences.captureReview) {
       return;
     }
@@ -190,6 +194,7 @@ class LocalNotificationService {
           presentList: true,
           presentBadge: false,
           presentSound: true,
+          interruptionLevel: InterruptionLevel.active,
           categoryIdentifier: _reviewCategoryId,
         ),
       ),
@@ -205,7 +210,8 @@ class LocalNotificationService {
     required String body,
     required NotificationPreferences preferences,
   }) async {
-    debugPrint('[Notif] showLightCapture captureLight=${preferences.captureLight}');
+    debugPrint(
+        '[Notif] showLightCapture captureLight=${preferences.captureLight}');
     if (!preferences.captureLight) {
       return;
     }
@@ -219,15 +225,16 @@ class LocalNotificationService {
         android: AndroidNotificationDetails(
           _lightChannelId,
           'التقاط العمليات',
-          channelDescription: 'إشعارات خفيفة عند التقاط عملية مؤكدة',
-          importance: Importance.low,
-          priority: Priority.low,
+          channelDescription: 'إشعارات فورية عند التقاط عملية من رسائل البنك',
+          importance: Importance.high,
+          priority: Priority.high,
         ),
         iOS: DarwinNotificationDetails(
           presentBanner: true,
           presentList: true,
           presentBadge: false,
-          presentSound: false,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.active,
         ),
       ),
     );
@@ -473,7 +480,8 @@ class LocalNotificationService {
     required NotificationDetails details,
     String? payload,
   }) async {
-    debugPrint('[Notif] _show type=$notificationType enabled=${preferences.isEnabled(notificationType)}');
+    debugPrint(
+        '[Notif] _show type=$notificationType enabled=${preferences.isEnabled(notificationType)}');
     if (!preferences.isEnabled(notificationType)) {
       return;
     }
@@ -482,8 +490,12 @@ class LocalNotificationService {
     }
 
     // Capture notifications (bank SMS results) are time-sensitive — show immediately.
-    final isCaptureNotification = notificationType == NotificationType.captureReview ||
-        notificationType == NotificationType.captureLight;
+    final isCaptureNotification =
+        notificationType == NotificationType.captureReview ||
+            notificationType == NotificationType.captureLight;
+    if (isCaptureNotification) {
+      await _requestCaptureNotificationPermissionsIfPossible();
+    }
     final now = tz.TZDateTime.now(tz.local);
     if (!isCaptureNotification && _isQuietHour(now, preferences)) {
       await _plugin.zonedSchedule(
@@ -509,6 +521,32 @@ class LocalNotificationService {
     );
     debugPrint('[Notif] plugin.show done');
     await _recordHistory(id, title, body, notificationType, payload);
+  }
+
+  Future<void> _requestCaptureNotificationPermissionsIfPossible() async {
+    try {
+      if (Platform.isAndroid) {
+        await _plugin
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.requestNotificationsPermission();
+        return;
+      }
+      if (Platform.isIOS) {
+        final ios = _plugin.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+        final permissions = await ios?.checkPermissions();
+        if (permissions?.isAlertEnabled == true &&
+            permissions?.isSoundEnabled == true) {
+          return;
+        }
+        await ios?.requestPermissions(alert: true, badge: true, sound: true);
+      }
+    } catch (_) {
+      // If iOS/Android refuses to prompt from the current execution context,
+      // still attempt plugin.show below; denied users also keep the in-app
+      // notification history entry.
+    }
   }
 
   /// يسجّل الإشعار في سجل الرسائل داخل التطبيق. إشعارات الـ marketing
@@ -620,7 +658,7 @@ class LocalNotificationService {
           ),
           iOS: DarwinNotificationDetails(
             presentBanner: true,
-          presentList: true,
+            presentList: true,
             presentBadge: false,
             presentSound: false,
           ),
@@ -636,7 +674,7 @@ class LocalNotificationService {
           ),
           iOS: DarwinNotificationDetails(
             presentBanner: true,
-          presentList: true,
+            presentList: true,
             presentBadge: false,
             presentSound: false,
           ),

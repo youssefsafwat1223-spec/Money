@@ -17,9 +17,13 @@ class AppLockGate extends StatefulWidget {
 }
 
 class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
+  static const Duration _backgroundLockDelay = Duration(seconds: 30);
+  static const Duration _recentAuthenticationGrace = Duration(seconds: 8);
+
   bool _checking = true;
   bool _locked = false;
   bool _authenticating = false;
+  DateTime? _backgroundedAt;
 
   @override
   void initState() {
@@ -36,21 +40,35 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_authenticating) return;
     if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
-      _locked = true;
+        state == AppLifecycleState.hidden) {
+      _backgroundedAt ??= DateTime.now();
       return;
     }
     if (state == AppLifecycleState.resumed) {
-      _lockIfNeeded();
+      final backgroundedAt = _backgroundedAt;
+      _backgroundedAt = null;
+      final shouldLock = backgroundedAt != null &&
+          DateTime.now().difference(backgroundedAt) >= _backgroundLockDelay;
+      _lockIfNeeded(forceLock: shouldLock);
     }
   }
 
-  Future<void> _lockIfNeeded() async {
+  Future<void> _lockIfNeeded({bool forceLock = true}) async {
     if (_authenticating || !mounted) return;
     final enabled = await AppLockService.instance.isEnabled();
     if (!mounted) return;
-    if (!enabled) {
+    if (!enabled || !forceLock) {
+      setState(() {
+        _checking = false;
+        _locked = false;
+      });
+      return;
+    }
+    if (AppLockService.instance.wasRecentlyAuthenticated(
+      _recentAuthenticationGrace,
+    )) {
       setState(() {
         _checking = false;
         _locked = false;

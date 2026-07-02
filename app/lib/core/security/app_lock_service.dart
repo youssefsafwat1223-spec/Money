@@ -10,6 +10,7 @@ class AppLockService {
   static const String _kEnabled = 'app_lock_enabled';
 
   final LocalAuthentication _auth = LocalAuthentication();
+  DateTime? _lastSuccessfulAuthenticationAt;
 
   Future<bool> isEnabled() async {
     return await _storage.read(key: _kEnabled) == '1';
@@ -38,7 +39,7 @@ class AppLockService {
 
   Future<bool> authenticate() async {
     try {
-      return await _auth.authenticate(
+      final authenticated = await _auth.authenticate(
         localizedReason: 'افتح قرش لحماية بياناتك المالية.',
         options: const AuthenticationOptions(
           biometricOnly: false,
@@ -46,8 +47,18 @@ class AppLockService {
           useErrorDialogs: true,
         ),
       );
+      if (authenticated) {
+        _lastSuccessfulAuthenticationAt = DateTime.now();
+      }
+      return authenticated;
     } catch (_) {
       return false;
     }
+  }
+
+  bool wasRecentlyAuthenticated(Duration window) {
+    final lastAuthenticatedAt = _lastSuccessfulAuthenticationAt;
+    if (lastAuthenticatedAt == null) return false;
+    return DateTime.now().difference(lastAuthenticatedAt) <= window;
   }
 }

@@ -272,8 +272,8 @@ class SettingsScreen extends ConsumerWidget {
                               ref, prefs.copyWith(captureReview: value)),
                         ),
                         _SwitchTile(
-                          title: 'الإشعارات الخفيفة',
-                          icon: Icons.notifications_paused_outlined,
+                          title: 'إشعارات التقاط العمليات',
+                          icon: Icons.notifications_active_outlined,
                           iconColor: c.accent,
                           value: prefs.captureLight,
                           onChanged: (value) => _savePrefs(
