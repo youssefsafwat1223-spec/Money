@@ -23,27 +23,61 @@ Deno.serve(async (req) => {
     const serviceKey =
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
       Deno.env.get("SUPABASE_ANON_KEY");
-    if (!supabaseUrl || !serviceKey) {
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !serviceKey || !anonKey) {
       return json({ error: "Supabase environment is not configured" }, 500);
     }
 
-    const client = createClient(supabaseUrl, serviceKey, {
+    // Fetch ALL flags (active + inactive) so per-user overrides can re-enable
+    // flags that are globally OFF (useful for staged TestFlight rollouts).
+    const adminClient = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    let query = client
+    const { data: allFlags, error: flagsError } = await adminClient
       .from("feature_flags")
-      .select("key, value_type, value, rollout_percent, target_countries, is_active")
-      .eq("is_active", true);
+      .select(
+        "key, value_type, value, rollout_percent, target_countries, is_active",
+      );
+    if (flagsError) return json({ error: flagsError.message }, 500);
 
-    const { data, error } = await query;
-    if (error) return json({ error: error.message }, 500);
+    // Build a mutable map keyed by flag key so overrides can patch in-place.
+    const flagMap = new Map<string, Record<string, unknown>>(
+      (allFlags ?? []).map((f) => [f.key as string, { ...f }]),
+    );
 
-    // Filter by country if provided: include flags where target_countries is
-    // empty (meaning all countries) or contains the requested country.
-    const flags = (data ?? []).filter((flag) => {
+    // Apply per-user overrides when the request carries a valid user JWT.
+    // Guest requests (no Authorization header) skip this block entirely.
+    const authHeader = req.headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      // Use anon key + user JWT so Supabase enforces RLS on the overrides table
+      // (only the authenticated user's own rows are returned).
+      const userClient = createClient(supabaseUrl, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { authorization: authHeader } },
+      });
+      const { data: overrides } = await userClient
+        .from("feature_flag_overrides")
+        .select("key, enabled");
+      for (const override of overrides ?? []) {
+        const flag = flagMap.get(override.key as string);
+        if (!flag) continue; // unknown key — skip
+        if (override.enabled) {
+          flag.is_active = true;
+          flag.rollout_percent = 100;
+          if (flag.value_type === "boolean") flag.value = "true";
+        } else {
+          flag.is_active = false;
+          flag.rollout_percent = 0;
+        }
+      }
+    }
+
+    // Filter to effectively active flags then apply country filter.
+    const flags = [...flagMap.values()].filter((flag) => {
+      if (!flag.is_active) return false;
       if (!country) return true;
-      const targets: string[] = flag.target_countries ?? [];
+      const targets = (flag.target_countries as string[]) ?? [];
       return targets.length === 0 || targets.includes(country);
     });
 

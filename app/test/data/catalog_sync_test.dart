@@ -279,6 +279,38 @@ void main() {
         expect(svc.getBool('enable_coupons'), isA<bool>());
       }
     });
+
+    test('sync flags all default to false when no DB rows exist', () async {
+      // No rows in remote_feature_flags — service must use _defaults.
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      await svc.init();
+      expect(svc.getBool('ledger_dual_write'), isFalse);
+      expect(svc.getBool('ledger_pull_sync'), isFalse);
+      expect(svc.getBool('ledger_push_sync'), isFalse);
+      expect(svc.getBool('smart_inbox_pull_sync'), isFalse);
+    });
+
+    test('sync flag stays false when server sends is_active=false', () async {
+      await RemoteFeatureFlagsDao(db).replaceAll([
+        _flag('ledger_pull_sync', 'true', isActive: false),
+      ]);
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      await svc.init();
+      expect(svc.getBool('ledger_pull_sync'), isFalse);
+    });
+
+    test('sync flag can be enabled when server sends is_active=true rollout=100',
+        () async {
+      await RemoteFeatureFlagsDao(db).replaceAll([
+        _flag('ledger_pull_sync', 'true'),
+      ]);
+      final svc =
+          FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
+      await svc.init();
+      expect(svc.getBool('ledger_pull_sync'), isTrue);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────

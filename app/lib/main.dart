@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,6 +44,24 @@ Future<void> main() async {
 }
 
 Future<void> _bootstrap() async {
+  assert(() {
+    debugPrint(
+      '[SupabaseConfig] env=${SupabaseConfig.environment.name}'
+      ' configured=${SupabaseConfig.isConfigured}',
+    );
+    return true;
+  }());
+  if (kReleaseMode &&
+      SupabaseConfig.isConfigured &&
+      SupabaseConfig.environment != SupabaseEnvironment.production) {
+    FlutterError.reportError(FlutterErrorDetails(
+      exception: StateError(
+        'Non-production SUPABASE_ENV '
+        '"${SupabaseConfig.environment.name}" in release build',
+      ),
+      library: 'SupabaseConfig',
+    ));
+  }
   if (SupabaseConfig.isConfigured) {
     await Supabase.initialize(
       url: SupabaseConfig.url,
