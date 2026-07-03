@@ -1,29 +1,44 @@
 # ADR: Local-First (Drift) vs Supabase-Primary Architecture
 
-Status: **Phase F complete — Smart Inbox pull-sync implemented (all flags OFF by default).**
+Status: **Phases A-F + I-J implemented — all sync flags OFF by default. Phases G-H are plan-only.**
 Date: 2026-07-03 · Author: architecture review on branch `feat/accounts-multicurrency`
-Updated: 2026-07-03 · Phase F done — `SmartInboxSyncService` (pull-only) wired behind `smart_inbox_pull_sync` flag.
+Updated: 2026-07-04 · ADR wording clarified to separate implemented phases from plan-only phases.
 
-### Current state (Phase F)
+### Current implemented state
 - Drift writes (create/update/delete) queue to `ledger_sync_outbox` when signed-in + `ledger_push_sync` ON.
 - `LedgerSyncEngine.sync()` runs on cold start + resume: push outbox → pull remote, in that order.
 - `SmartInboxSyncService.pull()` runs after `LedgerSyncEngine.sync()`, pulling `user_smart_inbox` rows into `smart_inbox_items` Drift table.
 - Smart Inbox pull is guarded by `smart_inbox_pull_sync` flag (OFF by default).
+- Supabase environment selection supports local/staging/production; production remains the default unless explicitly overridden.
+- Per-user feature flag overrides exist and can safely enable dark-launched sync flags for individual signed-in testers.
 - Drift remains the sole source of truth for all UI reads. No direct Supabase reads in widgets.
 - `processed_captures` relay untouched. Android SMS flow unchanged.
 - Drift schema version 17: added `ledger_sync_outbox` (v16) and `smart_inbox_items` (v17) tables.
 
-### Migration phases status
+### Implemented phases
 | Phase | Description | Status |
 |-------|-------------|--------|
-| A | Server ledger schema (dark launch) | ✅ Done — `0014_user_ledger.sql` |
-| B | Dual-write in `process-ios-sms` (signed-in users) | ✅ Done — `ledger_dual_write` flag (OFF) |
-| C | Pull sync: `user_transactions` → Drift (flag OFF) | ✅ Done — `ledger_pull_sync` flag (OFF) |
-| D | Local outbox: Drift writes → Supabase push (flag OFF) | ✅ Done — `ledger_push_sync` flag (OFF) |
-| E | Bidirectional `LedgerSyncEngine` (push→pull unified) | ✅ Done — single `_runLedgerSync()` in AppShell |
-| F | Smart Inbox sync | ✅ Done — `smart_inbox_pull_sync` flag (OFF), `smart_inbox_items` Drift table (v17) |
-| G | Planning data (budgets/categories/etc.) | ⬜ Plan only |
-| H | processed_captures retirement | ⬜ Plan only |
+| A | `user_transactions` / `user_smart_inbox` schema | ✅ Implemented |
+| B | `ledger_dual_write` foundation | ✅ Implemented, flag OFF |
+| C | `user_transactions` pull sync into Drift | ✅ Implemented, flag OFF |
+| D | Local outbox | ✅ Implemented, flag OFF |
+| E | Bidirectional `LedgerSyncEngine` | ✅ Implemented, sync flags OFF |
+| F | Smart Inbox pull sync | ✅ Implemented, flag OFF |
+| I | Staging/prod/local Supabase config | ✅ Implemented |
+| J | Per-user feature flag overrides | ✅ Implemented |
+
+### Plan-only phases, not missing code
+| Phase | Description | Status |
+|-------|-------------|--------|
+| G | Planning data sync for accounts/budgets/subscriptions/goals/plans | ⬜ Plan only — intentionally not implemented |
+| H | `processed_captures` retirement | ⬜ Plan only — intentionally not implemented |
+
+Phase G and Phase H are future architecture options. They should not be treated as incomplete implementation work in the current codebase.
+
+### Blocked / decision needed
+- Android SMS capture is not active. Product/Play policy decision needed: restore SMS capture, or keep Android local/share/manual only.
+- `processed_captures` cannot be retired until guest strategy is decided.
+- Production sync flags cannot be enabled until staging/manual validation passes.
 
 ---
 
@@ -91,72 +106,50 @@ Postgres = source of truth for transactions/Smart Inbox (later budgets etc.). Dr
 
 ---
 
-## 4. Phased migration plan (defined now, executed only on trigger — see §5)
+## 4. Remaining plan-only phases
 
-> **Trigger to start Phase A:** multi-device sync or a web dashboard becomes a committed roadmap item — not before.
+The implemented sync foundation stops at Phases A-F plus I-J. The following phases are intentionally plan-only and should not be reported as missing code.
 
-**Phase A — server ledger schema only (dark launch)**
-- Goal: `user_transactions` + `user_smart_inbox` tables exist, zero traffic.
-- Files: `supabase/migrations/0014_user_ledger.sql` only.
-- Tables: user_transactions, user_smart_inbox (user_id FK auth.users, RLS owner-only, updated_at, deleted_at).
-- Functions: none. Flutter: none.
-- Risks: none (unused schema). Tests: RLS probe tests (anon/other-user denied). Rollback: drop tables.
+**Phase G — planning data sync**
+- Scope: accounts, budgets, subscriptions, goals, plans, and related planning data.
+- Status: plan only / not implemented.
+- Trigger: only after ledger sync is validated on staging/manual devices and product confirms multi-device planning sync is needed.
+- Risk: wide UI and business-logic blast radius; conflict semantics are harder than transaction pull/push.
 
-**Phase B — dual-write for iOS captures (signed-in users only)**
-- Goal: process-ios-sms writes relay row AND user_transactions row when a real auth user exists; app still imports from relay exactly as today.
-- Files: `process-ios-sms/index.ts`, `_shared/ledger.ts`, Deno tests.
-- Risks: double-accounting if client later also pushes the same tx (guard: server rows carry payload_id; client sync must upsert by payload_id).
-- Tests: idempotency across both tables; guest path unchanged. Rollback: feature-flag `ledger_dual_write` off.
+**Phase H — `processed_captures` retirement**
+- Scope: remove the iOS capture relay path and let backend-processed captures become durable ledger rows directly.
+- Status: plan only / not implemented.
+- Blocker: guest strategy must be decided first. Guests currently cannot safely write user-scoped ledger rows, so `processed_captures` remains required as a relay.
+- Constraint: do not remove `processed_captures`, `sync-captures`, or the Drift import/ack path until Phase H is explicitly approved.
 
-**Phase C — Smart Inbox + history reads go server-first (auth users, online)**
-- Goal: inbox/list screens read a synced cache that pulls deltas from user_* tables; Drift rows become mirror rows (server_id column).
-- Files: new `SyncEngine` service, transactions/smart-inbox providers, Drift migration (server_id, synced_at columns), sync-pull function or PostgREST.
-- Risks: cache staleness, pagination, ordering vs local rows from Android path (merge by payload_id/server_id).
-- Tests: offline read, delta sync, merge dedup. Rollback: provider flag back to Drift-native queries (mirror columns are additive).
-
-**Phase D — budgets/categories/subscriptions/goals server-side**
-- Goal: planning data moves; alerts computed server-side (cron) or stay client (recommended: stay client).
-- Files: migrations for 6–8 tables + repositories + sync mappers; NotificationPlanner untouched (reads cache).
-- Risks: widest UI blast radius; conflict semantics (budget edited on two devices). Tests: per-repo sync round-trip. Rollback: same flag pattern per table.
-
-**Phase E — Drift demoted to cache + conflict resolution**
-- Goal: outbox for offline writes; last-write-wins with updated_at + per-field merge for budgets; tombstones.
-- Files: SyncEngine (outbox/replay), all write paths route through it.
-- Risks: THE hard phase — data-loss bugs live here; needs soak time on TestFlight.
-- Tests: property-style conflict tests, airplane-mode write/replay matrix. Rollback: outbox is additive; disable replay → app behaves like C/D.
-
-**Phase F — retire relay (`processed_captures`)**
-- Goal: iOS capture writes ledger directly; relay + sync-captures deleted; APNs carries transactionId only.
-- Files: process-ios-sms, sync-captures (delete), Swift intent response handling, CaptureSyncService removal.
-- Risks: guests still need the relay (no user_id!) → **relay can only be retired if guest mode is retired or guests keep a device-scoped ledger** — flagged as an open product decision.
-- Tests: full manual matrix from Phase 1/2 doc rerun. Rollback: keep relay code path behind flag for one release.
-
-Each phase ships alone, gates green (`flutter analyze`, `flutter test`, Deno tests, xcodebuild for the extension), with a changed-files report.
+Each future phase must ship alone, keep gates green (`flutter analyze`, `flutter test`, Deno checks when available, xcodebuild for iOS targets), and include a changed-files report.
 
 ---
 
-## 5. Decision (updated 2026-07-03)
+## 5. Decision (updated 2026-07-04)
 
-**Gradual Supabase-primary migration approved. Phase A started.**
+**Gradual Supabase-primary migration foundation approved and implemented through Phases A-F plus I-J. Phase G/H remain plan-only.**
 
 The original recommendation was to stay local-first. That recommendation was reviewed and the decision was changed:
 - Qirsh will gradually migrate toward Supabase-primary for the financial ledger.
 - Migration is incremental, phase-by-phase, with no big-bang rewrite.
-- Drift stays as source of truth and offline cache until Phase C+.
+- Drift stays the source of truth for UI reads while sync flags remain OFF.
 - Phase 1/2 iOS capture relay is untouched.
 
 **Known trade-offs accepted:**
 - RLS correctness becomes critical (a mistake = cross-user financial data leak).
-- Offline writes require an outbox/replay/conflict engine (Phase E).
+- Offline writes require an outbox/replay/conflict engine.
 - App Store privacy label will need updating when ledger data is collected.
-- Guest mode path must be clarified before Phase F (relay retirement).
+- Guest mode path must be clarified before Phase H (`processed_captures` retirement).
 
 **Constraints (must remain in effect across all phases):**
 - No big-bang rewrite. One phase at a time.
 - Phase 1/2 iOS capture + APNs system must stay working throughout.
-- Drift not removed until Phase E is fully validated.
-- `processed_captures` relay not retired until Phase F.
-- Budgets/categories/subscriptions/goals not touched until Phase D.
+- Drift remains authoritative for UI reads until staging/manual validation proves otherwise.
+- `processed_captures` relay not retired until Phase H is explicitly approved.
+- Accounts/budgets/subscriptions/goals/plans not synced until Phase G is explicitly approved.
+- Production flags remain OFF until staging/manual validation passes.
+- Android SMS capture remains a separate product/Google Play policy decision.
 - No commits without explicit user request.
 
-**Decision:** Supabase-primary gradual migration ✅ · Phase A done · See phase status table at top of this document.
+**Decision:** Supabase-primary gradual migration foundation ✅ · Implemented phases A-F/I-J · Plan-only phases G/H · See phase status tables at top of this document.
