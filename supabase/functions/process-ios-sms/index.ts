@@ -8,6 +8,7 @@ import {
   verifyDevice,
 } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
+import { isLedgerDualWriteEnabled, upsertLedgerTransaction } from '../_shared/ledger.ts';
 
 type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
 type ParsedCapture = {
@@ -126,6 +127,33 @@ Deno.serve(async (req) => {
     .single();
 
   if (error) return json({ error: 'store_failed' }, 500);
+
+  // Phase B: dual-write to user_transactions for signed-in users when flag is on.
+  // Guests (userId = null) always stay relay-only.
+  // 'rejected' and 'duplicate' are excluded: no meaningful ledger row to write.
+  if (auth.userId && (status === 'processed' || status === 'needs_review')) {
+    try {
+      const dualWriteEnabled = await isLedgerDualWriteEnabled(supabase);
+      if (dualWriteEnabled) {
+        await upsertLedgerTransaction(supabase, auth.userId, {
+          payloadId,
+          amount: parsed.amount!,
+          currency: parsed.currency!,
+          direction: parsed.direction,
+          type: parsed.type,
+          merchant: parsed.merchant,
+          categoryId: parsed.category,
+          occurredAt: parsed.occurredAt ?? receivedAt,
+          confidence: parsed.confidence,
+          last4: parsed.last4,
+        });
+      }
+    } catch (err) {
+      // Non-fatal: relay is source of truth in Phase B. Log and continue.
+      console.warn(JSON.stringify({ event: 'ledger_dual_write_failed', payloadId, err: String(err) }));
+    }
+  }
+
   const pushSent = await sendApnsIfPossible(
     supabase,
     auth.installIdHash,

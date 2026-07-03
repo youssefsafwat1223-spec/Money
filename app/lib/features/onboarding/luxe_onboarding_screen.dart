@@ -279,6 +279,12 @@ class _StorytellingPhaseState extends ConsumerState<_StorytellingPhase> {
         method: identity.method,
         email: identity.email,
       );
+      unawaited(
+        ref
+            .read(captureDeviceRegistrationServiceProvider)
+            .linkToCurrentUser()
+            .catchError((_) {}),
+      );
 
       if (!mounted) return;
 

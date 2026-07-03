@@ -23,6 +23,8 @@ enum ComparisonTimestampSource { smsBody, receivedAt }
 
 enum DuplicateStatus { normal, suspiciousDuplicate }
 
+enum SyncStatus { localOnly, synced, pending, conflict }
+
 class TransactionEntity {
   const TransactionEntity({
     required this.id,
@@ -53,6 +55,10 @@ class TransactionEntity {
     this.duplicateStatus = DuplicateStatus.normal,
     this.possibleDuplicateOfTransactionId,
     this.duplicateReason,
+    this.serverId,
+    this.syncedAt,
+    this.serverUpdatedAt,
+    this.syncStatus = SyncStatus.localOnly,
   });
 
   final String id;
@@ -83,6 +89,10 @@ class TransactionEntity {
   final DuplicateStatus duplicateStatus;
   final String? possibleDuplicateOfTransactionId;
   final String? duplicateReason;
+  final String? serverId;
+  final DateTime? syncedAt;
+  final DateTime? serverUpdatedAt;
+  final SyncStatus syncStatus;
 
   TransactionEntity copyWith({
     String? id,
@@ -113,6 +123,10 @@ class TransactionEntity {
     DuplicateStatus? duplicateStatus,
     String? possibleDuplicateOfTransactionId,
     String? duplicateReason,
+    String? serverId,
+    DateTime? syncedAt,
+    DateTime? serverUpdatedAt,
+    SyncStatus? syncStatus,
   }) {
     return TransactionEntity(
       id: id ?? this.id,
@@ -146,6 +160,10 @@ class TransactionEntity {
       possibleDuplicateOfTransactionId: possibleDuplicateOfTransactionId ??
           this.possibleDuplicateOfTransactionId,
       duplicateReason: duplicateReason ?? this.duplicateReason,
+      serverId: serverId ?? this.serverId,
+      syncedAt: syncedAt ?? this.syncedAt,
+      serverUpdatedAt: serverUpdatedAt ?? this.serverUpdatedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
     );
   }
 }

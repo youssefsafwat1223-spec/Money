@@ -46,6 +46,31 @@ class CaptureBackendClient {
     return secret;
   }
 
+  Future<void> linkDevice({
+    required String installId,
+    required String deviceSecret,
+    required String jwt,
+  }) async {
+    final response = await _http
+        .post(
+          _functionUri('link-capture-device'),
+          headers: {
+            ..._headers,
+            'Authorization': 'Bearer $jwt',
+          },
+          body: jsonEncode({
+            'installId': installId,
+            'deviceSecret': deviceSecret,
+          }),
+        )
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw CaptureBackendException(
+        'link_device_failed_${response.statusCode}',
+      );
+    }
+  }
+
   Future<void> registerPushToken({
     required String installId,
     required String deviceSecret,

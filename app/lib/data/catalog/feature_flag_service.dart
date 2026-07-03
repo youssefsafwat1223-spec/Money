@@ -12,6 +12,9 @@ const Map<String, Object> _defaults = {
   'enable_coupons': false,
   'enable_announcements': true,
   'parser_engine_version': 'v1',
+  'ledger_pull_sync': false,
+  'ledger_push_sync': false,
+  'smart_inbox_pull_sync': false,
 };
 
 class FeatureFlagService {

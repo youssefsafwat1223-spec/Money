@@ -107,8 +107,10 @@ class _AppShellState extends ConsumerState<AppShell> {
       unawaited(syncCatalog(ref, force: true));
       unawaited(UserActivityService.ping()); // cold start — always writes
       await _syncNativeCaptureState();
+      unawaited(_linkCaptureDeviceToUser());
       await _drainPendingNotificationActions();
       await _consumeSharedInput();
+      unawaited(_runLedgerSync());
       await _drainPendingNotificationRoutes();
       await _syncEngagement();
       unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
@@ -144,6 +146,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
     await _syncNativeCaptureState();
     await _consumeSharedInput();
+    unawaited(_runLedgerSync());
     await _drainPendingNotificationRoutes();
     await _syncEngagement();
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
@@ -158,6 +161,35 @@ class _AppShellState extends ConsumerState<AppShell> {
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[Capture] native state sync skipped: $error');
+      }
+    }
+  }
+
+  Future<void> _linkCaptureDeviceToUser() async {
+    try {
+      await ref
+          .read(captureDeviceRegistrationServiceProvider)
+          .linkToCurrentUser();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[Capture] device link skipped: $error');
+      }
+    }
+  }
+
+  Future<void> _runLedgerSync() async {
+    try {
+      await ref.read(ledgerSyncEngineProvider).sync();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[LedgerEngine] sync skipped: $error');
+      }
+    }
+    try {
+      await ref.read(smartInboxSyncServiceProvider).pull();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[SmartInboxSync] pull skipped: $error');
       }
     }
   }

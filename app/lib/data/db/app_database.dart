@@ -11,7 +11,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 14;
+const int _targetSchemaVersion = 17;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -627,6 +627,72 @@ class AppDatabase extends GeneratedDatabase {
     if (version < 10) {
       await _backfillGoalsToDefaultAccount();
     }
+    // v15: Phase C — server sync metadata for Supabase ledger pull.
+    await _ensureColumn('transactions', 'server_id', 'TEXT NULL');
+    await _ensureColumn('transactions', 'synced_at', 'TEXT NULL');
+    await _ensureColumn('transactions', 'server_updated_at', 'TEXT NULL');
+    await _ensureColumn(
+      'transactions',
+      'sync_status',
+      "TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict'))",
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transactions_server_id ON transactions(server_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transactions_sync_status ON transactions(sync_status);',
+    );
+    // v16: Phase D — local outbox for push sync.
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS ledger_sync_outbox (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        operation TEXT NOT NULL CHECK(operation IN ('create','update','delete')),
+        payload_json TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        next_retry_at TEXT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_outbox_transaction_id '
+      'ON ledger_sync_outbox(transaction_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_outbox_next_retry '
+      'ON ledger_sync_outbox(next_retry_at);',
+    );
+    // v17: Phase F — Smart Inbox pull-sync cache.
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS smart_inbox_items (
+        id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL UNIQUE,
+        transaction_id TEXT NULL,
+        payload_id TEXT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        confidence REAL NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        server_created_at TEXT NOT NULL,
+        server_updated_at TEXT NULL,
+        synced_at TEXT NOT NULL,
+        dismissed_locally INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_smart_inbox_type '
+      'ON smart_inbox_items(type);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_smart_inbox_status '
+      'ON smart_inbox_items(status);',
+    );
   }
 
   /// Removes dedup hashes older than [daysOld] days to prevent unbounded growth.

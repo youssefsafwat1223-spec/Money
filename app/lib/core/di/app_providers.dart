@@ -62,6 +62,11 @@ import '../../features/capture/services/notification_journey_service.dart';
 import '../../features/capture/services/capture_backend_client.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
 import '../../features/capture/services/capture_sync_service.dart';
+import '../../features/capture/services/ledger_outbox_queue.dart';
+import '../../features/capture/services/ledger_push_service.dart';
+import '../../features/capture/services/ledger_sync_engine.dart';
+import '../../features/capture/services/ledger_sync_service.dart';
+import '../../features/capture/services/smart_inbox_sync_service.dart';
 import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
@@ -206,8 +211,48 @@ final supportedCountriesProvider = FutureProvider<List<RemoteCountry>>((ref) {
       .getSupportedCountries();
 });
 
+final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return LedgerOutboxQueue(
+    db: db,
+    isPushEnabled: () {
+      try {
+        return featureFlags.getBool('ledger_push_sync');
+      } catch (_) {
+        return false;
+      }
+    },
+    getAuthUserId: () async {
+      if (!SupabaseConfig.isConfigured) return null;
+      try {
+        return supabase.Supabase.instance.client.auth.currentUser?.id;
+      } catch (_) {
+        return null;
+      }
+    },
+  );
+});
+
+final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return LedgerPushService(
+    db: db,
+    queue: ref.watch(ledgerOutboxQueueProvider),
+    isPushEnabled: () {
+      try {
+        return featureFlags.getBool('ledger_push_sync');
+      } catch (_) {
+        return false;
+      }
+    },
+  );
+});
+
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
-  return DriftTransactionRepository(ref.watch(appDatabaseProvider));
+  return DriftTransactionRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(ledgerOutboxQueueProvider),
+  );
 });
 
 final suspectedDuplicateRepositoryProvider =
@@ -385,6 +430,43 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
     suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
     client: ref.watch(captureBackendClientProvider),
+  );
+});
+
+final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return LedgerSyncService(
+    db: db,
+    transactionRepository: DriftTransactionRepository(db),
+    dedupStore: DriftDedupStore(db),
+    isPullEnabled: () {
+      try {
+        return featureFlags.getBool('ledger_pull_sync');
+      } catch (_) {
+        return false;
+      }
+    },
+  );
+});
+
+final ledgerSyncEngineProvider = Provider<LedgerSyncEngine>((ref) {
+  return LedgerSyncEngine(
+    pushService: ref.watch(ledgerPushServiceProvider),
+    pullService: ref.watch(ledgerSyncServiceProvider),
+  );
+});
+
+final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return SmartInboxSyncService(
+    db: db,
+    isPullEnabled: () {
+      try {
+        return featureFlags.getBool('smart_inbox_pull_sync');
+      } catch (_) {
+        return false;
+      }
+    },
   );
 });
 

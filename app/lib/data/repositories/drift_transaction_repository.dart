@@ -8,15 +8,18 @@ import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/services/duplicate_transaction_detector.dart';
 import '../../engine/parser/card_network.dart';
+import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/database_seed.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
 class DriftTransactionRepository implements TransactionRepository {
-  DriftTransactionRepository(this._db);
+  DriftTransactionRepository(this._db, {LedgerOutboxQueue? outboxQueue})
+      : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final LedgerOutboxQueue? _outboxQueue;
 
   @override
   Future<TransactionEntity> confirm(String id) async {
@@ -36,6 +39,7 @@ class DriftTransactionRepository implements TransactionRepository {
     if (updated == null) {
       throw StateError('Transaction not found: $id');
     }
+    await _outboxQueue?.enqueue(OutboxOperation.update, updated);
     return updated;
   }
 
@@ -191,6 +195,7 @@ class DriftTransactionRepository implements TransactionRepository {
     if (saved == null) {
       throw StateError('Failed to load saved transaction: ${transaction.id}');
     }
+    await _outboxQueue?.enqueue(OutboxOperation.create, saved);
     return saved;
   }
 
@@ -224,6 +229,7 @@ class DriftTransactionRepository implements TransactionRepository {
     if (updated == null) {
       throw StateError('Transaction not found: $transactionId');
     }
+    await _outboxQueue?.enqueue(OutboxOperation.update, updated);
     return updated;
   }
 
@@ -284,6 +290,7 @@ class DriftTransactionRepository implements TransactionRepository {
     if (updated == null) {
       throw StateError('Transaction not found: $transactionId');
     }
+    await _outboxQueue?.enqueue(OutboxOperation.update, updated);
     return updated;
   }
 
@@ -300,6 +307,10 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withString(transactionId),
       ],
     );
+    if (_outboxQueue != null) {
+      final tx = await getById(transactionId);
+      if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
+    }
   }
 
   @override
@@ -317,6 +328,10 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withString(transactionId),
       ],
     );
+    if (_outboxQueue != null) {
+      final tx = await getById(transactionId);
+      if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
+    }
   }
 
   @override
@@ -332,10 +347,16 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withString(transactionId),
       ],
     );
+    if (_outboxQueue != null) {
+      final tx = await getById(transactionId);
+      if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
+    }
   }
 
   @override
   Future<void> deleteTransaction(String id) async {
+    // Fetch before the soft-delete so we have the full entity for the outbox payload.
+    final tx = _outboxQueue != null ? await getById(id) : null;
     await _db.customUpdate(
       '''
         UPDATE transactions
@@ -347,6 +368,7 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withString(id),
       ],
     );
+    if (tx != null) await _outboxQueue!.enqueue(OutboxOperation.delete, tx);
   }
 
   // بند تصفية الحساب: فارغ عند null، وإلا شرط account_id.

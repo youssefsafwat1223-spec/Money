@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/install_id.dart';
@@ -75,6 +76,30 @@ class CaptureDeviceRegistrationService {
     if (token != null) {
       await syncApnsToken(token);
     }
+  }
+
+  // Links this device's capture_devices row to the authenticated Supabase user.
+  // Best-effort — safe to call even when offline or before device registration.
+  // Guests (no currentUser) are silently skipped so they always stay relay-only.
+  Future<void> linkToCurrentUser() async {
+    if (!Platform.isIOS || !SupabaseConfig.isConfigured) return;
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    final session = client.auth.currentSession;
+    if (user == null || session == null) return;
+    final secret = await _storage.read(key: _secretKey);
+    if (secret == null || secret.isEmpty) return;
+    final installId = await InstallId.get();
+    final backendClient = _client ??
+        CaptureBackendClient(
+          supabaseUrl: SupabaseConfig.url,
+          anonKey: SupabaseConfig.anonKey,
+        );
+    await backendClient.linkDevice(
+      installId: installId,
+      deviceSecret: secret,
+      jwt: session.accessToken,
+    );
   }
 
   Future<String?> readDeviceSecret() => _storage.read(key: _secretKey);

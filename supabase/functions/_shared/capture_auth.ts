@@ -47,7 +47,10 @@ export async function verifyDevice(
   supabase: ReturnType<typeof serviceClient>,
   installId: string,
   deviceSecret: string,
-): Promise<{ ok: true; installIdHash: string } | { ok: false; status: number; error: string }> {
+): Promise<
+  | { ok: true; installIdHash: string; userId: string | null }
+  | { ok: false; status: number; error: string }
+> {
   if (!installId || !deviceSecret) {
     return { ok: false, status: 400, error: 'missing_device_credentials' };
   }
@@ -55,7 +58,7 @@ export async function verifyDevice(
   const deviceSecretHash = await sha256Hex(deviceSecret);
   const { data, error } = await supabase
     .from('capture_devices')
-    .select('device_secret_hash')
+    .select('device_secret_hash, user_id')
     .eq('install_id_hash', installIdHash)
     .maybeSingle();
   if (error) return { ok: false, status: 500, error: 'device_lookup_failed' };
@@ -66,5 +69,5 @@ export async function verifyDevice(
     .from('capture_devices')
     .update({ last_seen_at: new Date().toISOString() })
     .eq('install_id_hash', installIdHash);
-  return { ok: true, installIdHash };
+  return { ok: true, installIdHash, userId: (data.user_id as string | null) ?? null };
 }

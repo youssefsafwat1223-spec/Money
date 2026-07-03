@@ -121,6 +121,15 @@ String duplicateStatusToSql(DuplicateStatus value) {
   };
 }
 
+SyncStatus syncStatusFromSql(String? value) {
+  return switch (value) {
+    'synced' => SyncStatus.synced,
+    'pending' => SyncStatus.pending,
+    'conflict' => SyncStatus.conflict,
+    _ => SyncStatus.localOnly,
+  };
+}
+
 TransactionEntity transactionFromRow(QueryRow row) {
   final balance = row.readNullable<double>('balance_after');
   final amount = row.read<double>('amount');
@@ -152,6 +161,10 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final possibleDuplicateOfTransactionId =
       row.readNullable<String>('possible_duplicate_of_transaction_id');
   final duplicateReason = row.readNullable<String>('duplicate_reason');
+  final serverId = row.readNullable<String>('server_id');
+  final syncedAt = row.readNullable<String>('synced_at');
+  final serverUpdatedAt = row.readNullable<String>('server_updated_at');
+  final syncStatus = row.readNullable<String>('sync_status');
   return TransactionEntity(
     id: row.read<String>('id'),
     amount: amount,
@@ -187,6 +200,11 @@ TransactionEntity transactionFromRow(QueryRow row) {
     duplicateStatus: duplicateStatusFromSql(duplicateStatus),
     possibleDuplicateOfTransactionId: possibleDuplicateOfTransactionId,
     duplicateReason: duplicateReason,
+    serverId: serverId,
+    syncedAt: syncedAt == null ? null : dateTimeFromSql(syncedAt),
+    serverUpdatedAt:
+        serverUpdatedAt == null ? null : dateTimeFromSql(serverUpdatedAt),
+    syncStatus: syncStatusFromSql(syncStatus),
   );
 }
 

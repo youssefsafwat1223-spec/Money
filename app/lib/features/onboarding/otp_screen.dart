@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/auth/auth_service.dart';
+import '../../core/di/app_providers.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
@@ -70,6 +72,12 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       final returningUser = AppSession.instance.hasCompletedOnboarding;
       await AppSession.instance
           .setIdentity(method: identity.method, email: identity.email);
+      unawaited(
+        ref
+            .read(captureDeviceRegistrationServiceProvider)
+            .linkToCurrentUser()
+            .catchError((_) {}),
+      );
       if (mounted) {
         if (wasAuthenticated) {
           context.go('/');
