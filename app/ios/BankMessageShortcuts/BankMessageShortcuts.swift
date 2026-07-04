@@ -93,18 +93,18 @@ struct PostBankStatusIntent: AppIntent {
       } catch {
         _ = try? service.capture(
           request,
-          status: .pending,
+          status: .sent,
           sentAt: nil,
           failureReason: "\(error)"
         )
-        await scheduleGenericFallbackNotification()
+        await scheduleLocalParsedOrGenericNotification()
         return .result()
       }
     }
 
-    let captured = (try? service.capture(request)) != nil
+    let captured = (try? service.capture(request, status: .sent)) != nil
     if captured {
-      await scheduleGenericFallbackNotification()
+      await scheduleLocalParsedOrGenericNotification()
     }
     return .result()
   }
@@ -121,6 +121,22 @@ struct PostBankStatusIntent: AppIntent {
       trigger: nil
     )
     try? await UNUserNotificationCenter.current().add(notifRequest)
+  }
+
+  private func scheduleLocalParsedOrGenericNotification() async {
+    if let parser = PreviewParser.shared {
+      let result = parser.parse(smsText)
+      if result.isHighConfidence, let amount = result.amount, let currency = result.currency {
+        let isCredit = result.outcome == .credit
+        let verb = isCredit ? "إيداع" : "خصم"
+        let title = isCredit ? "تم رصد إيداع" : "تم رصد عملية"
+        var body = "\(verb) \(PreviewParser.format(amount)) \(currency)"
+        if let merchant = result.merchant { body += " لدى \(merchant)" }
+        await scheduleNotification(BackendNotification(title: title, body: body, type: "new_transaction"))
+        return
+      }
+    }
+    await scheduleGenericFallbackNotification()
   }
 
   private func scheduleGenericFallbackNotification() async {

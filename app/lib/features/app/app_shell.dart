@@ -267,10 +267,13 @@ class _AppShellState extends ConsumerState<AppShell> {
             'hasTransaction=${result.transactionId != null}',
           );
         }
-        await _showCapturedMessageNotification(
-          result,
-          notificationPreferences,
-        );
+        // AppIntent already showed a notification (status == 'sent'); skip duplicate.
+        if (message.status != 'sent') {
+          await _showCapturedMessageNotification(
+            result,
+            notificationPreferences,
+          );
+        }
         if (result.transactionId != null &&
             result.addTransactionResult.requiresConfirmation) {
           pendingConfirmationId = result.transactionId;
