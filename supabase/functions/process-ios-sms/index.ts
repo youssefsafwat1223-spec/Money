@@ -56,6 +56,7 @@ Deno.serve(async (req) => {
   const rawText = readString(body, 'smsText', 'sms_text') || sanitizedText;
   const sender = readString(body, 'sender', 'senderId', 'sender_id', 'senderName', 'sender_name');
   const receivedAt = readString(body, 'receivedAt', 'received_at') || new Date().toISOString();
+  const tzOffsetMinutes = typeof body.tzOffsetMinutes === 'number' ? body.tzOffsetMinutes : null;
   const locale = readString(body, 'locale', 'deviceLocale', 'device_locale');
   const allowAi = body.allowAi === true || body.allow_ai === true;
 
@@ -122,7 +123,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  const notification = buildNotification(status, parsed, sender);
+  const notification = buildNotification(status, parsed, sender, receivedAt, tzOffsetMinutes);
   const { data, error } = await supabase
     .from('processed_captures')
     .insert({
@@ -360,28 +361,33 @@ async function detectDuplicate(
   return null;
 }
 
-function buildNotification(status: CaptureStatus, parsed: ParsedCapture, sender: string): NotificationPayload {
+function buildNotification(
+  status: CaptureStatus,
+  parsed: ParsedCapture,
+  sender: string,
+  receivedAt: string,
+  tzOffsetMinutes: number | null,
+): NotificationPayload {
   if (status === 'duplicate') {
     return {
-      title: 'عملية مشابهة موجودة',
-      body: 'العملية دي شبه عملية موجودة بنفس المبلغ والتاجر والوقت.',
+      title: 'عملية مشابهة ⚠️',
+      body: `${detailLines(parsed, receivedAt, tzOffsetMinutes)}\nموجودة مسبقاً؟ افتح قرش للمراجعة.`,
       type: 'suspicious_duplicate',
     };
   }
   if (status === 'needs_review') {
     return {
-      title: 'عملية تحتاج مراجعة',
+      title: 'عملية تحتاج مراجعة ⚠️',
       body: parsed.amount && parsed.currency
-        ? `راجع ${formatAmount(parsed.amount)} ${parsed.currency}${parsed.merchant ? ` لدى ${parsed.merchant}` : ''}.`
+        ? `${detailLines(parsed, receivedAt, tzOffsetMinutes)}\nافتح قرش للمراجعة والتأكيد.`
         : 'افتح قرش لمراجعة الرسالة.',
       type: 'needs_review',
     };
   }
   if (status === 'processed') {
-    const verb = parsed.direction === 'credit' ? 'إضافة' : 'تسجيل';
     return {
-      title: parsed.direction === 'credit' ? 'تم رصد إيداع' : 'تم رصد عملية',
-      body: `${verb} ${formatAmount(parsed.amount ?? 0)} ${parsed.currency ?? ''}${parsed.merchant ? ` لدى ${parsed.merchant}` : sender ? ` من ${sender}` : ''}.`,
+      title: `تم رصد ${typeTitle(parsed)} ${typeEmoji(parsed)}`,
+      body: detailLines(parsed, receivedAt, tzOffsetMinutes),
       type: 'new_transaction',
     };
   }
@@ -390,6 +396,102 @@ function buildNotification(status: CaptureStatus, parsed: ParsedCapture, sender:
     body: sender ? `تم استلام رسالة من ${sender}. افتح قرش لمراجعتها.` : 'تم استلام رسالة بنكية. افتح قرش لمراجعتها.',
     type: 'received',
   };
+}
+
+// قائمة التفاصيل — سطر لكل معلومة متاحة. الرصيد لا يظهر أبداً (شاشة القفل).
+function detailLines(
+  parsed: ParsedCapture,
+  receivedAt: string,
+  tzOffsetMinutes: number | null,
+): string {
+  const lines = [`المبلغ: ${formatAmount(parsed.amount ?? 0)} ${parsed.currency ?? ''}`.trim()];
+  if (parsed.merchant) {
+    lines.push(parsed.direction === 'credit' ? `المصدر: ${parsed.merchant}` : `التاجر: ${parsed.merchant}`);
+  }
+  if (parsed.last4) lines.push(`البطاقة: ****${parsed.last4}`);
+  const time = timeLabel(parsed.occurredAt ?? receivedAt, tzOffsetMinutes);
+  if (time) lines.push(`الوقت: ${time}`);
+  const category = categoryLabelAr(parsed.category);
+  if (category) lines.push(`التصنيف: ${category}`);
+  return lines.join('\n');
+}
+
+function typeTitle(parsed: ParsedCapture): string {
+  if (parsed.direction === 'credit') return 'إيداع';
+  switch (parsed.type) {
+    case 'withdrawal': return 'سحب نقدي';
+    case 'transfer': return 'تحويل';
+    case 'refund': return 'استرداد';
+    case 'payment': return 'عملية شراء';
+    default: return 'عملية';
+  }
+}
+
+function typeEmoji(parsed: ParsedCapture): string {
+  if (parsed.direction === 'credit') return '💰';
+  switch (parsed.type) {
+    case 'withdrawal': return '🏧';
+    case 'transfer': return '🔁';
+    case 'refund': return '↩️';
+    case 'payment': return '🛒';
+    default: return '💳';
+  }
+}
+
+// "اليوم 9:41 م" بتوقيت الجهاز (عبر tzOffsetMinutes). بدون offset لا نعرض وقتاً
+// حتى لا نعرض توقيت UTC مضللاً.
+function timeLabel(iso: string, tzOffsetMinutes: number | null): string | null {
+  if (tzOffsetMinutes == null) return null;
+  const utc = new Date(iso);
+  if (Number.isNaN(utc.getTime())) return null;
+  const local = new Date(utc.getTime() + tzOffsetMinutes * 60_000);
+  const nowLocal = new Date(Date.now() + tzOffsetMinutes * 60_000);
+  const hour24 = local.getUTCHours();
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const minute = String(local.getUTCMinutes()).padStart(2, '0');
+  const suffix = hour24 < 12 ? 'ص' : 'م';
+  const time = `${hour12}:${minute} ${suffix}`;
+  const sameDay = local.getUTCFullYear() === nowLocal.getUTCFullYear() &&
+    local.getUTCMonth() === nowLocal.getUTCMonth() &&
+    local.getUTCDate() === nowLocal.getUTCDate();
+  if (sameDay) return `اليوم ${time}`;
+  const yesterday = new Date(nowLocal.getTime() - 86_400_000);
+  const isYesterday = local.getUTCFullYear() === yesterday.getUTCFullYear() &&
+    local.getUTCMonth() === yesterday.getUTCMonth() &&
+    local.getUTCDate() === yesterday.getUTCDate();
+  if (isYesterday) return `أمس ${time}`;
+  return `${local.getUTCDate()}/${local.getUTCMonth() + 1} ${time}`;
+}
+
+// نفس تسميات lib/features/capture/services/capture_notification_content.dart.
+function categoryLabelAr(key: string | undefined): string | null {
+  switch (key) {
+    case 'restaurants': return 'مطاعم 🍔';
+    case 'cafes': return 'مقاهي ☕';
+    case 'groceries': return 'بقالة 🛒';
+    case 'transport': return 'مواصلات 🚗';
+    case 'fuel': return 'وقود ⛽';
+    case 'bills': return 'فواتير 📱';
+    case 'shopping': return 'تسوق 🛍';
+    case 'health': return 'صحة 🏥';
+    case 'education': return 'تعليم 📚';
+    case 'entertainment': return 'ترفيه 🎬';
+    case 'subscriptions': return 'اشتراكات 📲';
+    case 'transfers': return 'تحويل 💸';
+    case 'cash': return 'كاش 💵';
+    case 'travel': return 'سفر ✈️';
+    case 'gifts': return 'هدايا 🎁';
+    case 'kids': return 'أطفال 👶';
+    case 'home': return 'منزل 🏠';
+    case 'maintenance': return 'صيانة 🔧';
+    case 'fitness': return 'رياضة 💪';
+    case 'beauty': return 'جمال 💅';
+    case 'charity': return 'خيرية 🤲';
+    case 'pets': return 'حيوانات 🐾';
+    case 'insurance': return 'تأمين 🛡️';
+    case 'income': return 'دخل 💰';
+    default: return null;
+  }
 }
 
 async function sendApnsIfPossible(

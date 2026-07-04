@@ -3,6 +3,10 @@ import '../../../domain/entities/transaction_entity.dart';
 /// محتوى إشعار الالتقاط — builder واحد مشترك بين مساري الإشعارات
 /// (CapturedMessageProcessor في الخلفية و AppShell في الواجهة) حتى يظهر
 /// نفس النص بكل التفاصيل في الحالتين.
+///
+/// الشكل: عنوان بنوع العملية، وجسم متعدد الأسطر بكل التفاصيل المتاحة
+/// (المبلغ/التاجر/البطاقة/الوقت/التصنيف). الرصيد لا يظهر أبداً في
+/// الإشعار — يظهر على شاشة القفل لأي شخص يرى الجهاز.
 class CaptureNotificationContent {
   const CaptureNotificationContent({required this.title, required this.body});
 
@@ -10,10 +14,11 @@ class CaptureNotificationContent {
   final String body;
 }
 
-/// إشعار عملية مؤكدة (captureLight): "إيداع ✓ 150 ر.س".
+/// إشعار عملية مؤكدة: "تم رصد عملية شراء 🛒" + قائمة التفاصيل.
 CaptureNotificationContent buildConfirmedCaptureContent(
-  TransactionEntity? tx,
-) {
+  TransactionEntity? tx, {
+  DateTime? now,
+}) {
   if (tx == null) {
     return const CaptureNotificationContent(
       title: 'تم التقاط العملية',
@@ -21,15 +26,16 @@ CaptureNotificationContent buildConfirmedCaptureContent(
     );
   }
   return CaptureNotificationContent(
-    title: '${_typeLabel(tx.type)} ✓ ${_amountLine(tx)}',
-    body: _detailsLine(tx),
+    title: 'تم رصد ${_typeTitle(tx.type)} ${_typeEmoji(tx.type)}',
+    body: _detailsBlock(tx, now: now),
   );
 }
 
-/// إشعار يطلب تأكيداً (captureReview): "أكّد الخصم — 150 ر.س".
+/// إشعار يطلب تأكيداً: "أكّد الخصم — 150.00 ر.س" + قائمة التفاصيل.
 CaptureNotificationContent buildReviewCaptureContent(
-  TransactionEntity? tx,
-) {
+  TransactionEntity? tx, {
+  DateTime? now,
+}) {
   if (tx == null) {
     return const CaptureNotificationContent(
       title: 'أكّد العملية',
@@ -38,24 +44,24 @@ CaptureNotificationContent buildReviewCaptureContent(
   }
   return CaptureNotificationContent(
     title: 'أكّد ${_typeLabelDefinite(tx.type)} — ${_amountLine(tx)}',
-    body: _detailsLine(tx),
+    body: '${_detailsBlock(tx, now: now)}\nاضغط للمراجعة والتأكيد.',
   );
 }
 
 /// إشعار عملية مشابهة (suspicious duplicate).
 CaptureNotificationContent buildDuplicateCaptureContent(
-  TransactionEntity? tx,
-) {
+  TransactionEntity? tx, {
+  DateTime? now,
+}) {
   if (tx == null) {
     return const CaptureNotificationContent(
       title: 'عملية مشابهة',
       body: 'افتح قرش وراجع الـ Smart Inbox.',
     );
   }
-  final merchant = tx.rawMerchant != null ? ' لدى ${tx.rawMerchant}' : '';
   return CaptureNotificationContent(
-    title: 'عملية مشابهة',
-    body: '${_amountLine(tx)}$merchant — موجودة مسبقاً؟ اضغط للمراجعة.',
+    title: 'عملية مشابهة ⚠️',
+    body: '${_detailsBlock(tx, now: now)}\nموجودة مسبقاً؟ اضغط للمراجعة.',
   );
 }
 
@@ -68,42 +74,46 @@ String _amountLine(TransactionEntity tx) {
   return base;
 }
 
-/// سطر التفاصيل: التاجر · التصنيف · بطاقة •1234 · رصيدك 3,450 ر.س
-String _detailsLine(TransactionEntity tx) {
-  final parts = <String>[];
+/// قائمة التفاصيل — سطر لكل معلومة متاحة.
+String _detailsBlock(TransactionEntity tx, {DateTime? now}) {
+  final lines = <String>['المبلغ: ${_amountLine(tx)}'];
   if (tx.rawMerchant != null && tx.rawMerchant!.trim().isNotEmpty) {
     final label = switch (tx.type) {
       TransactionTypeEntity.income ||
       TransactionTypeEntity.refund =>
-        'من ${tx.rawMerchant}',
-      _ => 'لدى ${tx.rawMerchant}',
+        'المصدر: ${tx.rawMerchant}',
+      _ => 'التاجر: ${tx.rawMerchant}',
     };
-    parts.add(label);
+    lines.add(label);
   }
-  final cat = captureCategoryLabel(tx.categoryId);
-  if (cat != null) parts.add(cat);
   if (tx.cardLast4 != null && tx.cardLast4!.isNotEmpty) {
-    parts.add('بطاقة •${tx.cardLast4}');
+    lines.add('البطاقة: ****${tx.cardLast4}');
   }
-  if (tx.balanceAfter != null) {
-    parts.add('رصيدك ${fmtCaptureAmount(tx.balanceAfter!)} ${tx.currency}');
-  }
-  if (parts.isEmpty) {
-    return tx.type == TransactionTypeEntity.income
-        ? 'في حسابك.'
-        : 'من حسابك.';
-  }
-  return parts.join(' · ');
+  lines.add('الوقت: ${captureTimeLabel(tx.occurredAt, now: now)}');
+  final cat = captureCategoryLabel(tx.categoryId);
+  if (cat != null) lines.add('التصنيف: $cat');
+  return lines.join('\n');
 }
 
-String _typeLabel(TransactionTypeEntity type) {
+String _typeTitle(TransactionTypeEntity type) {
   return switch (type) {
     TransactionTypeEntity.income => 'إيداع',
     TransactionTypeEntity.refund => 'استرداد',
     TransactionTypeEntity.transfer => 'تحويل',
     TransactionTypeEntity.withdrawal => 'سحب نقدي',
-    TransactionTypeEntity.payment => 'خصم',
+    TransactionTypeEntity.payment => 'عملية شراء',
     TransactionTypeEntity.unknown => 'عملية',
+  };
+}
+
+String _typeEmoji(TransactionTypeEntity type) {
+  return switch (type) {
+    TransactionTypeEntity.income => '💰',
+    TransactionTypeEntity.refund => '↩️',
+    TransactionTypeEntity.transfer => '🔁',
+    TransactionTypeEntity.withdrawal => '🏧',
+    TransactionTypeEntity.payment => '🛒',
+    TransactionTypeEntity.unknown => '💳',
   };
 }
 
@@ -122,6 +132,26 @@ String fmtCaptureAmount(double amount) {
   return amount == amount.truncateToDouble()
       ? amount.toInt().toString()
       : amount.toStringAsFixed(2);
+}
+
+/// "اليوم 9:41 م" / "أمس 9:41 م" / "2/7 9:41 م" — بتوقيت الجهاز.
+String captureTimeLabel(DateTime occurredAt, {DateTime? now}) {
+  final local = occurredAt.toLocal();
+  final ref = (now ?? DateTime.now()).toLocal();
+  final hour12 = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final minute = local.minute.toString().padLeft(2, '0');
+  final suffix = local.hour < 12 ? 'ص' : 'م';
+  final time = '$hour12:$minute $suffix';
+  final sameDay = local.year == ref.year &&
+      local.month == ref.month &&
+      local.day == ref.day;
+  if (sameDay) return 'اليوم $time';
+  final yesterday = ref.subtract(const Duration(days: 1));
+  final isYesterday = local.year == yesterday.year &&
+      local.month == yesterday.month &&
+      local.day == yesterday.day;
+  if (isYesterday) return 'أمس $time';
+  return '${local.day}/${local.month} $time';
 }
 
 /// تسمية عربية للتصنيف بمفتاحه الثابت.

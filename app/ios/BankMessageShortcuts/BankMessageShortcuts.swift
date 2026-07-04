@@ -129,15 +129,39 @@ struct PostBankStatusIntent: AppIntent {
       let result = parser.parse(smsText)
       if result.isHighConfidence, let amount = result.amount, let currency = result.currency {
         let isCredit = result.outcome == .credit
-        let verb = isCredit ? "إيداع" : "خصم"
-        let title = isCredit ? "تم رصد إيداع" : "تم رصد عملية"
-        var body = "\(verb) \(PreviewParser.format(amount)) \(currency)"
-        if let merchant = result.merchant { body += " لدى \(merchant)" }
-        await scheduleNotification(BackendNotification(title: title, body: body, type: "new_transaction"))
+        let title = isCredit ? "تم رصد إيداع 💰" : "تم رصد عملية شراء 🛒"
+        var lines = ["المبلغ: \(PreviewParser.format(amount)) \(currency)"]
+        if let merchant = result.merchant {
+          lines.append(isCredit ? "المصدر: \(merchant)" : "التاجر: \(merchant)")
+        }
+        if let last4 = result.last4 {
+          lines.append("البطاقة: ****\(last4)")
+        }
+        lines.append("الوقت: \(Self.timeLabel(for: dateReceived ?? Date()))")
+        await scheduleNotification(BackendNotification(
+          title: title,
+          body: lines.joined(separator: "\n"),
+          type: "new_transaction"
+        ))
         return
       }
     }
     await scheduleGenericFallbackNotification()
+  }
+
+  /// "اليوم ٩:٤١ م" بأسلوب صريح: اليوم/أمس/د‏/‏ش — بتوقيت الجهاز.
+  private static func timeLabel(for date: Date) -> String {
+    let calendar = Calendar.current
+    let comps = calendar.dateComponents([.hour, .minute], from: date)
+    let hour24 = comps.hour ?? 0
+    let hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12
+    let minute = String(format: "%02d", comps.minute ?? 0)
+    let suffix = hour24 < 12 ? "ص" : "م"
+    let time = "\(hour12):\(minute) \(suffix)"
+    if calendar.isDateInToday(date) { return "اليوم \(time)" }
+    if calendar.isDateInYesterday(date) { return "أمس \(time)" }
+    let dayComps = calendar.dateComponents([.day, .month], from: date)
+    return "\(dayComps.day ?? 0)/\(dayComps.month ?? 0) \(time)"
   }
 
   private func scheduleGenericFallbackNotification() async {
@@ -358,6 +382,7 @@ struct BackendCaptureClient {
       "senderName": request.senderName ?? "",
       "senderId": request.senderID ?? "",
       "receivedAt": SharedCaptureStore.isoString(from: request.receivedAt ?? Date()),
+      "tzOffsetMinutes": TimeZone.current.secondsFromGMT() / 60,
       "locale": request.localeIdentifier ?? Locale.autoupdatingCurrent.identifier,
       "source": "ios_shortcut",
       "allowAi": UserDefaults(suiteName: SharedCaptureStore.appGroupIdentifier)?

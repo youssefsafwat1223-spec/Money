@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/features/capture/services/capture_notification_content.dart';
 
+final _fixedNow = DateTime.utc(2026, 7, 2, 14);
+
 TransactionEntity _tx({
   double amount = 150,
   String currency = 'SAR',
@@ -37,50 +39,56 @@ TransactionEntity _tx({
 
 void main() {
   group('buildConfirmedCaptureContent', () {
-    test('full details: type + amount + merchant + category + card + balance',
-        () {
-      final content = buildConfirmedCaptureContent(_tx(
-        rawMerchant: 'STARBUCKS',
-        categoryId: 'cafes',
-        cardLast4: '1234',
-        balanceAfter: 3450,
-      ));
-
-      expect(content.title, 'خصم ✓ 150 SAR');
-      expect(
-        content.body,
-        'لدى STARBUCKS · مقاهي ☕ · بطاقة •1234 · رصيدك 3450 SAR',
+    test('full details: labeled line per field, no balance line', () {
+      final content = buildConfirmedCaptureContent(
+        _tx(
+          rawMerchant: 'STARBUCKS',
+          categoryId: 'cafes',
+          cardLast4: '1234',
+          balanceAfter: 3450,
+        ),
+        now: _fixedNow,
       );
+
+      expect(content.title, 'تم رصد عملية شراء 🛒');
+      final lines = content.body.split('\n');
+      expect(lines[0], 'المبلغ: 150 SAR');
+      expect(lines[1], 'التاجر: STARBUCKS');
+      expect(lines[2], 'البطاقة: ****1234');
+      expect(lines[3], startsWith('الوقت: '));
+      expect(lines[4], 'التصنيف: مقاهي ☕');
+      // الرصيد لا يظهر أبداً في الإشعار (خصوصية شاشة القفل).
+      expect(content.body.contains('رصيد'), isFalse);
     });
 
-    test('income uses إيداع and من for the sender', () {
-      final content = buildConfirmedCaptureContent(_tx(
-        type: TransactionTypeEntity.income,
-        amount: 5000,
-        rawMerchant: 'شركة أرامكو',
-      ));
-
-      expect(content.title, 'إيداع ✓ 5000 SAR');
-      expect(content.body, 'من شركة أرامكو');
-    });
-
-    test('foreign amount shown in parentheses', () {
-      final content = buildConfirmedCaptureContent(_tx(
-        amount: 187.5,
-        foreignAmount: 50,
-        foreignCurrency: 'USD',
-      ));
-
-      expect(content.title, 'خصم ✓ 187.50 SAR (50 USD)');
-    });
-
-    test('no details falls back to account wording', () {
-      expect(buildConfirmedCaptureContent(_tx()).body, 'من حسابك.');
-      expect(
-        buildConfirmedCaptureContent(_tx(type: TransactionTypeEntity.income))
-            .body,
-        'في حسابك.',
+    test('income uses إيداع title and المصدر label', () {
+      final content = buildConfirmedCaptureContent(
+        _tx(
+          type: TransactionTypeEntity.income,
+          amount: 5000,
+          rawMerchant: 'شركة أرامكو',
+        ),
+        now: _fixedNow,
       );
+
+      expect(content.title, 'تم رصد إيداع 💰');
+      expect(content.body, contains('المصدر: شركة أرامكو'));
+    });
+
+    test('foreign amount shown in parentheses in the amount line', () {
+      final content = buildConfirmedCaptureContent(
+        _tx(amount: 187.5, foreignAmount: 50, foreignCurrency: 'USD'),
+        now: _fixedNow,
+      );
+
+      expect(content.body, contains('المبلغ: 187.50 SAR (50 USD)'));
+    });
+
+    test('minimal transaction still shows amount and time lines', () {
+      final content = buildConfirmedCaptureContent(_tx(), now: _fixedNow);
+      final lines = content.body.split('\n');
+      expect(lines[0], 'المبلغ: 150 SAR');
+      expect(lines[1], startsWith('الوقت: '));
     });
 
     test('null transaction has a generic fallback', () {
@@ -90,15 +98,20 @@ void main() {
   });
 
   group('buildReviewCaptureContent', () {
-    test('title asks to confirm with definite type and amount', () {
-      final content = buildReviewCaptureContent(_tx(
-        type: TransactionTypeEntity.withdrawal,
-        amount: 500,
-        cardLast4: '9876',
-      ));
+    test('title asks to confirm; body has details plus tap hint', () {
+      final content = buildReviewCaptureContent(
+        _tx(
+          type: TransactionTypeEntity.withdrawal,
+          amount: 500,
+          cardLast4: '9876',
+        ),
+        now: _fixedNow,
+      );
 
       expect(content.title, 'أكّد السحب — 500 SAR');
-      expect(content.body, 'بطاقة •9876');
+      expect(content.body, contains('المبلغ: 500 SAR'));
+      expect(content.body, contains('البطاقة: ****9876'));
+      expect(content.body, endsWith('اضغط للمراجعة والتأكيد.'));
     });
 
     test('null transaction has a generic fallback', () {
@@ -108,13 +121,36 @@ void main() {
   });
 
   group('buildDuplicateCaptureContent', () {
-    test('body includes amount and merchant', () {
-      final content = buildDuplicateCaptureContent(_tx(
-        rawMerchant: 'AMAZON',
-      ));
+    test('body includes details and review hint', () {
+      final content = buildDuplicateCaptureContent(
+        _tx(rawMerchant: 'AMAZON'),
+        now: _fixedNow,
+      );
 
-      expect(content.title, 'عملية مشابهة');
-      expect(content.body, '150 SAR لدى AMAZON — موجودة مسبقاً؟ اضغط للمراجعة.');
+      expect(content.title, 'عملية مشابهة ⚠️');
+      expect(content.body, contains('المبلغ: 150 SAR'));
+      expect(content.body, contains('التاجر: AMAZON'));
+      expect(content.body, endsWith('موجودة مسبقاً؟ اضغط للمراجعة.'));
+    });
+  });
+
+  group('captureTimeLabel', () {
+    test('same day → اليوم with 12h time', () {
+      final occurred = DateTime(2026, 7, 2, 21, 41);
+      final now = DateTime(2026, 7, 2, 23);
+      expect(captureTimeLabel(occurred, now: now), 'اليوم 9:41 م');
+    });
+
+    test('previous day → أمس', () {
+      final occurred = DateTime(2026, 7, 1, 9, 5);
+      final now = DateTime(2026, 7, 2, 23);
+      expect(captureTimeLabel(occurred, now: now), 'أمس 9:05 ص');
+    });
+
+    test('older → d/M', () {
+      final occurred = DateTime(2026, 6, 20, 12, 0);
+      final now = DateTime(2026, 7, 2, 23);
+      expect(captureTimeLabel(occurred, now: now), '20/6 12:00 م');
     });
   });
 
