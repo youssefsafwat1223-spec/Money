@@ -102,7 +102,8 @@ enum SharedCaptureStore {
     localeIdentifier: String? = nil,
     status: CaptureStatus = .pending,
     sentAt: Date? = nil,
-    failureReason: String? = nil
+    failureReason: String? = nil,
+    payloadID: String? = nil
   ) -> EnqueueResult {
     guard defaults != nil else {
       return .failed("App Group storage is unavailable.")
@@ -120,7 +121,9 @@ enum SharedCaptureStore {
     let receivedAtString = isoFormatter.string(from: receivedAt)
     let createdAtString = isoFormatter.string(from: Date())
     let locale = clean(localeIdentifier) ?? Locale.autoupdatingCurrent.identifier
-    let payloadID = makePayloadID(
+    // A caller-supplied ID (the App Intent's backend payload ID) wins so the
+    // queue entry and the processed_captures row always share one identity.
+    let payloadID = payloadID ?? makePayloadID(
       text: trimmed,
       sender: cleanSender,
       senderName: cleanSenderName,
