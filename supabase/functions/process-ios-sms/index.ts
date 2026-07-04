@@ -133,7 +133,7 @@ Deno.serve(async (req) => {
   // 'rejected' and 'duplicate' are excluded: no meaningful ledger row to write.
   if (auth.userId && (status === 'processed' || status === 'needs_review')) {
     try {
-      const dualWriteEnabled = await isLedgerDualWriteEnabled(supabase);
+      const dualWriteEnabled = await isLedgerDualWriteEnabled(supabase, auth.userId);
       if (dualWriteEnabled) {
         await upsertLedgerTransaction(supabase, auth.userId, {
           payloadId,

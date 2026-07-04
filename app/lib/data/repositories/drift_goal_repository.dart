@@ -2,14 +2,17 @@ import 'package:drift/drift.dart';
 
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/repositories/goal_repository.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
 class DriftGoalRepository implements GoalRepository {
-  DriftGoalRepository(this._db);
+  DriftGoalRepository(this._db, {PlanningOutboxQueue? outboxQueue})
+      : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final PlanningOutboxQueue? _outboxQueue;
 
   @override
   Future<GoalContributionEntity> addContribution(
@@ -37,22 +40,44 @@ class DriftGoalRepository implements GoalRepository {
         Variable.withString(contribution.goalId),
       ],
     );
+    final updated = await getById(contribution.goalId);
+    if (updated != null) {
+      await _outboxQueue?.enqueueGoal(
+        PlanningSyncOperation.update,
+        updated,
+      );
+    }
     return contribution;
   }
 
   @override
   Future<void> delete(String id) async {
+    final existing = await getById(id);
+    final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customUpdate(
-      'DELETE FROM goals WHERE id = ?;',
-      variables: [Variable.withString(id)],
+      '''
+      UPDATE goals
+      SET deleted_at = ?, status = 'archived'
+      WHERE id = ?;
+      ''',
+      variables: [
+        Variable.withString(now),
+        Variable.withString(id),
+      ],
     );
+    if (existing != null) {
+      await _outboxQueue?.enqueueGoal(
+        PlanningSyncOperation.delete,
+        existing,
+      );
+    }
   }
 
   @override
   Future<int> countAll() async {
     final row = await _db
         .customSelect(
-          'SELECT COUNT(*) AS total FROM goals;',
+          'SELECT COUNT(*) AS total FROM goals WHERE deleted_at IS NULL;',
         )
         .getSingle();
     return row.read<int>('total');
@@ -62,7 +87,7 @@ class DriftGoalRepository implements GoalRepository {
   Future<List<GoalEntity>> getAll() async {
     final rows = await _db
         .customSelect(
-          'SELECT * FROM goals ORDER BY created_at DESC;',
+          'SELECT * FROM goals WHERE deleted_at IS NULL ORDER BY created_at DESC;',
         )
         .get();
     return rows.map(goalFromRow).toList();
@@ -71,7 +96,7 @@ class DriftGoalRepository implements GoalRepository {
   @override
   Future<GoalEntity?> getById(String id) async {
     final row = await _db.customSelect(
-      'SELECT * FROM goals WHERE id = ? LIMIT 1;',
+      'SELECT * FROM goals WHERE id = ? AND deleted_at IS NULL LIMIT 1;',
       variables: [Variable.withString(id)],
     ).getSingleOrNull();
     return row == null ? null : goalFromRow(row);
@@ -96,8 +121,9 @@ class DriftGoalRepository implements GoalRepository {
     final autoAmount =
         goal.autoSaveAmount == null ? 'NULL' : '${goal.autoSaveAmount}';
     final autoPeriod = sqlNullableString(goal.autoSavePeriod);
-    final autoLastRun = sqlNullableString(
-        goal.autoSaveLastRun == null ? null : dateTimeToSql(goal.autoSaveLastRun!));
+    final autoLastRun = sqlNullableString(goal.autoSaveLastRun == null
+        ? null
+        : dateTimeToSql(goal.autoSaveLastRun!));
     if (existing == null) {
       await _db.customStatement('''
         INSERT INTO goals(
@@ -116,6 +142,10 @@ class DriftGoalRepository implements GoalRepository {
           $autoAmount, $autoPeriod, $autoLastRun
         );
       ''');
+      await _outboxQueue?.enqueueGoal(
+        PlanningSyncOperation.create,
+        goal,
+      );
     } else {
       await _db.customStatement('''
         UPDATE goals
@@ -132,6 +162,10 @@ class DriftGoalRepository implements GoalRepository {
             auto_save_last_run = $autoLastRun
         WHERE id = ${sqlString(goal.id)};
       ''');
+      await _outboxQueue?.enqueueGoal(
+        PlanningSyncOperation.update,
+        goal,
+      );
     }
     return goal;
   }

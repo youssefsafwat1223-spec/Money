@@ -24,11 +24,15 @@ CREATE TABLE IF NOT EXISTS feature_flag_overrides (
 ALTER TABLE feature_flag_overrides ENABLE ROW LEVEL SECURITY;
 
 -- Users can read only their own overrides; service_role bypasses RLS for writes.
+DROP POLICY IF EXISTS "users_read_own_flag_overrides"
+  ON feature_flag_overrides;
 CREATE POLICY "users_read_own_flag_overrides"
   ON feature_flag_overrides FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_feature_flag_overrides_updated_at
+  ON feature_flag_overrides;
 CREATE TRIGGER set_feature_flag_overrides_updated_at
   BEFORE UPDATE ON feature_flag_overrides
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();

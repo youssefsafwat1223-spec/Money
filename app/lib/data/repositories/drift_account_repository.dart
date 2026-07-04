@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/repositories/account_repository.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 
@@ -22,22 +23,29 @@ AccountEntity accountFromRow(QueryRow row) {
 }
 
 class DriftAccountRepository implements AccountRepository {
-  DriftAccountRepository(this._db);
+  DriftAccountRepository(
+    this._db, {
+    PlanningOutboxQueue? outboxQueue,
+  }) : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final PlanningOutboxQueue? _outboxQueue;
 
   @override
   Future<List<AccountEntity>> getAll() async {
-    final rows = await _db.customSelect(
-      'SELECT * FROM accounts ORDER BY is_default DESC, sort_order ASC, created_at ASC;',
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM accounts WHERE deleted_at IS NULL '
+          'ORDER BY is_default DESC, sort_order ASC, created_at ASC;',
+        )
+        .get();
     return rows.map(accountFromRow).toList();
   }
 
   @override
   Future<AccountEntity?> getById(String id) async {
     final row = await _db.customSelect(
-      'SELECT * FROM accounts WHERE id = ? LIMIT 1;',
+      'SELECT * FROM accounts WHERE id = ? AND deleted_at IS NULL LIMIT 1;',
       variables: [Variable.withString(id)],
     ).getSingleOrNull();
     return row == null ? null : accountFromRow(row);
@@ -45,9 +53,12 @@ class DriftAccountRepository implements AccountRepository {
 
   @override
   Future<AccountEntity?> getDefault() async {
-    final row = await _db.customSelect(
-      'SELECT * FROM accounts ORDER BY is_default DESC, sort_order ASC LIMIT 1;',
-    ).getSingleOrNull();
+    final row = await _db
+        .customSelect(
+          'SELECT * FROM accounts WHERE deleted_at IS NULL '
+          'ORDER BY is_default DESC, sort_order ASC LIMIT 1;',
+        )
+        .getSingleOrNull();
     return row == null ? null : accountFromRow(row);
   }
 
@@ -55,10 +66,14 @@ class DriftAccountRepository implements AccountRepository {
   Future<AccountEntity> create(AccountEntity account) async {
     final id = account.id.isEmpty ? IdGenerator.next() : account.id;
     final now = DateTime.now().toUtc();
-    final isFirst = (await _db.count('accounts')) == 0;
+    final isFirst = (await _activeAccountCount()) == 0;
     final makeDefault = account.isDefault || isFirst;
+    final previousDefaults =
+        makeDefault ? await _defaultAccounts() : <AccountEntity>[];
     if (makeDefault) {
-      await _db.customStatement('UPDATE accounts SET is_default = 0;');
+      await _db.customStatement(
+        'UPDATE accounts SET is_default = 0 WHERE deleted_at IS NULL;',
+      );
     }
     await _db.customInsert(
       '''
@@ -86,6 +101,18 @@ class DriftAccountRepository implements AccountRepository {
       ],
     );
     final saved = await getById(id);
+    for (final previous in previousDefaults) {
+      final updated = await getById(previous.id);
+      if (updated != null) {
+        await _outboxQueue?.enqueueAccount(
+          PlanningSyncOperation.update,
+          updated,
+        );
+      }
+    }
+    if (saved != null) {
+      await _outboxQueue?.enqueueAccount(PlanningSyncOperation.create, saved);
+    }
     return saved!;
   }
 
@@ -117,6 +144,7 @@ class DriftAccountRepository implements AccountRepository {
     if (saved == null) {
       throw StateError('Account not found: ${account.id}');
     }
+    await _outboxQueue?.enqueueAccount(PlanningSyncOperation.update, saved);
     return saved;
   }
 
@@ -125,7 +153,7 @@ class DriftAccountRepository implements AccountRepository {
     final account = await getById(id);
     if (account == null) return;
     // لا نحذف آخر حساب.
-    if ((await _db.count('accounts')) <= 1) {
+    if ((await _activeAccountCount()) <= 1) {
       throw StateError('Cannot delete the last account.');
     }
     // فُكّ ربط عملياته (تبقى محفوظة بلا حساب).
@@ -133,22 +161,51 @@ class DriftAccountRepository implements AccountRepository {
       'UPDATE transactions SET account_id = NULL WHERE account_id = ${sqlString(id)};',
     );
     await _db.customStatement(
-      'DELETE FROM accounts WHERE id = ${sqlString(id)};',
+      'UPDATE accounts SET deleted_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}, '
+      'is_default = 0 WHERE id = ${sqlString(id)};',
     );
     if (account.isDefault) {
       await _db.customStatement(
         'UPDATE accounts SET is_default = 1 WHERE id = '
-        '(SELECT id FROM accounts ORDER BY sort_order ASC LIMIT 1);',
+        '(SELECT id FROM accounts WHERE deleted_at IS NULL '
+        'ORDER BY sort_order ASC LIMIT 1);',
       );
     }
+    await _outboxQueue?.enqueueAccount(PlanningSyncOperation.delete, account);
   }
 
   @override
   Future<void> setDefault(String id) async {
-    await _db.customStatement('UPDATE accounts SET is_default = 0;');
+    await _db.customStatement(
+      'UPDATE accounts SET is_default = 0 WHERE deleted_at IS NULL;',
+    );
     await _db.customUpdate(
-      'UPDATE accounts SET is_default = 1 WHERE id = ?;',
+      'UPDATE accounts SET is_default = 1 WHERE id = ? AND deleted_at IS NULL;',
       variables: [Variable.withString(id)],
     );
+    for (final account in await getAll()) {
+      await _outboxQueue?.enqueueAccount(
+        PlanningSyncOperation.update,
+        account,
+      );
+    }
+  }
+
+  Future<int> _activeAccountCount() async {
+    final row = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS total FROM accounts WHERE deleted_at IS NULL;',
+        )
+        .getSingle();
+    return row.read<int>('total');
+  }
+
+  Future<List<AccountEntity>> _defaultAccounts() async {
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM accounts WHERE deleted_at IS NULL AND is_default = 1;',
+        )
+        .get();
+    return rows.map(accountFromRow).toList();
   }
 }

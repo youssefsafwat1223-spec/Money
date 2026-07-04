@@ -30,5 +30,53 @@
     "rollout_percent": 100,
     "target_countries": [],
     "is_active": true
+  },
+  {
+    "key": "planning_accounts_sync",
+    "value_type": "boolean",
+    "value": "false",
+    "rollout_percent": 100,
+    "target_countries": [],
+    "is_active": false
+  },
+  {
+    "key": "planning_budgets_sync",
+    "value_type": "boolean",
+    "value": "false",
+    "rollout_percent": 100,
+    "target_countries": [],
+    "is_active": false
+  },
+  {
+    "key": "planning_subscriptions_sync",
+    "value_type": "boolean",
+    "value": "false",
+    "rollout_percent": 100,
+    "target_countries": [],
+    "is_active": false
+  },
+  {
+    "key": "planning_goals_sync",
+    "value_type": "boolean",
+    "value": "false",
+    "rollout_percent": 100,
+    "target_countries": [],
+    "is_active": false
+  },
+  {
+    "key": "planning_plans_sync",
+    "value_type": "boolean",
+    "value": "false",
+    "rollout_percent": 100,
+    "target_countries": [],
+    "is_active": false
+  },
+  {
+    "key": "capture_direct_ledger_write",
+    "value_type": "boolean",
+    "value": "false",
+    "rollout_percent": 100,
+    "target_countries": [],
+    "is_active": false
   }
 ]

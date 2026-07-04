@@ -2,28 +2,46 @@ import 'package:drift/drift.dart';
 
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/repositories/budget_repository.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
 class DriftBudgetRepository implements BudgetRepository {
-  DriftBudgetRepository(this._db);
+  DriftBudgetRepository(this._db, {PlanningOutboxQueue? outboxQueue})
+      : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final PlanningOutboxQueue? _outboxQueue;
 
   @override
   Future<void> delete(String id) async {
+    final existing = await getById(id);
+    final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customUpdate(
-      'DELETE FROM budgets WHERE id = ?;',
-      variables: [Variable.withString(id)],
+      '''
+      UPDATE budgets
+      SET deleted_at = ?, is_active = 0
+      WHERE id = ?;
+      ''',
+      variables: [
+        Variable.withString(now),
+        Variable.withString(id),
+      ],
     );
+    if (existing != null) {
+      await _outboxQueue?.enqueueBudget(
+        PlanningSyncOperation.delete,
+        existing,
+      );
+    }
   }
 
   @override
   Future<List<BudgetEntity>> getAll() async {
     final rows = await _db
         .customSelect(
-          'SELECT * FROM budgets ORDER BY start_date DESC;',
+          'SELECT * FROM budgets WHERE deleted_at IS NULL ORDER BY start_date DESC;',
         )
         .get();
     return rows.map(budgetFromRow).toList();
@@ -31,16 +49,18 @@ class DriftBudgetRepository implements BudgetRepository {
 
   @override
   Future<int> countActive() async {
-    final row = await _db.customSelect(
-      'SELECT COUNT(*) AS total FROM budgets WHERE is_active = 1;',
-    ).getSingle();
+    final row = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS total FROM budgets WHERE is_active = 1 AND deleted_at IS NULL;',
+        )
+        .getSingle();
     return row.read<int>('total');
   }
 
   @override
   Future<BudgetEntity?> getById(String id) async {
     final row = await _db.customSelect(
-      'SELECT * FROM budgets WHERE id = ? LIMIT 1;',
+      'SELECT * FROM budgets WHERE id = ? AND deleted_at IS NULL LIMIT 1;',
       variables: [Variable.withString(id)],
     ).getSingleOrNull();
     return row == null ? null : budgetFromRow(row);
@@ -66,8 +86,14 @@ class DriftBudgetRepository implements BudgetRepository {
           Variable.withInt(boolToSql(budget.alert80Sent)),
           Variable.withInt(boolToSql(budget.alert100Sent)),
           Variable.withInt(boolToSql(budget.showOnHeader)),
-          budget.accountId == null ? const Variable<String>(null) : Variable.withString(budget.accountId!),
+          budget.accountId == null
+              ? const Variable<String>(null)
+              : Variable.withString(budget.accountId!),
         ],
+      );
+      await _outboxQueue?.enqueueBudget(
+        PlanningSyncOperation.create,
+        budget,
       );
     } else {
       await _db.customUpdate(
@@ -86,9 +112,15 @@ class DriftBudgetRepository implements BudgetRepository {
           Variable.withInt(boolToSql(budget.alert80Sent)),
           Variable.withInt(boolToSql(budget.alert100Sent)),
           Variable.withInt(boolToSql(budget.showOnHeader)),
-          budget.accountId == null ? const Variable<String>(null) : Variable.withString(budget.accountId!),
+          budget.accountId == null
+              ? const Variable<String>(null)
+              : Variable.withString(budget.accountId!),
           Variable.withString(budget.id),
         ],
+      );
+      await _outboxQueue?.enqueueBudget(
+        PlanningSyncOperation.update,
+        budget,
       );
     }
     return budget;

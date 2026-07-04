@@ -67,6 +67,12 @@ import '../../features/capture/services/ledger_push_service.dart';
 import '../../features/capture/services/ledger_sync_engine.dart';
 import '../../features/capture/services/ledger_sync_service.dart';
 import '../../features/capture/services/smart_inbox_sync_service.dart';
+import '../../features/planning_sync/services/accounts_pull_service.dart';
+import '../../features/planning_sync/services/accounts_push_service.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
+import '../../features/planning_sync/services/planning_pull_service.dart';
+import '../../features/planning_sync/services/planning_push_service.dart';
+import '../../features/planning_sync/services/planning_sync_engine.dart';
 import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
@@ -104,9 +110,11 @@ final rulesClientProvider = Provider<RulesClient>((ref) {
 });
 
 final featureFlagServiceProvider = Provider<FeatureFlagService>((ref) {
+  final existing = _featureFlagInstance;
+  if (existing != null) return existing;
   return FeatureFlagService(
     dao: RemoteFeatureFlagsDao(ref.watch(appDatabaseProvider)),
-    installId: '', // replaced at runtime via initFeatureFlagService()
+    installId: '', // Safe fallback until initFeatureFlagService() runs.
   );
 });
 
@@ -143,10 +151,13 @@ final hasForceUpdateProvider = FutureProvider<bool>((ref) async {
 
 FeatureFlagService? _featureFlagInstance;
 
-/// Initialises the FeatureFlagService with the real install ID and loads
-/// flags from Drift. Call once at startup before the first frame.
-Future<FeatureFlagService> initFeatureFlagService(AppDatabase db) async {
-  final id = await InstallId.get();
+/// Initialises the authoritative runtime FeatureFlagService and loads flags
+/// from Drift. Call at startup and after catalog flag sync completes.
+Future<FeatureFlagService> initFeatureFlagService(
+  AppDatabase db, {
+  String? installIdOverride,
+}) async {
+  final id = installIdOverride ?? await InstallId.get();
   final service = FeatureFlagService(
     dao: RemoteFeatureFlagsDao(db),
     installId: id,
@@ -185,6 +196,9 @@ Future<void> syncCatalog(
   if (!SupabaseConfig.isConfigured) return;
   if (!force && !await _catalogSyncIsStale(database)) return;
   await ref.read(catalogSyncServiceProvider).syncAll(countryCode: countryCode);
+  // Catalog sync replaces remote_feature_flags in Drift; refresh the same
+  // runtime singleton used by sync gates before any outbox/pull work runs.
+  await initFeatureFlagService(database);
   // Invalidate announcement providers so UI rebuilds with fresh data.
   ref.invalidate(activeAnnouncementsProvider);
   ref.invalidate(hasForceUpdateProvider);
@@ -233,6 +247,90 @@ final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
   );
 });
 
+bool _planningAccountsSyncEnabled() {
+  try {
+    return featureFlags.getBool('planning_accounts_sync');
+  } catch (_) {
+    return false;
+  }
+}
+
+bool _planningEntitySyncEnabled(String entityType) {
+  final key = switch (entityType) {
+    PlanningOutboxQueue.accountsEntityType => 'planning_accounts_sync',
+    PlanningOutboxQueue.budgetsEntityType => 'planning_budgets_sync',
+    PlanningOutboxQueue.subscriptionsEntityType =>
+      'planning_subscriptions_sync',
+    PlanningOutboxQueue.goalsEntityType => 'planning_goals_sync',
+    PlanningOutboxQueue.plansEntityType => 'planning_plans_sync',
+    _ => '',
+  };
+  if (key.isEmpty) return false;
+  try {
+    return featureFlags.getBool(key);
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<String?> _currentSupabaseUserId() async {
+  if (!SupabaseConfig.isConfigured) return null;
+  try {
+    return supabase.Supabase.instance.client.auth.currentUser?.id;
+  } catch (_) {
+    return null;
+  }
+}
+
+final planningOutboxQueueProvider = Provider<PlanningOutboxQueue>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return PlanningOutboxQueue(
+    db: db,
+    isSyncEnabled: _planningEntitySyncEnabled,
+    getAuthUserId: _currentSupabaseUserId,
+  );
+});
+
+final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return AccountsPushService(
+    db: db,
+    queue: ref.watch(planningOutboxQueueProvider),
+    isEnabled: _planningAccountsSyncEnabled,
+  );
+});
+
+final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
+  return AccountsPullService(
+    db: ref.watch(appDatabaseProvider),
+    isEnabled: _planningAccountsSyncEnabled,
+  );
+});
+
+final planningPushServiceProvider = Provider<PlanningPushService>((ref) {
+  return PlanningPushService(
+    db: ref.watch(appDatabaseProvider),
+    queue: ref.watch(planningOutboxQueueProvider),
+    isEnabled: _planningEntitySyncEnabled,
+  );
+});
+
+final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
+  return PlanningPullService(
+    db: ref.watch(appDatabaseProvider),
+    isEnabled: _planningEntitySyncEnabled,
+  );
+});
+
+final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
+  return PlanningSyncEngine(
+    accountsPushService: ref.watch(accountsPushServiceProvider),
+    accountsPullService: ref.watch(accountsPullServiceProvider),
+    planningPushService: ref.watch(planningPushServiceProvider),
+    planningPullService: ref.watch(planningPullServiceProvider),
+  );
+});
+
 final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return LedgerPushService(
@@ -267,7 +365,10 @@ final suspectedDuplicatesProvider =
 });
 
 final accountRepositoryProvider = Provider<AccountRepository>((ref) {
-  return DriftAccountRepository(ref.watch(appDatabaseProvider));
+  return DriftAccountRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
 });
 
 /// قائمة الحسابات (تتحدّث عند الإضافة/التعديل عبر invalidate).
@@ -310,11 +411,17 @@ final merchantLogosProvider = FutureProvider<Map<String, String>>((ref) async {
 });
 
 final billRepositoryProvider = Provider<BillRepository>((ref) {
-  return DriftBillRepository(ref.watch(appDatabaseProvider));
+  return DriftBillRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
 });
 
 final planRepositoryProvider = Provider<PlanRepository>((ref) {
-  return DriftPlanRepository(ref.watch(appDatabaseProvider));
+  return DriftPlanRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
 });
 
 final merchantCategoryRepositoryProvider =
@@ -323,11 +430,17 @@ final merchantCategoryRepositoryProvider =
 });
 
 final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
-  return DriftBudgetRepository(ref.watch(appDatabaseProvider));
+  return DriftBudgetRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
 });
 
 final goalRepositoryProvider = Provider<GoalRepository>((ref) {
-  return DriftGoalRepository(ref.watch(appDatabaseProvider));
+  return DriftGoalRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
 });
 
 final gamificationRepositoryProvider = Provider<GamificationRepository>((ref) {

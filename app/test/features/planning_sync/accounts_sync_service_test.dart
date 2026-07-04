@@ -1,0 +1,344 @@
+import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/data/db/app_database.dart';
+import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/sql_value_codec.dart';
+import 'package:money_companion/data/repositories/drift_account_repository.dart';
+import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/features/planning_sync/services/accounts_pull_service.dart';
+import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
+import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
+
+class _MemoryKeyStore implements DatabaseKeyStore {
+  @override
+  Future<String> readOrCreateKey() async => 'test-key';
+
+  @override
+  Future<String?> readStoredKey() async => 'test-key';
+}
+
+class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
+  final rowsByLocalId = <String, Map<String, dynamic>>{};
+  final tombstones = <Map<String, dynamic>>[];
+  int upserts = 0;
+  int deletes = 0;
+  bool throwConflict = false;
+
+  @override
+  Future<Map<String, dynamic>?> findAccountByLocalId(
+    String userId,
+    String id,
+  ) async {
+    return rowsByLocalId[id];
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async {
+    return rowsByLocalId.values
+        .where((row) => row['deleted_at'] == null)
+        .take(limit)
+        .toList();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async {
+    return tombstones.take(limit).toList();
+  }
+
+  @override
+  Future<void> tombstoneAccount(String serverId) async {
+    deletes++;
+    final row = rowsByLocalId.values.firstWhere(
+      (item) => item['id'] == serverId,
+      orElse: () => <String, dynamic>{},
+    );
+    if (row.isNotEmpty) {
+      final deleted = DateTime.now().toUtc().toIso8601String();
+      row['deleted_at'] = deleted;
+      row['updated_at'] = deleted;
+      tombstones.add(Map<String, dynamic>.from(row));
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row) async {
+    if (throwConflict) throw StateError('409 conflict');
+    upserts++;
+    final localId = row['local_id'] as String;
+    final now = DateTime.now().toUtc().toIso8601String();
+    final saved = {
+      ...row,
+      'id': rowsByLocalId[localId]?['id'] ?? 'server-$localId',
+      'updated_at': now,
+      'deleted_at': null,
+    };
+    rowsByLocalId[localId] = saved;
+    return {'id': saved['id'], 'updated_at': saved['updated_at']};
+  }
+}
+
+Future<AppDatabase> _openDb() {
+  return AppDatabase.open(
+    executor: NativeDatabase.memory(),
+    keyStore: _MemoryKeyStore(),
+  );
+}
+
+AccountEntity _account(String id) {
+  final now = DateTime.utc(2026, 7, 4, 12);
+  return AccountEntity(
+    id: id,
+    name: 'Main $id',
+    currency: 'SAR',
+    type: AccountType.bank,
+    isDefault: false,
+    sortOrder: 1,
+    createdAt: now,
+    updatedAt: now,
+    initialBalance: 100,
+    currentBalance: 100,
+  );
+}
+
+PlanningOutboxQueue _queue(
+  AppDatabase db, {
+  required bool enabled,
+  String? userId = 'user-1',
+}) {
+  return PlanningOutboxQueue(
+    db: db,
+    isSyncEnabled: (_) => enabled,
+    getAuthUserId: () async => userId,
+  );
+}
+
+Future<int> _outboxCount(AppDatabase db) async {
+  final row = await db
+      .customSelect(
+        'SELECT COUNT(*) AS total FROM planning_sync_outbox;',
+      )
+      .getSingle();
+  return row.read<int>('total');
+}
+
+Future<String?> _accountSyncStatus(AppDatabase db, String id) async {
+  final row = await db
+      .customSelect(
+        'SELECT sync_status FROM accounts WHERE id = ${sqlString(id)} LIMIT 1;',
+      )
+      .getSingleOrNull();
+  return row?.readNullable<String>('sync_status');
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('accounts planning sync', () {
+    late AppDatabase db;
+
+    setUp(() async {
+      db = await _openDb();
+    });
+
+    tearDown(() async {
+      await db.close();
+    });
+
+    test('planning_accounts_sync OFF does not queue local account writes',
+        () async {
+      final repo = DriftAccountRepository(
+        db,
+        outboxQueue: _queue(db, enabled: false),
+      );
+
+      final saved = await repo.create(_account('account-off'));
+
+      expect(saved.id, 'account-off');
+      expect(await _outboxCount(db), 0);
+      expect((await repo.getById('account-off'))?.name, 'Main account-off');
+    });
+
+    test('planning_accounts_sync OFF makes push and pull no-op', () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      await DriftAccountRepository(db, outboxQueue: queue)
+          .create(_account('queued-but-off'));
+      expect(await _outboxCount(db), greaterThan(0));
+
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => false,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      );
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => false,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      );
+
+      expect((await push.push()).pushed, 0);
+      expect((await pull.pull()).imported, 0);
+      expect(remote.upserts, 0);
+    });
+
+    test('guest user does not queue account writes even when flag is ON',
+        () async {
+      final repo = DriftAccountRepository(
+        db,
+        outboxQueue: _queue(db, enabled: true, userId: null),
+      );
+
+      await repo.create(_account('guest-account'));
+
+      expect(await _outboxCount(db), 0);
+    });
+
+    test('signed-in flag ON queues and pushes account create update delete',
+        () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      final repo = DriftAccountRepository(db, outboxQueue: queue);
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      );
+
+      final account = await repo.create(_account('push-account'));
+      await repo.update(account.copyWith(name: 'Updated'));
+      await repo.create(_account('delete-account'));
+      await repo.delete('delete-account');
+
+      expect(await _outboxCount(db), greaterThanOrEqualTo(4));
+
+      final result = await push.push();
+
+      expect(result.pushed, greaterThanOrEqualTo(4));
+      expect(result.failed, 0);
+      expect(await _outboxCount(db), 0);
+      expect(remote.rowsByLocalId['push-account']?['name'], 'Updated');
+      expect(remote.deletes, 1);
+    });
+
+    test('pull imports one account and duplicate pull does not duplicate',
+        () async {
+      final remote = _FakeAccountsRemote();
+      remote.rowsByLocalId['remote-account'] = {
+        'id': 'server-remote-account',
+        'local_id': 'remote-account',
+        'name': 'Remote Account',
+        'currency': 'AED',
+        'type': 'wallet',
+        'initial_balance': 10,
+        'current_balance': 20,
+        'is_default': false,
+        'sort_order': 4,
+        'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+        'updated_at': DateTime.utc(2026, 7, 4, 1).toIso8601String(),
+        'deleted_at': null,
+      };
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      );
+
+      final first = await pull.pull();
+      final second = await pull.pull();
+
+      expect(first.imported, 1);
+      expect(second.imported, 0);
+      final rows = await db
+          .customSelect(
+            "SELECT * FROM accounts WHERE id = 'remote-account';",
+          )
+          .get();
+      expect(rows.length, 1);
+      expect(rows.single.read<String>('server_id'), 'server-remote-account');
+    });
+
+    test('tombstone hides local account without hard delete', () async {
+      final remote = _FakeAccountsRemote();
+      final repo = DriftAccountRepository(db);
+      await repo.create(_account('tombstone-account'));
+      remote.tombstones.add({
+        'id': 'server-tombstone-account',
+        'local_id': 'tombstone-account',
+        'deleted_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+        'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+      });
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      );
+
+      final result = await pull.pull();
+
+      expect(result.tombstoned, 1);
+      expect(await repo.getById('tombstone-account'), isNull);
+      final row = await db
+          .customSelect(
+            "SELECT deleted_at FROM accounts WHERE id = 'tombstone-account';",
+          )
+          .getSingle();
+      expect(row.readNullable<String>('deleted_at'), isNotNull);
+    });
+
+    test('pull marks local pending edit as conflict', () async {
+      final remote = _FakeAccountsRemote();
+      final repo = DriftAccountRepository(db);
+      await repo.create(_account('conflict-account'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'conflict-account';",
+      );
+      remote.rowsByLocalId['conflict-account'] = {
+        'id': 'server-conflict-account',
+        'local_id': 'conflict-account',
+        'name': 'Remote Edit',
+        'currency': 'SAR',
+        'type': 'bank',
+        'is_default': false,
+        'sort_order': 1,
+        'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+        'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+        'deleted_at': null,
+      };
+
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      );
+
+      final result = await pull.pull();
+
+      expect(result.conflicts, 1);
+      expect(await _accountSyncStatus(db, 'conflict-account'), 'conflict');
+      expect((await repo.getById('conflict-account'))?.name,
+          'Main conflict-account');
+    });
+
+    test('accountRepositoryProvider still returns Drift/local repository',
+        () async {
+      final container = ProviderContainer(
+        overrides: [appDatabaseProvider.overrideWithValue(db)],
+      );
+      addTearDown(container.dispose);
+
+      final repo = container.read(accountRepositoryProvider);
+
+      expect(repo, isA<DriftAccountRepository>());
+    });
+  });
+}

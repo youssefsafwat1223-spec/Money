@@ -1,4 +1,5 @@
 import { serviceClient } from './capture_auth.ts';
+import { resolveUserBooleanFlag } from './feature_flags.ts';
 
 export interface LedgerWritePayload {
   payloadId: string;
@@ -15,13 +16,11 @@ export interface LedgerWritePayload {
 
 export async function isLedgerDualWriteEnabled(
   supabase: ReturnType<typeof serviceClient>,
+  userId: string | null,
 ): Promise<boolean> {
-  const { data } = await supabase
-    .from('feature_flags')
-    .select('is_active')
-    .eq('key', 'ledger_dual_write')
-    .maybeSingle();
-  return data?.is_active === true;
+  return resolveUserBooleanFlag(supabase, 'ledger_dual_write', userId, {
+    requireUser: true,
+  });
 }
 
 // Approved type mapping (from process-ios-sms direction/type → ledger enum).

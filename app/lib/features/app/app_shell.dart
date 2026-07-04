@@ -192,6 +192,13 @@ class _AppShellState extends ConsumerState<AppShell> {
         debugPrint('[SmartInboxSync] pull skipped: $error');
       }
     }
+    try {
+      await ref.read(planningSyncEngineProvider).sync();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[PlanningSync] sync skipped: $error');
+      }
+    }
   }
 
   Future<void> _consumeSharedInput() async {

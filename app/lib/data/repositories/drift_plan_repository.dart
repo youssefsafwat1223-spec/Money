@@ -3,19 +3,24 @@ import 'package:drift/drift.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/plan_repository.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
 class DriftPlanRepository implements PlanRepository {
-  const DriftPlanRepository(this._db);
+  const DriftPlanRepository(this._db, {PlanningOutboxQueue? outboxQueue})
+      : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final PlanningOutboxQueue? _outboxQueue;
 
   @override
   Future<List<PlanEntity>> getAll() async {
     final rows = await _db
-        .customSelect('SELECT * FROM plans ORDER BY created_at DESC;')
+        .customSelect(
+          'SELECT * FROM plans WHERE deleted_at IS NULL ORDER BY created_at DESC;',
+        )
         .get();
     return rows.map(_fromRow).toList(growable: false);
   }
@@ -23,7 +28,7 @@ class DriftPlanRepository implements PlanRepository {
   @override
   Future<PlanEntity?> getById(String id) async {
     final row = await _db.customSelect(
-      'SELECT * FROM plans WHERE id = ? LIMIT 1;',
+      'SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL LIMIT 1;',
       variables: [Variable.withString(id)],
     ).getSingleOrNull();
     return row == null ? null : _fromRow(row);
@@ -59,6 +64,10 @@ class DriftPlanRepository implements PlanRepository {
           Variable.withString(plan.id),
         ],
       );
+      await _outboxQueue?.enqueuePlan(
+        PlanningSyncOperation.create,
+        plan,
+      );
     } else {
       await _db.customUpdate(
         '''
@@ -69,16 +78,35 @@ class DriftPlanRepository implements PlanRepository {
         ''',
         variables: [...vars, Variable.withString(plan.id)],
       );
+      await _outboxQueue?.enqueuePlan(
+        PlanningSyncOperation.update,
+        plan,
+      );
     }
     return plan;
   }
 
   @override
   Future<void> delete(String id) async {
+    final existing = await getById(id);
+    final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customUpdate(
-      'DELETE FROM plans WHERE id = ?;',
-      variables: [Variable.withString(id)],
+      '''
+      UPDATE plans
+      SET deleted_at = ?, status = 'closed'
+      WHERE id = ?;
+      ''',
+      variables: [
+        Variable.withString(now),
+        Variable.withString(id),
+      ],
     );
+    if (existing != null) {
+      await _outboxQueue?.enqueuePlan(
+        PlanningSyncOperation.delete,
+        existing,
+      );
+    }
   }
 
   @override

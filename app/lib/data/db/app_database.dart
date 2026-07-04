@@ -11,7 +11,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 17;
+const int _targetSchemaVersion = 19;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -275,6 +275,13 @@ class AppDatabase extends GeneratedDatabase {
         is_active INTEGER NOT NULL,
         alert_80_sent INTEGER NOT NULL,
         alert_100_sent INTEGER NOT NULL,
+        show_on_header INTEGER NOT NULL DEFAULT 0,
+        account_id TEXT NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+        deleted_at TEXT NULL,
         FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
       );
     ''');
@@ -289,7 +296,15 @@ class AppDatabase extends GeneratedDatabase {
         deadline TEXT NULL,
         vault_skin TEXT NOT NULL,
         status TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        auto_save_amount REAL NULL,
+        auto_save_period TEXT NULL,
+        auto_save_last_run TEXT NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+        deleted_at TEXT NULL
       );
     ''');
 
@@ -342,6 +357,26 @@ class AppDatabase extends GeneratedDatabase {
         next_due_date TEXT NULL,
         is_confirmed INTEGER NOT NULL,
         reminder_on INTEGER NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        type TEXT NOT NULL DEFAULT 'subscription',
+        currency TEXT NOT NULL DEFAULT 'SAR',
+        frequency TEXT NOT NULL DEFAULT 'monthly',
+        custom_interval_days INTEGER NULL,
+        note TEXT NULL,
+        created_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z',
+        status TEXT NOT NULL DEFAULT 'active',
+        account_id TEXT NULL,
+        total_installments INTEGER NULL,
+        paid_count INTEGER NULL,
+        manual_paid_amount REAL NULL,
+        total_purchase_amount REAL NULL,
+        lender_name TEXT NULL,
+        interest_rate REAL NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+        deleted_at TEXT NULL,
         FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
       );
     ''');
@@ -402,7 +437,12 @@ class AppDatabase extends GeneratedDatabase {
         is_default INTEGER NOT NULL DEFAULT 0,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+        deleted_at TEXT NULL
       );
     ''');
 
@@ -450,7 +490,12 @@ class AppDatabase extends GeneratedDatabase {
         card_last4s TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'active',
         icon TEXT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+        deleted_at TEXT NULL
       );
     ''');
     await customStatement('''
@@ -693,6 +738,84 @@ class AppDatabase extends GeneratedDatabase {
       'CREATE INDEX IF NOT EXISTS idx_smart_inbox_status '
       'ON smart_inbox_items(status);',
     );
+    // v18-v19: Phase G — planning sync foundation.
+    await _ensureAccountsSyncSchema();
+    await _ensurePlanningEntitySyncSchema();
+    await _createPlanningSyncOutboxTable();
+  }
+
+  Future<void> _ensureAccountsSyncSchema() async {
+    await _ensureColumn('accounts', 'server_id', 'TEXT NULL');
+    await _ensureColumn('accounts', 'synced_at', 'TEXT NULL');
+    await _ensureColumn('accounts', 'server_updated_at', 'TEXT NULL');
+    await _ensureColumn(
+      'accounts',
+      'sync_status',
+      "TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict'))",
+    );
+    await _ensureColumn('accounts', 'deleted_at', 'TEXT NULL');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_accounts_server_id ON accounts(server_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_accounts_sync_status ON accounts(sync_status);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_accounts_deleted_at ON accounts(deleted_at);',
+    );
+  }
+
+  Future<void> _createPlanningSyncOutboxTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS planning_sync_outbox (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        operation TEXT NOT NULL CHECK(operation IN ('create','update','delete')),
+        payload_json TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        next_retry_at TEXT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_planning_outbox_entity '
+      'ON planning_sync_outbox(entity_type, entity_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_planning_outbox_next_retry '
+      'ON planning_sync_outbox(next_retry_at);',
+    );
+  }
+
+  Future<void> _ensurePlanningEntitySyncSchema() async {
+    for (final table in const [
+      'budgets',
+      'subscriptions',
+      'goals',
+      'plans',
+    ]) {
+      await _ensureColumn(table, 'server_id', 'TEXT NULL');
+      await _ensureColumn(table, 'synced_at', 'TEXT NULL');
+      await _ensureColumn(table, 'server_updated_at', 'TEXT NULL');
+      await _ensureColumn(
+        table,
+        'sync_status',
+        "TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict'))",
+      );
+      await _ensureColumn(table, 'deleted_at', 'TEXT NULL');
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_${table}_server_id ON $table(server_id);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_${table}_sync_status ON $table(sync_status);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_${table}_deleted_at ON $table(deleted_at);',
+      );
+    }
   }
 
   /// Removes dedup hashes older than [daysOld] days to prevent unbounded growth.

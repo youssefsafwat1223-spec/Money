@@ -3,20 +3,38 @@ import 'package:drift/drift.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/repositories/bill_repository.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 
 class DriftBillRepository implements BillRepository {
-  DriftBillRepository(this._db);
+  DriftBillRepository(this._db, {PlanningOutboxQueue? outboxQueue})
+      : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final PlanningOutboxQueue? _outboxQueue;
 
   @override
   Future<void> delete(String id) async {
+    final existing = await getById(id);
+    final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customUpdate(
-      'DELETE FROM subscriptions WHERE id = ?;',
-      variables: [Variable.withString(id)],
+      '''
+      UPDATE subscriptions
+      SET deleted_at = ?, status = 'cancelled'
+      WHERE id = ?;
+      ''',
+      variables: [
+        Variable.withString(now),
+        Variable.withString(id),
+      ],
     );
+    if (existing != null) {
+      await _outboxQueue?.enqueueSubscription(
+        PlanningSyncOperation.delete,
+        existing,
+      );
+    }
   }
 
   @override
@@ -26,6 +44,7 @@ class DriftBillRepository implements BillRepository {
         SELECT s.*, m.raw_name AS merchant_name
         FROM subscriptions s
         LEFT JOIN merchants m ON m.id = s.merchant_id
+        WHERE s.deleted_at IS NULL
         ORDER BY s.next_due_date ASC, s.amount DESC;
       ''',
     ).get();
@@ -40,6 +59,7 @@ class DriftBillRepository implements BillRepository {
         FROM subscriptions s
         LEFT JOIN merchants m ON m.id = s.merchant_id
         WHERE s.id = ?
+          AND s.deleted_at IS NULL
         LIMIT 1;
       ''',
       variables: [Variable.withString(id)],
@@ -58,6 +78,7 @@ class DriftBillRepository implements BillRepository {
         FROM subscriptions s
         LEFT JOIN merchants m ON m.id = s.merchant_id
         WHERE s.next_due_date IS NOT NULL
+          AND s.deleted_at IS NULL
           AND s.next_due_date BETWEEN ? AND ?
         ORDER BY s.next_due_date ASC, s.amount DESC;
       ''',
@@ -129,6 +150,13 @@ class DriftBillRepository implements BillRepository {
               : Variable.withReal(bill.interestRate!),
         ],
       );
+      final saved = await getById(bill.id);
+      if (saved != null) {
+        await _outboxQueue?.enqueueSubscription(
+          PlanningSyncOperation.create,
+          saved,
+        );
+      }
     } else {
       await _db.customUpdate(
         '''
@@ -184,6 +212,13 @@ class DriftBillRepository implements BillRepository {
           Variable.withString(bill.id),
         ],
       );
+      final saved = await getById(bill.id);
+      if (saved != null) {
+        await _outboxQueue?.enqueueSubscription(
+          PlanningSyncOperation.update,
+          saved,
+        );
+      }
     }
     final saved = await getById(bill.id);
     if (saved == null) {

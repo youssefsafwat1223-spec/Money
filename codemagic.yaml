@@ -9,9 +9,11 @@
 #   2. ios-signed-release     -> builds a SIGNED .ipa via Codemagic code signing
 #                                (needs an Apple Developer Program account).
 #
-# Supabase: SUPABASE_URL and SUPABASE_ANON_KEY are injected as --dart-define.
+# Supabase: SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_ENV are injected as --dart-define.
 # If they are empty/unset, SupabaseConfig.isConfigured == false and the app
 # runs in fallback STUB mode (see lib/core/backend/supabase_config.dart).
+# These workflows are production workflows; staging must use a separate workflow
+# and pass --dart-define=SUPABASE_ENV=staging explicitly.
 
 workflows:
   # ---------------------------------------------------------------------------
@@ -54,7 +56,8 @@ workflows:
           # SUPABASE_* come from the "supabase" group; default to "" => stub mode.
           flutter build ios --release --no-codesign \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
-            --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}"
+            --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
+            --dart-define=SUPABASE_ENV=production
 
       - name: Package .app into unsigned .ipa
         working_directory: app
@@ -124,6 +127,7 @@ workflows:
           flutter build ipa --release \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
+            --dart-define=SUPABASE_ENV=production \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - app/build/ios/ipa/*.ipa

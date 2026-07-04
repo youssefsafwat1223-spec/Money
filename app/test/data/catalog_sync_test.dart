@@ -6,6 +6,7 @@ import 'package:money_companion/data/catalog/feature_flag_service.dart';
 import 'package:money_companion/data/catalog/seed_loader.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/core/di/app_providers.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -289,6 +290,12 @@ void main() {
       expect(svc.getBool('ledger_pull_sync'), isFalse);
       expect(svc.getBool('ledger_push_sync'), isFalse);
       expect(svc.getBool('smart_inbox_pull_sync'), isFalse);
+      expect(svc.getBool('planning_accounts_sync'), isFalse);
+      expect(svc.getBool('planning_budgets_sync'), isFalse);
+      expect(svc.getBool('planning_subscriptions_sync'), isFalse);
+      expect(svc.getBool('planning_goals_sync'), isFalse);
+      expect(svc.getBool('planning_plans_sync'), isFalse);
+      expect(svc.getBool('capture_direct_ledger_write'), isFalse);
     });
 
     test('sync flag stays false when server sends is_active=false', () async {
@@ -301,7 +308,8 @@ void main() {
       expect(svc.getBool('ledger_pull_sync'), isFalse);
     });
 
-    test('sync flag can be enabled when server sends is_active=true rollout=100',
+    test(
+        'sync flag can be enabled when server sends is_active=true rollout=100',
         () async {
       await RemoteFeatureFlagsDao(db).replaceAll([
         _flag('ledger_pull_sync', 'true'),
@@ -310,6 +318,53 @@ void main() {
           FeatureFlagService(dao: RemoteFeatureFlagsDao(db), installId: 'test');
       await svc.init();
       expect(svc.getBool('ledger_pull_sync'), isTrue);
+    });
+
+    test('runtime gates refresh after catalog flags are replaced', () async {
+      await RemoteFeatureFlagsDao(db).replaceAll([
+        _flag('ledger_pull_sync', 'true'),
+      ]);
+      await initFeatureFlagService(db, installIdOverride: 'test-install');
+      expect(featureFlags.getBool('ledger_pull_sync'), isTrue);
+
+      await RemoteFeatureFlagsDao(db).replaceAll([
+        _flag('ledger_pull_sync', 'false', isActive: false),
+      ]);
+      await initFeatureFlagService(db, installIdOverride: 'test-install');
+      expect(featureFlags.getBool('ledger_pull_sync'), isFalse);
+    });
+
+    test('effective override true is active after refresh without reinstall',
+        () async {
+      await RemoteFeatureFlagsDao(db).replaceAll([
+        _flag('ledger_push_sync', 'true'),
+      ]);
+      await initFeatureFlagService(db, installIdOverride: 'test-install');
+      expect(featureFlags.getBool('ledger_push_sync'), isTrue);
+    });
+
+    test('effective override false disables a globally active flag', () async {
+      await RemoteFeatureFlagsDao(db).replaceAll([
+        _flag('ledger_push_sync', 'false', isActive: false),
+      ]);
+      await initFeatureFlagService(db, installIdOverride: 'test-install');
+      expect(featureFlags.getBool('ledger_push_sync'), isFalse);
+    });
+
+    test('guest fallback stays disabled when no effective flag is synced',
+        () async {
+      await RemoteFeatureFlagsDao(db).replaceAll(const []);
+      await initFeatureFlagService(db, installIdOverride: 'guest-install');
+      expect(featureFlags.getBool('ledger_dual_write'), isFalse);
+      expect(featureFlags.getBool('ledger_pull_sync'), isFalse);
+      expect(featureFlags.getBool('ledger_push_sync'), isFalse);
+      expect(featureFlags.getBool('smart_inbox_pull_sync'), isFalse);
+      expect(featureFlags.getBool('planning_accounts_sync'), isFalse);
+      expect(featureFlags.getBool('planning_budgets_sync'), isFalse);
+      expect(featureFlags.getBool('planning_subscriptions_sync'), isFalse);
+      expect(featureFlags.getBool('planning_goals_sync'), isFalse);
+      expect(featureFlags.getBool('planning_plans_sync'), isFalse);
+      expect(featureFlags.getBool('capture_direct_ledger_write'), isFalse);
     });
   });
 
