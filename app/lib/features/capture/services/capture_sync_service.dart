@@ -14,10 +14,12 @@ class CaptureSyncResult {
   const CaptureSyncResult({
     required this.importedPayloadIds,
     required this.ackedPayloadIds,
+    required this.needsReviewTransactionIds,
   });
 
   final Set<String> importedPayloadIds;
   final Set<String> ackedPayloadIds;
+  final List<String> needsReviewTransactionIds;
 }
 
 class CaptureSyncService {
@@ -28,12 +30,16 @@ class CaptureSyncService {
     required DriftSuspectedDuplicateRepository suspectedDuplicateRepository,
     required CaptureDeviceRegistrationService registrationService,
     CaptureBackendClient? client,
+    bool? backendConfigured,
+    Future<String> Function()? loadInstallId,
   })  : _settingsRepository = settingsRepository,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
         _suspectedDuplicateRepository = suspectedDuplicateRepository,
         _registrationService = registrationService,
-        _client = client;
+        _client = client,
+        _backendConfigured = backendConfigured,
+        _loadInstallId = loadInstallId;
 
   static final DateTime _payloadMarkerTime =
       DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
@@ -44,13 +50,17 @@ class CaptureSyncService {
   final DriftSuspectedDuplicateRepository _suspectedDuplicateRepository;
   final CaptureDeviceRegistrationService _registrationService;
   final CaptureBackendClient? _client;
+  final bool? _backendConfigured;
+  final Future<String> Function()? _loadInstallId;
 
   Future<CaptureSyncResult> sync() async {
     final settings = await _settingsRepository.getSettings();
-    if (!settings.cloudProcessingEnabled || !SupabaseConfig.isConfigured) {
+    final backendConfigured = _backendConfigured ?? SupabaseConfig.isConfigured;
+    if (!settings.cloudProcessingEnabled || !backendConfigured) {
       return const CaptureSyncResult(
         importedPayloadIds: {},
         ackedPayloadIds: {},
+        needsReviewTransactionIds: [],
       );
     }
 
@@ -60,6 +70,7 @@ class CaptureSyncService {
       return const CaptureSyncResult(
         importedPayloadIds: {},
         ackedPayloadIds: {},
+        needsReviewTransactionIds: [],
       );
     }
 
@@ -68,20 +79,24 @@ class CaptureSyncService {
           supabaseUrl: SupabaseConfig.url,
           anonKey: SupabaseConfig.anonKey,
         );
-    final installId = await InstallId.get();
+    final installId = await (_loadInstallId ?? InstallId.get)();
     final captures = await client.syncCaptures(
       installId: installId,
       deviceSecret: secret,
     );
 
     final imported = <String>{};
+    final needsReviewTransactionIds = <String>[];
     for (final capture in captures) {
       if (capture.payloadId.isEmpty) continue;
       if (await isPayloadImported(capture.payloadId)) {
         imported.add(capture.payloadId);
         continue;
       }
-      await _importCapture(capture);
+      final needsReviewTransactionId = await _importCapture(capture);
+      if (needsReviewTransactionId != null) {
+        needsReviewTransactionIds.add(needsReviewTransactionId);
+      }
       imported.add(capture.payloadId);
     }
 
@@ -96,6 +111,7 @@ class CaptureSyncService {
     return CaptureSyncResult(
       importedPayloadIds: imported,
       ackedPayloadIds: imported,
+      needsReviewTransactionIds: needsReviewTransactionIds,
     );
   }
 
@@ -125,7 +141,7 @@ class CaptureSyncService {
     );
   }
 
-  Future<void> _importCapture(ProcessedCaptureDto capture) async {
+  Future<String?> _importCapture(ProcessedCaptureDto capture) async {
     final parsed = capture.parsed;
     var duplicateOf = _string(parsed['possibleDuplicateOfTransactionId']);
     final duplicatePayloadId = _string(parsed['possibleDuplicateOfPayloadId']);
@@ -161,7 +177,7 @@ class CaptureSyncService {
         payloadId: capture.payloadId,
         transactionId: duplicateOf,
       );
-      return;
+      return null;
     }
 
     final amount = _num(parsed['amount']);
@@ -171,7 +187,7 @@ class CaptureSyncService {
         payloadId: capture.payloadId,
         transactionId: 'rejected:${capture.payloadId}',
       );
-      return;
+      return null;
     }
 
     final now = DateTime.now().toUtc();
@@ -226,6 +242,7 @@ class CaptureSyncService {
       payloadId: capture.payloadId,
       transactionId: saved.id,
     );
+    return capture.status == 'needs_review' ? saved.id : null;
   }
 
   static String _payloadHash(String payloadId) => 'capture_payload:$payloadId';

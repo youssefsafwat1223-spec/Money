@@ -1,0 +1,153 @@
+import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/data/db/app_database.dart';
+import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/repositories/drift_dedup_store.dart';
+import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
+import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
+import 'package:money_companion/features/capture/services/capture_backend_client.dart';
+import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
+import 'package:money_companion/features/capture/services/capture_sync_service.dart';
+import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
+
+class _MemoryKeyStore implements DatabaseKeyStore {
+  @override
+  Future<String> readOrCreateKey() async => 'memory-key';
+
+  @override
+  Future<String?> readStoredKey() async => 'memory-key';
+}
+
+class _FakeRegistrationService implements CaptureDeviceRegistrationService {
+  @override
+  Future<void> syncNativeState() async {}
+
+  @override
+  Future<String?> readDeviceSecret() async => 'device-secret';
+
+  @override
+  Future<void> linkToCurrentUser() async {}
+
+  @override
+  Future<void> syncApnsToken(ApnsTokenInfo token) async {}
+}
+
+class _FakeCaptureBackendClient implements CaptureBackendClient {
+  _FakeCaptureBackendClient(this._captures);
+
+  final List<ProcessedCaptureDto> _captures;
+  final ackedPayloadIds = <String>[];
+
+  @override
+  Future<List<ProcessedCaptureDto>> syncCaptures({
+    required String installId,
+    required String deviceSecret,
+    List<String> ackPayloadIds = const [],
+  }) async {
+    ackedPayloadIds.addAll(ackPayloadIds);
+    return ackPayloadIds.isEmpty ? _captures : const [];
+  }
+
+  @override
+  Future<void> linkDevice({
+    required String installId,
+    required String deviceSecret,
+    required String jwt,
+  }) async {}
+
+  @override
+  Future<void> registerPushToken({
+    required String installId,
+    required String deviceSecret,
+    required String apnsToken,
+    required String apnsEnvironment,
+  }) async {}
+
+  @override
+  Future<String> registerDevice({
+    required String installId,
+    String platform = 'ios',
+  }) async =>
+      'device-secret';
+}
+
+void main() {
+  late AppDatabase db;
+  late DriftUserSettingsRepository settingsRepository;
+
+  setUp(() async {
+    db = await AppDatabase.open(
+      executor: NativeDatabase.memory(),
+      keyStore: _MemoryKeyStore(),
+    );
+    settingsRepository = DriftUserSettingsRepository(db);
+    final settings = await settingsRepository.getSettings();
+    await settingsRepository.saveSettings(
+      settings.copyWith(cloudProcessingEnabled: true),
+    );
+  });
+
+  tearDown(() async {
+    await db.close();
+  });
+
+  CaptureSyncService service(_FakeCaptureBackendClient client) {
+    return CaptureSyncService(
+      settingsRepository: settingsRepository,
+      transactionRepository: DriftTransactionRepository(db),
+      dedupStore: DriftDedupStore(db),
+      suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
+      registrationService: _FakeRegistrationService(),
+      client: client,
+      backendConfigured: true,
+      loadInstallId: () async => 'install-id',
+    );
+  }
+
+  test('needs_review capture records its transaction id', () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(payloadId: 'payload-needs-review', status: 'needs_review'),
+    ]);
+    final syncService = service(client);
+
+    final result = await syncService.sync();
+    final transactionId =
+        await syncService.transactionIdForPayload('payload-needs-review');
+
+    expect(result.needsReviewTransactionIds, [transactionId]);
+    expect(client.ackedPayloadIds, ['payload-needs-review']);
+  });
+
+  test('processed capture is not recorded for review', () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(payloadId: 'payload-processed', status: 'processed'),
+    ]);
+
+    final result = await service(client).sync();
+
+    expect(result.needsReviewTransactionIds, isEmpty);
+    expect(client.ackedPayloadIds, ['payload-processed']);
+  });
+}
+
+ProcessedCaptureDto _capture({
+  required String payloadId,
+  required String status,
+}) {
+  return ProcessedCaptureDto(
+    payloadId: payloadId,
+    status: status,
+    parsed: {
+      'amount': 42,
+      'currency': 'SAR',
+      'type': 'payment',
+      'rawMessage': 'Paid SAR 42 at Coffee',
+      'merchant': 'Coffee',
+      'occurredAt': DateTime.utc(2026, 7, 5, 10).toIso8601String(),
+    },
+    notification: const {},
+    sanitizedText: 'Paid SAR 42 at Coffee',
+    createdAt: DateTime.utc(2026, 7, 5, 10),
+  );
+}

@@ -85,13 +85,6 @@ struct PostBankStatusIntent: AppIntent {
           request,
           payloadID: payloadID
         )
-        _ = try service.capture(
-          request,
-          status: .sent,
-          sentAt: Date(),
-          failureReason: nil,
-          payloadID: payloadID
-        )
         if !response.pushSent {
           await scheduleNotification(response.notification)
         }

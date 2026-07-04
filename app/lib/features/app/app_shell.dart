@@ -217,10 +217,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (kDebugMode) {
         debugPrint('[Capture] consumeSharedInput: ${messages.length} messages');
       }
-      if (messages.isEmpty) return;
 
-      // Prune old dedup hashes opportunistically on each drain cycle.
-      unawaited(ref.read(appDatabaseProvider).pruneOldDedupHashes());
+      if (messages.isNotEmpty) {
+        // Prune old dedup hashes opportunistically on each drain cycle.
+        unawaited(ref.read(appDatabaseProvider).pruneOldDedupHashes());
+      }
 
       final ingestUseCase = ref.read(ingestCapturedMessageUseCaseProvider);
       final notificationPreferences =
@@ -291,6 +292,10 @@ class _AppShellState extends ConsumerState<AppShell> {
         pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
           message.sender,
         );
+      }
+      if (pendingConfirmationId == null &&
+          backendSync?.needsReviewTransactionIds.isNotEmpty == true) {
+        pendingConfirmationId = backendSync!.needsReviewTransactionIds.last;
       }
       unawaited(
         ref.read(notificationJourneyServiceProvider).evaluateAfterCapture(),
