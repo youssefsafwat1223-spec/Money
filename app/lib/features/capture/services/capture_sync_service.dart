@@ -111,7 +111,10 @@ class CaptureSyncService {
     );
   }
 
-  Future<void> _markPayloadImported({
+  /// Public so the native-queue drain can flag a payload it imported first;
+  /// the next backend sync then skips (and acks) the same capture instead of
+  /// importing it a second time.
+  Future<void> markPayloadImported({
     required String payloadId,
     required String transactionId,
   }) {
@@ -154,7 +157,7 @@ class CaptureSyncService {
           duplicateReason: 'backend_suspicious_duplicate',
         ),
       );
-      await _markPayloadImported(
+      await markPayloadImported(
         payloadId: capture.payloadId,
         transactionId: duplicateOf,
       );
@@ -164,7 +167,7 @@ class CaptureSyncService {
     final amount = _num(parsed['amount']);
     final currency = _string(parsed['currency']);
     if (amount == null || currency == null) {
-      await _markPayloadImported(
+      await markPayloadImported(
         payloadId: capture.payloadId,
         transactionId: 'rejected:${capture.payloadId}',
       );
@@ -219,7 +222,7 @@ class CaptureSyncService {
       transaction: transaction,
       categoryKey: _string(parsed['category']),
     );
-    await _markPayloadImported(
+    await markPayloadImported(
       payloadId: capture.payloadId,
       transactionId: saved.id,
     );

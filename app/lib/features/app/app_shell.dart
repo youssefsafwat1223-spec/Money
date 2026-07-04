@@ -267,6 +267,14 @@ class _AppShellState extends ConsumerState<AppShell> {
             'hasTransaction=${result.transactionId != null}',
           );
         }
+        // Flag the payload as imported so a later backend sync skips the same
+        // capture instead of importing it a second time (list showed it twice).
+        if (message.id != null && result.transactionId != null) {
+          await ref.read(captureSyncServiceProvider).markPayloadImported(
+                payloadId: message.id!,
+                transactionId: result.transactionId!,
+              );
+        }
         // AppIntent already showed a notification (status == 'sent'); skip duplicate.
         if (message.status != 'sent') {
           await _showCapturedMessageNotification(

@@ -67,24 +67,30 @@ struct PostBankStatusIntent: AppIntent {
     let service = BankSMSCaptureService()
     let config = SharedCaptureStore.backendConfig()
 
+    // One payload ID for both the backend call and the shared queue entry.
+    // Two independently computed IDs diverge on edge inputs (e.g. empty-string
+    // sender ID), which breaks Flutter's already-imported check and double-imports.
+    let payloadID = SharedCaptureStore.makePayloadID(
+      text: smsText.trimmingCharacters(in: .whitespacesAndNewlines),
+      sender: firstNonEmpty(senderID, senderName),
+      senderName: senderName,
+      senderID: senderID,
+      source: "ios_shortcut",
+      receivedAt: SharedCaptureStore.isoString(from: receivedAt)
+    )
+
     if config.canUseBackend {
       do {
         let response = try await BackendCaptureClient(config: config).process(
           request,
-          payloadID: SharedCaptureStore.makePayloadID(
-            text: smsText.trimmingCharacters(in: .whitespacesAndNewlines),
-            sender: firstNonEmpty(senderID, senderName),
-            senderName: senderName,
-            senderID: senderID,
-            source: "ios_shortcut",
-            receivedAt: SharedCaptureStore.isoString(from: receivedAt)
-          )
+          payloadID: payloadID
         )
         _ = try service.capture(
           request,
           status: .sent,
           sentAt: Date(),
-          failureReason: nil
+          failureReason: nil,
+          payloadID: payloadID
         )
         if !response.pushSent {
           await scheduleNotification(response.notification)
@@ -95,14 +101,16 @@ struct PostBankStatusIntent: AppIntent {
           request,
           status: .sent,
           sentAt: nil,
-          failureReason: "\(error)"
+          failureReason: "\(error)",
+          payloadID: payloadID
         )
         await scheduleLocalParsedOrGenericNotification()
         return .result()
       }
     }
 
-    let captured = (try? service.capture(request, status: .sent)) != nil
+    let captured =
+      (try? service.capture(request, status: .sent, payloadID: payloadID)) != nil
     if captured {
       await scheduleLocalParsedOrGenericNotification()
     }
@@ -211,7 +219,8 @@ struct BankSMSCaptureService {
     _ request: BankSMSCaptureRequest,
     status: SharedCaptureStore.CaptureStatus = .pending,
     sentAt: Date? = nil,
-    failureReason: String? = nil
+    failureReason: String? = nil,
+    payloadID: String? = nil
   ) throws -> SharedCaptureStore.EnqueueResult {
     let trimmedText = request.smsText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedText.isEmpty else {
@@ -229,7 +238,8 @@ struct BankSMSCaptureService {
       localeIdentifier: (locale?.isEmpty ?? true) ? fallbackLocale : locale,
       status: status,
       sentAt: sentAt,
-      failureReason: failureReason
+      failureReason: failureReason,
+      payloadID: payloadID
     )
 
     #if DEBUG
@@ -260,7 +270,8 @@ protocol CaptureQueueWriting {
     localeIdentifier: String?,
     status: SharedCaptureStore.CaptureStatus,
     sentAt: Date?,
-    failureReason: String?
+    failureReason: String?,
+    payloadID: String?
   ) -> SharedCaptureStore.EnqueueResult
 }
 
@@ -276,7 +287,8 @@ struct SharedCaptureStoreWriter: CaptureQueueWriting {
     localeIdentifier: String?,
     status: SharedCaptureStore.CaptureStatus,
     sentAt: Date?,
-    failureReason: String?
+    failureReason: String?,
+    payloadID: String?
   ) -> SharedCaptureStore.EnqueueResult {
     SharedCaptureStore.enqueue(
       text: text,
@@ -288,7 +300,8 @@ struct SharedCaptureStoreWriter: CaptureQueueWriting {
       localeIdentifier: localeIdentifier,
       status: status,
       sentAt: sentAt,
-      failureReason: failureReason
+      failureReason: failureReason,
+      payloadID: payloadID
     )
   }
 }
