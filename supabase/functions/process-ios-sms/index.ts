@@ -93,6 +93,18 @@ Deno.serve(async (req) => {
     allowAi,
   });
 
+  console.log(JSON.stringify({
+    event: 'sms_parse_result',
+    payloadId,
+    senderPrefix: sender ? sender.slice(0, 20) : null,
+    hasAmount: parsed.amount != null,
+    hasCurrency: parsed.currency != null,
+    type: parsed.type ?? null,
+    hasMerchant: parsed.merchant != null,
+    confidence: parsed.confidence ?? null,
+    allowAi,
+  }));
+
   const rawFingerprint = await sha256Hex(`${auth.installIdHash}|${payloadId}|${sanitizedText}`);
   let status: CaptureStatus = parsed.amount && parsed.currency ? 'processed' : 'rejected';
   if (status === 'processed' && ((parsed.confidence ?? 0) < 0.72 || !parsed.category)) {
@@ -128,6 +140,12 @@ Deno.serve(async (req) => {
 
   if (error) return json({ error: 'store_failed' }, 500);
 
+  console.log(JSON.stringify({
+    event: 'capture_stored',
+    payloadId,
+    status,
+  }));
+
   // Phase B: dual-write to user_transactions for signed-in users when flag is on.
   // Guests (userId = null) always stay relay-only.
   // 'rejected' and 'duplicate' are excluded: no meaningful ledger row to write.
@@ -161,6 +179,12 @@ Deno.serve(async (req) => {
     notification,
     parsed,
   );
+  console.log(JSON.stringify({
+    event: 'process_ios_sms_complete',
+    payloadId,
+    status,
+    pushSent,
+  }));
   return json({
     capture: {
       ...data,
@@ -385,7 +409,14 @@ async function sendApnsIfPossible(
       device?.apns_environment === 'production'
     ? device.apns_environment
     : null;
-  if (!token || !environment) return false;
+  if (!token || !environment) {
+    console.log(JSON.stringify({
+      event: 'apns_skipped',
+      payloadId,
+      reason: !token ? 'no_token' : 'no_environment',
+    }));
+    return false;
+  }
 
   const result = await sendCapturePush({
     token,
@@ -403,6 +434,11 @@ async function sendApnsIfPossible(
       : undefined,
   });
   if (result.ok) {
+    console.log(JSON.stringify({
+      event: 'apns_sent',
+      payloadId,
+      environment,
+    }));
     await supabase
       .from('processed_captures')
       .update({
