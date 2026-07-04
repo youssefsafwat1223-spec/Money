@@ -542,6 +542,7 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
     dedupStore: DriftDedupStore(db),
     suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
+    accountRepository: DriftAccountRepository(db),
     client: ref.watch(captureBackendClientProvider),
   );
 });

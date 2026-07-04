@@ -2,10 +2,12 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
+import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/features/capture/services/capture_backend_client.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/capture_sync_service.dart';
@@ -99,6 +101,7 @@ void main() {
       dedupStore: DriftDedupStore(db),
       suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
       registrationService: _FakeRegistrationService(),
+      accountRepository: DriftAccountRepository(db),
       client: client,
       backendConfigured: true,
       loadInstallId: () async => 'install-id',
@@ -129,25 +132,61 @@ void main() {
     expect(result.needsReviewTransactionIds, isEmpty);
     expect(client.ackedPayloadIds, ['payload-processed']);
   });
+
+  test('processed capture is assigned to a matching currency account',
+      () async {
+    final accountRepo = DriftAccountRepository(db);
+    final now = DateTime.utc(2026, 7, 5, 9);
+    await accountRepo.create(AccountEntity(
+      id: '',
+      name: 'Main SAR',
+      currency: 'SAR',
+      type: AccountType.bank,
+      initialBalance: null,
+      currentBalance: null,
+      isDefault: true,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    ));
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-egp',
+        status: 'processed',
+        currency: 'EGP',
+      ),
+    ]);
+
+    await service(client).sync();
+
+    final transactions = await DriftTransactionRepository(db).getAll();
+    expect(transactions, hasLength(1));
+    expect(transactions.single.currency, 'EGP');
+    expect(transactions.single.accountId, isNotNull);
+
+    final account = await accountRepo.getById(transactions.single.accountId!);
+    expect(account?.currency, 'EGP');
+  });
 }
 
 ProcessedCaptureDto _capture({
   required String payloadId,
   required String status,
+  String currency = 'SAR',
 }) {
   return ProcessedCaptureDto(
     payloadId: payloadId,
     status: status,
     parsed: {
       'amount': 42,
-      'currency': 'SAR',
+      'currency': currency,
       'type': 'payment',
-      'rawMessage': 'Paid SAR 42 at Coffee',
+      'rawMessage': 'Paid $currency 42 at Coffee',
       'merchant': 'Coffee',
       'occurredAt': DateTime.utc(2026, 7, 5, 10).toIso8601String(),
     },
     notification: const {},
-    sanitizedText: 'Paid SAR 42 at Coffee',
+    sanitizedText: 'Paid $currency 42 at Coffee',
     createdAt: DateTime.utc(2026, 7, 5, 10),
   );
 }

@@ -5,8 +5,10 @@ import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
+import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/suspected_duplicate_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/repositories/account_repository.dart';
 import 'capture_backend_client.dart';
 import 'capture_device_registration_service.dart';
 
@@ -29,6 +31,7 @@ class CaptureSyncService {
     required DriftDedupStore dedupStore,
     required DriftSuspectedDuplicateRepository suspectedDuplicateRepository,
     required CaptureDeviceRegistrationService registrationService,
+    AccountRepository? accountRepository,
     CaptureBackendClient? client,
     bool? backendConfigured,
     Future<String> Function()? loadInstallId,
@@ -37,6 +40,7 @@ class CaptureSyncService {
         _dedupStore = dedupStore,
         _suspectedDuplicateRepository = suspectedDuplicateRepository,
         _registrationService = registrationService,
+        _accountRepository = accountRepository,
         _client = client,
         _backendConfigured = backendConfigured,
         _loadInstallId = loadInstallId;
@@ -49,6 +53,7 @@ class CaptureSyncService {
   final DriftDedupStore _dedupStore;
   final DriftSuspectedDuplicateRepository _suspectedDuplicateRepository;
   final CaptureDeviceRegistrationService _registrationService;
+  final AccountRepository? _accountRepository;
   final CaptureBackendClient? _client;
   final bool? _backendConfigured;
   final Future<String> Function()? _loadInstallId;
@@ -191,6 +196,8 @@ class CaptureSyncService {
     }
 
     final now = DateTime.now().toUtc();
+    final normalizedCurrency = currency.trim().toUpperCase();
+    final account = await _accountForCurrency(normalizedCurrency);
     final occurredAt = _date(parsed['occurredAt']) ??
         _date(parsed['comparisonTimestamp']) ??
         capture.createdAt ??
@@ -203,7 +210,8 @@ class CaptureSyncService {
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
       amount: amount,
-      currency: currency,
+      currency: normalizedCurrency,
+      accountId: account?.id,
       type: _type(_string(parsed['type'])),
       source: TransactionSourceEntity.bank,
       occurredAt: occurredAt,
@@ -246,6 +254,36 @@ class CaptureSyncService {
   }
 
   static String _payloadHash(String payloadId) => 'capture_payload:$payloadId';
+
+  Future<AccountEntity?> _accountForCurrency(String currency) async {
+    final normalized = currency.trim().toUpperCase();
+    if (normalized.isEmpty) return null;
+    final repository = _accountRepository;
+    if (repository == null) return null;
+
+    final accounts = await repository.getAll();
+    for (final account in accounts) {
+      if (account.currency.trim().toUpperCase() == normalized) {
+        return account;
+      }
+    }
+
+    final now = DateTime.now().toUtc();
+    return repository.create(
+      AccountEntity(
+        id: '',
+        name: 'حساب $normalized',
+        currency: normalized,
+        type: AccountType.bank,
+        initialBalance: null,
+        currentBalance: null,
+        isDefault: accounts.isEmpty,
+        sortOrder: accounts.length,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+  }
 
   static String? _string(Object? value) {
     if (value is! String) return null;
