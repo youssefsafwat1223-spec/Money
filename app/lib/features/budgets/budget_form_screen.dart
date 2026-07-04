@@ -183,11 +183,11 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
 
     return budgetAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('حدث خطأ: $error')),
+      error: (error, _) => const Center(child: Text('حدث خطأ')),
       data: (budget) {
         return categoriesAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(child: Text('حدث خطأ: $error')),
+          error: (error, _) => const Center(child: Text('حدث خطأ')),
           data: (catalog) {
             _seedInitialState(budget);
             return Form(

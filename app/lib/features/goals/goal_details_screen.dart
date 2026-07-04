@@ -137,7 +137,7 @@ class _GoalDetailsContent extends ConsumerWidget {
     final async = ref.watch(goalDetailsProvider(goalId));
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('حدث خطأ: $error')),
+      error: (error, _) => const Center(child: Text('حدث خطأ')),
       data: (data) {
         if (data == null) {
           return const Center(child: Text('الهدف غير موجود'));

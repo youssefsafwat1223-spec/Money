@@ -93,7 +93,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
       loading: () => _buildScaffold(
           context, c, const Center(child: CircularProgressIndicator())),
       error: (e, _) =>
-          _buildScaffold(context, c, Center(child: Text('حدث خطأ: $e'))),
+          _buildScaffold(context, c, const Center(child: Text('حدث خطأ'))),
       data: (tx) {
         if (tx == null) {
           return _buildScaffold(

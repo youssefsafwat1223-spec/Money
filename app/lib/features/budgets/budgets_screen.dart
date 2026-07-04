@@ -41,7 +41,7 @@ class BudgetsScreen extends ConsumerWidget {
     return Scaffold(
       body: async.when(
         loading: () => const PremiumSkeletonPage(cardCount: 4),
-        error: (error, _) => Center(child: Text('حدث خطأ: $error')),
+        error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (data) {
           final historyEntries = data.historyEntries;
           final budgetEntries = tab == 1

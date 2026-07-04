@@ -1191,12 +1191,14 @@ class _CountrySelectionPhaseState
         return StatefulBuilder(
           builder: (context, setModalState) {
             final selected = ref.read(onboardingSelectionProvider);
-            final options = _countryOptions(
+            final liveOpts = _countryOptions(
               ref.read(supportedCountriesProvider).valueOrNull ??
                   const <RemoteCountry>[],
               ref.read(activeCurrenciesProvider).valueOrNull ??
                   const <RemoteCurrency>[],
             );
+            final options =
+                liveOpts.isNotEmpty ? liveOpts : _fallbackCountryOptions();
             final normalizedSearch = searchQuery.trim().toLowerCase();
             final filteredCountries = options
                 .where((country) =>
@@ -1298,12 +1300,14 @@ class _CountrySelectionPhaseState
         ? Colors.black.withValues(alpha: 0.3)
         : Colors.black.withValues(alpha: 0.05);
 
-    final options = _countryOptions(
+    final liveOptions = _countryOptions(
       ref.watch(supportedCountriesProvider).valueOrNull ??
           const <RemoteCountry>[],
       ref.watch(activeCurrenciesProvider).valueOrNull ??
           const <RemoteCurrency>[],
     );
+    final options =
+        liveOptions.isNotEmpty ? liveOptions : _fallbackCountryOptions();
     final selectedCountry = ref.watch(onboardingSelectionProvider);
     final selectedOption = _selectedOption(options, selectedCountry);
 
@@ -1410,6 +1414,66 @@ class _CountrySelectionPhaseState
       if (currency.countryCodes.contains(code)) return currency;
     }
     return null;
+  }
+
+  static List<_CountryOption> _fallbackCountryOptions() {
+    final epoch = DateTime.utc(2024);
+    RemoteCountry mkCountry(String code, String ar, String en, String flag,
+            String prefix) =>
+        RemoteCountry(
+          code: code,
+          nameAr: ar,
+          nameEn: en,
+          flagEmoji: flag,
+          phonePrefix: prefix,
+          isSupported: true,
+          isActive: true,
+          isDeleted: false,
+          updatedAt: epoch,
+        );
+    RemoteCurrency mkCurrency(String code, String ar, String en, String symbol,
+            int dec, List<String> countryCodes) =>
+        RemoteCurrency(
+          code: code,
+          nameAr: ar,
+          nameEn: en,
+          symbol: symbol,
+          decimalPlaces: dec,
+          countryCodes: countryCodes,
+          isActive: true,
+          isDeleted: false,
+          updatedAt: epoch,
+        );
+    return [
+      _CountryOption(
+        country: mkCountry('sa', 'المملكة العربية السعودية', 'Saudi Arabia', '🇸🇦', '+966'),
+        currency: mkCurrency('SAR', 'ريال سعودي', 'Saudi Riyal', 'ر.س', 2, ['SA']),
+      ),
+      _CountryOption(
+        country: mkCountry('ae', 'الإمارات العربية المتحدة', 'United Arab Emirates', '🇦🇪', '+971'),
+        currency: mkCurrency('AED', 'درهم إماراتي', 'UAE Dirham', 'د.إ', 2, ['AE']),
+      ),
+      _CountryOption(
+        country: mkCountry('kw', 'الكويت', 'Kuwait', '🇰🇼', '+965'),
+        currency: mkCurrency('KWD', 'دينار كويتي', 'Kuwaiti Dinar', 'د.ك', 3, ['KW']),
+      ),
+      _CountryOption(
+        country: mkCountry('qa', 'قطر', 'Qatar', '🇶🇦', '+974'),
+        currency: mkCurrency('QAR', 'ريال قطري', 'Qatari Riyal', 'ر.ق', 2, ['QA']),
+      ),
+      _CountryOption(
+        country: mkCountry('bh', 'البحرين', 'Bahrain', '🇧🇭', '+973'),
+        currency: mkCurrency('BHD', 'دينار بحريني', 'Bahraini Dinar', 'د.ب', 3, ['BH']),
+      ),
+      _CountryOption(
+        country: mkCountry('om', 'عُمان', 'Oman', '🇴🇲', '+968'),
+        currency: mkCurrency('OMR', 'ريال عُماني', 'Omani Rial', 'ر.ع', 3, ['OM']),
+      ),
+      _CountryOption(
+        country: mkCountry('eg', 'مصر', 'Egypt', '🇪🇬', '+20'),
+        currency: mkCurrency('EGP', 'جنيه مصري', 'Egyptian Pound', 'ج.م', 2, ['EG']),
+      ),
+    ];
   }
 
   _CountryOption? _selectedOption(

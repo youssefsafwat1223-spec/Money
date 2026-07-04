@@ -38,9 +38,9 @@
 			</dict>
 		</array>
 		<key>NSFaceIDUsageDescription</key>
-		<string>يستخدم مالي Face ID لحماية بياناتك المالية عند فتح التطبيق.</string>
+		<string>يستخدم قرش Face ID لحماية بياناتك المالية عند فتح التطبيق.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>اختر صورة شخصية لتظهر في ملفك ولوحة التحكم داخل مالي.</string>
+		<string>اختر صورة شخصية لتظهر في ملفك ولوحة التحكم داخل قرش.</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

@@ -25,7 +25,7 @@ class GoalsScreen extends ConsumerWidget {
 
     return async.when(
       loading: () => const PremiumSkeletonPage(cardCount: 4),
-      error: (error, _) => Center(child: Text('حدث خطأ: $error')),
+      error: (error, _) => const Center(child: Text('حدث خطأ')),
       data: (goals) {
         final saved =
             goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);

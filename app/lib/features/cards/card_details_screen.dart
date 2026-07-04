@@ -142,7 +142,7 @@ class _CardDetailsContent extends ConsumerWidget {
                 child: Padding(
                     padding: EdgeInsets.all(24),
                     child: CircularProgressIndicator())),
-            error: (e, _) => Text('حدث خطأ: $e'),
+            error: (e, _) => const Text('حدث خطأ'),
             data: (txns) {
               if (txns.isEmpty) {
                 return Text('لا توجد عمليات بعد',

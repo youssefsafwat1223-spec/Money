@@ -60,7 +60,7 @@ class SubscriptionsScreen extends ConsumerWidget {
         appBar: Navigator.of(context).canPop()
             ? AppBar(title: const Text('الاشتراكات والفواتير'))
             : null,
-        body: Center(child: Text('حدث خطأ: $e')),
+        body: const Center(child: Text('حدث خطأ')),
       ),
       data: (bills) {
         final subs =
@@ -659,6 +659,13 @@ class _SubscriptionCard extends StatelessWidget {
   }
 }
 
+String _monthsLabel(int n) {
+  if (n == 1) return 'شهر';
+  if (n == 2) return 'شهرين';
+  if (n <= 10) return '$n أشهر';
+  return '$n شهراً';
+}
+
 class _SuggestionCard extends StatelessWidget {
   const _SuggestionCard({required this.item, required this.baseCurrency});
   final dynamic item;
@@ -709,7 +716,7 @@ class _SuggestionCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'تكرر ${item.monthsSeen} أشهر · اضغط للتفعيل',
+                          'تكرر ${_monthsLabel((item.monthsSeen as num).toInt())} · اضغط للتفعيل',
                           style: AppTypography.caption(c.textLight),
                         ),
                       ],

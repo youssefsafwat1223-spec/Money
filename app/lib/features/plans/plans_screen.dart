@@ -46,7 +46,7 @@ class PlansScreen extends ConsumerWidget {
       ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('تعذّر التحميل: $e')),
+        error: (e, _) => const Center(child: Text('تعذّر التحميل')),
         data: (plans) {
           if (plans.isEmpty) {
             return Center(
@@ -240,9 +240,9 @@ class _PlanDetailsSheet extends ConsumerWidget {
         title: 'تفاصيل الخطة',
         body: Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => AppSheetScaffold(
+      error: (e, _) => const AppSheetScaffold(
         title: 'تفاصيل الخطة',
-        body: Center(child: Text('تعذّر التحميل: $e')),
+        body: Center(child: Text('تعذّر التحميل')),
       ),
       data: (progress) {
         if (progress == null) {
@@ -317,7 +317,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
               const SizedBox(height: AppSpacing.s2),
               txAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Text('تعذّر تحميل العمليات: $e'),
+                error: (e, _) => const Text('تعذّر تحميل العمليات'),
                 data: (transactions) {
                   if (transactions.isEmpty) {
                     return AppEmptyState(

@@ -26,7 +26,7 @@ class BackupScreen extends ConsumerWidget {
           Expanded(
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+              error: (e, _) => const Center(child: Text('حدث خطأ')),
               data: (status) => isGuest
                   ? const _GuestBackupGate()
                   : status.enabled

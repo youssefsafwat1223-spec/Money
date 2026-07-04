@@ -40,7 +40,7 @@ class AccountsScreen extends ConsumerWidget {
           Expanded(
             child: accountsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+              error: (e, _) => const Center(child: Text('حدث خطأ')),
               data: (accounts) => ListView(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.gutter,
@@ -202,20 +202,23 @@ class _AccountCard extends ConsumerWidget {
                 ],
               ),
             ),
-            GestureDetector(
-              onTap: () => MyCardsScreen.open(context),
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                width: 40,
-                height: 28,
-                margin: const EdgeInsetsDirectional.only(end: 4),
-                decoration: BoxDecoration(
-                  gradient: c.primaryGradient,
-                  borderRadius: BorderRadius.circular(7),
+            Tooltip(
+              message: 'بطاقاتي',
+              child: GestureDetector(
+                onTap: () => MyCardsScreen.open(context),
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  width: 40,
+                  height: 28,
+                  margin: const EdgeInsetsDirectional.only(end: 4),
+                  decoration: BoxDecoration(
+                    gradient: c.primaryGradient,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(Icons.contactless,
+                      color: Colors.white.withValues(alpha: 0.9), size: 14),
                 ),
-                alignment: Alignment.center,
-                child: Icon(Icons.contactless,
-                    color: Colors.white.withValues(alpha: 0.9), size: 14),
               ),
             ),
             Icon(Icons.chevron_left, color: c.textLight, size: 20),
@@ -280,7 +283,12 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
 
   Future<void> _save() async {
     final name = _name.text.trim();
-    if (name.isEmpty) return;
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('الرجاء إدخال اسم الحساب')),
+      );
+      return;
+    }
     final repo = ref.read(accountRepositoryProvider);
     final now = DateTime.now().toUtc();
     if (widget.account == null) {

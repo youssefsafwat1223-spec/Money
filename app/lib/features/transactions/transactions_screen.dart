@@ -30,6 +30,13 @@ import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
 
+String _monthsLabel(int n) {
+  if (n == 1) return 'شهر';
+  if (n == 2) return 'شهرين';
+  if (n <= 10) return '$n أشهر';
+  return '$n شهراً';
+}
+
 class TransactionsScreen extends ConsumerWidget {
   const TransactionsScreen({super.key});
 
@@ -47,7 +54,7 @@ class TransactionsScreen extends ConsumerWidget {
     return Scaffold(
       body: async.when(
         loading: () => const PremiumSkeletonPage(cardCount: 6),
-        error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+        error: (e, _) => const Center(child: Text('حدث خطأ')),
         data: (view) {
           final groups = <String, List<TransactionEntity>>{};
           for (final tx in view.transactions) {
@@ -245,7 +252,7 @@ class TransactionsScreen extends ConsumerWidget {
                       padding: EdgeInsets.all(32),
                       child: Center(child: CircularProgressIndicator()),
                     ),
-                    error: (error, _) => Text('حدث خطأ: $error'),
+                    error: (error, _) => const Text('حدث خطأ'),
                     data: (bills) => _BillsTab(
                       view: bills,
                       currencyLabel: currencyLabel,
@@ -1396,7 +1403,7 @@ class _SuggestionCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'تكرر ${suggestion.monthsSeen} أشهر · اضغط للتفعيل',
+                        'تكرر ${_monthsLabel(suggestion.monthsSeen)} · اضغط للتفعيل',
                         style: AppTypography.caption(c.textLight),
                       ),
                     ],

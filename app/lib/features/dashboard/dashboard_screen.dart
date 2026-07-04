@@ -47,6 +47,13 @@ import 'dashboard_providers.dart';
 final _dashboardBudgetPeriodProvider =
     StateProvider<BudgetPeriod>((ref) => BudgetPeriod.monthly);
 
+String _monthsLabel(int n) {
+  if (n == 1) return 'شهر';
+  if (n == 2) return 'شهرين';
+  if (n <= 10) return '$n أشهر';
+  return '$n شهراً';
+}
+
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
@@ -1264,7 +1271,7 @@ class DashboardScreen extends ConsumerWidget {
                           children: [
                             Text(item.name,
                                 style: AppTypography.bodyStrong(c.textMain)),
-                            Text('تكرر ${item.monthsSeen} أشهر',
+                            Text('تكرر ${_monthsLabel(item.monthsSeen)}',
                                 style: AppTypography.caption(c.textLight)),
                           ],
                         ),

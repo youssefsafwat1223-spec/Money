@@ -38,7 +38,7 @@ class ReportsScreen extends ConsumerWidget {
       child: Scaffold(
         body: async.when(
           loading: () => const PremiumSkeletonPage(cardCount: 4),
-          error: (e, _) => Center(child: Text('حدث خطأ: $e')),
+          error: (e, _) => const Center(child: Text('حدث خطأ')),
           data: (bundle) {
             final section = bundle.monthly;
             return NestedScrollView(

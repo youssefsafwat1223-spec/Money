@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/backend/supabase_config.dart';
+import '../../core/privacy/data_wipe_service.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/di/app_providers.dart';
 import '../../data/catalog/catalog_daos.dart';
@@ -243,7 +244,7 @@ class SettingsScreen extends ConsumerWidget {
                 prefsAsync.when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
-                  error: (error, _) => Text('حدث خطأ: $error'),
+                  error: (error, _) => const Text('حدث خطأ'),
                   data: (prefs) => PremiumMotion(
                     delay: const Duration(milliseconds: 150),
                     child: _Section(
@@ -382,7 +383,7 @@ class SettingsScreen extends ConsumerWidget {
                     title: 'النسخ الاحتياطي والأمان',
                     children: [
                       _NavTile(
-                        icon: AppLucideIcons.inbox,
+                        icon: AppLucideIcons.shieldCheck,
                         title: 'النسخ الاحتياطي المشفر',
                         subtitle:
                             'نسخ مشفّر E2E لا نقدر نقرأه واستعادته بأي وقت',
@@ -476,7 +477,7 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                       const _AppLockTile(),
                       _NavTile(
-                        icon: AppLucideIcons.inbox,
+                        icon: AppLucideIcons.receipt,
                         title: 'تصدير البيانات',
                         subtitle: 'مشاركة ملف CSV بكل عملياتك',
                         onTap: () => exportTransactionsCsv(context, ref),
@@ -486,7 +487,7 @@ class SettingsScreen extends ConsumerWidget {
                         title: 'ابدأ من جديد',
                         subtitle:
                             'مسح جميع بياناتك المحلية مع إبقاء حسابك نشطاً',
-                        onTap: () => context.push('/privacy'),
+                        onTap: () => _confirmReset(context, ref),
                       ),
                     ],
                   ),
@@ -1257,6 +1258,31 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Future<void> _confirmReset(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('مسح جميع البيانات؟'),
+        content: const Text(
+            'سيتم مسح جميع بياناتك المحلية. لا يمكن التراجع.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('مسح'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(dataWipeServiceProvider).wipeAll();
+    await AppSession.instance.wipeAndReset();
+    if (context.mounted) context.go('/onboarding');
+  }
 }
 
 class _ProfileSettingsCard extends StatelessWidget {
@@ -1514,7 +1540,7 @@ class _ProfileActionRow extends StatelessWidget {
               value,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.left,
+              textAlign: TextAlign.end,
               style: AppTypography.caption(
                 onTap == null ? c.textMuted : c.textMain,
               ),
