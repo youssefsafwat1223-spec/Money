@@ -320,6 +320,16 @@ enum SharedCaptureStore {
     isoFormatter.string(from: date)
   }
 
+  /// Signals the host Flutter app that backend relay state may have changed.
+  ///
+  /// Backend-first captures do not need to store the raw SMS in App Group on
+  /// success; the relay row is already in `processed_captures`. This notification
+  /// wakes the host app, when running, so Flutter can call `sync-captures` and
+  /// refresh Drift/UI without waiting for a notification tap.
+  static func notifyPendingCaptureUpdateAvailable() {
+    notifyPendingMessagesAvailable()
+  }
+
   private static func loadQueue() -> [Payload] {
     guard let data = defaults?.data(forKey: queueKey),
           let queue = try? JSONDecoder().decode([Payload].self, from: data) else {

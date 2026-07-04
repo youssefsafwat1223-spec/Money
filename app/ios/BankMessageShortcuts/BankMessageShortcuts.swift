@@ -85,6 +85,7 @@ struct PostBankStatusIntent: AppIntent {
           request,
           payloadID: payloadID
         )
+        SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
         if !response.pushSent {
           await scheduleNotification(response.notification)
         }
