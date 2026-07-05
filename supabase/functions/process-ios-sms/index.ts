@@ -28,6 +28,7 @@ type ParsedCapture = {
   comparisonTimestampSource?: 'sms_body' | 'received_at';
   rawMessage?: string;
   senderId?: string;
+  parserSource?: 'deterministic' | 'ai_hybrid';
 };
 
 type NotificationPayload = {
@@ -103,6 +104,7 @@ Deno.serve(async (req) => {
     type: parsed.type ?? null,
     hasMerchant: parsed.merchant != null,
     confidence: parsed.confidence ?? null,
+    parserSource: parsed.parserSource ?? null,
     allowAi,
   }));
 
@@ -225,31 +227,41 @@ async function parseSms(input: {
   allowAi: boolean;
 }): Promise<ParsedCapture> {
   const deterministic = deterministicParse(input.text, input.receivedAt);
-  if (deterministic.amount && deterministic.currency && (deterministic.confidence ?? 0) >= 0.78) {
-    return {
-      ...deterministic,
-      rawMessage: input.rawText,
-      senderId: input.sender || undefined,
-    };
-  }
+
   if (input.allowAi) {
     const ai = await aiParse(input.text);
-    if (ai?.amount && ai.currency) {
+    const amount = ai?.amount ?? deterministic.amount;
+    const currency = ai?.currency ?? deterministic.currency;
+    if (ai && amount != null && currency) {
+      const aiTimestamp = trustedSmsTimestamp(ai.occurredAt, input.receivedAt);
+      const deterministicTimestamp = deterministic.comparisonTimestampSource === 'sms_body'
+        ? trustedSmsTimestamp(deterministic.comparisonTimestamp, input.receivedAt)
+        : undefined;
+      const comparisonTimestamp = aiTimestamp ?? deterministicTimestamp ?? input.receivedAt;
       return {
-        ...deterministic,
-        ...ai,
+        amount,
+        currency,
+        type: ai.type ?? deterministic.type,
+        merchant: ai.merchant ?? deterministic.merchant,
+        category: ai.category ?? deterministic.category,
+        last4: ai.last4 ?? deterministic.last4,
+        direction: ai.direction ?? deterministic.direction,
         confidence: Math.max(ai.confidence ?? 0.82, deterministic.confidence ?? 0),
         rawMessage: input.rawText,
         senderId: input.sender || undefined,
-        comparisonTimestamp: ai.occurredAt ?? deterministic.comparisonTimestamp ?? input.receivedAt,
-        comparisonTimestampSource: ai.occurredAt ? 'sms_body' : (deterministic.comparisonTimestampSource ?? 'received_at'),
+        occurredAt: comparisonTimestamp,
+        comparisonTimestamp,
+        comparisonTimestampSource: aiTimestamp || deterministicTimestamp ? 'sms_body' : 'received_at',
+        parserSource: 'ai_hybrid',
       };
     }
   }
+
   return {
     ...deterministic,
     rawMessage: input.rawText,
     senderId: input.sender || undefined,
+    parserSource: 'deterministic',
   };
 }
 
@@ -266,7 +278,10 @@ function deterministicParse(text: string, receivedAt: string): ParsedCapture {
   const direction = detectDirection(lower);
   const type = direction === 'credit' ? 'income' : direction === 'debit' ? 'payment' : 'unknown';
   const category = type === 'income' ? 'income' : inferCategory(merchant, type);
-  const occurredAt = extractTimestamp(normalized);
+  const occurredAt = trustedSmsTimestamp(
+    extractTimestamp(normalized, receivedAt),
+    receivedAt,
+  );
   const confidence = (amount && currency ? 0.55 : 0) +
     (direction !== 'unknown' ? 0.15 : 0) +
     (merchant ? 0.1 : 0) +
@@ -670,22 +685,53 @@ function inferCategory(merchant: string | undefined, type: string): string {
   return 'other';
 }
 
-function extractTimestamp(text: string): string | undefined {
-  const now = new Date();
+function extractTimestamp(text: string, receivedAt: string): string | undefined {
+  const reference = parseTimestamp(receivedAt) ?? new Date();
   const iso = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T]+(\d{1,2}):(\d{2}))?/i.exec(text);
   if (iso) {
     return makeUtc(Number(iso[1]), Number(iso[2]), Number(iso[3]), Number(iso[4] ?? 12), Number(iso[5] ?? 0));
   }
-  const dmy = /(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2,4}))?(?:[ T]+(\d{1,2}):(\d{2}))?/i.exec(text);
+  const dmy = /(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2,4}))?(?:(?:\s*(?:t|at|الساعة)\s*)(\d{1,2}):(\d{2}))?/i.exec(text);
   if (dmy) {
-    const year = dmy[3] ? normalizeYear(Number(dmy[3])) : now.getUTCFullYear();
+    const year = dmy[3] ? normalizeYear(Number(dmy[3])) : reference.getUTCFullYear();
     return makeUtc(year, Number(dmy[2]), Number(dmy[1]), Number(dmy[4] ?? 12), Number(dmy[5] ?? 0));
   }
   const time = /(?:الساعة|at)\s*(\d{1,2}):(\d{2})/i.exec(text);
   if (time) {
-    return makeUtc(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate(), Number(time[1]), Number(time[2]));
+    return makeUtc(
+      reference.getUTCFullYear(),
+      reference.getUTCMonth() + 1,
+      reference.getUTCDate(),
+      Number(time[1]),
+      Number(time[2]),
+    );
   }
   return undefined;
+}
+
+const MAX_SMS_TIMESTAMP_PAST_MS = 31 * 24 * 60 * 60 * 1000;
+const MAX_SMS_TIMESTAMP_FUTURE_MS = 24 * 60 * 60 * 1000;
+
+function trustedSmsTimestamp(candidate: string | undefined, receivedAt: string): string | undefined {
+  if (!candidate) return undefined;
+  const timestamp = parseTimestamp(candidate);
+  const reference = parseTimestamp(receivedAt);
+  if (!timestamp || !reference) return undefined;
+
+  const delta = timestamp.getTime() - reference.getTime();
+  if (delta < -MAX_SMS_TIMESTAMP_PAST_MS || delta > MAX_SMS_TIMESTAMP_FUTURE_MS) {
+    return undefined;
+  }
+  return timestamp.toISOString();
+}
+
+function parseTimestamp(value: string | undefined): Date | null {
+  if (!value) return null;
+  const clean = value.trim();
+  if (!clean) return null;
+  const withZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(clean) ? clean : `${clean}Z`;
+  const date = new Date(withZone);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function normalizeYear(year: number): number {
