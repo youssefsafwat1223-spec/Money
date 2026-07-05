@@ -693,7 +693,10 @@ class _AiConsentPhaseState extends ConsumerState<_AiConsentPhase> {
       final repository = ref.read(userSettingsRepositoryProvider);
       final settings = await repository.getSettings();
       await repository.saveSettings(
-        settings.copyWith(aiConsentGranted: granted),
+        settings.copyWith(
+          aiConsentGranted: granted,
+          cloudProcessingEnabled: granted,
+        ),
       );
       refreshUserSettings(ref);
       try {
@@ -767,8 +770,9 @@ class _AiConsentPhaseState extends ConsumerState<_AiConsentPhase> {
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: _TypewriterText(
                     text: 'للرسائل التي يعجز المحرك عن تحليلها، نرسل نصاً '
-                        'مُعقَّماً (بدون أرقام بطاقات أو أسماء) لخدمة ذكاء '
-                        'اصطناعي. المبالغ والتواريخ تبقى على جهازك.',
+                        'مُعقَّماً (بدون أرقام بطاقات أو أسماء) إلى خادم قرش '
+                        'وخدمة ذكاء اصطناعي عند الحاجة. المبالغ والتواريخ '
+                        'تبقى تحت تحكمك.',
                     size: 13,
                     weight: FontWeight.w500,
                     color: isDark ? Colors.white70 : const Color(0xFF555555)),

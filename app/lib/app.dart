@@ -8,6 +8,7 @@ import 'package:money_companion/l10n/app_localizations.dart';
 
 import 'core/router/app_router.dart';
 import 'core/security/app_lock_gate.dart';
+import 'core/session/app_session.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_assets.dart';
 import 'core/theme/app_colors.dart';
@@ -321,11 +322,15 @@ class _RizonSplashGate extends StatefulWidget {
 }
 
 class _RizonSplashGateState extends State<_RizonSplashGate> {
-  bool _visible = true;
+  late final bool _enabled;
+  late bool _visible;
 
   @override
   void initState() {
     super.initState();
+    _enabled = AppSession.instance.status != SessionStatus.authenticated;
+    _visible = _enabled;
+    if (!_enabled) return;
     Timer(const Duration(milliseconds: 1400), () {
       if (mounted) {
         setState(() => _visible = false);
@@ -335,6 +340,7 @@ class _RizonSplashGateState extends State<_RizonSplashGate> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_enabled) return widget.child;
     return Stack(
       children: [
         widget.child,

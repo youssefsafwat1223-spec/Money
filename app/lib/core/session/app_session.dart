@@ -133,11 +133,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   Future<void> _reconcileSupabaseSession(supabase.Session? session) async {
     if (isGuest || authMethod == null) return;
-    if (value == SessionStatus.authenticated && session == null) {
-      await signOut();
-      return;
-    }
-    final remoteEmail = session?.user.email;
+    // Supabase may briefly have no in-memory session during app startup or
+    // token refresh. Keep the local-first app session alive and let an explicit
+    // signedOut/userDeleted auth event clear it instead.
+    if (session == null) return;
+    final remoteEmail = session.user.email;
     if (remoteEmail == null || remoteEmail.trim().isEmpty) return;
     if (remoteEmail == email) return;
     email = remoteEmail;
