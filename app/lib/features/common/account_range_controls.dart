@@ -217,7 +217,8 @@ class _DateRangeChips extends ConsumerWidget {
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(width: 6),
-                Icon(Icons.keyboard_arrow_down_rounded, color: c.textMuted, size: 18),
+                Icon(Icons.keyboard_arrow_down_rounded,
+                    color: c.textMuted, size: 18),
               ],
             ),
           ),
@@ -238,49 +239,10 @@ class _DateRangeChips extends ConsumerWidget {
       };
 
   TransactionsDateRange _rangeForPreset(TransactionsDatePreset preset) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final weekStart =
-        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
-    return switch (preset) {
-      TransactionsDatePreset.today => TransactionsDateRange(
-          preset: preset,
-          from: today,
-          to: now,
-        ),
-      TransactionsDatePreset.thisWeek => TransactionsDateRange(
-          preset: preset,
-          from: weekStart,
-          to: now,
-        ),
-      TransactionsDatePreset.thisMonth => TransactionsDateRange(
-          preset: preset,
-          from: DateTime(now.year, now.month),
-          to: now,
-        ),
-      TransactionsDatePreset.previousMonth => TransactionsDateRange(
-          preset: preset,
-          from: DateTime(now.year, now.month - 1),
-          to: DateTime(now.year, now.month)
-              .subtract(const Duration(seconds: 1)),
-        ),
-      TransactionsDatePreset.last7Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 7)),
-          to: now,
-        ),
-      TransactionsDatePreset.last30Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 30)),
-          to: now,
-        ),
-      TransactionsDatePreset.last90Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 90)),
-          to: now,
-        ),
-      TransactionsDatePreset.custom => throw StateError('Pick custom range'),
-    };
+    if (preset == TransactionsDatePreset.custom) {
+      throw StateError('Pick custom range');
+    }
+    return transactionsRangeForPreset(preset);
   }
 
   Future<void> _showRangeSheet(
@@ -301,7 +263,8 @@ class _DateRangeChips extends ConsumerWidget {
             title: 'اختار فترة العرض',
             scrollable: true,
             body: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -350,7 +313,8 @@ class _DateRangeChips extends ConsumerWidget {
                                 context: context,
                                 initialDate: from,
                                 firstDate: DateTime(2020),
-                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 365)),
                               );
                               if (picked != null) setState(() => from = picked);
                             },
@@ -365,7 +329,8 @@ class _DateRangeChips extends ConsumerWidget {
                                 context: context,
                                 initialDate: to,
                                 firstDate: DateTime(2020),
-                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 365)),
                               );
                               if (picked != null) setState(() => to = picked);
                             },

@@ -51,7 +51,8 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
   final txRepo = ref.watch(transactionRepositoryProvider);
   final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
-  final range = ref.watch(transactionsDateRangeProvider);
+  final range =
+      effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final selectedAccountId = ref.watch(activeAccountIdProvider);
   final selectedAccount = selectedAccountId == null
       ? null
@@ -334,7 +335,6 @@ DateTime _dateOnly(DateTime value) =>
 DateTime _endOfDay(DateTime value) =>
     DateTime(value.year, value.month, value.day, 23, 59, 59, 999);
 
-
 /// Returns the start/end of the budget's CURRENT active period.
 /// Monthly → 1st of month → last day of month (calendar month).
 /// Yearly  → Jan 1 → Dec 31 (calendar year).
@@ -362,8 +362,8 @@ DateTime _endOfDay(DateTime value) =>
       return (from: start, to: rawEnd);
     case BudgetPeriod.yearly:
       final start = DateTime(now.year, 1, 1);
-      final rawEnd =
-          DateTime(now.year + 1, 1, 1).subtract(const Duration(milliseconds: 1));
+      final rawEnd = DateTime(now.year + 1, 1, 1)
+          .subtract(const Duration(milliseconds: 1));
       return (from: start, to: rawEnd);
   }
 }

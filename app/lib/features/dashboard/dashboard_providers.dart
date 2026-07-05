@@ -147,18 +147,18 @@ class DashboardData {
   }
 
   /// انتظام التسجيل (streak): 0-100. 30 أسبوعًا = 100%.
-  double get streakScore =>
-      (streak.currentStreak / 30).clamp(0.0, 1.0) * 100;
+  double get streakScore => (streak.currentStreak / 30).clamp(0.0, 1.0) * 100;
 
   /// تنوع الإنفاق بناءً على عدد الفئات: 0-100. 5 فئات أو أكثر = 100%.
-  double get diversityScore =>
-      (topCategories.length / 5).clamp(0.0, 1.0) * 100;
+  double get diversityScore => (topCategories.length / 5).clamp(0.0, 1.0) * 100;
 
   /// درجة قرش الإجمالية (0-100) — وزن مرجّح من المكونات الأربعة.
-  int get qirshScore =>
-      (budgetScore * 0.35 + savingsScore * 0.30 + streakScore * 0.20 + diversityScore * 0.15)
-          .round()
-          .clamp(0, 100);
+  int get qirshScore => (budgetScore * 0.35 +
+          savingsScore * 0.30 +
+          streakScore * 0.20 +
+          diversityScore * 0.15)
+      .round()
+      .clamp(0, 100);
 
   /// تسمية الفترة للعرض: «اليوم» / «الأسبوع» / «الشهر».
   String get budgetPeriodLabel => switch (budgetPeriod) {
@@ -277,7 +277,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final userSettingsRepo = ref.watch(userSettingsRepositoryProvider);
   final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
-  final range = ref.watch(transactionsDateRangeProvider);
+  final range =
+      effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final settings = await userSettingsRepo.getSettings();
   final initialAccounts = await accountRepo.getAll();
   final initialTransactions = await txRepo.getAll();
@@ -447,7 +448,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     accountId: accountId,
   );
 
-  final recent = await txRepo.getRecent(limit: 10, accountId: accountId);
+  final recent = (await txRepo.getRecent(limit: 50, accountId: accountId))
+      .where((tx) =>
+          !tx.occurredAt.isBefore(rangeStart) &&
+          !tx.occurredAt.isAfter(rangeEnd))
+      .take(10)
+      .toList(growable: false);
   // الداشبورد يعرض عملة الحساب النشط فقط لتجنب جمع عملات مختلفة في رقم واحد.
   const currencyTotals = <CurrencyTotal>[];
   final streak = await gamificationRepo.getStreak();

@@ -236,8 +236,9 @@ async function parseSms(input: {
 
   if (input.allowAi) {
     const ai = await aiParse(input.text);
-    const amount = ai?.amount ?? deterministic.amount;
-    const currency = ai?.currency ?? deterministic.currency;
+    const amount = deterministic.amount ?? ai?.amount;
+    const currency = normalizeCurrencyCode(deterministic.currency) ??
+      normalizeCurrencyCode(ai?.currency);
     if (ai && amount != null && currency) {
       const aiTimestamp = trustedSmsTimestamp(
         ai.occurredAt,
@@ -251,7 +252,7 @@ async function parseSms(input: {
             input.tzOffsetMinutes,
           )
         : undefined;
-      const comparisonTimestamp = aiTimestamp ?? deterministicTimestamp ?? input.receivedAt;
+      const comparisonTimestamp = deterministicTimestamp ?? aiTimestamp ?? input.receivedAt;
       return {
         amount,
         currency,
@@ -265,7 +266,7 @@ async function parseSms(input: {
         senderId: input.sender || undefined,
         occurredAt: comparisonTimestamp,
         comparisonTimestamp,
-        comparisonTimestampSource: aiTimestamp || deterministicTimestamp ? 'sms_body' : 'received_at',
+        comparisonTimestampSource: deterministicTimestamp || aiTimestamp ? 'sms_body' : 'received_at',
         parserSource: 'ai_hybrid',
       };
     }
@@ -637,7 +638,13 @@ function extractNumber(text: string, patterns: string[]): number | undefined {
 
 function extractCurrency(text: string): string | undefined {
   const match = new RegExp(rules.currencyPattern as string, 'i').exec(text);
-  return match?.[1]?.toUpperCase();
+  return normalizeCurrencyCode(match?.[1]);
+}
+
+function normalizeCurrencyCode(value?: string): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toUpperCase();
+  return CURRENCY_CODES.includes(normalized) ? normalized : undefined;
 }
 
 function extractMerchant(text: string): string | undefined {

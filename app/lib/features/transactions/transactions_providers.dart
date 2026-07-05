@@ -106,12 +106,67 @@ class TransactionsDateRange {
 }
 
 TransactionsDateRange defaultTransactionsRange() {
-  final now = DateTime.now();
-  return TransactionsDateRange(
-    preset: TransactionsDatePreset.thisMonth,
-    from: DateTime(now.year, now.month),
-    to: now,
+  return transactionsRangeForPreset(TransactionsDatePreset.thisMonth);
+}
+
+TransactionsDateRange transactionsRangeForPreset(
+  TransactionsDatePreset preset, {
+  DateTime? now,
+  TransactionsDateRange? customFallback,
+}) {
+  final current = now ?? DateTime.now();
+  final today = DateTime(current.year, current.month, current.day);
+  final weekStart = today.subtract(
+    Duration(days: (current.weekday - DateTime.saturday) % 7),
   );
+  return switch (preset) {
+    TransactionsDatePreset.today => TransactionsDateRange(
+        preset: preset,
+        from: today,
+        to: current,
+      ),
+    TransactionsDatePreset.thisWeek => TransactionsDateRange(
+        preset: preset,
+        from: weekStart,
+        to: current,
+      ),
+    TransactionsDatePreset.thisMonth => TransactionsDateRange(
+        preset: preset,
+        from: DateTime(current.year, current.month),
+        to: current,
+      ),
+    TransactionsDatePreset.previousMonth => TransactionsDateRange(
+        preset: preset,
+        from: DateTime(current.year, current.month - 1),
+        to: DateTime(current.year, current.month)
+            .subtract(const Duration(seconds: 1)),
+      ),
+    TransactionsDatePreset.last7Days => TransactionsDateRange(
+        preset: preset,
+        from: current.subtract(const Duration(days: 7)),
+        to: current,
+      ),
+    TransactionsDatePreset.last30Days => TransactionsDateRange(
+        preset: preset,
+        from: current.subtract(const Duration(days: 30)),
+        to: current,
+      ),
+    TransactionsDatePreset.last90Days => TransactionsDateRange(
+        preset: preset,
+        from: current.subtract(const Duration(days: 90)),
+        to: current,
+      ),
+    TransactionsDatePreset.custom => customFallback ??
+        TransactionsDateRange(preset: preset, from: today, to: current),
+  };
+}
+
+TransactionsDateRange effectiveTransactionsRange(
+  TransactionsDateRange range, {
+  DateTime? now,
+}) {
+  if (range.preset == TransactionsDatePreset.custom) return range;
+  return transactionsRangeForPreset(range.preset, now: now);
 }
 
 final transactionsDateRangeProvider =
@@ -133,7 +188,8 @@ final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
   final txRepo = ref.watch(transactionRepositoryProvider);
   final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);
-  final range = ref.watch(transactionsDateRangeProvider);
+  final range =
+      effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final kind = ref.watch(transactionKindFilterProvider);
   final query = ref.watch(transactionSearchQueryProvider).trim().toLowerCase();
   final pendingOnly = ref.watch(transactionsPendingFilterProvider);
@@ -187,7 +243,8 @@ final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
 
 final billsViewProvider = FutureProvider<BillsView>((ref) async {
   ref.watch(dbRevisionProvider);
-  final range = ref.watch(transactionsDateRangeProvider);
+  final range =
+      effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final billRepo = ref.watch(billRepositoryProvider);
   final accountRepo = ref.watch(accountRepositoryProvider);
   final selectedAccountId = ref.watch(activeAccountIdProvider);

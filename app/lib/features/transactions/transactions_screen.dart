@@ -556,49 +556,7 @@ class _DateRangeChips extends ConsumerWidget {
       };
 
   TransactionsDateRange _rangeForPreset(TransactionsDatePreset preset) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final weekStart =
-        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
-    return switch (preset) {
-      TransactionsDatePreset.today => TransactionsDateRange(
-          preset: preset,
-          from: today,
-          to: now,
-        ),
-      TransactionsDatePreset.thisWeek => TransactionsDateRange(
-          preset: preset,
-          from: weekStart,
-          to: now,
-        ),
-      TransactionsDatePreset.thisMonth => TransactionsDateRange(
-          preset: preset,
-          from: DateTime(now.year, now.month),
-          to: now,
-        ),
-      TransactionsDatePreset.previousMonth => TransactionsDateRange(
-          preset: preset,
-          from: DateTime(now.year, now.month - 1),
-          to: DateTime(now.year, now.month)
-              .subtract(const Duration(seconds: 1)),
-        ),
-      TransactionsDatePreset.last7Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 7)),
-          to: now,
-        ),
-      TransactionsDatePreset.last30Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 30)),
-          to: now,
-        ),
-      TransactionsDatePreset.last90Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 90)),
-          to: now,
-        ),
-      TransactionsDatePreset.custom => range,
-    };
+    return transactionsRangeForPreset(preset, customFallback: range);
   }
 
   Future<void> _showRangeSheet(

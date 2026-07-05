@@ -93,7 +93,8 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
   final defaultAccount = await accountRepo.getDefault();
   final accountId = (selectedAccount ?? defaultAccount)?.id;
   final now = DateTime.now();
-  final range = ref.watch(transactionsDateRangeProvider);
+  final range =
+      effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final rangeEnd = range.to.isAfter(now) ? now : range.to;
 
   Future<ReportSection> section(

@@ -166,6 +166,56 @@ void main() {
     }
   });
 
+  test('account-scoped reads include legacy null-account rows by currency',
+      () async {
+    final account = await accountRepository.getDefault();
+    expect(account, isNotNull);
+    final now = DateTime.utc(2026, 7, 5, 9, 30);
+    await db.customInsert(
+      '''
+        INSERT INTO transactions(
+          id, amount, currency, type, source, occurred_at, raw_message,
+          parse_confidence, status, created_at, updated_at
+        ) VALUES (?, 12.5, ?, 'payment', 'bank', ?, 'legacy same currency',
+          0.9, 'confirmed', ?, ?);
+      ''',
+      variables: [
+        Variable.withString('legacy_same_currency'),
+        Variable.withString(account!.currency),
+        Variable.withString(now.toIso8601String()),
+        Variable.withString(now.toIso8601String()),
+        Variable.withString(now.toIso8601String()),
+      ],
+    );
+    await db.customInsert(
+      '''
+        INSERT INTO transactions(
+          id, amount, currency, type, source, occurred_at, raw_message,
+          parse_confidence, status, created_at, updated_at
+        ) VALUES (?, 99, 'EGP', 'payment', 'bank', ?, 'legacy other currency',
+          0.9, 'confirmed', ?, ?);
+      ''',
+      variables: [
+        Variable.withString('legacy_other_currency'),
+        Variable.withString(now.toIso8601String()),
+        Variable.withString(now.toIso8601String()),
+        Variable.withString(now.toIso8601String()),
+      ],
+    );
+
+    final total = await transactionRepository.expenseTotalBetween(
+      from: now.subtract(const Duration(minutes: 1)),
+      to: now.add(const Duration(minutes: 1)),
+      accountId: account.id,
+    );
+    final recent =
+        await transactionRepository.getRecent(limit: 10, accountId: account.id);
+
+    expect(total, 12.5);
+    expect(recent.map((tx) => tx.id), contains('legacy_same_currency'));
+    expect(recent.map((tx) => tx.id), isNot(contains('legacy_other_currency')));
+  });
+
   test(
       'saving with a missing seeded category recreates it instead of falling back to other',
       () async {

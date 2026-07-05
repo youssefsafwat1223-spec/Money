@@ -391,49 +391,10 @@ class DashboardScreen extends ConsumerWidget {
       };
 
   TransactionsDateRange _rangeForPreset(TransactionsDatePreset preset) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final weekStart =
-        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
-    return switch (preset) {
-      TransactionsDatePreset.today => TransactionsDateRange(
-          preset: preset,
-          from: today,
-          to: now,
-        ),
-      TransactionsDatePreset.thisWeek => TransactionsDateRange(
-          preset: preset,
-          from: weekStart,
-          to: now,
-        ),
-      TransactionsDatePreset.thisMonth => TransactionsDateRange(
-          preset: preset,
-          from: DateTime(now.year, now.month),
-          to: now,
-        ),
-      TransactionsDatePreset.previousMonth => TransactionsDateRange(
-          preset: preset,
-          from: DateTime(now.year, now.month - 1),
-          to: DateTime(now.year, now.month)
-              .subtract(const Duration(seconds: 1)),
-        ),
-      TransactionsDatePreset.last7Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 7)),
-          to: now,
-        ),
-      TransactionsDatePreset.last30Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 30)),
-          to: now,
-        ),
-      TransactionsDatePreset.last90Days => TransactionsDateRange(
-          preset: preset,
-          from: now.subtract(const Duration(days: 90)),
-          to: now,
-        ),
-      TransactionsDatePreset.custom => defaultTransactionsRange(),
-    };
+    return transactionsRangeForPreset(
+      preset,
+      customFallback: defaultTransactionsRange(),
+    );
   }
 
   String _monthLabel(DateTime date, BuildContext context) {
@@ -506,16 +467,14 @@ class DashboardScreen extends ConsumerWidget {
                   color: onCta.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(Icons.query_stats_rounded,
-                    color: onCta, size: 21),
+                child: Icon(Icons.query_stats_rounded, color: onCta, size: 21),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('ملخص الحساب',
-                        style: AppTypography.bodyStrong(onCta)),
+                    Text('ملخص الحساب', style: AppTypography.bodyStrong(onCta)),
                     const SizedBox(height: 2),
                     Text(_rangeLabel(data.range, context),
                         maxLines: 1,
@@ -566,9 +525,12 @@ class DashboardScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(2),
             child: Row(
               children: [
-                _budgetTab(context, ref, 'اليوم', BudgetPeriod.daily, selectedPeriod, onCta),
-                _budgetTab(context, ref, 'الأسبوع', BudgetPeriod.weekly, selectedPeriod, onCta),
-                _budgetTab(context, ref, 'الشهر', BudgetPeriod.monthly, selectedPeriod, onCta),
+                _budgetTab(context, ref, 'اليوم', BudgetPeriod.daily,
+                    selectedPeriod, onCta),
+                _budgetTab(context, ref, 'الأسبوع', BudgetPeriod.weekly,
+                    selectedPeriod, onCta),
+                _budgetTab(context, ref, 'الشهر', BudgetPeriod.monthly,
+                    selectedPeriod, onCta),
               ],
             ),
           ),
@@ -642,7 +604,8 @@ class DashboardScreen extends ConsumerWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
-            color: isSelected ? onCta.withValues(alpha: 0.2) : Colors.transparent,
+            color:
+                isSelected ? onCta.withValues(alpha: 0.2) : Colors.transparent,
             borderRadius: BorderRadius.circular(AppRadius.md - 2),
           ),
           alignment: Alignment.center,
@@ -650,7 +613,8 @@ class DashboardScreen extends ConsumerWidget {
             label,
             style: AppTypography.caption(
               isSelected ? onCta : onCta.withValues(alpha: 0.6),
-            ).copyWith(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
+            ).copyWith(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
           ),
         ),
       ),

@@ -380,12 +380,22 @@ class DriftTransactionRepository implements TransactionRepository {
     if (tx != null) await _outboxQueue!.enqueue(OutboxOperation.delete, tx);
   }
 
-  // بند تصفية الحساب: فارغ عند null، وإلا شرط account_id.
-  static String _accountClause(String? accountId) =>
-      accountId == null ? '' : ' AND account_id = ?';
+  // بند تصفية الحساب: يضم العمليات القديمة التي لا تحمل account_id إذا كانت
+  // عملتها تطابق عملة الحساب المختار. هذا يطابق سلوك شاشة العمليات.
+  static String _accountClause(String? accountId, {String tableAlias = ''}) {
+    if (accountId == null) return '';
+    final prefix = tableAlias.isEmpty ? '' : '$tableAlias.';
+    return '''
+ AND (${prefix}account_id = ?
+      OR (${prefix}account_id IS NULL
+          AND UPPER(${prefix}currency) = (
+            SELECT UPPER(currency) FROM accounts WHERE id = ?
+          )))''';
+  }
 
-  static List<Variable> _accountVars(String? accountId) =>
-      accountId == null ? const [] : [Variable.withString(accountId)];
+  static List<Variable> _accountVars(String? accountId) => accountId == null
+      ? const []
+      : [Variable.withString(accountId), Variable.withString(accountId)];
 
   @override
   Future<List<TransactionEntity>> getRecent({
@@ -516,12 +526,13 @@ class DriftTransactionRepository implements TransactionRepository {
   }) async {
     final rows = await _db.customSelect(
       '''
-        SELECT date(occurred_at) AS day, CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
+        SELECT date(occurred_at, 'localtime') AS day,
+               CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
           AND status = 'confirmed'
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
-        GROUP BY date(occurred_at)
+        GROUP BY date(occurred_at, 'localtime')
         ORDER BY day ASC;
       ''',
       variables: [
@@ -614,7 +625,7 @@ class DriftTransactionRepository implements TransactionRepository {
     int limit = 3,
     String? accountId,
   }) async {
-    final accountClause = accountId == null ? '' : ' AND t.account_id = ?';
+    final accountClause = _accountClause(accountId, tableAlias: 't');
     final rows = await _db.customSelect(
       '''
         SELECT m.raw_name AS name,
@@ -688,7 +699,7 @@ class DriftTransactionRepository implements TransactionRepository {
   @override
   Future<List<RecurringCandidate>> recurringCandidates(
       {String? accountId}) async {
-    final accountClause = accountId == null ? '' : ' AND t.account_id = ?';
+    final accountClause = _accountClause(accountId, tableAlias: 't');
     final rows = await _db.customSelect(
       '''
         SELECT mid, name, avg_amount, months FROM (
