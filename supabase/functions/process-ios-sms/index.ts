@@ -91,6 +91,7 @@ Deno.serve(async (req) => {
     rawText,
     sender,
     receivedAt,
+    tzOffsetMinutes,
     locale,
     allowAi,
   });
@@ -223,19 +224,32 @@ async function parseSms(input: {
   rawText: string;
   sender: string;
   receivedAt: string;
+  tzOffsetMinutes: number | null;
   locale: string;
   allowAi: boolean;
 }): Promise<ParsedCapture> {
-  const deterministic = deterministicParse(input.text, input.receivedAt);
+  const deterministic = deterministicParse(
+    input.text,
+    input.receivedAt,
+    input.tzOffsetMinutes,
+  );
 
   if (input.allowAi) {
     const ai = await aiParse(input.text);
     const amount = ai?.amount ?? deterministic.amount;
     const currency = ai?.currency ?? deterministic.currency;
     if (ai && amount != null && currency) {
-      const aiTimestamp = trustedSmsTimestamp(ai.occurredAt, input.receivedAt);
+      const aiTimestamp = trustedSmsTimestamp(
+        ai.occurredAt,
+        input.receivedAt,
+        input.tzOffsetMinutes,
+      );
       const deterministicTimestamp = deterministic.comparisonTimestampSource === 'sms_body'
-        ? trustedSmsTimestamp(deterministic.comparisonTimestamp, input.receivedAt)
+        ? trustedSmsTimestamp(
+            deterministic.comparisonTimestamp,
+            input.receivedAt,
+            input.tzOffsetMinutes,
+          )
         : undefined;
       const comparisonTimestamp = aiTimestamp ?? deterministicTimestamp ?? input.receivedAt;
       return {
@@ -265,7 +279,11 @@ async function parseSms(input: {
   };
 }
 
-function deterministicParse(text: string, receivedAt: string): ParsedCapture {
+function deterministicParse(
+  text: string,
+  receivedAt: string,
+  tzOffsetMinutes: number | null,
+): ParsedCapture {
   const normalized = normalize(text);
   const lower = normalized.toLowerCase();
   const ignored = (rules.ignoreKeywords as string[]).some((keyword) => lower.includes(keyword.toLowerCase()));
@@ -279,8 +297,9 @@ function deterministicParse(text: string, receivedAt: string): ParsedCapture {
   const type = direction === 'credit' ? 'income' : direction === 'debit' ? 'payment' : 'unknown';
   const category = type === 'income' ? 'income' : inferCategory(merchant, type);
   const occurredAt = trustedSmsTimestamp(
-    extractTimestamp(normalized, receivedAt),
+    extractTimestamp(normalized, receivedAt, tzOffsetMinutes),
     receivedAt,
+    tzOffsetMinutes,
   );
   const confidence = (amount && currency ? 0.55 : 0) +
     (direction !== 'unknown' ? 0.15 : 0) +
@@ -685,25 +704,44 @@ function inferCategory(merchant: string | undefined, type: string): string {
   return 'other';
 }
 
-function extractTimestamp(text: string, receivedAt: string): string | undefined {
-  const reference = parseTimestamp(receivedAt) ?? new Date();
+function extractTimestamp(
+  text: string,
+  receivedAt: string,
+  tzOffsetMinutes: number | null,
+): string | undefined {
+  const reference = localReference(receivedAt, tzOffsetMinutes);
   const iso = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T]+(\d{1,2}):(\d{2}))?/i.exec(text);
   if (iso) {
-    return makeUtc(Number(iso[1]), Number(iso[2]), Number(iso[3]), Number(iso[4] ?? 12), Number(iso[5] ?? 0));
+    return makeTimestamp(
+      Number(iso[1]),
+      Number(iso[2]),
+      Number(iso[3]),
+      Number(iso[4] ?? 12),
+      Number(iso[5] ?? 0),
+      tzOffsetMinutes,
+    );
   }
   const dmy = /(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2,4}))?(?:(?:\s*(?:t|at|الساعة)\s*)(\d{1,2}):(\d{2}))?/i.exec(text);
   if (dmy) {
-    const year = dmy[3] ? normalizeYear(Number(dmy[3])) : reference.getUTCFullYear();
-    return makeUtc(year, Number(dmy[2]), Number(dmy[1]), Number(dmy[4] ?? 12), Number(dmy[5] ?? 0));
+    const year = dmy[3] ? normalizeYear(Number(dmy[3])) : reference.year;
+    return makeTimestamp(
+      year,
+      Number(dmy[2]),
+      Number(dmy[1]),
+      Number(dmy[4] ?? 12),
+      Number(dmy[5] ?? 0),
+      tzOffsetMinutes,
+    );
   }
   const time = /(?:الساعة|at)\s*(\d{1,2}):(\d{2})/i.exec(text);
   if (time) {
-    return makeUtc(
-      reference.getUTCFullYear(),
-      reference.getUTCMonth() + 1,
-      reference.getUTCDate(),
+    return makeTimestamp(
+      reference.year,
+      reference.month,
+      reference.day,
       Number(time[1]),
       Number(time[2]),
+      tzOffsetMinutes,
     );
   }
   return undefined;
@@ -712,9 +750,13 @@ function extractTimestamp(text: string, receivedAt: string): string | undefined 
 const MAX_SMS_TIMESTAMP_PAST_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_SMS_TIMESTAMP_FUTURE_MS = 24 * 60 * 60 * 1000;
 
-function trustedSmsTimestamp(candidate: string | undefined, receivedAt: string): string | undefined {
+function trustedSmsTimestamp(
+  candidate: string | undefined,
+  receivedAt: string,
+  tzOffsetMinutes: number | null,
+): string | undefined {
   if (!candidate) return undefined;
-  const timestamp = parseTimestamp(candidate);
+  const timestamp = parseTimestamp(candidate, tzOffsetMinutes);
   const reference = parseTimestamp(receivedAt);
   if (!timestamp || !reference) return undefined;
 
@@ -725,11 +767,29 @@ function trustedSmsTimestamp(candidate: string | undefined, receivedAt: string):
   return timestamp.toISOString();
 }
 
-function parseTimestamp(value: string | undefined): Date | null {
+function parseTimestamp(
+  value: string | undefined,
+  tzOffsetMinutes?: number | null,
+): Date | null {
   if (!value) return null;
   const clean = value.trim();
   if (!clean) return null;
-  const withZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(clean) ? clean : `${clean}Z`;
+  const hasZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(clean);
+  if (!hasZone && tzOffsetMinutes != null) {
+    const local = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T ]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/i.exec(clean);
+    if (local) {
+      return new Date(localTimestampMs(
+        Number(local[1]),
+        Number(local[2]),
+        Number(local[3]),
+        Number(local[4] ?? 12),
+        Number(local[5] ?? 0),
+        Number(local[6] ?? 0),
+        tzOffsetMinutes,
+      ));
+    }
+  }
+  const withZone = hasZone ? clean : `${clean}Z`;
   const date = new Date(withZone);
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -738,8 +798,51 @@ function normalizeYear(year: number): number {
   return year < 100 ? 2000 + year : year;
 }
 
-function makeUtc(year: number, month: number, day: number, hour: number, minute: number): string {
-  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0)).toISOString();
+function localReference(
+  receivedAt: string,
+  tzOffsetMinutes: number | null,
+): { year: number; month: number; day: number } {
+  const reference = parseTimestamp(receivedAt) ?? new Date();
+  const local = tzOffsetMinutes == null
+    ? reference
+    : new Date(reference.getTime() + tzOffsetMinutes * 60_000);
+  return {
+    year: local.getUTCFullYear(),
+    month: local.getUTCMonth() + 1,
+    day: local.getUTCDate(),
+  };
+}
+
+function makeTimestamp(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  tzOffsetMinutes: number | null,
+): string {
+  return new Date(localTimestampMs(
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    0,
+    tzOffsetMinutes,
+  )).toISOString();
+}
+
+function localTimestampMs(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  tzOffsetMinutes: number | null,
+): number {
+  const base = Date.UTC(year, month - 1, day, hour, minute, second);
+  return tzOffsetMinutes == null ? base : base - tzOffsetMinutes * 60_000;
 }
 
 function normalizeMerchant(value: string): string {

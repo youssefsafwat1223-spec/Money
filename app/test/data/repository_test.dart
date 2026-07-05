@@ -98,6 +98,74 @@ void main() {
     expect(userVersion.read<int>('user_version'), db.schemaVersion);
   });
 
+  test('repairs stale and future bank capture timestamps on initialize',
+      () async {
+    await db.customInsert(
+      '''
+        INSERT INTO transactions(
+          id, amount, currency, type, source, occurred_at, raw_message,
+          parse_confidence, status, created_at, updated_at,
+          comparison_timestamp, comparison_timestamp_source,
+          transaction_time_from_sms
+        ) VALUES (?, 1, 'EGP', 'payment', 'bank', ?, 'old stale capture',
+          0.9, 'confirmed', ?, ?, ?, 'sms_body', ?);
+      ''',
+      variables: [
+        Variable.withString('tx_stale_sms_body'),
+        Variable.withString('2024-07-05T08:26:00.000Z'),
+        Variable.withString('2026-07-05T09:16:00.000Z'),
+        Variable.withString('2026-07-05T09:16:00.000Z'),
+        Variable.withString('2024-07-05T08:26:00.000Z'),
+        Variable.withString('2024-07-05T08:26:00.000Z'),
+      ],
+    );
+    await db.customInsert(
+      '''
+        INSERT INTO transactions(
+          id, amount, currency, type, source, occurred_at, raw_message,
+          parse_confidence, status, created_at, updated_at,
+          comparison_timestamp, comparison_timestamp_source,
+          transaction_time_from_sms
+        ) VALUES (?, 1, 'EGP', 'payment', 'bank', ?, 'future capture',
+          0.9, 'confirmed', ?, ?, ?, 'sms_body', ?);
+      ''',
+      variables: [
+        Variable.withString('tx_future_sms_body'),
+        Variable.withString('2026-07-05T11:26:00.000Z'),
+        Variable.withString('2026-07-05T09:16:00.000Z'),
+        Variable.withString('2026-07-05T09:16:00.000Z'),
+        Variable.withString('2026-07-05T11:26:00.000Z'),
+        Variable.withString('2026-07-05T11:26:00.000Z'),
+      ],
+    );
+
+    await db.initialize();
+
+    final rows = await db.customSelect(
+      '''
+        SELECT id, occurred_at, sms_received_at, comparison_timestamp,
+               comparison_timestamp_source, transaction_time_from_sms
+        FROM transactions
+        WHERE id IN (?, ?)
+        ORDER BY id;
+      ''',
+      variables: [
+        Variable.withString('tx_future_sms_body'),
+        Variable.withString('tx_stale_sms_body'),
+      ],
+    ).get();
+
+    expect(rows, hasLength(2));
+    for (final row in rows) {
+      expect(row.read<String>('occurred_at'), '2026-07-05T09:16:00.000Z');
+      expect(row.read<String>('sms_received_at'), '2026-07-05T09:16:00.000Z');
+      expect(
+          row.read<String>('comparison_timestamp'), '2026-07-05T09:16:00.000Z');
+      expect(row.read<String>('comparison_timestamp_source'), 'received_at');
+      expect(row.readNullable<String>('transaction_time_from_sms'), isNull);
+    }
+  });
+
   test(
       'saving with a missing seeded category recreates it instead of falling back to other',
       () async {

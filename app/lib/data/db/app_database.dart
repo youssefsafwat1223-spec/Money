@@ -92,6 +92,7 @@ class AppDatabase extends GeneratedDatabase {
     await _dedupeCategoryRows();
     await _backfillSystemTransactionCategories();
     await _backfillTransactionDirections();
+    await _repairBankCaptureTimestampDrift();
     await customStatement('PRAGMA user_version = $_targetSchemaVersion;');
   }
 
@@ -1450,6 +1451,35 @@ class AppDatabase extends GeneratedDatabase {
         SET direction = 'unknown'
         WHERE direction IS NULL;
       ''',
+    );
+  }
+
+  Future<void> _repairBankCaptureTimestampDrift() async {
+    // Older backend builds interpreted SMS body times as UTC instead of the
+    // device timezone, and briefly trusted stale AI years such as 2024. A bank
+    // capture cannot happen far in the future, and SMS dates older than the
+    // import time by a month are safer as received-at timestamps than as
+    // misleading ledger dates.
+    await customUpdate(
+      '''
+        UPDATE transactions
+        SET occurred_at = COALESCE(sms_received_at, created_at),
+            comparison_timestamp = COALESCE(sms_received_at, created_at),
+            comparison_timestamp_source = 'received_at',
+            transaction_time_from_sms = NULL,
+            sms_received_at = COALESCE(sms_received_at, created_at),
+            updated_at = ?
+        WHERE source = 'bank'
+          AND status IN ('confirmed', 'pending')
+          AND comparison_timestamp_source = 'sms_body'
+          AND (
+            julianday(occurred_at) - julianday(created_at) > (10.0 / 1440.0)
+            OR julianday(created_at) - julianday(occurred_at) > 31.0
+          );
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+      ],
     );
   }
 
