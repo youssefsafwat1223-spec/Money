@@ -9,6 +9,7 @@ import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/suspected_duplicate_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/repositories/account_repository.dart';
+import '../../../domain/usecases/add_transaction_usecase.dart';
 import 'capture_backend_client.dart';
 import 'capture_device_registration_service.dart';
 
@@ -207,17 +208,30 @@ class CaptureSyncService {
     final source = _comparisonSource(
       _string(parsed['comparisonTimestampSource']),
     );
+    final rawMessage = _string(parsed['rawMessage']) ??
+        capture.sanitizedText ??
+        'Backend processed capture ${capture.payloadId}';
+    final direction = _direction(_string(parsed['direction']));
+    var type = _type(_string(parsed['type']));
+    // نفس محاسبة التحويلات في AddTransactionUseCase: النقل بين حساباتك محايد،
+    // أما الصادر لخارجها فمصروف والوارد دخل — وإلا تُستبعد من الإجماليات خطأً.
+    if (type == TransactionTypeEntity.transfer &&
+        !AddTransactionUseCase.looksLikeInternalTransfer(rawMessage)) {
+      if (direction == TransactionDirectionEntity.debit) {
+        type = TransactionTypeEntity.payment;
+      } else if (direction == TransactionDirectionEntity.credit) {
+        type = TransactionTypeEntity.income;
+      }
+    }
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
       amount: amount,
       currency: normalizedCurrency,
       accountId: account?.id,
-      type: _type(_string(parsed['type'])),
+      type: type,
       source: TransactionSourceEntity.bank,
       occurredAt: occurredAt,
-      rawMessage: _string(parsed['rawMessage']) ??
-          capture.sanitizedText ??
-          'Backend processed capture ${capture.payloadId}',
+      rawMessage: rawMessage,
       parseConfidence: _num(parsed['confidence']) ?? 0.8,
       status: capture.status == 'needs_review'
           ? TransactionStatus.pending
@@ -226,7 +240,7 @@ class CaptureSyncService {
       updatedAt: now,
       rawMerchant: _string(parsed['merchant']),
       cardLast4: _string(parsed['last4']),
-      direction: _direction(_string(parsed['direction'])),
+      direction: direction,
       transactionTimeFromSms:
           source == ComparisonTimestampSource.smsBody ? occurredAt : null,
       smsReceivedAt: source == ComparisonTimestampSource.receivedAt

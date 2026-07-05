@@ -322,6 +322,38 @@ void main() {
     expect(confirmed.status, TransactionStatus.confirmed);
   });
 
+  test('confirming an unknown-type transaction grounds it by direction',
+      () async {
+    final now = DateTime.utc(2026, 4, 8, 12);
+    final saved = await transactionRepository.saveTransaction(
+      transaction: TransactionEntity(
+        id: 'tx-unknown-debit',
+        amount: 30,
+        currency: 'SAR',
+        type: TransactionTypeEntity.unknown,
+        source: TransactionSourceEntity.bank,
+        occurredAt: now,
+        rawMessage: 'msg',
+        parseConfidence: 0.6,
+        status: TransactionStatus.pending,
+        createdAt: now,
+        updatedAt: now,
+        direction: TransactionDirectionEntity.debit,
+      ),
+      categoryKey: null,
+    );
+
+    final confirmed = await transactionRepository.confirm(saved.id);
+
+    // Confirmed transactions must land in a totals bucket, never 'unknown'.
+    expect(confirmed.type, TransactionTypeEntity.payment);
+    final total = await transactionRepository.expenseTotalBetween(
+      from: DateTime.utc(2026, 4, 1),
+      to: DateTime.utc(2026, 5, 1),
+    );
+    expect(total, 30);
+  });
+
   test('pending transactions are excluded from financial totals', () async {
     const rawMessage = 'Purchase SAR 20.00 At UNKNOWN SHOP 2026-04-08 12:00';
 

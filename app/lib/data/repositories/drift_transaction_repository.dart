@@ -23,10 +23,19 @@ class DriftTransactionRepository implements TransactionRepository {
 
   @override
   Future<TransactionEntity> confirm(String id) async {
+    // A confirmed transaction must land in a totals bucket. 'unknown' matches
+    // neither the expense filter (payment/withdrawal) nor income, so it would
+    // stay confirmed-but-uncounted forever — ground it by direction here.
     await _db.customUpdate(
       '''
         UPDATE transactions
-        SET status = 'confirmed', updated_at = ?
+        SET status = 'confirmed',
+            type = CASE
+              WHEN type = 'unknown' AND direction = 'credit' THEN 'income'
+              WHEN type = 'unknown' THEN 'payment'
+              ELSE type
+            END,
+            updated_at = ?
         WHERE id = ?;
       ''',
       variables: [

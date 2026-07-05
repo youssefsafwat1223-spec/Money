@@ -436,7 +436,7 @@ class AddTransactionUseCase {
         _directionFromText(rawMessage) ??
         _directionFromType(effectiveParsed.type);
     final incoming = resolvedDirection == TransactionDirectionEntity.credit;
-    final isNeutralTransfer = _looksLikeInternalTransfer(rawMessage) ||
+    final isNeutralTransfer = looksLikeInternalTransfer(rawMessage) ||
         (incoming && effectiveParsed.type == TransactionType.withdrawal);
     final isExternalTransfer = !isNeutralTransfer &&
         (effectiveParsed.type == TransactionType.transfer ||
@@ -998,7 +998,9 @@ class AddTransactionUseCase {
 
   /// An explicit own-account / internal transfer: money the user moves between
   /// their own accounts. Neutral — excluded from both income and expense.
-  static bool _looksLikeInternalTransfer(String rawMessage) {
+  /// Public: the backend capture import (CaptureSyncService) applies the same
+  /// transfer accounting without going through this use case.
+  static bool looksLikeInternalTransfer(String rawMessage) {
     final lower = rawMessage.toLowerCase();
     return lower.contains('internal transfer') ||
         lower.contains('own account') ||

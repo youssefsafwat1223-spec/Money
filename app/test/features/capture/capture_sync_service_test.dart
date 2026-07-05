@@ -7,6 +7,7 @@ import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
+import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/features/capture/services/capture_backend_client.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
@@ -167,12 +168,71 @@ void main() {
     final account = await accountRepo.getById(transactions.single.accountId!);
     expect(account?.currency, 'EGP');
   });
+
+  test('outward transfer is grounded to payment so it counts as spending',
+      () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-transfer-out',
+        status: 'processed',
+        type: 'transfer',
+        direction: 'debit',
+        rawMessage: 'تم تحويل EGP 42 من حسابك إلى أحمد',
+      ),
+    ]);
+
+    await service(client).sync();
+
+    final transactions = await DriftTransactionRepository(db).getAll();
+    expect(transactions, hasLength(1));
+    expect(transactions.single.type, TransactionTypeEntity.payment);
+  });
+
+  test('inward transfer is grounded to income', () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-transfer-in',
+        status: 'processed',
+        type: 'transfer',
+        direction: 'credit',
+        rawMessage: 'حوالة واردة EGP 42 من أحمد',
+      ),
+    ]);
+
+    await service(client).sync();
+
+    final transactions = await DriftTransactionRepository(db).getAll();
+    expect(transactions, hasLength(1));
+    expect(transactions.single.type, TransactionTypeEntity.income);
+  });
+
+  test('internal transfer between own accounts stays a neutral transfer',
+      () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-transfer-internal',
+        status: 'processed',
+        type: 'transfer',
+        direction: 'debit',
+        rawMessage: 'تحويل داخلي EGP 42 بين حساباتك',
+      ),
+    ]);
+
+    await service(client).sync();
+
+    final transactions = await DriftTransactionRepository(db).getAll();
+    expect(transactions, hasLength(1));
+    expect(transactions.single.type, TransactionTypeEntity.transfer);
+  });
 }
 
 ProcessedCaptureDto _capture({
   required String payloadId,
   required String status,
   String currency = 'SAR',
+  String type = 'payment',
+  String? direction,
+  String? rawMessage,
 }) {
   return ProcessedCaptureDto(
     payloadId: payloadId,
@@ -180,8 +240,9 @@ ProcessedCaptureDto _capture({
     parsed: {
       'amount': 42,
       'currency': currency,
-      'type': 'payment',
-      'rawMessage': 'Paid $currency 42 at Coffee',
+      'type': type,
+      if (direction != null) 'direction': direction,
+      'rawMessage': rawMessage ?? 'Paid $currency 42 at Coffee',
       'merchant': 'Coffee',
       'occurredAt': DateTime.utc(2026, 7, 5, 10).toIso8601String(),
     },
