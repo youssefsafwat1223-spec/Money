@@ -114,7 +114,7 @@ class PrivacyScreen extends ConsumerWidget {
     if (confirmed != true) return;
     await ref.read(dataWipeServiceProvider).wipeAll();
     await AppSession.instance.wipeAndReset();
-    if (context.mounted) context.go('/onboarding');
+    if (context.mounted) context.go('/welcome');
   }
 }
 

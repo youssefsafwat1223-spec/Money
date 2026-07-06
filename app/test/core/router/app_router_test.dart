@@ -12,15 +12,11 @@ void main() {
     await AppSession.instance.wipeAndReset();
   });
 
-  test('fresh users are gated by the first-launch welcome first', () async {
+  // The first-launch welcome/story gating now lives in the router redirect
+  // (fresh users are forced to /welcome). onboardingEntryPathForSession is only
+  // consulted after that gate, so it always resolves to mandatory auth.
+  test('entry path resolves to auth once past the welcome gate', () async {
     await AppSession.instance.load();
-
-    expect(onboardingEntryPathForSession(AppSession.instance), '/onboarding');
-  });
-
-  test('fresh users enter auth after seeing the welcome manifesto', () async {
-    await AppSession.instance.load();
-
     await AppSession.instance.markWelcomeManifestoSeen();
 
     expect(

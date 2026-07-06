@@ -34,7 +34,7 @@ import '../common/category_catalog.dart';
 import '../common/motion.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../capture/services/local_notification_service.dart';
-import '../onboarding/method_screen.dart';
+import '../onboarding/ios_shortcut_guide.dart';
 import '../transactions/transactions_providers.dart';
 import 'data_export.dart';
 import 'settings_providers.dart';
@@ -242,6 +242,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: AppSpacing.s5),
                 prefsAsync.when(
+                  skipLoadingOnReload: true,
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
                   error: (error, _) => const Text('حدث خطأ'),
@@ -1281,7 +1282,7 @@ class SettingsScreen extends ConsumerWidget {
     if (confirmed != true) return;
     await ref.read(dataWipeServiceProvider).wipeAll();
     await AppSession.instance.wipeAndReset();
-    if (context.mounted) context.go('/onboarding');
+    if (context.mounted) context.go('/welcome');
   }
 }
 

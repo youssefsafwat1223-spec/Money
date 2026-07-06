@@ -3,7 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
-import 'package:money_companion/features/onboarding/luxe_onboarding_screen.dart';
+import 'package:money_companion/features/onboarding/story_screen.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
@@ -26,14 +26,14 @@ void main() {
           ],
           home: const Directionality(
             textDirection: TextDirection.rtl,
-            child: LuxeOnboardingScreen(),
+            child: OnboardingStoryScreen(),
           ),
         ),
       ),
     );
     await tester.pump(Duration.zero);
 
-    expect(find.byType(LuxeOnboardingScreen), findsOneWidget);
+    expect(find.byType(OnboardingStoryScreen), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(Duration.zero);
   });

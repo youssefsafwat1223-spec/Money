@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session.dart';
@@ -7,17 +6,13 @@ import '../../features/achievements/achievements_screen.dart';
 import '../../features/announcements/announcements_screen.dart';
 import '../../features/app/app_shell.dart';
 import '../../features/backup/backup_screen.dart';
-import '../../features/onboarding/first_transaction_screen.dart';
-import '../../features/onboarding/ios_shortcut_screen.dart';
-import '../../features/onboarding/listening_screen.dart';
-import '../../features/onboarding/luxe_onboarding_screen.dart';
-import '../../features/onboarding/method_screen.dart';
-import '../../features/onboarding/otp_screen.dart';
-import '../../features/onboarding/qirsh_welcome_manifesto_screen.dart';
+import '../../features/onboarding/auth_screen.dart';
+import '../../features/onboarding/brand_screen.dart';
 import '../../features/onboarding/restore_prompt_screen.dart';
+import '../../features/onboarding/setup_screen.dart';
+import '../../features/onboarding/story_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/settings/privacy_screen.dart';
-import '../../features/onboarding/capture_method_picker_screen.dart';
 import '../../features/subscriptions/subscriptions_screen.dart';
 import '../../features/budgets/budget_form_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
@@ -32,10 +27,9 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/transactions/transaction_details_screen.dart';
 
 String onboardingEntryPathForSession(AppSession session) {
-  if (session.hasCompletedOnboarding || session.hasSeenWelcomeManifesto) {
-    return '/onboarding/auth';
-  }
-  return '/onboarding';
+  // Only ever consulted after the welcome/story gate has been passed, so the
+  // signed-out returning user lands directly on mandatory auth.
+  return '/onboarding/auth';
 }
 
 /// موجّه التطبيق (go_router).
@@ -47,11 +41,13 @@ final appRouter = GoRouter(
     final status = session.status;
     final inWelcome = state.matchedLocation == '/welcome';
     final inOnboarding = state.matchedLocation.startsWith('/onboarding');
-    final guestUpgrade = session.isGuest &&
-        (state.matchedLocation == '/onboarding/auth' ||
-            state.matchedLocation == '/onboarding/otp');
     if (!session.hasSeenWelcomeManifesto) {
-      return inWelcome ? null : '/welcome';
+      // The cinematic sequence spans /welcome (story) → /onboarding/brand, and
+      // the welcome-seen flag is only set at the end (brand's CTA), so allow the
+      // brand route through the pre-welcome gate too.
+      final inWelcomeFlow =
+          inWelcome || state.matchedLocation == '/onboarding/brand';
+      return inWelcomeFlow ? null : '/welcome';
     }
     if (inWelcome) {
       return status == SessionStatus.authenticated
@@ -61,9 +57,7 @@ final appRouter = GoRouter(
     if (status == SessionStatus.needsOnboarding && !inOnboarding) {
       return onboardingEntryPathForSession(session);
     }
-    if (status == SessionStatus.authenticated &&
-        inOnboarding &&
-        !guestUpgrade) {
+    if (status == SessionStatus.authenticated && inOnboarding) {
       return '/';
     }
     return null;
@@ -71,8 +65,8 @@ final appRouter = GoRouter(
   routes: [
     GoRoute(
       path: '/welcome',
-      name: 'welcome-manifesto',
-      builder: (context, state) => const QirshWelcomeManifestoScreen(),
+      name: 'welcome-story',
+      builder: (context, state) => const OnboardingStoryScreen(),
     ),
     GoRoute(
       path: '/',
@@ -80,122 +74,24 @@ final appRouter = GoRouter(
       builder: (context, state) => const AppShell(),
     ),
     GoRoute(
-      path: '/onboarding',
-      name: 'onboarding',
-      builder: (context, state) => const LuxeOnboardingScreen(),
+      path: '/onboarding/brand',
+      name: 'onboarding-brand',
+      builder: (context, state) => const OnboardingBrandScreen(),
     ),
     GoRoute(
       path: '/onboarding/auth',
       name: 'onboarding-auth',
-      // صفحة الدخول هي الصفحة 1 (بعد اختيار اللغة).
-      builder: (context, state) => const LuxeOnboardingScreen(
-        skipStory: true,
-        initialPage: 1,
-      ),
+      builder: (context, state) => const OnboardingAuthScreen(),
     ),
     GoRoute(
       path: '/onboarding/setup',
       name: 'onboarding-setup',
-      // ما بعد الدخول يبدأ من صفحة الدولة/العملة (2).
-      builder: (context, state) => const LuxeOnboardingScreen(
-        skipStory: true,
-        initialPage: 2,
-      ),
+      builder: (context, state) => const OnboardingSetupScreen(),
     ),
     GoRoute(
       path: '/onboarding/privacy',
       name: 'onboarding-privacy',
       builder: (context, state) => const PrivacyScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/method-picker',
-      name: 'onboarding-method-picker',
-      builder: (context, state) => const CaptureMethodPickerScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/manual',
-      name: 'onboarding-manual',
-      builder: (context, state) => const ManualPasteScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/method',
-      name: 'onboarding-method',
-      pageBuilder: (context, state) => CustomTransitionPage(
-        key: state.pageKey,
-        child: const OnboardingMethodScreen(),
-        opaque: false,
-        barrierDismissible: false,
-        barrierColor: Colors.black54,
-        transitionDuration: const Duration(milliseconds: 380),
-        reverseTransitionDuration: const Duration(milliseconds: 280),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 1),
-              end: Offset.zero,
-            ).animate(curved),
-            child: FadeTransition(
-              opacity: curved,
-              child: child,
-            ),
-          );
-        },
-      ),
-    ),
-    GoRoute(
-      path: '/onboarding/restore',
-      name: 'onboarding-restore',
-      pageBuilder: (context, state) => CustomTransitionPage(
-        key: state.pageKey,
-        child: const RestorePromptScreen(onboardingFlow: true),
-        opaque: false,
-        barrierDismissible: false,
-        barrierColor: Colors.black26,
-        transitionDuration: const Duration(milliseconds: 380),
-        reverseTransitionDuration: const Duration(milliseconds: 280),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 1),
-              end: Offset.zero,
-            ).animate(curved),
-            child: FadeTransition(opacity: curved, child: child),
-          );
-        },
-      ),
-    ),
-    GoRoute(
-      path: '/onboarding/ios-shortcut',
-      name: 'onboarding-ios-shortcut',
-      builder: (context, state) => const IosShortcutScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/listening',
-      name: 'onboarding-listening',
-      builder: (context, state) => const ListeningScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding/first-transaction',
-      name: 'onboarding-first-transaction',
-      builder: (context, state) => FirstTransactionScreen(
-        transactionId: state.extra as String? ?? '',
-      ),
-    ),
-    GoRoute(
-      path: '/onboarding/otp',
-      name: 'onboarding-otp',
-      builder: (context, state) =>
-          OtpScreen(email: state.extra as String? ?? ''),
     ),
     GoRoute(
       path: '/backup',
