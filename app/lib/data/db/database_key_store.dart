@@ -11,8 +11,13 @@ abstract class DatabaseKeyStore {
 class SecureDatabaseKeyStore implements DatabaseKeyStore {
   SecureDatabaseKeyStore({
     FlutterSecureStorage? storage,
-    this.storageKey = 'money_companion.db_key',
+    this.storageKey = defaultStorageKey,
   }) : _storage = storage ?? const FlutterSecureStorage();
+
+  /// Secure-storage key under which the SQLCipher DB key is kept. Exposed so
+  /// account/data wipes can preserve it — deleting it while the encrypted DB
+  /// file still exists leaves the database unopenable on next launch.
+  static const String defaultStorageKey = 'money_companion.db_key';
 
   final FlutterSecureStorage _storage;
   final String storageKey;

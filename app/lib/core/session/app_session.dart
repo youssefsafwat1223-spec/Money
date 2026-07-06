@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../../data/db/database_key_store.dart';
 import '../tracking/user_activity_service.dart';
 
 enum SessionStatus { unknown, needsOnboarding, authenticated }
@@ -84,11 +85,6 @@ class AppSession extends ValueNotifier<SessionStatus> {
     unawaited(UserActivityService.onSignIn());
   }
 
-  Future<void> continueAsGuest() async {
-    await setIdentity(method: 'guest');
-    await finishOnboarding();
-  }
-
   /// (توافق) دخول كامل في خطوة واحدة.
   Future<void> completeOnboarding(
       {required String method, String? email}) async {
@@ -147,7 +143,20 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   /// حذف الحساب وكل البيانات المحلية (Privacy → حذف كل بياناتي).
   Future<void> wipeAndReset() async {
+    // Preserve the SQLCipher DB key across the wipe. The caller empties the DB
+    // tables, but the encrypted DB file stays on disk — deleting its key here
+    // would orphan that file and make the database unopenable next launch
+    // ("تعذّر فتح بياناتك"). Keeping the key lets the emptied DB reopen cleanly.
+    final dbKey = await _storage.read(
+      key: SecureDatabaseKeyStore.defaultStorageKey,
+    );
     await _storage.deleteAll();
+    if (dbKey != null) {
+      await _storage.write(
+        key: SecureDatabaseKeyStore.defaultStorageKey,
+        value: dbKey,
+      );
+    }
     authMethod = null;
     email = null;
     _onboardingDone = false;

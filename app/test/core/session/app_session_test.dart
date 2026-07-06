@@ -1,6 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/data/db/database_key_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -8,6 +9,25 @@ void main() {
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
     await AppSession.instance.wipeAndReset();
+  });
+
+  test('wipeAndReset preserves the DB encryption key', () async {
+    const storage = FlutterSecureStorage();
+    await storage.write(
+      key: SecureDatabaseKeyStore.defaultStorageKey,
+      value: 'db-key-abc',
+    );
+    await storage.write(key: 'some_session_key', value: 'gone');
+
+    await AppSession.instance.wipeAndReset();
+
+    // The DB key survives so the still-on-disk encrypted DB stays openable;
+    // everything else is cleared.
+    expect(
+      await storage.read(key: SecureDatabaseKeyStore.defaultStorageKey),
+      'db-key-abc',
+    );
+    expect(await storage.read(key: 'some_session_key'), isNull);
   });
 
   test('fresh installs start at onboarding', () async {
