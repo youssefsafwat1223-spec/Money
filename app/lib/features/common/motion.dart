@@ -12,7 +12,7 @@ bool shouldReduceMotion(BuildContext context) {
   return media?.disableAnimations ?? false;
 }
 
-class PremiumMotion extends StatelessWidget {
+class PremiumMotion extends StatefulWidget {
   const PremiumMotion({
     super.key,
     required this.child,
@@ -23,12 +23,28 @@ class PremiumMotion extends StatelessWidget {
   final Duration delay;
 
   @override
+  State<PremiumMotion> createState() => _PremiumMotionState();
+}
+
+class _PremiumMotionState extends State<PremiumMotion> {
+  // Entrance animation plays once per mount. After it completes we render the
+  // plain child, so provider-driven rebuilds (a toggle, a data refresh) never
+  // replay the fade/slide — that replay is the "page disappears and reappears"
+  // flicker.
+  bool _played = false;
+
+  @override
   Widget build(BuildContext context) {
-    if (shouldReduceMotion(context)) {
-      return child;
+    if (_played || shouldReduceMotion(context)) {
+      return widget.child;
     }
-    return child
-        .animate(delay: delay)
+    return widget.child
+        .animate(
+          delay: widget.delay,
+          onComplete: (_) {
+            if (mounted) setState(() => _played = true);
+          },
+        )
         .fadeIn(duration: 180.ms, curve: AppMotion.standardCurve)
         .slideY(
             begin: 0.05,
