@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
@@ -1791,9 +1792,32 @@ class DashboardScreen extends ConsumerWidget {
 
 // ─── Setup Nudge ─────────────────────────────────────────────────────────────
 
-/// إخفاء بطاقة "كمّل إعدادك" لهذه الجلسة فقط — تعود تلقائياً عند إعادة الفتح
-/// وتختفي نهائياً بمجرد إتمام الخطوتين.
+/// إخفاء بطاقة "كمّل إعدادك". عند الضغط على X تُؤجَّل لمدة [_setupNudgeSnooze]
+/// حتى لا تضايق المستخدم، وتختفي نهائياً بمجرد إتمام الخطوتين.
+const Duration _setupNudgeSnooze = Duration(days: 30);
+const String _setupNudgeSnoozedUntilKey = 'setup_nudge_snoozed_until';
+
+/// إخفاء فوري لهذه الجلسة بعد الضغط على X (قبل أن يُعاد قراءة التخزين).
 final _setupNudgeDismissedProvider = StateProvider<bool>((_) => false);
+
+/// وقت انتهاء التأجيل المخزَّن — البطاقة مخفية طالما لم يحن بعد.
+final _setupNudgeSnoozedProvider = FutureProvider<bool>((_) async {
+  const storage = FlutterSecureStorage();
+  final raw = await storage.read(key: _setupNudgeSnoozedUntilKey);
+  final until = raw == null ? null : DateTime.tryParse(raw);
+  return until != null && DateTime.now().toUtc().isBefore(until);
+});
+
+Future<void> _snoozeSetupNudge(WidgetRef ref) async {
+  const storage = FlutterSecureStorage();
+  final until = DateTime.now().toUtc().add(_setupNudgeSnooze);
+  await storage.write(
+    key: _setupNudgeSnoozedUntilKey,
+    value: until.toIso8601String(),
+  );
+  ref.read(_setupNudgeDismissedProvider.notifier).state = true;
+  ref.invalidate(_setupNudgeSnoozedProvider);
+}
 
 final _appLockEnabledProvider = FutureProvider<bool>(
   (_) => AppLockService.instance.isEnabled(),
@@ -1806,6 +1830,11 @@ class _SetupNudgeCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (ref.watch(_setupNudgeDismissedProvider)) {
+      return const SizedBox.shrink();
+    }
+    // مخفية أثناء فترة التأجيل بعد الإغلاق. أثناء تحميل التخزين نخفيها مبدئياً
+    // حتى لا تومض ثم تختفي.
+    if (ref.watch(_setupNudgeSnoozedProvider).valueOrNull ?? true) {
       return const SizedBox.shrink();
     }
     final hasGoals =
@@ -1829,9 +1858,7 @@ class _SetupNudgeCard extends ConsumerWidget {
                       style: AppTypography.bodyStrong(c.textPrimary)),
                 ),
                 InkWell(
-                  onTap: () => ref
-                      .read(_setupNudgeDismissedProvider.notifier)
-                      .state = true,
+                  onTap: () => _snoozeSetupNudge(ref),
                   borderRadius: BorderRadius.circular(12),
                   child: Icon(Icons.close_rounded,
                       size: 18, color: c.textSecondary),
