@@ -53,6 +53,7 @@ class TransactionsScreen extends ConsumerWidget {
 
     return Scaffold(
       body: async.when(
+        skipLoadingOnReload: true,
         loading: () => const PremiumSkeletonPage(cardCount: 6),
         error: (e, _) => const Center(child: Text('حدث خطأ')),
         data: (view) {
@@ -248,6 +249,7 @@ class TransactionsScreen extends ConsumerWidget {
                     ],
                 ] else ...[
                   billsAsync.when(
+                    skipLoadingOnReload: true,
                     loading: () => const Padding(
                       padding: EdgeInsets.all(32),
                       child: Center(child: CircularProgressIndicator()),

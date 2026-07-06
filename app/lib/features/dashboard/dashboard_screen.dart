@@ -112,6 +112,7 @@ class DashboardScreen extends ConsumerWidget {
           RefreshIndicator(
             onRefresh: () async => ref.invalidate(dashboardDataProvider),
             child: async.when(
+              skipLoadingOnReload: true,
               loading: () => const PremiumSkeletonPage(cardCount: 5),
               error: (error, stackTrace) => ListView(
                 padding: const EdgeInsets.all(AppSpacing.gutter),
@@ -2356,6 +2357,7 @@ class _DashboardCouponsRail extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(dashboardCouponsProvider);
     return async.when(
+      skipLoadingOnReload: true,
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (offers) {

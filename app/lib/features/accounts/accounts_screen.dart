@@ -39,6 +39,7 @@ class AccountsScreen extends ConsumerWidget {
           const _AccountsHeader(),
           Expanded(
             child: accountsAsync.when(
+              skipLoadingOnReload: true,
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => const Center(child: Text('حدث خطأ')),
               data: (accounts) => ListView(
