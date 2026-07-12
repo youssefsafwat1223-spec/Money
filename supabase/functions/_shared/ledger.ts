@@ -23,19 +23,37 @@ export async function isLedgerDualWriteEnabled(
   });
 }
 
-// Approved type mapping (from process-ios-sms direction/type → ledger enum).
-function mapLedgerType(
+// direction: debit|credit|unknown. Preserves the parser's own direction
+// signal when present; otherwise infers from its type vocabulary
+// (payment/withdrawal/transfer/refund/income/unknown).
+function mapDirection(direction?: string, type?: string): 'debit' | 'credit' | 'unknown' {
+  const d = (direction ?? '').toLowerCase();
+  if (d === 'credit' || d === 'debit') return d;
+  const t = (type ?? '').toLowerCase();
+  if (['income', 'refund', 'deposit', 'received'].includes(t)) return 'credit';
+  if (['payment', 'withdrawal', 'purchase', 'charged', 'paid'].includes(t)) return 'debit';
+  return 'unknown';
+}
+
+// transaction_type: income|expense|transfer|refund|adjustment|unknown.
+// Explicit classification from the parser (transfer/refund/income/etc.)
+// always wins; debit/credit direction is only used as the last-resort
+// default (debit→expense, credit→income) when the parser gave no usable type.
+function mapTransactionType(
   direction?: string,
   type?: string,
-): 'debit' | 'credit' | 'transfer' | 'unknown' {
-  const d = (direction ?? '').toLowerCase();
+): 'income' | 'expense' | 'transfer' | 'refund' | 'adjustment' | 'unknown' {
   const t = (type ?? '').toLowerCase();
-  const creditTerms = ['credit', 'income', 'deposit', 'received'];
-  const debitTerms = ['debit', 'payment', 'purchase', 'withdrawal', 'charged', 'paid'];
-  if (creditTerms.includes(d) || creditTerms.includes(t)) return 'credit';
-  if (debitTerms.includes(d) || debitTerms.includes(t)) return 'debit';
-  if (t === 'transfer' || d === 'transfer') return 'transfer';
-  return 'unknown';
+  if (t === 'transfer') return 'transfer';
+  if (t === 'refund') return 'refund';
+  if (t === 'adjustment') return 'adjustment';
+  if (['income', 'deposit', 'received'].includes(t)) return 'income';
+  if (['payment', 'purchase', 'charged', 'paid', 'withdrawal'].includes(t)) return 'expense';
+  switch (mapDirection(direction, type)) {
+    case 'credit': return 'income';
+    case 'debit': return 'expense';
+    default: return 'unknown';
+  }
 }
 
 export async function upsertLedgerTransaction(
@@ -45,10 +63,11 @@ export async function upsertLedgerTransaction(
 ): Promise<void> {
   const { error } = await supabase.from('user_transactions').insert({
     user_id: userId,
-    payload_id: payload.payloadId,
+    source_payload_id: payload.payloadId,
     amount: payload.amount,
     currency: payload.currency,
-    type: mapLedgerType(payload.direction, payload.type),
+    direction: mapDirection(payload.direction, payload.type),
+    transaction_type: mapTransactionType(payload.direction, payload.type),
     merchant: payload.merchant ?? null,
     category_id: payload.categoryId ?? null,
     occurred_at: payload.occurredAt,
@@ -57,7 +76,7 @@ export async function upsertLedgerTransaction(
     metadata: payload.last4 ? { last4: payload.last4 } : {},
   });
 
-  // 23505 = unique_violation → (user_id, payload_id) already exists → idempotent, ignore.
+  // 23505 = unique_violation → (user_id, source_payload_id) already exists → idempotent, ignore.
   if (error && error.code !== '23505') {
     throw new Error(`ledger_insert_failed: ${error.message}`);
   }

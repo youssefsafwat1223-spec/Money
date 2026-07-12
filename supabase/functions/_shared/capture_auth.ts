@@ -43,6 +43,22 @@ export function readString(data: Record<string, unknown>, ...keys: string[]): st
   return '';
 }
 
+// Constant-time comparison for secret hashes — avoids leaking timing
+// information via early-exit string equality (`!==`). Accepts `unknown` and
+// never throws: a malformed value (wrong type, null, undefined) fails closed
+// (returns false) rather than crashing the request. Both real callers always
+// pass fixed-length (64-char) SHA-256 hex digests, so the length check below
+// does not itself leak anything secret-dependent — length is not the secret.
+function timingSafeEqual(a: unknown, b: unknown): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 export async function verifyDevice(
   supabase: ReturnType<typeof serviceClient>,
   installId: string,
@@ -62,7 +78,7 @@ export async function verifyDevice(
     .eq('install_id_hash', installIdHash)
     .maybeSingle();
   if (error) return { ok: false, status: 500, error: 'device_lookup_failed' };
-  if (!data || data.device_secret_hash !== deviceSecretHash) {
+  if (!data || !timingSafeEqual(data.device_secret_hash, deviceSecretHash)) {
     return { ok: false, status: 401, error: 'invalid_device_secret' };
   }
   await supabase

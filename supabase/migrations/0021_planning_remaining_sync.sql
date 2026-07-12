@@ -190,10 +190,10 @@ create trigger trg_user_plans_updated_at
   for each row execute function public.set_updated_at();
 
 insert into public.feature_flags (
-  key, value_type, default_enabled, is_active, rollout_percent, description
+  key, value_type, value, description, rollout_percent, is_active
 ) values
-  ('planning_budgets_sync', 'boolean', false, false, 100, 'Dark-launched budget sync foundation.'),
-  ('planning_subscriptions_sync', 'boolean', false, false, 100, 'Dark-launched subscription/bill sync foundation.'),
-  ('planning_goals_sync', 'boolean', false, false, 100, 'Dark-launched goals sync foundation.'),
-  ('planning_plans_sync', 'boolean', false, false, 100, 'Dark-launched plans sync foundation.')
+  ('planning_budgets_sync', 'boolean', 'false', 'Dark-launched budget sync foundation.', 0, false),
+  ('planning_subscriptions_sync', 'boolean', 'false', 'Dark-launched subscription/bill sync foundation.', 0, false),
+  ('planning_goals_sync', 'boolean', 'false', 'Dark-launched goals sync foundation.', 0, false),
+  ('planning_plans_sync', 'boolean', 'false', 'Dark-launched plans sync foundation.', 0, false)
 on conflict (key) do nothing;

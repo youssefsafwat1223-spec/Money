@@ -1,0 +1,11 @@
+# Supabase
+.branches
+.temp
+
+# Contains real production rows exported for migration safety — never commit
+rollback/backups/
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local
