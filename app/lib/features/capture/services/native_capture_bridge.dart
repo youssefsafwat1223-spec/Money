@@ -265,6 +265,41 @@ class NativeCaptureBridge {
     return messages;
   }
 
+  /// Returns a drained message to the native queue after processing failed —
+  /// the drain is destructive, so this is what keeps a failing message from
+  /// being lost. The native side skips its host wake-up notification to avoid
+  /// an immediate drain → fail → re-enqueue loop; the message is retried on
+  /// the next resume/launch drain instead. Best-effort: on Android (no handler
+  /// yet) or bridge failure the message is dropped exactly as before this fix.
+  static Future<bool> reEnqueueSharedMessage(
+    SharedCapturedMessage message,
+  ) async {
+    if (!Platform.isIOS) return false;
+    try {
+      await _channel.invokeMethod<void>('reEnqueueSharedMessage', {
+        'text': message.text,
+        'sender': message.sender,
+        'senderName': message.senderName,
+        'senderId': message.senderId,
+        'source': message.source == CapturedMessageSource.iosShortcut
+            ? 'ios_shortcut'
+            : message.source == CapturedMessageSource.iosShare
+                ? 'ios_share'
+                : null,
+        'receivedAt': message.receivedAt?.toIso8601String(),
+        'locale': message.locale,
+        'status': message.status,
+        'failureReason': message.failureReason,
+        'payloadId': message.id,
+      });
+      return true;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   static Future<List<CaptureNotificationRoute>>
       consumePendingNotificationRoutes() async {
     if (!Platform.isIOS) return const [];

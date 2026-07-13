@@ -859,10 +859,17 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   /// Removes dedup hashes older than [daysOld] days to prevent unbounded growth.
+  ///
+  /// صفوف `capture_payload:` مستثناة دائمًا: هي سجل "تم الاستيراد" الدائم
+  /// لالتقاطات iOS/الدفتر وتُخزَّن بـ occurred_at ثابت عند epoch-0 (توقيع
+  /// مساحة الأسماء وليس وقتًا حقيقيًا)، فحذفها بعمر occurred_at يمحو السجل
+  /// كله ويسمح بإعادة استيراد Capture لم يُؤكَّد (ack) بعد — أي تكرار عملية.
   Future<void> pruneOldDedupHashes({int daysOld = 30}) async {
     final cutoff = DateTime.now().toUtc().subtract(Duration(days: daysOld));
     await customStatement(
-      "DELETE FROM dedup_hashes WHERE occurred_at < '${cutoff.toIso8601String()}';",
+      "DELETE FROM dedup_hashes "
+      "WHERE occurred_at < '${cutoff.toIso8601String()}' "
+      "AND hash NOT LIKE 'capture_payload:%';",
     );
   }
 

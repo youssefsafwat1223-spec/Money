@@ -72,7 +72,10 @@ class IosShortcutGuide extends StatelessWidget {
             Icons.send_rounded),
         const _ShortcutStep(
             'Pass message text',
-            'The action should show SMS Text. Set SMS Text to Shortcut Input.',
+            'The action should show SMS Text. Set SMS Text to Shortcut Input. '
+                'Also expand the action and set Date Received to the '
+                'message\'s received date — it prevents duplicate imports '
+                'when the automation runs twice for the same SMS.',
             Icons.text_snippet_outlined),
         const _ShortcutStep(
             'Match the final shape',
@@ -107,7 +110,9 @@ class IosShortcutGuide extends StatelessWidget {
           Icons.send_rounded),
       const _ShortcutStep(
           'مرّر نص الرسالة',
-          'لازم يظهر حقل SMS Text. اختَر له Shortcut Input.',
+          'لازم يظهر حقل SMS Text. اختَر له Shortcut Input. '
+              'وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام '
+              'الرسالة — يمنع تكرار العملية لو اشتغل الأتمتة مرتين لنفس الرسالة.',
           Icons.text_snippet_outlined),
       const _ShortcutStep(
           'طابق الشكل النهائي',

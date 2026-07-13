@@ -216,6 +216,52 @@ void main() {
     expect(recent.map((tx) => tx.id), isNot(contains('legacy_other_currency')));
   });
 
+  test('editing transaction time updates duplicate comparison time', () async {
+    final originalAt = DateTime.utc(2026, 7, 13, 12, 30);
+    final editedAt = DateTime.utc(2026, 7, 13, 13);
+    await db.customInsert(
+      '''
+        INSERT INTO transactions(
+          id, amount, currency, type, source, occurred_at, raw_message,
+          parse_confidence, status, created_at, updated_at,
+          comparison_timestamp, comparison_timestamp_source
+        ) VALUES (?, 25, 'EGP', 'payment', 'unknown', ?, 'QA edit',
+          1, 'confirmed', ?, ?, ?, 'received_at');
+      ''',
+      variables: [
+        Variable.withString('tx_edit_time'),
+        Variable.withString(originalAt.toIso8601String()),
+        Variable.withString(originalAt.toIso8601String()),
+        Variable.withString(originalAt.toIso8601String()),
+        Variable.withString(originalAt.toIso8601String()),
+      ],
+    );
+
+    await transactionRepository.updateTransaction(
+      transactionId: 'tx_edit_time',
+      amount: 25,
+      currency: 'EGP',
+      type: TransactionTypeEntity.payment,
+      occurredAt: editedAt,
+      rawMerchant: 'QA edit',
+      categoryId: null,
+      note: null,
+    );
+
+    final row = await db.customSelect(
+      '''
+        SELECT occurred_at, comparison_timestamp
+        FROM transactions WHERE id = ?;
+      ''',
+      variables: [Variable.withString('tx_edit_time')],
+    ).getSingle();
+    expect(row.read<String>('occurred_at'), editedAt.toIso8601String());
+    expect(
+      row.read<String>('comparison_timestamp'),
+      editedAt.toIso8601String(),
+    );
+  });
+
   test(
       'saving with a missing seeded category recreates it instead of falling back to other',
       () async {

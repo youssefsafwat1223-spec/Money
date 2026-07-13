@@ -66,7 +66,20 @@ class CaptureSyncService {
   final SupabaseTransactionRepository? _directTransactionRepository;
   final bool Function()? _isDirectCaptureEnabled;
 
-  Future<CaptureSyncResult> sync() async {
+  // مزامنة واحدة في الرحلة الواحدة: الاستئناف (resume) وضغطة الإشعار يصلان
+  // في نفس اللحظة تقريبًا، وبدون هذا القفل يجلب الاثنان نفس صفوف الـ relay
+  // قبل أن يُسجَّل أيّ منهما كمستورد — فتُستورد العملية مرّتين.
+  Future<CaptureSyncResult>? _inFlightSync;
+
+  Future<CaptureSyncResult> sync() {
+    final pending = _inFlightSync;
+    if (pending != null) return pending;
+    final run = _syncOnce().whenComplete(() => _inFlightSync = null);
+    _inFlightSync = run;
+    return run;
+  }
+
+  Future<CaptureSyncResult> _syncOnce() async {
     final settings = await _settingsRepository.getSettings();
     final backendConfigured = _backendConfigured ?? SupabaseConfig.isConfigured;
     if (!settings.cloudProcessingEnabled || !backendConfigured) {
@@ -263,7 +276,10 @@ class CaptureSyncService {
       occurredAt: occurredAt,
       rawMessage: rawMessage,
       parseConfidence: _num(parsed['confidence']) ?? 0.8,
-      status: capture.status == 'needs_review'
+      // capture بحالة duplicate تصل هنا فقط عندما تعذّر ربطها بعمليتها
+      // الأصلية محليًا (سجل الربط فُقد أو الأصل على جهاز آخر) — لا تُعتمد
+      // أبدًا كمؤكَّدة، وإلا حُسب المبلغ مرّتين بصمت رغم إشعار "مشابهة".
+      status: capture.status == 'needs_review' || capture.status == 'duplicate'
           ? TransactionStatus.pending
           : TransactionStatus.confirmed,
       createdAt: now,
@@ -300,7 +316,9 @@ class CaptureSyncService {
       payloadId: capture.payloadId,
       transactionId: saved.id,
     );
-    return capture.status == 'needs_review' ? saved.id : null;
+    return capture.status == 'needs_review' || capture.status == 'duplicate'
+        ? saved.id
+        : null;
   }
 
   static String _payloadHash(String payloadId) => 'capture_payload:$payloadId';

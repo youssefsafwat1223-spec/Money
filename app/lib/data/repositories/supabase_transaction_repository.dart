@@ -1060,6 +1060,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
       'transaction_type': typeToServer(type, null),
       'direction': direction,
       'occurred_at': occurredAt.toUtc().toIso8601String(),
+      'comparison_timestamp': occurredAt.toUtc().toIso8601String(),
       'merchant': rawMerchant,
       'category_id': categoryKey,
       'description': note,

@@ -80,52 +80,100 @@ struct PostBankStatusIntent: AppIntent {
     )
 
     if config.canUseBackend {
-      do {
-        let response = try await BackendCaptureClient(config: config).process(
-          request,
-          payloadID: payloadID
-        )
+      let attempt = await processBackend(request, payloadID: payloadID, config: config)
+      if let response = attempt.response {
         SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
         if !response.pushSent {
-          await scheduleNotification(response.notification)
+          await scheduleNotification(
+            response.notification,
+            payloadID: payloadID,
+            identifierPrefix: "capture_backend"
+          )
         }
         return .result()
-      } catch {
-        _ = try? service.capture(
-          request,
-          status: .sent,
-          sentAt: nil,
-          failureReason: "\(error)",
-          payloadID: payloadID
-        )
-        await scheduleLocalParsedOrGenericNotification()
-        return .result()
       }
+      // Backend unreachable after the idempotent retry. Notify ONLY when the
+      // payload is durably queued: a `.duplicate` was queued+notified by an
+      // earlier run, and after a `.failed` App Group write there is nothing
+      // durable anywhere — a banner would promise a capture that never
+      // happened.
+      let outcome = try? service.capture(
+        request,
+        status: .sent,
+        sentAt: nil,
+        failureReason: attempt.failureReason,
+        payloadID: payloadID
+      )
+      if case .some(.enqueued) = outcome {
+        await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)
+      }
+      return .result()
     }
 
-    let captured =
-      (try? service.capture(request, status: .sent, payloadID: payloadID)) != nil
-    if captured {
-      await scheduleLocalParsedOrGenericNotification()
+    let outcome = try? service.capture(request, status: .sent, payloadID: payloadID)
+    if case .some(.enqueued) = outcome {
+      await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)
     }
     return .result()
   }
 
-  private func scheduleNotification(_ notification: BackendNotification) async {
+  /// One idempotent retry on timeout-shaped failures: the first call may have
+  /// committed server-side after the 8s client budget expired. The endpoint is
+  /// idempotent per payloadId (a replay returns the stored capture and re-sends
+  /// APNs only if it was never delivered), so retrying both recovers the real
+  /// outcome and prevents posting a local fallback banner on top of a push
+  /// that was actually sent.
+  private func processBackend(
+    _ request: BankSMSCaptureRequest,
+    payloadID: String,
+    config: SharedCaptureStore.BackendConfig
+  ) async -> (response: BackendCaptureResponse?, failureReason: String?) {
+    let client = BackendCaptureClient(config: config)
+    do {
+      return (try await client.process(request, payloadID: payloadID), nil)
+    } catch {
+      guard Self.isTimeoutShaped(error) else { return (nil, "\(error)") }
+      do {
+        return (try await client.process(request, payloadID: payloadID), nil)
+      } catch {
+        return (nil, "retry_after_timeout: \(error)")
+      }
+    }
+  }
+
+  private static func isTimeoutShaped(_ error: Error) -> Bool {
+    let code = (error as? URLError)?.code
+    return code == .timedOut || code == .networkConnectionLost
+  }
+
+  /// Deterministic identifier per payloadId: replaying the same payload
+  /// replaces the earlier banner instead of stacking a duplicate. userInfo
+  /// carries the same routing keys as the APNs payload so AppDelegate's
+  /// didReceive handler routes taps on local banners too.
+  private func scheduleNotification(
+    _ notification: BackendNotification,
+    payloadID: String,
+    identifierPrefix: String
+  ) async {
     let content = UNMutableNotificationContent()
     content.title = notification.title
     content.body = notification.body
     content.sound = .default
+    content.userInfo = [
+      "payloadId": payloadID,
+      "source": "ios_shortcut",
+      "notificationType": notification.type,
+    ]
 
     let notifRequest = UNNotificationRequest(
-      identifier: "capture_backend_\(UUID().uuidString)",
+      identifier: "\(identifierPrefix)_\(payloadID)",
       content: content,
       trigger: nil
     )
     try? await UNUserNotificationCenter.current().add(notifRequest)
   }
 
-  private func scheduleLocalParsedOrGenericNotification() async {
+  private func scheduleLocalParsedOrGenericNotification(payloadID: String) async {
     if let parser = PreviewParser.shared {
       let result = parser.parse(smsText)
       if result.isHighConfidence, let amount = result.amount, let currency = result.currency {
@@ -139,15 +187,19 @@ struct PostBankStatusIntent: AppIntent {
           lines.append("البطاقة: ****\(last4)")
         }
         lines.append("الوقت: \(Self.timeLabel(for: dateReceived ?? Date()))")
-        await scheduleNotification(BackendNotification(
-          title: title,
-          body: lines.joined(separator: "\n"),
-          type: "new_transaction"
-        ))
+        await scheduleNotification(
+          BackendNotification(
+            title: title,
+            body: lines.joined(separator: "\n"),
+            type: "new_transaction"
+          ),
+          payloadID: payloadID,
+          identifierPrefix: "capture_fallback"
+        )
         return
       }
     }
-    await scheduleGenericFallbackNotification()
+    await scheduleGenericFallbackNotification(payloadID: payloadID)
   }
 
   /// "اليوم ٩:٤١ م" بأسلوب صريح: اليوم/أمس/د‏/‏ش — بتوقيت الجهاز.
@@ -165,15 +217,19 @@ struct PostBankStatusIntent: AppIntent {
     return "\(dayComps.day ?? 0)/\(dayComps.month ?? 0) \(time)"
   }
 
-  private func scheduleGenericFallbackNotification() async {
+  private func scheduleGenericFallbackNotification(payloadID: String) async {
     let sender = firstNonEmpty(senderName, senderID)
-    await scheduleNotification(BackendNotification(
-      title: "قِرش رصد رسالة بنك",
-      body: sender == nil
-        ? "تم استلام رسالة بنكية. افتح قِرش لمراجعتها."
-        : "تم استلام رسالة من \(sender!). افتح قِرش لمراجعتها.",
-      type: "received"
-    ))
+    await scheduleNotification(
+      BackendNotification(
+        title: "قِرش رصد رسالة بنك",
+        body: sender == nil
+          ? "تم استلام رسالة بنكية. افتح قِرش لمراجعتها."
+          : "تم استلام رسالة من \(sender!). افتح قِرش لمراجعتها.",
+        type: "received"
+      ),
+      payloadID: payloadID,
+      identifierPrefix: "capture_fallback"
+    )
   }
 
   private func firstNonEmpty(_ values: String?...) -> String? {

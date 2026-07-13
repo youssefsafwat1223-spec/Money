@@ -91,6 +91,10 @@ enum SharedCaptureStore {
   ///
   /// Duplicate prevention is scoped to pending native payloads only. Transaction
   /// duplicate detection remains in Flutter where the domain model lives.
+  ///
+  /// [notifyHost] is false only for Flutter's own re-enqueue of a message whose
+  /// processing failed: posting the Darwin notification there would wake the
+  /// host again immediately and loop drain → fail → re-enqueue → drain forever.
   @discardableResult
   static func enqueue(
     text: String,
@@ -103,7 +107,8 @@ enum SharedCaptureStore {
     status: CaptureStatus = .pending,
     sentAt: Date? = nil,
     failureReason: String? = nil,
-    payloadID: String? = nil
+    payloadID: String? = nil,
+    notifyHost: Bool = true
   ) -> EnqueueResult {
     guard defaults != nil else {
       return .failed("App Group storage is unavailable.")
@@ -148,12 +153,14 @@ enum SharedCaptureStore {
 
     var queue = loadQueue()
     if let existing = queue.first(where: { $0.id == payloadID }) {
-      notifyPendingMessagesAvailable()
+      if notifyHost {
+        notifyPendingMessagesAvailable()
+      }
       return .duplicate(existing)
     }
 
     queue.append(payload)
-    guard saveQueue(queue) else {
+    guard saveQueue(queue, notifyHost: notifyHost) else {
       return .failed("Could not save the SMS payload.")
     }
     return .enqueued(payload)
@@ -347,7 +354,7 @@ enum SharedCaptureStore {
   }
 
   @discardableResult
-  private static func saveQueue(_ queue: [Payload]) -> Bool {
+  private static func saveQueue(_ queue: [Payload], notifyHost: Bool = true) -> Bool {
     if queue.isEmpty {
       defaults?.removeObject(forKey: queueKey)
     } else {
@@ -358,7 +365,7 @@ enum SharedCaptureStore {
     }
     updatePendingMetadata(queue)
     defaults?.synchronize()
-    if !queue.isEmpty {
+    if notifyHost && !queue.isEmpty {
       notifyPendingMessagesAvailable()
     }
     return true

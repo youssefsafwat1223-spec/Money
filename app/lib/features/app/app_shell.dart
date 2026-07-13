@@ -364,65 +364,79 @@ class _AppShellState extends ConsumerState<AppShell> {
       SenderBankMappingEntity? pendingBankDiscovery;
 
       for (final message in messages) {
-        if (message.id != null) {
-          final alreadySynced =
-              backendSync?.importedPayloadIds.contains(message.id) ?? false;
-          final alreadyImported = alreadySynced ||
-              await ref
-                  .read(captureSyncServiceProvider)
-                  .isPayloadImported(message.id!);
-          if (alreadyImported) {
-            if (kDebugMode) {
-              debugPrint('[Capture] skip already imported backend payload');
+        // كل رسالة في try مستقلة: السحب من الطابور الأصلي مدمِّر، وفشل رسالة
+        // واحدة كان يُسقط بقية الرسائل المسحوبة بلا رجعة. الفاشلة تُعاد
+        // للطابور الأصلي (بدون إيقاظ فوري) وتُعاد محاولتها في السحب التالي.
+        try {
+          if (message.id != null) {
+            final alreadySynced =
+                backendSync?.importedPayloadIds.contains(message.id) ?? false;
+            final alreadyImported = alreadySynced ||
+                await ref
+                    .read(captureSyncServiceProvider)
+                    .isPayloadImported(message.id!);
+            if (alreadyImported) {
+              if (kDebugMode) {
+                debugPrint('[Capture] skip already imported backend payload');
+              }
+              continue;
             }
-            continue;
+          }
+          if (kDebugMode) {
+            debugPrint(
+              '[Capture] processing: source=${message.source} '
+              'senderSet=${message.sender != null} '
+              'receivedAt=${message.receivedAt?.toIso8601String()} '
+              'textLength=${message.text.length}',
+            );
+          }
+          final captured = CapturedMessage(
+            text: message.text,
+            senderId: message.sender,
+            source: message.source,
+            receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
+          );
+          final result = await ingestUseCase.fromCapturedMessage(captured);
+          if (kDebugMode) {
+            debugPrint(
+              '[Capture] disposition=${result.disposition} '
+              'hasTransaction=${result.transactionId != null}',
+            );
+          }
+          // Flag the payload as imported so a later backend sync skips the same
+          // capture instead of importing it a second time (list showed it twice).
+          if (message.id != null && result.transactionId != null) {
+            await ref.read(captureSyncServiceProvider).markPayloadImported(
+                  payloadId: message.id!,
+                  transactionId: result.transactionId!,
+                );
+          }
+          // AppIntent already showed a notification (status == 'sent'); skip duplicate.
+          if (message.status != 'sent') {
+            await _showCapturedMessageNotification(
+              result,
+              notificationPreferences,
+            );
+          }
+          if (result.transactionId != null &&
+              result.addTransactionResult.requiresConfirmation) {
+            pendingConfirmationId = result.transactionId;
+            pendingSecondaryNotice =
+                feeNoticeFor(result.addTransactionResult.secondary);
+          }
+          pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
+            message.sender,
+          );
+        } catch (error) {
+          final requeued =
+              await NativeCaptureBridge.reEnqueueSharedMessage(message);
+          if (kDebugMode) {
+            debugPrint(
+              '[Capture] message processing failed '
+              '(${error.runtimeType}); requeued=$requeued',
+            );
           }
         }
-        if (kDebugMode) {
-          debugPrint(
-            '[Capture] processing: source=${message.source} '
-            'senderSet=${message.sender != null} '
-            'receivedAt=${message.receivedAt?.toIso8601String()} '
-            'textLength=${message.text.length}',
-          );
-        }
-        final captured = CapturedMessage(
-          text: message.text,
-          senderId: message.sender,
-          source: message.source,
-          receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
-        );
-        final result = await ingestUseCase.fromCapturedMessage(captured);
-        if (kDebugMode) {
-          debugPrint(
-            '[Capture] disposition=${result.disposition} '
-            'hasTransaction=${result.transactionId != null}',
-          );
-        }
-        // Flag the payload as imported so a later backend sync skips the same
-        // capture instead of importing it a second time (list showed it twice).
-        if (message.id != null && result.transactionId != null) {
-          await ref.read(captureSyncServiceProvider).markPayloadImported(
-                payloadId: message.id!,
-                transactionId: result.transactionId!,
-              );
-        }
-        // AppIntent already showed a notification (status == 'sent'); skip duplicate.
-        if (message.status != 'sent') {
-          await _showCapturedMessageNotification(
-            result,
-            notificationPreferences,
-          );
-        }
-        if (result.transactionId != null &&
-            result.addTransactionResult.requiresConfirmation) {
-          pendingConfirmationId = result.transactionId;
-          pendingSecondaryNotice =
-              feeNoticeFor(result.addTransactionResult.secondary);
-        }
-        pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
-          message.sender,
-        );
       }
       if (pendingConfirmationId == null &&
           backendSync?.needsReviewTransactionIds.isNotEmpty == true) {

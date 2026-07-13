@@ -86,6 +86,43 @@ import UserNotifications
         }
       case "consumePendingNotificationRoutes":
         result(SharedCaptureStore.consumePendingNotificationRoutesJSON())
+      case "reEnqueueSharedMessage":
+        // Puts a drained message back after Flutter failed to process it —
+        // the queue drain is destructive, so without this a single failing
+        // message would silently lose the capture. notifyHost=false: waking
+        // the host again immediately would loop drain → fail → re-enqueue.
+        guard let args = call.arguments as? [String: Any],
+              let text = args["text"] as? String, !text.isEmpty else {
+          result(FlutterError(
+            code: "bad_args",
+            message: "Expected the original shared message fields.",
+            details: nil
+          ))
+          return
+        }
+        let receivedAt = (args["receivedAt"] as? String)
+          .flatMap { ISO8601DateFormatter().date(from: $0) } ?? Date()
+        let status = SharedCaptureStore.CaptureStatus(
+          rawValue: args["status"] as? String ?? ""
+        ) ?? .pending
+        let outcome = SharedCaptureStore.enqueue(
+          text: text,
+          sender: args["sender"] as? String,
+          senderName: args["senderName"] as? String,
+          senderID: args["senderId"] as? String,
+          source: args["source"] as? String,
+          receivedAt: receivedAt,
+          localeIdentifier: args["locale"] as? String,
+          status: status,
+          failureReason: args["failureReason"] as? String,
+          payloadID: args["payloadId"] as? String,
+          notifyHost: false
+        )
+        if case let .failed(reason) = outcome {
+          result(FlutterError(code: "reenqueue_failed", message: reason, details: nil))
+        } else {
+          result(nil)
+        }
       case "hasSmsPermission":
         result(false)
       case "openAppSettings":

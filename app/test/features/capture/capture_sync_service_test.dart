@@ -285,6 +285,121 @@ void main() {
     );
     expect(await db.count('transactions'), 1);
   });
+
+  test('failed ack followed by dedup prune must not re-import the capture',
+      () async {
+    // ack يفشل دائمًا — يبقى صف الـ relay على الخادم، وسجل الاستيراد المحلي
+    // (capture_payload:) هو الحماية الوحيدة من الاستيراد الثاني.
+    final client = _AckFailingBackendClient([
+      _capture(payloadId: 'payload-ack-fails', status: 'processed'),
+    ]);
+    final syncService = service(client);
+
+    // فشل الـ ack يصل للمستدعي (يلتقطه app_shell) — الاستيراد نفسه اكتمل.
+    await expectLater(
+      syncService.sync(),
+      throwsA(isA<CaptureBackendException>()),
+    );
+    expect(await db.count('transactions'), 1);
+
+    // كان prune يحذف كل علامات capture_payload: لأنها مخزّنة عند epoch-0.
+    await db.pruneOldDedupHashes();
+    expect(await syncService.isPayloadImported('payload-ack-fails'), isTrue);
+
+    // الخادم ما يزال يعيد نفس الـ capture (لم يُؤكَّد حذفها) — يجب تخطّيها.
+    await expectLater(
+      syncService.sync(),
+      throwsA(isA<CaptureBackendException>()),
+    );
+    expect(await db.count('transactions'), 1);
+  });
+
+  test('prune still removes ordinary dedup hashes older than the cutoff',
+      () async {
+    final dedupStore = DriftDedupStore(db);
+    final old = DateTime.utc(2020, 1, 1);
+    await dedupStore.mark('ordinary-old-hash',
+        transactionId: 'tx-old', occurredAt: old);
+    await db.pruneOldDedupHashes();
+    expect(await dedupStore.transactionIdFor('ordinary-old-hash', old), isNull);
+  });
+
+  test('concurrent sync calls share one run and import the capture once',
+      () async {
+    final client = _SlowFetchBackendClient([
+      _capture(payloadId: 'payload-concurrent', status: 'processed'),
+    ]);
+    final syncService = service(client);
+
+    // الاستئناف + ضغطة الإشعار يستدعيان sync() في نفس اللحظة تقريبًا.
+    final results = await Future.wait([syncService.sync(), syncService.sync()]);
+
+    expect(client.fetchCalls, 1);
+    expect(results[0].importedPayloadIds, {'payload-concurrent'});
+    expect(results[1].importedPayloadIds, {'payload-concurrent'});
+    expect(await db.count('transactions'), 1);
+
+    // بعد اكتمال الجولة، استدعاء جديد يبدأ جولة جديدة (القفل يتحرّر).
+    await syncService.sync();
+    expect(client.fetchCalls, 2);
+    expect(await db.count('transactions'), 1);
+  });
+
+  test('duplicate capture with unresolved original imports as pending review',
+      () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-orphan-duplicate',
+        status: 'duplicate',
+        duplicateOfPayloadId: 'payload-unknown-original',
+      ),
+    ]);
+
+    final result = await service(client).sync();
+
+    final transactions = await DriftTransactionRepository(db).getAll();
+    expect(transactions, hasLength(1));
+    expect(transactions.single.status, TransactionStatus.pending);
+    expect(
+      transactions.single.duplicateStatus,
+      DuplicateStatus.suspiciousDuplicate,
+    );
+    expect(result.needsReviewTransactionIds, [transactions.single.id]);
+  });
+}
+
+class _AckFailingBackendClient extends _FakeCaptureBackendClient {
+  _AckFailingBackendClient(super.captures);
+
+  @override
+  Future<List<ProcessedCaptureDto>> syncCaptures({
+    required String installId,
+    required String deviceSecret,
+    List<String> ackPayloadIds = const [],
+  }) async {
+    if (ackPayloadIds.isNotEmpty) {
+      throw const CaptureBackendException('ack_failed_503');
+    }
+    return _captures;
+  }
+}
+
+class _SlowFetchBackendClient extends _FakeCaptureBackendClient {
+  _SlowFetchBackendClient(super.captures);
+
+  int fetchCalls = 0;
+
+  @override
+  Future<List<ProcessedCaptureDto>> syncCaptures({
+    required String installId,
+    required String deviceSecret,
+    List<String> ackPayloadIds = const [],
+  }) async {
+    if (ackPayloadIds.isNotEmpty) return const [];
+    fetchCalls++;
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    return _captures;
+  }
 }
 
 Map<String, dynamic> _serverTransaction(String payloadId) => {
@@ -325,6 +440,7 @@ ProcessedCaptureDto _capture({
   String type = 'payment',
   String? direction,
   String? rawMessage,
+  String? duplicateOfPayloadId,
 }) {
   return ProcessedCaptureDto(
     payloadId: payloadId,
@@ -334,6 +450,10 @@ ProcessedCaptureDto _capture({
       'currency': currency,
       'type': type,
       if (direction != null) 'direction': direction,
+      if (duplicateOfPayloadId != null) ...{
+        'duplicateStatus': 'suspicious_duplicate',
+        'possibleDuplicateOfPayloadId': duplicateOfPayloadId,
+      },
       'rawMessage': rawMessage ?? 'Paid $currency 42 at Coffee',
       'merchant': 'Coffee',
       'occurredAt': DateTime.utc(2026, 7, 5, 10).toIso8601String(),

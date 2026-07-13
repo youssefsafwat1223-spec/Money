@@ -32,7 +32,11 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
     const host = message.environment === 'sandbox'
       ? 'https://api.sandbox.push.apple.com'
       : 'https://api.push.apple.com';
+    // Bounded so the whole process-ios-sms request stays inside the App
+    // Intent's 8s client budget — an APNs hang otherwise guarantees a client
+    // timeout and a duplicate local fallback banner.
     const response = await fetch(`${host}/3/device/${message.token}`, {
+      signal: AbortSignal.timeout(2500),
       method: 'POST',
       headers: {
         authorization: `bearer ${jwt}`,

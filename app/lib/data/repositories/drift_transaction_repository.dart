@@ -268,7 +268,8 @@ class DriftTransactionRepository implements TransactionRepository {
       '''
         UPDATE transactions
         SET ${accountClause}amount = ?, currency = ?, type = ?, occurred_at = ?,
-            merchant_id = ?, raw_merchant = ?, category_id = ?, note = ?,
+            comparison_timestamp = ?, merchant_id = ?, raw_merchant = ?,
+            category_id = ?, note = ?,
             status = 'confirmed', updated_at = ?
         WHERE id = ?;
       ''',
@@ -277,6 +278,7 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withReal(amount),
         Variable.withString(currency),
         Variable.withString(type.name),
+        Variable.withString(dateTimeToSql(occurredAt.toUtc())),
         Variable.withString(dateTimeToSql(occurredAt.toUtc())),
         merchantId == null
             ? const Variable<String>(null)

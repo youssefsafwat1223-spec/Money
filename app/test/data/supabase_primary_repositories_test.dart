@@ -247,6 +247,43 @@ void main() {
       expect(saved.amount, 99);
     });
 
+    test('update keeps comparison timestamp aligned with edited time',
+        () async {
+      Map<String, dynamic>? sentBody;
+      final editedAt = DateTime.utc(2026, 7, 13, 13);
+      final http = MockClient((request) async {
+        expect(request.method, 'PATCH');
+        final decoded = jsonDecode(request.body);
+        sentBody = Map<String, dynamic>.from(decoded as Map);
+        return _json(
+          _serverTransaction(
+            id: 'server-tx-1',
+            occurredAt: editedAt,
+          ),
+          request,
+        );
+      });
+      final repository = SupabaseTransactionRepository(
+        db: db,
+        getClient: () => _client(http),
+        getAuthUserId: () async => 'qa-user',
+      );
+
+      await repository.updateTransaction(
+        transactionId: 'server-tx-1',
+        amount: 25,
+        currency: 'EGP',
+        type: TransactionTypeEntity.payment,
+        occurredAt: editedAt,
+        rawMerchant: 'Test Merchant',
+        categoryId: null,
+        note: null,
+      );
+
+      expect(sentBody?['occurred_at'], editedAt.toIso8601String());
+      expect(sentBody?['comparison_timestamp'], editedAt.toIso8601String());
+    });
+
     test('getAll paginates beyond PostgREST 1000 row default', () async {
       var requests = 0;
       final http = MockClient((request) async {

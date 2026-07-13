@@ -8,6 +8,7 @@ import {
   verifyDevice,
 } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
+import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
 import {
   isDirectCaptureWriteEnabled,
   isLedgerDualWriteEnabled,
@@ -81,11 +82,7 @@ Deno.serve(async (req) => {
     .eq('install_id_hash', auth.installIdHash)
     .maybeSingle();
   if (existing.data) {
-    return json({
-      capture: existing.data,
-      idempotent: true,
-      pushSent: Boolean(existing.data.apns_push_sent_at),
-    });
+    return json(await idempotentReplayResponse(supabase, auth.installIdHash, payloadId, existing.data));
   }
 
   const limited = await bumpRateLimit(supabase, auth.installIdHash);
@@ -145,7 +142,23 @@ Deno.serve(async (req) => {
     .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at')
     .single();
 
-  if (error) return json({ error: 'store_failed' }, 500);
+  if (error) {
+    // Concurrent duplicate call (same payload raced past the existence check):
+    // converge on the winner's row instead of failing — a 500 here makes the
+    // App Intent post a local fallback banner on top of the winner's APNs push.
+    if (error.code === '23505') {
+      const winner = await supabase
+        .from('processed_captures')
+        .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at')
+        .eq('payload_id', payloadId)
+        .eq('install_id_hash', auth.installIdHash)
+        .maybeSingle();
+      if (winner.data) {
+        return json(await idempotentReplayResponse(supabase, auth.installIdHash, payloadId, winner.data));
+      }
+    }
+    return json({ error: 'store_failed' }, 500);
+  }
 
   console.log(JSON.stringify({
     event: 'capture_stored',
@@ -224,10 +237,58 @@ Deno.serve(async (req) => {
   });
 });
 
+// Replay of an already-stored payload (the App Intent retries after a client
+// timeout). If APNs was never confirmed sent, try again now: the stable
+// apns-collapse-id per payloadId means a re-send replaces the earlier banner
+// instead of duplicating it, and this closes the race where a replay read
+// `apns_push_sent_at` between the original send and its DB write — returning
+// pushSent=false would make the intent post a duplicate local banner.
+async function idempotentReplayResponse(
+  supabase: ReturnType<typeof serviceClient>,
+  installIdHash: string,
+  payloadId: string,
+  row: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  let pushSent = Boolean(row.apns_push_sent_at);
+  const notification = row.notification as NotificationPayload | null;
+  const parsed = (row.parsed ?? {}) as ParsedCapture;
+  if (!pushSent && notification?.title && notification?.body) {
+    pushSent = await sendApnsIfPossible(
+      supabase,
+      installIdHash,
+      payloadId,
+      notification,
+      parsed,
+      typeof parsed.serverTransactionId === 'string' ? parsed.serverTransactionId : undefined,
+    );
+  }
+  console.log(JSON.stringify({ event: 'capture_idempotent_replay', pushSent }));
+  return {
+    capture: {
+      ...row,
+      apns_push_sent_at: pushSent
+        ? (row.apns_push_sent_at ?? new Date().toISOString())
+        : row.apns_push_sent_at,
+    },
+    idempotent: true,
+    pushSent,
+  };
+}
+
 async function bumpRateLimit(
   supabase: ReturnType<typeof serviceClient>,
   installIdHash: string,
 ): Promise<boolean> {
+  // Atomic increment via RPC (migration 0028). Falls back to the legacy
+  // read-then-upsert if the function is not deployed yet, so the endpoint
+  // never breaks on migration-ordering during rollout.
+  const atomic = await supabase.rpc('bump_capture_rate_limit', {
+    p_install_id_hash: installIdHash,
+    p_limit: CAPTURE_RATE_LIMIT_PER_DAY,
+  });
+  if (!atomic.error && typeof atomic.data === 'boolean') {
+    return atomic.data;
+  }
   const today = new Date().toISOString().slice(0, 10);
   const { data } = await supabase
     .from('capture_rate_limits')
@@ -354,7 +415,11 @@ Return only JSON. If not a transaction return {"is_transaction":false}.
 Fields: amount number, currency ISO, merchant string, type payment|withdrawal|transfer|income|refund|unknown, direction credit|debit|unknown, category restaurants|groceries|transport|fuel|bills|shopping|health|education|entertainment|subscriptions|transfers|cash|travel|gifts|kids|home|cafes|maintenance|fitness|beauty|charity|pets|insurance|income|other, occurredAt ISO if present, last4 if present.
 SMS: ${text}`;
   try {
+    // Bounded: an unbounded Gemini call pushes the whole request past the App
+    // Intent's 8s timeout, and the intent then posts a local fallback banner
+    // while this function still commits + sends APNs (duplicate notification).
     const response = await fetch(GEMINI_URL, {
+      signal: AbortSignal.timeout(3500),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -400,23 +465,35 @@ async function detectDuplicate(
   if (!parsed.amount || !parsed.currency || !parsed.comparisonTimestamp) return null;
   const merchant = normalizeMerchant(parsed.merchant ?? parsed.rawMessage ?? '');
   const card = parsed.last4 ?? '';
-  const fingerprint = await sha256Hex([
+  const base = [
     parsed.amount.toFixed(2),
     parsed.currency.toUpperCase(),
     merchant,
     card,
+  ].join('|');
+
+  // Exact for sms_body timestamps; bucketed (~10–20 min window) for
+  // received_at ones — see _shared/capture_fingerprint.ts and its tests.
+  const timeKeys = fingerprintTimeKeys(
     parsed.comparisonTimestamp,
-  ].join('|'));
+    parsed.comparisonTimestampSource,
+  );
+
+  const fingerprints = await Promise.all(
+    timeKeys.map((key) => sha256Hex(`${base}|${key}`)),
+  );
   const { data } = await supabase
     .from('capture_fingerprints')
-    .select('payload_id')
+    .select('payload_id,fingerprint')
     .eq('install_id_hash', installIdHash)
-    .eq('fingerprint', fingerprint)
-    .maybeSingle();
-  if (data?.payload_id) return data.payload_id as string;
+    .in('fingerprint', fingerprints);
+  // Never match the payload against its own fingerprint (concurrent replay of
+  // one payloadId must stay idempotent, not become a duplicate of itself).
+  const hit = (data ?? []).find((row) => row.payload_id !== payloadId);
+  if (typeof hit?.payload_id === 'string') return hit.payload_id;
   await supabase.from('capture_fingerprints').insert({
     install_id_hash: installIdHash,
-    fingerprint,
+    fingerprint: fingerprints[0],
     payload_id: payloadId,
   });
   return null;
@@ -452,9 +529,13 @@ function buildNotification(
       type: 'new_transaction',
     };
   }
+  // rejected: لا يُنشأ أي عنصر داخل التطبيق (الـ relay يُحذف بعد الـ ack)،
+  // فلا نَعِد المستخدم بمراجعة غير موجودة — نرشده للّصق اليدوي بدلاً منها.
   return {
     title: 'قِرش رصد رسالة بنك',
-    body: sender ? `تم استلام رسالة من ${sender}. افتح قرش لمراجعتها.` : 'تم استلام رسالة بنكية. افتح قرش لمراجعتها.',
+    body: sender
+      ? `رسالة من ${sender} لم نتمكن من تحليلها. الصقها يدوياً في قرش لإضافتها.`
+      : 'رسالة بنكية لم نتمكن من تحليلها. الصقها يدوياً في قرش لإضافتها.',
     type: 'received',
   };
 }

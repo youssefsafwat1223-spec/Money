@@ -702,6 +702,15 @@ class LocalNotificationService {
     };
   }
 
+  /// Test seam for the background confirm/dismiss path — the real entry point
+  /// is the notification plugin's background isolate callback below.
+  @visibleForTesting
+  static Future<void> debugRunBackgroundAction(
+    String transactionId, {
+    required bool confirm,
+  }) =>
+      _runBackgroundAction(transactionId, confirm: confirm);
+
   @pragma('vm:entry-point')
   static void _backgroundTapHandler(NotificationResponse response) {
     final actionId = response.actionId;
@@ -715,16 +724,24 @@ class LocalNotificationService {
   static Future<void> _runBackgroundAction(String transactionId,
       {required bool confirm}) async {
     WidgetsFlutterBinding.ensureInitialized();
+    // يُسجَّل الإجراء دائمًا لإعادة تطبيقه عبر الـ routed repository عند أول
+    // فتح: في هذا الـ isolate لا نعرف قيمة transactions_supabase_primary
+    // الفعلية (الـ overrides الشخصية تعيش في ذاكرة التطبيق الأمامي فقط)،
+    // وتعديل Drift وحده يعني ضياع التأكيد/الحذف على الخادم عندما يكون
+    // Supabase هو المرجع — أول قراءة من الخادم كانت تعيد الحالة القديمة.
+    // إعادة التطبيق آمنة التكرار في وضع Drift (تأكيد مؤكَّد/حذف محذوف).
+    await PendingNotificationActions.record(transactionId, confirm: confirm);
     final AppDatabase db;
     try {
       db = await AppDatabase.open();
     } catch (_) {
       // الجهاز غالباً مقفول ومفتاح التشفير غير متاح من الـ Keychain —
-      // نحفظ الإجراء ونطبّقه عند أول فتح للتطبيق بدلاً من فقدانه.
-      await PendingNotificationActions.record(transactionId, confirm: confirm);
+      // الإجراء مسجَّل أعلاه ويُطبَّق عند أول فتح للتطبيق بدلاً من فقدانه.
       return;
     }
     try {
+      // تحديث محلي فوري: هو المرجع في وضع Drift، ومجرد تحديث تجميلي للمرآة
+      // في وضع Supabase حتى لا يظهر التناقض قبل إعادة التطبيق أعلاه.
       if (confirm) {
         await db.customUpdate(
           "UPDATE transactions SET status = 'confirmed', updated_at = ? "
@@ -741,7 +758,7 @@ class LocalNotificationService {
         );
       }
     } catch (_) {
-      await PendingNotificationActions.record(transactionId, confirm: confirm);
+      // الإجراء مسجَّل بالفعل لإعادة التطبيق — لا شيء يُفقد هنا.
     } finally {
       await db.close();
     }
