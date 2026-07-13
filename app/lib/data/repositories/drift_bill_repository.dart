@@ -232,7 +232,7 @@ class DriftBillRepository implements BillRepository {
     final rows = await _db.customSelect(
       '''
         SELECT * FROM bill_payments
-        WHERE bill_id = ?
+        WHERE bill_id = ? AND deleted_at IS NULL
         ORDER BY paid_at DESC, period_start DESC;
       ''',
       variables: [Variable.withString(billId)],
@@ -301,7 +301,8 @@ class DriftBillRepository implements BillRepository {
       '''
         SELECT id, bill_id
         FROM bill_payments
-        WHERE transaction_id = ?;
+        WHERE transaction_id = ?
+          AND deleted_at IS NULL;
       ''',
       variables: [Variable.withString(transactionId)],
     ).get();
@@ -314,6 +315,7 @@ class DriftBillRepository implements BillRepository {
           JOIN subscriptions s ON s.id = bp.bill_id
           JOIN transactions t ON t.id = ?
           WHERE bp.transaction_id IS NULL
+            AND bp.deleted_at IS NULL
             AND bp.amount = t.amount
             AND bp.currency = t.currency
             AND bp.paid_at = t.occurred_at
@@ -334,8 +336,11 @@ class DriftBillRepository implements BillRepository {
 
     for (final paymentId in paymentIds) {
       await _db.customUpdate(
-        'DELETE FROM bill_payments WHERE id = ?;',
-        variables: [Variable.withString(paymentId)],
+        'UPDATE bill_payments SET deleted_at = ? WHERE id = ?;',
+        variables: [
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(paymentId),
+        ],
       );
     }
 
@@ -344,7 +349,8 @@ class DriftBillRepository implements BillRepository {
         '''
           SELECT MAX(installment_index) AS paid_count
           FROM bill_payments
-          WHERE bill_id = ?;
+          WHERE bill_id = ?
+            AND deleted_at IS NULL;
         ''',
         variables: [Variable.withString(billId)],
       ).getSingle();
@@ -368,8 +374,11 @@ class DriftBillRepository implements BillRepository {
   @override
   Future<void> deletePayment(String paymentId) async {
     await _db.customUpdate(
-      'DELETE FROM bill_payments WHERE id = ?;',
-      variables: [Variable.withString(paymentId)],
+      'UPDATE bill_payments SET deleted_at = ? WHERE id = ?;',
+      variables: [
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(paymentId),
+      ],
     );
   }
 

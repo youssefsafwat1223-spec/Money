@@ -5,6 +5,7 @@ import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
+import '../../../data/repositories/supabase_transaction_repository.dart';
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/suspected_duplicate_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
@@ -36,6 +37,8 @@ class CaptureSyncService {
     CaptureBackendClient? client,
     bool? backendConfigured,
     Future<String> Function()? loadInstallId,
+    SupabaseTransactionRepository? directTransactionRepository,
+    bool Function()? isDirectCaptureEnabled,
   })  : _settingsRepository = settingsRepository,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
@@ -44,7 +47,9 @@ class CaptureSyncService {
         _accountRepository = accountRepository,
         _client = client,
         _backendConfigured = backendConfigured,
-        _loadInstallId = loadInstallId;
+        _loadInstallId = loadInstallId,
+        _directTransactionRepository = directTransactionRepository,
+        _isDirectCaptureEnabled = isDirectCaptureEnabled;
 
   static final DateTime _payloadMarkerTime =
       DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
@@ -58,6 +63,8 @@ class CaptureSyncService {
   final CaptureBackendClient? _client;
   final bool? _backendConfigured;
   final Future<String> Function()? _loadInstallId;
+  final SupabaseTransactionRepository? _directTransactionRepository;
+  final bool Function()? _isDirectCaptureEnabled;
 
   Future<CaptureSyncResult> sync() async {
     final settings = await _settingsRepository.getSettings();
@@ -93,13 +100,32 @@ class CaptureSyncService {
 
     final imported = <String>{};
     final needsReviewTransactionIds = <String>[];
+    final directMode = _isDirectCaptureEnabled?.call() ?? false;
     for (final capture in captures) {
       if (capture.payloadId.isEmpty) continue;
       if (await isPayloadImported(capture.payloadId)) {
         imported.add(capture.payloadId);
         continue;
       }
-      final needsReviewTransactionId = await _importCapture(capture);
+      if (directMode && _directTransactionRepository != null) {
+        final existing = await _directTransactionRepository
+            .getBySourcePayloadId(capture.payloadId);
+        if (existing != null) {
+          await markPayloadImported(
+            payloadId: capture.payloadId,
+            transactionId: existing.id,
+          );
+          if (capture.status == 'needs_review') {
+            needsReviewTransactionIds.add(existing.id);
+          }
+          imported.add(capture.payloadId);
+          continue;
+        }
+      }
+      final needsReviewTransactionId = await _importCapture(
+        capture,
+        directMode: directMode,
+      );
       if (needsReviewTransactionId != null) {
         needsReviewTransactionIds.add(needsReviewTransactionId);
       }
@@ -147,7 +173,10 @@ class CaptureSyncService {
     );
   }
 
-  Future<String?> _importCapture(ProcessedCaptureDto capture) async {
+  Future<String?> _importCapture(
+    ProcessedCaptureDto capture, {
+    required bool directMode,
+  }) async {
     final parsed = capture.parsed;
     var duplicateOf = _string(parsed['possibleDuplicateOfTransactionId']);
     final duplicatePayloadId = _string(parsed['possibleDuplicateOfPayloadId']);
@@ -198,7 +227,8 @@ class CaptureSyncService {
 
     final now = DateTime.now().toUtc();
     final normalizedCurrency = currency.trim().toUpperCase();
-    final account = await _accountForCurrency(normalizedCurrency);
+    final account =
+        directMode ? null : await _accountForCurrency(normalizedCurrency);
     final occurredAt = _date(parsed['occurredAt']) ??
         _date(parsed['comparisonTimestamp']) ??
         capture.createdAt ??
@@ -256,10 +286,16 @@ class CaptureSyncService {
           _string(parsed['possibleDuplicateOfTransactionId']),
       duplicateReason: _string(parsed['duplicateReason']),
     );
-    final saved = await _transactionRepository.saveTransaction(
-      transaction: transaction,
-      categoryKey: _string(parsed['category']),
-    );
+    final saved = directMode && _directTransactionRepository != null
+        ? await _directTransactionRepository.saveCapturedTransaction(
+            transaction: transaction,
+            categoryKey: _string(parsed['category']),
+            payloadId: capture.payloadId,
+          )
+        : await _transactionRepository.saveTransaction(
+            transaction: transaction,
+            categoryKey: _string(parsed['category']),
+          );
     await markPayloadImported(
       payloadId: capture.payloadId,
       transactionId: saved.id,

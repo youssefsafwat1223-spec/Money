@@ -17,6 +17,22 @@ import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../../data/repositories/drift_account_repository.dart';
+import '../../data/repositories/financial_cache_repair_service.dart';
+import '../../data/repositories/routed_account_repository.dart';
+import '../../data/repositories/routed_bill_repository.dart';
+import '../../data/repositories/routed_budget_repository.dart';
+import '../../data/repositories/routed_goal_repository.dart';
+import '../../data/repositories/routed_plan_repository.dart';
+import '../../data/repositories/routed_smart_inbox_repository.dart';
+import '../../data/repositories/routed_transaction_repository.dart';
+import '../../data/repositories/supabase_account_repository.dart';
+import '../../data/repositories/supabase_bill_repository.dart';
+import '../../data/repositories/supabase_budget_repository.dart';
+import '../../data/repositories/supabase_financial_summary_service.dart';
+import '../../data/repositories/supabase_goal_repository.dart';
+import '../../data/repositories/supabase_plan_repository.dart';
+import '../../data/repositories/supabase_smart_inbox_repository.dart';
+import '../../data/repositories/supabase_transaction_repository.dart';
 import '../../data/repositories/drift_bill_repository.dart';
 import '../../data/repositories/drift_plan_repository.dart';
 import '../../data/repositories/drift_budget_repository.dart';
@@ -27,11 +43,13 @@ import '../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_merchant_category_repository.dart';
 import '../../data/repositories/drift_sender_bank_mapping_repository.dart';
+import '../../data/repositories/drift_smart_inbox_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
+import '../../domain/entities/smart_inbox_item_entity.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
 import '../../domain/repositories/bill_repository.dart';
@@ -42,6 +60,7 @@ import '../../domain/repositories/goal_repository.dart';
 import '../../domain/repositories/merchant_category_repository.dart';
 import '../../domain/repositories/sender_bank_mapping_repository.dart';
 import '../../domain/repositories/suspected_duplicate_repository.dart';
+import '../../domain/repositories/smart_inbox_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/repositories/user_settings_repository.dart';
 import '../../domain/services/bank_discovery_service.dart';
@@ -109,15 +128,6 @@ final rulesClientProvider = Provider<RulesClient>((ref) {
   return RulesClient(database: ref.watch(appDatabaseProvider));
 });
 
-final featureFlagServiceProvider = Provider<FeatureFlagService>((ref) {
-  final existing = _featureFlagInstance;
-  if (existing != null) return existing;
-  return FeatureFlagService(
-    dao: RemoteFeatureFlagsDao(ref.watch(appDatabaseProvider)),
-    installId: '', // Safe fallback until initFeatureFlagService() runs.
-  );
-});
-
 final announcementServiceProvider = Provider<AnnouncementService>((ref) {
   return AnnouncementService(
     dao: RemoteAnnouncementsDao(ref.watch(appDatabaseProvider)),
@@ -163,6 +173,10 @@ Future<FeatureFlagService> initFeatureFlagService(
     installId: id,
   );
   await service.init();
+  if (SupabaseConfig.isConfigured) {
+    final client = supabase.Supabase.instance.client;
+    await service.applyUserOverrides(client, client.auth.currentUser?.id);
+  }
   _featureFlagInstance = service;
   return service;
 }
@@ -173,13 +187,45 @@ FeatureFlagService get featureFlags {
       'FeatureFlagService not initialised. Call syncCatalog first.');
 }
 
+/// Summary RPCs use Supabase account UUIDs, so they are safe only after both
+/// account and transaction primary repositories have been enabled for the
+/// same QA user. Every flag remains false by default.
+bool supabaseDashboardSummaryEnabled() {
+  try {
+    return featureFlags.getBool('dashboard_supabase_summary') &&
+        featureFlags.getBool('accounts_supabase_primary') &&
+        featureFlags.getBool('transactions_supabase_primary');
+  } catch (_) {
+    return false;
+  }
+}
+
+final supabaseFinancialSummaryServiceProvider =
+    Provider<SupabaseFinancialSummaryService>((ref) {
+  return SupabaseFinancialSummaryService();
+});
+
+final financialCacheRepairServiceProvider =
+    Provider<FinancialCacheRepairService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return FinancialCacheRepairService(
+    db: db,
+    accountsRepo: SupabaseAccountRepository(db: db),
+    transactionsRepo: SupabaseTransactionRepository(db: db),
+    budgetsRepo: SupabaseBudgetRepository(db: db),
+    goalsRepo: SupabaseGoalRepository(db: db),
+    billsRepo: SupabaseBillRepository(db: db),
+    plansRepo: SupabasePlanRepository(db: db),
+    smartInboxRepo: SupabaseSmartInboxRepository(db: db),
+  );
+});
+
 final catalogSyncServiceProvider = Provider<CatalogSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return CatalogSyncService(
     database: db,
     client: supabase.Supabase.instance.client,
     metadataDao: CatalogMetadataDao(db),
-    featureFlagService: ref.watch(featureFlagServiceProvider),
     announcementService: ref.watch(announcementServiceProvider),
   );
 });
@@ -249,7 +295,8 @@ final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
 
 bool _planningAccountsSyncEnabled() {
   try {
-    return featureFlags.getBool('planning_accounts_sync');
+    return featureFlags.getBool('planning_accounts_sync') &&
+        !featureFlags.getBool('accounts_supabase_primary');
   } catch (_) {
     return false;
   }
@@ -267,7 +314,17 @@ bool _planningEntitySyncEnabled(String entityType) {
   };
   if (key.isEmpty) return false;
   try {
-    return featureFlags.getBool(key);
+    final primaryKey = switch (entityType) {
+      PlanningOutboxQueue.accountsEntityType => 'accounts_supabase_primary',
+      PlanningOutboxQueue.budgetsEntityType => 'budgets_supabase_primary',
+      PlanningOutboxQueue.subscriptionsEntityType =>
+        'subscriptions_supabase_primary',
+      PlanningOutboxQueue.goalsEntityType => 'goals_supabase_primary',
+      PlanningOutboxQueue.plansEntityType => 'plans_supabase_primary',
+      _ => '',
+    };
+    return featureFlags.getBool(key) &&
+        (primaryKey.isEmpty || !featureFlags.getBool(primaryKey));
   } catch (_) {
     return false;
   }
@@ -338,7 +395,8 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
     queue: ref.watch(ledgerOutboxQueueProvider),
     isPushEnabled: () {
       try {
-        return featureFlags.getBool('ledger_push_sync');
+        return featureFlags.getBool('ledger_push_sync') &&
+            !featureFlags.getBool('transactions_supabase_primary');
       } catch (_) {
         return false;
       }
@@ -346,10 +404,18 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
   );
 });
 
+/// المرحلة 2: يوجّه القراءة/الكتابة إلى Supabase مباشرة عندما تكون علامة
+/// transactions_supabase_primary مفعّلة لهذا المستخدم، وإلا فـ Drift كالمعتاد.
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
-  return DriftTransactionRepository(
-    ref.watch(appDatabaseProvider),
-    outboxQueue: ref.watch(ledgerOutboxQueueProvider),
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedTransactionRepository(
+    db: db,
+    drift: DriftTransactionRepository(
+      db,
+      outboxQueue: ref.watch(ledgerOutboxQueueProvider),
+    ),
+    supabase: SupabaseTransactionRepository(db: db),
+    flags: () => featureFlags,
   );
 });
 
@@ -364,10 +430,34 @@ final suspectedDuplicatesProvider =
   return ref.watch(suspectedDuplicateRepositoryProvider).getAll();
 });
 
+final smartInboxRepositoryProvider = Provider<SmartInboxRepository>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedSmartInboxRepository(
+    db: db,
+    drift: DriftSmartInboxRepository(db),
+    supabase: SupabaseSmartInboxRepository(db: db),
+    flags: () => featureFlags,
+  );
+});
+
+final smartInboxItemsProvider =
+    FutureProvider<List<SmartInboxItemEntity>>((ref) async {
+  ref.watch(dbRevisionProvider);
+  return ref.watch(smartInboxRepositoryProvider).getOpen();
+});
+
+/// المرحلة 2: يوجّه القراءة/الكتابة إلى Supabase مباشرة عندما تكون علامة
+/// accounts_supabase_primary مفعّلة لهذا المستخدم، وإلا فـ Drift كالمعتاد.
 final accountRepositoryProvider = Provider<AccountRepository>((ref) {
-  return DriftAccountRepository(
-    ref.watch(appDatabaseProvider),
-    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedAccountRepository(
+    db: db,
+    drift: DriftAccountRepository(
+      db,
+      outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ),
+    supabase: SupabaseAccountRepository(db: db),
+    flags: () => featureFlags,
   );
 });
 
@@ -411,16 +501,28 @@ final merchantLogosProvider = FutureProvider<Map<String, String>>((ref) async {
 });
 
 final billRepositoryProvider = Provider<BillRepository>((ref) {
-  return DriftBillRepository(
-    ref.watch(appDatabaseProvider),
-    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedBillRepository(
+    db: db,
+    drift: DriftBillRepository(
+      db,
+      outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ),
+    supabase: SupabaseBillRepository(db: db),
+    flags: () => featureFlags,
   );
 });
 
 final planRepositoryProvider = Provider<PlanRepository>((ref) {
-  return DriftPlanRepository(
-    ref.watch(appDatabaseProvider),
-    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedPlanRepository(
+    db: db,
+    drift: DriftPlanRepository(
+      db,
+      outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ),
+    supabase: SupabasePlanRepository(db: db),
+    flags: () => featureFlags,
   );
 });
 
@@ -430,16 +532,28 @@ final merchantCategoryRepositoryProvider =
 });
 
 final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
-  return DriftBudgetRepository(
-    ref.watch(appDatabaseProvider),
-    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedBudgetRepository(
+    db: db,
+    drift: DriftBudgetRepository(
+      db,
+      outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ),
+    supabase: SupabaseBudgetRepository(db: db),
+    flags: () => featureFlags,
   );
 });
 
 final goalRepositoryProvider = Provider<GoalRepository>((ref) {
-  return DriftGoalRepository(
-    ref.watch(appDatabaseProvider),
-    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedGoalRepository(
+    db: db,
+    drift: DriftGoalRepository(
+      db,
+      outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ),
+    supabase: SupabaseGoalRepository(db: db),
+    flags: () => featureFlags,
   );
 });
 
@@ -536,14 +650,24 @@ final captureDeviceRegistrationServiceProvider =
 
 final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
+  final directTransactions = SupabaseTransactionRepository(db: db);
   return CaptureSyncService(
     settingsRepository: DriftUserSettingsRepository(db),
     transactionRepository: DriftTransactionRepository(db),
     dedupStore: DriftDedupStore(db),
     suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
-    accountRepository: DriftAccountRepository(db),
+    accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
+    directTransactionRepository: directTransactions,
+    isDirectCaptureEnabled: () {
+      try {
+        return featureFlags.getBool('capture_direct_supabase_write') &&
+            featureFlags.getBool('transactions_supabase_primary');
+      } catch (_) {
+        return false;
+      }
+    },
   );
 });
 
@@ -555,7 +679,8 @@ final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
     dedupStore: DriftDedupStore(db),
     isPullEnabled: () {
       try {
-        return featureFlags.getBool('ledger_pull_sync');
+        return featureFlags.getBool('ledger_pull_sync') &&
+            !featureFlags.getBool('transactions_supabase_primary');
       } catch (_) {
         return false;
       }
@@ -576,7 +701,8 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
     db: db,
     isPullEnabled: () {
       try {
-        return featureFlags.getBool('smart_inbox_pull_sync');
+        return featureFlags.getBool('smart_inbox_pull_sync') &&
+            !featureFlags.getBool('smart_inbox_supabase_primary');
       } catch (_) {
         return false;
       }

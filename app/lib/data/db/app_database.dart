@@ -11,7 +11,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 19;
+const int _targetSchemaVersion = 21;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -447,6 +447,20 @@ class AppDatabase extends GeneratedDatabase {
       );
     ''');
 
+    // Phase 2: تتبّع صحة الكاش المحلي (Drift) أثناء فترة الطرح التدريجي
+    // للقراءة/الكتابة المباشرة على Supabase. يُستخدم فقط لمعرفة متى فشلت
+    // مرآة الكتابة بعد نجاح Supabase، حتى لا يُعتبر التراجع (rollback) آمنًا
+    // بشكل أعمى قبل إصلاح الكاش.
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS financial_cache_health(
+        entity_type TEXT PRIMARY KEY,
+        dirty INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NULL,
+        marked_at TEXT NULL,
+        repaired_at TEXT NULL
+      );
+    ''');
+
     await _createDedupHashesTable();
     await _createRemoteMerchantKeywordsTable();
     await _createPendingMerchantFeedbackTable();
@@ -742,6 +756,7 @@ class AppDatabase extends GeneratedDatabase {
     // v18-v19: Phase G — planning sync foundation.
     await _ensureAccountsSyncSchema();
     await _ensurePlanningEntitySyncSchema();
+    await _ensurePlanningChildSyncSchema();
     await _createPlanningSyncOutboxTable();
   }
 
@@ -812,6 +827,30 @@ class AppDatabase extends GeneratedDatabase {
       );
       await customStatement(
         'CREATE INDEX IF NOT EXISTS idx_${table}_sync_status ON $table(sync_status);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_${table}_deleted_at ON $table(deleted_at);',
+      );
+    }
+  }
+
+  Future<void> _ensurePlanningChildSyncSchema() async {
+    for (final table in const [
+      'goal_contributions',
+      'bill_payments',
+      'plan_transaction_links',
+    ]) {
+      await _ensureColumn(table, 'server_id', 'TEXT NULL');
+      await _ensureColumn(table, 'synced_at', 'TEXT NULL');
+      await _ensureColumn(table, 'server_updated_at', 'TEXT NULL');
+      await _ensureColumn(
+        table,
+        'sync_status',
+        "TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict'))",
+      );
+      await _ensureColumn(table, 'deleted_at', 'TEXT NULL');
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_${table}_server_id ON $table(server_id);',
       );
       await customStatement(
         'CREATE INDEX IF NOT EXISTS idx_${table}_deleted_at ON $table(deleted_at);',

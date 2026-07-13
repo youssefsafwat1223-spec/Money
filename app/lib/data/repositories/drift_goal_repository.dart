@@ -107,7 +107,7 @@ class DriftGoalRepository implements GoalRepository {
     final rows = await _db.customSelect(
       '''
         SELECT * FROM goal_contributions
-        WHERE goal_id = ?
+        WHERE goal_id = ? AND deleted_at IS NULL
         ORDER BY created_at DESC;
       ''',
       variables: [Variable.withString(goalId)],

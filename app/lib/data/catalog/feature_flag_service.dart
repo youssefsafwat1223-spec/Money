@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'catalog_daos.dart';
 
@@ -22,6 +23,15 @@ const Map<String, Object> _defaults = {
   'planning_goals_sync': false,
   'planning_plans_sync': false,
   'capture_direct_ledger_write': false,
+  'accounts_supabase_primary': false,
+  'transactions_supabase_primary': false,
+  'dashboard_supabase_summary': false,
+  'budgets_supabase_primary': false,
+  'goals_supabase_primary': false,
+  'subscriptions_supabase_primary': false,
+  'plans_supabase_primary': false,
+  'smart_inbox_supabase_primary': false,
+  'capture_direct_supabase_write': false,
 };
 
 class FeatureFlagService {
@@ -62,6 +72,33 @@ class FeatureFlagService {
   }
 
   bool get isInitialised => _initialised;
+
+  /// يجلب overrides الخاصة بالمستخدم الموقّع دخوله حاليًا من
+  /// feature_flag_overrides على Supabase مباشرة (لا كاش محلي — القيمة
+  /// المقصودة لهذه الآلية أن تكون شبه فورية لأغراض QA/الطرح التدريجي لكل
+  /// مستخدم) وتُطبَّق فوق نتيجة rollout العادية. لا تأثير على المستخدمين
+  /// الآخرين ولا على rollout_percent العام.
+  Future<void> applyUserOverrides(
+      SupabaseClient supabaseClient, String? userId) async {
+    if (userId == null) return;
+    try {
+      final rows = await supabaseClient
+          .from('feature_flag_overrides')
+          .select('key, enabled')
+          .eq('user_id', userId);
+      for (final row in rows) {
+        final key = row['key'] as String?;
+        final enabled = row['enabled'];
+        if (key != null && enabled is bool) {
+          _cache[key] = enabled;
+        }
+      }
+    } catch (e) {
+      debugPrint(
+        'FeatureFlagService.applyUserOverrides failed: ${e.runtimeType}',
+      );
+    }
+  }
 
   bool getBool(String key) {
     final v = _cache[key];

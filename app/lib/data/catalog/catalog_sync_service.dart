@@ -4,25 +4,21 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../db/app_database.dart';
 import 'announcement_service.dart';
 import 'catalog_daos.dart';
-import 'feature_flag_service.dart';
 
 class CatalogSyncService {
   CatalogSyncService({
     required AppDatabase database,
     required supabase.SupabaseClient client,
     required CatalogMetadataDao metadataDao,
-    required FeatureFlagService featureFlagService,
     required AnnouncementService announcementService,
   })  : _database = database,
         _client = client,
         _metadataDao = metadataDao,
-        _featureFlagService = featureFlagService,
         _announcementService = announcementService;
 
   final AppDatabase _database;
   final supabase.SupabaseClient _client;
   final CatalogMetadataDao _metadataDao;
-  final FeatureFlagService _featureFlagService;
   // ignore: unused_field
   final AnnouncementService _announcementService;
 
@@ -45,8 +41,6 @@ class CatalogSyncService {
         syncAnnouncements(countryCode: countryCode),
         syncGrowthCampaigns(countryCode: countryCode),
       ]);
-      // Refresh in-memory flag cache after sync
-      await _featureFlagService.init();
     } catch (error, stackTrace) {
       debugPrint('Catalog sync skipped: $error');
       debugPrintStack(stackTrace: stackTrace);

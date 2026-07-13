@@ -33,6 +33,7 @@ dependencies:
   flutter_animate: ^4.5.0
   flutter_svg: ^2.0.17
   supabase_flutter: ^2.8.3
+  postgrest: ^2.7.1
   cryptography: ^2.7.0
   google_sign_in: ^6.2.2
   url_launcher: ^6.3.1

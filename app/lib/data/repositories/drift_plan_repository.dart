@@ -120,6 +120,7 @@ class DriftPlanRepository implements PlanRepository {
           FROM transactions t
           LEFT JOIN plan_transaction_links ptl
             ON ptl.transaction_id = t.id AND ptl.plan_id = ?
+              AND ptl.deleted_at IS NULL
           WHERE t.type IN ('payment', 'withdrawal')
             AND t.status = 'confirmed'
             AND (${membership.whereSql} OR ptl.plan_id IS NOT NULL)
@@ -137,8 +138,9 @@ class DriftPlanRepository implements PlanRepository {
       '''
         SELECT DISTINCT t.*
         FROM transactions t
-        LEFT JOIN plan_transaction_links ptl
-          ON ptl.transaction_id = t.id AND ptl.plan_id = ?
+          LEFT JOIN plan_transaction_links ptl
+            ON ptl.transaction_id = t.id AND ptl.plan_id = ?
+              AND ptl.deleted_at IS NULL
         WHERE t.type IN ('payment', 'withdrawal')
           AND t.status = 'confirmed'
           AND (${membership.whereSql} OR ptl.plan_id IS NOT NULL)
@@ -156,8 +158,9 @@ class DriftPlanRepository implements PlanRepository {
   }) async {
     await _db.customInsert(
       '''
-        INSERT OR IGNORE INTO plan_transaction_links(plan_id, transaction_id, created_at)
-        VALUES (?, ?, ?);
+        INSERT INTO plan_transaction_links(plan_id, transaction_id, created_at, deleted_at)
+        VALUES (?, ?, ?, NULL)
+        ON CONFLICT(plan_id, transaction_id) DO UPDATE SET deleted_at = NULL;
       ''',
       variables: [
         Variable.withString(planId),
@@ -173,8 +176,10 @@ class DriftPlanRepository implements PlanRepository {
     required String transactionId,
   }) async {
     await _db.customUpdate(
-      'DELETE FROM plan_transaction_links WHERE plan_id = ? AND transaction_id = ?;',
+      'UPDATE plan_transaction_links SET deleted_at = ? '
+      'WHERE plan_id = ? AND transaction_id = ?;',
       variables: [
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
         Variable.withString(planId),
         Variable.withString(transactionId),
       ],
