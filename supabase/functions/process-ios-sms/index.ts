@@ -8,7 +8,11 @@ import {
   verifyDevice,
 } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
-import { isLedgerDualWriteEnabled, upsertLedgerTransaction } from '../_shared/ledger.ts';
+import {
+  isDirectCaptureWriteEnabled,
+  isLedgerDualWriteEnabled,
+  upsertLedgerTransaction,
+} from '../_shared/ledger.ts';
 
 type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
 type ParsedCapture = {
@@ -29,6 +33,7 @@ type ParsedCapture = {
   rawMessage?: string;
   senderId?: string;
   parserSource?: 'deterministic' | 'ai_hybrid';
+  serverTransactionId?: string;
 };
 
 type NotificationPayload = {
@@ -98,8 +103,6 @@ Deno.serve(async (req) => {
 
   console.log(JSON.stringify({
     event: 'sms_parse_result',
-    payloadId,
-    senderPrefix: sender ? sender.slice(0, 20) : null,
     hasAmount: parsed.amount != null,
     hasCurrency: parsed.currency != null,
     type: parsed.type ?? null,
@@ -146,18 +149,22 @@ Deno.serve(async (req) => {
 
   console.log(JSON.stringify({
     event: 'capture_stored',
-    payloadId,
     status,
   }));
 
-  // Phase B: dual-write to user_transactions for signed-in users when flag is on.
-  // Guests (userId = null) always stay relay-only.
-  // 'rejected' and 'duplicate' are excluded: no meaningful ledger row to write.
+  // Safety rollout: relay storage above is always preserved. Direct capture is
+  // allowed only when both the dedicated capture flag and transaction-primary
+  // routing are enabled for this signed-in user. The legacy dual-write flag
+  // remains supported independently during rollback validation.
+  let serverTransactionId: string | undefined;
   if (auth.userId && (status === 'processed' || status === 'needs_review')) {
     try {
-      const dualWriteEnabled = await isLedgerDualWriteEnabled(supabase, auth.userId);
-      if (dualWriteEnabled) {
-        await upsertLedgerTransaction(supabase, auth.userId, {
+      const directWriteEnabled = await isDirectCaptureWriteEnabled(supabase, auth.userId);
+      const dualWriteEnabled = directWriteEnabled
+        ? false
+        : await isLedgerDualWriteEnabled(supabase, auth.userId);
+      if (directWriteEnabled || dualWriteEnabled) {
+        const ledger = await upsertLedgerTransaction(supabase, auth.userId, {
           payloadId,
           amount: parsed.amount!,
           currency: parsed.currency!,
@@ -168,11 +175,29 @@ Deno.serve(async (req) => {
           occurredAt: parsed.occurredAt ?? receivedAt,
           confidence: parsed.confidence,
           last4: parsed.last4,
+          status: status === 'needs_review' ? 'pending' : 'confirmed',
+          comparisonTimestamp: parsed.comparisonTimestamp,
+          comparisonTimestampSource: parsed.comparisonTimestampSource,
+          transactionTimeFromSms: parsed.comparisonTimestampSource === 'sms_body'
+            ? parsed.comparisonTimestamp
+            : undefined,
+          smsReceivedAt: receivedAt,
+          parserSource: parsed.parserSource,
         });
+        if (directWriteEnabled) {
+          serverTransactionId = ledger.id;
+          parsed.serverTransactionId = ledger.id;
+          await supabase
+            .from('processed_captures')
+            .update({ parsed })
+            .eq('install_id_hash', auth.installIdHash)
+            .eq('payload_id', payloadId);
+        }
       }
     } catch (err) {
-      // Non-fatal: relay is source of truth in Phase B. Log and continue.
-      console.warn(JSON.stringify({ event: 'ledger_dual_write_failed', payloadId, err: String(err) }));
+      // Non-fatal: the relay row remains available to Flutter for Phase 1
+      // import. Do not expose payload identifiers or SMS contents in logs.
+      console.warn(JSON.stringify({ event: 'capture_ledger_write_failed', errorType: String(err).split(':')[0] }));
     }
   }
 
@@ -182,16 +207,17 @@ Deno.serve(async (req) => {
     payloadId,
     notification,
     parsed,
+    serverTransactionId,
   );
   console.log(JSON.stringify({
     event: 'process_ios_sms_complete',
-    payloadId,
     status,
     pushSent,
   }));
   return json({
     capture: {
       ...data,
+      parsed,
       apns_push_sent_at: pushSent ? new Date().toISOString() : data.apns_push_sent_at,
     },
     pushSent,
@@ -535,6 +561,7 @@ async function sendApnsIfPossible(
   payloadId: string,
   notification: NotificationPayload,
   parsed: ParsedCapture,
+  serverTransactionId?: string,
 ): Promise<boolean> {
   const { data: device } = await supabase
     .from('capture_devices')
@@ -549,7 +576,6 @@ async function sendApnsIfPossible(
   if (!token || !environment) {
     console.log(JSON.stringify({
       event: 'apns_skipped',
-      payloadId,
       reason: !token ? 'no_token' : 'no_environment',
     }));
     return false;
@@ -566,14 +592,14 @@ async function sendApnsIfPossible(
         notification.type === 'suspicious_duplicate'
       ? payloadId
       : undefined,
-    transactionId: typeof parsed.possibleDuplicateOfTransactionId === 'string'
-      ? parsed.possibleDuplicateOfTransactionId
-      : undefined,
+    transactionId: serverTransactionId ??
+      (typeof parsed.possibleDuplicateOfTransactionId === 'string'
+        ? parsed.possibleDuplicateOfTransactionId
+        : undefined),
   });
   if (result.ok) {
     console.log(JSON.stringify({
       event: 'apns_sent',
-      payloadId,
       environment,
     }));
     await supabase
@@ -593,7 +619,6 @@ async function sendApnsIfPossible(
     .eq('payload_id', payloadId);
   console.warn(JSON.stringify({
     event: 'capture_apns_failed',
-    payloadId,
     reason: result.reason,
   }));
   return false;
