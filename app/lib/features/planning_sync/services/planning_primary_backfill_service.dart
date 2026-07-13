@@ -1,0 +1,487 @@
+import 'package:drift/drift.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../core/backend/supabase_config.dart';
+import '../../../data/db/app_database.dart';
+import '../../../data/db/sql_value_codec.dart';
+import '../../../domain/entities/budget_entity.dart';
+import '../../../domain/errors/repo_exceptions.dart';
+
+class PlanningBackfillReport {
+  const PlanningBackfillReport({
+    required this.created,
+    required this.matched,
+    required this.failures,
+  });
+
+  final Map<String, int> created;
+  final Map<String, int> matched;
+  final List<String> failures;
+  bool get isClean => failures.isEmpty;
+}
+
+/// Deterministic, insert-only planning backfill. Existing server rows always
+/// win and are reported as matches; this service never overwrites remote edits.
+class PlanningPrimaryBackfillService {
+  PlanningPrimaryBackfillService({
+    required AppDatabase db,
+    SupabaseClient Function()? getClient,
+    Future<String?> Function()? getAuthUserId,
+  })  : _db = db,
+        _client = getClient ?? (() => Supabase.instance.client),
+        _getAuthUserId = getAuthUserId ?? _defaultUserId;
+
+  final AppDatabase _db;
+  final SupabaseClient Function() _client;
+  final Future<String?> Function() _getAuthUserId;
+
+  static Future<String?> _defaultUserId() async {
+    if (!SupabaseConfig.isConfigured) return null;
+    return Supabase.instance.client.auth.currentUser?.id;
+  }
+
+  Future<PlanningBackfillReport> run() async {
+    final uid = await _getAuthUserId();
+    if (uid == null) throw const AuthRepoException();
+    final created = <String, int>{};
+    final matched = <String, int>{};
+    final failures = <String>[];
+
+    Future<void> phase(
+      String name,
+      Future<void> Function(
+              String, Map<String, int>, Map<String, int>, List<String>)
+          work,
+    ) async {
+      try {
+        await work(uid, created, matched, failures);
+      } catch (error) {
+        failures.add('$name: ${error.runtimeType}');
+      }
+    }
+
+    await phase('budgets', _backfillBudgets);
+    await phase('goals', _backfillGoals);
+    await phase('goal_contributions', _backfillGoalContributions);
+    await phase('subscriptions', _backfillSubscriptions);
+    await phase('bill_payments', _backfillBillPayments);
+    await phase('plans', _backfillPlans);
+    await phase('plan_transaction_links', _backfillPlanLinks);
+
+    return PlanningBackfillReport(
+      created: created,
+      matched: matched,
+      failures: failures,
+    );
+  }
+
+  Future<void> _backfillBudgets(String uid, Map<String, int> created,
+      Map<String, int> matched, List<String> failures) async {
+    final rows = await _db.customSelect('SELECT * FROM budgets;').get();
+    for (final row in rows) {
+      final localId = row.read<String>('id');
+      final account = await _optionalParent(
+        table: 'accounts',
+        localParentId: row.readNullable<String>('account_id'),
+        entity: 'budgets',
+        localId: localId,
+        failures: failures,
+      );
+      if (!account.$2) continue;
+      await _insertParent(
+        uid: uid,
+        entity: 'budgets',
+        table: 'user_budgets',
+        localTable: 'budgets',
+        localId: localId,
+        payload: {
+          'category_id': await _categoryKey(row.read<String>('category_id')),
+          'amount': row.read<double>('amount'),
+          'period': row.read<String>('period'),
+          'start_date': row.read<String>('start_date'),
+          'is_active': row.read<int>('is_active') == 1,
+          'alert_80_sent': row.read<int>('alert_80_sent') == 1,
+          'alert_100_sent': row.read<int>('alert_100_sent') == 1,
+          'show_on_header': row.read<int>('show_on_header') == 1,
+          'server_account_id': account.$1,
+          'deleted_at': row.readNullable<String>('deleted_at'),
+        },
+        created: created,
+        matched: matched,
+        failures: failures,
+      );
+    }
+  }
+
+  Future<void> _backfillGoals(String uid, Map<String, int> created,
+      Map<String, int> matched, List<String> failures) async {
+    final rows = await _db.customSelect('SELECT * FROM goals;').get();
+    for (final row in rows) {
+      final localId = row.read<String>('id');
+      final account = await _optionalParent(
+        table: 'accounts',
+        localParentId: row.readNullable<String>('account_id'),
+        entity: 'goals',
+        localId: localId,
+        failures: failures,
+      );
+      if (!account.$2) continue;
+      await _insertParent(
+        uid: uid,
+        entity: 'goals',
+        table: 'user_goals',
+        localTable: 'goals',
+        localId: localId,
+        payload: {
+          'name': row.read<String>('name'),
+          'server_account_id': account.$1,
+          'target_amount': row.read<double>('target_amount'),
+          'saved_amount': row.read<double>('saved_amount'),
+          'deadline': row.readNullable<String>('deadline'),
+          'vault_skin': row.read<String>('vault_skin'),
+          'status': row.read<String>('status'),
+          'created_at': row.read<String>('created_at'),
+          'auto_save_amount': row.readNullable<double>('auto_save_amount'),
+          'auto_save_period': row.readNullable<String>('auto_save_period'),
+          'auto_save_last_run': row.readNullable<String>('auto_save_last_run'),
+          'deleted_at': row.readNullable<String>('deleted_at'),
+        },
+        created: created,
+        matched: matched,
+        failures: failures,
+      );
+    }
+  }
+
+  Future<void> _backfillGoalContributions(String uid, Map<String, int> created,
+      Map<String, int> matched, List<String> failures) async {
+    final rows =
+        await _db.customSelect('SELECT * FROM goal_contributions;').get();
+    for (final row in rows) {
+      final localId = row.read<String>('id');
+      final goalId = await _serverId('goals', row.read<String>('goal_id'));
+      if (goalId == null) {
+        failures.add('goal_contributions:$localId:missing_parent');
+        continue;
+      }
+      await _insertChild(
+        uid: uid,
+        entity: 'goal_contributions',
+        table: 'user_goal_contributions',
+        localTable: 'goal_contributions',
+        localId: localId,
+        payload: {
+          'goal_id': goalId,
+          'client_request_id': 'backfill_goal_contribution_$localId',
+          'amount': row.read<double>('amount'),
+          'note': row.readNullable<String>('note'),
+          'created_at': row.read<String>('created_at'),
+          'deleted_at': row.readNullable<String>('deleted_at'),
+        },
+        created: created,
+        matched: matched,
+        failures: failures,
+      );
+    }
+  }
+
+  Future<void> _backfillSubscriptions(String uid, Map<String, int> created,
+      Map<String, int> matched, List<String> failures) async {
+    final rows = await _db.customSelect('SELECT * FROM subscriptions;').get();
+    for (final row in rows) {
+      final localId = row.read<String>('id');
+      final account = await _optionalParent(
+        table: 'accounts',
+        localParentId: row.readNullable<String>('account_id'),
+        entity: 'subscriptions',
+        localId: localId,
+        failures: failures,
+      );
+      if (!account.$2) continue;
+      await _insertParent(
+        uid: uid,
+        entity: 'subscriptions',
+        table: 'user_subscriptions',
+        localTable: 'subscriptions',
+        localId: localId,
+        payload: {
+          'merchant_id': row.readNullable<String>('merchant_id'),
+          'name': row.read<String>('name'),
+          'amount': row.read<double>('amount'),
+          'currency': row.read<String>('currency').toUpperCase(),
+          'type': row.read<String>('type'),
+          'frequency': row.read<String>('frequency'),
+          'next_due_date': row.readNullable<String>('next_due_date') ??
+              row.read<String>('created_at'),
+          'reminder_on': row.read<int>('reminder_on') == 1,
+          'is_confirmed': row.read<int>('is_confirmed') == 1,
+          'custom_interval_days': row.readNullable<int>('custom_interval_days'),
+          'note': row.readNullable<String>('note'),
+          'status': row.read<String>('status'),
+          'server_account_id': account.$1,
+          'total_installments': row.readNullable<int>('total_installments'),
+          'paid_count': row.readNullable<int>('paid_count'),
+          'manual_paid_amount': row.readNullable<double>('manual_paid_amount'),
+          'total_purchase_amount':
+              row.readNullable<double>('total_purchase_amount'),
+          'lender_name': row.readNullable<String>('lender_name'),
+          'interest_rate': row.readNullable<double>('interest_rate'),
+          'created_at': row.read<String>('created_at'),
+          'deleted_at': row.readNullable<String>('deleted_at'),
+        },
+        created: created,
+        matched: matched,
+        failures: failures,
+      );
+    }
+  }
+
+  Future<void> _backfillBillPayments(String uid, Map<String, int> created,
+      Map<String, int> matched, List<String> failures) async {
+    final rows = await _db.customSelect('SELECT * FROM bill_payments;').get();
+    for (final row in rows) {
+      final localId = row.read<String>('id');
+      final subscriptionId =
+          await _serverId('subscriptions', row.read<String>('bill_id'));
+      final localTransactionId = row.readNullable<String>('transaction_id');
+      final transactionId = await _serverId('transactions', localTransactionId);
+      if (subscriptionId == null ||
+          (localTransactionId != null && transactionId == null)) {
+        failures.add('bill_payments:$localId:missing_parent');
+        continue;
+      }
+      await _insertChild(
+        uid: uid,
+        entity: 'bill_payments',
+        table: 'user_bill_payments',
+        localTable: 'bill_payments',
+        localId: localId,
+        payload: {
+          'subscription_id': subscriptionId,
+          'transaction_id': transactionId,
+          'client_request_id': 'backfill_bill_payment_$localId',
+          'amount': row.read<double>('amount'),
+          'currency': row.read<String>('currency').toUpperCase(),
+          'period_start': row.read<String>('period_start'),
+          'period_end': row.read<String>('period_end'),
+          'paid_at': row.read<String>('paid_at'),
+          'installment_index': row.readNullable<int>('installment_index'),
+          'note': row.readNullable<String>('note'),
+          'deleted_at': row.readNullable<String>('deleted_at'),
+        },
+        created: created,
+        matched: matched,
+        failures: failures,
+      );
+    }
+  }
+
+  Future<void> _backfillPlans(String uid, Map<String, int> created,
+      Map<String, int> matched, List<String> failures) async {
+    final rows = await _db.customSelect('SELECT * FROM plans;').get();
+    for (final row in rows) {
+      final localId = row.read<String>('id');
+      final accountIds = row
+          .read<String>('account_ids')
+          .split(',')
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty);
+      final serverAccounts = <String>[];
+      var missingAccount = false;
+      for (final accountId in accountIds) {
+        final serverId = await _serverId('accounts', accountId);
+        if (serverId == null) {
+          missingAccount = true;
+          failures.add('plans:$localId:missing_parent');
+          break;
+        }
+        serverAccounts.add(serverId);
+      }
+      if (missingAccount) continue;
+      await _insertParent(
+        uid: uid,
+        entity: 'plans',
+        table: 'user_plans',
+        localTable: 'plans',
+        localId: localId,
+        payload: {
+          'name': row.read<String>('name'),
+          'budget_amount': row.read<double>('budget_amount'),
+          'currency': row.read<String>('currency').toUpperCase(),
+          'start_date': row.read<String>('start_date'),
+          'end_date': row.read<String>('end_date'),
+          'server_account_ids': serverAccounts,
+          'card_last4s': row
+              .read<String>('card_last4s')
+              .split(',')
+              .map((value) => value.trim())
+              .where((value) => value.isNotEmpty)
+              .toList(),
+          'status': row.read<String>('status'),
+          'icon': row.readNullable<String>('icon'),
+          'created_at': row.read<String>('created_at'),
+          'deleted_at': row.readNullable<String>('deleted_at'),
+        },
+        created: created,
+        matched: matched,
+        failures: failures,
+      );
+    }
+  }
+
+  Future<void> _backfillPlanLinks(String uid, Map<String, int> created,
+      Map<String, int> matched, List<String> failures) async {
+    final rows =
+        await _db.customSelect('SELECT * FROM plan_transaction_links;').get();
+    for (final row in rows) {
+      final planLocal = row.read<String>('plan_id');
+      final txLocal = row.read<String>('transaction_id');
+      final planId = await _serverId('plans', planLocal);
+      final transactionId = await _serverId('transactions', txLocal);
+      final key = '$planLocal:$txLocal';
+      if (planId == null || transactionId == null) {
+        failures.add('plan_transaction_links:$key:missing_parent');
+        continue;
+      }
+      try {
+        final requestId = 'backfill_plan_link_$key';
+        final existing = await _client()
+            .from('user_plan_transaction_links')
+            .select('id')
+            .eq('user_id', uid)
+            .eq('client_request_id', requestId)
+            .maybeSingle();
+        final serverRow = existing ??
+            await _client()
+                .from('user_plan_transaction_links')
+                .insert({
+                  'user_id': uid,
+                  'plan_id': planId,
+                  'transaction_id': transactionId,
+                  'client_request_id': requestId,
+                  'created_at': row.read<String>('created_at'),
+                  'deleted_at': row.readNullable<String>('deleted_at'),
+                })
+                .select()
+                .single();
+        _bump(existing == null ? created : matched, 'plan_transaction_links');
+        await _db.customStatement(
+          "UPDATE plan_transaction_links SET server_id = ?, synced_at = ?, sync_status = 'synced' "
+          'WHERE plan_id = ? AND transaction_id = ?;',
+          [
+            serverRow['id'] as String,
+            dateTimeToSql(DateTime.now().toUtc()),
+            planLocal,
+            txLocal,
+          ],
+        );
+      } catch (error) {
+        failures.add('plan_transaction_links:$key:${error.runtimeType}');
+      }
+    }
+  }
+
+  Future<void> _insertParent({
+    required String uid,
+    required String entity,
+    required String table,
+    required String localTable,
+    required String localId,
+    required Map<String, dynamic> payload,
+    required Map<String, int> created,
+    required Map<String, int> matched,
+    required List<String> failures,
+  }) =>
+      _insertChild(
+        uid: uid,
+        entity: entity,
+        table: table,
+        localTable: localTable,
+        localId: localId,
+        payload: payload,
+        created: created,
+        matched: matched,
+        failures: failures,
+      );
+
+  Future<void> _insertChild({
+    required String uid,
+    required String entity,
+    required String table,
+    required String localTable,
+    required String localId,
+    required Map<String, dynamic> payload,
+    required Map<String, int> created,
+    required Map<String, int> matched,
+    required List<String> failures,
+  }) async {
+    try {
+      final existing = await _client()
+          .from(table)
+          .select()
+          .eq('user_id', uid)
+          .eq('local_id', localId)
+          .maybeSingle();
+      final serverRow = existing ??
+          await _client()
+              .from(table)
+              .insert({
+                'user_id': uid,
+                'local_id': localId,
+                ...payload,
+              })
+              .select()
+              .single();
+      _bump(existing == null ? created : matched, entity);
+      await _db.customStatement(
+        "UPDATE $localTable SET server_id = ?, synced_at = ?, sync_status = 'synced' WHERE id = ?;",
+        [
+          serverRow['id'] as String,
+          dateTimeToSql(DateTime.now().toUtc()),
+          localId,
+        ],
+      );
+    } catch (error) {
+      failures.add('$entity:$localId:${error.runtimeType}');
+    }
+  }
+
+  Future<String?> _serverId(String table, String? localId) async {
+    if (localId == null) return null;
+    final row = await _db.customSelect(
+      'SELECT server_id FROM $table WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(localId)],
+    ).getSingleOrNull();
+    return row?.readNullable<String>('server_id');
+  }
+
+  Future<(String?, bool)> _optionalParent({
+    required String table,
+    required String? localParentId,
+    required String entity,
+    required String localId,
+    required List<String> failures,
+  }) async {
+    if (localParentId == null) return (null, true);
+    final serverId = await _serverId(table, localParentId);
+    if (serverId != null) return (serverId, true);
+    failures.add('$entity:$localId:missing_parent');
+    return (null, false);
+  }
+
+  Future<String> _categoryKey(String localId) async {
+    if (localId == BudgetEntity.allExpensesCategoryId) {
+      return BudgetEntity.allExpensesCategoryKey;
+    }
+    final row = await _db.customSelect(
+      'SELECT key FROM categories WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(localId)],
+    ).getSingleOrNull();
+    if (row == null) throw const ValidationRepoException('Missing category.');
+    return row.read<String>('key');
+  }
+
+  void _bump(Map<String, int> values, String key) {
+    values[key] = (values[key] ?? 0) + 1;
+  }
+}
