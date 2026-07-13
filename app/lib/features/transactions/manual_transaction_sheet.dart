@@ -9,6 +9,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../../engine/parser/normalizer.dart';
 import '../achievements/achievements_providers.dart';
 import '../budgets/budgets_providers.dart';
@@ -183,6 +184,8 @@ class _ManualTransactionSheetState
       refreshAchievements(ref);
       ref.invalidate(dashboardDataProvider);
       Navigator.of(context).pop();
+    } on RepoException catch (e) {
+      if (mounted) _snack(repoExceptionMessage(e));
     } catch (_) {
       if (mounted) _snack('تعذر حفظ العملية الآن.');
     } finally {
@@ -230,6 +233,8 @@ class _ManualTransactionSheetState
       ref.invalidate(dashboardDataProvider);
       Navigator.of(context).pop();
       Navigator.of(context).maybePop();
+    } on RepoException catch (e) {
+      if (mounted) _snack(repoExceptionMessage(e));
     } catch (_) {
       if (mounted) _snack('تعذر حذف العملية الآن.');
     } finally {

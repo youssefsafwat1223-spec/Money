@@ -9,6 +9,7 @@ import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/errors/repo_exceptions.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../common/app_sheet_scaffold.dart';
 import '../../common/app_category_chip.dart';
@@ -272,6 +273,14 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                           ref.invalidate(transactionByIdProvider(tx.id));
                           refreshTransactions(ref);
                           ref.invalidate(dashboardDataProvider);
+                        }).catchError((Object e) {
+                          if (!context.mounted) return;
+                          final message = e is RepoException
+                              ? repoExceptionMessage(e)
+                              : 'تعذر تحديث التصنيف.';
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(message)),
+                          );
                         });
                       },
                     ),
@@ -350,12 +359,20 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                       ],
                       onChanged: (id) async {
                         if (id == null) return;
-                        await ref
-                            .read(transactionRepositoryProvider)
-                            .updateAccount(
-                              transactionId: tx.id,
-                              accountId: id,
-                            );
+                        try {
+                          await ref
+                              .read(transactionRepositoryProvider)
+                              .updateAccount(
+                                transactionId: tx.id,
+                                accountId: id,
+                              );
+                        } on RepoException catch (e) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(repoExceptionMessage(e))),
+                          );
+                          return;
+                        }
                         ref.invalidate(
                             transactionByIdProvider(widget.transactionId));
                         ref.invalidate(dashboardDataProvider);
@@ -375,10 +392,18 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
               if (_awaitingPricing(tx)) {
                 final priced = double.tryParse(_priceController.text.trim());
                 if (priced != null && priced > 0) {
-                  await ref.read(transactionRepositoryProvider).updateAmount(
-                        transactionId: tx.id,
-                        amount: priced,
-                      );
+                  try {
+                    await ref.read(transactionRepositoryProvider).updateAmount(
+                          transactionId: tx.id,
+                          amount: priced,
+                        );
+                  } on RepoException catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(repoExceptionMessage(e))),
+                    );
+                    return;
+                  }
                 }
               }
               if (tx.status == TransactionStatus.pending) {

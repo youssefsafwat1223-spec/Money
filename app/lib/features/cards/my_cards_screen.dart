@@ -8,6 +8,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../common/app_screen_scaffold.dart';
 import '../transactions/manual_transaction_sheet.dart';
 import 'card_details_screen.dart';
@@ -294,12 +295,23 @@ class _AttachExistingSheet extends ConsumerWidget {
                               onTap: linked
                                   ? null
                                   : () async {
-                                      await ref
-                                          .read(transactionRepositoryProvider)
-                                          .updateCard(
-                                            transactionId: tx.id,
-                                            cardLast4: last4,
-                                          );
+                                      try {
+                                        await ref
+                                            .read(transactionRepositoryProvider)
+                                            .updateCard(
+                                              transactionId: tx.id,
+                                              cardLast4: last4,
+                                            );
+                                      } on RepoException catch (e) {
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                              content: Text(
+                                                  repoExceptionMessage(e))),
+                                        );
+                                        return;
+                                      }
                                       ref.invalidate(cardSummariesProvider);
                                       ref.invalidate(
                                           allTransactionsForPickProvider);

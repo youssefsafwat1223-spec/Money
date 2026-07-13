@@ -96,19 +96,44 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
   final range =
       effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final rangeEnd = range.to.isAfter(now) ? now : range.to;
+  final useSupabaseSummary = supabaseDashboardSummaryEnabled();
+  final summaryService = ref.watch(supabaseFinancialSummaryServiceProvider);
 
   Future<ReportSection> section(
       DateTime from, DateTime to, DateTime prevFrom, DateTime prevTo) async {
-    final total = await txRepo.expenseTotalBetween(
-        from: from, to: to, accountId: accountId);
-    final prevTotal = await txRepo.expenseTotalBetween(
-        from: prevFrom, to: prevTo, accountId: accountId);
-    final breakdown = await txRepo.categoryBreakdown(
-        from: from, to: to, accountId: accountId);
+    final summary = useSupabaseSummary
+        ? await summaryService.periodSummary(
+            from: from,
+            to: to.add(const Duration(microseconds: 1)),
+            accountId: accountId,
+          )
+        : null;
+    final previousSummary = useSupabaseSummary
+        ? await summaryService.periodSummary(
+            from: prevFrom,
+            to: prevTo.add(const Duration(microseconds: 1)),
+            accountId: accountId,
+          )
+        : null;
+    final total = summary?.expense ??
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, accountId: accountId);
+    final prevTotal = previousSummary?.expense ??
+        await txRepo.expenseTotalBetween(
+            from: prevFrom, to: prevTo, accountId: accountId);
+    final breakdown = useSupabaseSummary
+        ? await summaryService.categorySummary(
+            from: from,
+            to: to.add(const Duration(microseconds: 1)),
+            accountId: accountId,
+          )
+        : await txRepo.categoryBreakdown(
+            from: from, to: to, accountId: accountId);
     final sumAll = breakdown.fold<double>(0, (s, i) => s + i.total);
     final topCategories = <CategorySlice>[];
     for (final item in breakdown.take(18)) {
-      final view = catalog.byId(item.categoryId);
+      final view =
+          catalog.byId(item.categoryId) ?? catalog.byKey(item.categoryId);
       if (view == null) continue;
       topCategories.add(CategorySlice(
         category: view,

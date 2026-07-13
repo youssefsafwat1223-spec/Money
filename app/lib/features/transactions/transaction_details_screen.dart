@@ -8,6 +8,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../cards/brand_mark.dart';
 import '../common/category_catalog.dart';
 import '../common/transaction_direction.dart';
@@ -393,7 +394,15 @@ class _TransactionDetailsContent extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
-    await ref.read(transactionRepositoryProvider).deleteTransaction(id);
+    try {
+      await ref.read(transactionRepositoryProvider).deleteTransaction(id);
+    } on RepoException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(e))),
+      );
+      return;
+    }
     final affectedBillIds =
         await ref.read(billRepositoryProvider).deletePaymentForTransaction(id);
     for (final billId in affectedBillIds) {
@@ -479,9 +488,17 @@ class _TransactionDetailsContent extends ConsumerWidget {
     // Do NOT dispose controller here – the dialog's exit animation may still
     // reference it. It will be GC'd when the method scope ends.
     if (value == null || value <= 0) return;
-    await ref
-        .read(transactionRepositoryProvider)
-        .updateAmount(transactionId: tx.id, amount: value);
+    try {
+      await ref
+          .read(transactionRepositoryProvider)
+          .updateAmount(transactionId: tx.id, amount: value);
+    } on RepoException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(e))),
+      );
+      return;
+    }
     ref.invalidate(transactionByIdProvider(tx.id));
     refreshTransactions(ref);
     ref.invalidate(dashboardDataProvider);

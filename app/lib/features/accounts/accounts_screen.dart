@@ -7,6 +7,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/account_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../cards/bank_mark.dart';
 import '../cards/my_cards_screen.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -292,26 +293,34 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     }
     final repo = ref.read(accountRepositoryProvider);
     final now = DateTime.now().toUtc();
-    if (widget.account == null) {
-      await repo.create(AccountEntity(
-        id: '',
-        name: name,
-        currency: _currency,
-        type: _type,
-        isDefault: _isDefault,
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-      ));
-    } else {
-      await repo.update(widget.account!.copyWith(
-        name: name,
-        currency: _currency,
-        type: _type,
-      ));
-      if (_isDefault && !widget.account!.isDefault) {
-        await repo.setDefault(widget.account!.id);
+    try {
+      if (widget.account == null) {
+        await repo.create(AccountEntity(
+          id: '',
+          name: name,
+          currency: _currency,
+          type: _type,
+          isDefault: _isDefault,
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        ));
+      } else {
+        await repo.update(widget.account!.copyWith(
+          name: name,
+          currency: _currency,
+          type: _type,
+        ));
+        if (_isDefault && !widget.account!.isDefault) {
+          await repo.setDefault(widget.account!.id);
+        }
       }
+    } on RepoException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(e))),
+      );
+      return;
     }
     ref.invalidate(accountsProvider);
     ref.invalidate(dashboardDataProvider);
@@ -330,6 +339,11 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('لا يمكن حذف آخر حساب.')),
+      );
+    } on RepoException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(e))),
       );
     }
   }

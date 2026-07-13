@@ -25,6 +25,7 @@ import '../subscriptions/bill_details_sheet.dart';
 import '../subscriptions/bill_form_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
+import '../../domain/entities/smart_inbox_item_entity.dart';
 import 'manual_transaction_sheet.dart';
 import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
@@ -107,6 +108,7 @@ class TransactionsScreen extends ConsumerWidget {
                             const _ActiveAccountPicker(),
                             const SizedBox(height: AppSpacing.s3),
                             const _SuspectedDuplicatesBanner(),
+                            const _SmartInboxBanner(),
                             if (tab == 0) ...[
                               if (pendingOnly) ...[
                                 Row(
@@ -1700,6 +1702,141 @@ class _TransactionsHeader extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Smart Inbox ─────────────────────────────────────────────────────────────
+
+class _SmartInboxBanner extends ConsumerWidget {
+  const _SmartInboxBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(smartInboxItemsProvider).valueOrNull ?? const [];
+    if (items.isEmpty) return const SizedBox.shrink();
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _SmartInboxSheet.show(context),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: c.cta.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: c.cta.withValues(alpha: 0.22)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 17, color: c.cta),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'صندوق المراجعة الذكي · ${items.length}',
+                  style: AppTypography.caption(c.textMain)
+                      .copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              Icon(Icons.chevron_left_rounded, size: 18, color: c.cta),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SmartInboxSheet extends ConsumerWidget {
+  const _SmartInboxSheet();
+
+  static Future<void> show(BuildContext context) => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: context.colors.surface,
+        builder: (_) => const Directionality(
+          textDirection: TextDirection.rtl,
+          child: _SmartInboxSheet(),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(smartInboxItemsProvider).valueOrNull ?? const [];
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.58,
+      maxChildSize: 0.9,
+      builder: (_, controller) => ListView.separated(
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+        itemCount: items.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'صندوق المراجعة الذكي',
+                style: AppTypography.title2(context.colors.textMain),
+              ),
+            );
+          }
+          return _SmartInboxCard(item: items[index - 1]);
+        },
+      ),
+    );
+  }
+}
+
+class _SmartInboxCard extends ConsumerWidget {
+  const _SmartInboxCard({required this.item});
+  final SmartInboxItemEntity item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface2,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(item.title, style: AppTypography.bodyStrong(c.textMain)),
+          if (item.body?.isNotEmpty == true) ...[
+            const SizedBox(height: 5),
+            Text(item.body!, style: AppTypography.caption(c.textMuted)),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (item.transactionId != null)
+                TextButton(
+                  onPressed: () => TransactionDetailsScreen.showSheet(
+                    context,
+                    item.transactionId!,
+                  ),
+                  child: const Text('راجع العملية'),
+                ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'إخفاء',
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () async {
+                  await ref.read(smartInboxRepositoryProvider).dismiss(item.id);
+                  ref.invalidate(smartInboxItemsProvider);
+                },
+              ),
+            ],
           ),
         ],
       ),

@@ -37,9 +37,12 @@ import '../common/category_catalog.dart';
 import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../goals/goals_providers.dart';
+import '../plans/plans_providers.dart';
 import '../reports/reports_screen.dart';
 import '../settings/settings_providers.dart';
 import '../settings/settings_screen.dart';
+import '../subscriptions/subscriptions_providers.dart';
 import '../transactions/transactions_providers.dart';
 import '../transactions/transactions_screen.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
@@ -64,6 +67,13 @@ class _AppShellState extends ConsumerState<AppShell> {
   Timer? _celebrationTimer;
   bool _isBottomBarVisible = true;
   bool _isConsumingSharedInput = false;
+  bool? _lastAccountsSupabasePrimary;
+  bool? _lastTransactionsSupabasePrimary;
+  bool? _lastBudgetsSupabasePrimary;
+  bool? _lastGoalsSupabasePrimary;
+  bool? _lastSubscriptionsSupabasePrimary;
+  bool? _lastPlansSupabasePrimary;
+  bool? _lastSmartInboxSupabasePrimary;
 
   @override
   void initState() {
@@ -104,7 +114,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      unawaited(syncCatalog(ref, force: true));
+      await syncCatalog(ref, force: true);
+      await _repairDirtyFinancialCaches();
+      _handleSupabasePrimaryFlagTransition();
       unawaited(UserActivityService.ping()); // cold start — always writes
       await _syncNativeCaptureState();
       unawaited(_linkCaptureDeviceToUser());
@@ -142,7 +154,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _onResume() async {
-    unawaited(syncCatalog(ref));
+    await syncCatalog(ref);
+    await _repairDirtyFinancialCaches();
+    _handleSupabasePrimaryFlagTransition();
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
     await _syncNativeCaptureState();
     await _consumeSharedInput();
@@ -151,6 +165,18 @@ class _AppShellState extends ConsumerState<AppShell> {
     await _syncEngagement();
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
     _drainCelebrations();
+  }
+
+  Future<void> _repairDirtyFinancialCaches() async {
+    try {
+      await ref.read(financialCacheRepairServiceProvider).repairDirty();
+    } catch (error) {
+      // Keep the dirty marker intact. Routed repositories will fail closed
+      // instead of trusting Drift until a later online repair succeeds.
+      if (kDebugMode) {
+        debugPrint('[FinancialCache] repair pending: ${error.runtimeType}');
+      }
+    }
   }
 
   Future<void> _syncNativeCaptureState() async {
@@ -177,26 +203,132 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
+  /// Compares direct-repository flags after catalog refresh and invalidates
+  /// every cached FutureProvider that may still contain results from the old
+  /// repository. Routed repositories read the flag per operation; this handles
+  /// providers that otherwise would not execute another operation on resume.
+  /// Account transition also resets the selected account because local/server
+  /// identifiers differ during rollout.
+  ///
+  /// عند تغيّر علامة الحسابات يُعاد
+  /// ضبط الحساب النشط المختار — حتى لا يبقى AccountEntity بمعرّف محلي قديم
+  /// معروضًا في نموذج أو مزوّد مفتوح بعد التحوّل. لا يُشغَّل خارج نقطتَي
+  /// بدء التشغيل/الاستئناف — أي تغيير للعلامة أثناء الجلسة الأمامية نفسها
+  /// لا يُلتقَط إلا عند الاستئناف/بدء التشغيل التالي (موثَّق في خطة المرحلة 2).
+  void _handleSupabasePrimaryFlagTransition() {
+    if (!mounted) return;
+    final flags = featureFlags;
+    final accountsNow = flags.getBool('accounts_supabase_primary');
+    final transactionsNow = flags.getBool('transactions_supabase_primary');
+    final budgetsNow = flags.getBool('budgets_supabase_primary');
+    final goalsNow = flags.getBool('goals_supabase_primary');
+    final subscriptionsNow = flags.getBool('subscriptions_supabase_primary');
+    final plansNow = flags.getBool('plans_supabase_primary');
+    final smartInboxNow = flags.getBool('smart_inbox_supabase_primary');
+
+    final accountsChanged = _lastAccountsSupabasePrimary == null
+        ? accountsNow
+        : _lastAccountsSupabasePrimary != accountsNow;
+    final transactionsChanged = _lastTransactionsSupabasePrimary == null
+        ? transactionsNow
+        : _lastTransactionsSupabasePrimary != transactionsNow;
+    final budgetsChanged = _lastBudgetsSupabasePrimary == null
+        ? budgetsNow
+        : _lastBudgetsSupabasePrimary != budgetsNow;
+    final goalsChanged = _lastGoalsSupabasePrimary == null
+        ? goalsNow
+        : _lastGoalsSupabasePrimary != goalsNow;
+    final subscriptionsChanged = _lastSubscriptionsSupabasePrimary == null
+        ? subscriptionsNow
+        : _lastSubscriptionsSupabasePrimary != subscriptionsNow;
+    final plansChanged = _lastPlansSupabasePrimary == null
+        ? plansNow
+        : _lastPlansSupabasePrimary != plansNow;
+    final smartInboxChanged = _lastSmartInboxSupabasePrimary == null
+        ? smartInboxNow
+        : _lastSmartInboxSupabasePrimary != smartInboxNow;
+
+    if (accountsChanged) {
+      ref.invalidate(accountsProvider);
+      ref.read(activeAccountIdProvider.notifier).state = null;
+      if (kDebugMode) {
+        debugPrint(
+            '[Phase2] accounts_supabase_primary changed → providers invalidated');
+      }
+    }
+    if (transactionsChanged) {
+      ref.invalidate(transactionsListProvider);
+      ref.invalidate(billsViewProvider);
+      if (kDebugMode) {
+        debugPrint(
+            '[Phase2] transactions_supabase_primary changed → providers invalidated');
+      }
+    }
+    if (budgetsChanged || goalsChanged) {
+      ref.invalidate(budgetsViewProvider);
+    }
+    if (goalsChanged) {
+      ref.invalidate(goalsListProvider);
+    }
+    if (subscriptionsChanged) {
+      ref.invalidate(savedBillsProvider);
+      ref.invalidate(billsViewProvider);
+    }
+    if (plansChanged) {
+      ref.invalidate(plansWithSpentProvider);
+    }
+    if (smartInboxChanged) {
+      ref.invalidate(smartInboxItemsProvider);
+    }
+    if (accountsChanged ||
+        transactionsChanged ||
+        budgetsChanged ||
+        goalsChanged ||
+        subscriptionsChanged) {
+      ref.invalidate(dashboardDataProvider);
+    }
+
+    _lastAccountsSupabasePrimary = accountsNow;
+    _lastTransactionsSupabasePrimary = transactionsNow;
+    _lastBudgetsSupabasePrimary = budgetsNow;
+    _lastGoalsSupabasePrimary = goalsNow;
+    _lastSubscriptionsSupabasePrimary = subscriptionsNow;
+    _lastPlansSupabasePrimary = plansNow;
+    _lastSmartInboxSupabasePrimary = smartInboxNow;
+  }
+
   Future<void> _runLedgerSync() async {
-    try {
-      await ref.read(ledgerSyncEngineProvider).sync();
-    } catch (error) {
-      if (kDebugMode) {
-        debugPrint('[LedgerEngine] sync skipped: $error');
+    final flags = featureFlags;
+    if (!flags.getBool('transactions_supabase_primary')) {
+      try {
+        await ref.read(ledgerSyncEngineProvider).sync();
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('[LedgerEngine] sync skipped: ${error.runtimeType}');
+        }
       }
     }
-    try {
-      await ref.read(smartInboxSyncServiceProvider).pull();
-    } catch (error) {
-      if (kDebugMode) {
-        debugPrint('[SmartInboxSync] pull skipped: $error');
+    if (!flags.getBool('smart_inbox_supabase_primary')) {
+      try {
+        await ref.read(smartInboxSyncServiceProvider).pull();
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('[SmartInboxSync] pull skipped: ${error.runtimeType}');
+        }
       }
     }
-    try {
-      await ref.read(planningSyncEngineProvider).sync();
-    } catch (error) {
-      if (kDebugMode) {
-        debugPrint('[PlanningSync] sync skipped: $error');
+    final allPlanningPrimary = flags.getBool('accounts_supabase_primary') &&
+        flags.getBool('budgets_supabase_primary') &&
+        flags.getBool('subscriptions_supabase_primary') &&
+        flags.getBool('goals_supabase_primary') &&
+        flags.getBool('plans_supabase_primary');
+    if (!allPlanningPrimary) {
+      try {
+        await ref.read(planningSyncEngineProvider).sync();
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('[PlanningSync] sync skipped: ${error.runtimeType}');
+        }
       }
     }
   }
@@ -241,8 +373,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   .isPayloadImported(message.id!);
           if (alreadyImported) {
             if (kDebugMode) {
-              debugPrint(
-                  '[Capture] skip imported backend payload ${message.id}');
+              debugPrint('[Capture] skip already imported backend payload');
             }
             continue;
           }

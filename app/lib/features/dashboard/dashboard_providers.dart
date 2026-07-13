@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
@@ -7,6 +8,7 @@ import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
@@ -256,8 +258,18 @@ Future<_CurrencyAccountState> _ensureCurrencyAccounts({
       final original =
           initialTransactions.firstWhere((item) => item.id == tx.id);
       if (original.accountId == null && original.accountId != tx.accountId) {
-        await txRepo.updateAccount(
-            transactionId: tx.id, accountId: tx.accountId!);
+        try {
+          await txRepo.updateAccount(
+              transactionId: tx.id, accountId: tx.accountId!);
+        } on RepoException catch (e) {
+          // مصالحة في الخلفية بلا واجهة مستخدم — نسجّل ونكمل الباقي بدل
+          // فشل حساب الـ dashboard كله بسبب صف واحد.
+          if (kDebugMode) {
+            debugPrint(
+              '[Dashboard] account reconciliation skipped: ${e.runtimeType}',
+            );
+          }
+        }
       }
     }
   }
@@ -301,6 +313,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       defaultAccount ??
       (accounts.isEmpty ? null : accounts.first);
   final accountId = activeAccount?.id;
+  final useSupabaseSummary = supabaseDashboardSummaryEnabled();
+  final summaryService = ref.watch(supabaseFinancialSummaryServiceProvider);
 
   final now = DateTime.now();
   final rangeStart =
@@ -317,29 +331,74 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   // سارف/دخل الشهر ثابتان على الشهر الحالي بغض النظر عن الفلتر المختار.
   final calendarMonthStart = DateTime(now.year, now.month, 1);
-  final thisMonthExpenses = await txRepo.expenseTotalBetween(
-      from: calendarMonthStart, to: now, accountId: accountId);
-  final thisMonthIncome = await txRepo.incomeTotalBetween(
-      from: calendarMonthStart, to: now, accountId: accountId);
-  final balance = await txRepo.latestBalanceAfter(accountId: accountId);
-  final prevMonthExpenses = await txRepo.expenseTotalBetween(
-    from: previousStart,
-    to: previousEnd,
-    accountId: accountId,
-  );
-  final weekSpend = await txRepo.expenseTotalBetween(
-      from: weekStart, to: now, accountId: accountId);
-  final todaySpend = await txRepo.expenseTotalBetween(
-      from: today, to: now, accountId: accountId);
-  final todayIncome = await txRepo.incomeTotalBetween(
-      from: today, to: now, accountId: accountId);
-  final weekIncome = await txRepo.incomeTotalBetween(
-      from: weekStart, to: now, accountId: accountId);
-  final previousWeekSpend = await txRepo.expenseTotalBetween(
-    from: prevWeekStart,
-    to: weekStart,
-    accountId: accountId,
-  );
+  final monthSummary = useSupabaseSummary
+      ? await summaryService.periodSummary(
+          from: calendarMonthStart,
+          to: now.add(const Duration(microseconds: 1)),
+          accountId: accountId,
+        )
+      : null;
+  final previousRangeSummary = useSupabaseSummary
+      ? await summaryService.periodSummary(
+          from: previousStart,
+          to: rangeStart,
+          accountId: accountId,
+        )
+      : null;
+  final weekSummary = useSupabaseSummary
+      ? await summaryService.periodSummary(
+          from: weekStart,
+          to: now.add(const Duration(microseconds: 1)),
+          accountId: accountId,
+        )
+      : null;
+  final todaySummary = useSupabaseSummary
+      ? await summaryService.periodSummary(
+          from: today,
+          to: now.add(const Duration(microseconds: 1)),
+          accountId: accountId,
+        )
+      : null;
+  final previousWeekSummary = useSupabaseSummary
+      ? await summaryService.periodSummary(
+          from: prevWeekStart,
+          to: weekStart,
+          accountId: accountId,
+        )
+      : null;
+  final thisMonthExpenses = monthSummary?.expense ??
+      await txRepo.expenseTotalBetween(
+          from: calendarMonthStart, to: now, accountId: accountId);
+  final thisMonthIncome = monthSummary?.income ??
+      await txRepo.incomeTotalBetween(
+          from: calendarMonthStart, to: now, accountId: accountId);
+  final balance = useSupabaseSummary && accountId != null
+      ? (await summaryService.accountBalance(accountId))?.effectiveBalance
+      : await txRepo.latestBalanceAfter(accountId: accountId);
+  final prevMonthExpenses = previousRangeSummary?.expense ??
+      await txRepo.expenseTotalBetween(
+        from: previousStart,
+        to: previousEnd,
+        accountId: accountId,
+      );
+  final weekSpend = weekSummary?.expense ??
+      await txRepo.expenseTotalBetween(
+          from: weekStart, to: now, accountId: accountId);
+  final todaySpend = todaySummary?.expense ??
+      await txRepo.expenseTotalBetween(
+          from: today, to: now, accountId: accountId);
+  final todayIncome = todaySummary?.income ??
+      await txRepo.incomeTotalBetween(
+          from: today, to: now, accountId: accountId);
+  final weekIncome = weekSummary?.income ??
+      await txRepo.incomeTotalBetween(
+          from: weekStart, to: now, accountId: accountId);
+  final previousWeekSpend = previousWeekSummary?.expense ??
+      await txRepo.expenseTotalBetween(
+        from: prevWeekStart,
+        to: weekStart,
+        accountId: accountId,
+      );
   final pendingReview = allTransactions
       .where((tx) =>
           tx.status == TransactionStatus.pending &&
@@ -416,12 +475,19 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     ));
   }
 
-  final breakdown = await txRepo.categoryBreakdown(
-      from: rangeStart, to: rangeEnd, accountId: accountId);
+  final breakdown = useSupabaseSummary
+      ? await summaryService.categorySummary(
+          from: rangeStart,
+          to: rangeEnd.add(const Duration(microseconds: 1)),
+          accountId: accountId,
+        )
+      : await txRepo.categoryBreakdown(
+          from: rangeStart, to: rangeEnd, accountId: accountId);
   final totalSpend = breakdown.fold<double>(0, (sum, item) => sum + item.total);
   final topCategories = <CategorySlice>[];
   for (final item in breakdown.take(3)) {
-    final view = catalog.byId(item.categoryId);
+    final view =
+        catalog.byId(item.categoryId) ?? catalog.byKey(item.categoryId);
     if (view == null) continue;
     topCategories.add(
       CategorySlice(
