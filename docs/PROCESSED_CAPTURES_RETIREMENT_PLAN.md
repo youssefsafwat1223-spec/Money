@@ -1,6 +1,6 @@
 # processed_captures Retirement Plan
 
-Status: plan only. Not implemented.
+Status: retirement plan only. Direct-write preparation exists, but retirement is not implemented.
 
 `processed_captures` remains active and is still required for the current iOS
 Shortcut/APNs capture flow.
@@ -28,37 +28,37 @@ capture and Drift.
 Direct capture may be considered only when all are true:
 
 - The user is signed in.
-- The future `capture_direct_ledger_write` flag is enabled for that user.
+- Both `capture_direct_supabase_write` and `transactions_supabase_primary` are
+  enabled for that signed-in QA user.
 - The flag remains OFF by default in Flutter and Supabase seeds.
-- `ledger_dual_write` and ledger pull/import have passed staging/manual testing.
+- Direct transaction repositories and source-payload idempotency have passed
+  staging/manual testing.
 - `ledger_push_sync` has passed offline retry and conflict validation.
 - Notification tap routing has been validated with server ledger IDs.
 - Guests still have a supported local/relay fallback.
 - A rollback can return signed-in users to the relay path without losing capture
   payloads.
 
-The placeholder flag must remain OFF by default and inactive globally.
+Both flags must remain OFF by default and inactive globally.
 
 ## Planning Sync Boundaries
 
-Phase G sync foundations are intentionally separate from capture routing:
+Planning direct repositories are intentionally separate from capture routing:
 
 - Accounts, budgets, subscriptions, goals, and plans can be dark-launched behind
   per-user planning flags.
-- `bill_payments` remains plan-only because recording/deleting a payment mutates
-  installment counters and may be linked to a local transaction.
-- `goal_contributions` remains plan-only because importing the child rows can
-  double-count `saved_amount` unless contribution idempotency is validated.
-- `plan_transaction_links` remains plan-only until transaction `server_id`
-  mapping is stable across devices.
+- Bill payment and goal contribution mutations use authenticated atomic RPCs so
+  counters are updated exactly once.
+- Plan transaction links require stable server transaction IDs; unresolved
+  local links are reported and never guessed during backfill.
 
 These planning tables do not replace `processed_captures` and must not change
 iOS Shortcut/App Intent/APNs routing.
 
 ## Rollback
 
-Keep the relay path as the default. If direct ledger capture is tested later and
-fails, turn the future flag OFF and continue using `processed_captures` +
+Keep the relay path as the default. If direct capture QA fails, turn
+`capture_direct_supabase_write` OFF and continue using `processed_captures` +
 `sync-captures` without data loss.
 
 ## Manual Validation Before Any Retirement

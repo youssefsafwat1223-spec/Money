@@ -365,6 +365,15 @@ void main() {
       expect(featureFlags.getBool('planning_goals_sync'), isFalse);
       expect(featureFlags.getBool('planning_plans_sync'), isFalse);
       expect(featureFlags.getBool('capture_direct_ledger_write'), isFalse);
+      expect(featureFlags.getBool('accounts_supabase_primary'), isFalse);
+      expect(featureFlags.getBool('transactions_supabase_primary'), isFalse);
+      expect(featureFlags.getBool('dashboard_supabase_summary'), isFalse);
+      expect(featureFlags.getBool('budgets_supabase_primary'), isFalse);
+      expect(featureFlags.getBool('goals_supabase_primary'), isFalse);
+      expect(featureFlags.getBool('subscriptions_supabase_primary'), isFalse);
+      expect(featureFlags.getBool('plans_supabase_primary'), isFalse);
+      expect(featureFlags.getBool('smart_inbox_supabase_primary'), isFalse);
+      expect(featureFlags.getBool('capture_direct_supabase_write'), isFalse);
     });
   });
 

@@ -6,6 +6,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
+import 'package:money_companion/data/repositories/routed_account_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
@@ -329,8 +330,13 @@ void main() {
           'Main conflict-account');
     });
 
-    test('accountRepositoryProvider still returns Drift/local repository',
-        () async {
+    // Phase 2: accountRepositoryProvider now returns a RoutedAccountRepository
+    // that delegates to Drift when accounts_supabase_primary is OFF (the
+    // default) — this replaces the pre-Phase-2 assertion that the provider
+    // returned DriftAccountRepository directly.
+    test(
+        'accountRepositoryProvider routes through RoutedAccountRepository '
+        '(Drift by default)', () async {
       final container = ProviderContainer(
         overrides: [appDatabaseProvider.overrideWithValue(db)],
       );
@@ -338,7 +344,7 @@ void main() {
 
       final repo = container.read(accountRepositoryProvider);
 
-      expect(repo, isA<DriftAccountRepository>());
+      expect(repo, isA<RoutedAccountRepository>());
     });
   });
 }

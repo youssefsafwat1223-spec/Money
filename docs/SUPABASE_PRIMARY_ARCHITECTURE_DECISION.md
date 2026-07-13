@@ -1,8 +1,8 @@
 # ADR: Local-First (Drift) vs Supabase-Primary Architecture
 
-Status: **Phases A-F + I-J implemented — all sync flags OFF by default. Phases G-H are plan-only.**
+Status: **Supabase-primary dark-launch foundation implemented through planning and direct capture preparation. All cutover flags remain OFF.**
 Date: 2026-07-03 · Author: architecture review on branch `feat/accounts-multicurrency`
-Updated: 2026-07-04 · ADR wording clarified to separate implemented phases from plan-only phases.
+Updated: 2026-07-13 · Direct repositories and planning child foundations added; production cutover remains manual and blocked on QA.
 
 ### Current implemented state
 - Drift writes (create/update/delete) queue to `ledger_sync_outbox` when signed-in + `ledger_push_sync` ON.
@@ -11,9 +11,15 @@ Updated: 2026-07-04 · ADR wording clarified to separate implemented phases from
 - Smart Inbox pull is guarded by `smart_inbox_pull_sync` flag (OFF by default).
 - Supabase environment selection supports local/staging/production; production remains the default unless explicitly overridden.
 - Per-user feature flag overrides exist and can safely enable dark-launched sync flags for individual signed-in testers.
-- Drift remains the sole source of truth for all UI reads. No direct Supabase reads in widgets.
-- `processed_captures` relay untouched. Android SMS flow unchanged.
-- Drift schema version 17: added `ledger_sync_outbox` (v16) and `smart_inbox_items` (v17) tables.
+- Widgets still depend only on repository interfaces. Routed repositories use
+  Drift while a primary flag is OFF and direct Supabase while its per-user
+  primary flag is ON. No widget imports or queries Supabase directly.
+- Drift is the current production source while all flags are OFF. Under a QA
+  primary override it is a post-success rollback cache, not write authority.
+- `processed_captures` remains active as a safety relay. Android SMS capture is
+  intentionally disabled for MVP; share/manual input is unchanged.
+- Drift schema version 21 includes rollback metadata for financial parents and
+  planning children plus `financial_cache_health`.
 
 ### Implemented phases
 | Phase | Description | Status |
@@ -26,17 +32,24 @@ Updated: 2026-07-04 · ADR wording clarified to separate implemented phases from
 | F | Smart Inbox pull sync | ✅ Implemented, flag OFF |
 | I | Staging/prod/local Supabase config | ✅ Implemented |
 | J | Per-user feature flag overrides | ✅ Implemented |
+| G | Direct planning repositories for budgets, goals/contributions, subscriptions/payments, plans/links | ✅ Implemented, all flags OFF |
+| G-backfill | Deterministic parent-first planning backfill and unresolved-parent reporting | ✅ Implemented, manual reconciliation required |
+| Capture prep | Signed-in direct `user_transactions` capture with relay retained | ✅ Implemented, requires two QA overrides; global flag OFF |
 
-### Plan-only phases, not missing code
+### Plan-only / not cut over
 | Phase | Description | Status |
 |-------|-------------|--------|
-| G | Planning data sync for accounts/budgets/subscriptions/goals/plans | ⬜ Plan only — intentionally not implemented |
-| H | `processed_captures` retirement | ⬜ Plan only — intentionally not implemented |
+| H | `processed_captures` retirement | ⬜ Not implemented; relay intentionally retained |
+| Production cutover | Globally enable primary flags and stop Drift fallback | ⬜ Not approved; requires staging/manual QA |
+| Cleanup | Remove old outbox/pull/push engines and Drift financial tables | ⬜ Not approved; rollback code retained |
 
-Phase G and Phase H are future architecture options. They should not be treated as incomplete implementation work in the current codebase.
+Planning direct repositories are implemented but dark-launched. Phase H remains
+future work and must not be inferred from the presence of the direct-capture
+flag: that flag currently writes the canonical row **and still writes the
+relay**.
 
 ### Blocked / decision needed
-- Android SMS capture is not active. Product/Play policy decision needed: restore SMS capture, or keep Android local/share/manual only.
+- Android SMS capture is intentionally not active for MVP due Google Play SMS policy risk.
 - `processed_captures` cannot be retired until guest strategy is decided.
 - Production sync flags cannot be enabled until staging/manual validation passes.
 
@@ -108,33 +121,35 @@ Postgres = source of truth for transactions/Smart Inbox (later budgets etc.). Dr
 
 ## 4. Remaining plan-only phases
 
-The implemented sync foundation stops at Phases A-F plus I-J. The following phases are intentionally plan-only and should not be reported as missing code.
-
-**Phase G — planning data sync**
-- Scope: accounts, budgets, subscriptions, goals, plans, and related planning data.
-- Status: plan only / not implemented.
-- Trigger: only after ledger sync is validated on staging/manual devices and product confirms multi-device planning sync is needed.
-- Risk: wide UI and business-logic blast radius; conflict semantics are harder than transaction pull/push.
+Planning data sync and direct repositories are now implemented behind OFF
+flags. They are not production cut over. Manual backfill reconciliation, two
+user RLS tests, and real-device rollback tests remain required before any
+per-user production override.
 
 **Phase H — `processed_captures` retirement**
-- Scope: remove the iOS capture relay path and let backend-processed captures become durable ledger rows directly.
+- Scope: eventually remove the iOS capture relay after canonical direct rows
+  have proven reliable.
 - Status: plan only / not implemented.
 - Blocker: guest strategy must be decided first. Guests currently cannot safely write user-scoped ledger rows, so `processed_captures` remains required as a relay.
 - Constraint: do not remove `processed_captures`, `sync-captures`, or the Drift import/ack path until Phase H is explicitly approved.
 
-Each future phase must ship alone, keep gates green (`flutter analyze`, `flutter test`, Deno checks when available, xcodebuild for iOS targets), and include a changed-files report.
+The direct-capture preparation does not complete Phase H: `process-ios-sms`
+still creates a relay row, `sync-captures` still imports/acks it, and guests or
+flag-off users still use the existing path.
 
 ---
 
 ## 5. Decision (updated 2026-07-04)
 
-**Gradual Supabase-primary migration foundation approved and implemented through Phases A-F plus I-J. Phase G/H remain plan-only.**
+**Supabase-primary implementation is dark-launched through direct planning repositories and direct iOS capture preparation. Retirement and production cutover remain unapproved.**
 
 The original recommendation was to stay local-first. That recommendation was reviewed and the decision was changed:
 - Qirsh will gradually migrate toward Supabase-primary for the financial ledger.
 - Migration is incremental, phase-by-phase, with no big-bang rewrite.
-- Drift stays the source of truth for UI reads while sync flags remain OFF.
-- Phase 1/2 iOS capture relay is untouched.
+- Drift stays the production source while primary flags remain OFF.
+- When a QA primary flag is ON, its routed repository reads/writes Supabase and
+  mirrors Drift only after server success.
+- Phase 1/2 iOS capture relay remains active even during direct-capture QA.
 
 **Known trade-offs accepted:**
 - RLS correctness becomes critical (a mistake = cross-user financial data leak).
@@ -147,9 +162,9 @@ The original recommendation was to stay local-first. That recommendation was rev
 - Phase 1/2 iOS capture + APNs system must stay working throughout.
 - Drift remains authoritative for UI reads until staging/manual validation proves otherwise.
 - `processed_captures` relay not retired until Phase H is explicitly approved.
-- Accounts/budgets/subscriptions/goals/plans not synced until Phase G is explicitly approved.
+- No primary or legacy sync flag is enabled globally without explicit approval.
 - Production flags remain OFF until staging/manual validation passes.
 - Android SMS capture remains a separate product/Google Play policy decision.
 - No commits without explicit user request.
 
-**Decision:** Supabase-primary gradual migration foundation ✅ · Implemented phases A-F/I-J · Plan-only phases G/H · See phase status tables at top of this document.
+**Decision:** dark-launch implementation ✅ · production cutover ⬜ manual QA required · relay retirement ⬜ not implemented.

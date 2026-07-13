@@ -1,7 +1,15 @@
 # Qirsh — iOS Backend-First SMS Processing: Architecture Plan
 
-Status: **PHASE 1 VALIDATED — Phase 2 APNs implementation in progress.**
+Status: **Phase 1 relay and Phase 2 APNs validated. Supabase-primary direct capture is dark-launched behind OFF flags; relay remains active.**
 Date: 2026-07-03 · Branch: `feat/accounts-multicurrency`
+
+> Current note (2026-07-13): Sections below preserve the original Phase 1
+> design rationale. The production path still uses this relay because all
+> primary flags are OFF. For signed-in QA users only, enabling both
+> `capture_direct_supabase_write` and `transactions_supabase_primary` makes
+> `process-ios-sms` also create the canonical `user_transactions` row and put
+> its ID in APNs. `processed_captures` is still written and acked as a safety
+> relay; guests and failures continue to use the original flow.
 
 ---
 
