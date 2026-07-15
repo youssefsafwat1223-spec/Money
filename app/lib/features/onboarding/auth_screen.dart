@@ -43,8 +43,11 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     setState(() => apple ? _busyApple = true : _busyGoogle = true);
     try {
       final identity = await method();
-      await AppSession.instance
-          .setIdentity(method: identity.method, email: identity.email);
+      await AppSession.instance.setIdentity(
+        method: identity.method,
+        email: identity.email,
+        userId: identity.userId,
+      );
       unawaited(
         ref
             .read(captureDeviceRegistrationServiceProvider)
@@ -129,7 +132,8 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
           const Positioned.fill(child: LuxeStarryBackground()),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
               child: Column(
                 children: [
                   const Spacer(flex: 2),

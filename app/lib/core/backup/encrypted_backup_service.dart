@@ -17,10 +17,12 @@ class EncryptedBackupService implements BackupService {
     supabase.SupabaseClient? client,
     FlutterSecureStorage? storage,
     BackupCrypto? crypto,
+    Future<void> Function()? afterRestore,
   })  : _database = database,
         _client = client ?? supabase.Supabase.instance.client,
         _storage = storage ?? const FlutterSecureStorage(),
-        _crypto = crypto ?? BackupCrypto();
+        _crypto = crypto ?? BackupCrypto(),
+        _afterRestore = afterRestore;
 
   static const _bucket = 'backups';
   static const _enabledKey = 'backup_enabled';
@@ -34,6 +36,7 @@ class EncryptedBackupService implements BackupService {
   final supabase.SupabaseClient _client;
   final FlutterSecureStorage _storage;
   final BackupCrypto _crypto;
+  final Future<void> Function()? _afterRestore;
 
   @override
   Future<BackupStatus> status() async {
@@ -229,6 +232,7 @@ class EncryptedBackupService implements BackupService {
         }
       }
       await RestoreBackupUseCase(_database)(snapshot);
+      await _afterRestore?.call();
       await _storage.write(key: _enabledKey, value: '1');
       if (keyBytes == null) {
         await _storage.write(key: _saltKey, value: base64Encode(blob.salt));

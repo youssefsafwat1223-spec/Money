@@ -5,6 +5,7 @@ import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/transaction_entity.dart';
 
 final cardSummariesProvider = FutureProvider<List<CardSummary>>((ref) async {
+  ref.watch(appSessionRevisionProvider);
   ref.watch(dbRevisionProvider);
   return ref.watch(transactionRepositoryProvider).getCardSummaries();
 });
@@ -12,11 +13,13 @@ final cardSummariesProvider = FutureProvider<List<CardSummary>>((ref) async {
 /// عمليات بطاقة محددة (بآخر 4 أرقام).
 final cardTransactionsProvider =
     FutureProvider.family<List<TransactionEntity>, String>((ref, last4) async {
+  ref.watch(appSessionRevisionProvider);
   return ref.watch(transactionRepositoryProvider).getByCard(last4);
 });
 
 /// كل العمليات — لاختيار عملية موجودة وربطها ببطاقة.
 final allTransactionsForPickProvider =
     FutureProvider<List<TransactionEntity>>((ref) async {
+  ref.watch(appSessionRevisionProvider);
   return ref.watch(transactionRepositoryProvider).getAll();
 });

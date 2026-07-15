@@ -234,7 +234,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
           ),
           const SizedBox(height: AppSpacing.s2),
           if (catalog == null)
-            const Center(child: Padding(
+            const Center(
+                child: Padding(
               padding: EdgeInsets.all(24),
               child: CircularProgressIndicator(),
             ))
@@ -370,8 +371,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                 _summaryRow(c, 'موزّع على المظاريف',
                     '${Formatters.amount(allocated)} $currency'),
                 const SizedBox(height: 6),
-                _summaryRow(c, 'الادخار',
-                    '${Formatters.amount(savings)} $currency',
+                _summaryRow(
+                    c, 'الادخار', '${Formatters.amount(savings)} $currency',
                     tone: c.success),
                 const SizedBox(height: 6),
                 _summaryRow(
@@ -395,8 +396,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
         Expanded(
           child: Text(label, style: AppTypography.caption(c.textLight)),
         ),
-        Text(value,
-            style: AppTypography.bodyStrong(tone ?? c.textMain)),
+        Text(value, style: AppTypography.bodyStrong(tone ?? c.textMain)),
       ],
     );
   }

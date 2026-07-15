@@ -1,4 +1,6 @@
-import { corsHeaders, installHash, json, readString, serviceClient, sha256Hex } from '../_shared/capture_auth.ts';
+import { bumpCaptureEndpointRateLimit, corsHeaders, installHash, json, readString, serviceClient, sha256Hex } from '../_shared/capture_auth.ts';
+
+const REGISTER_DEVICE_LIMIT_PER_DAY = 20;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -13,6 +15,9 @@ Deno.serve(async (req) => {
 
   const supabase = serviceClient();
   const installIdHash = await installHash(installId);
+  if (await bumpCaptureEndpointRateLimit(supabase, installIdHash, 'register-device', REGISTER_DEVICE_LIMIT_PER_DAY)) {
+    return json({ error: 'rate_limit_exceeded' }, 429);
+  }
   const existing = await supabase
     .from('capture_devices')
     .select('created_at')

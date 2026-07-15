@@ -74,9 +74,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
   /// A foreign-currency spend parked in the home account with no home value yet
   /// (amount 0). The user prices it by entering the home-currency amount.
   bool _awaitingPricing(TransactionEntity tx) =>
-      tx.amount == 0 &&
-      tx.foreignAmount != null &&
-      tx.foreignCurrency != null;
+      tx.amount == 0 && tx.foreignAmount != null && tx.foreignCurrency != null;
 
   /// Selectable categories with the currently-selected one pinned first, so it
   /// is always visible (otherwise a selection like "أخرى" sits off-screen at the
@@ -213,10 +211,11 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                   const SizedBox(height: AppSpacing.s2),
                   TextField(
                     controller: _priceController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
-                      labelText: 'القيمة بـ ${Currency.arabicLabel(tx.currency)}',
+                      labelText:
+                          'القيمة بـ ${Currency.arabicLabel(tx.currency)}',
                       filled: true,
                       fillColor: c.surface2.withValues(alpha: 0.5),
                       border: OutlineInputBorder(

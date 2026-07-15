@@ -40,7 +40,7 @@ class PlanningPrimaryBackfillService {
     return Supabase.instance.client.auth.currentUser?.id;
   }
 
-  Future<PlanningBackfillReport> run() async {
+  Future<PlanningBackfillReport> run({Set<String>? onlyEntities}) async {
     final uid = await _getAuthUserId();
     if (uid == null) throw const AuthRepoException();
     final created = <String, int>{};
@@ -60,13 +60,22 @@ class PlanningPrimaryBackfillService {
       }
     }
 
-    await phase('budgets', _backfillBudgets);
-    await phase('goals', _backfillGoals);
-    await phase('goal_contributions', _backfillGoalContributions);
-    await phase('subscriptions', _backfillSubscriptions);
-    await phase('bill_payments', _backfillBillPayments);
-    await phase('plans', _backfillPlans);
-    await phase('plan_transaction_links', _backfillPlanLinks);
+    bool enabled(String entity) =>
+        onlyEntities == null || onlyEntities.contains(entity);
+
+    if (enabled('budgets')) await phase('budgets', _backfillBudgets);
+    if (enabled('goals')) {
+      await phase('goals', _backfillGoals);
+      await phase('goal_contributions', _backfillGoalContributions);
+    }
+    if (enabled('subscriptions')) {
+      await phase('subscriptions', _backfillSubscriptions);
+      await phase('bill_payments', _backfillBillPayments);
+    }
+    if (enabled('plans')) {
+      await phase('plans', _backfillPlans);
+      await phase('plan_transaction_links', _backfillPlanLinks);
+    }
 
     return PlanningBackfillReport(
       created: created,

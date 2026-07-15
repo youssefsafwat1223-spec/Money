@@ -1300,6 +1300,11 @@ class AppDatabase extends GeneratedDatabase {
   /// أي سجلات يتيمة (account_id = NULL) به.
   Future<void> runPostRestoreSetup() => _ensureDefaultAccount();
 
+  /// يُعيد تشغيل بذر البيانات الأولية لأي جدول أفرغه مسح بيانات (تسجيل خروج،
+  /// حذف حساب) — نفس المنطق الذي يعمل عند فتح قاعدة البيانات، فقط بلا انتظار
+  /// إعادة تشغيل التطبيق. يضمن وجود صف user_settings/حساب افتراضي فوراً.
+  Future<void> reseedDefaultsAfterWipe() => _seedIfNeeded();
+
   /// ينشئ حساباً افتراضياً واحداً من عملة المستخدم الحالية، ويربط كل العمليات
   /// والاشتراكات القائمة (بدون حساب) به. آمن وبدون فقدان بيانات.
   Future<void> _ensureDefaultAccount() async {

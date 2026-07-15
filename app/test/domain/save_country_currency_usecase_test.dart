@@ -46,10 +46,18 @@ AccountEntity _account(String currency) => AccountEntity(
 class _FakeAccountRepo implements AccountRepository {
   _FakeAccountRepo(this._default);
   AccountEntity? _default;
+  AccountEntity? lastCreated;
   AccountEntity? lastUpdated;
 
   @override
   Future<AccountEntity?> getDefault() async => _default;
+
+  @override
+  Future<AccountEntity> create(AccountEntity account) async {
+    lastCreated = account.copyWith(id: 'created-account');
+    _default = lastCreated;
+    return lastCreated!;
+  }
 
   @override
   Future<AccountEntity> update(AccountEntity account) async {
@@ -124,6 +132,23 @@ void main() {
 
       expect(accountRepo.lastUpdated, isNotNull);
       expect(accountRepo.lastUpdated!.currency, 'EGP');
+    });
+
+    test('creates the first account for a new Supabase-primary user', () async {
+      final accountRepo = _FakeAccountRepo(null);
+      final settingsRepo = _FakeRepo();
+      final useCase = SaveCountryCurrencyUseCase(
+        settingsRepo,
+        accountRepo,
+        _FakeTxnRepo(const []),
+      );
+
+      await useCase('eg', 'EGP');
+
+      expect(accountRepo.lastCreated, isNotNull);
+      expect(accountRepo.lastCreated!.currency, 'EGP');
+      expect(accountRepo.lastCreated!.isDefault, isTrue);
+      expect((await settingsRepo.getSettings()).currency, 'EGP');
     });
 
     test('does NOT touch the account currency once transactions exist',

@@ -46,12 +46,19 @@ class SupabaseGoalRepository implements GoalRepository {
   Future<GoalEntity?> getById(String id) async {
     final uid = await _support.requireUserId();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'goals',
+        serverTable: 'user_goals',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) return null;
       final row = await _support
           .client()
           .from('user_goals')
           .select()
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .isFilter('deleted_at', null)
           .maybeSingle();
       return row == null ? null : _goalFromRow(row);
@@ -67,6 +74,12 @@ class SupabaseGoalRepository implements GoalRepository {
   Future<GoalEntity> save(GoalEntity goal) async {
     final uid = await _support.requireUserId();
     final localId = goal.id.isEmpty ? IdGenerator.next() : goal.id;
+    final existingServerId = await _support.resolveServerEntityId(
+      localTable: 'goals',
+      serverTable: 'user_goals',
+      userId: uid,
+      entityId: goal.id,
+    );
     final accountId = await _support.serverAccountId(goal.accountId);
     final payload = {
       'name': goal.name,
@@ -84,20 +97,13 @@ class SupabaseGoalRepository implements GoalRepository {
     Map<String, dynamic>? row;
     var inserted = false;
     try {
-      final existing = await _support
-          .client()
-          .from('user_goals')
-          .select('id')
-          .eq('user_id', uid)
-          .eq('id', goal.id)
-          .maybeSingle();
-      if (existing != null) {
+      if (existingServerId != null) {
         row = await _support
             .client()
             .from('user_goals')
             .update(payload)
             .eq('user_id', uid)
-            .eq('id', goal.id)
+            .eq('id', existingServerId)
             .select()
             .maybeSingle();
       } else {
@@ -140,12 +146,19 @@ class SupabaseGoalRepository implements GoalRepository {
     final uid = await _support.requireUserId();
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'goals',
+        serverTable: 'user_goals',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) throw const NotFoundRepoException();
       final row = await _support
           .client()
           .from('user_goals')
           .update({'deleted_at': deletedAt, 'status': 'archived'})
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .select('id')
           .maybeSingle();
       if (row == null) throw const NotFoundRepoException();
@@ -154,7 +167,7 @@ class SupabaseGoalRepository implements GoalRepository {
         goalsCacheEntityType,
         () => _support.db.customStatement(
           "UPDATE goals SET deleted_at = ?, status = 'archived', sync_status = 'synced' WHERE server_id = ?;",
-          [deletedAt, id],
+          [deletedAt, serverId],
         ),
       );
     } catch (error) {
@@ -167,12 +180,19 @@ class SupabaseGoalRepository implements GoalRepository {
   Future<List<GoalContributionEntity>> getContributions(String goalId) async {
     final uid = await _support.requireUserId();
     try {
+      final serverGoalId = await _support.resolveServerEntityId(
+        localTable: 'goals',
+        serverTable: 'user_goals',
+        userId: uid,
+        entityId: goalId,
+      );
+      if (serverGoalId == null) return const [];
       final rows = await _support
           .client()
           .from('user_goal_contributions')
           .select()
           .eq('user_id', uid)
-          .eq('goal_id', goalId)
+          .eq('goal_id', serverGoalId)
           .isFilter('deleted_at', null)
           .order('created_at', ascending: false);
       return (rows as List)
@@ -189,14 +209,21 @@ class SupabaseGoalRepository implements GoalRepository {
   Future<GoalContributionEntity> addContribution(
     GoalContributionEntity contribution,
   ) async {
-    await _support.requireUserId();
+    final uid = await _support.requireUserId();
     final requestId =
         contribution.id.isEmpty ? IdGenerator.next() : contribution.id;
     try {
+      final serverGoalId = await _support.resolveServerEntityId(
+        localTable: 'goals',
+        serverTable: 'user_goals',
+        userId: uid,
+        entityId: contribution.goalId,
+      );
+      if (serverGoalId == null) throw const NotFoundRepoException();
       final response = await _support.client().rpc(
         'add_goal_contribution',
         params: {
-          'p_goal_id': contribution.goalId,
+          'p_goal_id': serverGoalId,
           'p_client_request_id': requestId,
           'p_local_id': requestId,
           'p_amount': contribution.amount,

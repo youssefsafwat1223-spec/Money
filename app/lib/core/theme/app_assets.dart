@@ -24,8 +24,10 @@ class AppAssets {
       'assets/qirsh/qirsh_logo_tagline_gold.png';
 
   /// بانرات الـ Onboarding
-  static const String bannerOnboarding1 = 'assets/qirsh/banner_onboarding_1.jpg';
-  static const String bannerOnboarding2 = 'assets/qirsh/banner_onboarding_2.jpg';
+  static const String bannerOnboarding1 =
+      'assets/qirsh/banner_onboarding_1.jpg';
+  static const String bannerOnboarding2 =
+      'assets/qirsh/banner_onboarding_2.jpg';
 
   /// العملة المناسبة حسب الثيم (زرقاء light / ذهبية dark)
   static String getCoin(BuildContext context) {

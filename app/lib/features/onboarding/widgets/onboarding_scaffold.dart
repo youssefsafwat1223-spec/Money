@@ -121,8 +121,7 @@ class OnboardingScaffold extends StatelessWidget {
                         : Padding(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: AppSpacing.s4),
-                            child: _ProgressBar(
-                                step: step!, total: totalSteps),
+                            child: _ProgressBar(step: step!, total: totalSteps),
                           ),
                   ),
                   if (onSkip != null)
@@ -173,8 +172,7 @@ class OnboardingScaffold extends StatelessWidget {
                       onPressed: onSecondary,
                       child: Text(
                         secondaryLabel!,
-                        style:
-                            obFont(13, FontWeight.w700, 1.2, c.textMuted),
+                        style: obFont(13, FontWeight.w700, 1.2, c.textMuted),
                       ),
                     ),
                   ],

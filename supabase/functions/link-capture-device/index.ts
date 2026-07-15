@@ -1,11 +1,14 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   corsHeaders,
+  bumpCaptureEndpointRateLimit,
   json,
   readString,
   serviceClient,
   verifyDevice,
 } from '../_shared/capture_auth.ts';
+
+const LINK_CAPTURE_DEVICE_LIMIT_PER_DAY = 30;
 
 // Links an already-registered capture device to the authenticated Supabase user.
 //
@@ -33,6 +36,9 @@ Deno.serve(async (req) => {
   const supabase = serviceClient();
   const auth = await verifyDevice(supabase, installId, deviceSecret);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (await bumpCaptureEndpointRateLimit(supabase, auth.installIdHash, 'link-capture-device', LINK_CAPTURE_DEVICE_LIMIT_PER_DAY)) {
+    return json({ error: 'rate_limit_exceeded' }, 429);
+  }
 
   // Step 2: verify user JWT from Authorization header.
   const authHeader = req.headers.get('Authorization') ?? '';

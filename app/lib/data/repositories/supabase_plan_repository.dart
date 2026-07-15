@@ -55,12 +55,19 @@ class SupabasePlanRepository implements PlanRepository {
   Future<PlanEntity?> getById(String id) async {
     final uid = await _support.requireUserId();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'plans',
+        serverTable: 'user_plans',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) return null;
       final row = await _support
           .client()
           .from('user_plans')
           .select()
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .isFilter('deleted_at', null)
           .maybeSingle();
       return row == null ? null : _fromRow(row);
@@ -73,6 +80,12 @@ class SupabasePlanRepository implements PlanRepository {
   Future<PlanEntity> save(PlanEntity plan) async {
     final uid = await _support.requireUserId();
     final localId = plan.id.isEmpty ? IdGenerator.next() : plan.id;
+    final existingServerId = await _support.resolveServerEntityId(
+      localTable: 'plans',
+      serverTable: 'user_plans',
+      userId: uid,
+      entityId: plan.id,
+    );
     final serverAccounts = <String>[];
     for (final accountId in plan.accountIds) {
       final serverId = await _support.serverAccountId(accountId);
@@ -93,20 +106,13 @@ class SupabasePlanRepository implements PlanRepository {
     Map<String, dynamic>? row;
     var inserted = false;
     try {
-      final existing = await _support
-          .client()
-          .from('user_plans')
-          .select('id')
-          .eq('user_id', uid)
-          .eq('id', plan.id)
-          .maybeSingle();
-      if (existing != null) {
+      if (existingServerId != null) {
         row = await _support
             .client()
             .from('user_plans')
             .update(payload)
             .eq('user_id', uid)
-            .eq('id', plan.id)
+            .eq('id', existingServerId)
             .select()
             .maybeSingle();
       } else {
@@ -149,12 +155,19 @@ class SupabasePlanRepository implements PlanRepository {
     final uid = await _support.requireUserId();
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'plans',
+        serverTable: 'user_plans',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) throw const NotFoundRepoException();
       final row = await _support
           .client()
           .from('user_plans')
           .update({'deleted_at': deletedAt, 'status': 'closed'})
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .select('id')
           .maybeSingle();
       if (row == null) throw const NotFoundRepoException();
@@ -163,7 +176,7 @@ class SupabasePlanRepository implements PlanRepository {
         plansCacheEntityType,
         () => _support.db.customStatement(
           "UPDATE plans SET deleted_at = ?, status = 'closed', sync_status = 'synced' WHERE server_id = ?;",
-          [deletedAt, id],
+          [deletedAt, serverId],
         ),
       );
     } catch (error) {
@@ -174,11 +187,18 @@ class SupabasePlanRepository implements PlanRepository {
 
   @override
   Future<double> spentForPlan(PlanEntity plan) async {
-    await _support.requireUserId();
+    final uid = await _support.requireUserId();
     try {
+      final serverPlanId = await _support.resolveServerEntityId(
+        localTable: 'plans',
+        serverTable: 'user_plans',
+        userId: uid,
+        entityId: plan.id,
+      );
+      if (serverPlanId == null) return 0;
       final value = await _support.client().rpc(
         'plan_spent_summary',
-        params: {'p_plan_id': plan.id},
+        params: {'p_plan_id': serverPlanId},
       );
       return (value as num?)?.toDouble() ?? 0;
     } catch (error) {
@@ -188,11 +208,18 @@ class SupabasePlanRepository implements PlanRepository {
 
   @override
   Future<List<TransactionEntity>> transactionsForPlan(PlanEntity plan) async {
-    await _support.requireUserId();
+    final uid = await _support.requireUserId();
     try {
+      final serverPlanId = await _support.resolveServerEntityId(
+        localTable: 'plans',
+        serverTable: 'user_plans',
+        userId: uid,
+        entityId: plan.id,
+      );
+      if (serverPlanId == null) return const [];
       final rows = await _support.client().rpc(
         'plan_transactions',
-        params: {'p_plan_id': plan.id},
+        params: {'p_plan_id': serverPlanId},
       );
       return Future.wait((rows as List).map(
         (row) => _transactions.entityFromServerRow(
@@ -210,15 +237,30 @@ class SupabasePlanRepository implements PlanRepository {
     required String transactionId,
   }) async {
     final uid = await _support.requireUserId();
-    final requestId = '$planId:$transactionId';
     try {
+      final serverPlanId = await _support.resolveServerEntityId(
+        localTable: 'plans',
+        serverTable: 'user_plans',
+        userId: uid,
+        entityId: planId,
+      );
+      final serverTransactionId = await _support.resolveServerEntityId(
+        localTable: 'transactions',
+        serverTable: 'user_transactions',
+        userId: uid,
+        entityId: transactionId,
+      );
+      if (serverPlanId == null || serverTransactionId == null) {
+        throw const NotFoundRepoException();
+      }
+      final requestId = '$serverPlanId:$serverTransactionId';
       final existing = await _support
           .client()
           .from('user_plan_transaction_links')
           .select()
           .eq('user_id', uid)
-          .eq('plan_id', planId)
-          .eq('transaction_id', transactionId)
+          .eq('plan_id', serverPlanId)
+          .eq('transaction_id', serverTransactionId)
           .maybeSingle();
       final Map<String, dynamic> row;
       if (existing == null) {
@@ -227,8 +269,8 @@ class SupabasePlanRepository implements PlanRepository {
             .from('user_plan_transaction_links')
             .insert({
               'user_id': uid,
-              'plan_id': planId,
-              'transaction_id': transactionId,
+              'plan_id': serverPlanId,
+              'transaction_id': serverTransactionId,
               'client_request_id': requestId,
             })
             .select()
@@ -263,15 +305,29 @@ class SupabasePlanRepository implements PlanRepository {
     final uid = await _support.requireUserId();
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     try {
+      final serverPlanId = await _support.resolveServerEntityId(
+        localTable: 'plans',
+        serverTable: 'user_plans',
+        userId: uid,
+        entityId: planId,
+      );
+      final serverTransactionId = await _support.resolveServerEntityId(
+        localTable: 'transactions',
+        serverTable: 'user_transactions',
+        userId: uid,
+        entityId: transactionId,
+      );
+      if (serverPlanId == null || serverTransactionId == null) return;
       await _support
           .client()
           .from('user_plan_transaction_links')
           .update({'deleted_at': deletedAt})
           .eq('user_id', uid)
-          .eq('plan_id', planId)
-          .eq('transaction_id', transactionId);
-      final planLocal = await _localId('plans', planId);
-      final transactionLocal = await _localId('transactions', transactionId);
+          .eq('plan_id', serverPlanId)
+          .eq('transaction_id', serverTransactionId);
+      final planLocal = await _localId('plans', serverPlanId);
+      final transactionLocal =
+          await _localId('transactions', serverTransactionId);
       if (planLocal != null && transactionLocal != null) {
         await mirrorFinancialCacheSafely(
           _support.db,

@@ -74,6 +74,10 @@ abstract class TransactionRepository {
   /// كل العمليات (تتجاهل المُلغاة) مرتّبة بالأحدث — لشاشة العمليات.
   Future<List<TransactionEntity>> getAll();
 
+  /// صفحة واحدة من العمليات مرتبة بالأحدث. [offset] صفري و[limit] حد أعلى.
+  Future<List<TransactionEntity>> getPage(
+      {required int offset, int limit = 500});
+
   /// إجمالي المصروفات (payment + withdrawal) خلال فترة — لحساب «وفّرت».
   Future<double> expenseTotalBetween({
     required DateTime from,

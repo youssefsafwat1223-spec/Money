@@ -5,31 +5,62 @@ import '../repositories/budget_repository.dart';
 import '../repositories/transaction_repository.dart';
 import 'engagement_usecase.dart';
 
+typedef FetchBudgetBatchSpent = Future<Map<String, double>> Function({
+  required DateTime from,
+  required DateTime to,
+});
+
 class BudgetProgressUseCase {
   BudgetProgressUseCase({
     required BudgetRepository budgetRepository,
     required TransactionRepository transactionRepository,
     RecordEngagementUseCase? recordEngagementUseCase,
+    FetchBudgetBatchSpent? fetchBatchSpent,
   })  : _budgetRepository = budgetRepository,
         _transactionRepository = transactionRepository,
-        _recordEngagementUseCase = recordEngagementUseCase;
+        _recordEngagementUseCase = recordEngagementUseCase,
+        _fetchBatchSpent = fetchBatchSpent;
 
   final BudgetRepository _budgetRepository;
   final TransactionRepository _transactionRepository;
   final RecordEngagementUseCase? _recordEngagementUseCase;
+  final FetchBudgetBatchSpent? _fetchBatchSpent;
+  Future<BudgetProgressSnapshot>? _inFlight;
 
   Future<BudgetProgressSnapshot> call({DateTime? now}) async {
+    final inFlight = _inFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+    final future = _calculate(now: now);
+    _inFlight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_inFlight, future)) {
+        _inFlight = null;
+      }
+    }
+  }
+
+  Future<BudgetProgressSnapshot> _calculate({DateTime? now}) async {
     final current = now ?? DateTime.now().toUtc();
     final budgets = (await _budgetRepository.getAll())
         .where((budget) => budget.isActive)
         .toList();
     final entries = <BudgetProgressEntry>[];
     final alerts = <BudgetAlertTrigger>[];
+    final currentPeriods = <BudgetPeriod, (DateTime, DateTime)>{
+      for (final period in BudgetPeriod.values)
+        period: _currentPeriodFor(period, current),
+    };
+    final batchSpent = await _fetchCurrentBatchSpent(budgets, currentPeriods);
 
     for (final budget in budgets) {
       final normalizedBudget = await _rollBudgetIfNeeded(budget, current);
-      final period = _currentPeriodFor(normalizedBudget.period, current);
-      final spent = await _spentForBudget(normalizedBudget, period);
+      final period = currentPeriods[normalizedBudget.period]!;
+      final spent = batchSpent?[normalizedBudget.id] ??
+          await _spentForBudget(normalizedBudget, period);
       final ratio =
           normalizedBudget.amount == 0 ? 0.0 : spent / normalizedBudget.amount;
       final remaining = normalizedBudget.amount - spent;
@@ -76,6 +107,31 @@ class BudgetProgressUseCase {
     return BudgetProgressSnapshot(entries: entries, alerts: alerts);
   }
 
+  Future<Map<String, double>?> _fetchCurrentBatchSpent(
+    List<BudgetEntity> budgets,
+    Map<BudgetPeriod, (DateTime, DateTime)> periods,
+  ) async {
+    final fetch = _fetchBatchSpent;
+    if (fetch == null || budgets.isEmpty) return null;
+    final result = <String, double>{};
+    for (final entry in periods.entries) {
+      final ids = budgets
+          .where((budget) => budget.period == entry.key)
+          .map((budget) => budget.id)
+          .toSet();
+      if (ids.isEmpty) continue;
+      final spent = await fetch(
+        from: entry.value.$1,
+        to: entry.value.$2.add(const Duration(milliseconds: 1)),
+      );
+      for (final id in ids) {
+        final value = spent[id];
+        if (value != null) result[id] = value;
+      }
+    }
+    return result;
+  }
+
   Future<BudgetEntity> _rollBudgetIfNeeded(
     BudgetEntity budget,
     DateTime now,
@@ -114,11 +170,10 @@ class BudgetProgressUseCase {
       case BudgetPeriod.monthly:
         return (RiyadhTime.startOfMonth(now), RiyadhTime.endOfMonth(now));
       case BudgetPeriod.yearly:
-        final riyadh = RiyadhTime.toRiyadh(now);
-        final start = DateTime.utc(riyadh.year).subtract(RiyadhTime.offset);
-        final end = DateTime.utc(riyadh.year + 1)
-            .subtract(const Duration(milliseconds: 1))
-            .subtract(RiyadhTime.offset);
+        final local = RiyadhTime.toRiyadh(now);
+        final start = DateTime(local.year);
+        final end =
+            DateTime(local.year + 1).subtract(const Duration(milliseconds: 1));
         return (start, end);
     }
   }
@@ -130,15 +185,13 @@ class BudgetProgressUseCase {
       case BudgetPeriod.weekly:
         return (start, start.add(const Duration(days: 7)));
       case BudgetPeriod.monthly:
-        final riyadh = RiyadhTime.toRiyadh(start);
-        final end = DateTime.utc(riyadh.year, riyadh.month + 1)
-            .subtract(RiyadhTime.offset);
+        final local = RiyadhTime.toRiyadh(start);
+        final end = DateTime(local.year, local.month + 1);
         return (start, end);
       case BudgetPeriod.yearly:
-        final riyadh = RiyadhTime.toRiyadh(start);
-        final end = DateTime.utc(riyadh.year + 1)
-            .subtract(const Duration(milliseconds: 1))
-            .subtract(RiyadhTime.offset);
+        final local = RiyadhTime.toRiyadh(start);
+        final end =
+            DateTime(local.year + 1).subtract(const Duration(milliseconds: 1));
         return (start, end);
     }
   }

@@ -27,6 +27,7 @@ class PlanProgress {
 }
 
 final plansWithSpentProvider = FutureProvider<List<PlanProgress>>((ref) async {
+  ref.watch(appSessionRevisionProvider);
   ref.watch(dbRevisionProvider);
   final repo = ref.watch(planRepositoryProvider);
   final plans = await repo.getAll();

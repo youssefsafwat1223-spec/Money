@@ -444,7 +444,7 @@ class LocalNotificationService {
     required NotificationPreferences preferences,
   }) async {
     await _show(
-      id: 93000 + notification.goalId.hashCode.abs().remainder(900000),
+      id: goalMilestoneNotificationId(notification.goalId),
       title: notification.title,
       body: notification.body,
       notificationType: NotificationType.goalMilestone,

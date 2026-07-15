@@ -7,6 +7,8 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate {
   private var captureChannel: FlutterMethodChannel?
   private var didRegisterPendingMessagesObserver = false
+  private var privacySnapshotView: UIView?
+  private static let apnsRegistrationFailureKey = "apns_registration_failure"
 
   override func application(
     _ application: UIApplication,
@@ -27,7 +29,18 @@ import UserNotifications
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
+    removePrivacySnapshotView()
     configureNativeCaptureChannelIfNeeded()
+  }
+
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    super.applicationDidEnterBackground(application)
+    installPrivacySnapshotView()
+  }
+
+  override func applicationWillEnterForeground(_ application: UIApplication) {
+    super.applicationWillEnterForeground(application)
+    removePrivacySnapshotView()
   }
 
   func configureNativeCaptureChannelIfNeeded() {
@@ -84,6 +97,10 @@ import UserNotifications
         } else {
           result(nil)
         }
+      case "getApnsRegistrationFailure":
+        result(UserDefaults.standard.dictionary(
+          forKey: AppDelegate.apnsRegistrationFailureKey
+        ))
       case "consumePendingNotificationRoutes":
         result(SharedCaptureStore.consumePendingNotificationRoutesJSON())
       case "reEnqueueSharedMessage":
@@ -150,6 +167,7 @@ import UserNotifications
     environment = "production"
     #endif
     SharedCaptureStore.setApnsToken(token, environment: environment)
+    UserDefaults.standard.removeObject(forKey: AppDelegate.apnsRegistrationFailureKey)
     captureChannel?.invokeMethod("apnsTokenUpdated", arguments: [
       "token": token,
       "environment": environment,
@@ -160,6 +178,15 @@ import UserNotifications
     _ application: UIApplication,
     didFailToRegisterForRemoteNotificationsWithError error: Error
   ) {
+    let nsError = error as NSError
+    let failure: [String: Any] = [
+      "message": error.localizedDescription,
+      "domain": nsError.domain,
+      "code": nsError.code,
+      "occurredAt": ISO8601DateFormatter().string(from: Date()),
+    ]
+    UserDefaults.standard.set(failure, forKey: AppDelegate.apnsRegistrationFailureKey)
+    captureChannel?.invokeMethod("apnsRegistrationFailed", arguments: failure)
     #if DEBUG
     print("[Capture] APNs registration failed: \(error)")
     #endif
@@ -223,5 +250,32 @@ import UserNotifications
     }
 
     return nil
+  }
+
+  private func installPrivacySnapshotView() {
+    guard privacySnapshotView == nil, let targetWindow = window else { return }
+    let overlay = UIView(frame: targetWindow.bounds)
+    overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    overlay.backgroundColor = UIColor.systemBackground
+
+    let label = UILabel()
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.text = "قرش"
+    label.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+    label.textColor = UIColor.label
+    overlay.addSubview(label)
+    NSLayoutConstraint.activate([
+      label.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+      label.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+    ])
+
+    targetWindow.addSubview(overlay)
+    targetWindow.bringSubviewToFront(overlay)
+    privacySnapshotView = overlay
+  }
+
+  private func removePrivacySnapshotView() {
+    privacySnapshotView?.removeFromSuperview()
+    privacySnapshotView = nil
   }
 }

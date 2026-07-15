@@ -411,3 +411,8 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+[functions.purge-scheduled-deletions]
+# Not a user-facing endpoint — gated by its own PURGE_WORKER_SECRET check
+# instead of a Supabase-issued JWT (see index.ts for why).
+verify_jwt = false

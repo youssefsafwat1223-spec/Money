@@ -136,9 +136,11 @@ class DriftCategoryRepository implements CategoryRepository {
   }
 
   Future<int> _nextSort() async {
-    final row = await _db.customSelect(
-      'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort FROM categories;',
-    ).getSingle();
+    final row = await _db
+        .customSelect(
+          'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort FROM categories;',
+        )
+        .getSingle();
     return row.read<int>('next_sort');
   }
 

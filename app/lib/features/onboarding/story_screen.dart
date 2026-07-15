@@ -240,27 +240,24 @@ class _OnboardingStoryScreenState extends State<OnboardingStoryScreen> {
               gradient: c.primaryGradient,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: const Icon(Icons.shopping_bag_outlined,
-                color: Colors.white),
+            child: const Icon(Icons.shopping_bag_outlined, color: Colors.white),
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('CARREFOUR',
-                    style: AppTypography.bodyStrong(c.textMain))
+                Text('CARREFOUR', style: AppTypography.bodyStrong(c.textMain))
                     .animate()
                     .fadeIn(delay: 200.ms),
                 Text('بقالة 🛒 · اليوم',
-                    style: AppTypography.caption(c.textLight))
+                        style: AppTypography.caption(c.textLight))
                     .animate()
                     .fadeIn(delay: 400.ms),
               ],
             ),
           ),
-          Text('−149 ج.م',
-              style: AppTypography.bodyStrong(c.danger))
+          Text('−149 ج.م', style: AppTypography.bodyStrong(c.danger))
               .animate()
               .fadeIn(delay: 600.ms)
               .slideX(begin: 0.3, end: 0),
@@ -291,9 +288,7 @@ class _OnboardingStoryScreenState extends State<OnboardingStoryScreen> {
                     gradient: c.primaryGradient,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                )
-                    .animate()
-                    .scaleY(
+                ).animate().scaleY(
                       begin: 0,
                       end: 1,
                       alignment: Alignment.bottomCenter,

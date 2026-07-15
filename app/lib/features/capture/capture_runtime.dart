@@ -4,7 +4,8 @@ import '../../domain/entities/sender_bank_mapping_entity.dart';
 
 /// إجراء سريع من أزرار الإشعار (تأكيد ✓ / تجاهل) أثناء عمل التطبيق.
 class CaptureQuickAction {
-  const CaptureQuickAction({required this.transactionId, required this.confirm});
+  const CaptureQuickAction(
+      {required this.transactionId, required this.confirm});
 
   final String transactionId;
   final bool confirm;

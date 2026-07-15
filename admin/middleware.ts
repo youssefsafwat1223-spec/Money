@@ -26,11 +26,24 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
   const isLogin = path.startsWith("/login");
+  const isNotAuthorized = path.startsWith("/not-authorized");
 
-  if (!user && !isLogin) {
+  if (!user && !isLogin && !isNotAuthorized) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  if (user && isLogin) {
+  if (!user) return supabaseResponse;
+
+  const { data: adminRow, error: adminError } = await supabase
+    .from("admin_users")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+  const isAdmin = !adminError && adminRow != null;
+
+  if (!isAdmin && !isNotAuthorized) {
+    return NextResponse.redirect(new URL("/not-authorized", request.url));
+  }
+  if (isAdmin && (isLogin || isNotAuthorized)) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

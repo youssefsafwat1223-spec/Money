@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_crypto.dart';
+import 'package:money_companion/core/backup/backup_service.dart';
 import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/core/backup/encrypted_backup_service.dart';
 import 'package:money_companion/core/backup/restore_backup_usecase.dart';
@@ -113,8 +114,7 @@ void main() {
         salt: List.generate(16, (i) => i),
       );
 
-      final deserialized =
-          EncryptedBackupBlob.fromBytes(blob.toBytes());
+      final deserialized = EncryptedBackupBlob.fromBytes(blob.toBytes());
       final recovered =
           await crypto.decryptJson(blob: deserialized, passphrase: 'abc');
 
@@ -135,13 +135,12 @@ void main() {
           ],
         },
       };
-      final blob =
-          await crypto.encryptJson(json: payload, passphrase: 'pass');
+      final blob = await crypto.encryptJson(json: payload, passphrase: 'pass');
       final recovered =
           await crypto.decryptJson(blob: blob, passphrase: 'pass');
 
-      final txns =
-          (recovered['tables']['transactions'] as List).cast<Map<String, dynamic>>();
+      final txns = (recovered['tables']['transactions'] as List)
+          .cast<Map<String, dynamic>>();
       expect(txns.first['id'], 'txn-1');
       expect(txns.first['amount'], 150.5);
     });
@@ -155,7 +154,9 @@ void main() {
 
     test('snapshot has required top-level keys', () async {
       final snapshot = await BackupSnapshotBuilder(db).build();
-      expect(snapshot['version'], 1);
+      expect(snapshot['version'], 2);
+      expect(snapshot['schemaVersion'],
+          BackupSnapshotBuilder.currentSchemaVersion);
       expect(snapshot.containsKey('createdAt'), isTrue);
       expect(snapshot.containsKey('privacy'), isTrue);
       expect(snapshot.containsKey('tables'), isTrue);
@@ -175,6 +176,9 @@ void main() {
         'streaks',
         'user_settings',
         'subscriptions',
+        'bill_payments',
+        'plans',
+        'plan_transaction_links',
       ]) {
         expect(tables.containsKey(table), isTrue,
             reason: 'missing table: $table');
@@ -264,9 +268,8 @@ void main() {
 
       await RestoreBackupUseCase(db)(snapshot);
 
-      final rows = await db
-          .customSelect('SELECT id, amount FROM transactions;')
-          .get();
+      final rows =
+          await db.customSelect('SELECT id, amount FROM transactions;').get();
       expect(rows.length, 1);
       expect(rows.first.data['id'], 'txn-1');
       expect(rows.first.data['amount'], 150.0);
@@ -325,12 +328,10 @@ void main() {
 
       await RestoreBackupUseCase(db)(snapshot);
 
-      final row = await db
-          .customSelect(
-            'SELECT raw_message FROM transactions WHERE id = ?;',
-            variables: [const Variable<String>('t1')],
-          )
-          .getSingle();
+      final row = await db.customSelect(
+        'SELECT raw_message FROM transactions WHERE id = ?;',
+        variables: [const Variable<String>('t1')],
+      ).getSingle();
       expect(
         row.data['raw_message'],
         '[restored: raw message intentionally excluded]',
@@ -345,6 +346,104 @@ void main() {
       final originalTables = original['tables'] as Map<String, dynamic>;
       final afterTables = after['tables'] as Map<String, dynamic>;
       expect(afterTables.keys.toSet(), originalTables.keys.toSet());
+    });
+
+    // ── H1: schema-version upper-bound validation ────────────────────────────
+    //
+    // A backup written by a NEWER app build could carry a schemaVersion this
+    // build doesn't know how to fully apply — post-restore migrations are
+    // only defined up to currentSchemaVersion, so silently proceeding could
+    // leave the DB structurally present but semantically half-migrated, with
+    // no error surfaced to the user. Restoring must reject any schemaVersion
+    // greater than currentSchemaVersion, and must do so BEFORE the
+    // delete/restore transaction touches the existing local data.
+
+    test('lower schema version than current is accepted', () async {
+      final snapshot = {
+        ...emptySnapshot(),
+        'schemaVersion': RestoreBackupUseCase.currentSchemaVersion - 1,
+      };
+
+      await expectLater(RestoreBackupUseCase(db)(snapshot), completes);
+    });
+
+    test('schema version equal to current is accepted', () async {
+      final snapshot = {
+        ...emptySnapshot(),
+        'schemaVersion': RestoreBackupUseCase.currentSchemaVersion,
+      };
+
+      await expectLater(RestoreBackupUseCase(db)(snapshot), completes);
+    });
+
+    test('missing schema version is accepted (pre-versioning backups)',
+        () async {
+      final snapshot = emptySnapshot(); // no 'schemaVersion' key at all
+
+      await expectLater(RestoreBackupUseCase(db)(snapshot), completes);
+    });
+
+    test('invalid (non-positive/non-int) schema version is accepted, '
+        'floored to the oldest known version', () async {
+      for (final invalid in [0, -1, 'not-a-number', null]) {
+        final snapshot = {...emptySnapshot(), 'schemaVersion': invalid};
+        await expectLater(RestoreBackupUseCase(db)(snapshot), completes);
+      }
+    });
+
+    test(
+        'higher schema version than current is rejected BEFORE any existing '
+        'local data is touched', () async {
+      await db.customInsert(
+        "INSERT INTO merchants(id, raw_name, normalized_name, first_seen_at, last_seen_at) "
+        "VALUES ('m-keep', 'keep', 'keep_norm', '2024-01-01', '2024-01-01');",
+      );
+      await db.customInsert(
+        "INSERT INTO transactions(id, amount, currency, merchant_id, raw_merchant, "
+        "category_id, type, source, occurred_at, parse_confidence, status, created_at, "
+        "updated_at, raw_message) "
+        "VALUES ('keep-txn', 42, 'SAR', 'm-keep', 'keep', NULL, 'expense', 'manual', "
+        "'2024-01-01', 1.0, 'confirmed', '2024-01-01', '2024-01-01', 'msg');",
+      );
+      final snapshot = {
+        ...emptySnapshot(),
+        'schemaVersion': RestoreBackupUseCase.currentSchemaVersion + 1,
+      };
+
+      await expectLater(
+        RestoreBackupUseCase(db)(snapshot),
+        throwsA(isA<BackupException>()),
+      );
+
+      // The existing row must survive — rejection happened before the
+      // delete/restore transaction, not mid-way through it.
+      final rows = await db.customSelect('SELECT id FROM transactions;').get();
+      expect(rows.map((r) => r.data['id']), ['keep-txn']);
+    });
+
+    test(
+        'a failure mid-restore still restores PRAGMA foreign_keys — it must '
+        'not stay OFF for the rest of the connection\'s lifetime', () async {
+      final snapshot = {
+        ...emptySnapshot(),
+        'tables': {
+          ...emptySnapshot()['tables'] as Map<String, dynamic>,
+          // A column that doesn't exist on `budgets` fails the INSERT
+          // partway through the restore loop, after PRAGMA foreign_keys has
+          // already been set OFF.
+          'budgets': [
+            {'id': 'b1', 'no_such_column': 'boom'},
+          ],
+        },
+      };
+
+      await expectLater(RestoreBackupUseCase(db)(snapshot), throwsException);
+
+      final pragma =
+          await db.customSelect('PRAGMA foreign_keys;').getSingle();
+      expect(pragma.data.values.first, 1,
+          reason: 'foreign_keys must be back ON after the failure, not left '
+              'OFF by the aborted restore');
     });
   });
 

@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
+import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../cards/bank_mark.dart';
@@ -266,6 +267,8 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
   late AccountType _type;
   late String _currency;
   late bool _isDefault;
+  late final String _creationId;
+  bool _busy = false;
 
   @override
   void initState() {
@@ -275,6 +278,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     _type = a?.type ?? AccountType.bank;
     _currency = a?.currency ?? 'SAR';
     _isDefault = a?.isDefault ?? false;
+    _creationId = a?.id ?? IdGenerator.next();
   }
 
   @override
@@ -284,6 +288,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
   }
 
   Future<void> _save() async {
+    if (_busy) return;
     final name = _name.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -293,10 +298,12 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     }
     final repo = ref.read(accountRepositoryProvider);
     final now = DateTime.now().toUtc();
+    setState(() => _busy = true);
+    var saved = false;
     try {
       if (widget.account == null) {
         await repo.create(AccountEntity(
-          id: '',
+          id: _creationId,
           name: name,
           currency: _currency,
           type: _type,
@@ -315,26 +322,36 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           await repo.setDefault(widget.account!.id);
         }
       }
+      saved = true;
     } on RepoException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(repoExceptionMessage(e))),
       );
-      return;
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('حدث خطأ غير متوقع — بياناتك محفوظة، حاول مجددًا.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+    if (!saved) return;
     ref.invalidate(accountsProvider);
     ref.invalidate(dashboardDataProvider);
     if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _delete() async {
+    if (_busy) return;
     final repo = ref.read(accountRepositoryProvider);
+    setState(() => _busy = true);
+    var deleted = false;
     try {
       await repo.delete(widget.account!.id);
-      ref.invalidate(accountsProvider);
-      ref.read(dashboardAccountProvider.notifier).state = null;
-      ref.invalidate(dashboardDataProvider);
-      if (mounted) Navigator.of(context).pop();
+      deleted = true;
     } on StateError {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -343,9 +360,27 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     } on RepoException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(repoExceptionMessage(e))),
+        SnackBar(
+          content: Text(
+            e is ValidationRepoException && e.message.contains('last_account')
+                ? 'لا يمكن حذف آخر حساب.'
+                : repoExceptionMessage(e),
+          ),
+        ),
       );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر حذف الحساب — حاول مجددًا.')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+    if (!deleted) return;
+    ref.invalidate(accountsProvider);
+    ref.read(dashboardAccountProvider.notifier).state = null;
+    ref.invalidate(dashboardDataProvider);
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -377,7 +412,9 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
               style: AppTypography.title2(c.textMain)),
           const SizedBox(height: AppSpacing.s4),
           TextField(
+            key: const ValueKey('account-name-field'),
             controller: _name,
+            enabled: !_busy,
             style: AppTypography.body(c.textMain),
             decoration: InputDecoration(
               labelText: 'اسم الحساب',
@@ -402,7 +439,8 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                   avatar: Icon(_accountTypeIcon(type), size: 16),
                   selected: _type == type,
                   selectedColor: c.primary.withValues(alpha: 0.16),
-                  onSelected: (_) => setState(() => _type = type),
+                  onSelected:
+                      _busy ? null : (_) => setState(() => _type = type),
                 ),
             ],
           ),
@@ -427,15 +465,17 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                   child: Text('$code — ${Currency.arabicLabel(code)}'),
                 ),
             ],
-            onChanged: (value) {
-              if (value != null) setState(() => _currency = value);
-            },
+            onChanged: _busy
+                ? null
+                : (value) {
+                    if (value != null) setState(() => _currency = value);
+                  },
           ),
           const SizedBox(height: AppSpacing.s3),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _isDefault,
-            onChanged: widget.account?.isDefault == true
+            onChanged: _busy || widget.account?.isDefault == true
                 ? null
                 : (value) => setState(() => _isDefault = value),
             title:
@@ -446,18 +486,28 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           ),
           const SizedBox(height: AppSpacing.s4),
           FilledButton(
-            onPressed: _save,
+            key: const ValueKey('account-save-button'),
+            onPressed: _busy ? null : _save,
             style: FilledButton.styleFrom(
               backgroundColor: c.primary,
               minimumSize: const Size.fromHeight(52),
             ),
-            child: Text(editing ? 'حفظ' : 'إضافة',
-                style: AppTypography.bodyStrong(Colors.white)),
+            child: _busy
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(editing ? 'حفظ' : 'إضافة',
+                    style: AppTypography.bodyStrong(Colors.white)),
           ),
           if (editing && !widget.account!.isDefault) ...[
             const SizedBox(height: AppSpacing.s2),
             TextButton.icon(
-              onPressed: _delete,
+              onPressed: _busy ? null : _delete,
               icon: Icon(Icons.delete_outline, color: c.danger),
               label: Text('حذف الحساب', style: AppTypography.body(c.danger)),
             ),

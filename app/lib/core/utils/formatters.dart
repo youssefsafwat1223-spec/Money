@@ -115,11 +115,11 @@ class Formatters {
     final today = DateTime(now.year, now.month, now.day);
     final that = DateTime(d.year, d.month, d.day);
     final diff = today.difference(that).inDays;
-    
+
     final l10n = AppL10n.of(context);
     if (diff == 0) return l10n.today;
     if (diff == 1) return l10n.yesterday;
-    
+
     final locale = Localizations.localeOf(context).languageCode;
     if (locale == 'en') {
       return '${_enMonths[d.month - 1]} ${d.day}';

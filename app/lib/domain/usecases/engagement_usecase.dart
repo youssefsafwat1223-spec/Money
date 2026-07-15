@@ -144,9 +144,9 @@ class RecordEngagementUseCase {
       to: prevSamePoint,
     );
     final savedThisMonth = prevMonthExpenses - thisMonthExpenses;
-    if (savedThisMonth >= 500 &&
-        preferences.lastSaved500MonthKey != monthKey) {
-      final achievement = await _unlockAchievement(AchievementCatalog.saved500.key);
+    if (savedThisMonth >= 500 && preferences.lastSaved500MonthKey != monthKey) {
+      final achievement =
+          await _unlockAchievement(AchievementCatalog.saved500.key);
       if (achievement != null) {
         unlocked.add(achievement);
       }

@@ -52,6 +52,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefsAsync = ref.watch(notificationPreferencesProvider);
+    final captureHealthAsync = ref.watch(captureHealthStatusProvider);
     final settingsAsync = ref.watch(userSettingsProvider);
     final countriesAsync = ref.watch(supportedCountriesProvider);
     final currenciesAsync = ref.watch(activeCurrenciesProvider);
@@ -251,6 +252,10 @@ class SettingsScreen extends ConsumerWidget {
                     child: _Section(
                       title: 'الإشعارات والتنبيهات',
                       children: [
+                        captureHealthAsync.maybeWhen(
+                          data: (status) => _CaptureHealthTile(status: status),
+                          orElse: () => const SizedBox.shrink(),
+                        ),
                         const _TrustNoticeTile(
                           text:
                               'قرش يرسل إشعارات من نفسه لمساعدتك. لا يقرأ إشعارات البنك أو رسائل SMS من النظام.',
@@ -524,7 +529,7 @@ class SettingsScreen extends ConsumerWidget {
                 PremiumMotion(
                   delay: const Duration(milliseconds: 280),
                   child: OutlinedButton.icon(
-                    onPressed: () => _signOut(),
+                    onPressed: () => _signOut(context),
                     icon: const Icon(Icons.logout),
                     label: const Text('تسجيل الخروج'),
                     style: OutlinedButton.styleFrom(
@@ -583,15 +588,32 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _signOut() async {
+  /// يمسح بيانات هذا المستخدم محلياً أولاً (عبر AppSession.signOut، والذي
+  /// يفشل بالكامل بدل الاستمرار صامتاً إن تعذّر المسح) قبل إنهاء الجلسة على
+  /// خادم Supabase — بهذا الترتيب فقط: فشل المسح المحلي لا يترك الجهاز بلا
+  /// جلسة بعيدة بينما تبقى بياناته المالية قابلة للقراءة لمن يسجّل دخوله بعده.
+  Future<void> _signOut(BuildContext context) async {
+    try {
+      await AppSession.instance.signOut();
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('تعذّر تسجيل الخروج بأمان. حاول مجدداً.'),
+          ),
+        );
+      }
+      return;
+    }
     if (SupabaseConfig.isConfigured) {
       try {
         await supabase.Supabase.instance.client.auth.signOut();
       } catch (_) {
-        // Local sign-out still protects the device even if network sign-out fails.
+        // Local wipe/sign-out above already protects the device even if the
+        // network sign-out fails.
       }
     }
-    await AppSession.instance.signOut();
   }
 
   Map<String, String> _countryValues(List<RemoteCountry> countries) {
@@ -1265,8 +1287,7 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('مسح جميع البيانات؟'),
-        content: const Text(
-            'سيتم مسح جميع بياناتك المحلية. لا يمكن التراجع.'),
+        content: const Text('سيتم مسح جميع بياناتك المحلية. لا يمكن التراجع.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1936,6 +1957,60 @@ class _TrustNoticeTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CaptureHealthTile extends StatelessWidget {
+  const _CaptureHealthTile({required this.status});
+
+  final CaptureHealthStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final subtitle = status.lastCaptureAt == null
+        ? 'لم نرصد أي رسالة بنكية بعد'
+        : 'آخر عملية رصد: ${_captureGapLabel(status.gap!)}';
+    final apnsFailure = status.apnsRegistrationFailure;
+    final color = status.shouldNudge ? c.accent : c.success;
+    final title = apnsFailure != null
+        ? 'تعذّر تفعيل إشعارات رصد البنك'
+        : status.shouldNudge
+            ? 'لم نستقبل رسائل بنكية منذ فترة'
+            : 'حالة رصد رسائل البنك';
+    final statusSubtitle = apnsFailure != null
+        ? 'فشل تسجيل APNs: ${apnsFailure.message}'
+        : status.shouldNudge
+            ? '$subtitle — تأكد أن الاختصار لا يزال مفعّلاً'
+            : subtitle;
+    final Widget? trailing = status.shouldNudge
+        ? TextButton(
+            onPressed:
+                Platform.isIOS ? () => showIosShortcutSheet(context) : null,
+            child: const Text('تحقق'),
+          )
+        : null;
+    return ListTile(
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
+      leading: _TileIcon(icon: Icons.health_and_safety_outlined, color: color),
+      title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
+      subtitle: Text(
+        statusSubtitle,
+        style: AppTypography.caption(c.textLight),
+      ),
+      trailing: trailing,
+    );
+  }
+}
+
+String _captureGapLabel(Duration gap) {
+  if (gap.inDays >= 1) {
+    return 'منذ ${gap.inDays} ${gap.inDays == 1 ? 'يوم' : 'أيام'}';
+  }
+  if (gap.inHours >= 1) {
+    return 'منذ ${gap.inHours} ${gap.inHours == 1 ? 'ساعة' : 'ساعات'}';
+  }
+  return 'اليوم';
 }
 
 class _SwitchTile extends StatelessWidget {

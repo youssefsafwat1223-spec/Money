@@ -45,7 +45,9 @@ class _LuxeStarryBackgroundState extends State<LuxeStarryBackground>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      color: isDark ? Colors.black : const Color(0xFFF3F4F6), // Theme-aware background
+      color: isDark
+          ? Colors.black
+          : const Color(0xFFF3F4F6), // Theme-aware background
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) {
@@ -101,11 +103,13 @@ class _StarryPainter extends CustomPainter {
       // Twinkle effect (opacity varies slowly)
       final opacity = (sin(time * pi * 2 + star.twinklePhase) + 1) / 2;
       if (isDark) {
-        paint.color = const Color(0xFFDAA520).withValues(alpha: opacity * 0.6 + 0.1);
+        paint.color =
+            const Color(0xFFDAA520).withValues(alpha: opacity * 0.6 + 0.1);
       } else {
-        paint.color = const Color(0xFF1E3A8A).withValues(alpha: opacity * 0.35 + 0.05); // Soft blue particles in light mode
+        paint.color = const Color(0xFF1E3A8A).withValues(
+            alpha: opacity * 0.35 + 0.05); // Soft blue particles in light mode
       }
-      
+
       // Parallax shift: shift X coordinates based on scroll offset and star depth
       // Using modulo to wrap stars around screen edges
       double shiftedX = (star.x - (offset * 0.15 * star.depth)) % 1.0;
@@ -124,4 +128,3 @@ class _StarryPainter extends CustomPainter {
     return oldDelegate.time != time || oldDelegate.offset != offset;
   }
 }
-

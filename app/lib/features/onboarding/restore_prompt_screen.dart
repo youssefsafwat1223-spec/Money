@@ -6,7 +6,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/backend/supabase_config.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/backup/backup_service.dart';
-import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -14,6 +13,7 @@ import '../budgets/budgets_providers.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../goals/goals_providers.dart';
 import '../transactions/transactions_providers.dart';
+import 'setup_screen.dart';
 import 'widgets/neon_illustration.dart';
 import 'widgets/premium_ui.dart';
 
@@ -54,11 +54,12 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
           .read(backupServiceProvider)
           .restoreFromBackup(passphrase: passphrase);
       _refreshLocalData();
-      if (widget.onboardingFlow) {
-        await AppSession.instance.finishOnboarding();
-      }
       if (!mounted) return;
-      context.go(widget.onboardingFlow ? '/' : '/backup');
+      if (widget.onboardingFlow) {
+        _replaceWithSetup(OnboardingSetupEntry.captureGuide);
+      } else {
+        context.go('/backup');
+      }
     } on BackupException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -79,13 +80,20 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
     }
   }
 
-  Future<void> _startFresh() async {
+  void _startFresh() {
     if (widget.onboardingFlow) {
-      await AppSession.instance.finishOnboarding();
-      if (mounted) context.go('/');
+      _replaceWithSetup(OnboardingSetupEntry.full);
       return;
     }
     if (mounted) context.pop();
+  }
+
+  void _replaceWithSetup(OnboardingSetupEntry entry) {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => OnboardingSetupScreen(entry: entry),
+      ),
+    );
   }
 
   void _refreshLocalData() {

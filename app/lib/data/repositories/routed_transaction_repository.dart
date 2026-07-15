@@ -241,6 +241,14 @@ class RoutedTransactionRepository implements TransactionRepository {
       _route(_supabase.getAll, _drift.getAll);
 
   @override
+  Future<List<TransactionEntity>> getPage(
+          {required int offset, int limit = 500}) =>
+      _route(
+        () => _supabase.getPage(offset: offset, limit: limit),
+        () => _drift.getPage(offset: offset, limit: limit),
+      );
+
+  @override
   Future<List<TransactionEntity>> getByCard(String last4) => _route(
         () => _supabase.getByCard(last4),
         () => _drift.getByCard(last4),

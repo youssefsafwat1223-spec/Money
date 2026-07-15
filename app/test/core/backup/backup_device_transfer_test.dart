@@ -104,6 +104,21 @@ void main() {
         .getSingle();
     expect(restoredSettings.read<String>('country'), 'EG');
     expect(restoredSettings.read<String>('currency'), 'EGP');
+
+    final restoredPayment = await targetDevice
+        .customSelect(
+          "SELECT amount, transaction_id FROM bill_payments WHERE id = 'payment_device_a_1';",
+        )
+        .getSingle();
+    expect(restoredPayment.read<double>('amount'), 125);
+    expect(restoredPayment.read<String>('transaction_id'), 'tx_device_a_1');
+
+    final restoredPlanLink = await targetDevice
+        .customSelect(
+          "SELECT transaction_id FROM plan_transaction_links WHERE plan_id = 'plan_device_a_1';",
+        )
+        .getSingle();
+    expect(restoredPlanLink.read<String>('transaction_id'), 'tx_device_a_1');
   });
 }
 
@@ -166,5 +181,62 @@ Future<void> _seedSourceDevice(AppDatabase db) async {
       Variable.withString('goal_device_a_1'),
       Variable.withString(now),
     ],
+  );
+  await db.customInsert(
+    '''
+      INSERT INTO merchants(id, raw_name, normalized_name, first_seen_at, last_seen_at)
+      VALUES ('merchant_backup_bill', 'Internet', 'internet', ?, ?);
+    ''',
+    variables: [Variable.withString(now), Variable.withString(now)],
+  );
+  await db.customInsert(
+    '''
+      INSERT INTO subscriptions(
+        id, merchant_id, amount, period, next_due_date, is_confirmed,
+        reminder_on, name, type, currency, frequency, created_at
+      ) VALUES (
+        'bill_device_a_1', 'merchant_backup_bill', 125, 'monthly', ?, 1,
+        1, 'Internet', 'subscription', 'EGP', 'monthly', ?
+      );
+    ''',
+    variables: [Variable.withString(now), Variable.withString(now)],
+  );
+  await db.customInsert(
+    '''
+      INSERT INTO bill_payments(
+        id, bill_id, amount, currency, period_start, period_end, paid_at,
+        transaction_id
+      ) VALUES (
+        'payment_device_a_1', 'bill_device_a_1', 125, 'EGP', ?, ?, ?,
+        'tx_device_a_1'
+      );
+    ''',
+    variables: [
+      Variable.withString('2026-06-01T00:00:00.000Z'),
+      Variable.withString('2026-06-30T23:59:59.000Z'),
+      Variable.withString(now),
+    ],
+  );
+  await db.customInsert(
+    '''
+      INSERT INTO plans(
+        id, name, budget_amount, currency, start_date, end_date,
+        account_ids, card_last4s, status, created_at
+      ) VALUES (
+        'plan_device_a_1', 'Summer', 10000, 'EGP', ?, ?, '', '', 'active', ?
+      );
+    ''',
+    variables: [
+      Variable.withString('2026-06-01T00:00:00.000Z'),
+      Variable.withString('2026-08-31T23:59:59.000Z'),
+      Variable.withString(now),
+    ],
+  );
+  await db.customInsert(
+    '''
+      INSERT INTO plan_transaction_links(plan_id, transaction_id, created_at)
+      VALUES ('plan_device_a_1', 'tx_device_a_1', ?);
+    ''',
+    variables: [Variable.withString(now)],
   );
 }

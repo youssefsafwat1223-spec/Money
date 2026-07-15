@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/backend/rules_client.dart';
+import '../../../core/utils/currency.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
@@ -120,6 +121,7 @@ class CapturedMessageProcessor {
                       'merchant_name': keyword,
                       'country_code': settings.country,
                       'write': true,
+                      'install_id': await InstallId.get(),
                     });
                     final data = res.data;
                     if (data is Map && data['matched'] == true) {
@@ -164,8 +166,8 @@ class CapturedMessageProcessor {
           case CapturedMessageDisposition.ignored:
             break;
           case CapturedMessageDisposition.notifyOnly:
-            final content =
-                buildConfirmedCaptureContent(result.addTransactionResult.transaction);
+            final content = buildConfirmedCaptureContent(
+                result.addTransactionResult.transaction);
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
               title: content.title,
@@ -175,8 +177,8 @@ class CapturedMessageProcessor {
           case CapturedMessageDisposition.requestConfirmation:
             final transaction = result.addTransactionResult.transaction;
             if (transaction != null) {
-              final content =
-                  buildReviewCaptureContent(result.addTransactionResult.transaction);
+              final content = buildReviewCaptureContent(
+                  result.addTransactionResult.transaction);
               await LocalNotificationService.instance.showReviewNotification(
                 transactionId: transaction.id,
                 title: content.title,
@@ -185,8 +187,8 @@ class CapturedMessageProcessor {
               );
             }
           case CapturedMessageDisposition.suspiciousDuplicate:
-            final content =
-                buildDuplicateCaptureContent(result.addTransactionResult.transaction);
+            final content = buildDuplicateCaptureContent(
+                result.addTransactionResult.transaction);
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
               title: content.title,
@@ -271,21 +273,23 @@ class CapturedMessageProcessor {
 
     String fmt(double v) => v.toStringAsFixed(0);
 
+    final currencyLabel = Currency.arabicLabel(currency);
+
     late final String title, body;
     if (bucket == 3) {
       title = 'تجاوزت ميزانية الشهر';
-      body = 'صرفت ${fmt(spent - limit)} $currency زيادة عن ميزانيتك.';
+      body = 'صرفت ${fmt(spent - limit)} $currencyLabel زيادة عن ميزانيتك.';
     } else if (bucket == 2) {
       title = 'ميزانيتك على وشك الاكتمال';
-      body = 'بقيلك ${fmt(remaining)} $currency فقط — '
+      body = 'بقيلك ${fmt(remaining)} $currencyLabel فقط — '
           'معدلك الحالي سيستهلكها في $daysRemaining يوم.';
     } else {
       title = 'وصلت ٧٥٪ من ميزانيتك';
       if (projected > limit) {
-        body = 'بقيلك ${fmt(remaining)} $currency. '
-            'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - limit)} $currency.';
+        body = 'بقيلك ${fmt(remaining)} $currencyLabel. '
+            'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - limit)} $currencyLabel.';
       } else {
-        body = 'بقيلك ${fmt(remaining)} $currency حتى نهاية الشهر.';
+        body = 'بقيلك ${fmt(remaining)} $currencyLabel حتى نهاية الشهر.';
       }
     }
 
@@ -301,5 +305,4 @@ class CapturedMessageProcessor {
       notifId: notifId,
     );
   }
-
 }

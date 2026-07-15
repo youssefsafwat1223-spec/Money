@@ -110,9 +110,11 @@ class LedgerOutboxQueue {
   }
 
   Future<void> markFailed(String id, String error) async {
-    final row = await _db.customSelect(
-      'SELECT attempt_count FROM ledger_sync_outbox WHERE id = ${sqlString(id)} LIMIT 1;',
-    ).getSingleOrNull();
+    final row = await _db
+        .customSelect(
+          'SELECT attempt_count FROM ledger_sync_outbox WHERE id = ${sqlString(id)} LIMIT 1;',
+        )
+        .getSingleOrNull();
     if (row == null) return;
 
     final attempts = row.read<int>('attempt_count') + 1;

@@ -148,7 +148,8 @@ void main() {
     expect(item.payloadJson.containsKey('source'), isFalse);
   });
 
-  test('relay-imported tx confirmed via provider enqueues update without source',
+  test(
+      'relay-imported tx confirmed via provider enqueues update without source',
       () async {
     // Wires the outbox queue into the repository (provider path).
     final q = _queue(db);
@@ -166,7 +167,8 @@ void main() {
     expect(items.first.operation, OutboxOperation.update);
     // Source must be absent so the server keeps 'ios_shortcut'.
     expect(items.first.payloadJson.containsKey('source'), isFalse,
-        reason: "confirming a relay tx must not overwrite server source with 'manual'");
+        reason:
+            "confirming a relay tx must not overwrite server source with 'manual'");
   });
 
   // ── outbox lifecycle ──────────────────────────────────────────────────────
@@ -206,7 +208,8 @@ void main() {
     expect(rows.first.readNullable<String>('last_error'), 'network timeout');
   });
 
-  test('outbox row wired through transactionRepositoryProvider enqueues on create',
+  test(
+      'outbox row wired through transactionRepositoryProvider enqueues on create',
       () async {
     // Simulate the provider path: repository gets the outbox queue injected.
     final q = _queue(db);

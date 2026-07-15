@@ -26,6 +26,7 @@ const Map<String, Object> _defaults = {
   'accounts_supabase_primary': false,
   'transactions_supabase_primary': false,
   'dashboard_supabase_summary': false,
+  'budget_progress_supabase_rpc': false,
   'budgets_supabase_primary': false,
   'goals_supabase_primary': false,
   'subscriptions_supabase_primary': false,

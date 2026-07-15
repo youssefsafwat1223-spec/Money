@@ -104,6 +104,23 @@ class CaptureDeviceRegistrationService {
 
   Future<String?> readDeviceSecret() => _storage.read(key: _secretKey);
 
+  /// Revokes the mutable user/APNs association without deleting the relay
+  /// secret needed by the App Intent while the host app is signed out.
+  Future<void> unlinkCurrentDevice() async {
+    if (!Platform.isIOS || !SupabaseConfig.isConfigured) return;
+    final secret = await _storage.read(key: _secretKey);
+    if (secret == null || secret.isEmpty) return;
+    final client = _client ??
+        CaptureBackendClient(
+          supabaseUrl: SupabaseConfig.url,
+          anonKey: SupabaseConfig.anonKey,
+        );
+    await client.unlinkDevice(
+      installId: await InstallId.get(),
+      deviceSecret: secret,
+    );
+  }
+
   Future<void> syncApnsToken(ApnsTokenInfo token) async {
     if (!Platform.isIOS || !SupabaseConfig.isConfigured) return;
     final settings = await _settingsRepository.getSettings();

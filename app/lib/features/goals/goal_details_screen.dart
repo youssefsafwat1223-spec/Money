@@ -10,6 +10,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../budgets/budgets_providers.dart';
 import '../common/vault_widget.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -322,155 +323,195 @@ Future<void> _showAddContributionSheet(
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (context) {
-      return Directionality(
-        textDirection: TextDirection.rtl,
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Container(
-              padding: EdgeInsets.only(
-                left: AppSpacing.gutter,
-                right: AppSpacing.gutter,
-                top: AppSpacing.s3,
-                bottom:
-                    MediaQuery.of(context).viewInsets.bottom + AppSpacing.s5,
-              ),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? c.surface.withValues(alpha: 0.9)
-                    : Colors.white.withValues(alpha: 0.92),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                  width: 1.5,
+      var saving = false;
+      return StatefulBuilder(
+        builder: (context, setSheetState) {
+          Future<void> saveContribution() async {
+            if (saving) return;
+            final amount = double.tryParse(controller.text);
+            if (amount == null || amount <= 0) {
+              return;
+            }
+            setSheetState(() => saving = true);
+            try {
+              await ref.read(addGoalContributionUseCaseProvider).call(
+                    GoalContributionEntity(
+                      id: IdGenerator.next(),
+                      goalId: goalId,
+                      amount: amount,
+                      createdAt: DateTime.now().toUtc(),
+                      note: noteController.text.isEmpty
+                          ? null
+                          : noteController.text,
+                    ),
+                  );
+              if (context.mounted) {
+                Navigator.of(context).pop();
+              }
+              refreshGoals(ref);
+              refreshBudgets(ref);
+              ref.invalidate(dashboardDataProvider);
+              ref.invalidate(goalDetailsProvider(goalId));
+            } on RepoException catch (error) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(repoExceptionMessage(error))),
+              );
+            } catch (_) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('تعذّر حفظ المساهمة الآن.'),
                 ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 44,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: c.textLight.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(99),
+              );
+            } finally {
+              if (context.mounted) {
+                setSheetState(() => saving = false);
+              }
+            }
+          }
+
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: ClipRRect(
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Container(
+                  padding: EdgeInsets.only(
+                    left: AppSpacing.gutter,
+                    right: AppSpacing.gutter,
+                    top: AppSpacing.s3,
+                    bottom: MediaQuery.of(context).viewInsets.bottom +
+                        AppSpacing.s5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? c.surface.withValues(alpha: 0.9)
+                        : Colors.white.withValues(alpha: 0.92),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(28)),
+                    border: Border.all(
+                      color:
+                          Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
+                      width: 1.5,
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Row(
-                      children: [
-                        Text('إضافة مساهمة',
-                            style: AppTypography.title2(c.textMain)),
-                        const Spacer(),
-                        IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
-                          style: IconButton.styleFrom(
-                            backgroundColor: c.surface.withValues(alpha: 0.4),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: c.textLight.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Row(
+                          children: [
+                            Text('إضافة مساهمة',
+                                style: AppTypography.title2(c.textMain)),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.close),
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    c.surface.withValues(alpha: 0.4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextField(
+                        controller: controller,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        style: AppTypography.body(c.textMain),
+                        decoration: InputDecoration(
+                          labelText: 'المبلغ',
+                          suffixText: cur,
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : c.surface2.withValues(alpha: 0.5),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: c.border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(
+                                color: c.border.withValues(alpha: 0.5)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: c.primary, width: 2),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  TextField(
-                    controller: controller,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    style: AppTypography.body(c.textMain),
-                    decoration: InputDecoration(
-                      labelText: 'المبلغ',
-                      suffixText: cur,
-                      filled: true,
-                      fillColor: isDark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : c.surface2.withValues(alpha: 0.5),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.border),
                       ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide:
-                            BorderSide(color: c.border.withValues(alpha: 0.5)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.primary, width: 2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.s3),
-                  TextField(
-                    controller: noteController,
-                    style: AppTypography.body(c.textMain),
-                    decoration: InputDecoration(
-                      labelText: 'ملاحظة',
-                      filled: true,
-                      fillColor: isDark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : c.surface2.withValues(alpha: 0.5),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.border),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide:
-                            BorderSide(color: c.border.withValues(alpha: 0.5)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.primary, width: 2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.s5),
-                  SizedBox(
-                    height: 52,
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () async {
-                        final amount = double.tryParse(controller.text);
-                        if (amount == null || amount <= 0) {
-                          return;
-                        }
-                        await ref.read(addGoalContributionUseCaseProvider).call(
-                              GoalContributionEntity(
-                                id: IdGenerator.next(),
-                                goalId: goalId,
-                                amount: amount,
-                                createdAt: DateTime.now().toUtc(),
-                                note: noteController.text.isEmpty
-                                    ? null
-                                    : noteController.text,
-                              ),
-                            );
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                        }
-                        refreshGoals(ref);
-                        refreshBudgets(ref);
-                        ref.invalidate(dashboardDataProvider);
-                        ref.invalidate(goalDetailsProvider(goalId));
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: c.primary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                      const SizedBox(height: AppSpacing.s3),
+                      TextField(
+                        controller: noteController,
+                        style: AppTypography.body(c.textMain),
+                        decoration: InputDecoration(
+                          labelText: 'ملاحظة',
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : c.surface2.withValues(alpha: 0.5),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: c.border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(
+                                color: c.border.withValues(alpha: 0.5)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: c.primary, width: 2),
+                          ),
                         ),
                       ),
-                      child: Text('حفظ المساهمة',
-                          style: AppTypography.bodyStrong(Colors.white)),
-                    ),
+                      const SizedBox(height: AppSpacing.s5),
+                      SizedBox(
+                        height: 52,
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: saving ? null : saveContribution,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: c.primary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: saving
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text('حفظ المساهمة',
+                                  style:
+                                      AppTypography.bodyStrong(Colors.white)),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       );
     },
   );

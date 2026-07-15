@@ -299,8 +299,12 @@ class LedgerPushService implements LedgerPushAdapter {
     };
     if (payload['merchant'] != null) row['merchant'] = payload['merchant'];
     if (payload['note'] != null) row['description'] = payload['note'];
-    if (payload['account_id'] != null) row['account_id'] = payload['account_id'];
-    if (payload['confidence'] != null) row['confidence'] = payload['confidence'];
+    if (payload['account_id'] != null) {
+      row['account_id'] = payload['account_id'];
+    }
+    if (payload['confidence'] != null) {
+      row['confidence'] = payload['confidence'];
+    }
     return row;
   }
 }

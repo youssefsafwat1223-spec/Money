@@ -304,6 +304,36 @@ void main() {
     expect(categoryLookup.read<String>('category_key'), 'transfers');
   });
 
+  test('transaction pages are ordered and non-overlapping', () async {
+    for (var i = 0; i < 7; i++) {
+      final now = DateTime.utc(2026, 7, 14, 12, i);
+      await transactionRepository.saveTransaction(
+        transaction: TransactionEntity(
+          id: 'paged-$i',
+          amount: i + 1,
+          currency: 'SAR',
+          type: TransactionTypeEntity.payment,
+          source: TransactionSourceEntity.unknown,
+          occurredAt: now,
+          rawMessage: '',
+          parseConfidence: 1,
+          status: TransactionStatus.confirmed,
+          createdAt: now,
+          updatedAt: now,
+        ),
+        categoryKey: 'other',
+      );
+    }
+
+    final first = await transactionRepository.getPage(offset: 0, limit: 3);
+    final second = await transactionRepository.getPage(offset: 3, limit: 3);
+    final third = await transactionRepository.getPage(offset: 6, limit: 3);
+
+    expect(first.map((tx) => tx.id), ['paged-6', 'paged-5', 'paged-4']);
+    expect(second.map((tx) => tx.id), ['paged-3', 'paged-2', 'paged-1']);
+    expect(third.map((tx) => tx.id), ['paged-0']);
+  });
+
   test('saving transfer with other category is normalized to transfers',
       () async {
     final now = DateTime.utc(2026, 6, 27, 10, 15);

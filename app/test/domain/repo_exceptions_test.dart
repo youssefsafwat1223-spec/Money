@@ -11,8 +11,9 @@ void main() {
       expect(e, isA<DuplicateRepoException>());
     });
 
-    test('maps 23503/23514/23502 to ValidationRepoException', () {
-      for (final code in ['23503', '23514', '23502']) {
+    test('maps invalid SQL values and constraints to ValidationRepoException',
+        () {
+      for (final code in ['23503', '23514', '23502', '22P02', '22023']) {
         final e = mapSupabaseError(
           PostgrestException(message: 'invalid', code: code),
         );
@@ -29,16 +30,25 @@ void main() {
 
     test('maps P0001 (our own RPC raises) to ForbiddenRepoException', () {
       final e = mapSupabaseError(
-        const PostgrestException(message: 'account does not belong to user', code: 'P0001'),
+        const PostgrestException(
+            message: 'account does not belong to user', code: 'P0001'),
       );
       expect(e, isA<ForbiddenRepoException>());
     });
 
     test('maps 28000 (RPC auth check) to AuthRepoException', () {
       final e = mapSupabaseError(
-        const PostgrestException(message: 'authentication required', code: '28000'),
+        const PostgrestException(
+            message: 'authentication required', code: '28000'),
       );
       expect(e, isA<AuthRepoException>());
+    });
+
+    test('maps owner-scoped RPC no-data to NotFoundRepoException', () {
+      final e = mapSupabaseError(
+        const PostgrestException(message: 'not found', code: 'P0002'),
+      );
+      expect(e, isA<NotFoundRepoException>());
     });
 
     test('maps unknown PostgrestException code to ServerRepoException', () {
@@ -49,7 +59,8 @@ void main() {
     });
 
     test('maps network-shaped errors to NetworkRepoException', () {
-      final e = mapSupabaseError(Exception('SocketException: Failed host lookup'));
+      final e =
+          mapSupabaseError(Exception('SocketException: Failed host lookup'));
       expect(e, isA<NetworkRepoException>());
     });
 

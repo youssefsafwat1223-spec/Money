@@ -4,10 +4,12 @@ import 'package:money_companion/engine/parser/payment_aggregators.dart';
 void main() {
   group('PaymentAggregators.resolveMerchant', () {
     test('strips a leading gateway and returns the real merchant', () {
-      expect(PaymentAggregators.resolveMerchant('Fawry MCDONALDS'), 'MCDONALDS');
-      expect(PaymentAggregators.resolveMerchant('FAWRY*ABU SHAKRA'),
-          'ABU SHAKRA');
-      expect(PaymentAggregators.resolveMerchant('fawry - Spinneys'), 'Spinneys');
+      expect(
+          PaymentAggregators.resolveMerchant('Fawry MCDONALDS'), 'MCDONALDS');
+      expect(
+          PaymentAggregators.resolveMerchant('FAWRY*ABU SHAKRA'), 'ABU SHAKRA');
+      expect(
+          PaymentAggregators.resolveMerchant('fawry - Spinneys'), 'Spinneys');
     });
 
     test('keeps a bare gateway name unchanged (no merchant to extract)', () {

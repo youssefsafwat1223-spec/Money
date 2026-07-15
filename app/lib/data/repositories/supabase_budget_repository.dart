@@ -46,12 +46,19 @@ class SupabaseBudgetRepository implements BudgetRepository {
   Future<BudgetEntity?> getById(String id) async {
     final uid = await _support.requireUserId();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'budgets',
+        serverTable: 'user_budgets',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) return null;
       final row = await _support
           .client()
           .from('user_budgets')
           .select()
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .isFilter('deleted_at', null)
           .maybeSingle();
       return row == null ? null : _fromRow(row);
@@ -70,6 +77,12 @@ class SupabaseBudgetRepository implements BudgetRepository {
     final categoryKey = await _support.categoryKey(budget.categoryId);
     final accountId = await _support.serverAccountId(budget.accountId);
     final localId = budget.id.isEmpty ? IdGenerator.next() : budget.id;
+    final existingServerId = await _support.resolveServerEntityId(
+      localTable: 'budgets',
+      serverTable: 'user_budgets',
+      userId: uid,
+      entityId: budget.id,
+    );
     final payload = {
       'category_id': categoryKey,
       'amount': budget.amount,
@@ -85,20 +98,13 @@ class SupabaseBudgetRepository implements BudgetRepository {
     Map<String, dynamic>? row;
     var inserted = false;
     try {
-      final existing = await _support
-          .client()
-          .from('user_budgets')
-          .select('id')
-          .eq('user_id', uid)
-          .eq('id', budget.id)
-          .maybeSingle();
-      if (existing != null) {
+      if (existingServerId != null) {
         row = await _support
             .client()
             .from('user_budgets')
             .update(payload)
             .eq('user_id', uid)
-            .eq('id', budget.id)
+            .eq('id', existingServerId)
             .select()
             .maybeSingle();
       } else {
@@ -136,12 +142,19 @@ class SupabaseBudgetRepository implements BudgetRepository {
     final uid = await _support.requireUserId();
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'budgets',
+        serverTable: 'user_budgets',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) throw const NotFoundRepoException();
       final row = await _support
           .client()
           .from('user_budgets')
           .update({'deleted_at': deletedAt, 'is_active': false})
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .select('id')
           .maybeSingle();
       if (row == null) throw const NotFoundRepoException();
@@ -150,7 +163,7 @@ class SupabaseBudgetRepository implements BudgetRepository {
         budgetsCacheEntityType,
         () => _support.db.customStatement(
           "UPDATE budgets SET deleted_at = ?, is_active = 0, sync_status = 'synced' WHERE server_id = ?;",
-          [deletedAt, id],
+          [deletedAt, serverId],
         ),
       );
     } catch (error) {

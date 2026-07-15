@@ -7,6 +7,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
+// Exported so it can be unit-tested directly (see index_test.ts) without a
+// live Supabase project.
+export function isValidCountryParam(value: string): boolean {
+  return /^[A-Z]{2,3}$/.test(value);
+}
+
 const tableByCategory: Record<string, string> = {
   banks: "banks",
   parsers: "sms_parsers",
@@ -48,7 +54,11 @@ Deno.serve(async (req) => {
     const since = Number.isFinite(sinceVersion) && sinceVersion > 0
       ? sinceVersion
       : 0;
-    const country = url.searchParams.get("country")?.trim().toUpperCase();
+    const rawCountry = url.searchParams.get("country")?.trim().toUpperCase();
+    if (rawCountry && !isValidCountryParam(rawCountry)) {
+      return json({ error: "Invalid country parameter" }, 400);
+    }
+    const country = rawCountry;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey =
@@ -114,8 +124,8 @@ Deno.serve(async (req) => {
 
     const idColumn = idColumnByCategory[category];
     const deletedIds = (deletedRows ?? [])
-      .map((row) => row[idColumn])
-      .filter((id) => typeof id === "string");
+      .map((row: Record<string, unknown>) => row[idColumn])
+      .filter((id: unknown): id is string => typeof id === "string");
 
     return json({
       meta: { category, version, since_version: since },
@@ -196,7 +206,10 @@ async function fetchMerchantKeywordsDelta(
 
 function applyMerchantKeywordCountryFilter(query: any, country: string | undefined): any {
   if (!country) return query;
-  return query.or(`country_code.eq.ALL,country_code.eq.${country}`);
+  // Parameterized — country is validated (^[A-Z]{2,3}$) before reaching here,
+  // but .in() with an array avoids ever building a filter expression by
+  // string interpolation regardless.
+  return query.in("country_code", ["ALL", country]);
 }
 
 function json(body: unknown, status = 200): Response {

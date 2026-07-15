@@ -5,11 +5,11 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/utils/id_generator.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../../engine/categorization/category.dart';
 import '../cards/brand_mark.dart';
 import '../common/app_card.dart';
@@ -18,6 +18,7 @@ import '../dashboard/dashboard_providers.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'bill_form_sheet.dart';
+import 'bill_payment_attempt.dart';
 import 'subscriptions_providers.dart';
 
 class BillDetailsSheet extends ConsumerWidget {
@@ -189,8 +190,7 @@ class BillDetailsSheet extends ConsumerWidget {
                     currentBill,
                   ),
                   icon: const Icon(Icons.add_card_outlined),
-                  label:
-                      Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
+                  label: Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
                 ),
                 const SizedBox(height: AppSpacing.s3),
                 Row(
@@ -296,116 +296,165 @@ class BillDetailsSheet extends ConsumerWidget {
         TextEditingController(text: bill.amount.toStringAsFixed(2));
     final noteController = TextEditingController();
     var payFull = false;
+    var busy = false;
+    String? errorMessage;
+    final attempt = BillPaymentAttempt();
 
-    final payment = await showDialog<BillPaymentEntity>(
+    final recorded = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                payFull
-                    ? 'سداد كل الأقساط المتبقية ($remainingCount) دفعة واحدة'
-                    : period.installmentIndex == null
-                        ? 'هذه الدفعة عن الفترة ${_shortDate(period.start)} - ${_shortDate(period.end)}'
-                        : 'هذه الدفعة عن قسط رقم ${period.installmentIndex} للفترة ${_shortDate(period.start)} - ${_shortDate(period.end)}',
-                style: AppTypography.caption(context.colors.textSecondary),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              TextField(
-                controller: amountController,
-                enabled: !payFull,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: 'المبلغ',
-                  suffixText: Currency.arabicLabel(bill.currency),
+        builder: (context, setDialogState) => PopScope(
+          canPop: !busy,
+          child: AlertDialog(
+            title: Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  payFull
+                      ? 'سداد كل الأقساط المتبقية ($remainingCount) دفعة واحدة'
+                      : period.installmentIndex == null
+                          ? 'هذه الدفعة عن الفترة ${_shortDate(period.start)} - ${_shortDate(period.end)}'
+                          : 'هذه الدفعة عن قسط رقم ${period.installmentIndex} للفترة ${_shortDate(period.start)} - ${_shortDate(period.end)}',
+                  style: AppTypography.caption(context.colors.textSecondary),
                 ),
-              ),
-              if (canPayFull) ...[
-                const SizedBox(height: AppSpacing.s2),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: payFull,
-                  title: Text(
-                    'سدّد المتبقي بالكامل (${Formatters.amount(remainingAmount)} ${Currency.arabicLabel(bill.currency)})',
-                    style: AppTypography.caption(context.colors.textMain),
+                const SizedBox(height: AppSpacing.s3),
+                TextField(
+                  key: const ValueKey('bill-payment-amount'),
+                  controller: amountController,
+                  enabled: !busy && !payFull && attempt.payment == null,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'المبلغ',
+                    suffixText: Currency.arabicLabel(bill.currency),
                   ),
-                  onChanged: (value) => setDialogState(() {
-                    payFull = value ?? false;
-                    amountController.text = payFull
-                        ? remainingAmount.toStringAsFixed(2)
-                        : bill.amount.toStringAsFixed(2);
-                  }),
                 ),
+                if (canPayFull) ...[
+                  const SizedBox(height: AppSpacing.s2),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: payFull,
+                    title: Text(
+                      'سدّد المتبقي بالكامل (${Formatters.amount(remainingAmount)} ${Currency.arabicLabel(bill.currency)})',
+                      style: AppTypography.caption(context.colors.textMain),
+                    ),
+                    onChanged: busy || attempt.payment != null
+                        ? null
+                        : (value) => setDialogState(() {
+                              payFull = value ?? false;
+                              amountController.text = payFull
+                                  ? remainingAmount.toStringAsFixed(2)
+                                  : bill.amount.toStringAsFixed(2);
+                            }),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.s3),
+                TextField(
+                  controller: noteController,
+                  enabled: !busy && attempt.payment == null,
+                  decoration: const InputDecoration(
+                    labelText: 'ملاحظة اختيارية',
+                  ),
+                ),
+                if (errorMessage != null) ...[
+                  const SizedBox(height: AppSpacing.s3),
+                  Text(
+                    errorMessage!,
+                    key: const ValueKey('bill-payment-error'),
+                    style: AppTypography.caption(context.colors.danger),
+                  ),
+                ],
               ],
-              const SizedBox(height: AppSpacing.s3),
-              TextField(
-                controller: noteController,
-                decoration: const InputDecoration(
-                  labelText: 'ملاحظة اختيارية',
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: busy ? null : () => Navigator.of(context).pop(false),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                key: const ValueKey('bill-payment-submit'),
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final amount = payFull
+                            ? remainingAmount
+                            : _parseAmount(amountController.text);
+                        if (amount == null || amount <= 0) return;
+                        setDialogState(() {
+                          busy = true;
+                          errorMessage = null;
+                        });
+                        try {
+                          await attempt.submit(
+                            buildPayment: (requestId, paidAt) =>
+                                BillPaymentEntity(
+                              id: requestId,
+                              billId: bill.id,
+                              amount: amount,
+                              currency: bill.currency,
+                              periodStart: period.start,
+                              periodEnd: period.end,
+                              paidAt: paidAt,
+                              installmentIndex: payFull
+                                  ? bill.totalInstallments
+                                  : period.installmentIndex,
+                              note: noteController.text.trim().isEmpty
+                                  ? null
+                                  : noteController.text.trim(),
+                            ),
+                            createTransaction: (payment) =>
+                                ref.read(saveManualTransactionUseCaseProvider)(
+                              amount: payment.amount,
+                              currency: payment.currency,
+                              type: TransactionTypeEntity.payment,
+                              occurredAt: payment.paidAt,
+                              categoryKey: Categories.subscriptions.key,
+                              merchant: bill.name,
+                              note: payment.note ??
+                                  (isInstallment
+                                      ? 'قسط ${bill.name}'
+                                      : 'اشتراك ${bill.name}'),
+                              accountId: bill.accountId,
+                            ),
+                            recordPayment: (payment) => ref
+                                .read(billRepositoryProvider)
+                                .recordPayment(payment),
+                          );
+                          if (context.mounted) Navigator.of(context).pop(true);
+                        } catch (error) {
+                          if (!context.mounted) return;
+                          setDialogState(() {
+                            busy = false;
+                            errorMessage = !attempt.hasTransaction
+                                ? error is RepoException
+                                    ? repoExceptionMessage(error)
+                                    : 'تعذّر تسجيل الدفعة الآن. حاول مجددًا.'
+                                : 'تم حفظ العملية، لكن تعذّر ربط الدفعة. أعد المحاولة ولن تتكرر العملية.';
+                          });
+                        }
+                      },
+                child: busy
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(errorMessage == null ? 'تسجيل' : 'إعادة المحاولة'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final amount = payFull
-                    ? remainingAmount
-                    : _parseAmount(amountController.text);
-                if (amount == null || amount <= 0) return;
-                Navigator.of(context).pop(
-                  BillPaymentEntity(
-                    id: IdGenerator.next(),
-                    billId: bill.id,
-                    amount: amount,
-                    currency: bill.currency,
-                    periodStart: period.start,
-                    periodEnd: period.end,
-                    paidAt: DateTime.now().toUtc(),
-                    // Paying the remainder marks every installment as paid.
-                    installmentIndex: payFull
-                        ? bill.totalInstallments
-                        : period.installmentIndex,
-                    note: noteController.text.trim().isEmpty
-                        ? null
-                        : noteController.text.trim(),
-                  ),
-                );
-              },
-              child: const Text('تسجيل'),
-            ),
-          ],
         ),
       ),
     );
-    if (payment == null) return;
-    final billRepo = ref.read(billRepositoryProvider);
-    // A recorded payment is real spending — create a confirmed transaction so it
-    // shows in the operations list (with the brand) and counts in totals.
-    final savedTransaction =
-        await ref.read(saveManualTransactionUseCaseProvider)(
-      amount: payment.amount,
-      currency: payment.currency,
-      type: TransactionTypeEntity.payment,
-      occurredAt: payment.paidAt,
-      categoryKey: Categories.subscriptions.key,
-      merchant: bill.name,
-      note: payment.note ??
-          (isInstallment ? 'قسط ${bill.name}' : 'اشتراك ${bill.name}'),
-      accountId: bill.accountId,
-    );
-    await billRepo.recordPayment(
-      payment.copyWith(transactionId: savedTransaction.id),
-    );
+    amountController.dispose();
+    noteController.dispose();
+    if (recorded != true) return;
     ref.invalidate(billPaymentsProvider(bill.id));
     ref.invalidate(savedBillsProvider);
     ref.invalidate(billsViewProvider);
@@ -436,7 +485,21 @@ class BillDetailsSheet extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
-    await ref.read(billRepositoryProvider).delete(bill.id);
+    try {
+      await ref.read(billRepositoryProvider).delete(bill.id);
+    } on RepoException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(error))),
+      );
+      return;
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر حذف الفاتورة الآن.')),
+      );
+      return;
+    }
     ref.invalidate(savedBillsProvider);
     ref.invalidate(subscriptionsProvider);
     ref.invalidate(billsViewProvider);
@@ -493,19 +556,32 @@ class _BillPaymentRow extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('حذف',
-                style: TextStyle(color: context.colors.danger)),
+            child: Text('حذف', style: TextStyle(color: context.colors.danger)),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
-    if (payment.transactionId != null) {
-      await ref
-          .read(transactionRepositoryProvider)
-          .deleteTransaction(payment.transactionId!);
+    try {
+      if (payment.transactionId != null) {
+        await ref
+            .read(transactionRepositoryProvider)
+            .deleteTransaction(payment.transactionId!);
+      }
+      await ref.read(billRepositoryProvider).deletePayment(payment.id);
+    } on RepoException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(error))),
+      );
+      return;
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر حذف الدفعة الآن.')),
+      );
+      return;
     }
-    await ref.read(billRepositoryProvider).deletePayment(payment.id);
     ref.invalidate(billPaymentsProvider(bill.id));
     ref.invalidate(dashboardDataProvider);
   }

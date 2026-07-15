@@ -43,9 +43,8 @@ class StreakEngine {
 
     final updated = streak.copyWith(
       currentStreak: nextStreak,
-      longestStreak: nextStreak > streak.longestStreak
-          ? nextStreak
-          : streak.longestStreak,
+      longestStreak:
+          nextStreak > streak.longestStreak ? nextStreak : streak.longestStreak,
       lastActiveDate: occurredAt,
       freezesAvailable: freezes,
     );

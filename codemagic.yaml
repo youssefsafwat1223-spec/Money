@@ -57,7 +57,8 @@ workflows:
           flutter build ios --release --no-codesign \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
-            --dart-define=SUPABASE_ENV=production
+            --dart-define=SUPABASE_ENV=production \
+            --dart-define=SENTRY_DSN="${SENTRY_DSN:-}"
 
       - name: Package .app into unsigned .ipa
         working_directory: app
@@ -128,6 +129,7 @@ workflows:
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
             --dart-define=SUPABASE_ENV=production \
+            --dart-define=SENTRY_DSN="${SENTRY_DSN:-}" \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - app/build/ios/ipa/*.ipa

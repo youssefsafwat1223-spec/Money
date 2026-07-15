@@ -71,6 +71,27 @@ class CaptureBackendClient {
     }
   }
 
+  Future<void> unlinkDevice({
+    required String installId,
+    required String deviceSecret,
+  }) async {
+    final response = await _http
+        .post(
+          _functionUri('unlink-capture-device'),
+          headers: _headers,
+          body: jsonEncode({
+            'installId': installId,
+            'deviceSecret': deviceSecret,
+          }),
+        )
+        .timeout(const Duration(seconds: 4));
+    if (response.statusCode != 200) {
+      throw CaptureBackendException(
+        'unlink_device_failed_${response.statusCode}',
+      );
+    }
+  }
+
   Future<void> registerPushToken({
     required String installId,
     required String deviceSecret,
@@ -92,6 +113,43 @@ class CaptureBackendClient {
     if (response.statusCode != 200) {
       throw CaptureBackendException(
         'register_push_failed_${response.statusCode}',
+      );
+    }
+  }
+
+  /// Replays a durable native `pendingSend` payload with its original
+  /// idempotency key. A 2xx response is a definitive terminal acknowledgement.
+  Future<void> processIosSms({
+    required String installId,
+    required String deviceSecret,
+    required String payloadId,
+    required String smsText,
+    required DateTime receivedAt,
+    required bool allowAi,
+    String? sender,
+    String? locale,
+  }) async {
+    final response = await _http
+        .post(
+          _functionUri('process-ios-sms'),
+          headers: _headers,
+          body: jsonEncode({
+            'installId': installId,
+            'deviceSecret': deviceSecret,
+            'payloadId': payloadId,
+            'smsText': smsText,
+            'sanitizedText': smsText,
+            'sender': sender,
+            'receivedAt': receivedAt.toUtc().toIso8601String(),
+            'locale': locale,
+            'tzOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
+            'allowAi': allowAi,
+          }),
+        )
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw CaptureBackendException(
+        'process_ios_sms_failed_${response.statusCode}',
       );
     }
   }

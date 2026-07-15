@@ -3,10 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/db/app_database.dart';
 import '../di/app_providers.dart';
 
-/// حذف كل البيانات المالية المحلية (Privacy → «حذف كل بياناتي»).
+/// حذف كل البيانات المالية المحلية والشخصية (Privacy → «حذف كل بياناتي»،
+/// وتسجيل الخروج العادي — انظر AppSession.signOut).
 ///
-/// يمسح العمليات والتجار والميزانيات والأهداف ومخرجات التلعيب.
-/// لا يمسح كتالوج التصنيفات (بذور). الحساب/الجلسة تُمسح عبر AppSession.
+/// يمسح كل بيانات المستخدم المرتبطة بالهوية الحالية: العمليات، الحسابات،
+/// الميزانيات، الأهداف، الاشتراكات، الخطط، صندوق الوارد الذكي، بيانات الملف
+/// الشخصي (user_settings)، وكل طوابير المزامنة/الالتقاط المحلية حتى لا تُرفع
+/// لاحقاً باسم مستخدم آخر على نفس الجهاز. لا يمسح كتالوج التصنيفات/البنوك/
+/// المحلّلات (بيانات مرجعية عامة، ليست شخصية). الحساب/الجلسة تُمسح عبر
+/// AppSession. الجداول ذات الصف الوحيد (user_settings, streaks, xp_levels)
+/// تُعاد بذرتها فوراً بعد المسح عبر reseedDefaultsAfterWipe.
 class DataWipeService {
   DataWipeService(this._db);
 
@@ -14,21 +20,35 @@ class DataWipeService {
 
   static const List<String> _tables = [
     'transactions',
+    'accounts',
     'goal_contributions',
     'goals',
     'budgets',
     'merchant_category_map',
     'merchants',
     'subscriptions',
+    'bill_payments',
+    'plans',
+    'plan_transaction_links',
+    'smart_inbox_items',
+    'suspected_duplicates',
+    'sender_bank_mappings',
+    'dedup_hashes',
+    'ledger_sync_outbox',
+    'planning_sync_outbox',
+    'pending_merchant_feedback',
+    'financial_cache_health',
     'achievements',
     'streaks',
     'xp_levels',
+    'user_settings',
   ];
 
   Future<void> wipeAll() async {
     for (final table in _tables) {
       await _db.customStatement('DELETE FROM $table;');
     }
+    await _db.reseedDefaultsAfterWipe();
   }
 }
 

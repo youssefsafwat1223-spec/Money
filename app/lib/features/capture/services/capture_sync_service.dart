@@ -13,6 +13,7 @@ import '../../../domain/repositories/account_repository.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import 'capture_backend_client.dart';
 import 'capture_device_registration_service.dart';
+import 'native_capture_bridge.dart';
 
 class CaptureSyncResult {
   const CaptureSyncResult({
@@ -165,6 +166,33 @@ class CaptureSyncService {
     return txId != null;
   }
 
+  /// Retries a native payload whose extension may have been killed in-flight.
+  /// False means cloud retry is disabled, so the caller may use local fallback.
+  Future<bool> retryPendingSend(SharedCapturedMessage message) async {
+    if (message.status != 'pendingSend' || message.id == null) return false;
+    final settings = await _settingsRepository.getSettings();
+    final configured = _backendConfigured ?? SupabaseConfig.isConfigured;
+    if (!settings.cloudProcessingEnabled || !configured) return false;
+    final secret = await _registrationService.readDeviceSecret();
+    if (secret == null || secret.isEmpty) return false;
+    final client = _client ??
+        CaptureBackendClient(
+          supabaseUrl: SupabaseConfig.url,
+          anonKey: SupabaseConfig.anonKey,
+        );
+    await client.processIosSms(
+      installId: await (_loadInstallId ?? InstallId.get)(),
+      deviceSecret: secret,
+      payloadId: message.id!,
+      smsText: message.text,
+      sender: message.sender,
+      receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
+      locale: message.locale,
+      allowAi: settings.aiConsentGranted,
+    );
+    return true;
+  }
+
   Future<String?> transactionIdForPayload(String payloadId) {
     return _dedupStore.transactionIdFor(
       _payloadHash(payloadId),
@@ -272,7 +300,9 @@ class CaptureSyncService {
       currency: normalizedCurrency,
       accountId: account?.id,
       type: type,
-      source: TransactionSourceEntity.bank,
+      source: _string(parsed['parserSource']) == 'ai_hybrid'
+          ? TransactionSourceEntity.aiParsed
+          : TransactionSourceEntity.bank,
       occurredAt: occurredAt,
       rawMessage: rawMessage,
       parseConfidence: _num(parsed['confidence']) ?? 0.8,

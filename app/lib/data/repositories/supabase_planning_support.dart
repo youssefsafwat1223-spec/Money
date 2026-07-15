@@ -89,13 +89,63 @@ class SupabasePlanningSupport {
       ],
     ).getSingleOrNull();
     final serverId = row?.readNullable<String>('server_id');
-    if (serverId == null) {
-      throw const ValidationRepoException(
-        'Account must be migrated before this financial item.',
-      );
-    }
-    return serverId;
+    if (serverId != null && serverId.isNotEmpty) return serverId;
+    // Supabase-primary account reads return the canonical server UUID. On a
+    // fresh device that account may not have been mirrored into Drift yet, so
+    // requiring a cache row here would reject a valid account selection.
+    if (_isUuid(accountId)) return accountId;
+    throw const ValidationRepoException(
+      'Account must be migrated before this financial item.',
+    );
   }
+
+  /// Resolves a domain ID that may be either a local Drift ID or a Supabase
+  /// UUID. New planning forms intentionally create short local IDs before the
+  /// server insert, so those IDs must never be compared with a UUID column.
+  Future<String?> serverEntityId({
+    required String localTable,
+    required String? entityId,
+  }) async {
+    if (entityId == null || entityId.isEmpty) return null;
+    final row = await db.customSelect(
+      'SELECT server_id FROM $localTable '
+      'WHERE id = ? OR server_id = ? LIMIT 1;',
+      variables: [
+        Variable.withString(entityId),
+        Variable.withString(entityId),
+      ],
+    ).getSingleOrNull();
+    final cachedServerId = row?.readNullable<String>('server_id');
+    if (cachedServerId != null && cachedServerId.isNotEmpty) {
+      return cachedServerId;
+    }
+    return _isUuid(entityId) ? entityId : null;
+  }
+
+  Future<String?> resolveServerEntityId({
+    required String localTable,
+    required String serverTable,
+    required String userId,
+    required String? entityId,
+  }) async {
+    final direct = await serverEntityId(
+      localTable: localTable,
+      entityId: entityId,
+    );
+    if (direct != null) return direct;
+    if (entityId == null || entityId.isEmpty) return null;
+    final row = await client()
+        .from(serverTable)
+        .select('id')
+        .eq('user_id', userId)
+        .eq('local_id', entityId)
+        .maybeSingle();
+    return row?['id'] as String?;
+  }
+
+  bool _isUuid(String value) => RegExp(
+        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+      ).hasMatch(value);
 
   Future<String> categoryKey(String categoryId) async {
     if (categoryId == BudgetEntity.allExpensesCategoryId) {

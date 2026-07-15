@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase-server";
+import { requireAdmin } from "@/lib/auth-guard";
+import { createAdminClient } from "@/lib/supabase-server";
 import { fmt } from "@/lib/utils";
 import { Users, Building2, Code2, Megaphone, ToggleLeft, Tag, UserCheck, UserPlus } from "lucide-react";
 
@@ -20,9 +21,10 @@ type CatalogStats = {
 };
 
 async function getStats(): Promise<{ users: UserStats; catalog: CatalogStats }> {
-  const supabase = await createClient();
+  await requireAdmin();
+  const supabase = await createAdminClient();
 
-  // User stats via RPC — no service_role needed.
+  // The RPC is service-role only; requireAdmin above is the authorization gate.
   const { data: userStats, error: userError } = await supabase
     .rpc("get_user_stats");
 

@@ -1,0 +1,112 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/domain/entities/supporting_entities.dart';
+import 'package:money_companion/domain/repositories/user_settings_repository.dart';
+import 'package:money_companion/features/onboarding/restore_prompt_screen.dart';
+import 'package:money_companion/features/onboarding/setup_screen.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
+
+class _SettingsRepository implements UserSettingsRepository {
+  const _SettingsRepository();
+
+  static const settings = UserSettingsEntity(
+    id: 'settings',
+    country: 'EG',
+    currency: 'EGP',
+    language: 'ar',
+    theme: 'system',
+    inputMethod: 'shortcut',
+    notificationsJson: '',
+    dbEncryptionKeyRef: '',
+    privacyModeEnabled: false,
+  );
+
+  @override
+  Future<UserSettingsEntity> getSettings() async => settings;
+
+  @override
+  Future<UserSettingsEntity> saveSettings(UserSettingsEntity value) async =>
+      value;
+}
+
+Widget _app(Widget home, {List<Override> overrides = const []}) {
+  return ProviderScope(
+    overrides: overrides,
+    child: MaterialApp(
+      theme: AppTheme.light,
+      locale: const Locale('ar'),
+      supportedLocales: AppL10n.supportedLocales,
+      localizationsDelegates: const [
+        ...AppL10n.localizationsDelegates,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      home: home,
+    ),
+  );
+}
+
+void main() {
+  testWidgets('start fresh enters the complete setup instead of dashboard',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _app(const RestorePromptScreen(onboardingFlow: true)),
+    );
+    await tester.ensureVisible(find.text('ابدأ جديد'));
+    await tester.tap(find.text('ابدأ جديد'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(OnboardingSetupScreen), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('ثبّت اختصار قِرش'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final shortcutLock = tester.widget<IgnorePointer>(
+      find.byKey(const ValueKey('onboarding-step-3-lock')),
+    );
+    expect(shortcutLock.ignoring, isTrue);
+  });
+
+  testWidgets('restored entry starts at the device capture guide',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _app(
+        const OnboardingSetupScreen(
+          entry: OnboardingSetupEntry.captureGuide,
+        ),
+        overrides: [
+          userSettingsRepositoryProvider.overrideWithValue(
+            const _SettingsRepository(),
+          ),
+        ],
+      ),
+    );
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.text('ثبّت اختصار قِرش'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    final shortcutLock = tester.widget<IgnorePointer>(
+      find.byKey(const ValueKey('onboarding-step-3-lock')),
+    );
+    expect(shortcutLock.ignoring, isFalse);
+    expect(find.textContaining('EGP'), findsWidgets);
+  });
+}

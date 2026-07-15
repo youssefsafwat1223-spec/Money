@@ -1,11 +1,16 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase-server";
+import { AdminAuthError, requireAdmin } from "@/lib/auth-guard";
 import { Sidebar } from "@/components/sidebar";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  try {
+    await requireAdmin();
+  } catch (error) {
+    if (error instanceof AdminAuthError && error.code === "unauthenticated") {
+      redirect("/login");
+    }
+    redirect("/not-authorized");
+  }
 
   return (
     <div className="flex min-h-screen">

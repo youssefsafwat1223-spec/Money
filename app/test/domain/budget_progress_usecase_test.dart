@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/card_summary.dart';
@@ -10,9 +12,11 @@ import 'package:money_companion/domain/repositories/transaction_repository.dart'
 import 'package:money_companion/domain/usecases/budget_progress_usecase.dart';
 
 class _FakeBudgetRepository implements BudgetRepository {
-  _FakeBudgetRepository(this.budgets);
+  _FakeBudgetRepository(this.budgets, {this.releaseGetAll});
 
   final List<BudgetEntity> budgets;
+  final Completer<void>? releaseGetAll;
+  var getAllCalls = 0;
 
   @override
   Future<int> countActive() async => budgets.where((it) => it.isActive).length;
@@ -23,7 +27,14 @@ class _FakeBudgetRepository implements BudgetRepository {
   }
 
   @override
-  Future<List<BudgetEntity>> getAll() async => budgets;
+  Future<List<BudgetEntity>> getAll() async {
+    getAllCalls += 1;
+    final release = releaseGetAll;
+    if (release != null && !release.isCompleted) {
+      await release.future;
+    }
+    return budgets;
+  }
 
   @override
   Future<BudgetEntity?> getById(String id) async {
@@ -176,6 +187,12 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> getPage(
+      {required int offset, int limit = 500}) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<TransactionEntity?> getById(String id) {
     throw UnimplementedError();
   }
@@ -283,6 +300,40 @@ void main() {
     expect(secondSnapshot.alerts, isEmpty);
   });
 
+  test('uses injected batch spent summary for current budget periods',
+      () async {
+    final repo = _FakeBudgetRepository([
+      BudgetEntity(
+        id: 'budget-1',
+        categoryId: 'restaurants',
+        amount: 100,
+        period: BudgetPeriod.monthly,
+        startDate: DateTime(2026, 7),
+        isActive: true,
+        alert80Sent: false,
+        alert100Sent: false,
+      ),
+    ]);
+    var calls = 0;
+    final useCase = BudgetProgressUseCase(
+      budgetRepository: repo,
+      transactionRepository: _FakeTransactionRepository(
+        currentSpend: 999,
+        previousSpend: 0,
+      ),
+      fetchBatchSpent: ({required from, required to}) async {
+        calls++;
+        return {'budget-1': 25};
+      },
+    );
+
+    final snapshot = await useCase(now: DateTime(2026, 7, 14, 12));
+
+    expect(calls, 1);
+    expect(snapshot.entries.single.spent, 25);
+    expect(snapshot.entries.single.ratio, 0.25);
+  });
+
   test('BudgetProgress يحسب الميزانية العامة من كل المصروفات', () async {
     final repo = _FakeBudgetRepository([
       BudgetEntity(
@@ -309,5 +360,46 @@ void main() {
     expect(snapshot.entries.single.spent, 150);
     expect(snapshot.entries.single.ratio, 0.5);
     expect(snapshot.entries.single.budget.isAllExpenses, isTrue);
+  });
+
+  test('concurrent BudgetProgress calls share one in-flight alert pass',
+      () async {
+    final releaseGetAll = Completer<void>();
+    final repo = _FakeBudgetRepository(
+      [
+        BudgetEntity(
+          id: 'budget-race',
+          categoryId: 'restaurants',
+          amount: 100,
+          period: BudgetPeriod.daily,
+          startDate: DateTime.utc(2026, 6, 14, 0),
+          isActive: true,
+          alert80Sent: false,
+          alert100Sent: false,
+        ),
+      ],
+      releaseGetAll: releaseGetAll,
+    );
+    final useCase = BudgetProgressUseCase(
+      budgetRepository: repo,
+      transactionRepository: _FakeTransactionRepository(
+        currentSpend: 90,
+        previousSpend: 40,
+      ),
+    );
+
+    final first = useCase.call(now: DateTime.utc(2026, 6, 14, 10));
+    final second = useCase.call(now: DateTime.utc(2026, 6, 14, 10));
+
+    await Future<void>.delayed(Duration.zero);
+    expect(repo.getAllCalls, 1);
+
+    releaseGetAll.complete();
+    final snapshots = await Future.wait([first, second]);
+
+    expect(repo.getAllCalls, 1);
+    expect(snapshots.first.alerts, hasLength(1));
+    expect(snapshots[1].alerts, hasLength(1));
+    expect(repo.budgets.single.alert80Sent, isTrue);
   });
 }

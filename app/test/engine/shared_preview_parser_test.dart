@@ -118,8 +118,7 @@ void main() {
           return;
         }
         if (expected.containsKey('amount')) {
-          expect(transaction.amount,
-              closeTo(expected['amount'] as num, 0.001),
+          expect(transaction.amount, closeTo(expected['amount'] as num, 0.001),
               reason: 'amount mismatch between preview and engine');
         }
         if (expected.containsKey('currency')) {

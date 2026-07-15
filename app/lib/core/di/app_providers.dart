@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../auth/account_deletion_service.dart';
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
+import '../session/app_session.dart';
 import '../../engine/ai/ai_parser_client.dart';
 import '../../engine/ai/bank_discovery_client.dart';
 import '../../data/catalog/announcement_service.dart';
@@ -199,6 +201,26 @@ bool supabaseDashboardSummaryEnabled() {
     return false;
   }
 }
+
+bool supabaseBudgetProgressSummaryEnabled() {
+  try {
+    return featureFlags.getBool('budget_progress_supabase_rpc') &&
+        featureFlags.getBool('budgets_supabase_primary') &&
+        featureFlags.getBool('accounts_supabase_primary') &&
+        featureFlags.getBool('transactions_supabase_primary');
+  } catch (_) {
+    return false;
+  }
+}
+
+final accountDeletionServiceProvider = Provider<AccountDeletionService>((ref) {
+  return AccountDeletionService();
+});
+
+final accountDeletionStatusProvider =
+    FutureProvider<AccountDeletionStatus>((ref) {
+  return ref.watch(accountDeletionServiceProvider).getStatus();
+});
 
 final supabaseFinancialSummaryServiceProvider =
     Provider<SupabaseFinancialSummaryService>((ref) {
@@ -442,6 +464,7 @@ final smartInboxRepositoryProvider = Provider<SmartInboxRepository>((ref) {
 
 final smartInboxItemsProvider =
     FutureProvider<List<SmartInboxItemEntity>>((ref) async {
+  ref.watch(appSessionRevisionProvider);
   ref.watch(dbRevisionProvider);
   return ref.watch(smartInboxRepositoryProvider).getOpen();
 });
@@ -463,12 +486,34 @@ final accountRepositoryProvider = Provider<AccountRepository>((ref) {
 
 /// قائمة الحسابات (تتحدّث عند الإضافة/التعديل عبر invalidate).
 final accountsProvider = FutureProvider<List<AccountEntity>>((ref) async {
+  ref.watch(appSessionRevisionProvider);
   ref.watch(dbRevisionProvider);
   return ref.watch(accountRepositoryProvider).getAll();
 });
 
+/// Makes authenticated data providers account-aware. The root ProviderScope
+/// survives sign-out/sign-in, so without this dependency a FutureProvider can
+/// keep the previous user's successful value in memory.
+final appSessionRevisionProvider = StateProvider<int>((ref) {
+  void onSessionChanged() => ref.controller.state += 1;
+
+  AppSession.instance.addListener(onSessionChanged);
+  ref.onDispose(
+    () => AppSession.instance.removeListener(onSessionChanged),
+  );
+  return 0;
+});
+
 /// الحساب النشط عبر الشاشات الرئيسية. null يعني الحساب الافتراضي الحالي.
-final activeAccountIdProvider = StateProvider<String?>((ref) => null);
+final activeAccountIdProvider = StateProvider<String?>((ref) {
+  void resetSelectedAccount() => ref.controller.state = null;
+
+  AppSession.instance.addListener(resetSelectedAccount);
+  ref.onDispose(
+    () => AppSession.instance.removeListener(resetSelectedAccount),
+  );
+  return null;
+});
 
 /// عملة الأساس للعرض في الشاشات العامة — من الحساب النشط، ثم الافتراضي، ثم
 /// إعدادات المستخدم.
@@ -744,6 +789,7 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
                 'merchant_name': keyword,
                 'country_code': settings.country,
                 'write': true,
+                'install_id': await InstallId.get(),
               });
               final data = res.data;
               if (data is Map && data['matched'] == true) {
@@ -868,10 +914,16 @@ final addGoalContributionUseCaseProvider =
 });
 
 final budgetProgressUseCaseProvider = Provider<BudgetProgressUseCase>((ref) {
+  final useSupabaseSummary = supabaseBudgetProgressSummaryEnabled();
+  final summaryService = ref.watch(supabaseFinancialSummaryServiceProvider);
   return BudgetProgressUseCase(
     budgetRepository: ref.watch(budgetRepositoryProvider),
     transactionRepository: ref.watch(transactionRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
+    fetchBatchSpent: useSupabaseSummary
+        ? ({required from, required to}) =>
+            summaryService.budgetProgressSummary(from: from, to: to)
+        : null,
   );
 });
 

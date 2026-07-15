@@ -80,8 +80,23 @@ struct PostBankStatusIntent: AppIntent {
     )
 
     if config.canUseBackend {
+      // Durability boundary: the complete payload exists in the App Group
+      // before the first suspension point/network request. A hard extension
+      // kill from here onward leaves a retryable entry with the same payloadId.
+      let persisted = try? service.capture(
+        request,
+        status: .pendingSend,
+        payloadID: payloadID
+      )
+      guard persisted != nil else { return .result() }
+      if case let .some(.duplicate(existing)) = persisted,
+         existing.status != SharedCaptureStore.CaptureStatus.pendingSend.rawValue {
+        return .result()
+      }
+
       let attempt = await processBackend(request, payloadID: payloadID, config: config)
       if let response = attempt.response {
+        _ = SharedCaptureStore.remove(payloadID: payloadID)
         SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
         if !response.pushSent {
           await scheduleNotification(
@@ -97,14 +112,12 @@ struct PostBankStatusIntent: AppIntent {
       // earlier run, and after a `.failed` App Group write there is nothing
       // durable anywhere — a banner would promise a capture that never
       // happened.
-      let outcome = try? service.capture(
-        request,
+      let durableFallback = SharedCaptureStore.updateStatus(
+        payloadID: payloadID,
         status: .sent,
-        sentAt: nil,
-        failureReason: attempt.failureReason,
-        payloadID: payloadID
+        failureReason: attempt.failureReason
       )
-      if case .some(.enqueued) = outcome {
+      if durableFallback {
         await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)
       }
       return .result()
@@ -222,14 +235,25 @@ struct PostBankStatusIntent: AppIntent {
     await scheduleNotification(
       BackendNotification(
         title: "قِرش رصد رسالة بنك",
-        body: sender == nil
-          ? "تم استلام رسالة بنكية. افتح قِرش لمراجعتها."
-          : "تم استلام رسالة من \(sender!). افتح قِرش لمراجعتها.",
+        body: Self.unparseableFallbackBody(sender: sender),
         type: "received"
       ),
       payloadID: payloadID,
       identifierPrefix: "capture_fallback"
     )
+  }
+
+  /// Reached only when neither the backend nor the on-device PreviewParser
+  /// could confidently parse the message — no reviewable transaction exists
+  /// anywhere yet. Must say so honestly (matching the server's equivalent
+  /// `rejected`-status wording in process-ios-sms) rather than the previous
+  /// vague "a message was received, go check" text, which implied something
+  /// reviewable already existed in the app when nothing had been captured.
+  static func unparseableFallbackBody(sender: String?) -> String {
+    guard let sender, !sender.isEmpty else {
+      return "لم نتمكن من تحليل الرسالة البنكية. افتح قِرش لإضافتها يدويًا."
+    }
+    return "لم نتمكن من تحليل رسالة \(sender). افتح قِرش لإضافتها يدويًا."
   }
 
   private func firstNonEmpty(_ values: String?...) -> String? {

@@ -4,7 +4,8 @@ import 'package:money_companion/engine/parser/card_network.dart';
 void main() {
   group('CardNetworkDetector.detect', () {
     test('مدى', () {
-      expect(CardNetworkDetector.detect('بطاقة:مدى;****4521'), CardNetwork.mada);
+      expect(
+          CardNetworkDetector.detect('بطاقة:مدى;****4521'), CardNetwork.mada);
       expect(CardNetworkDetector.detect('mada card'), CardNetwork.mada);
     });
     test('Visa', () {

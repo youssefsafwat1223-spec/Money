@@ -140,6 +140,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
     final source = _transactionSourceFromMetadata(
       metadata['transaction_source'] as String?,
       row['source'] as String?,
+      metadata['parser_source'] as String?,
     );
     final comparisonTimestamp = _parseDate(row['comparison_timestamp']) ??
         _parseDate(metadata['comparison_timestamp']);
@@ -213,7 +214,11 @@ class SupabaseTransactionRepository implements TransactionRepository {
   static TransactionSourceEntity _transactionSourceFromMetadata(
     String? localSource,
     String? serverSource,
+    String? parserSource,
   ) {
+    if (parserSource == 'ai_hybrid') {
+      return TransactionSourceEntity.aiParsed;
+    }
     if (localSource != null) {
       for (final value in TransactionSourceEntity.values) {
         if (value.name == localSource) return value;
@@ -344,6 +349,29 @@ class SupabaseTransactionRepository implements TransactionRepository {
       );
       final entities = await Future.wait(rows.map(_fromServerRow));
       return entities.reversed.toList();
+    } catch (e) {
+      throw mapSupabaseError(e);
+    }
+  }
+
+  @override
+  Future<List<TransactionEntity>> getPage({
+    required int offset,
+    int limit = _pageSize,
+  }) async {
+    final uid = await _requireUserId();
+    try {
+      final rows = await _getClient()
+          .from('user_transactions')
+          .select()
+          .eq('user_id', uid)
+          .isFilter('deleted_at', null)
+          .order('occurred_at', ascending: false)
+          .order('id', ascending: false)
+          .range(offset, offset + limit - 1);
+      return await Future.wait(
+        (rows as List).map((r) => _fromServerRow(r as Map<String, dynamic>)),
+      );
     } catch (e) {
       throw mapSupabaseError(e);
     }

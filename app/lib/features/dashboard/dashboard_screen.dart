@@ -10,6 +10,7 @@ import '../../core/di/app_providers.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -115,17 +116,41 @@ class DashboardScreen extends ConsumerWidget {
             child: async.when(
               skipLoadingOnReload: true,
               loading: () => const PremiumSkeletonPage(cardCount: 5),
-              error: (error, stackTrace) => ListView(
-                padding: const EdgeInsets.all(AppSpacing.gutter),
-                children: [
-                  AppErrorState(
-                    title: 'تعذر تحميل لوحة التحكم الآن',
-                    description: 'تحقق من البيانات أو حاول التحديث مرة أخرى.',
-                    retryLabel: 'إعادة المحاولة',
-                    onRetry: () => ref.invalidate(dashboardDataProvider),
-                  ),
-                ],
-              ),
+              error: (error, stackTrace) {
+                // The true cause here is a missing/invalid session, not a
+                // transient load failure — retrying the same fetch would
+                // fail identically forever. Route to sign-in instead of
+                // showing a retry button that can never succeed.
+                if (error is AuthRepoException) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    AppSession.instance.handleAuthRequiredFailure();
+                  });
+                  return ListView(
+                    padding: const EdgeInsets.all(AppSpacing.gutter),
+                    children: [
+                      AppErrorState(
+                        title: 'الرجاء تسجيل الدخول مرة أخرى',
+                        description:
+                            'انتهت صلاحية الجلسة، سجّل دخولك للمتابعة.',
+                        retryLabel: 'تسجيل الدخول',
+                        onRetry: () =>
+                            AppSession.instance.handleAuthRequiredFailure(),
+                      ),
+                    ],
+                  );
+                }
+                return ListView(
+                  padding: const EdgeInsets.all(AppSpacing.gutter),
+                  children: [
+                    AppErrorState(
+                      title: 'تعذر تحميل لوحة التحكم الآن',
+                      description: 'تحقق من البيانات أو حاول التحديث مرة أخرى.',
+                      retryLabel: 'إعادة المحاولة',
+                      onRetry: () => ref.invalidate(dashboardDataProvider),
+                    ),
+                  ],
+                );
+              },
               data: (data) => ListView(
                 padding: const EdgeInsets.only(bottom: 120),
                 children: [

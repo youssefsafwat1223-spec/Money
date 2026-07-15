@@ -38,7 +38,8 @@ class AchievementsScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('المستوى الحالي', style: AppTypography.callout(c.textLight)),
+                      Text('المستوى الحالي',
+                          style: AppTypography.callout(c.textLight)),
                       const SizedBox(height: AppSpacing.s1),
                       Text(
                         _levelName(data.xpLevel.levelKey),
@@ -70,7 +71,8 @@ class AchievementsScreen extends ConsumerWidget {
                       GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
                           crossAxisSpacing: AppSpacing.s3,
                           mainAxisSpacing: AppSpacing.s3,
@@ -86,7 +88,8 @@ class AchievementsScreen extends ConsumerWidget {
                               color: unlocked
                                   ? c.primary.withValues(alpha: 0.08)
                                   : c.surface.withValues(alpha: 0.45),
-                              borderRadius: BorderRadius.circular(AppRadius.card),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.card),
                               border: Border.all(
                                 color: unlocked
                                     ? c.primary.withValues(alpha: 0.4)
@@ -124,22 +127,30 @@ class AchievementsScreen extends ConsumerWidget {
                                         ),
                                       ),
                                       child: Icon(
-                                        unlocked ? Icons.emoji_events_rounded : Icons.lock_outline,
-                                        color: unlocked ? c.accent : c.textLight,
+                                        unlocked
+                                            ? Icons.emoji_events_rounded
+                                            : Icons.lock_outline,
+                                        color:
+                                            unlocked ? c.accent : c.textLight,
                                         size: 18,
                                       ),
                                     ),
                                     const SizedBox(height: AppSpacing.s3),
                                     Text(
                                       item.nameAr,
-                                      style: AppTypography.subhead(unlocked ? c.textMain : c.textLight).copyWith(
+                                      style: AppTypography.subhead(unlocked
+                                              ? c.textMain
+                                              : c.textLight)
+                                          .copyWith(
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
                                       unlocked ? 'تم الفتح' : 'قيد التقدّم',
-                                      style: AppTypography.caption(unlocked ? c.success : c.textLight.withValues(alpha: 0.7)),
+                                      style: AppTypography.caption(unlocked
+                                          ? c.success
+                                          : c.textLight.withValues(alpha: 0.7)),
                                     ),
                                   ],
                                 ),
@@ -292,8 +303,9 @@ class _AchievementsHeader extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             '$level',
-                            style: AppTypography.title2(c.textMain)
-                                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            style: AppTypography.title2(c.textMain).copyWith(
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit'),
                           ),
                         ],
                       ),
@@ -313,7 +325,9 @@ class _AchievementsHeader extends StatelessWidget {
                           Text(
                             '$xp',
                             style: AppTypography.bodyStrong(c.textMain)
-                                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                .copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit'),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -335,7 +349,9 @@ class _AchievementsHeader extends StatelessWidget {
                           Text(
                             '$streak يوم',
                             style: AppTypography.bodyStrong(c.textMain)
-                                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                .copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit'),
                           ),
                           const SizedBox(height: 2),
                           Text(

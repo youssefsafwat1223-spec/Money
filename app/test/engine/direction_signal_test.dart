@@ -39,15 +39,15 @@ void main() {
 
   group('DirectionSignal.ofType', () {
     test('income / refund are credit', () {
-      expect(DirectionSignal.ofType(TransactionType.income),
-          TxnDirection.credit);
-      expect(DirectionSignal.ofType(TransactionType.refund),
-          TxnDirection.credit);
+      expect(
+          DirectionSignal.ofType(TransactionType.income), TxnDirection.credit);
+      expect(
+          DirectionSignal.ofType(TransactionType.refund), TxnDirection.credit);
     });
 
     test('payment / withdrawal are debit', () {
-      expect(DirectionSignal.ofType(TransactionType.payment),
-          TxnDirection.debit);
+      expect(
+          DirectionSignal.ofType(TransactionType.payment), TxnDirection.debit);
       expect(DirectionSignal.ofType(TransactionType.withdrawal),
           TxnDirection.debit);
     });

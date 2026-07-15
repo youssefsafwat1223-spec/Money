@@ -9,6 +9,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/plan_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../cards/cards_providers.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -109,6 +110,13 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
       ref.invalidate(dashboardDataProvider);
       if (!mounted) return;
       Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is RepoException
+          ? repoExceptionMessage(error)
+          : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _saving = false);
     }

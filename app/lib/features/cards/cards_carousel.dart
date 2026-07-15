@@ -25,7 +25,8 @@ class CardsCarousel extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(4, AppSpacing.s5, 4, AppSpacing.s3),
+          padding:
+              const EdgeInsets.fromLTRB(4, AppSpacing.s5, 4, AppSpacing.s3),
           child: Text('بطاقاتي', style: AppTypography.title2(c.textMain)),
         ),
         SizedBox(
@@ -55,49 +56,50 @@ class _CardTile extends StatelessWidget {
       onTap: () => CardDetailsScreen.showSheet(context, card.last4),
       borderRadius: BorderRadius.circular(AppRadius.card),
       child: Container(
-      width: 250,
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        gradient: c.primaryGradient,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: [
-          BoxShadow(
-            color: c.primary.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.contactless, color: Colors.white.withValues(alpha: 0.8), size: 22),
-              const Spacer(),
-              CardNetworkBadge(network: card.network),
-            ],
-          ),
-          const Spacer(),
-          Row(
-            textDirection: TextDirection.ltr,
-            children: [
-              Text('•••• ${card.last4}',
-                  style: AppTypography.headline(Colors.white)
-                      .copyWith(letterSpacing: 2)),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: [
-              _flow(context, 'داخل', card.totalIn, c.success),
-              const SizedBox(width: AppSpacing.s4),
-              _flow(context, 'خارج', card.totalOut,
-                  Colors.white.withValues(alpha: 0.9)),
-            ],
-          ),
-        ],
-      ),
+        width: 250,
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        decoration: BoxDecoration(
+          gradient: c.primaryGradient,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          boxShadow: [
+            BoxShadow(
+              color: c.primary.withValues(alpha: 0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.contactless,
+                    color: Colors.white.withValues(alpha: 0.8), size: 22),
+                const Spacer(),
+                CardNetworkBadge(network: card.network),
+              ],
+            ),
+            const Spacer(),
+            Row(
+              textDirection: TextDirection.ltr,
+              children: [
+                Text('•••• ${card.last4}',
+                    style: AppTypography.headline(Colors.white)
+                        .copyWith(letterSpacing: 2)),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            Row(
+              children: [
+                _flow(context, 'داخل', card.totalIn, c.success),
+                const SizedBox(width: AppSpacing.s4),
+                _flow(context, 'خارج', card.totalOut,
+                    Colors.white.withValues(alpha: 0.9)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -108,8 +110,7 @@ class _CardTile extends StatelessWidget {
       children: [
         Text(label,
             style: AppTypography.caption(Colors.white.withValues(alpha: 0.6))),
-        Text(Formatters.amount(value),
-            style: AppTypography.bodyStrong(color)),
+        Text(Formatters.amount(value), style: AppTypography.bodyStrong(color)),
       ],
     );
   }

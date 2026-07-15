@@ -22,8 +22,8 @@ class ForceUpdateScreen extends ConsumerWidget {
         .firstOrNull;
 
     final titleText = announcement?.titleAr ?? 'تحديث مطلوب';
-    final bodyText = announcement?.bodyAr ??
-        'يرجى تحديث التطبيق للاستمرار في الاستخدام.';
+    final bodyText =
+        announcement?.bodyAr ?? 'يرجى تحديث التطبيق للاستمرار في الاستخدام.';
     final actionUrl = announcement?.actionUrl ?? _appStoreUrl;
     final actionLabel = announcement?.actionLabelAr ?? 'تحديث الآن';
 

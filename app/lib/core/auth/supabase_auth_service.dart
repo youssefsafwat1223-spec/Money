@@ -40,7 +40,11 @@ class SupabaseAuthService implements AuthService {
       accessToken: auth.accessToken,
     );
     final email = response.user?.email ?? account.email;
-    return AuthIdentity(method: 'google', email: email);
+    return AuthIdentity(
+      method: 'google',
+      email: email,
+      userId: response.user?.id,
+    );
   }
 
   @override
@@ -60,7 +64,11 @@ class SupabaseAuthService implements AuthService {
       idToken: identityToken,
     );
     final email = response.user?.email ?? credential.email;
-    return AuthIdentity(method: 'apple', email: email);
+    return AuthIdentity(
+      method: 'apple',
+      email: email,
+      userId: response.user?.id,
+    );
   }
 
   @override
@@ -81,7 +89,11 @@ class SupabaseAuthService implements AuthService {
     );
     final user = response.user;
     if (user == null) return null;
-    return AuthIdentity(method: 'email', email: user.email ?? email);
+    return AuthIdentity(
+      method: 'email',
+      email: user.email ?? email,
+      userId: user.id,
+    );
   }
 }
 

@@ -40,15 +40,15 @@ class AppCard extends StatelessWidget {
     final effectiveGradient = gradient ??
         switch (variant) {
           AppCardVariant.gradient => LinearGradient(
-            colors: [c.surfaceElevated, c.surface],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+              colors: [c.surfaceElevated, c.surface],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           AppCardVariant.danger => LinearGradient(
-            colors: [c.dangerBg, c.surface],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+              colors: [c.dangerBg, c.surface],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           _ => null,
         };
     final effectiveBorder = border ??
@@ -79,7 +79,8 @@ class AppCard extends StatelessWidget {
               onTap: onTap,
               borderRadius: BorderRadius.circular(effectiveRadius),
               child: Padding(
-                padding: padding ?? const EdgeInsets.all(AppSpacing.cardPadding),
+                padding:
+                    padding ?? const EdgeInsets.all(AppSpacing.cardPadding),
                 child: child,
               ),
             )

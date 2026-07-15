@@ -133,7 +133,7 @@ void main() {
     );
 
     final saved = await repo.save(BudgetEntity(
-      id: '20000000-0000-4000-8000-000000000001',
+      id: 'local-budget-id',
       categoryId: BudgetEntity.allExpensesCategoryId,
       amount: 500,
       period: BudgetPeriod.monthly,
@@ -154,6 +154,76 @@ void main() {
     expect(cache, hasLength(1));
     expect(cache.single.read<String>('server_id'), saved.id);
     expect(cache.single.read<double>('amount'), 500);
+  });
+
+  test('goal create never sends a short local id to the UUID id filter',
+      () async {
+    final db = await _db();
+    addTearDown(db.close);
+    final http = MockClient((request) async {
+      if (request.method == 'GET') {
+        expect(request.url.queryParameters['local_id'], 'eq.local-goal-id');
+        expect(request.url.queryParameters, isNot(contains('id')));
+        return _json(<Object>[], request);
+      }
+      expect(request.method, 'POST');
+      return _json(_goalRow(), request);
+    });
+    final repo = SupabaseGoalRepository(
+      db: db,
+      getClient: () => _client(http),
+      getAuthUserId: () async => 'qa-user',
+    );
+
+    final saved = await repo.save(GoalEntity(
+      id: 'local-goal-id',
+      name: 'Emergency',
+      targetAmount: 1000,
+      savedAmount: 0,
+      vaultSkin: 'gold',
+      status: 'active',
+      createdAt: DateTime.utc(2026, 7, 13),
+    ));
+
+    expect(saved.id, _goalRow()['id']);
+  });
+
+  test('subscription create never sends a short local id to the UUID id filter',
+      () async {
+    final db = await _db();
+    addTearDown(db.close);
+    final http = MockClient((request) async {
+      if (request.method == 'GET') {
+        expect(
+          request.url.queryParameters['local_id'],
+          'eq.local-subscription-id',
+        );
+        expect(request.url.queryParameters, isNot(contains('id')));
+        return _json(<Object>[], request);
+      }
+      expect(request.method, 'POST');
+      return _json(_billRow(), request);
+    });
+    final repo = SupabaseBillRepository(
+      db: db,
+      getClient: () => _client(http),
+      getAuthUserId: () async => 'qa-user',
+    );
+
+    final saved = await repo.save(BillEntity(
+      id: 'local-subscription-id',
+      name: 'Internet',
+      amount: 300,
+      currency: 'EGP',
+      type: BillType.subscription,
+      frequency: BillFrequency.monthly,
+      nextDueDate: DateTime.utc(2026, 8),
+      reminderOn: true,
+      isConfirmed: true,
+      createdAt: DateTime.utc(2026, 7, 13),
+    ));
+
+    expect(saved.id, _billRow()['id']);
   });
 
   test('goal contribution RPC is idempotently mirrored without double count',
@@ -326,6 +396,41 @@ void main() {
       throwsA(isA<Exception>()),
     );
     expect(requests, 0);
+  });
+
+  test('server account UUID is accepted on a fresh device without Drift cache',
+      () async {
+    final db = await _db();
+    addTearDown(db.close);
+    const accountId = 'f0000000-0000-4000-8000-000000000001';
+    Map<String, dynamic>? inserted;
+    final repo = SupabaseBudgetRepository(
+      db: db,
+      getClient: () => _client(MockClient((request) async {
+        if (request.method == 'GET') return _json(<Object>[], request);
+        inserted = Map<String, dynamic>.from(
+          jsonDecode(request.body) as Map,
+        );
+        return _json(
+            {..._budgetRow(), 'server_account_id': accountId}, request);
+      })),
+      getAuthUserId: () async => 'qa-user',
+    );
+
+    await repo.save(BudgetEntity(
+      id: 'fresh-device-budget',
+      categoryId: BudgetEntity.allExpensesCategoryId,
+      accountId: accountId,
+      amount: 100,
+      period: BudgetPeriod.monthly,
+      startDate: DateTime.utc(2026, 7),
+      isActive: true,
+      alert80Sent: false,
+      alert100Sent: false,
+      showOnHeader: false,
+    ));
+
+    expect(inserted?['server_account_id'], accountId);
   });
 
   test('smart inbox direct read skips unknown types and mirrors known rows',

@@ -9,17 +9,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:native_glass_navbar/native_glass_navbar.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+
+import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/services/notification_planner.dart';
 import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../achievements/achievements_providers.dart';
@@ -67,6 +73,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   Timer? _celebrationTimer;
   bool _isBottomBarVisible = true;
   bool _isConsumingSharedInput = false;
+  SessionStatus? _lastSessionStatus;
   bool? _lastAccountsSupabasePrimary;
   bool? _lastTransactionsSupabasePrimary;
   bool? _lastBudgetsSupabasePrimary;
@@ -78,6 +85,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void initState() {
     super.initState();
+    _lastSessionStatus = AppSession.instance.status;
+    AppSession.instance.addListener(_handleSessionStatusChange);
     _lifecycleListener = AppLifecycleListener(onResume: _onResume);
     _confirmSubscription = CaptureRuntime.instance.confirmRequests.listen(
       _openConfirmSheet,
@@ -114,6 +123,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Defensive: the router should already have redirected away from this
+      // shell for a non-authenticated status before it ever mounted, but
+      // never run Supabase-primary startup work without re-confirming.
+      if (!await _revalidateAuthSession()) return;
       await syncCatalog(ref, force: true);
       await _repairDirtyFinancialCaches();
       _handleSupabasePrimaryFlagTransition();
@@ -141,6 +154,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   void dispose() {
+    AppSession.instance.removeListener(_handleSessionStatusChange);
     _celebrationTimer?.cancel();
     _confirmSubscription?.cancel();
     _quickActionSubscription?.cancel();
@@ -153,7 +167,43 @@ class _AppShellState extends ConsumerState<AppShell> {
     super.dispose();
   }
 
+  /// Centralized reaction to any session-status change while this shell is
+  /// mounted — covers both an explicit sign-out (Settings) and the
+  /// auth-required recovery path (`_handleAuthRequiredFailure`) in one place,
+  /// satisfying "financial providers invalidated" for either trigger without
+  /// duplicating the provider list at each call site. The router redirects
+  /// away from this shell on the same notification; invalidating here just
+  /// ensures no stale cached data from the previous session is still held by
+  /// the (app-lifetime) ProviderScope for whoever signs in next.
+  void _handleSessionStatusChange() {
+    final now = AppSession.instance.status;
+    final wasAuthenticated = _lastSessionStatus == SessionStatus.authenticated;
+    _lastSessionStatus = now;
+    if (wasAuthenticated && now != SessionStatus.authenticated) {
+      if (!mounted) return;
+      ref.invalidate(accountsProvider);
+      ref.invalidate(transactionsListProvider);
+      ref.invalidate(billsViewProvider);
+      ref.invalidate(budgetsViewProvider);
+      ref.invalidate(goalsListProvider);
+      ref.invalidate(savedBillsProvider);
+      ref.invalidate(plansWithSpentProvider);
+      ref.invalidate(smartInboxItemsProvider);
+      ref.invalidate(dashboardDataProvider);
+      ref.read(activeAccountIdProvider.notifier).state = null;
+      if (kDebugMode) {
+        debugPrint(
+          '[AppShell] session status → $now: financial providers invalidated',
+        );
+      }
+    }
+  }
+
   Future<void> _onResume() async {
+    // A refresh token can be revoked/expire while backgrounded with no
+    // auth-state event ever delivered until something touches the client
+    // again — re-check before running any Supabase-primary-dependent work.
+    if (!await _revalidateAuthSession()) return;
     await syncCatalog(ref);
     await _repairDirtyFinancialCaches();
     _handleSupabasePrimaryFlagTransition();
@@ -165,6 +215,27 @@ class _AppShellState extends ConsumerState<AppShell> {
     await _syncEngagement();
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
     _drainCelebrations();
+  }
+
+  /// Returns false (recovery already triggered, router about to redirect
+  /// away from this shell) when the live Supabase session turned out to be
+  /// invalid — callers must stop running further Supabase-primary work.
+  Future<bool> _revalidateAuthSession() async {
+    if (!SupabaseConfig.isConfigured) return true;
+    await AppSession.instance
+        .revalidateSupabaseSessionOnResume(supabase.Supabase.instance.client);
+    return AppSession.instance.status != SessionStatus.sessionExpired;
+  }
+
+  /// The one centralized entry point for a Supabase-primary repository call
+  /// failing with `auth_required`. Never catch this and show a generic
+  /// dashboard/error message instead — always route through here so the user
+  /// ends up back at sign-in, not stuck on a screen that can never load.
+  Future<void> _handleAuthRequiredFailure() async {
+    if (kDebugMode) {
+      debugPrint('[AppShell] auth_required — triggering session recovery');
+    }
+    await AppSession.instance.handleAuthRequiredFailure();
   }
 
   Future<void> _repairDirtyFinancialCaches() async {
@@ -340,6 +411,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       CaptureSyncResult? backendSync;
       try {
         backendSync = await ref.read(captureSyncServiceProvider).sync();
+      } on AuthRepoException {
+        await _handleAuthRequiredFailure();
+        return;
       } catch (error) {
         if (kDebugMode) {
           debugPrint('[Capture] backend sync skipped: $error');
@@ -368,6 +442,19 @@ class _AppShellState extends ConsumerState<AppShell> {
         // واحدة كان يُسقط بقية الرسائل المسحوبة بلا رجعة. الفاشلة تُعاد
         // للطابور الأصلي (بدون إيقاظ فوري) وتُعاد محاولتها في السحب التالي.
         try {
+          if (message.status == 'pendingSend') {
+            final captureSync = ref.read(captureSyncServiceProvider);
+            final sent = await captureSync.retryPendingSend(message);
+            if (sent) {
+              backendSync = await captureSync.sync();
+              if (message.id != null &&
+                  (backendSync.importedPayloadIds.contains(message.id) ||
+                      await captureSync.isPayloadImported(message.id!))) {
+                continue;
+              }
+              throw StateError('backend_capture_not_observable');
+            }
+          }
           if (message.id != null) {
             final alreadySynced =
                 backendSync?.importedPayloadIds.contains(message.id) ?? false;
@@ -427,6 +514,13 @@ class _AppShellState extends ConsumerState<AppShell> {
           pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
             message.sender,
           );
+        } on AuthRepoException {
+          // Every remaining message would fail identically until re-auth —
+          // stop draining, requeue this one, and let the centralized
+          // recovery redirect to sign-in instead of looping through failures.
+          await NativeCaptureBridge.reEnqueueSharedMessage(message);
+          await _handleAuthRequiredFailure();
+          break;
         } catch (error) {
           final requeued =
               await NativeCaptureBridge.reEnqueueSharedMessage(message);
@@ -520,7 +614,21 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
+  /// Wraps the actual engagement sync so an `auth_required` failure from any
+  /// Supabase-primary repository call inside it (budgets/goals/bills — all
+  /// now require a live session) triggers the one centralized session-invalid
+  /// recovery instead of surfacing as an unhandled exception. Any other error
+  /// type is intentionally left to propagate — this must not become a
+  /// blanket catch-all that hides unrelated bugs.
   Future<void> _syncEngagement() async {
+    try {
+      await _syncEngagementBody();
+    } on AuthRepoException {
+      await _handleAuthRequiredFailure();
+    }
+  }
+
+  Future<void> _syncEngagementBody() async {
     final preferences =
         await ref.read(loadNotificationPreferencesUseCaseProvider).call();
     final snapshot = await ref.read(budgetProgressUseCaseProvider).call();
@@ -537,7 +645,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         await LocalNotificationService.instance.showBudgetAlert(
           title: 'اقتربت من ميزانية $label',
           body:
-              'وصلت إلى ${(alert.progress.ratio * 100).round()}% من ميزانية ${alert.progress.budget.amount.toStringAsFixed(0)} $budgetCurrency.',
+              'وصلت إلى ${(alert.progress.ratio * 100).round()}% من ميزانية ${Currency.moneyInt(alert.progress.budget.amount, budgetCurrency)}.',
           type: NotificationType.budgetWarning,
           preferences: preferences,
         );
@@ -545,7 +653,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         await LocalNotificationService.instance.showBudgetAlert(
           title: 'تم تجاوز ميزانية $label',
           body:
-              'تجاوزت الميزانية بمقدار ${alert.progress.remaining.abs().toStringAsFixed(0)} $budgetCurrency.',
+              'تجاوزت الميزانية بمقدار ${Currency.moneyInt(alert.progress.remaining.abs(), budgetCurrency)}.',
           type: NotificationType.budgetOver,
           preferences: preferences,
         );

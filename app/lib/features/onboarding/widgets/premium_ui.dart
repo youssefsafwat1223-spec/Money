@@ -194,8 +194,7 @@ class OnboardingHeroCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: c.accent.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(AppRadius.xl),
-                  border: Border.all(
-                      color: c.accent.withValues(alpha: 0.35)),
+                  border: Border.all(color: c.accent.withValues(alpha: 0.35)),
                 ),
                 child: Icon(icon, color: c.cta, size: 28),
               ),

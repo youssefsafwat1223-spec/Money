@@ -102,7 +102,8 @@ class SeedLoader {
       if (announcements.isNotEmpty) {
         await announcementsDao.replaceAll(announcements);
       }
-      debugPrint('Catalog seed: seeded announcements (${announcements.length})');
+      debugPrint(
+          'Catalog seed: seeded announcements (${announcements.length})');
     }
   }
 

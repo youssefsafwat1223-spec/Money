@@ -8,6 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/bill_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../cards/brand_mark.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -138,10 +139,16 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
   String? _accountId;
   bool _busy = false;
   bool _pickedCustom = false;
+  late final String _billRequestId;
+  late final String _manualPaymentRequestId;
+  late final DateTime _manualPaymentPaidAt;
 
   @override
   void initState() {
     super.initState();
+    _billRequestId = widget.bill?.id ?? IdGenerator.next();
+    _manualPaymentRequestId = IdGenerator.next();
+    _manualPaymentPaidAt = DateTime.now().toUtc();
     final bill = widget.bill;
     _nameController =
         TextEditingController(text: bill?.name ?? widget.initialName ?? '');
@@ -202,10 +209,15 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
   }
 
   Future<void> _pickDate() async {
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
+    final initialDate = _nextDueDate.isBefore(todayStart)
+        ? todayStart
+        : DateTime(_nextDueDate.year, _nextDueDate.month, _nextDueDate.day);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _nextDueDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      initialDate: initialDate,
+      firstDate: todayStart,
       lastDate: DateTime.now().add(const Duration(days: 3650)),
     );
     if (picked != null) setState(() => _nextDueDate = picked);
@@ -213,14 +225,29 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate() || _busy) return;
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
+    final dueDate = DateTime(
+      _nextDueDate.year,
+      _nextDueDate.month,
+      _nextDueDate.day,
+    );
+    if (dueDate.isBefore(todayStart)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اختار تاريخ استحقاق قادم أو اليوم.')),
+      );
+      return;
+    }
     setState(() => _busy = true);
+    var billSaved = false;
+    var needsManualPayment = false;
     try {
       final now = DateTime.now().toUtc();
       final amount = _parseDecimalInput(_amountController.text.trim())!;
       final interestRaw = _parseDecimalInput(_interestController.text.trim());
       final manualPaid = _parseDecimalInput(_manualPaidController.text.trim());
       final bill = BillEntity(
-        id: widget.bill?.id ?? IdGenerator.next(),
+        id: _billRequestId,
         name: _nameController.text.trim(),
         amount: amount,
         currency: _currency,
@@ -255,24 +282,46 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
         accountId: _accountId,
       );
       final repo = ref.read(billRepositoryProvider);
-      final saved = await repo.save(bill);
       final previousManualPaid = widget.bill?.safeManualPaidAmount ?? 0;
       final manualPaidDelta =
           ((manualPaid ?? 0) - previousManualPaid).clamp(0.0, double.infinity);
-      if (manualPaidDelta > 0) {
-        await repo.recordPayment(
-          BillPaymentEntity(
-            id: IdGenerator.next(),
-            billId: saved.id,
-            amount: manualPaidDelta.toDouble(),
-            currency: saved.currency,
-            periodStart: _manualPaymentPeriodStart(saved),
-            periodEnd: _manualPaymentPeriodEnd(saved),
-            paidAt: now,
-            installmentIndex: _manualInstallmentIndex(saved),
-            note: 'مدفوع يدويًا من الفورم',
-          ),
+      needsManualPayment = manualPaidDelta > 0;
+      late final BillEntity saved;
+      if (widget.bill == null && manualPaidDelta > 0) {
+        final payment = BillPaymentEntity(
+          // Keep the id stable while this sheet is open. If the RPC succeeds
+          // but its response times out, retrying the save remains idempotent.
+          id: _manualPaymentRequestId,
+          billId: bill.id,
+          amount: manualPaidDelta.toDouble(),
+          currency: bill.currency,
+          periodStart: _manualPaymentPeriodStart(bill),
+          periodEnd: _manualPaymentPeriodEnd(bill),
+          paidAt: _manualPaymentPaidAt,
+          installmentIndex: _manualInstallmentIndex(bill),
+          note: 'مدفوع يدويًا من الفورم',
         );
+        await repo.createAndRecordPayment(bill: bill, payment: payment);
+        saved = bill;
+        billSaved = true;
+      } else {
+        saved = await repo.save(bill);
+        billSaved = true;
+        if (manualPaidDelta > 0) {
+          await repo.recordPayment(
+            BillPaymentEntity(
+              id: _manualPaymentRequestId,
+              billId: saved.id,
+              amount: manualPaidDelta.toDouble(),
+              currency: saved.currency,
+              periodStart: _manualPaymentPeriodStart(saved),
+              periodEnd: _manualPaymentPeriodEnd(saved),
+              paidAt: _manualPaymentPaidAt,
+              installmentIndex: _manualInstallmentIndex(saved),
+              note: 'مدفوع يدويًا من الفورم',
+            ),
+          );
+        }
       }
       if (!mounted) return;
       ref.invalidate(billPaymentsProvider(saved.id));
@@ -284,10 +333,16 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     } catch (e, st) {
       debugPrint('BillFormSheet._save error: $e\n$st');
       if (!mounted) return;
-      setState(() => _busy = false);
+      final message = billSaved && needsManualPayment
+          ? 'تم حفظ الفاتورة، لكن فشل تسجيل الدفعة — أعد المحاولة بنفس البيانات.'
+          : e is RepoException
+              ? repoExceptionMessage(e)
+              : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء الحفظ: $e')),
+        SnackBar(content: Text(message)),
       );
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -370,7 +425,9 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                 final raw = value?.trim() ?? '';
                 if (raw.isEmpty) return null;
                 final amount = _parseDecimalInput(raw);
-                return amount == null || amount < 0 ? 'اكتب مبلغ صحيح' : null;
+                return amount == null || amount <= 0
+                    ? 'اكتب مبلغ أكبر من صفر'
+                    : null;
               },
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -553,8 +610,18 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
             ),
             const SizedBox(height: AppSpacing.s4),
             FilledButton(
+              key: const ValueKey('bill-save-button'),
               onPressed: _busy ? null : _save,
-              child: Text(_busy ? 'جار الحفظ...' : 'حفظ'),
+              child: _busy
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('حفظ'),
             ),
           ],
         ),

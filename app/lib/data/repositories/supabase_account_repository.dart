@@ -189,40 +189,15 @@ class SupabaseAccountRepository implements AccountRepository {
 
   @override
   Future<void> delete(String id) async {
-    final uid = await _requireUserId();
-    if (await _activeAccountCount(uid) <= 1) {
-      throw const ValidationRepoException('Cannot delete the last account.');
-    }
-    final existing = await getById(id);
-    if (existing == null) throw const NotFoundRepoException();
-
-    // Reassign the default first. If the later soft-delete fails, the user is
-    // left with two active accounts and one valid default instead of no
-    // default account. The RPC itself is atomic and owner-checked.
-    if (existing.isDefault) {
-      final remaining = (await getAll()).where((a) => a.id != id).toList();
-      if (remaining.isEmpty) {
-        throw const ValidationRepoException('Cannot delete the last account.');
-      }
-      await setDefault(remaining.first.id);
-    }
-
-    Map<String, dynamic>? row;
+    await _requireUserId();
     try {
-      row = await _getClient()
-          .from('user_accounts')
-          .update({
-            'deleted_at': DateTime.now().toUtc().toIso8601String(),
-            'is_default': false,
-          })
-          .eq('user_id', uid)
-          .eq('id', id)
-          .select()
-          .maybeSingle();
+      await _getClient().rpc(
+        'delete_user_account_safely',
+        params: {'p_account_id': id},
+      );
     } catch (e) {
       throw mapSupabaseError(e);
     }
-    if (row == null) throw const NotFoundRepoException();
     await _mirrorDeleteByServerId(id);
   }
 

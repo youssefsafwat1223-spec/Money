@@ -33,7 +33,8 @@ class OnboardingBrandScreen extends StatelessWidget {
           const Positioned.fill(child: LuxeStarryBackground()),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
               child: Column(
                 children: [
                   const Spacer(flex: 3),

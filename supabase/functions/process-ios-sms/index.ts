@@ -10,6 +10,10 @@ import {
 import { sendCapturePush } from '../_shared/apns.ts';
 import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
 import {
+  reserveCaptureFingerprint,
+  type FingerprintReservationStore,
+} from '../_shared/fingerprint_reservation.ts';
+import {
   isDirectCaptureWriteEnabled,
   isLedgerDualWriteEnabled,
   upsertLedgerTransaction,
@@ -132,6 +136,7 @@ Deno.serve(async (req) => {
     .insert({
       payload_id: payloadId,
       install_id_hash: auth.installIdHash,
+      claimed_user_id: auth.userId,
       status,
       parsed,
       notification,
@@ -482,21 +487,26 @@ async function detectDuplicate(
   const fingerprints = await Promise.all(
     timeKeys.map((key) => sha256Hex(`${base}|${key}`)),
   );
-  const { data } = await supabase
-    .from('capture_fingerprints')
-    .select('payload_id,fingerprint')
-    .eq('install_id_hash', installIdHash)
-    .in('fingerprint', fingerprints);
-  // Never match the payload against its own fingerprint (concurrent replay of
-  // one payloadId must stay idempotent, not become a duplicate of itself).
-  const hit = (data ?? []).find((row) => row.payload_id !== payloadId);
-  if (typeof hit?.payload_id === 'string') return hit.payload_id;
-  await supabase.from('capture_fingerprints').insert({
-    install_id_hash: installIdHash,
-    fingerprint: fingerprints[0],
-    payload_id: payloadId,
-  });
-  return null;
+  const store: FingerprintReservationStore = {
+    async insert(row) {
+      const { error } = await supabase.from('capture_fingerprints').insert(row);
+      return { error };
+    },
+    async find(hash, keys) {
+      const { data, error } = await supabase
+        .from('capture_fingerprints')
+        .select('payload_id,fingerprint')
+        .eq('install_id_hash', hash)
+        .in('fingerprint', keys);
+      return { data, error };
+    },
+  };
+  return reserveCaptureFingerprint(
+    store,
+    installIdHash,
+    payloadId,
+    fingerprints,
+  );
 }
 
 function buildNotification(

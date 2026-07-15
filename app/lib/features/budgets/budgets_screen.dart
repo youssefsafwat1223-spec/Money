@@ -10,6 +10,7 @@ import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -173,8 +174,7 @@ class BudgetsScreen extends ConsumerWidget {
                     ..._budgetHistoryChildren(
                       context,
                       data,
-                      entries: _applyHistoryFilter(
-                          historyEntries,
+                      entries: _applyHistoryFilter(historyEntries,
                           ref.watch(budgetsHistoryPeriodFilterProvider)),
                       currencyLabel: currencyLabel,
                     ),
@@ -327,9 +327,21 @@ class BudgetsScreen extends ConsumerWidget {
       ),
     );
     if (ok != true) return;
-    await ref.read(budgetRepositoryProvider).delete(entry.budget.id);
-    refreshBudgets(ref);
-    ref.invalidate(dashboardDataProvider);
+    try {
+      await ref.read(budgetRepositoryProvider).delete(entry.budget.id);
+      refreshBudgets(ref);
+      ref.invalidate(dashboardDataProvider);
+    } on RepoException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(error))),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر حذف الميزانية الآن.')),
+      );
+    }
   }
 
   String _entryCurrencyLabel(
@@ -356,8 +368,7 @@ List<BudgetHistoryEntry> _applyHistoryFilter(
   return entries.where((e) => e.budget.period == filter).toList();
 }
 
-String _budgetPeriodDateLabel(
-    BudgetProgressEntry entry, BuildContext context) {
+String _budgetPeriodDateLabel(BudgetProgressEntry entry, BuildContext context) {
   final s = entry.periodStart;
   final e = entry.periodEnd;
   switch (entry.budget.period) {
@@ -401,9 +412,7 @@ class _HistoryPeriodFilterRow extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.s3, vertical: AppSpacing.s1 + 2),
                 decoration: BoxDecoration(
-                  color: selected == period
-                      ? c.primary
-                      : c.surfaceCard,
+                  color: selected == period ? c.primary : c.surfaceCard,
                   borderRadius: BorderRadius.circular(AppRadius.pill),
                   border: Border.all(
                     color: selected == period ? c.primary : c.border,

@@ -50,7 +50,9 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
               AppSpacing.s6,
             ),
             decoration: BoxDecoration(
-              color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
+              color: isDark
+                  ? c.surface.withValues(alpha: 0.9)
+                  : Colors.white.withValues(alpha: 0.92),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(28),
               ),
@@ -111,10 +113,13 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                 Container(
                   padding: const EdgeInsets.all(AppSpacing.s4),
                   decoration: BoxDecoration(
-                    color: isDark ? Colors.white.withValues(alpha: 0.05) : c.surface2.withValues(alpha: 0.5),
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : c.surface2.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.4),
+                      color:
+                          Colors.white.withValues(alpha: isDark ? 0.08 : 0.4),
                     ),
                   ),
                   child: Column(

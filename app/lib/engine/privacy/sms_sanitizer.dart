@@ -89,7 +89,8 @@ class SmsSanitizer {
         detectedType == TransactionType.income;
 
     if (stripBeneficiary) {
-      text = text.replaceAllMapped(_beneficiaryAr, (m) => '${m.group(1)!}: [REDACTED]');
+      text = text.replaceAllMapped(
+          _beneficiaryAr, (m) => '${m.group(1)!}: [REDACTED]');
       text = text.replaceAll(_beneficiaryEn, 'To: [REDACTED]');
     }
 

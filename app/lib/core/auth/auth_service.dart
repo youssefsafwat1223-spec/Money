@@ -5,10 +5,11 @@ import 'supabase_auth_service.dart';
 
 /// هوية المستخدم بعد الدخول.
 class AuthIdentity {
-  const AuthIdentity({required this.method, this.email});
+  const AuthIdentity({required this.method, this.email, this.userId});
 
   final String method; // google | apple | email
   final String? email;
+  final String? userId;
 }
 
 /// واجهة المصادقة. النسخة الحالية stub (بلا backend).
@@ -20,7 +21,8 @@ abstract class AuthService {
   Future<AuthIdentity> signInWithGoogle();
   Future<AuthIdentity> signInWithApple();
   Future<void> sendEmailCode(String email);
-  Future<AuthIdentity?> verifyEmailCode({required String email, required String code});
+  Future<AuthIdentity?> verifyEmailCode(
+      {required String email, required String code});
 }
 
 class StubAuthService implements AuthService {
@@ -35,7 +37,8 @@ class StubAuthService implements AuthService {
   @override
   Future<AuthIdentity> signInWithApple() async {
     await Future<void>.delayed(const Duration(milliseconds: 400));
-    return const AuthIdentity(method: 'apple', email: 'user@privaterelay.appleid.com');
+    return const AuthIdentity(
+        method: 'apple', email: 'user@privaterelay.appleid.com');
   }
 
   @override

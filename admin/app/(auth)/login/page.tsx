@@ -20,7 +20,8 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      router.push("/dashboard");
+      const response = await fetch("/api/admin-session", { cache: "no-store" });
+      router.push(response.ok ? "/dashboard" : "/not-authorized");
       router.refresh();
     }
   }

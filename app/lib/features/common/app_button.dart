@@ -179,7 +179,9 @@ class AppDangerButton extends StatelessWidget {
               color: disabled ? c.border : c.danger,
               width: 1.5,
             ),
-      gradient: filled && !disabled ? LinearGradient(colors: [c.danger, c.danger.withValues(alpha: 0.8)]) : null,
+      gradient: filled && !disabled
+          ? LinearGradient(colors: [c.danger, c.danger.withValues(alpha: 0.8)])
+          : null,
       shadow: null,
     );
   }

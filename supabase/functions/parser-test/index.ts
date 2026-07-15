@@ -1,4 +1,7 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  createClient,
+  type SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,7 +40,8 @@ Deno.serve(async (req) => {
     return json({ error: "Method not allowed" }, 405);
   }
 
-  // Require service_role authorization — admin only.
+  // Authenticate the caller, then authorize against the server-maintained
+  // admin_users allowlist. Never trust a client role/header claim.
   const authHeader = req.headers.get("authorization") ?? "";
   if (!authHeader.startsWith("Bearer ")) {
     return json({ error: "Unauthorized" }, 401);
@@ -57,6 +61,16 @@ Deno.serve(async (req) => {
     const client = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const token = authHeader.slice("Bearer ".length).trim();
+    const { data: authData, error: authError } = await client.auth.getUser(token);
+    if (authError || !authData.user) return json({ error: "Unauthorized" }, 401);
+    const { data: adminRow, error: adminError } = await client
+      .from("admin_users")
+      .select("id")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (adminError) return json({ error: "Authorization unavailable" }, 503);
+    if (!adminRow) return json({ error: "Forbidden" }, 403);
 
     // Load the parser rule.
     const { data: parsers, error: parserError } = await client
@@ -231,7 +245,7 @@ Deno.serve(async (req) => {
 });
 
 async function updateValidationStatus(
-  client: ReturnType<typeof createClient>,
+  client: SupabaseClient<any, "public", "public", any, any>,
   parserId: string,
   status: string,
   testCount: number,

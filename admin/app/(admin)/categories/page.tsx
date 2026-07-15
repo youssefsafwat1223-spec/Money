@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
 import { Plus } from "lucide-react";
 
 export default async function CategoriesPage() {
+  await requireAdmin();
   const supabase = await createAdminClient();
   const { data: cats } = await supabase
     .from("categories")

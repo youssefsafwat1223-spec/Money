@@ -49,6 +49,7 @@ class RunGoalAutoSavesUseCase {
 
   static DateTime _advance(DateTime from, String period) {
     if (period == 'weekly') return from.add(const Duration(days: 7));
-    return DateTime(from.year, from.month + 1, from.day, from.hour, from.minute);
+    return DateTime(
+        from.year, from.month + 1, from.day, from.hour, from.minute);
   }
 }

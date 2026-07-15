@@ -12,6 +12,7 @@ import 'core/backend/metrics_client.dart';
 import 'core/backend/sentry_config.dart';
 import 'core/backend/supabase_config.dart';
 import 'core/di/app_providers.dart';
+import 'core/privacy/data_wipe_service.dart';
 import 'core/session/app_session.dart';
 import 'data/catalog/seed_loader.dart';
 import 'data/repositories/drift_goal_repository.dart';
@@ -91,10 +92,17 @@ Future<void> _bootstrap() async {
   _bindNotificationHistory(database);
   await _registerBrandLogos();
   await initFeatureFlagService(database);
+  final captureRegistration = CaptureDeviceRegistrationService(
+    settingsRepository: DriftUserSettingsRepository(database),
+  );
+  AppSession.instance.configureCaptureDeviceUnlink(
+    captureRegistration.unlinkCurrentDevice,
+  );
+  AppSession.instance.configureLocalDataWipe(
+    DataWipeService(database).wipeAll,
+  );
   unawaited(
-    CaptureDeviceRegistrationService(
-      settingsRepository: DriftUserSettingsRepository(database),
-    ).syncNativeState().catchError((_) {
+    captureRegistration.syncNativeState().catchError((_) {
       // Capture backend registration is optional; local fallback remains active.
     }),
   );

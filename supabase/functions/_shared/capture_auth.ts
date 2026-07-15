@@ -49,7 +49,7 @@ export function readString(data: Record<string, unknown>, ...keys: string[]): st
 // (returns false) rather than crashing the request. Both real callers always
 // pass fixed-length (64-char) SHA-256 hex digests, so the length check below
 // does not itself leak anything secret-dependent — length is not the secret.
-function timingSafeEqual(a: unknown, b: unknown): boolean {
+export function timingSafeEqual(a: unknown, b: unknown): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -86,4 +86,34 @@ export async function verifyDevice(
     .update({ last_seen_at: new Date().toISOString() })
     .eq('install_id_hash', installIdHash);
   return { ok: true, installIdHash, userId: (data.user_id as string | null) ?? null };
+}
+
+export async function bumpCaptureEndpointRateLimit(
+  supabase: ReturnType<typeof serviceClient>,
+  installIdHash: string,
+  endpoint: string,
+  limit: number,
+): Promise<boolean> {
+  const key = `${installIdHash}:${endpoint}`;
+  const atomic = await supabase.rpc('bump_capture_rate_limit', {
+    p_install_id_hash: key,
+    p_limit: limit,
+  });
+  if (!atomic.error && typeof atomic.data === 'boolean') return atomic.data;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from('capture_rate_limits')
+    .select('call_count')
+    .eq('install_id_hash', key)
+    .eq('date', today)
+    .maybeSingle();
+  const current = (data?.call_count ?? 0) as number;
+  if (current >= limit) return true;
+  await supabase.from('capture_rate_limits').upsert({
+    install_id_hash: key,
+    date: today,
+    call_count: current + 1,
+  }, { onConflict: 'install_id_hash,date' });
+  return false;
 }

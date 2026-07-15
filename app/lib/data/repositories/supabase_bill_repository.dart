@@ -72,12 +72,19 @@ class SupabaseBillRepository implements BillRepository {
   Future<BillEntity?> getById(String id) async {
     final uid = await _support.requireUserId();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'subscriptions',
+        serverTable: 'user_subscriptions',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) return null;
       final row = await _support
           .client()
           .from('user_subscriptions')
           .select()
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .isFilter('deleted_at', null)
           .maybeSingle();
       return row == null ? null : _billFromRow(row);
@@ -90,6 +97,12 @@ class SupabaseBillRepository implements BillRepository {
   Future<BillEntity> save(BillEntity bill) async {
     final uid = await _support.requireUserId();
     final localId = bill.id.isEmpty ? IdGenerator.next() : bill.id;
+    final existingServerId = await _support.resolveServerEntityId(
+      localTable: 'subscriptions',
+      serverTable: 'user_subscriptions',
+      userId: uid,
+      entityId: bill.id,
+    );
     final accountId = await _support.serverAccountId(bill.accountId);
     final payload = {
       'merchant_id': bill.merchantId,
@@ -116,20 +129,13 @@ class SupabaseBillRepository implements BillRepository {
     Map<String, dynamic>? row;
     var inserted = false;
     try {
-      final existing = await _support
-          .client()
-          .from('user_subscriptions')
-          .select('id')
-          .eq('user_id', uid)
-          .eq('id', bill.id)
-          .maybeSingle();
-      if (existing != null) {
+      if (existingServerId != null) {
         row = await _support
             .client()
             .from('user_subscriptions')
             .update(payload)
             .eq('user_id', uid)
-            .eq('id', bill.id)
+            .eq('id', existingServerId)
             .select()
             .maybeSingle();
       } else {
@@ -172,12 +178,19 @@ class SupabaseBillRepository implements BillRepository {
     final uid = await _support.requireUserId();
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     try {
+      final serverId = await _support.resolveServerEntityId(
+        localTable: 'subscriptions',
+        serverTable: 'user_subscriptions',
+        userId: uid,
+        entityId: id,
+      );
+      if (serverId == null) throw const NotFoundRepoException();
       final row = await _support
           .client()
           .from('user_subscriptions')
           .update({'deleted_at': deletedAt, 'status': 'cancelled'})
           .eq('user_id', uid)
-          .eq('id', id)
+          .eq('id', serverId)
           .select('id')
           .maybeSingle();
       if (row == null) throw const NotFoundRepoException();
@@ -186,7 +199,7 @@ class SupabaseBillRepository implements BillRepository {
         subscriptionsCacheEntityType,
         () => _support.db.customStatement(
           "UPDATE subscriptions SET deleted_at = ?, status = 'cancelled', sync_status = 'synced' WHERE server_id = ?;",
-          [deletedAt, id],
+          [deletedAt, serverId],
         ),
       );
     } catch (error) {
@@ -199,12 +212,19 @@ class SupabaseBillRepository implements BillRepository {
   Future<List<BillPaymentEntity>> getPayments(String billId) async {
     final uid = await _support.requireUserId();
     try {
+      final serverBillId = await _support.resolveServerEntityId(
+        localTable: 'subscriptions',
+        serverTable: 'user_subscriptions',
+        userId: uid,
+        entityId: billId,
+      );
+      if (serverBillId == null) return const [];
       final rows = await _support
           .client()
           .from('user_bill_payments')
           .select()
           .eq('user_id', uid)
-          .eq('subscription_id', billId)
+          .eq('subscription_id', serverBillId)
           .isFilter('deleted_at', null)
           .order('paid_at', ascending: false);
       return (rows as List)
@@ -219,14 +239,32 @@ class SupabaseBillRepository implements BillRepository {
 
   @override
   Future<BillPaymentEntity> recordPayment(BillPaymentEntity payment) async {
-    await _support.requireUserId();
+    final uid = await _support.requireUserId();
     final requestId = payment.id.isEmpty ? IdGenerator.next() : payment.id;
     try {
+      final serverBillId = await _support.resolveServerEntityId(
+        localTable: 'subscriptions',
+        serverTable: 'user_subscriptions',
+        userId: uid,
+        entityId: payment.billId,
+      );
+      if (serverBillId == null) throw const NotFoundRepoException();
+      final serverTransactionId = payment.transactionId == null
+          ? null
+          : await _support.resolveServerEntityId(
+              localTable: 'transactions',
+              serverTable: 'user_transactions',
+              userId: uid,
+              entityId: payment.transactionId,
+            );
+      if (payment.transactionId != null && serverTransactionId == null) {
+        throw const NotFoundRepoException();
+      }
       final response = await _support.client().rpc(
         'record_bill_payment',
         params: {
-          'p_subscription_id': payment.billId,
-          'p_transaction_id': payment.transactionId,
+          'p_subscription_id': serverBillId,
+          'p_transaction_id': serverTransactionId,
           'p_client_request_id': requestId,
           'p_local_id': requestId,
           'p_amount': payment.amount,
@@ -256,15 +294,84 @@ class SupabaseBillRepository implements BillRepository {
   }
 
   @override
+  Future<BillPaymentEntity> createAndRecordPayment({
+    required BillEntity bill,
+    required BillPaymentEntity payment,
+  }) async {
+    await _support.requireUserId();
+    final billLocalId = bill.id.isEmpty ? IdGenerator.next() : bill.id;
+    final paymentRequestId =
+        payment.id.isEmpty ? IdGenerator.next() : payment.id;
+    final accountId = await _support.serverAccountId(bill.accountId);
+    try {
+      final response = await _support.client().rpc(
+        'create_subscription_and_record_payment',
+        params: {
+          'p_subscription_local_id': billLocalId,
+          'p_payment_client_request_id': paymentRequestId,
+          'p_name': bill.name,
+          'p_amount': bill.amount,
+          'p_currency': bill.currency,
+          'p_type': bill.type.name,
+          'p_frequency': bill.frequency.name,
+          'p_next_due_date': bill.nextDueDate.toUtc().toIso8601String(),
+          'p_created_at': bill.createdAt.toUtc().toIso8601String(),
+          'p_server_account_id': accountId,
+          'p_merchant_id': bill.merchantId,
+          'p_reminder_on': bill.reminderOn,
+          'p_is_confirmed': bill.isConfirmed,
+          'p_custom_interval_days': bill.customIntervalDays,
+          'p_note': bill.note,
+          'p_status': bill.status.name,
+          'p_total_installments': bill.totalInstallments,
+          'p_paid_count': bill.paidCount,
+          'p_manual_paid_amount': bill.manualPaidAmount,
+          'p_total_purchase_amount': bill.totalPurchaseAmount,
+          'p_lender_name': bill.lenderName,
+          'p_interest_rate': bill.interestRate,
+          'p_payment_amount': payment.amount,
+          'p_payment_period_start':
+              payment.periodStart.toUtc().toIso8601String(),
+          'p_payment_period_end': payment.periodEnd.toUtc().toIso8601String(),
+          'p_payment_paid_at': payment.paidAt.toUtc().toIso8601String(),
+          'p_payment_installment_index': payment.installmentIndex,
+          'p_payment_note': payment.note,
+        },
+      );
+      final result = Map<String, dynamic>.from(response as Map);
+      final paymentRow = Map<String, dynamic>.from(result['payment'] as Map);
+      final billRow = Map<String, dynamic>.from(result['subscription'] as Map);
+      await mirrorFinancialCacheSafely(
+        _support.db,
+        subscriptionsCacheEntityType,
+        () async {
+          await _mirrorBill(billRow, preferredLocalId: billLocalId);
+          await _mirrorPayment(paymentRow, preferredLocalId: paymentRequestId);
+        },
+      );
+      return _paymentFromRow(paymentRow);
+    } catch (error) {
+      throw mapSupabaseError(error);
+    }
+  }
+
+  @override
   Future<List<String>> deletePaymentForTransaction(String transactionId) async {
     final uid = await _support.requireUserId();
     try {
+      final serverTransactionId = await _support.resolveServerEntityId(
+        localTable: 'transactions',
+        serverTable: 'user_transactions',
+        userId: uid,
+        entityId: transactionId,
+      );
+      if (serverTransactionId == null) return const [];
       final rows = await _support
           .client()
           .from('user_bill_payments')
           .select('id, subscription_id')
           .eq('user_id', uid)
-          .eq('transaction_id', transactionId)
+          .eq('transaction_id', serverTransactionId)
           .isFilter('deleted_at', null);
       final billIds = <String>{};
       for (final raw in rows as List) {
@@ -281,11 +388,18 @@ class SupabaseBillRepository implements BillRepository {
 
   @override
   Future<void> deletePayment(String paymentId) async {
-    await _support.requireUserId();
+    final uid = await _support.requireUserId();
     try {
+      final serverPaymentId = await _support.resolveServerEntityId(
+        localTable: 'bill_payments',
+        serverTable: 'user_bill_payments',
+        userId: uid,
+        entityId: paymentId,
+      );
+      if (serverPaymentId == null) throw const NotFoundRepoException();
       final response = await _support.client().rpc(
         'delete_bill_payment',
-        params: {'p_payment_id': paymentId},
+        params: {'p_payment_id': serverPaymentId},
       );
       final result = Map<String, dynamic>.from(response as Map);
       final payment = Map<String, dynamic>.from(result['payment'] as Map);
@@ -297,7 +411,7 @@ class SupabaseBillRepository implements BillRepository {
           await _mirrorBill(bill);
           await _support.db.customStatement(
             "UPDATE bill_payments SET deleted_at = ?, sync_status = 'synced' WHERE server_id = ?;",
-            [payment['deleted_at'] as String, paymentId],
+            [payment['deleted_at'] as String, serverPaymentId],
           );
         },
       );

@@ -26,8 +26,15 @@ import 'widgets/luxe_starry_bg.dart';
 ///   4. Verify (optional)    → listens for the first captured transaction
 ///
 /// The final "ابدأ" finishes onboarding and enters the app.
+enum OnboardingSetupEntry { full, captureGuide }
+
 class OnboardingSetupScreen extends ConsumerStatefulWidget {
-  const OnboardingSetupScreen({super.key});
+  const OnboardingSetupScreen({
+    super.key,
+    this.entry = OnboardingSetupEntry.full,
+  });
+
+  final OnboardingSetupEntry entry;
 
   @override
   ConsumerState<OnboardingSetupScreen> createState() =>
@@ -68,7 +75,25 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
   @override
   void initState() {
     super.initState();
+    if (widget.entry == OnboardingSetupEntry.captureGuide) {
+      _done
+        ..[0] = true
+        ..[1] = true
+        ..[2] = true;
+      unawaited(_loadRestoredCurrency());
+    }
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  Future<void> _loadRestoredCurrency() async {
+    final settings =
+        await ref.read(userSettingsRepositoryProvider).getSettings();
+    if (!mounted) return;
+    final currency = settings.currency.trim().toUpperCase();
+    final match = _countries.where((item) => item.currency == currency);
+    if (match.isNotEmpty) {
+      setState(() => _country = match.first);
+    }
   }
 
   @override
@@ -284,6 +309,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
       duration: const Duration(milliseconds: 250),
       opacity: locked ? 0.45 : 1,
       child: IgnorePointer(
+        key: ValueKey('onboarding-step-$step-lock'),
         ignoring: locked,
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.s4),
@@ -320,8 +346,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
         Expanded(
           child: Text(title, style: AppTypography.bodyStrong(c.textMain)),
         ),
-        if (_done[step])
-          Icon(Icons.check_circle, color: c.success, size: 22),
+        if (_done[step]) Icon(Icons.check_circle, color: c.success, size: 22),
       ],
     );
   }
@@ -346,10 +371,10 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
             children: [
               for (final choice in _countries)
                 ChoiceChip(
-                  label: Text('${choice.flag} ${choice.name} · ${choice.currency}'),
+                  label: Text(
+                      '${choice.flag} ${choice.name} · ${choice.currency}'),
                   selected: _done[0] && _country.code == choice.code,
-                  onSelected:
-                      _busy ? null : (_) => _saveCountry(choice),
+                  onSelected: _busy ? null : (_) => _saveCountry(choice),
                 ),
             ],
           ),
@@ -388,8 +413,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
                   backgroundColor: c.primary,
                   minimumSize: const Size.fromHeight(46),
                 ),
-                child: Text(cta,
-                    style: AppTypography.bodyStrong(Colors.white)),
+                child: Text(cta, style: AppTypography.bodyStrong(Colors.white)),
               ),
             ),
         ],
@@ -401,11 +425,23 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
     const step = 3;
     final locked = !_done[step - 1];
     final steps = <(String, String)>[
-      ('احذف القديم', 'افتح تطبيق Shortcuts وروح لتبويب Automation واحذف أي أتمتة قديمة للتطبيق.'),
+      (
+        'احذف القديم',
+        'افتح تطبيق Shortcuts وروح لتبويب Automation واحذف أي أتمتة قديمة للتطبيق.'
+      ),
       ('جديد (+)', 'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».'),
-      ('حدّد الرسائل', 'اضغط «Message Contents» واكتب رمز عملتك مثل ${_country.currency}.'),
-      ('بدون تأكيد', 'فعّل «Run Immediately» واقفل «Notify When Run» لو ظهر، ثم Next.'),
-      ('إرسال للتطبيق', 'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input».'),
+      (
+        'حدّد الرسائل',
+        'اضغط «Message Contents» واكتب رمز عملتك مثل ${_country.currency}.'
+      ),
+      (
+        'بدون تأكيد',
+        'فعّل «Run Immediately» واقفل «Notify When Run» لو ظهر، ثم Next.'
+      ),
+      (
+        'إرسال للتطبيق',
+        'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input».'
+      ),
       ('حفظ', 'اقفل «Show When Run» لو ظهر، واضغط حفظ.'),
     ];
     return _stepCard(
@@ -555,8 +591,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
             backgroundColor: c.primary,
             minimumSize: const Size.fromHeight(54),
           ),
-          child: Text('ابدأ',
-              style: AppTypography.bodyStrong(Colors.white)),
+          child: Text('ابدأ', style: AppTypography.bodyStrong(Colors.white)),
         ),
       ),
     );

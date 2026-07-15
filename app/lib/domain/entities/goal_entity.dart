@@ -30,8 +30,7 @@ class GoalEntity {
   final String? autoSavePeriod;
   final DateTime? autoSaveLastRun;
 
-  bool get hasAutoSave =>
-      (autoSaveAmount ?? 0) > 0 && autoSavePeriod != null;
+  bool get hasAutoSave => (autoSaveAmount ?? 0) > 0 && autoSavePeriod != null;
 
   GoalEntity copyWith({
     String? id,

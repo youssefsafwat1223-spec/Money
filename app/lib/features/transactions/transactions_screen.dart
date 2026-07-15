@@ -63,6 +63,11 @@ class TransactionsScreen extends ConsumerWidget {
             final label = Formatters.dateGroupLabel(tx.occurredAt, context);
             groups.putIfAbsent(label, () => []).add(tx);
           }
+          final transactionItems = <Object>[];
+          for (final entry in groups.entries) {
+            transactionItems.add(entry.key);
+            transactionItems.addAll(entry.value);
+          }
 
           final bills = billsAsync.valueOrNull?.bills ?? [];
           final subs =
@@ -204,67 +209,99 @@ class TransactionsScreen extends ConsumerWidget {
                 ),
               ];
             },
-            body: ListView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter,
-                AppSpacing.s3,
-                AppSpacing.gutter,
-                120,
-              ),
-              children: [
-                if (tab == 0) ...[
-                  const _TransactionSearchField(),
-                  const SizedBox(height: AppSpacing.s3),
-                  const _KindFilterChips(),
-                  const SizedBox(height: AppSpacing.s4),
-                  if (view.transactions.isEmpty)
-                    const AppEmptyState(
-                      icon: AppLucideIcons.inbox,
-                      title: 'لا توجد عمليات في هذه الفترة',
-                      subtitle: 'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
-                    )
-                  else
-                    for (final entry in groups.entries) ...[
-                      _DateHeader(label: entry.key),
-                      for (final tx in entry.value)
-                        () {
-                          final category = view.catalog.byId(tx.categoryId);
-                          final title =
-                              tx.rawMerchant ?? category?.nameAr ?? 'عملية';
-                          return AppTransactionRow(
-                            title: title,
-                            amount: tx.amount,
-                            currency: Currency.arabicLabel(tx.currency),
-                            subtitle: category?.nameAr,
-                            categoryIcon: category?.icon,
-                            categoryColor: category?.color,
-                            brandLogoUrl: BrandMark.logoFor(title, logos),
-                            isPending: tx.status == TransactionStatus.pending,
-                            isAi: tx.source == TransactionSourceEntity.aiParsed,
-                            isDebit: transactionIsDebit(tx),
-                            onTap: () => TransactionDetailsScreen.showSheet(
-                              context,
-                              tx.id,
-                            ),
+            body: tab == 0
+                ? NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (notification.metrics.extentAfter < 900 &&
+                          view.hasMore &&
+                          !view.isLoadingMore) {
+                        ref.read(transactionsListProvider.notifier).loadMore();
+                      }
+                      return false;
+                    },
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.gutter,
+                        AppSpacing.s3,
+                        AppSpacing.gutter,
+                        120,
+                      ),
+                      itemCount: 4 +
+                          (view.transactions.isEmpty
+                              ? 1
+                              : transactionItems.length) +
+                          (view.isLoadingMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == 0) return const _TransactionSearchField();
+                        if (index == 1) {
+                          return const SizedBox(height: AppSpacing.s3);
+                        }
+                        if (index == 2) return const _KindFilterChips();
+                        if (index == 3) {
+                          return const SizedBox(height: AppSpacing.s4);
+                        }
+                        final itemIndex = index - 4;
+                        if (view.transactions.isEmpty) {
+                          return const AppEmptyState(
+                            icon: AppLucideIcons.inbox,
+                            title: 'لا توجد عمليات في هذه الفترة',
+                            subtitle:
+                                'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
                           );
-                        }(),
+                        }
+                        if (itemIndex >= transactionItems.length) {
+                          return const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final item = transactionItems[itemIndex];
+                        if (item is String) return _DateHeader(label: item);
+                        final tx = item as TransactionEntity;
+                        final category = view.catalog.byId(tx.categoryId);
+                        final title =
+                            tx.rawMerchant ?? category?.nameAr ?? 'عملية';
+                        return AppTransactionRow(
+                          title: title,
+                          amount: tx.amount,
+                          currency: Currency.arabicLabel(tx.currency),
+                          subtitle: category?.nameAr,
+                          categoryIcon: category?.icon,
+                          categoryColor: category?.color,
+                          brandLogoUrl: BrandMark.logoFor(title, logos),
+                          isPending: tx.status == TransactionStatus.pending,
+                          isAi: tx.source == TransactionSourceEntity.aiParsed,
+                          isDebit: transactionIsDebit(tx),
+                          onTap: () => TransactionDetailsScreen.showSheet(
+                            context,
+                            tx.id,
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.gutter,
+                      AppSpacing.s3,
+                      AppSpacing.gutter,
+                      120,
+                    ),
+                    children: [
+                      billsAsync.when(
+                        skipLoadingOnReload: true,
+                        loading: () => const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (error, _) => const Text('حدث خطأ'),
+                        data: (bills) => _BillsTab(
+                          view: bills,
+                          currencyLabel: currencyLabel,
+                        ),
+                      ),
                     ],
-                ] else ...[
-                  billsAsync.when(
-                    skipLoadingOnReload: true,
-                    loading: () => const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (error, _) => const Text('حدث خطأ'),
-                    data: (bills) => _BillsTab(
-                      view: bills,
-                      currencyLabel: currencyLabel,
-                    ),
                   ),
-                ],
-              ],
-            ),
           );
         },
       ),

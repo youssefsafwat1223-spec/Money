@@ -1,3 +1,5 @@
+import { buildApnsCollapseId } from './apns_collapse_id.ts';
+
 type ApnsEnvironment = 'sandbox' | 'production';
 
 type ApnsMessage = {
@@ -29,6 +31,7 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
 
   try {
     const jwt = await apnsJwt({ keyId, teamId, privateKey });
+    const collapseId = await buildApnsCollapseId(message.payloadId);
     const host = message.environment === 'sandbox'
       ? 'https://api.sandbox.push.apple.com'
       : 'https://api.push.apple.com';
@@ -43,7 +46,7 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
         'apns-topic': bundleId,
         'apns-push-type': 'alert',
         'apns-priority': '10',
-        'apns-collapse-id': `qirsh-capture-${message.payloadId}`,
+        'apns-collapse-id': collapseId,
         'content-type': 'application/json',
       },
       body: JSON.stringify({

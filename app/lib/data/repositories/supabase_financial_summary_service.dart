@@ -34,6 +34,13 @@ class AccountBalanceSummary {
   double? get effectiveBalance => latestBalanceAfter ?? currentBalance;
 }
 
+class BudgetSpentSummary {
+  const BudgetSpentSummary({required this.budgetId, required this.spent});
+
+  final String budgetId;
+  final double spent;
+}
+
 /// Thin authenticated client for Phase 3 summary RPCs. Widgets never use this
 /// directly; providers choose it only behind dashboard_supabase_summary.
 class SupabaseFinancialSummaryService {
@@ -130,6 +137,29 @@ class SupabaseFinancialSummaryService {
             ),
           )
           .toList(growable: false);
+    } catch (error) {
+      throw mapSupabaseError(error);
+    }
+  }
+
+  Future<Map<String, double>> budgetProgressSummary({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    await _requireAuth();
+    try {
+      final response = await _getClient().rpc(
+        'budget_progress_summary',
+        params: {
+          'p_from_inclusive': from.toUtc().toIso8601String(),
+          'p_to_exclusive': to.toUtc().toIso8601String(),
+        },
+      );
+      return {
+        for (final raw in response as List)
+          (raw as Map)['budget_id'] as String:
+              ((raw)['spent'] as num?)?.toDouble() ?? 0,
+      };
     } catch (error) {
       throw mapSupabaseError(error);
     }

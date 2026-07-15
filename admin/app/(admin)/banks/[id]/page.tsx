@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase";
 import { ArrowLeft, Save, Trash2 } from "lucide-react";
 import Link from "next/link";
 
@@ -28,7 +27,6 @@ export default function BankFormPage() {
   const { id } = useParams<{ id: string }>();
   const isNew = id === "new";
   const router = useRouter();
-  const supabase = createClient();
   const [bank, setBank] = useState<Bank>(empty);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
@@ -36,11 +34,11 @@ export default function BankFormPage() {
 
   useEffect(() => {
     if (isNew) return;
-    supabase.from("banks").select("*").eq("id", id).single().then(({ data }) => {
+    fetch(`/api/admin-data?resource=banks&id=${encodeURIComponent(id)}`, { cache: "no-store" }).then(res => res.json()).then(({ data }) => {
       if (data) setBank({ ...data, sms_senders: JSON.stringify(data.sms_senders), supported_currencies: JSON.stringify(data.supported_currencies) });
       setLoading(false);
     });
-  }, [id]);
+  }, [id, isNew]);
 
   function set(field: keyof Bank, value: unknown) {
     setBank(prev => ({ ...prev, [field]: value }));
@@ -54,13 +52,13 @@ export default function BankFormPage() {
         sms_senders: JSON.parse(bank.sms_senders),
         supported_currencies: JSON.parse(bank.supported_currencies),
       };
-      if (isNew) {
-        const { error } = await supabase.from("banks").insert(payload);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("banks").update(payload).eq("id", id);
-        if (error) throw error;
-      }
+      const response = await fetch("/api/admin-data", {
+        method: isNew ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resource: "banks", id: isNew ? undefined : id, ...payload }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Save failed");
       router.push("/banks");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -71,7 +69,8 @@ export default function BankFormPage() {
 
   async function remove() {
     if (!confirm("Delete this bank?")) return;
-    await supabase.from("banks").delete().eq("id", id);
+    const response = await fetch(`/api/admin-data?resource=banks&id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) return;
     router.push("/banks");
   }
 

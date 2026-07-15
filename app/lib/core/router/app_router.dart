@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session.dart';
@@ -54,7 +55,19 @@ final appRouter = GoRouter(
           ? '/'
           : onboardingEntryPathForSession(session);
     }
-    if (status == SessionStatus.needsOnboarding && !inOnboarding) {
+    // needsOnboarding (never/not-yet authenticated) and sessionExpired (was
+    // authenticated; the live Supabase session is no longer valid) both send
+    // a non-guest user to the same mandatory sign-in screen. Once there,
+    // `inOnboarding` is true, so this same check does not fire again on the
+    // next redirect evaluation — no loop, exactly one hop per status change.
+    if ((status == SessionStatus.needsOnboarding ||
+            status == SessionStatus.sessionExpired) &&
+        !inOnboarding) {
+      if (status == SessionStatus.sessionExpired && kDebugMode) {
+        debugPrint(
+          '[AppSession] router redirecting to sign-in: session expired',
+        );
+      }
       return onboardingEntryPathForSession(session);
     }
     if (status == SessionStatus.authenticated && inOnboarding) {

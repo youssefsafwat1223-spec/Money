@@ -29,8 +29,7 @@ class _FakeRemoteSource implements SmartInboxRemoteSource {
       activeRows;
 
   @override
-  Future<List<Map<String, dynamic>>> fetchTombstones(
-      {int limit = 200}) async =>
+  Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async =>
       tombstoneRows;
 }
 
@@ -219,7 +218,8 @@ void main() {
 
   // ── unknown type ─────────────────────────────────────────────────────────
 
-  test('unknown type from server is skipped gracefully without error', () async {
+  test('unknown type from server is skipped gracefully without error',
+      () async {
     final svc = _svc(
       db,
       activeRows: [_serverRow(id: 'srv-unknown', type: 'future_unknown_type')],

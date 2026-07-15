@@ -21,11 +21,11 @@ class BentoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    
+
     Color? bgColor;
     Color? borderColor;
     Gradient? gradient;
-    
+
     switch (theme) {
       case BentoTheme.dark:
         gradient = LinearGradient(
@@ -85,7 +85,7 @@ class BentoCard extends StatelessWidget {
 
 class BentoRow extends StatelessWidget {
   const BentoRow({super.key, required this.children, this.flexes});
-  
+
   final List<Widget> children;
   final List<int>? flexes;
 

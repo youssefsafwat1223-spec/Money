@@ -32,16 +32,14 @@ export default function ParserFormPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data: b } = await supabase.from("banks").select("id, name_ar").order("name_ar");
-      setBanks(b ?? []);
-      if (!isNew) {
-        const { data } = await supabase.from("sms_parsers").select("*").eq("id", id).single();
-        if (data) setParser({ ...data, extracted_fields: JSON.stringify(data.extracted_fields) });
-      }
+      const response = await fetch(`/api/admin-data?resource=sms_parsers${isNew ? "" : `&id=${encodeURIComponent(id)}`}`, { cache: "no-store" });
+      const body = await response.json();
+      setBanks(body.banks ?? []);
+      if (!isNew && body.data) setParser({ ...body.data, extracted_fields: JSON.stringify(body.data.extracted_fields) });
       setLoading(false);
     };
     load();
-  }, [id]);
+  }, [id, isNew]);
 
   function set(field: keyof Parser, value: unknown) {
     setParser(prev => ({ ...prev, [field]: value }));
@@ -51,13 +49,13 @@ export default function ParserFormPage() {
     setSaving(true); setError("");
     try {
       const payload = { ...parser, extracted_fields: JSON.parse(parser.extracted_fields) };
-      if (isNew) {
-        const { error } = await supabase.from("sms_parsers").insert(payload);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("sms_parsers").update(payload).eq("id", id);
-        if (error) throw error;
-      }
+      const response = await fetch("/api/admin-data", {
+        method: isNew ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resource: "sms_parsers", id: isNew ? undefined : id, ...payload }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Save failed");
       router.push("/parsers");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -176,7 +174,7 @@ export default function ParserFormPage() {
       <div className="flex items-center justify-between">
         <div>
           {!isNew && (
-            <button onClick={async () => { if (!confirm("Delete?")) return; await supabase.from("sms_parsers").delete().eq("id", id); router.push("/parsers"); }}
+            <button onClick={async () => { if (!confirm("Delete?")) return; const response = await fetch(`/api/admin-data?resource=sms_parsers&id=${encodeURIComponent(id)}`, { method: "DELETE" }); if (response.ok) router.push("/parsers"); }}
               className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm transition-colors">
               <Trash2 size={16} /> Delete
             </button>

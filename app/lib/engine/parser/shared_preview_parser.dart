@@ -64,8 +64,7 @@ class SharedPreviewParser {
     RegExp ci(String pattern) => RegExp(pattern, caseSensitive: false);
     List<String> strings(Object? value) =>
         (value as List).cast<String>().toList();
-    List<RegExp> patterns(Object? value) =>
-        strings(value).map(ci).toList();
+    List<RegExp> patterns(Object? value) => strings(value).map(ci).toList();
 
     return SharedPreviewParser._(
       currencyReplacements: [

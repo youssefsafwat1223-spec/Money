@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient, createClient } from "@/lib/supabase-server";
+import { requireAdmin } from "@/lib/auth-guard";
+import { createAdminClient } from "@/lib/supabase-server";
 
 type AnnouncementPayload = {
   id?: string;
@@ -17,18 +18,6 @@ type AnnouncementPayload = {
   priority: number;
   is_active: boolean;
 };
-
-async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error || !user) {
-    return null;
-  }
-  return user;
-}
 
 function normalizePayload(payload: AnnouncementPayload) {
   return {
@@ -49,9 +38,7 @@ function normalizePayload(payload: AnnouncementPayload) {
 }
 
 export async function GET() {
-  if (!(await requireUser())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  await requireAdmin();
 
   const supabase = await createAdminClient();
   const { data, error } = await supabase
@@ -66,9 +53,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await requireUser())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  await requireAdmin();
 
   const payload = normalizePayload((await req.json()) as AnnouncementPayload);
   const supabase = await createAdminClient();
@@ -85,9 +70,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await requireUser())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  await requireAdmin();
 
   const body = (await req.json()) as AnnouncementPayload;
   if (!body.id) {
@@ -110,9 +93,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!(await requireUser())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  await requireAdmin();
 
   const id = new URL(req.url).searchParams.get("id");
   if (!id) {

@@ -1,0 +1,12 @@
+# Copy this file to android/key.properties (same directory) and fill in real
+# values. android/key.properties is gitignored — never commit it or the
+# .jks/.keystore file it points to.
+#
+# See docs/ANDROID_RELEASE_SIGNING.md for how to generate the keystore and
+# for the equivalent ANDROID_KEYSTORE_* environment variables CI can use
+# instead of this file.
+
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=mali
+storeFile=/absolute/path/to/mali-release.jks

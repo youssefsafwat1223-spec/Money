@@ -52,7 +52,8 @@ void main() {
     test(
       'unknown type (null): إلى: content stripped — cannot confirm it is a business',
       () {
-        const sms = 'Amount: SAR 200.00\nTo: ABDELRAHMAN ABDALLA\nDate: 2026-04-16';
+        const sms =
+            'Amount: SAR 200.00\nTo: ABDELRAHMAN ABDALLA\nDate: 2026-04-16';
         final sanitized = SmsSanitizer.sanitize(sms);
         expect(sanitized, isNot(contains('ABDELRAHMAN')));
         expect(sanitized, isNot(contains('ABDALLA')));
@@ -82,7 +83,8 @@ void main() {
       const sms = 'بطاقتك *9221 تم خصم SAR 25.00';
       final sanitized = SmsSanitizer.sanitize(sms);
       expect(sanitized, contains('*9221'),
-          reason: 'Masked last-4 is not sensitive and helps users identify card');
+          reason:
+              'Masked last-4 is not sensitive and helps users identify card');
     });
 
     test('Saudi mobile number is replaced', () {
@@ -135,7 +137,8 @@ void main() {
     });
 
     test('income type strips sender name (salary payer may be a person)', () {
-      const sms = 'إيداع من: محمد الغامدي\nالمبلغ: 8500.00 SAR\nإلى: حسابك *1234';
+      const sms =
+          'إيداع من: محمد الغامدي\nالمبلغ: 8500.00 SAR\nإلى: حسابك *1234';
       final sanitized = SmsSanitizer.sanitize(
         sms,
         detectedType: TransactionType.income,
@@ -191,7 +194,8 @@ void main() {
           detectedType: TransactionType.payment,
         );
         expect(sanitized, contains('60.00EGP'),
-            reason: 'Transaction amount must survive — grounding check needs it');
+            reason:
+                'Transaction amount must survive — grounding check needs it');
         expect(sanitized, contains('28.14'),
             reason: 'Balance (5 digits max with decimal) must also survive');
         // 4907 is a 4-digit last-4 — not stripped
@@ -222,8 +226,7 @@ void main() {
         expect(sanitized, contains('[ACCOUNT]'));
         expect(sanitized, contains('242.00'),
             reason: 'Transaction amount must survive intact');
-        expect(sanitized, contains('SAR'),
-            reason: 'Currency must survive');
+        expect(sanitized, contains('SAR'), reason: 'Currency must survive');
         // *3456 is a masked last-4 — kept
         expect(sanitized, contains('*3456'));
       },
@@ -235,8 +238,8 @@ void main() {
       () {
         const sms = 'Purchase SAR 150.00 at NOON\n'
             'Card: *7890\n'
-            'Auth: 9876543210\n'     // 10-digit auth code → stripped
-            'Trace: 12345678901\n'   // 11-digit trace → stripped
+            'Auth: 9876543210\n' // 10-digit auth code → stripped
+            'Trace: 12345678901\n' // 11-digit trace → stripped
             'Balance: SAR 4,820.50\n'
             'Date: 2026-06-16';
         final sanitized = SmsSanitizer.sanitize(

@@ -574,8 +574,7 @@ class _SubscriptionCard extends StatelessWidget {
                                   const SizedBox(width: 3),
                                   Text(
                                     'قد لا تستخدم هذا الاشتراك',
-                                    style:
-                                        AppTypography.caption(c.warning),
+                                    style: AppTypography.caption(c.warning),
                                   ),
                                 ],
                               ),
@@ -785,8 +784,7 @@ class _InstallmentsTab extends StatelessWidget {
     }
     final totalRemaining = bills.fold<double>(
         0, (sum, b) => sum + b.remainingInstallments * b.amount);
-    final activeCount =
-        bills.where((b) => b.remainingInstallments > 0).length;
+    final activeCount = bills.where((b) => b.remainingInstallments > 0).length;
     final dueSoon = bills.where((b) => b.remainingInstallments > 0).toList()
       ..sort((a, b) => a.nextDueDate.compareTo(b.nextDueDate));
     final nearest = dueSoon.isEmpty ? null : dueSoon.first;

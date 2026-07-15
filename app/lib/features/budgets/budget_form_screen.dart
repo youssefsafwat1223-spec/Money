@@ -11,6 +11,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/budget_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../common/category_catalog.dart';
 import 'budgets_providers.dart';
 
@@ -158,6 +159,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   String? _accountId;
   bool _didSeedInitialState = false;
   bool _suggestionLoading = false;
+  bool _saving = false;
   double? _suggestedAmount;
   String? _suggestionKey;
 
@@ -372,7 +374,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: () => _submit(context, budget),
+                        onPressed: _saving ? null : () => _submit(budget),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
@@ -459,41 +461,51 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     );
   }
 
-  Future<void> _submit(BuildContext context, BudgetEntity? existing) async {
-    if (!_formKey.currentState!.validate() || _categoryId == null) {
+  Future<void> _submit(BudgetEntity? existing) async {
+    if (_saving || !_formKey.currentState!.validate() || _categoryId == null) {
       return;
     }
-    final amount = double.parse(_amountController.text);
-    final accounts =
-        ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
-    final selectedAccount = _selectedAccount(accounts);
-    final navigator = Navigator.of(context);
-    final budget = (existing ??
-            BudgetEntity(
-              id: IdGenerator.next(),
-              categoryId: _categoryId!,
-              amount: amount,
-              period: _period,
-              startDate: DateTime.now().toUtc(),
-              isActive: true,
-              alert80Sent: false,
-              alert100Sent: false,
-            ))
-        .copyWith(
-      categoryId: _categoryId,
-      amount: amount,
-      period: _period,
-      alert80Sent: !_alert80,
-      alert100Sent: !_alert100,
-      showOnHeader: false,
-      accountId: selectedAccount?.id,
-    );
-    await ref.read(saveBudgetUseCaseProvider).call(budget);
-    if (!mounted) {
-      return;
+    setState(() => _saving = true);
+    try {
+      final amount = double.parse(_amountController.text);
+      final accounts =
+          ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
+      final selectedAccount = _selectedAccount(accounts);
+      final navigator = Navigator.of(context);
+      final budget = (existing ??
+              BudgetEntity(
+                id: IdGenerator.next(),
+                categoryId: _categoryId!,
+                amount: amount,
+                period: _period,
+                startDate: DateTime.now().toUtc(),
+                isActive: true,
+                alert80Sent: false,
+                alert100Sent: false,
+              ))
+          .copyWith(
+        categoryId: _categoryId,
+        amount: amount,
+        period: _period,
+        alert80Sent: !_alert80,
+        alert100Sent: !_alert100,
+        showOnHeader: false,
+        accountId: selectedAccount?.id,
+      );
+      await ref.read(saveBudgetUseCaseProvider).call(budget);
+      if (!mounted) return;
+      refreshBudgets(ref);
+      navigator.pop();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is RepoException
+          ? repoExceptionMessage(error)
+          : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    refreshBudgets(ref);
-    navigator.pop();
   }
 
   Future<void> _confirmDelete(BuildContext context, String budgetId) async {

@@ -27,7 +27,8 @@ class _MockRemoteSource implements LedgerRemoteSource {
   @override
   Future<List<Map<String, dynamic>>> fetchTombstones({
     int limit = 200,
-  }) async => tombstones;
+  }) async =>
+      tombstones;
 }
 
 Map<String, dynamic> _serverRow({
@@ -198,9 +199,8 @@ void main() {
     final result = await _makeSvc(db, remote).pull();
 
     expect(result.tombstoned, 1);
-    final rows = await db
-        .customSelect('SELECT status FROM transactions;')
-        .get();
+    final rows =
+        await db.customSelect('SELECT status FROM transactions;').get();
     expect(rows.first.read<String>('status'), 'ignored');
   });
 

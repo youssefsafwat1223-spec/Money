@@ -1,6 +1,32 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 import '../entities/bill_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../entities/goal_entity.dart';
+
+/// معرّف إشعار حتمي داخل نطاق [base, base + 900000) — SHA-256 بدل hashCode،
+/// لأن hashCode غير مضمون التوزيع المنتظم وغير مستقر بين إصدارات Dart (نفس
+/// سبب استخدام SHA-256 في تقسيم أعلام الميزات، انظر feature_flag_service.dart).
+/// لا يُلغي احتمال التصادم نظرياً (مساحة أعداد صحيحة محدودة)، لكنه يقلّله
+/// عملياً بشكل كبير مقارنة بـ hashCode.
+int _deterministicNotificationId(String stableId, int base) {
+  final digest = sha256.convert(utf8.encode(stableId));
+  final value = (digest.bytes[0] << 24) |
+      (digest.bytes[1] << 16) |
+      (digest.bytes[2] << 8) |
+      digest.bytes[3];
+  return base + (value.abs() % 900000);
+}
+
+/// معرّف إشعار تذكير قسط/اشتراك، داخل نطاق [92000, 992000) كما كان سابقاً.
+int billReminderNotificationId(String billId) =>
+    _deterministicNotificationId(billId, 92000);
+
+/// معرّف إشعار بلوغ مرحلة هدف، داخل نطاق [93000, 993000) كما كان سابقاً.
+int goalMilestoneNotificationId(String goalId) =>
+    _deterministicNotificationId(goalId, 93000);
 
 enum PlannedNotificationKind {
   weeklyReport,
@@ -112,7 +138,7 @@ class NotificationPlanner {
       final label = bill.type == BillType.installment ? 'قسط' : 'اشتراك';
       planned.add(
         PlannedLocalNotification(
-          id: 92000 + bill.id.hashCode.abs().remainder(900000),
+          id: billReminderNotificationId(bill.id),
           kind: PlannedNotificationKind.subscriptionReminder,
           title: '$label ${bill.name} هيتجدد بكرة',
           body: '${bill.amount.toStringAsFixed(0)} ${bill.currency}',

@@ -71,8 +71,7 @@ class SmartInboxSyncService {
     Future<String?> Function()? getAuthUserId,
   })  : _db = db,
         _isPullEnabled = isPullEnabled,
-        _remoteSource =
-            remoteSource ?? const SupabaseSmartInboxRemoteSource(),
+        _remoteSource = remoteSource ?? const SupabaseSmartInboxRemoteSource(),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
 
   static Future<String?> _defaultGetAuthUserId() async {
@@ -159,11 +158,13 @@ class SmartInboxSyncService {
     final serverUpdatedAt = row['updated_at'] as String?;
     final now = dateTimeToSql(DateTime.now().toUtc());
 
-    final existing = await _db.customSelect(
-      'SELECT id, server_updated_at, dismissed_locally '
-      'FROM smart_inbox_items '
-      'WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
-    ).getSingleOrNull();
+    final existing = await _db
+        .customSelect(
+          'SELECT id, server_updated_at, dismissed_locally '
+          'FROM smart_inbox_items '
+          'WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
 
     if (existing != null) {
       // Locally dismissed items are not overwritten — user intent wins.
@@ -174,9 +175,8 @@ class SmartInboxSyncService {
       // Update only if the server row is newer than what we last synced.
       final localTs = existing.readNullable<String>('server_updated_at');
       final localKnown = localTs != null ? DateTime.tryParse(localTs) : null;
-      final serverTs = serverUpdatedAt != null
-          ? DateTime.tryParse(serverUpdatedAt)
-          : null;
+      final serverTs =
+          serverUpdatedAt != null ? DateTime.tryParse(serverUpdatedAt) : null;
 
       if (localKnown != null &&
           serverTs != null &&
@@ -201,8 +201,7 @@ class SmartInboxSyncService {
 
     // New row — insert.
     final id = IdGenerator.next();
-    final serverCreatedAt =
-        row['created_at'] as String? ?? now;
+    final serverCreatedAt = row['created_at'] as String? ?? now;
 
     await _db.customStatement('''
       INSERT OR IGNORE INTO smart_inbox_items(
@@ -237,10 +236,12 @@ class SmartInboxSyncService {
     if (serverId == null) return false;
 
     final now = dateTimeToSql(DateTime.now().toUtc());
-    final existing = await _db.customSelect(
-      'SELECT id, status FROM smart_inbox_items '
-      'WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
-    ).getSingleOrNull();
+    final existing = await _db
+        .customSelect(
+          'SELECT id, status FROM smart_inbox_items '
+          'WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
     if (existing == null) return false;
 
     if (existing.readNullable<String>('status') == 'dismissed') return false;

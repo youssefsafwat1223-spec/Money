@@ -418,12 +418,22 @@ class DriftTransactionRepository implements TransactionRepository {
 
   @override
   Future<List<TransactionEntity>> getAll() async {
+    return getPage(offset: 0, limit: 1 << 30);
+  }
+
+  @override
+  Future<List<TransactionEntity>> getPage({
+    required int offset,
+    int limit = 500,
+  }) async {
     final rows = await _db.customSelect(
       '''
         SELECT * FROM transactions
         WHERE status != 'ignored'
-        ORDER BY occurred_at DESC;
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT ? OFFSET ?;
       ''',
+      variables: [Variable.withInt(limit), Variable.withInt(offset)],
     ).get();
     return rows.map(transactionFromRow).toList();
   }

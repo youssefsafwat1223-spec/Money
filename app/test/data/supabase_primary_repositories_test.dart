@@ -49,6 +49,7 @@ Map<String, dynamic> _serverTransaction({
   String status = 'confirmed',
   String source = 'manual',
   DateTime? occurredAt,
+  String? parserSource,
 }) {
   final at = occurredAt ?? DateTime.utc(2026, 7, 13, 10);
   return {
@@ -75,7 +76,10 @@ Map<String, dynamic> _serverTransaction({
     'foreign_currency': null,
     'comparison_timestamp': at.toIso8601String(),
     'comparison_timestamp_source': 'received_at',
-    'metadata': {'transaction_source': 'unknown'},
+    'metadata': {
+      'transaction_source': 'unknown',
+      if (parserSource != null) 'parser_source': parserSource,
+    },
     'created_at': at.toIso8601String(),
     'updated_at': at.toIso8601String(),
     'deleted_at': null,
@@ -367,6 +371,26 @@ void main() {
           )
           .getSingle();
       expect(count.read<int>('total'), 0);
+    });
+
+    test('AI hybrid server metadata is preserved for the smart badge',
+        () async {
+      final http = MockClient((request) async => _json([
+            _serverTransaction(
+              id: 'server-ai-transaction',
+              source: 'ios_shortcut',
+              parserSource: 'ai_hybrid',
+            ),
+          ], request));
+      final repository = SupabaseTransactionRepository(
+        db: db,
+        getClient: () => _client(http),
+        getAuthUserId: () async => 'qa-user',
+      );
+
+      final rows = await repository.getAll();
+
+      expect(rows.single.source, TransactionSourceEntity.aiParsed);
     });
 
     test('missing auth fails before any network request', () async {

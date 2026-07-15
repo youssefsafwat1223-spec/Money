@@ -50,6 +50,15 @@ class ResolveBankForSenderUseCase {
     final text = Normalizer.normalizeCurrencyTokens(
       Normalizer.normalize(rawMessage),
     );
+    final contentMatch = _detectByContent(text, bankProfiles);
+    if (contentMatch != null) {
+      return BankSenderResolution(
+        source: BankSenderResolutionSource.directProfile,
+        bankProfiles: bankProfiles,
+        profile: contentMatch,
+      );
+    }
+
     final direct = BankProfiles.detect(
       text,
       senderId: senderId,
@@ -123,6 +132,26 @@ class ResolveBankForSenderUseCase {
       bankProfiles: bankProfiles,
       mapping: mapping,
     );
+  }
+
+  BankProfile? _detectByContent(
+      String normalizedText, List<BankProfile> bankProfiles) {
+    final text = normalizedText.toLowerCase();
+    final compactText = text.replaceAll(RegExp(r'[^a-z0-9\u0600-\u06ff]+'), '');
+    for (final profile in [...bankProfiles, ...BankProfiles.all]) {
+      for (final keyword in profile.keywords) {
+        final rawKeyword = keyword.trim().toLowerCase();
+        final compactKeyword = rawKeyword.replaceAll(
+          RegExp(r'[^a-z0-9\u0600-\u06ff]+'),
+          '',
+        );
+        if (rawKeyword.isEmpty || compactKeyword.isEmpty) continue;
+        if (text.contains(rawKeyword) || compactText.contains(compactKeyword)) {
+          return profile;
+        }
+      }
+    }
+    return null;
   }
 
   List<BankProfile> _upsertProfileWithSenderAlias(

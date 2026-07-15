@@ -296,6 +296,28 @@ class DriftBillRepository implements BillRepository {
   }
 
   @override
+  Future<BillPaymentEntity> createAndRecordPayment({
+    required BillEntity bill,
+    required BillPaymentEntity payment,
+  }) async {
+    final saved = await save(bill);
+    return recordPayment(
+      BillPaymentEntity(
+        id: payment.id,
+        billId: saved.id,
+        amount: payment.amount,
+        currency: payment.currency,
+        periodStart: payment.periodStart,
+        periodEnd: payment.periodEnd,
+        paidAt: payment.paidAt,
+        installmentIndex: payment.installmentIndex,
+        transactionId: payment.transactionId,
+        note: payment.note,
+      ),
+    );
+  }
+
+  @override
   Future<List<String>> deletePaymentForTransaction(String transactionId) async {
     var rows = await _db.customSelect(
       '''

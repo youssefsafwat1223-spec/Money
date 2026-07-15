@@ -39,6 +39,9 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   Future<void> linkToCurrentUser() async {}
 
   @override
+  Future<void> unlinkCurrentDevice() async {}
+
+  @override
   Future<void> syncApnsToken(ApnsTokenInfo token) async {}
 }
 
@@ -47,6 +50,21 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
 
   final List<ProcessedCaptureDto> _captures;
   final ackedPayloadIds = <String>[];
+  final processedPayloadIds = <String>[];
+
+  @override
+  Future<void> processIosSms({
+    required String installId,
+    required String deviceSecret,
+    required String payloadId,
+    required String smsText,
+    required DateTime receivedAt,
+    required bool allowAi,
+    String? sender,
+    String? locale,
+  }) async {
+    processedPayloadIds.add(payloadId);
+  }
 
   @override
   Future<List<ProcessedCaptureDto>> syncCaptures({
@@ -63,6 +81,12 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
     required String installId,
     required String deviceSecret,
     required String jwt,
+  }) async {}
+
+  @override
+  Future<void> unlinkDevice({
+    required String installId,
+    required String deviceSecret,
   }) async {}
 
   @override
@@ -138,6 +162,21 @@ void main() {
 
     expect(result.needsReviewTransactionIds, isEmpty);
     expect(client.ackedPayloadIds, ['payload-processed']);
+  });
+
+  test('AI hybrid relay capture keeps the smart transaction source', () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-ai-hybrid',
+        status: 'processed',
+        parserSource: 'ai_hybrid',
+      ),
+    ]);
+
+    await service(client).sync();
+
+    final transactions = await DriftTransactionRepository(db).getAll();
+    expect(transactions.single.source, TransactionSourceEntity.aiParsed);
   });
 
   test('processed capture is assigned to a matching currency account',
@@ -441,6 +480,7 @@ ProcessedCaptureDto _capture({
   String? direction,
   String? rawMessage,
   String? duplicateOfPayloadId,
+  String? parserSource,
 }) {
   return ProcessedCaptureDto(
     payloadId: payloadId,
@@ -450,6 +490,7 @@ ProcessedCaptureDto _capture({
       'currency': currency,
       'type': type,
       if (direction != null) 'direction': direction,
+      if (parserSource != null) 'parserSource': parserSource,
       if (duplicateOfPayloadId != null) ...{
         'duplicateStatus': 'suspicious_duplicate',
         'possibleDuplicateOfPayloadId': duplicateOfPayloadId,

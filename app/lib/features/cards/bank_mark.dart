@@ -22,18 +22,18 @@ class BankMark extends StatelessWidget {
   // short_code → (brandColor, abbreviation, svgSlug?)
   // svgSlug must exist in assets/brands/<slug>.svg
   static const _banks = <String, (Color, String, String?)>{
-    'alrajhi':     (Color(0xFF113A7B), 'AR',  null),
-    'snb':         (Color(0xFF006B54), 'SNB', null),
-    'riyad':       (Color(0xFF004B8D), 'RB',  null),
-    'stcpay':      (Color(0xFF4F008C), 'STC', null),
-    'nbe':         (Color(0xFF0E7A3D), 'NBE', null),
-    'cib_eg':      (Color(0xFF1D4F91), 'CIB', null),
-    'banque_misr': (Color(0xFF7A1F2B), 'BM',  null),
-    'qnb_alahli':  (Color(0xFF5C1A52), 'QNB', null),
-    'fawry':       (Color(0xFFFFD200), 'F',   'fawry'),
-    'vodafone_cash':(Color(0xFFE60000),'VF',  'vodafone'),
-    'orange_money': (Color(0xFFFF7900),'OM',  'orange'),
-    'etisalat_cash':(Color(0xFF6AB344),'ET',  null),
+    'alrajhi': (Color(0xFF113A7B), 'AR', null),
+    'snb': (Color(0xFF006B54), 'SNB', null),
+    'riyad': (Color(0xFF004B8D), 'RB', null),
+    'stcpay': (Color(0xFF4F008C), 'STC', null),
+    'nbe': (Color(0xFF0E7A3D), 'NBE', null),
+    'cib_eg': (Color(0xFF1D4F91), 'CIB', null),
+    'banque_misr': (Color(0xFF7A1F2B), 'BM', null),
+    'qnb_alahli': (Color(0xFF5C1A52), 'QNB', null),
+    'fawry': (Color(0xFFFFD200), 'F', 'fawry'),
+    'vodafone_cash': (Color(0xFFE60000), 'VF', 'vodafone'),
+    'orange_money': (Color(0xFFFF7900), 'OM', 'orange'),
+    'etisalat_cash': (Color(0xFF6AB344), 'ET', null),
   };
 
   // Keyword → short_code (longest / most specific first)
@@ -113,10 +113,10 @@ class BankMark extends StatelessWidget {
     final c = Theme.of(context).colorScheme;
     final fallbackColor = c.primary;
     final icon = switch (accountType) {
-      AccountType.bank   => Icons.account_balance_outlined,
+      AccountType.bank => Icons.account_balance_outlined,
       AccountType.wallet => Icons.account_balance_wallet_outlined,
-      AccountType.card   => Icons.credit_card_outlined,
-      AccountType.cash   => Icons.payments_outlined,
+      AccountType.card => Icons.credit_card_outlined,
+      AccountType.cash => Icons.payments_outlined,
     };
     return Container(
       width: size,

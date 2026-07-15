@@ -1,8 +1,37 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing: reads either android/key.properties (see
+// android/key.properties.example for the exact format and
+// docs/ANDROID_RELEASE_SIGNING.md for how to generate/store/back up the
+// keystore) or the four ANDROID_KEYSTORE_* environment variables a CI runner
+// can inject instead of committing the file. Never both silently fall back
+// to the debug key for a release build — see the `release` build type below.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+
+fun releaseSigningValue(envName: String, propertyName: String): String? {
+    val fromEnv = System.getenv(envName)
+    if (!fromEnv.isNullOrBlank()) return fromEnv
+    return keystoreProperties.getProperty(propertyName)
+}
+
+val releaseStoreFilePath = releaseSigningValue("ANDROID_KEYSTORE_PATH", "storeFile")
+val releaseStorePassword = releaseSigningValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = releaseSigningValue("ANDROID_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = releaseSigningValue("ANDROID_KEY_PASSWORD", "keyPassword")
+val hasReleaseSigningConfig = !releaseStoreFilePath.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
 
 android {
     namespace = "com.youssefsafwat.mali"
@@ -25,11 +54,53 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigningConfig) {
+            create("release") {
+                storeFile = file(releaseStoreFilePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Deliberately NEVER falls back to the debug key here: a release
+            // build silently signed with the debug key is exactly what got a
+            // real Play Store upload rejected. If no real signing config is
+            // present, `signingConfig` stays null and the task-failure hook
+            // below fails clearly instead.
+            if (hasReleaseSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+}
+
+if (!hasReleaseSigningConfig) {
+    // Fail clearly for every task that touches the release build type
+    // (assembleRelease, bundleRelease — what `flutter build apk|appbundle
+    // --release` invoke) instead of letting AGP either sign with nothing or
+    // fall through to some other implicit config. Debug-mode `flutter run`
+    // (no --release) is unaffected — it never touches these tasks.
+    tasks.configureEach {
+        val releaseTask = (name.startsWith("assemble") ||
+            name.startsWith("bundle") ||
+            name.startsWith("package")) && name.contains("Release")
+        if (releaseTask) {
+            doFirst {
+                throw GradleException(
+                    "No release signing configuration found for task '$name'. Set " +
+                        "android/key.properties (see key.properties.example) or the " +
+                        "ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASSWORD / " +
+                        "ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD environment variables " +
+                        "before building a release artifact. See " +
+                        "docs/ANDROID_RELEASE_SIGNING.md for owner steps to generate, " +
+                        "store, and back up the keystore."
+                )
+            }
         }
     }
 }

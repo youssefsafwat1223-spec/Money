@@ -171,9 +171,11 @@ class LedgerSyncService implements LedgerPullAdapter {
     final localId = await _findLocalId(serverId, payloadId);
 
     if (localId != null) {
-      final meta = await _db.customSelect(
-        "SELECT sync_status FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;",
-      ).getSingleOrNull();
+      final meta = await _db
+          .customSelect(
+            "SELECT sync_status FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;",
+          )
+          .getSingleOrNull();
       if (meta == null) return _RowOutcome.skipped;
 
       if (meta.readNullable<String>('sync_status') == 'conflict') {
@@ -232,9 +234,11 @@ class LedgerSyncService implements LedgerPullAdapter {
     final localId = await _findLocalId(serverId, payloadId);
     if (localId == null) return false;
 
-    final meta = await _db.customSelect(
-      "SELECT status, sync_status FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;",
-    ).getSingleOrNull();
+    final meta = await _db
+        .customSelect(
+          "SELECT status, sync_status FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;",
+        )
+        .getSingleOrNull();
     if (meta == null) return false;
 
     final syncStatus = meta.readNullable<String>('sync_status');
@@ -251,11 +255,13 @@ class LedgerSyncService implements LedgerPullAdapter {
   }
 
   Future<String?> _findLocalId(String serverId, String? payloadId) async {
-    final byServer = await _db.customSelect(
-      "SELECT id FROM transactions "
-      "WHERE server_id = ${sqlString(serverId)} AND status != 'ignored' "
-      "LIMIT 1;",
-    ).getSingleOrNull();
+    final byServer = await _db
+        .customSelect(
+          "SELECT id FROM transactions "
+          "WHERE server_id = ${sqlString(serverId)} AND status != 'ignored' "
+          "LIMIT 1;",
+        )
+        .getSingleOrNull();
     if (byServer != null) return byServer.read<String>('id');
 
     if (payloadId != null) {

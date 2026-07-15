@@ -132,10 +132,10 @@ class _MaliSplashState extends State<_MaliSplash>
                 child: Transform.scale(scale: _textScale.value, child: child),
               ),
               child: Image.asset(
-                  AppAssets.getLogoTagline(context),
-                  width: isDark ? 230 : 260,
-                  filterQuality: FilterQuality.high,
-                ),
+                AppAssets.getLogoTagline(context),
+                width: isDark ? 230 : 260,
+                filterQuality: FilterQuality.high,
+              ),
             ),
             // Sleek breathing loading bar at the bottom
             Positioned(
@@ -161,7 +161,6 @@ class _MaliSplashState extends State<_MaliSplash>
     );
   }
 }
-
 
 /// خلفية سائلة ومضيئة — Drift Ambient Background
 class _AmbientLiquidBackground extends StatefulWidget {

@@ -57,8 +57,11 @@ class _CardDetailsSheet extends StatelessWidget {
           child: Container(
             height: MediaQuery.of(context).size.height * 0.86,
             decoration: BoxDecoration(
-              color: isDark ? c.surface.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.92),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              color: isDark
+                  ? c.surface.withValues(alpha: 0.9)
+                  : Colors.white.withValues(alpha: 0.92),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
               border: Border.all(
                 color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
                 width: 1.5,
@@ -104,7 +107,6 @@ class _CardDetailsSheet extends StatelessWidget {
   }
 }
 
-
 class _CardDetailsContent extends ConsumerWidget {
   const _CardDetailsContent({required this.last4});
 
@@ -117,49 +119,50 @@ class _CardDetailsContent extends ConsumerWidget {
     final txAsync = ref.watch(cardTransactionsProvider(last4));
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
 
-    final summary = summaries?.where((s) => s.last4 == last4).fold<CardSummary?>(
-          null,
-          (prev, s) => s,
-        );
+    final summary =
+        summaries?.where((s) => s.last4 == last4).fold<CardSummary?>(
+              null,
+              (prev, s) => s,
+            );
 
     return ListView(
-        padding: const EdgeInsets.all(AppSpacing.gutter),
-        children: [
-          _CardHeader(
-            last4: last4,
-            network: summary?.network ?? CardNetwork.unknown,
-            totalIn: summary?.totalIn ?? 0,
-            totalOut: summary?.totalOut ?? 0,
-            currency: (txAsync.valueOrNull?.isNotEmpty ?? false)
-                ? txAsync.valueOrNull!.first.currency
-                : (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR'),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Text('عمليات هذه البطاقة', style: AppTypography.title2(c.textMain)),
-          const SizedBox(height: AppSpacing.s2),
-          txAsync.when(
-            loading: () => const Center(
-                child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: CircularProgressIndicator())),
-            error: (e, _) => const Text('حدث خطأ'),
-            data: (txns) {
-              if (txns.isEmpty) {
-                return Text('لا توجد عمليات بعد',
-                    style: AppTypography.callout(c.textLight));
-              }
-              return Column(
-                children: [
-                  for (final tx in txns)
-                    TransactionRow(
-                      transaction: tx,
-                      category: catalog?.byId(tx.categoryId),
-                    ),
-                ],
-              );
-            },
-          ),
-        ],
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      children: [
+        _CardHeader(
+          last4: last4,
+          network: summary?.network ?? CardNetwork.unknown,
+          totalIn: summary?.totalIn ?? 0,
+          totalOut: summary?.totalOut ?? 0,
+          currency: (txAsync.valueOrNull?.isNotEmpty ?? false)
+              ? txAsync.valueOrNull!.first.currency
+              : (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR'),
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        Text('عمليات هذه البطاقة', style: AppTypography.title2(c.textMain)),
+        const SizedBox(height: AppSpacing.s2),
+        txAsync.when(
+          loading: () => const Center(
+              child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator())),
+          error: (e, _) => const Text('حدث خطأ'),
+          data: (txns) {
+            if (txns.isEmpty) {
+              return Text('لا توجد عمليات بعد',
+                  style: AppTypography.callout(c.textLight));
+            }
+            return Column(
+              children: [
+                for (final tx in txns)
+                  TransactionRow(
+                    transaction: tx,
+                    category: catalog?.byId(tx.categoryId),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 }

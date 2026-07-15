@@ -10,11 +10,15 @@ class TransactionsView {
     required this.transactions,
     required this.catalog,
     required this.range,
+    this.hasMore = false,
+    this.isLoadingMore = false,
   });
 
   final List<TransactionEntity> transactions;
   final CategoryCatalog catalog;
   final TransactionsDateRange range;
+  final bool hasMore;
+  final bool isLoadingMore;
 
   int get pendingCount =>
       transactions.where((tx) => tx.status == TransactionStatus.pending).length;
@@ -35,6 +39,8 @@ class TransactionsView {
       .where((tx) => tx.type == TransactionTypeEntity.transfer)
       .fold<double>(0, (sum, tx) => sum + tx.amount);
 }
+
+const transactionsPageSize = 500;
 
 class BillsView {
   const BillsView({
@@ -183,63 +189,126 @@ final transactionsPageTabProvider = StateProvider<int>((ref) => 0);
 /// Automatically reset to false when the user leaves the transactions tab.
 final transactionsPendingFilterProvider = StateProvider<bool>((ref) => false);
 
-final transactionsListProvider = FutureProvider<TransactionsView>((ref) async {
-  ref.watch(dbRevisionProvider);
-  final txRepo = ref.watch(transactionRepositoryProvider);
-  final accountRepo = ref.watch(accountRepositoryProvider);
-  final catalog = await ref.watch(categoryCatalogProvider.future);
-  final range =
-      effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
-  final kind = ref.watch(transactionKindFilterProvider);
-  final query = ref.watch(transactionSearchQueryProvider).trim().toLowerCase();
-  final pendingOnly = ref.watch(transactionsPendingFilterProvider);
-  final selectedAccountId = ref.watch(activeAccountIdProvider);
-  final selectedAccount = selectedAccountId == null
-      ? null
-      : await accountRepo.getById(selectedAccountId);
-  final defaultAccount = await accountRepo.getDefault();
-  final activeAccount = selectedAccount ?? defaultAccount;
-  final all = await txRepo.getAll();
-  final scoped = all.where((tx) {
-    if (activeAccount == null) return true;
-    if (tx.accountId == activeAccount.id) return true;
-    return tx.accountId == null &&
-        tx.currency.toUpperCase() == activeAccount.currency.toUpperCase();
-  });
-  final inRange = scoped.where((tx) {
-    if (pendingOnly) return tx.status == TransactionStatus.pending;
-    final at = tx.occurredAt;
-    return !at.isBefore(range.from) && !at.isAfter(range.to);
-  });
-  final filteredByKind = inRange.where((tx) {
-    if (pendingOnly) return true;
-    return switch (kind) {
-      TransactionKindFilter.all => true,
-      TransactionKindFilter.expenses =>
-        tx.type == TransactionTypeEntity.payment ||
-            tx.type == TransactionTypeEntity.withdrawal,
-      TransactionKindFilter.income => tx.type == TransactionTypeEntity.income ||
-          tx.type == TransactionTypeEntity.refund,
-      TransactionKindFilter.transfers =>
-        tx.type == TransactionTypeEntity.transfer,
-    };
-  });
-  final filtered = filteredByKind.where((tx) {
-    if (query.isEmpty) return true;
-    final category = catalog.byId(tx.categoryId);
-    final haystack = [
-      tx.rawMerchant,
-      tx.currency,
-      tx.amount.toStringAsFixed(2),
-      category?.nameAr,
-      category?.key,
-      tx.note,
-    ].whereType<String>().join(' ').toLowerCase();
-    return haystack.contains(query);
-  }).toList(growable: false);
-  return TransactionsView(
-      transactions: filtered, catalog: catalog, range: range);
-});
+final transactionsListProvider = AutoDisposeAsyncNotifierProvider<
+    TransactionsListNotifier, TransactionsView>(
+  TransactionsListNotifier.new,
+);
+
+class TransactionsListNotifier
+    extends AutoDisposeAsyncNotifier<TransactionsView> {
+  var _loaded = <TransactionEntity>[];
+  var _hasMore = true;
+  var _loadingMore = false;
+
+  @override
+  Future<TransactionsView> build() async {
+    ref.watch(dbRevisionProvider);
+    ref.watch(transactionsDateRangeProvider);
+    ref.watch(transactionKindFilterProvider);
+    ref.watch(transactionSearchQueryProvider);
+    ref.watch(transactionsPendingFilterProvider);
+    ref.watch(activeAccountIdProvider);
+    _loaded = const [];
+    _hasMore = true;
+    _loadingMore = false;
+    return _loadNextPage();
+  }
+
+  Future<void> loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    final current = state.valueOrNull;
+    if (current != null) {
+      state = AsyncData(TransactionsView(
+        transactions: current.transactions,
+        catalog: current.catalog,
+        range: current.range,
+        hasMore: current.hasMore,
+        isLoadingMore: true,
+      ));
+    }
+    try {
+      final view = await _loadNextPage();
+      state = AsyncData(view);
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+    }
+  }
+
+  Future<TransactionsView> _loadNextPage() async {
+    _loadingMore = true;
+    final txRepo = ref.read(transactionRepositoryProvider);
+    final page = await txRepo.getPage(
+      offset: _loaded.length,
+      limit: transactionsPageSize,
+    );
+    _loaded = [..._loaded, ...page];
+    _hasMore = page.length == transactionsPageSize;
+    _loadingMore = false;
+    return _viewForLoaded();
+  }
+
+  Future<TransactionsView> _viewForLoaded() async {
+    final accountRepo = ref.read(accountRepositoryProvider);
+    final catalog = await ref.read(categoryCatalogProvider.future);
+    final range =
+        effectiveTransactionsRange(ref.read(transactionsDateRangeProvider));
+    final kind = ref.read(transactionKindFilterProvider);
+    final query = ref.read(transactionSearchQueryProvider).trim().toLowerCase();
+    final pendingOnly = ref.read(transactionsPendingFilterProvider);
+    final selectedAccountId = ref.read(activeAccountIdProvider);
+    final selectedAccount = selectedAccountId == null
+        ? null
+        : await accountRepo.getById(selectedAccountId);
+    final defaultAccount = await accountRepo.getDefault();
+    final activeAccount = selectedAccount ?? defaultAccount;
+    final all = _loaded;
+    final scoped = all.where((tx) {
+      if (activeAccount == null) return true;
+      if (tx.accountId == activeAccount.id) return true;
+      return tx.accountId == null &&
+          tx.currency.toUpperCase() == activeAccount.currency.toUpperCase();
+    });
+    final inRange = scoped.where((tx) {
+      if (pendingOnly) return tx.status == TransactionStatus.pending;
+      final at = tx.occurredAt;
+      return !at.isBefore(range.from) && !at.isAfter(range.to);
+    });
+    final filteredByKind = inRange.where((tx) {
+      if (pendingOnly) return true;
+      return switch (kind) {
+        TransactionKindFilter.all => true,
+        TransactionKindFilter.expenses =>
+          tx.type == TransactionTypeEntity.payment ||
+              tx.type == TransactionTypeEntity.withdrawal,
+        TransactionKindFilter.income =>
+          tx.type == TransactionTypeEntity.income ||
+              tx.type == TransactionTypeEntity.refund,
+        TransactionKindFilter.transfers =>
+          tx.type == TransactionTypeEntity.transfer,
+      };
+    });
+    final filtered = filteredByKind.where((tx) {
+      if (query.isEmpty) return true;
+      final category = catalog.byId(tx.categoryId);
+      final haystack = [
+        tx.rawMerchant,
+        tx.currency,
+        tx.amount.toStringAsFixed(2),
+        category?.nameAr,
+        category?.key,
+        tx.note,
+      ].whereType<String>().join(' ').toLowerCase();
+      return haystack.contains(query);
+    }).toList(growable: false);
+    return TransactionsView(
+      transactions: filtered,
+      catalog: catalog,
+      range: range,
+      hasMore: _hasMore,
+      isLoadingMore: _loadingMore,
+    );
+  }
+}
 
 final billsViewProvider = FutureProvider<BillsView>((ref) async {
   ref.watch(dbRevisionProvider);

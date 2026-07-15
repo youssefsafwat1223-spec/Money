@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Variable;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/supabase_transaction_repository.dart';
@@ -36,13 +37,17 @@ class TransactionsBackfillService {
     required AppDatabase db,
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
+    Future<String?> Function()? getLocalDataOwnerUid,
   })  : _db = db,
         _getClient = getClient ?? (() => Supabase.instance.client),
-        _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
+        _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
+        _getLocalDataOwnerUid =
+            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
 
   final AppDatabase _db;
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
+  final Future<String?> Function() _getLocalDataOwnerUid;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -64,9 +69,25 @@ class TransactionsBackfillService {
     return unresolved.read<int>('n') == 0;
   }
 
+  /// دفاع في العمق: يرفض الترحيل إن كانت البيانات المحلية مسجَّلة كملك لهوية
+  /// Supabase مختلفة عن الهوية الحالية — حماية إضافية إن فشل مسح تسجيل
+  /// الخروج بصمت (انظر AppSession.signOut). `null` (لا تعارض معروف بعد) يُسمح
+  /// به عمداً، وإلا لتعطّل أول ترحيل لمستخدم حالي قبل هذا التحديث.
+  Future<void> _assertLocalDataOwnership(String uid) async {
+    final ownerUid = await _getLocalDataOwnerUid();
+    if (ownerUid != null && ownerUid != uid) {
+      throw const ValidationRepoException(
+        'Local transactions are recorded as owned by a different signed-in '
+        'identity than the one currently authenticated — refusing to '
+        'upload them to avoid cross-account data leakage.',
+      );
+    }
+  }
+
   Future<TransactionBackfillReport> run() async {
     final uid = await _getAuthUserId();
     if (uid == null) throw const AuthRepoException();
+    await _assertLocalDataOwnership(uid);
     if (!await accountsBackfillVerified()) {
       throw const ValidationRepoException(
         'Accounts backfill is not verified complete — refusing to start transactions backfill.',

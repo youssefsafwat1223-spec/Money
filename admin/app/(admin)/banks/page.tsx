@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
 import { Plus, Pencil } from "lucide-react";
 
 export default async function BanksPage() {
+  await requireAdmin();
   const supabase = await createAdminClient();
   const { data: banks } = await supabase
     .from("banks")

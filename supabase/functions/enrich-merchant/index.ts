@@ -4,14 +4,26 @@
 // `merchant_keywords`, which devices sync via catalog-delta and then reuse
 // offline forever.
 //
-// Trigger: admin panel button, or a cron over the `pending_merchant_feedback`
-// queue. Auth: Bearer (a valid Supabase user — e.g. the admin).
+// Trigger: called directly from the app's normal transaction flow whenever
+// an unknown merchant is encountered (see app_providers.dart /
+// captured_message_processor.dart), not just an admin panel button. Auth:
+// Bearer (any valid project token, including the app's public anon key) —
+// rate-limited per install below since the caller isn't admin-restricted.
 //
 // Required secrets:
 //   GOOGLE_MAPS_API_KEY        (Places API enabled)
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { bumpCaptureEndpointRateLimit, installHash } from '../_shared/capture_auth.ts';
+
+// Per-install daily cap. Enrichment happens organically as unknown merchants
+// show up during normal use, so this is looser than parse-sms's AI-call cap —
+// it just bounds worst-case Google Places spend and catalog-write volume from
+// a single caller (the endpoint accepts any valid project token, including
+// the public anon key shipped in the app binary, so it has no other caller
+// identity to bound by).
+const DAILY_LIMIT_PER_INSTALL = 200;
 
 const MAPS_API_KEY = Deno.env.get('GOOGLE_MAPS_API_KEY') ?? '';
 const PLACES_URL = 'https://places.googleapis.com/v1/places:searchText';
@@ -207,6 +219,24 @@ Deno.serve(async (req) => {
   );
 
   const body = await req.json().catch(() => null);
+
+  const installId = (body?.install_id as string | undefined)?.trim();
+  if (installId) {
+    const installIdHash = await installHash(installId);
+    const limited = await bumpCaptureEndpointRateLimit(
+      supabase,
+      installIdHash,
+      'enrich-merchant',
+      DAILY_LIMIT_PER_INSTALL,
+    );
+    if (limited) {
+      return new Response(JSON.stringify({ error: 'rate_limited' }), {
+        status: 429,
+        headers: corsHeaders,
+      });
+    }
+  }
+
   const merchantName = (body?.merchant_name as string | undefined)?.trim();
   if (!merchantName) {
     return new Response(JSON.stringify({ error: 'missing_merchant_name' }), {

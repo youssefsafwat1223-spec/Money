@@ -67,7 +67,9 @@ class _LuxeMeshGradientState extends State<LuxeMeshGradient>
                 bottom: MediaQuery.of(context).size.height * 0.1 +
                     sin(time + pi / 2) * 80 -
                     100,
-                child: _buildOrb(const Color(0xFFC0C0C0).withValues(alpha: 0.15), 200), // Silver accent
+                child: _buildOrb(
+                    const Color(0xFFC0C0C0).withValues(alpha: 0.15),
+                    200), // Silver accent
               ),
               // Heavy glass blur over the orbs to create the mesh effect
               Positioned.fill(

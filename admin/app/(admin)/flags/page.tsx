@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase";
 import { Save } from "lucide-react";
 
 type Flag = {
@@ -9,18 +8,30 @@ type Flag = {
 };
 
 export default function FlagsPage() {
-  const supabase = createClient();
   const [flags, setFlags] = useState<Flag[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.from("feature_flags").select("*").order("key").then(({ data }) => setFlags(data ?? []));
+    fetch("/api/admin-data?resource=feature_flags", { cache: "no-store" })
+      .then(response => response.json())
+      .then(body => setFlags(body.data ?? []));
   }, []);
 
   async function toggle(flag: Flag) {
-    const updated = { ...flag, is_active: !flag.is_active };
-    setFlags(prev => prev.map(f => f.id === flag.id ? updated : f));
-    await supabase.from("feature_flags").update({ is_active: updated.is_active }).eq("id", flag.id);
+    const activating = !flag.is_active;
+    if (activating && flag.rollout_percent > 0) {
+      const confirmed = window.confirm(
+        `"${flag.key}" will go live to ${flag.rollout_percent}% of users immediately. Continue?`
+      );
+      if (!confirmed) return;
+    }
+    const updated = { ...flag, is_active: activating };
+    const response = await fetch("/api/admin-data", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "feature_flags", ...updated }),
+    });
+    if (response.ok) setFlags(prev => prev.map(f => f.id === flag.id ? updated : f));
   }
 
   async function updateRollout(flag: Flag, pct: number) {
@@ -29,7 +40,11 @@ export default function FlagsPage() {
 
   async function saveFlag(flag: Flag) {
     setSaving(flag.id);
-    await supabase.from("feature_flags").update({ value: flag.value, rollout_percent: flag.rollout_percent }).eq("id", flag.id);
+    await fetch("/api/admin-data", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "feature_flags", ...flag }),
+    });
     setSaving(null);
   }
 

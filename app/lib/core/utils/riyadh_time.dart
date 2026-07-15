@@ -1,15 +1,16 @@
 class RiyadhTime {
   RiyadhTime._();
 
+  /// Legacy constant kept for source compatibility only. Calendar boundaries
+  /// now follow the device-local timezone instead of a fixed Riyadh offset.
   static const Duration offset = Duration(hours: 3);
 
   static DateTime toRiyadh(DateTime dateTime) {
-    final utc = dateTime.isUtc ? dateTime : dateTime.toUtc();
-    return utc.add(offset);
+    return dateTime.toLocal();
   }
 
   static DateTime fromRiyadh(DateTime dateTime) {
-    final normalized = DateTime.utc(
+    return DateTime(
       dateTime.year,
       dateTime.month,
       dateTime.day,
@@ -19,13 +20,11 @@ class RiyadhTime {
       dateTime.millisecond,
       dateTime.microsecond,
     );
-    return normalized.subtract(offset);
   }
 
   static DateTime startOfDay(DateTime dateTime) {
-    final riyadh = toRiyadh(dateTime);
-    return DateTime.utc(riyadh.year, riyadh.month, riyadh.day)
-        .subtract(offset);
+    final local = dateTime.toLocal();
+    return DateTime(local.year, local.month, local.day);
   }
 
   static DateTime endOfDay(DateTime dateTime) {
@@ -33,11 +32,10 @@ class RiyadhTime {
   }
 
   static DateTime startOfWeek(DateTime dateTime) {
-    final riyadh = toRiyadh(dateTime);
-    final daysSinceSaturday = riyadh.weekday % 7;
-    return DateTime.utc(riyadh.year, riyadh.month, riyadh.day)
-        .subtract(Duration(days: daysSinceSaturday))
-        .subtract(offset);
+    final local = dateTime.toLocal();
+    final daysSinceSaturday = local.weekday % 7;
+    return DateTime(local.year, local.month, local.day)
+        .subtract(Duration(days: daysSinceSaturday));
   }
 
   static DateTime endOfWeek(DateTime dateTime) {
@@ -45,18 +43,18 @@ class RiyadhTime {
   }
 
   static DateTime startOfMonth(DateTime dateTime) {
-    final riyadh = toRiyadh(dateTime);
-    return DateTime.utc(riyadh.year, riyadh.month).subtract(offset);
+    final local = dateTime.toLocal();
+    return DateTime(local.year, local.month);
   }
 
   static DateTime endOfMonth(DateTime dateTime) {
-    final riyadh = toRiyadh(dateTime);
-    return DateTime.utc(riyadh.year, riyadh.month + 1).subtract(offset);
+    final local = dateTime.toLocal();
+    return DateTime(local.year, local.month + 1);
   }
 
   static DateTime activityDate(DateTime dateTime) {
-    final riyadh = toRiyadh(dateTime);
-    return DateTime.utc(riyadh.year, riyadh.month, riyadh.day);
+    final local = dateTime.toLocal();
+    return DateTime(local.year, local.month, local.day);
   }
 
   static int dayGap(DateTime from, DateTime to) {

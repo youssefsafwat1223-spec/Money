@@ -42,6 +42,20 @@ class ApnsTokenInfo {
   final String environment;
 }
 
+class ApnsRegistrationFailure {
+  const ApnsRegistrationFailure({
+    required this.message,
+    required this.occurredAt,
+    this.domain,
+    this.code,
+  });
+
+  final String message;
+  final DateTime occurredAt;
+  final String? domain;
+  final int? code;
+}
+
 class CaptureNotificationRoute {
   const CaptureNotificationRoute({
     this.payloadId,
@@ -67,6 +81,8 @@ class NativeCaptureBridge {
       MethodChannel('money_companion/native_capture');
   static Future<void> Function()? _pendingMessagesHandler;
   static Future<void> Function(ApnsTokenInfo token)? _apnsTokenHandler;
+  static Future<void> Function(ApnsRegistrationFailure failure)?
+      _apnsFailureHandler;
   static Future<void> Function()? _notificationRouteHandler;
 
   static void setPendingMessagesHandler(
@@ -83,6 +99,13 @@ class NativeCaptureBridge {
     _configureMethodHandler();
   }
 
+  static void setApnsRegistrationFailedHandler(
+    Future<void> Function(ApnsRegistrationFailure failure)? handler,
+  ) {
+    _apnsFailureHandler = handler;
+    _configureMethodHandler();
+  }
+
   static void setNotificationRouteHandler(
     Future<void> Function()? handler,
   ) {
@@ -93,6 +116,7 @@ class NativeCaptureBridge {
   static void _configureMethodHandler() {
     if (_pendingMessagesHandler == null &&
         _apnsTokenHandler == null &&
+        _apnsFailureHandler == null &&
         _notificationRouteHandler == null) {
       _channel.setMethodCallHandler(null);
       return;
@@ -106,6 +130,13 @@ class NativeCaptureBridge {
         final token = _tokenInfoFrom(call.arguments);
         if (token != null) {
           await _apnsTokenHandler?.call(token);
+        }
+        return null;
+      }
+      if (call.method == 'apnsRegistrationFailed') {
+        final failure = _apnsFailureFrom(call.arguments);
+        if (failure != null) {
+          await _apnsFailureHandler?.call(failure);
         }
         return null;
       }
@@ -184,6 +215,17 @@ class NativeCaptureBridge {
     try {
       final result = await _channel.invokeMethod<Object?>('getApnsToken');
       return _tokenInfoFrom(result);
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  static Future<ApnsRegistrationFailure?> getApnsRegistrationFailure() async {
+    if (!Platform.isIOS) return null;
+    try {
+      final result =
+          await _channel.invokeMethod<Object?>('getApnsRegistrationFailure');
+      return _apnsFailureFrom(result);
     } on MissingPluginException {
       return null;
     }
@@ -358,5 +400,21 @@ class NativeCaptureBridge {
     final environment = _emptyToNull(value['environment'] as String?);
     if (token == null || environment == null) return null;
     return ApnsTokenInfo(token: token, environment: environment);
+  }
+
+  static ApnsRegistrationFailure? _apnsFailureFrom(Object? value) {
+    if (value is! Map) return null;
+    final message = _emptyToNull(value['message'] as String?);
+    final occurredAtRaw = _emptyToNull(value['occurredAt'] as String?);
+    final occurredAt = occurredAtRaw == null
+        ? null
+        : DateTime.tryParse(occurredAtRaw)?.toUtc();
+    if (message == null || occurredAt == null) return null;
+    return ApnsRegistrationFailure(
+      message: message,
+      occurredAt: occurredAt,
+      domain: _emptyToNull(value['domain'] as String?),
+      code: value['code'] is int ? value['code'] as int : null,
+    );
   }
 }

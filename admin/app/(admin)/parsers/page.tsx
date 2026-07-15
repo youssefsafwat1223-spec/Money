@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
 import { Plus, Pencil, CheckCircle, Clock, XCircle } from "lucide-react";
 
@@ -15,6 +16,7 @@ const statusLabel: Record<string, string> = {
 };
 
 export default async function ParsersPage() {
+  await requireAdmin();
   const supabase = await createAdminClient();
   const { data: parsers } = await supabase
     .from("sms_parsers")

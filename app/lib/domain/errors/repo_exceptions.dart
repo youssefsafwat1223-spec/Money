@@ -66,6 +66,8 @@ RepoException mapSupabaseError(Object error) {
       case '23503': // foreign_key_violation
       case '23514': // check_violation
       case '23502': // not_null_violation
+      case '22P02': // invalid_text_representation (for example bad UUID)
+      case '22023': // invalid_parameter_value from owner-checked RPCs
         return ValidationRepoException(error.message);
       case '42501': // insufficient_privilege (RLS/grant denial)
         return ForbiddenRepoException(error.message);
@@ -73,6 +75,8 @@ RepoException mapSupabaseError(Object error) {
         return ForbiddenRepoException(error.message);
       case '28000': // invalid_authorization_specification (our RPC's auth.uid() null check)
         return AuthRepoException(error.message);
+      case 'P0002': // no_data_found from owner-scoped RPC lookups
+        return const NotFoundRepoException();
     }
     // PostgREST returns a plain 5xx-shaped PostgrestException for backend
     // failures with no SQLSTATE code attached.

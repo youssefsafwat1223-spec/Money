@@ -69,6 +69,15 @@ class RoutedBillRepository implements BillRepository {
         () => _drift.recordPayment(payment),
       );
   @override
+  Future<BillPaymentEntity> createAndRecordPayment({
+    required BillEntity bill,
+    required BillPaymentEntity payment,
+  }) =>
+      _route(
+        () => _supabase.createAndRecordPayment(bill: bill, payment: payment),
+        () => _drift.createAndRecordPayment(bill: bill, payment: payment),
+      );
+  @override
   Future<BillEntity> save(BillEntity bill) =>
       _route(() => _supabase.save(bill), () => _drift.save(bill));
 }

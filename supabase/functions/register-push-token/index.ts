@@ -1,10 +1,13 @@
 import {
   corsHeaders,
+  bumpCaptureEndpointRateLimit,
   json,
   readString,
   serviceClient,
   verifyDevice,
 } from '../_shared/capture_auth.ts';
+
+const REGISTER_PUSH_TOKEN_LIMIT_PER_DAY = 60;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -24,6 +27,9 @@ Deno.serve(async (req) => {
   const supabase = serviceClient();
   const auth = await verifyDevice(supabase, installId, deviceSecret);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (await bumpCaptureEndpointRateLimit(supabase, auth.installIdHash, 'register-push-token', REGISTER_PUSH_TOKEN_LIMIT_PER_DAY)) {
+    return json({ error: 'rate_limit_exceeded' }, 429);
+  }
 
   const { error } = await supabase
     .from('capture_devices')

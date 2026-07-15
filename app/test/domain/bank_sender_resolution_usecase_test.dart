@@ -92,6 +92,40 @@ void main() {
     );
   });
 
+  test('message content disambiguates shared sender before confirmed mapping',
+      () async {
+    const sharedSender = 'BANK-GW';
+    const firstBank = BankProfile(
+      bankKey: 'first_bank',
+      displayName: 'First Bank',
+      keywords: ['firstbank'],
+      senderIds: [sharedSender],
+    );
+    const secondBank = BankProfile(
+      bankKey: 'second_bank',
+      displayName: 'Second Bank',
+      keywords: ['secondbank'],
+      senderIds: [sharedSender],
+    );
+    final repo = _FakeSenderBankMappingRepository()
+      ..seed(_mapping(
+        senderId: sharedSender,
+        bankKey: 'first_bank',
+        status: SenderBankMappingStatus.confirmed,
+      ));
+    final resolver = ResolveBankForSenderUseCase(mappingRepository: repo);
+
+    final resolution = await resolver(
+      rawMessage: 'SECOND BANK notice: secondbank purchase AED 25.00',
+      senderId: sharedSender,
+      bankProfiles: const [firstBank, secondBank],
+      now: DateTime.utc(2026, 6, 16),
+    );
+
+    expect(resolution.source, BankSenderResolutionSource.directProfile);
+    expect(resolution.profile?.bankKey, 'second_bank');
+  });
+
   test('rejected mapping prevents discovery eligibility during cooldown',
       () async {
     final now = DateTime.utc(2026, 6, 16);

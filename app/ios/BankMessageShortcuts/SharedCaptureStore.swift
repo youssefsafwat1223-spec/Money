@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 /// Shared store between the Flutter host app, the Share Extension, and the
@@ -27,6 +28,7 @@ enum SharedCaptureStore {
   private static let apnsTokenKey = "apns_token"
   private static let apnsEnvironmentKey = "apns_environment"
   private static let pendingNotificationRoutesKey = "pending_notification_routes_v1"
+  private static let queueLockFileName = "pending_bank_messages.lock"
 
   private static var defaults: UserDefaults? {
     UserDefaults(suiteName: appGroupIdentifier)
@@ -36,6 +38,7 @@ enum SharedCaptureStore {
 
   enum CaptureStatus: String, Codable {
     case pending
+    case pendingSend
     case sent
     case failed
   }
@@ -151,25 +154,70 @@ enum SharedCaptureStore {
       createdAt: createdAtString
     )
 
-    var queue = loadQueue()
-    if let existing = queue.first(where: { $0.id == payloadID }) {
-      if notifyHost {
-        notifyPendingMessagesAvailable()
+    return withQueueLock {
+      var queue = loadQueue()
+      if let existing = queue.first(where: { $0.id == payloadID }) {
+        if notifyHost {
+          notifyPendingMessagesAvailable()
+        }
+        return .duplicate(existing)
       }
-      return .duplicate(existing)
-    }
 
-    queue.append(payload)
-    guard saveQueue(queue, notifyHost: notifyHost) else {
-      return .failed("Could not save the SMS payload.")
+      queue.append(payload)
+      guard saveQueue(queue, notifyHost: notifyHost) else {
+        return .failed("Could not save the SMS payload.")
+      }
+      return .enqueued(payload)
     }
-    return .enqueued(payload)
   }
 
   /// Backward-compatible single store used by older call sites.
   @discardableResult
   static func store(text: String) -> EnqueueResult {
     enqueue(text: text, sender: nil)
+  }
+
+  /// Updates one durable queue entry without changing its stable payload ID.
+  @discardableResult
+  static func updateStatus(
+    payloadID: String,
+    status: CaptureStatus,
+    failureReason: String? = nil
+  ) -> Bool {
+    withQueueLock {
+      var queue = loadQueue()
+      guard let index = queue.firstIndex(where: { $0.id == payloadID }) else {
+        return false
+      }
+      let current = queue[index]
+      queue[index] = Payload(
+        id: current.id,
+        text: current.text,
+        sender: current.sender,
+        senderName: current.senderName,
+        senderId: current.senderId,
+        source: current.source,
+        receivedAt: current.receivedAt,
+        locale: current.locale,
+        status: status.rawValue,
+        failureReason: clean(failureReason),
+        sentAt: status == .sent ? isoFormatter.string(from: Date()) : current.sentAt,
+        createdAt: current.createdAt
+      )
+      return saveQueue(queue, notifyHost: false)
+    }
+  }
+
+  /// Removes only a positively acknowledged payload; other queue entries stay.
+  @discardableResult
+  static func remove(payloadID: String) -> Bool {
+    withQueueLock {
+      var queue = loadQueue()
+      let before = queue.count
+      queue.removeAll(where: { $0.id == payloadID })
+      guard queue.count != before else { return false }
+      return saveQueue(queue, notifyHost: false)
+    }
   }
 
   /// Returns true when the App Group queue currently has pending messages.
@@ -185,64 +233,68 @@ enum SharedCaptureStore {
   /// The queue is removed only after JSON encoding succeeds so messages are not
   /// lost if encoding fails.
   static func consumePendingPayloadsJSON() -> String? {
-    var queue = loadQueue()
-    if let legacy = defaults?.string(forKey: legacyKey),
-       !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      let receivedAt = isoFormatter.string(from: Date())
-      queue.append(Payload(
-        id: makePayloadID(
+    withQueueLock {
+      var queue = loadQueue()
+      if let legacy = defaults?.string(forKey: legacyKey),
+         !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let receivedAt = isoFormatter.string(from: Date())
+        queue.append(Payload(
+          id: makePayloadID(
+            text: legacy,
+            sender: nil,
+            senderName: nil,
+            senderID: nil,
+            source: "legacy",
+            receivedAt: receivedAt
+          ),
           text: legacy,
           sender: nil,
           senderName: nil,
-          senderID: nil,
+          senderId: nil,
           source: "legacy",
-          receivedAt: receivedAt
-        ),
-        text: legacy,
-        sender: nil,
-        senderName: nil,
-        senderId: nil,
-        source: "legacy",
-        receivedAt: receivedAt,
-        locale: Locale.autoupdatingCurrent.identifier,
-        status: CaptureStatus.pending.rawValue,
-        failureReason: nil,
-        sentAt: nil,
-        createdAt: receivedAt
-      ))
-    }
-    guard !queue.isEmpty else {
+          receivedAt: receivedAt,
+          locale: Locale.autoupdatingCurrent.identifier,
+          status: CaptureStatus.pending.rawValue,
+          failureReason: nil,
+          sentAt: nil,
+          createdAt: receivedAt
+        ))
+      }
+      guard !queue.isEmpty else {
+        updatePendingMetadata([])
+        return nil
+      }
+      guard let data = try? JSONEncoder().encode(queue),
+            let json = String(data: data, encoding: .utf8) else {
+        return nil
+      }
+      defaults?.removeObject(forKey: queueKey)
+      defaults?.removeObject(forKey: legacyKey)
       updatePendingMetadata([])
-      return nil
+      defaults?.synchronize()
+      return json
     }
-    guard let data = try? JSONEncoder().encode(queue),
-          let json = String(data: data, encoding: .utf8) else {
-      return nil
-    }
-    defaults?.removeObject(forKey: queueKey)
-    defaults?.removeObject(forKey: legacyKey)
-    updatePendingMetadata([])
-    defaults?.synchronize()
-    return json
   }
 
   /// Backward-compatible single consume that returns the oldest text only.
   static func consumePendingText() -> String? {
-    var queue = loadQueue()
-    if queue.isEmpty {
-      if let legacy = defaults?.string(forKey: legacyKey),
-         !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        defaults?.removeObject(forKey: legacyKey)
+    withQueueLock {
+      var queue = loadQueue()
+      if queue.isEmpty {
+        if let legacy = defaults?.string(forKey: legacyKey),
+           !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          defaults?.removeObject(forKey: legacyKey)
+          updatePendingMetadata([])
+          defaults?.synchronize()
+          return legacy
+        }
         updatePendingMetadata([])
-        defaults?.synchronize()
-        return legacy
+        return nil
       }
-      updatePendingMetadata([])
-      return nil
+      let first = queue.removeFirst()
+      _ = saveQueue(queue)
+      return first.text
     }
-    let first = queue.removeFirst()
-    _ = saveQueue(queue)
-    return first.text
   }
 
   static func backendConfig() -> BackendConfig {
@@ -351,6 +403,23 @@ enum SharedCaptureStore {
       return []
     }
     return queue
+  }
+
+  private static func withQueueLock<T>(_ body: () -> T) -> T {
+    guard let containerURL = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    ) else {
+      return body()
+    }
+    let lockURL = containerURL.appendingPathComponent(queueLockFileName)
+    let fd = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard fd >= 0 else {
+      return body()
+    }
+    defer { close(fd) }
+    flock(fd, LOCK_EX)
+    defer { flock(fd, LOCK_UN) }
+    return body()
   }
 
   @discardableResult

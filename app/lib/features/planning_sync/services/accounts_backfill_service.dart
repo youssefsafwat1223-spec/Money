@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Variable;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/errors/repo_exceptions.dart';
@@ -35,13 +36,17 @@ class AccountsBackfillService {
     required AppDatabase db,
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
+    Future<String?> Function()? getLocalDataOwnerUid,
   })  : _db = db,
         _getClient = getClient ?? (() => Supabase.instance.client),
-        _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
+        _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
+        _getLocalDataOwnerUid =
+            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
 
   final AppDatabase _db;
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
+  final Future<String?> Function() _getLocalDataOwnerUid;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -52,9 +57,24 @@ class AccountsBackfillService {
     }
   }
 
+  /// دفاع في العمق: يرفض الترحيل إن كانت البيانات المحلية مسجَّلة كملك لهوية
+  /// Supabase مختلفة عن الهوية الحالية. انظر النسخة المطابقة في
+  /// TransactionsBackfillService لشرح لماذا `null` مسموح به عمداً.
+  Future<void> _assertLocalDataOwnership(String uid) async {
+    final ownerUid = await _getLocalDataOwnerUid();
+    if (ownerUid != null && ownerUid != uid) {
+      throw const ValidationRepoException(
+        'Local accounts are recorded as owned by a different signed-in '
+        'identity than the one currently authenticated — refusing to '
+        'upload them to avoid cross-account data leakage.',
+      );
+    }
+  }
+
   Future<AccountBackfillReport> run() async {
     final uid = await _getAuthUserId();
     if (uid == null) throw const AuthRepoException();
+    await _assertLocalDataOwnership(uid);
 
     // كل الحسابات المحلية — بلا فلترة على sync_status أو deleted_at.
     final localRows = await _db.customSelect('SELECT * FROM accounts;').get();

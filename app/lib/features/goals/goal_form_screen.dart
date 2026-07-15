@@ -11,6 +11,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../budgets/budgets_providers.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'goals_providers.dart';
@@ -157,6 +158,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
   bool _autoSaveOn = false;
   String _autoSavePeriod = 'monthly';
   bool _seeded = false;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -323,10 +325,12 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('ادخار تلقائي',
-                              style: _alex(14, FontWeight.w800, 1.2, c.textMain)),
+                              style:
+                                  _alex(14, FontWeight.w800, 1.2, c.textMain)),
                           const SizedBox(height: 2),
                           Text('قرش يضيف المبلغ للهدف كل فترة تلقائياً',
-                              style: _alex(11, FontWeight.w600, 1.3, c.textLight)),
+                              style:
+                                  _alex(11, FontWeight.w600, 1.3, c.textLight)),
                         ],
                       ),
                     ),
@@ -401,7 +405,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                 ],
               ),
               child: ElevatedButton(
-                onPressed: _submit,
+                onPressed: _saving ? null : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
@@ -409,10 +413,18 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: Text(
-                  widget.goal == null ? 'أنشئ الهدف' : 'حفظ التعديل',
-                  style: _alex(15, FontWeight.w800, 1.2, Colors.white),
-                ),
+                child: _saving
+                    ? const SizedBox.square(
+                        dimension: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        widget.goal == null ? 'أنشئ الهدف' : 'حفظ التعديل',
+                        style: _alex(15, FontWeight.w800, 1.2, Colors.white),
+                      ),
               ),
             ),
           ),
@@ -473,40 +485,67 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_saving || !_formKey.currentState!.validate()) {
       return;
     }
-    final accountId = widget.goal?.accountId ?? await _resolveAccountId();
-    final base = widget.goal;
-    final autoAmount = double.tryParse(_autoSaveController.text.trim()) ?? 0;
-    final autoOn = _autoSaveOn && autoAmount > 0;
-    final goal = GoalEntity(
-      id: base?.id ?? IdGenerator.next(),
-      name: _nameController.text.trim(),
-      accountId: accountId,
-      targetAmount: double.parse(_amountController.text),
-      savedAmount: base?.savedAmount ?? 0,
-      deadline: _deadline?.toUtc(),
-      vaultSkin: base?.vaultSkin ?? 'default_vault',
-      status: base?.status ?? 'active',
-      createdAt: base?.createdAt ?? DateTime.now().toUtc(),
-      autoSaveAmount: autoOn ? autoAmount : null,
-      autoSavePeriod: autoOn ? _autoSavePeriod : null,
-      // Start the schedule now so catch-up doesn't backfill from creation.
-      autoSaveLastRun:
-          autoOn ? (base?.autoSaveLastRun ?? DateTime.now().toUtc()) : null,
-    );
-    await ref.read(saveGoalUseCaseProvider).call(goal);
-    if (!mounted) {
-      return;
+    final deadline = _deadline;
+    if (deadline != null) {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final deadlineDate = DateTime(
+        deadline.year,
+        deadline.month,
+        deadline.day,
+      );
+      if (deadlineDate.isBefore(today)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('اختار موعدًا نهائيًا قادمًا أو اليوم.')),
+        );
+        return;
+      }
     }
-    refreshGoals(ref);
-    refreshBudgets(ref);
-    ref.invalidate(dashboardDataProvider);
-    if (widget.goal != null) {
-      ref.invalidate(goalDetailsProvider(widget.goal!.id));
+    setState(() => _saving = true);
+    try {
+      final accountId = widget.goal?.accountId ?? await _resolveAccountId();
+      final base = widget.goal;
+      final autoAmount = double.tryParse(_autoSaveController.text.trim()) ?? 0;
+      final autoOn = _autoSaveOn && autoAmount > 0;
+      final goal = GoalEntity(
+        id: base?.id ?? IdGenerator.next(),
+        name: _nameController.text.trim(),
+        accountId: accountId,
+        targetAmount: double.parse(_amountController.text),
+        savedAmount: base?.savedAmount ?? 0,
+        deadline: _deadline?.toUtc(),
+        vaultSkin: base?.vaultSkin ?? 'default_vault',
+        status: base?.status ?? 'active',
+        createdAt: base?.createdAt ?? DateTime.now().toUtc(),
+        autoSaveAmount: autoOn ? autoAmount : null,
+        autoSavePeriod: autoOn ? _autoSavePeriod : null,
+        // Start the schedule now so catch-up doesn't backfill from creation.
+        autoSaveLastRun:
+            autoOn ? (base?.autoSaveLastRun ?? DateTime.now().toUtc()) : null,
+      );
+      await ref.read(saveGoalUseCaseProvider).call(goal);
+      if (!mounted) return;
+      refreshGoals(ref);
+      refreshBudgets(ref);
+      ref.invalidate(dashboardDataProvider);
+      if (widget.goal != null) {
+        ref.invalidate(goalDetailsProvider(widget.goal!.id));
+      }
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is RepoException
+          ? repoExceptionMessage(error)
+          : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    Navigator.of(context).pop();
   }
 
   Future<String?> _resolveAccountId() async {

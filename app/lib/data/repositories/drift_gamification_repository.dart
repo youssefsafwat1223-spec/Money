@@ -22,30 +22,37 @@ class DriftGamificationRepository implements GamificationRepository {
 
   @override
   Future<List<AchievementEntity>> getAchievements() async {
-    final rows = await _db.customSelect(
-      'SELECT * FROM achievements ORDER BY name_ar ASC;',
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM achievements ORDER BY name_ar ASC;',
+        )
+        .get();
     return rows.map(achievementFromRow).toList();
   }
 
   @override
   Future<StreakEntity> getStreak() async {
-    final row = await _db.customSelect(
-      'SELECT * FROM streaks LIMIT 1;',
-    ).getSingle();
+    final row = await _db
+        .customSelect(
+          'SELECT * FROM streaks LIMIT 1;',
+        )
+        .getSingle();
     return streakFromRow(row);
   }
 
   @override
   Future<XpLevelEntity> getXpLevel() async {
-    final row = await _db.customSelect(
-      'SELECT * FROM xp_levels LIMIT 1;',
-    ).getSingle();
+    final row = await _db
+        .customSelect(
+          'SELECT * FROM xp_levels LIMIT 1;',
+        )
+        .getSingle();
     return xpLevelFromRow(row);
   }
 
   @override
-  Future<AchievementEntity> saveAchievement(AchievementEntity achievement) async {
+  Future<AchievementEntity> saveAchievement(
+      AchievementEntity achievement) async {
     await _db.customStatement('''
       UPDATE achievements
       SET name_ar = ${sqlString(achievement.nameAr)},

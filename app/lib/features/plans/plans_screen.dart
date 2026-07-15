@@ -10,6 +10,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
 import '../common/app_card.dart';
 import '../common/app_empty_state.dart';
 import '../common/app_header.dart';
@@ -206,12 +207,26 @@ class _PlanCard extends ConsumerWidget {
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
-    await ref.read(planRepositoryProvider).delete(progress.plan.id);
-    ref.invalidate(plansWithSpentProvider);
-    ref.invalidate(planProgressProvider(progress.plan.id));
-    ref.invalidate(planTransactionsProvider(progress.plan.id));
-    ref.invalidate(dashboardDataProvider);
-    if (context.mounted) Navigator.of(context).pop();
+    try {
+      await ref.read(planRepositoryProvider).delete(progress.plan.id);
+      ref.invalidate(plansWithSpentProvider);
+      ref.invalidate(planProgressProvider(progress.plan.id));
+      ref.invalidate(planTransactionsProvider(progress.plan.id));
+      ref.invalidate(dashboardDataProvider);
+      if (context.mounted) Navigator.of(context).pop();
+    } on RepoException catch (error) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(repoExceptionMessage(error))),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر حذف الخطة الآن.')),
+      );
+    }
   }
 }
 
