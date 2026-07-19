@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/di/app_providers.dart';
 import '../common/category_catalog.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 Future<void> exportTransactionsCsv(
   BuildContext context,
@@ -34,15 +35,11 @@ Future<void> exportTransactionsCsv(
       text: 'تصدير عمليات قرش بصيغة CSV.',
     );
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_successMessage(export.count, shared: true))),
-    );
+    AppToast.show(context, _successMessage(export.count, shared: true));
   } catch (_) {
     await Clipboard.setData(ClipboardData(text: export.csv));
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_successMessage(export.count, shared: false))),
-    );
+    AppToast.show(context, _successMessage(export.count, shared: false));
   }
 }
 
@@ -53,9 +50,7 @@ Future<void> exportTransactionsCsvToClipboard(
   final export = await _buildTransactionsCsv(ref);
   await Clipboard.setData(ClipboardData(text: export.csv));
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(_successMessage(export.count, shared: false))),
-  );
+  AppToast.show(context, _successMessage(export.count, shared: false));
 }
 
 Future<_TransactionsCsvExport> _buildTransactionsCsv(WidgetRef ref) async {

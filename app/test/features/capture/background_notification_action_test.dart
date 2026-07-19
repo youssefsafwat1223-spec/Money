@@ -106,4 +106,28 @@ void main() {
     expect(drained, hasLength(1));
     expect(drained.single.confirm, isFalse);
   });
+
+  test(
+      'sequential drains (app startup, then a later resume) never return '
+      'the same action twice', () async {
+    await LocalNotificationService.debugRunBackgroundAction(
+      'tx-race-1',
+      confirm: true,
+    );
+
+    // Simulates AppShell's initial-mount drain followed by a later
+    // AppLifecycleState.resumed drain for the same pending action. AppShell
+    // never issues these two calls concurrently — _reconcileDataAfterResume
+    // guards re-entry with _isReconcilingAfterResume, so a resume firing
+    // while startup reconciliation is still running is a no-op rather than
+    // a second overlapping drain(). Note: PendingNotificationActions.drain()
+    // itself is a read-then-delete and is NOT safe against true concurrent
+    // callers — the AppShell guard is what keeps calls to it sequential.
+    final first = await PendingNotificationActions.drain();
+    final second = await PendingNotificationActions.drain();
+
+    final totalDrained = [...first, ...second];
+    expect(totalDrained, hasLength(1));
+    expect(totalDrained.single.transactionId, 'tx-race-1');
+  });
 }

@@ -1,5 +1,6 @@
 import 'package:postgrest/postgrest.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:drift/drift.dart' show Variable;
 
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/budget_entity.dart';
@@ -74,7 +75,7 @@ class SupabaseBudgetRepository implements BudgetRepository {
   @override
   Future<BudgetEntity> save(BudgetEntity budget) async {
     final uid = await _support.requireUserId();
-    final categoryKey = await _support.categoryKey(budget.categoryId);
+    final categoryRefs = await _categoryRefs(budget.categoryId);
     final accountId = await _support.serverAccountId(budget.accountId);
     final localId = budget.id.isEmpty ? IdGenerator.next() : budget.id;
     final existingServerId = await _support.resolveServerEntityId(
@@ -84,7 +85,8 @@ class SupabaseBudgetRepository implements BudgetRepository {
       entityId: budget.id,
     );
     final payload = {
-      'category_id': categoryKey,
+      'category_id': categoryRefs.$1 ?? 'other',
+      'user_category_id': categoryRefs.$2,
       'amount': budget.amount,
       'period': budget.period.name,
       'start_date': budget.startDate.toUtc().toIso8601String(),
@@ -199,7 +201,7 @@ class SupabaseBudgetRepository implements BudgetRepository {
   Future<BudgetEntity> _fromRow(Map<String, dynamic> row) async {
     return BudgetEntity(
       id: row['id'] as String,
-      categoryId: await _support.localCategoryId(row['category_id'] as String),
+      categoryId: await _localCategoryId(row),
       amount: (row['amount'] as num).toDouble(),
       period: BudgetPeriod.values.firstWhere(
         (value) => value.name == row['period'],
@@ -224,8 +226,7 @@ class SupabaseBudgetRepository implements BudgetRepository {
       serverId: serverId,
       preferred: preferredLocalId ?? row['local_id'] as String?,
     );
-    final categoryId =
-        await _support.localCategoryId(row['category_id'] as String);
+    final categoryId = await _localCategoryId(row);
     final localAccountId =
         await _support.localAccountId(row['server_account_id'] as String?);
     final now = dateTimeToSql(DateTime.now().toUtc());
@@ -260,5 +261,33 @@ class SupabaseBudgetRepository implements BudgetRepository {
       row['updated_at'] as String,
       row['deleted_at'] as String?,
     ]);
+  }
+
+  Future<(String?, String?)> _categoryRefs(String categoryId) async {
+    final row = await _support.db.customSelect(
+      'SELECT key, server_id FROM categories WHERE id = ? OR key = ? LIMIT 1;',
+      variables: [
+        Variable.withString(categoryId),
+        Variable.withString(categoryId),
+      ],
+    ).getSingleOrNull();
+    final key = row?.readNullable<String>('key') ?? categoryId;
+    final serverId = row?.readNullable<String>('server_id');
+    return serverId == null ? (key, null) : (null, serverId);
+  }
+
+  Future<String> _localCategoryId(Map<String, dynamic> row) async {
+    final customId = row['user_category_id'] as String?;
+    if (customId != null) {
+      final local = await _support.db.customSelect(
+        'SELECT id FROM categories WHERE server_id = ? OR id = ? LIMIT 1;',
+        variables: [
+          Variable.withString(customId),
+          Variable.withString(customId),
+        ],
+      ).getSingleOrNull();
+      if (local != null) return local.read<String>('id');
+    }
+    return _support.localCategoryId((row['category_id'] as String?) ?? 'other');
   }
 }

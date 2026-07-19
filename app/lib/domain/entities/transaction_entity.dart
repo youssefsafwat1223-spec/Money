@@ -13,6 +13,7 @@ enum TransactionSourceEntity {
   wallet,
   unknown,
   aiParsed,
+  imported,
 }
 
 enum TransactionStatus { confirmed, pending, ignored }

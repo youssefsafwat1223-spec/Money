@@ -103,6 +103,8 @@ import UserNotifications
         ))
       case "consumePendingNotificationRoutes":
         result(SharedCaptureStore.consumePendingNotificationRoutesJSON())
+      case "consumePendingNotificationLogEvents":
+        result(SharedCaptureStore.consumePendingNotificationLogEventsJSON())
       case "reEnqueueSharedMessage":
         // Puts a drained message back after Flutter failed to process it —
         // the queue drain is destructive, so without this a single failing

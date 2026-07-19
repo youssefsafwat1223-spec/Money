@@ -270,7 +270,7 @@ void main() {
     expect(transactions.single.type, TransactionTypeEntity.transfer);
   });
 
-  test('direct capture reuses canonical source payload and only acks relay',
+  test('Supabase-primary relay reuses canonical source payload and only acks',
       () async {
     const payloadId = 'payload-direct-existing';
     var transactionPosts = 0;
@@ -305,12 +305,12 @@ void main() {
       dedupStore: DriftDedupStore(db),
       suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
       registrationService: _FakeRegistrationService(),
-      accountRepository: DriftAccountRepository(db),
+      accountRepository: null,
       client: client,
       backendConfigured: true,
       loadInstallId: () async => 'install-id',
       directTransactionRepository: directRepository,
-      isDirectCaptureEnabled: () => true,
+      isSupabasePrimaryEnabled: () => true,
     );
 
     final result = await syncService.sync();
@@ -323,6 +323,64 @@ void main() {
       '10000000-0000-4000-8000-000000000001',
     );
     expect(await db.count('transactions'), 1);
+  });
+
+  test('Supabase-primary relay inserts a missing capture before ack', () async {
+    const payloadId = 'payload-relay-missing';
+    var transactionPosts = 0;
+    final http = MockClient((request) async {
+      if (request.method == 'GET') {
+        return Response(
+          'null',
+          200,
+          headers: const {'content-type': 'application/json'},
+          request: request,
+        );
+      }
+      transactionPosts++;
+      final row = _serverTransaction(payloadId);
+      return Response(
+        jsonEncode(row),
+        201,
+        headers: const {'content-type': 'application/json'},
+        request: request,
+      );
+    });
+    final directRepository = SupabaseTransactionRepository(
+      db: db,
+      getClient: () => SupabaseClient(
+        'https://example.supabase.co',
+        'anon-key',
+        httpClient: http,
+        accessToken: () async => 'qa-token',
+      ),
+      getAuthUserId: () async => 'qa-user',
+    );
+    final client = _FakeCaptureBackendClient([
+      _capture(payloadId: payloadId, status: 'processed'),
+    ]);
+    final syncService = CaptureSyncService(
+      settingsRepository: settingsRepository,
+      transactionRepository: DriftTransactionRepository(db),
+      dedupStore: DriftDedupStore(db),
+      suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
+      registrationService: _FakeRegistrationService(),
+      client: client,
+      backendConfigured: true,
+      loadInstallId: () async => 'install-id',
+      directTransactionRepository: directRepository,
+      isSupabasePrimaryEnabled: () => true,
+    );
+
+    final result = await syncService.sync();
+
+    expect(transactionPosts, 1);
+    expect(result.importedPayloadIds, {payloadId});
+    expect(client.ackedPayloadIds, [payloadId]);
+    expect(
+      await syncService.transactionIdForPayload(payloadId),
+      '10000000-0000-4000-8000-000000000001',
+    );
   });
 
   test('failed ack followed by dedup prune must not re-import the capture',

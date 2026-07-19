@@ -64,6 +64,7 @@ class CaptureNotificationRoute {
     this.notificationType,
     this.source,
     this.receivedAt,
+    this.notificationLogId,
   });
 
   final String? payloadId;
@@ -72,6 +73,35 @@ class CaptureNotificationRoute {
   final String? notificationType;
   final String? source;
   final DateTime? receivedAt;
+  final String? notificationLogId;
+}
+
+/// One notification lifecycle event recorded natively (iOS Shortcut local
+/// fallback notifications) and drained here for Flutter to fold into the
+/// local `notification_log_events` outbox — see
+/// docs/NOTIFICATION_PIPELINE_AUDIT.md Phase 1.
+class NativeNotificationLogEvent {
+  const NativeNotificationLogEvent({
+    required this.notificationLogId,
+    required this.eventType,
+    required this.channel,
+    required this.notificationType,
+    this.relatedEntityType,
+    this.relatedEntityId,
+    this.errorCode,
+    this.errorReason,
+    this.occurredAt,
+  });
+
+  final String notificationLogId;
+  final String eventType;
+  final String channel;
+  final String notificationType;
+  final String? relatedEntityType;
+  final String? relatedEntityId;
+  final String? errorCode;
+  final String? errorReason;
+  final DateTime? occurredAt;
 }
 
 class NativeCaptureBridge {
@@ -363,13 +393,59 @@ class NativeCaptureBridge {
       for (final item in decoded)
         if (item is Map)
           CaptureNotificationRoute(
-            payloadId: _emptyToNull(item['payloadId'] as String?),
-            transactionId: _emptyToNull(item['transactionId'] as String?),
-            smartInboxItemId: _emptyToNull(item['smartInboxItemId'] as String?),
-            notificationType: _emptyToNull(item['notificationType'] as String?),
-            source: _emptyToNull(item['source'] as String?),
+            payloadId: _emptyToNull(_asString(item['payloadId'])),
+            transactionId: _emptyToNull(_asString(item['transactionId'])),
+            smartInboxItemId: _emptyToNull(_asString(item['smartInboxItemId'])),
+            notificationType: _emptyToNull(_asString(item['notificationType'])),
+            source: _emptyToNull(_asString(item['source'])),
             receivedAt: item['receivedAt'] is String
                 ? DateTime.tryParse(item['receivedAt'] as String)?.toUtc()
+                : null,
+            notificationLogId:
+                _emptyToNull(_asString(item['notificationLogId'])),
+          ),
+    ];
+  }
+
+  /// Drains the iOS Shortcut extension's local notification-scheduling
+  /// events (created/sent/failed) recorded via SharedCaptureStore. Returns
+  /// an empty list on Android or when nothing is pending.
+  static Future<List<NativeNotificationLogEvent>>
+      consumePendingNotificationLogEvents() async {
+    if (!Platform.isIOS) return const [];
+    final String? json;
+    try {
+      json = await _channel
+          .invokeMethod<String>('consumePendingNotificationLogEvents');
+    } on MissingPluginException {
+      return const [];
+    }
+    if (json == null || json.trim().isEmpty) return const [];
+    final List<dynamic> decoded;
+    try {
+      decoded = jsonDecode(json) as List<dynamic>;
+    } on FormatException {
+      return const [];
+    }
+    return [
+      for (final item in decoded)
+        if (item is Map &&
+            item['notificationLogId'] is String &&
+            item['eventType'] is String &&
+            item['channel'] is String &&
+            item['notificationType'] is String)
+          NativeNotificationLogEvent(
+            notificationLogId: item['notificationLogId'] as String,
+            eventType: item['eventType'] as String,
+            channel: item['channel'] as String,
+            notificationType: item['notificationType'] as String,
+            relatedEntityType:
+                _emptyToNull(_asString(item['relatedEntityType'])),
+            relatedEntityId: _emptyToNull(_asString(item['relatedEntityId'])),
+            errorCode: _emptyToNull(_asString(item['errorCode'])),
+            errorReason: _emptyToNull(_asString(item['errorReason'])),
+            occurredAt: item['occurredAt'] is String
+                ? DateTime.tryParse(item['occurredAt'] as String)?.toUtc()
                 : null,
           ),
     ];
@@ -393,6 +469,13 @@ class NativeCaptureBridge {
     if (value == null || value.isEmpty) return null;
     return value;
   }
+
+  /// Like a `value as String?` cast, but tolerant of an unexpected JSON type
+  /// (e.g. a number) instead of throwing — one malformed field in a decoded
+  /// native payload must not take down the whole list comprehension it's
+  /// part of. See notification_log_service_test.dart / requirement 9 of the
+  /// Phase 1 notification-tracking hardening pass.
+  static String? _asString(Object? value) => value is String ? value : null;
 
   static ApnsTokenInfo? _tokenInfoFrom(Object? value) {
     if (value is! Map) return null;

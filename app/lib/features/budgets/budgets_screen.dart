@@ -20,6 +20,7 @@ import '../common/premium_loading.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../common/app_card.dart';
 import '../common/app_empty_state.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../goals/goal_details_screen.dart';
@@ -28,6 +29,7 @@ import '../transactions/transaction_details_screen.dart';
 import 'allocate_income_sheet.dart';
 import 'budget_form_screen.dart';
 import 'budgets_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 class BudgetsScreen extends ConsumerWidget {
   const BudgetsScreen({super.key});
@@ -333,9 +335,7 @@ class BudgetsScreen extends ConsumerWidget {
       ref.invalidate(dashboardDataProvider);
     } on RepoException catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(repoExceptionMessage(error))),
-      );
+      AppToast.showError(context, repoExceptionMessage(error));
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -505,8 +505,7 @@ class _HeaderMetric extends StatelessWidget {
           Text(
             value,
             textAlign: TextAlign.center,
-            style: AppTypography.bodyStrong(c.textMain)
-                .copyWith(fontFamily: 'Outfit'),
+            style: AppTypography.bodyStrong(c.textMain),
           ),
           const SizedBox(height: 4),
           Text(
@@ -656,8 +655,8 @@ class _BudgetsHeader extends StatelessWidget {
                                     ? '${Formatters.amount(target)} $currencyLabel'
                                     : '${Formatters.amount(limit)} $currencyLabel',
                             style: AppTypography.title2(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
@@ -936,7 +935,7 @@ class _MonthHeader extends StatelessWidget {
           Text(
             label,
             style: AppTypography.footnote(c.textSecondary)
-                .copyWith(fontWeight: FontWeight.w800, fontFamily: 'Outfit'),
+                .copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(width: AppSpacing.s2),
           Expanded(child: Divider(color: c.border, height: 1)),
@@ -1057,8 +1056,7 @@ class _BudgetHistoryRow extends StatelessWidget {
             children: [
               Text(
                 '${Formatters.integer(entry.spent)} / ${Formatters.integer(entry.budget.amount)}',
-                style: AppTypography.subhead(c.textPrimary)
-                    .copyWith(fontFamily: 'Outfit'),
+                style: AppTypography.subhead(c.textPrimary),
               ),
               const SizedBox(height: 2),
               Text(
@@ -1098,12 +1096,12 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _BudgetPeriodDetailsSheet(
+      builder: (_) => navySheetTheme(_BudgetPeriodDetailsSheet(
         history: history,
         category: category,
         accountName: accountName,
         currencyLabel: currencyLabel,
-      ),
+      )),
     );
   }
 
@@ -1167,9 +1165,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                     ],
                   ),
                 ),
-                Text('$percent%',
-                    style: AppTypography.title2(progressColor)
-                        .copyWith(fontFamily: 'Outfit')),
+                Text('$percent%', style: AppTypography.title2(progressColor)),
               ],
             ),
             const SizedBox(height: AppSpacing.s4),

@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -119,7 +120,7 @@ class _AccountPicker extends ConsumerWidget {
       context: context,
       showDragHandle: true,
       backgroundColor: c.surface,
-      builder: (context) => Directionality(
+      builder: (context) => navySheetTheme(Directionality(
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -167,7 +168,7 @@ class _AccountPicker extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -256,7 +257,7 @@ class _DateRangeChips extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
+      builder: (context) => navySheetTheme(StatefulBuilder(
         builder: (context, setState) {
           final c = context.colors;
           return AppSheetScaffold(
@@ -369,7 +370,7 @@ class _DateRangeChips extends ConsumerWidget {
             ),
           );
         },
-      ),
+      )),
     );
   }
 }

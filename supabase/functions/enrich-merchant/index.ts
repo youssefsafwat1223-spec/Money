@@ -114,7 +114,22 @@ function bestEffortCategoryForMerchant(merchantName: string): string {
   if (hasAny(['CAFE', 'COFFEE', 'ESPRESSO', 'BAKERY', 'PATISSERIE', 'كافيه', 'قهوة', 'مخبز'])) {
     return 'cafes';
   }
-  if (hasAny(['RESTAURANT', 'REST', 'BURGER', 'PIZZA', 'CHICKEN', 'GRILL', 'KITCHEN', 'FOOD', 'مطعم', 'بيتزا', 'برجر', 'مشويات'])) {
+  if (
+    hasAny([
+      'RESTAURANT',
+      'REST',
+      'BURGER',
+      'PIZZA',
+      'CHICKEN',
+      'GRILL',
+      'KITCHEN',
+      'FOOD',
+      'مطعم',
+      'بيتزا',
+      'برجر',
+      'مشويات',
+    ])
+  ) {
     return 'restaurants';
   }
   if (hasAny(['MARKET', 'MART', 'GROCERY', 'SUPERMARKET', 'HYPER', 'BAQALA', 'بقالة', 'سوبر', 'ماركت'])) {
@@ -263,8 +278,7 @@ Deno.serve(async (req) => {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': MAPS_API_KEY,
-          'X-Goog-FieldMask':
-            'places.displayName,places.primaryType,places.types',
+          'X-Goog-FieldMask': 'places.displayName,places.primaryType,places.types',
         },
         body: JSON.stringify({
           textQuery: merchantName,
@@ -317,8 +331,8 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     };
     const { error: writeError } = existing?.id
-        ? await supabase.from('merchant_keywords').update(row).eq('id', existing.id)
-        : await supabase.from('merchant_keywords').insert(row);
+      ? await supabase.from('merchant_keywords').update(row).eq('id', existing.id)
+      : await supabase.from('merchant_keywords').insert(row);
     if (writeError) {
       return new Response(
         JSON.stringify({

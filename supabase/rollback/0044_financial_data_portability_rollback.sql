@@ -1,0 +1,11 @@
+revoke execute on function public.import_financial_package(text,text,jsonb) from authenticated;
+revoke execute on function public.delete_user_category_safely(uuid) from authenticated;
+drop function if exists public.import_financial_package(text,text,jsonb);
+drop function if exists public.delete_user_category_safely(uuid);
+drop trigger if exists trg_user_transactions_category_ownership on public.user_transactions;
+drop trigger if exists trg_user_budgets_category_ownership on public.user_budgets;
+drop function if exists public.validate_user_category_ownership();
+alter table public.user_transactions drop column if exists user_category_id;
+alter table public.user_budgets drop column if exists user_category_id;
+drop table if exists public.financial_import_runs;
+drop table if exists public.user_categories;

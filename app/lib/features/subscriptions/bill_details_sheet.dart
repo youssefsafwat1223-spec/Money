@@ -5,6 +5,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
@@ -20,6 +21,7 @@ import '../transactions/transactions_providers.dart';
 import 'bill_form_sheet.dart';
 import 'bill_payment_attempt.dart';
 import 'subscriptions_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 class BillDetailsSheet extends ConsumerWidget {
   const BillDetailsSheet({super.key, required this.bill});
@@ -32,7 +34,7 @@ class BillDetailsSheet extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => BillDetailsSheet(bill: bill),
+      builder: (_) => navySheetTheme(BillDetailsSheet(bill: bill)),
     );
   }
 
@@ -489,9 +491,7 @@ class BillDetailsSheet extends ConsumerWidget {
       await ref.read(billRepositoryProvider).delete(bill.id);
     } on RepoException catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(repoExceptionMessage(error))),
-      );
+      AppToast.showError(context, repoExceptionMessage(error));
       return;
     } catch (_) {
       if (!context.mounted) return;
@@ -506,9 +506,8 @@ class BillDetailsSheet extends ConsumerWidget {
     ref.invalidate(dashboardDataProvider);
     if (!context.mounted) return;
     final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
     navigator.pop();
-    messenger.showSnackBar(SnackBar(content: Text('اتحذف ${bill.name}')));
+    AppToast.show(context, 'اتحذف ${bill.name}');
   }
 }
 
@@ -571,9 +570,7 @@ class _BillPaymentRow extends ConsumerWidget {
       await ref.read(billRepositoryProvider).deletePayment(payment.id);
     } on RepoException catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(repoExceptionMessage(error))),
-      );
+      AppToast.showError(context, repoExceptionMessage(error));
       return;
     } catch (_) {
       if (!context.mounted) return;
@@ -646,7 +643,6 @@ class _BillPaymentRow extends ConsumerWidget {
             '${Formatters.amount(payment.amount)} ${Currency.arabicLabel(payment.currency)}',
             style: AppTypography.caption(c.success).copyWith(
               fontWeight: FontWeight.w900,
-              fontFamily: 'Outfit',
             ),
           ),
           const SizedBox(width: AppSpacing.s2),

@@ -11,7 +11,7 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 21;
+const int _targetSchemaVersion = 23;
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -89,6 +89,7 @@ class AppDatabase extends GeneratedDatabase {
     await _createSchema();
     await _runCompatibilityMigrations();
     await _seedIfNeeded();
+    await _enforceRequiredProcessingSettings();
     await _dedupeCategoryRows();
     await _backfillSystemTransactionCategories();
     await _backfillTransactionDirections();
@@ -192,7 +193,12 @@ class AppDatabase extends GeneratedDatabase {
         icon TEXT NOT NULL,
         color TEXT NOT NULL,
         is_income INTEGER NOT NULL,
-        sort_order INTEGER NOT NULL
+        sort_order INTEGER NOT NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+        deleted_at TEXT NULL
       );
     ''');
 
@@ -316,6 +322,7 @@ class AppDatabase extends GeneratedDatabase {
         amount REAL NOT NULL,
         created_at TEXT NOT NULL,
         note TEXT NULL,
+        deleted_at TEXT NULL,
         FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
       );
     ''');
@@ -422,7 +429,8 @@ class AppDatabase extends GeneratedDatabase {
         notifications_json TEXT NOT NULL,
         db_encryption_key_ref TEXT NOT NULL,
         privacy_mode_enabled INTEGER NOT NULL DEFAULT 0,
-        cloud_processing_enabled INTEGER NOT NULL DEFAULT 0
+        ai_consent_granted INTEGER NOT NULL DEFAULT 1,
+        cloud_processing_enabled INTEGER NOT NULL DEFAULT 1
       );
     ''');
 
@@ -518,6 +526,7 @@ class AppDatabase extends GeneratedDatabase {
         plan_id TEXT NOT NULL,
         transaction_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
+        deleted_at TEXT NULL,
         PRIMARY KEY (plan_id, transaction_id),
         FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
         FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
@@ -579,7 +588,7 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn(
       'user_settings',
       'cloud_processing_enabled',
-      'INTEGER NOT NULL DEFAULT 0',
+      'INTEGER NOT NULL DEFAULT 1',
     );
     await _ensureColumn('user_settings', 'display_name', 'TEXT NULL');
     await _ensureColumn('user_settings', 'phone_number', 'TEXT NULL');
@@ -758,6 +767,35 @@ class AppDatabase extends GeneratedDatabase {
     await _ensurePlanningEntitySyncSchema();
     await _ensurePlanningChildSyncSchema();
     await _createPlanningSyncOutboxTable();
+    // v22: portable custom categories. Built-in catalog rows keep these null;
+    // only user-created rows participate in server mirroring/import.
+    await _ensureColumn('categories', 'server_id', 'TEXT NULL');
+    await _ensureColumn('categories', 'synced_at', 'TEXT NULL');
+    await _ensureColumn('categories', 'server_updated_at', 'TEXT NULL');
+    await _ensureColumn(
+      'categories',
+      'sync_status',
+      "TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict'))",
+    );
+    await _ensureColumn('categories', 'deleted_at', 'TEXT NULL');
+    await _ensureColumn('goal_contributions', 'deleted_at', 'TEXT NULL');
+    await _ensureColumn('bill_payments', 'deleted_at', 'TEXT NULL');
+    await _ensureColumn('plan_transaction_links', 'deleted_at', 'TEXT NULL');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS financial_import_runs(
+        package_id TEXT PRIMARY KEY,
+        format TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        completed_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_categories_server_id ON categories(server_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_categories_deleted_at ON categories(deleted_at);',
+    );
   }
 
   Future<void> _ensureAccountsSyncSchema() async {
@@ -941,6 +979,7 @@ class AppDatabase extends GeneratedDatabase {
         installment_index INTEGER NULL,
         transaction_id TEXT NULL,
         note TEXT NULL,
+        deleted_at TEXT NULL,
         FOREIGN KEY (bill_id) REFERENCES subscriptions(id) ON DELETE CASCADE
       );
     ''');
@@ -1151,6 +1190,40 @@ class AppDatabase extends GeneratedDatabase {
         last_seen_at TEXT NOT NULL
       );
     ''');
+    // v23: Phase 1 notification tracking (docs/NOTIFICATION_PIPELINE_AUDIT.md).
+    // Durable local outbox of notification lifecycle events, synced
+    // opportunistically to notification_logs (supabase/migrations/
+    // 0052_notification_logs.sql). Not a source of truth on its own — it is
+    // the offline-safe relay so logging never depends on immediate network
+    // availability, and never blocks showing/scheduling the notification.
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS notification_log_events(
+        id TEXT PRIMARY KEY,
+        notification_log_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK(
+          event_type IN ('created', 'queued', 'sent', 'failed', 'opened')
+        ),
+        channel TEXT NOT NULL,
+        notification_type TEXT NOT NULL,
+        related_entity_type TEXT NULL,
+        related_entity_id TEXT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        error_code TEXT NULL,
+        error_reason TEXT NULL,
+        occurred_at TEXT NOT NULL,
+        synced_at TEXT NULL,
+        sync_attempt_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_notification_log_events_log_id '
+      'ON notification_log_events(notification_log_id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_notification_log_events_unsynced '
+      'ON notification_log_events(synced_at) WHERE synced_at IS NULL;',
+    );
   }
 
   Future<int> _currentUserVersion() async {
@@ -1298,12 +1371,31 @@ class AppDatabase extends GeneratedDatabase {
 
   /// يُستدعى بعد استعادة نسخة احتياطية لضمان وجود حساب افتراضي وربط
   /// أي سجلات يتيمة (account_id = NULL) به.
-  Future<void> runPostRestoreSetup() => _ensureDefaultAccount();
+  Future<void> runPostRestoreSetup() async {
+    await _enforceRequiredProcessingSettings();
+    await _ensureDefaultAccount();
+  }
 
   /// يُعيد تشغيل بذر البيانات الأولية لأي جدول أفرغه مسح بيانات (تسجيل خروج،
   /// حذف حساب) — نفس المنطق الذي يعمل عند فتح قاعدة البيانات، فقط بلا انتظار
   /// إعادة تشغيل التطبيق. يضمن وجود صف user_settings/حساب افتراضي فوراً.
-  Future<void> reseedDefaultsAfterWipe() => _seedIfNeeded();
+  Future<void> reseedDefaultsAfterWipe() async {
+    await _seedIfNeeded();
+    await _enforceRequiredProcessingSettings();
+  }
+
+  /// Cloud and AI processing are required Qirsh capabilities. This also
+  /// upgrades existing devices and restored backups that persisted the former
+  /// opt-in values as disabled.
+  Future<void> _enforceRequiredProcessingSettings() async {
+    await customUpdate('''
+      UPDATE user_settings
+      SET ai_consent_granted = 1,
+          cloud_processing_enabled = 1
+      WHERE ai_consent_granted != 1
+         OR cloud_processing_enabled != 1;
+    ''');
+  }
 
   /// ينشئ حساباً افتراضياً واحداً من عملة المستخدم الحالية، ويربط كل العمليات
   /// والاشتراكات القائمة (بدون حساب) به. آمن وبدون فقدان بيانات.

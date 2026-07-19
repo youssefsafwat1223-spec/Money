@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import '../../../data/db/app_database.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/notification_planner.dart';
 import '../capture_runtime.dart';
+import 'notification_log_service.dart';
 import 'pending_notification_actions.dart';
 
 class CaptureNotificationPayload {
@@ -18,32 +20,60 @@ class CaptureNotificationPayload {
     required this.kind,
     this.transactionId,
     this.route,
+    this.notificationLogId,
+    this.notificationType,
   });
 
   final String kind;
   final String? transactionId;
   final String? route;
 
+  /// Phase 1 notification tracking fields (docs/NOTIFICATION_PIPELINE_AUDIT.md)
+  /// — attached by [LocalNotificationService._show] right before handing the
+  /// notification to the plugin, so a later tap can be correlated back to
+  /// this exact attempt. [notificationType] here is the [NotificationType]
+  /// enum name, unrelated to [kind] (which is only used for tap routing).
+  final String? notificationLogId;
+  final String? notificationType;
+
   String encode() => jsonEncode({
         'kind': kind,
         'transactionId': transactionId,
         'route': route,
+        'notificationLogId': notificationLogId,
+        'notificationType': notificationType,
       });
 
   static CaptureNotificationPayload? tryDecode(String? raw) {
     if (raw == null || raw.isEmpty) {
       return null;
     }
-    final decoded = jsonDecode(raw);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      // Malformed JSON — treat as absent rather than throwing, so tap
+      // routing and open-tracking degrade gracefully instead of leaving an
+      // unhandled async exception (this runs unawaited from the plugin's
+      // onDidReceiveNotificationResponse callback).
+      return null;
+    }
     if (decoded is! Map<String, dynamic>) {
       return null;
     }
+    // Extract each field defensively — a single field with an unexpected
+    // JSON type (e.g. notificationLogId stored as a number) must not
+    // discard the rest of the payload and block tap navigation.
     return CaptureNotificationPayload(
-      kind: decoded['kind'] as String? ?? '',
-      transactionId: decoded['transactionId'] as String?,
-      route: decoded['route'] as String?,
+      kind: _asString(decoded['kind']) ?? '',
+      transactionId: _asString(decoded['transactionId']),
+      route: _asString(decoded['route']),
+      notificationLogId: _asString(decoded['notificationLogId']),
+      notificationType: _asString(decoded['notificationType']),
     );
   }
+
+  static String? _asString(Object? value) => value is String ? value : null;
 }
 
 // Action identifiers — مطابقة للـ iOS category actions.
@@ -78,6 +108,18 @@ class LocalNotificationService {
   /// بمستودع الإعدادات؛ كل إشعار يُعرض يُسجَّل هنا أيضاً حتى يجده المستخدم
   /// لاحقاً حتى لو فاتته الـ banner.
   Future<void> Function(NotificationHistoryEntry entry)? historyStore;
+
+  /// Phase 1 notification tracking (docs/NOTIFICATION_PIPELINE_AUDIT.md) —
+  /// set once at bootstrap (main.dart), same pattern as [historyStore]. Every
+  /// call that shows/schedules a notification records created→sent/failed
+  /// through this. Logging is always best-effort: a null [logService] (e.g.
+  /// in a test that never wires it) or a logging failure must never prevent
+  /// or delay the actual notification.
+  NotificationLogService? logService;
+
+  String get _localChannel => Platform.isIOS
+      ? NotificationLogChannel.localIos
+      : NotificationLogChannel.localAndroid;
 
   Future<String?> initialize() async {
     if (_initialized) {
@@ -240,29 +282,55 @@ class LocalNotificationService {
     );
   }
 
-  Future<void> showTestNotification() async {
-    await requestPermissionsIfNeeded();
-    await _plugin.show(
-      id: 99001,
-      title: 'إشعار تجريبي من قرش',
-      body:
-          'لو ظهر الإشعار ده، إذن إشعارات قرش شغال. ده لا يعني قراءة إشعارات البنك.',
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          _lightChannelId,
-          'التقاط العمليات',
-          channelDescription: 'إشعارات خفيفة عند التقاط عملية مؤكدة',
-          importance: Importance.high,
-          priority: Priority.high,
+  /// Returns whether the notification was actually handed to the OS —
+  /// never throws (see docs/NOTIFICATION_PIPELINE_AUDIT.md), so the caller
+  /// (settings_screen.dart's "send test notification" button) can show an
+  /// accurate success/failure message instead of relying on an unhandled
+  /// exception, which is exactly the failure mode this pipeline exists to
+  /// remove.
+  Future<bool> showTestNotification() async {
+    final logId = await logService?.recordCreated(
+        channel: _localChannel, notificationType: 'test');
+    try {
+      await requestPermissionsIfNeeded();
+      await _plugin.show(
+        id: 99001,
+        title: 'إشعار تجريبي من قرش',
+        body:
+            'لو ظهر الإشعار ده، إذن إشعارات قرش شغال. ده لا يعني قراءة إشعارات البنك.',
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _lightChannelId,
+            'التقاط العمليات',
+            channelDescription: 'إشعارات خفيفة عند التقاط عملية مؤكدة',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentBanner: true,
+            presentList: true,
+            presentBadge: false,
+            presentSound: true,
+          ),
         ),
-        iOS: DarwinNotificationDetails(
-          presentBanner: true,
-          presentList: true,
-          presentBadge: false,
-          presentSound: true,
-        ),
-      ),
-    );
+      );
+      if (logId != null) {
+        await logService?.recordSent(
+            logId: logId, channel: _localChannel, notificationType: 'test');
+      }
+      return true;
+    } catch (error, stackTrace) {
+      if (logId != null) {
+        await logService?.recordFailed(
+          logId: logId,
+          channel: _localChannel,
+          notificationType: 'test',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+      return false;
+    }
   }
 
   Future<void> showMarketingNotification({
@@ -369,9 +437,6 @@ class LocalNotificationService {
       await _plugin.cancel(id: _streakReminderId);
       return;
     }
-    if (!_initialized) {
-      await initialize();
-    }
 
     final now = tz.TZDateTime.now(tz.local);
     var scheduled = tz.TZDateTime(
@@ -386,56 +451,114 @@ class LocalNotificationService {
     }
     scheduled = _nextAllowedDate(scheduled, preferences);
 
-    await _plugin.zonedSchedule(
-      id: _streakReminderId,
-      title: 'ذكّر نفسك بلحظة سريعة',
-      body: 'عملية واحدة اليوم تكفي للمحافظة على السلسلة.',
-      scheduledDate: scheduled,
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          _streakChannelId,
-          'تذكير السلسلة',
-          channelDescription: 'تذكير مسائي لطيف عند غياب النشاط اليومي',
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
+    final logId = await logService?.recordCreated(
+        channel: _localChannel, notificationType: 'streak_reminder');
+    try {
+      if (!_initialized) {
+        await initialize();
+      }
+      await _plugin.zonedSchedule(
+        id: _streakReminderId,
+        title: 'ذكّر نفسك بلحظة سريعة',
+        body: 'عملية واحدة اليوم تكفي للمحافظة على السلسلة.',
+        scheduledDate: scheduled,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _streakChannelId,
+            'تذكير السلسلة',
+            channelDescription: 'تذكير مسائي لطيف عند غياب النشاط اليومي',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentBanner: true,
+            presentList: true,
+            presentBadge: false,
+            presentSound: false,
+          ),
         ),
-        iOS: DarwinNotificationDetails(
-          presentBanner: true,
-          presentList: true,
-          presentBadge: false,
-          presentSound: false,
-        ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-    );
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+      if (logId != null) {
+        await logService?.recordSent(
+          logId: logId,
+          channel: _localChannel,
+          notificationType: 'streak_reminder',
+        );
+      }
+    } catch (error, stackTrace) {
+      if (logId != null) {
+        await logService?.recordFailed(
+          logId: logId,
+          channel: _localChannel,
+          notificationType: 'streak_reminder',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
   }
 
   Future<void> schedulePlannedNotifications(
     List<PlannedLocalNotification> notifications,
   ) async {
-    if (!_initialized) {
-      await initialize();
-    }
-    await _plugin.cancel(id: _weeklyReportId);
-    final pending = await _plugin.pendingNotificationRequests();
-    for (final request in pending) {
-      if (request.id >= 92000 && request.id < 992000) {
-        await _plugin.cancel(id: request.id);
+    try {
+      if (!_initialized) {
+        await initialize();
       }
+      await _plugin.cancel(id: _weeklyReportId);
+      final pending = await _plugin.pendingNotificationRequests();
+      for (final request in pending) {
+        if (request.id >= 92000 && request.id < 992000) {
+          await _plugin.cancel(id: request.id);
+        }
+      }
+    } catch (error) {
+      // Setup (init/cancel-old) failed — nothing durable was scheduled yet,
+      // so there's no per-notification attempt to log here. Stop the whole
+      // batch rather than schedule on top of an uncertain plugin state.
+      debugPrint('[Notif] schedulePlannedNotifications setup failed: $error');
+      return;
     }
     for (final notification in notifications) {
-      await _plugin.zonedSchedule(
-        id: notification.id,
-        title: notification.title,
-        body: notification.body,
-        scheduledDate: _riyadhDate(notification.scheduledAtRiyadh),
-        notificationDetails: _detailsFor(notification.kind),
-        payload: CaptureNotificationPayload(
-          kind: notification.payload ?? notification.kind.name,
-          route: _routeFor(notification.payload),
-        ).encode(),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      final notificationType = notification.kind.name;
+      final logId = await logService?.recordCreated(
+        channel: _localChannel,
+        notificationType: notificationType,
       );
+      try {
+        await _plugin.zonedSchedule(
+          id: notification.id,
+          title: notification.title,
+          body: notification.body,
+          scheduledDate: _riyadhDate(notification.scheduledAtRiyadh),
+          notificationDetails: _detailsFor(notification.kind),
+          payload: CaptureNotificationPayload(
+            kind: notification.payload ?? notification.kind.name,
+            route: _routeFor(notification.payload),
+            notificationLogId: logId,
+            notificationType: notificationType,
+          ).encode(),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+        if (logId != null) {
+          await logService?.recordSent(
+            logId: logId,
+            channel: _localChannel,
+            notificationType: notificationType,
+          );
+        }
+      } catch (error, stackTrace) {
+        if (logId != null) {
+          await logService?.recordFailed(
+            logId: logId,
+            channel: _localChannel,
+            notificationType: notificationType,
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
     }
   }
 
@@ -485,42 +608,130 @@ class LocalNotificationService {
     if (!preferences.isEnabled(notificationType)) {
       return;
     }
-    if (!_initialized) {
-      await initialize();
-    }
+
+    final decodedPayload = CaptureNotificationPayload.tryDecode(payload);
+    final logId = await _createLog(
+      notificationType: notificationType,
+      relatedEntityId: decodedPayload?.transactionId,
+    );
+    final effectivePayload =
+        _attachTracking(decodedPayload, payload, logId, notificationType);
 
     // Capture notifications (bank SMS results) are time-sensitive — show immediately.
     final isCaptureNotification =
         notificationType == NotificationType.captureReview ||
             notificationType == NotificationType.captureLight;
-    if (isCaptureNotification) {
-      await _requestCaptureNotificationPermissionsIfPossible();
-    }
-    final now = tz.TZDateTime.now(tz.local);
-    if (!isCaptureNotification && _isQuietHour(now, preferences)) {
-      await _plugin.zonedSchedule(
+    // Everything from here down — including initialize() and the
+    // permissions prompt, not just the plugin call itself — must never
+    // throw into the caller; several call sites are unawaited
+    // fire-and-forget. See docs/NOTIFICATION_PIPELINE_AUDIT.md.
+    try {
+      if (!_initialized) {
+        await initialize();
+      }
+      if (isCaptureNotification) {
+        await _requestCaptureNotificationPermissionsIfPossible();
+      }
+      final now = tz.TZDateTime.now(tz.local);
+      if (!isCaptureNotification && _isQuietHour(now, preferences)) {
+        await _plugin.zonedSchedule(
+          id: id,
+          title: title,
+          body: body,
+          scheduledDate: _nextAllowedDate(now, preferences),
+          notificationDetails: details,
+          payload: effectivePayload,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+        await _recordSent(logId, notificationType);
+        await _recordHistory(
+            id, title, body, notificationType, effectivePayload);
+        return;
+      }
+
+      debugPrint('[Notif] plugin.show id=$id title=$title');
+      await _plugin.show(
         id: id,
         title: title,
         body: body,
-        scheduledDate: _nextAllowedDate(now, preferences),
         notificationDetails: details,
-        payload: payload,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        payload: effectivePayload,
       );
-      await _recordHistory(id, title, body, notificationType, payload);
-      return;
+      debugPrint('[Notif] plugin.show done');
+      await _recordSent(logId, notificationType);
+      await _recordHistory(id, title, body, notificationType, effectivePayload);
+    } catch (error, stackTrace) {
+      // A show/schedule failure must never crash the caller (many call sites
+      // are unawaited fire-and-forget) — record it and stop here instead of
+      // rethrowing. See docs/NOTIFICATION_PIPELINE_AUDIT.md.
+      debugPrint('[Notif] show/schedule failed: $error');
+      await _recordFailed(logId, notificationType, error, stackTrace);
     }
+  }
 
-    debugPrint('[Notif] plugin.show id=$id title=$title');
-    await _plugin.show(
-      id: id,
-      title: title,
-      body: body,
-      notificationDetails: details,
-      payload: payload,
+  /// Starts a new logged attempt, best-effort. Returns null when
+  /// [logService] isn't wired (e.g. a test that never set it) — every other
+  /// tracking call below is a no-op when [logId] is null.
+  Future<String?> _createLog({
+    required NotificationType notificationType,
+    String? relatedEntityId,
+  }) {
+    final service = logService;
+    if (service == null) return Future.value(null);
+    return service.recordCreated(
+      channel: _localChannel,
+      notificationType: notificationType.name,
+      relatedEntityType: relatedEntityId != null ? 'transaction' : null,
+      relatedEntityId: relatedEntityId,
     );
-    debugPrint('[Notif] plugin.show done');
-    await _recordHistory(id, title, body, notificationType, payload);
+  }
+
+  Future<void> _recordSent(String? logId, NotificationType notificationType) {
+    if (logId == null) return Future.value();
+    return logService?.recordSent(
+          logId: logId,
+          channel: _localChannel,
+          notificationType: notificationType.name,
+        ) ??
+        Future.value();
+  }
+
+  Future<void> _recordFailed(
+    String? logId,
+    NotificationType notificationType,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    if (logId == null) return Future.value();
+    return logService?.recordFailed(
+          logId: logId,
+          channel: _localChannel,
+          notificationType: notificationType.name,
+          error: error,
+          stackTrace: stackTrace,
+        ) ??
+        Future.value();
+  }
+
+  /// Merges [logId] and the [notificationType] name into the notification's
+  /// own payload so a later tap can be correlated back to this exact attempt
+  /// — see [_handleNotificationPayload]. Existing kind/transactionId/route
+  /// routing fields are preserved unchanged.
+  String? _attachTracking(
+    CaptureNotificationPayload? decoded,
+    String? originalPayload,
+    String? logId,
+    NotificationType notificationType,
+  ) {
+    if (logId == null) return originalPayload;
+    final base = decoded ?? const CaptureNotificationPayload(kind: '');
+    return CaptureNotificationPayload(
+      kind: base.kind,
+      transactionId: base.transactionId,
+      route: base.route,
+      notificationLogId: logId,
+      notificationType: notificationType.name,
+    ).encode();
   }
 
   Future<void> _requestCaptureNotificationPermissionsIfPossible() async {
@@ -621,7 +832,42 @@ class LocalNotificationService {
   String? _extractRoute(String? payload) =>
       CaptureNotificationPayload.tryDecode(payload)?.route;
 
-  void _handleNotificationPayload(String? payload, {String? actionId}) {
+  /// Records the 'opened' lifecycle event for a foreground tap or
+  /// Confirm/Dismiss quick action — both are `didReceive response:` on iOS,
+  /// i.e. the user interacted with the notification. Idempotent
+  /// ([NotificationLogService.recordOpened] dedupes repeated taps).
+  Future<void> _recordOpenedFromPayload(String? payload) {
+    final decoded = CaptureNotificationPayload.tryDecode(payload);
+    final logId = decoded?.notificationLogId;
+    if (logId == null) return Future.value();
+    return logService?.recordOpened(
+          logId: logId,
+          channel: _localChannel,
+          notificationType: decoded?.notificationType ?? 'unknown',
+          relatedEntityType:
+              decoded?.transactionId != null ? 'transaction' : null,
+          relatedEntityId: decoded?.transactionId,
+        ) ??
+        Future.value();
+  }
+
+  /// Test seam for the foreground tap/quick-action path — the real entry
+  /// point is [onDidReceiveNotificationResponse] registered in [initialize].
+  /// Unlike production call sites, this awaits the opened-event write so
+  /// tests can assert on it deterministically.
+  @visibleForTesting
+  Future<void> debugHandleNotificationTap(
+    String? payload, {
+    String? actionId,
+  }) {
+    return _handleNotificationPayload(payload, actionId: actionId);
+  }
+
+  Future<void> _handleNotificationPayload(
+    String? payload, {
+    String? actionId,
+  }) async {
+    await _recordOpenedFromPayload(payload);
     final transactionId = _extractTransactionId(payload);
     if (transactionId != null) {
       if (actionId == _actionConfirm) {

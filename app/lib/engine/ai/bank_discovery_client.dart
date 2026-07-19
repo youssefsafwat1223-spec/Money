@@ -43,6 +43,7 @@ class GeminiBankDiscoveryClient implements BankDiscoveryClient {
               'sanitized_sms': request.sanitizedSms,
               'detected_currency': request.detectedCurrency,
               'locale_hint': request.localeHint,
+              'install_id': request.installId,
             }),
           )
           .timeout(_timeout);

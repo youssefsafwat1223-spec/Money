@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../data/db/database_key_store.dart';
+import '../backend/supabase_config.dart';
 import '../tracking/user_activity_service.dart';
 
 /// [sessionExpired] is distinct from [needsOnboarding]: onboarding metadata
@@ -71,7 +73,17 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> _claimLocalDataOwnerIfUnclaimed(String uid) async {
     final existing = await _storage.read(key: _kLocalDataOwnerUid);
     if (existing == null || existing == uid) {
-      await _storage.write(key: _kLocalDataOwnerUid, value: uid);
+      try {
+        await _storage.write(key: _kLocalDataOwnerUid, value: uid);
+      } on PlatformException catch (e) {
+        if (e.code == '-25299') {
+          // Keychain item already exists, and overriding failed. Delete and retry.
+          await _storage.delete(key: _kLocalDataOwnerUid);
+          await _storage.write(key: _kLocalDataOwnerUid, value: uid);
+        } else {
+          rethrow;
+        }
+      }
     }
   }
 
@@ -177,7 +189,41 @@ class AppSession extends ValueNotifier<SessionStatus> {
     value = authMethod == null
         ? SessionStatus.needsOnboarding
         : SessionStatus.authenticated;
+    await syncRemoteOnboardingCompletion();
     unawaited(UserActivityService.onSignIn());
+  }
+
+  /// Reconciles the account-scoped server marker after an interactive sign-in.
+  /// Auth events can arrive before [setIdentity] stores the chosen method, so
+  /// the auth screen calls this once more after setting the local identity.
+  Future<bool> reconcileAccountOnboarding(
+    supabase.SupabaseClient client,
+  ) async {
+    await _reconcileSupabaseSession(client.auth.currentSession);
+    return _onboardingDone;
+  }
+
+  /// Idempotently records a locally completed setup on the authenticated
+  /// profile. Failure never revokes local completion; cold start/resume retries
+  /// it, preserving offline-first access while making the next device correct.
+  Future<bool> syncRemoteOnboardingCompletion() async {
+    if (!_onboardingDone || isGuest || !SupabaseConfig.isConfigured) {
+      return false;
+    }
+    try {
+      final client = supabase.Supabase.instance.client;
+      if (client.auth.currentSession == null) return false;
+      await client.rpc('mark_onboarding_completed');
+      return true;
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint(
+          '[AppSession] onboarding completion sync deferred: '
+          '${error.runtimeType}',
+        );
+      }
+      return false;
+    }
   }
 
   /// (توافق) دخول كامل في خطوة واحدة.
@@ -320,10 +366,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final sameIdentity = remoteEmail != null &&
         previousEmail != null &&
         remoteEmail.trim().toLowerCase() == previousEmail.trim().toLowerCase();
-    final completed = _completedAccountKeys.contains(accountKey) ||
+    var completed = _completedAccountKeys.contains(accountKey) ||
         (sameIdentity &&
             fallbackKey != null &&
             _completedAccountKeys.contains(fallbackKey));
+    if (!completed) {
+      completed = await _readRemoteOnboardingCompletion(
+        session.user.id,
+      );
+    }
     _currentAccountKey = accountKey;
     await _storage.write(key: _kCurrentAccount, value: accountKey);
     if (completed && !_completedAccountKeys.contains(accountKey)) {
@@ -338,6 +389,29 @@ class AppSession extends ValueNotifier<SessionStatus> {
       await _storage.write(key: _kEmail, value: remoteEmail);
     }
     notifyListeners();
+  }
+
+  Future<bool> _readRemoteOnboardingCompletion(String userId) async {
+    if (!SupabaseConfig.isConfigured) return false;
+    try {
+      final row = await supabase.Supabase.instance.client
+          .from('profiles')
+          .select('onboarding_completed_at')
+          .eq('id', userId)
+          .maybeSingle();
+      return row?['onboarding_completed_at'] != null;
+    } catch (error) {
+      // Offline startup and a not-yet-deployed additive migration both fall
+      // back to the account-scoped local marker. Never convert either into a
+      // false completion or an auth failure.
+      if (kDebugMode) {
+        debugPrint(
+          '[AppSession] remote onboarding lookup skipped: '
+          '${error.runtimeType}',
+        );
+      }
+      return false;
+    }
   }
 
   String _accountKey({

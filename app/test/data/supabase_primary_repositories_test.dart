@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
@@ -10,6 +11,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/financial_cache_health.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/routed_transaction_repository.dart';
 import 'package:money_companion/data/repositories/supabase_account_repository.dart';
 import 'package:money_companion/data/repositories/supabase_financial_summary_service.dart';
@@ -86,12 +88,16 @@ Map<String, dynamic> _serverTransaction({
   };
 }
 
-TransactionEntity _localTransaction({String id = 'stable-request-id'}) {
+TransactionEntity _localTransaction({
+  String id = 'stable-request-id',
+  String? accountId,
+}) {
   final at = DateTime.utc(2026, 7, 13, 10);
   return TransactionEntity(
     id: id,
     amount: 25,
     currency: 'EGP',
+    accountId: accountId,
     type: TransactionTypeEntity.payment,
     source: TransactionSourceEntity.unknown,
     occurredAt: at,
@@ -251,6 +257,41 @@ void main() {
       expect(saved.amount, 99);
     });
 
+    test('create resolves a local account id before writing the UUID column',
+        () async {
+      const localAccountId = 'local-account';
+      const serverAccountId = '20000000-0000-4000-8000-000000000001';
+      await DriftAccountRepository(db).create(
+        _localAccount(id: localAccountId),
+      );
+      await db.customStatement(
+        'UPDATE accounts SET server_id = ? WHERE id = ?;',
+        [serverAccountId, localAccountId],
+      );
+
+      String? writtenAccountId;
+      final http = MockClient((request) async {
+        final decoded = jsonDecode(request.body);
+        final body = Map<String, dynamic>.from(
+          decoded is List ? decoded.single as Map : decoded as Map,
+        );
+        writtenAccountId = body['server_account_id'] as String?;
+        return _json(_serverTransaction(id: 'server-account-tx'), request);
+      });
+      final repository = SupabaseTransactionRepository(
+        db: db,
+        getClient: () => _client(http),
+        getAuthUserId: () async => 'qa-user',
+      );
+
+      await repository.saveTransaction(
+        transaction: _localTransaction(accountId: localAccountId),
+        categoryKey: null,
+      );
+
+      expect(writtenAccountId, serverAccountId);
+    });
+
     test('update keeps comparison timestamp aligned with edited time',
         () async {
       Map<String, dynamic>? sentBody;
@@ -407,6 +448,114 @@ void main() {
 
       await expectLater(repository.getAll(), throwsA(isA<AuthRepoException>()));
       expect(called, isFalse);
+    });
+
+    test(
+        'a local mirror-write failure after a successful server write does '
+        'not fail the caller, marks the cache dirty, and logs the failure',
+        () async {
+      final http = MockClient((request) async => _json(
+            _serverTransaction(id: 'server-tx-mirror-fail'),
+            request,
+          ));
+      final repository = SupabaseTransactionRepository(
+        db: db,
+        getClient: () => _client(http),
+        getAuthUserId: () async => 'qa-user',
+      );
+      repository.debugMirrorWriteError =
+          () => StateError('simulated local disk failure');
+
+      final logs = <String>[];
+      final previousDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) logs.add(message);
+      };
+      TransactionEntity saved;
+      try {
+        saved = await repository.saveTransaction(
+          transaction: _localTransaction(),
+          categoryKey: null,
+        );
+      } finally {
+        debugPrint = previousDebugPrint;
+      }
+
+      // The Supabase write is authoritative — a mirror failure must not
+      // surface as a failed user operation.
+      expect(saved.id, 'server-tx-mirror-fail');
+
+      // Nothing was written locally, but the cache is now marked dirty so
+      // FinancialCacheRepairService.repairDirty() rebuilds it later.
+      final mirrored = await db
+          .customSelect(
+            "SELECT COUNT(*) AS total FROM transactions WHERE server_id = 'server-tx-mirror-fail';",
+          )
+          .getSingle();
+      expect(mirrored.read<int>('total'), 0);
+      expect(
+        await isFinancialCacheDirty(db, transactionsCacheEntityType),
+        isTrue,
+      );
+
+      // Structured, observable logging — not a silently swallowed failure.
+      final logLine = logs.firstWhere(
+        (line) => line.contains('_mirrorUpsertRow failed'),
+        orElse: () => '',
+      );
+      expect(logLine, contains('serverId=server-tx-mirror-fail'));
+      expect(logLine, contains('cacheMarkedDirty=true'));
+      expect(logLine, contains('simulated local disk failure'));
+    });
+
+    test(
+        'a mirror-delete failure after a successful server delete does not '
+        'fail the caller and marks the cache dirty', () async {
+      final http = MockClient((request) async {
+        if (request.method == 'PATCH') {
+          final row = _serverTransaction(id: 'server-tx-delete-fail');
+          row['deleted_at'] = DateTime.now().toUtc().toIso8601String();
+          return _json(row, request);
+        }
+        return _json(<Object>[], request);
+      });
+      final repository = SupabaseTransactionRepository(
+        db: db,
+        getClient: () => _client(http),
+        getAuthUserId: () async => 'qa-user',
+      );
+      // Give the delete mirror an existing local row to target so it
+      // reaches the write step (a no-op localId short-circuits before it).
+      await db.customStatement('''
+        INSERT INTO transactions(
+          id, amount, currency, type, source, occurred_at, raw_message,
+          parse_confidence, status, created_at, updated_at, server_id, sync_status
+        ) VALUES (
+          'local-tx-delete-fail', 25, 'EGP', 'payment', 'manual',
+          '2026-07-13T10:00:00.000Z', '', 1, 'confirmed',
+          '2026-07-13T10:00:00.000Z', '2026-07-13T10:00:00.000Z',
+          'server-tx-delete-fail', 'synced'
+        );
+      ''');
+      repository.debugMirrorWriteError =
+          () => StateError('simulated local disk failure');
+
+      await expectLater(
+        repository.deleteTransaction('server-tx-delete-fail'),
+        completes,
+      );
+
+      final row = await db
+          .customSelect(
+            "SELECT status FROM transactions WHERE id = 'local-tx-delete-fail';",
+          )
+          .getSingle();
+      // The mirror UPDATE never committed — status is unchanged locally.
+      expect(row.read<String>('status'), 'confirmed');
+      expect(
+        await isFinancialCacheDirty(db, transactionsCacheEntityType),
+        isTrue,
+      );
     });
   });
 

@@ -8,6 +8,7 @@ import '../../core/backend/supabase_config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/captured_message.dart';
@@ -39,7 +40,9 @@ class ManualPasteScreen extends ConsumerStatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ManualPasteSheet(onTransactionAdded: onTransactionAdded),
+      builder: (_) => navySheetTheme(
+        _ManualPasteSheet(onTransactionAdded: onTransactionAdded),
+      ),
     );
   }
 
@@ -284,15 +287,9 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
           showTopError(context, 'عملية مشابهة موجودة وتحتاج مراجعة.');
         }
       case AddTransactionOutcome.notTransaction:
-        final settings =
-            await ref.read(userSettingsRepositoryProvider).getSettings();
-        if (!mounted) return;
         if (!SupabaseConfig.isConfigured) {
           showTopError(context,
               'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.');
-        } else if (!settings.aiConsentGranted) {
-          showTopError(context,
-              'الذكاء الاصطناعي مقفول من الإعدادات — فعّل "اقتراحات الذكاء الاصطناعي" وجرب تاني.');
         } else {
           final reason = addResult.aiFailureReason;
           final showAiFailure = reason != null &&
@@ -360,7 +357,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        return _BatchResultsSheet(
+        return navySheetTheme(_BatchResultsSheet(
           items: items,
           onOpenItem: (item) async {
             await _openBatchItem(sheetContext, item);
@@ -371,7 +368,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
               Navigator.of(context).pop();
             }
           },
-        );
+        ));
       },
     );
   }

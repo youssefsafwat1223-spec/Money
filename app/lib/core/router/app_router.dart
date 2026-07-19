@@ -6,7 +6,6 @@ import '../../features/accounts/accounts_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
 import '../../features/announcements/announcements_screen.dart';
 import '../../features/app/app_shell.dart';
-import '../../features/backup/backup_screen.dart';
 import '../../features/onboarding/auth_screen.dart';
 import '../../features/onboarding/brand_screen.dart';
 import '../../features/onboarding/restore_prompt_screen.dart';
@@ -14,6 +13,7 @@ import '../../features/onboarding/setup_screen.dart';
 import '../../features/onboarding/story_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/settings/privacy_screen.dart';
+import '../../features/settings/data_transfer_screen.dart';
 import '../../features/subscriptions/subscriptions_screen.dart';
 import '../../features/budgets/budget_form_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
@@ -107,9 +107,16 @@ final appRouter = GoRouter(
       builder: (context, state) => const PrivacyScreen(),
     ),
     GoRoute(
+      path: '/data-transfer',
+      name: 'data-transfer',
+      builder: (context, state) => DataTransferScreen(
+        initialAction: state.uri.queryParameters['intent'],
+      ),
+    ),
+    GoRoute(
       path: '/backup',
       name: 'backup',
-      builder: (context, state) => const BackupScreen(),
+      redirect: (context, state) => '/data-transfer',
     ),
     GoRoute(
       path: '/backup/restore',
@@ -211,12 +218,16 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/settings',
       name: 'settings',
-      builder: (context, state) => const SettingsScreen(),
+      builder: (context, state) => SettingsScreen(
+        showBackButton: context.canPop(),
+      ),
     ),
     GoRoute(
       path: '/profile',
       name: 'profile',
-      builder: (context, state) => const SettingsScreen(),
+      builder: (context, state) => SettingsScreen(
+        showBackButton: context.canPop(),
+      ),
     ),
   ],
 );

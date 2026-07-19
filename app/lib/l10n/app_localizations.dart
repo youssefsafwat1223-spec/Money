@@ -103,6 +103,348 @@ abstract class AppL10n {
   /// **'قرش'**
   String get appTitle;
 
+  /// No description provided for @setupHeaderTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'يلا نجهّز قِرش'**
+  String get setupHeaderTitle;
+
+  /// No description provided for @setupHeaderSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'كام خطوة سريعة وتكون جاهز.'**
+  String get setupHeaderSubtitle;
+
+  /// No description provided for @setupStepLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخطوة {current} من {total}'**
+  String setupStepLabel(int current, int total);
+
+  /// No description provided for @setupCountryTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'دولتك وعملتك'**
+  String get setupCountryTitle;
+
+  /// No description provided for @setupCountryBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بنستخدمها كعملة أساسية لحساباتك.'**
+  String get setupCountryBody;
+
+  /// No description provided for @setupNotificationsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'فعّل الإشعارات'**
+  String get setupNotificationsTitle;
+
+  /// No description provided for @setupNotificationsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'عشان توصلك كل عملية فور حدوثها.'**
+  String get setupNotificationsBody;
+
+  /// No description provided for @setupNotificationsCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل'**
+  String get setupNotificationsCta;
+
+  /// No description provided for @setupCloudTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'المعالجة الذكية'**
+  String get setupCloudTitle;
+
+  /// No description provided for @setupCloudBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'يعالج قِرش رسائل البنك التي تشاركها عبر خادمه والذكاء الاصطناعي لتحويلها إلى عمليات وتقارير، بدون تخزين أرقامك الكاملة.'**
+  String get setupCloudBody;
+
+  /// No description provided for @setupCloudCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'متابعة'**
+  String get setupCloudCta;
+
+  /// No description provided for @setupShortcutTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ثبّت اختصار قِرش'**
+  String get setupShortcutTitle;
+
+  /// No description provided for @setupShortcutBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'هو اللي بيبعتلنا رسائل البنك تلقائياً.'**
+  String get setupShortcutBody;
+
+  /// No description provided for @setupShortcutStep1Title.
+  ///
+  /// In ar, this message translates to:
+  /// **'احذف القديم'**
+  String get setupShortcutStep1Title;
+
+  /// No description provided for @setupShortcutStep1Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'افتح تطبيق Shortcuts وروح لتبويب Automation واحذف أي أتمتة قديمة للتطبيق.'**
+  String get setupShortcutStep1Body;
+
+  /// No description provided for @setupShortcutStep2Title.
+  ///
+  /// In ar, this message translates to:
+  /// **'جديد (+)'**
+  String get setupShortcutStep2Title;
+
+  /// No description provided for @setupShortcutStep2Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».'**
+  String get setupShortcutStep2Body;
+
+  /// No description provided for @setupShortcutStep3Title.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد الرسائل'**
+  String get setupShortcutStep3Title;
+
+  /// No description provided for @setupShortcutStep3Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط «Message Contents» واكتب رمز عملتك مثل {currency}.'**
+  String setupShortcutStep3Body(String currency);
+
+  /// No description provided for @setupShortcutStep4Title.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون تأكيد'**
+  String get setupShortcutStep4Title;
+
+  /// No description provided for @setupShortcutStep4Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'فعّل «Run Immediately» واقفل «Notify When Run» لو ظهر، ثم Next.'**
+  String get setupShortcutStep4Body;
+
+  /// No description provided for @setupShortcutStep5Title.
+  ///
+  /// In ar, this message translates to:
+  /// **'إرسال للتطبيق'**
+  String get setupShortcutStep5Title;
+
+  /// No description provided for @setupShortcutStep5Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input».'**
+  String get setupShortcutStep5Body;
+
+  /// No description provided for @setupShortcutStep6Title.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ'**
+  String get setupShortcutStep6Title;
+
+  /// No description provided for @setupShortcutStep6Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقفل «Show When Run» لو ظهر، واضغط حفظ.'**
+  String get setupShortcutStep6Body;
+
+  /// No description provided for @setupShortcutCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'ثبّتّه'**
+  String get setupShortcutCta;
+
+  /// No description provided for @setupFinishCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ'**
+  String get setupFinishCta;
+
+  /// No description provided for @brandTagline.
+  ///
+  /// In ar, this message translates to:
+  /// **'فلوسك أوضح. قرارك أذكى.'**
+  String get brandTagline;
+
+  /// No description provided for @brandContinueCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'يلا نبدأ'**
+  String get brandContinueCta;
+
+  /// No description provided for @authTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'رحلتك المالية محفوظة'**
+  String get authTitle;
+
+  /// No description provided for @authSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'سجّل دخولك لحماية بياناتك واستعادتها على أجهزتك.'**
+  String get authSubtitle;
+
+  /// No description provided for @authTrustLocalEncryption.
+  ///
+  /// In ar, this message translates to:
+  /// **'تشفير محلي'**
+  String get authTrustLocalEncryption;
+
+  /// No description provided for @authTrustOnDevice.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك على جهازك'**
+  String get authTrustOnDevice;
+
+  /// No description provided for @authTermsNotice.
+  ///
+  /// In ar, this message translates to:
+  /// **'بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية.'**
+  String get authTermsNotice;
+
+  /// No description provided for @authAppleCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتابعة بحساب Apple'**
+  String get authAppleCta;
+
+  /// No description provided for @authGoogleCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتابعة بحساب Google'**
+  String get authGoogleCta;
+
+  /// No description provided for @authSignInError.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تسجيل الدخول. جرب تاني.'**
+  String get authSignInError;
+
+  /// No description provided for @authBackupFoundTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لقينا نسخة احتياطية لحسابك'**
+  String get authBackupFoundTitle;
+
+  /// No description provided for @authBackupFoundBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحب نرجّع بياناتك من آخر نسخة، ولا تبدأ من جديد؟'**
+  String get authBackupFoundBody;
+
+  /// No description provided for @authBackupStartFresh.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ من جديد'**
+  String get authBackupStartFresh;
+
+  /// No description provided for @authBackupRestore.
+  ///
+  /// In ar, this message translates to:
+  /// **'استرجاعها'**
+  String get authBackupRestore;
+
+  /// No description provided for @storyPromiseTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'متحمّسين\nنبدأ معك'**
+  String get storyPromiseTitle;
+
+  /// No description provided for @storyPromiseSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ونكون شريكك في رحلتك المالية.'**
+  String get storyPromiseSubtitle;
+
+  /// No description provided for @storyPromiseHighlight.
+  ///
+  /// In ar, this message translates to:
+  /// **'في قِرش، نؤمن أن الاستقرار المالي يبدأ بعادات بسيطة.'**
+  String get storyPromiseHighlight;
+
+  /// No description provided for @storyPromiseBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بنينا تطبيقًا يساعدك على إدارة أموالك بسهولة، من تسجيل المصروفات ووضع الميزانيات، إلى تنبيهات الاشتراكات والتقارير الذكية.'**
+  String get storyPromiseBody;
+
+  /// No description provided for @storyPromiseSectionTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'هدفنا؟'**
+  String get storyPromiseSectionTitle;
+
+  /// No description provided for @storyPromiseSectionBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أن تعرف أين يذهب مالك، وتدّخر أكثر وتعيش براحة أكبر.'**
+  String get storyPromiseSectionBody;
+
+  /// No description provided for @storyPromiseClosing.
+  ///
+  /// In ar, this message translates to:
+  /// **'قِرش...\nشريكك في رحلتك المالية.'**
+  String get storyPromiseClosing;
+
+  /// No description provided for @storySpendingTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'المصروفات الصغيرة بتفرق'**
+  String get storySpendingTitle;
+
+  /// No description provided for @storySpendingBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'المصروفات اليومية قد تبدو بسيطة،\nلكنها مع الوقت تصنع فرقًا كبيرًا.'**
+  String get storySpendingBody;
+
+  /// No description provided for @storySpendingHighlight.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما لا تتابعه... يصعب عليك التحكم به'**
+  String get storySpendingHighlight;
+
+  /// No description provided for @storySpendingSupporting.
+  ///
+  /// In ar, this message translates to:
+  /// **'قِرش يساعدك تشوف الصورة كاملة،\nوتفهم أين تذهب أموالك.'**
+  String get storySpendingSupporting;
+
+  /// No description provided for @storyContinueCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'كمّل'**
+  String get storyContinueCta;
+
+  /// No description provided for @storyStartCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ مع قِرش'**
+  String get storyStartCta;
+
+  /// No description provided for @storySkip.
+  ///
+  /// In ar, this message translates to:
+  /// **'تخطّي'**
+  String get storySkip;
+
+  /// No description provided for @storyPageOneSemanticLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'الصفحة ١ من ٢'**
+  String get storyPageOneSemanticLabel;
+
+  /// No description provided for @storyPageTwoSemanticLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'الصفحة ٢ من ٢'**
+  String get storyPageTwoSemanticLabel;
+
   /// No description provided for @next.
   ///
   /// In ar, this message translates to:
@@ -448,7 +790,7 @@ abstract class AppL10n {
   /// No description provided for @privacyRule1.
   ///
   /// In ar, this message translates to:
-  /// **'كل المعالجة والذكاء يتم على هاتفك بدون إنترنت'**
+  /// **'يعالج قِرش رسائل البنك التي تشاركها عبر خادمه والذكاء الاصطناعي'**
   String get privacyRule1;
 
   /// No description provided for @privacyRule2.

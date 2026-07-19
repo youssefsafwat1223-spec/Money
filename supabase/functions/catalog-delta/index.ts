@@ -1,10 +1,9 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-app-version",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-version',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
 // Exported so it can be unit-tested directly (see index_test.ts) without a
@@ -14,58 +13,55 @@ export function isValidCountryParam(value: string): boolean {
 }
 
 const tableByCategory: Record<string, string> = {
-  banks: "banks",
-  parsers: "sms_parsers",
-  currencies: "currencies",
-  countries: "countries",
-  categories: "categories",
-  merchant_keywords: "merchant_keywords",
+  banks: 'banks',
+  parsers: 'sms_parsers',
+  currencies: 'currencies',
+  countries: 'countries',
+  categories: 'categories',
+  merchant_keywords: 'merchant_keywords',
 };
 
 const idColumnByCategory: Record<string, string> = {
-  banks: "id",
-  parsers: "id",
-  currencies: "code",
-  countries: "code",
-  categories: "id",
-  merchant_keywords: "id",
+  banks: 'id',
+  parsers: 'id',
+  currencies: 'code',
+  countries: 'code',
+  categories: 'id',
+  merchant_keywords: 'id',
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
   }
 
-  const appVersion = req.headers.get("x-app-version") ?? "unknown";
+  const appVersion = req.headers.get('x-app-version') ?? 'unknown';
   console.log(`catalog-delta requested by app version: ${appVersion}`);
 
   try {
     const url = new URL(req.url);
-    const category = url.searchParams.get("category") ?? "";
+    const category = url.searchParams.get('category') ?? '';
     const table = tableByCategory[category];
     if (!table) {
-      return json({ error: "Unsupported catalog category" }, 400);
+      return json({ error: 'Unsupported catalog category' }, 400);
     }
 
     const sinceVersion = Number.parseInt(
-      url.searchParams.get("since_version") ?? "0",
+      url.searchParams.get('since_version') ?? '0',
       10,
     );
-    const since = Number.isFinite(sinceVersion) && sinceVersion > 0
-      ? sinceVersion
-      : 0;
-    const rawCountry = url.searchParams.get("country")?.trim().toUpperCase();
+    const since = Number.isFinite(sinceVersion) && sinceVersion > 0 ? sinceVersion : 0;
+    const rawCountry = url.searchParams.get('country')?.trim().toUpperCase();
     if (rawCountry && !isValidCountryParam(rawCountry)) {
-      return json({ error: "Invalid country parameter" }, 400);
+      return json({ error: 'Invalid country parameter' }, 400);
     }
     const country = rawCountry;
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey =
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-      Deno.env.get("SUPABASE_ANON_KEY");
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ??
+      Deno.env.get('SUPABASE_ANON_KEY');
     if (!supabaseUrl || !serviceKey) {
-      return json({ error: "Supabase environment is not configured" }, 500);
+      return json({ error: 'Supabase environment is not configured' }, 500);
     }
 
     const client = createClient(supabaseUrl, serviceKey, {
@@ -73,21 +69,21 @@ Deno.serve(async (req) => {
     });
 
     const { data: versionRows, error: versionError } = await client
-      .from("catalog_versions")
-      .select("version")
-      .eq("category", category)
+      .from('catalog_versions')
+      .select('version')
+      .eq('category', category)
       .limit(1);
     if (versionError) return json({ error: versionError.message }, 500);
     const version = Number(versionRows?.[0]?.version ?? 0);
 
-    if (category === "merchant_keywords") {
+    if (category === 'merchant_keywords') {
       const result = await fetchMerchantKeywordsDelta(
         client,
         since,
         version,
         country,
       );
-      if ("error" in result) return json({ error: result.error }, 500);
+      if ('error' in result) return json({ error: result.error }, 500);
       return json({
         meta: { category, version, since_version: since },
         items: result.items,
@@ -95,10 +91,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    let baseItemQuery = client.from(table).select("*").gt("updated_version", since);
+    let baseItemQuery = client.from(table).select('*').gt('updated_version', since);
     // Parsers: only serve rules that have passed golden-test validation.
-    if (category === "parsers") {
-      baseItemQuery = (baseItemQuery as any).eq("validation_status", "passed");
+    if (category === 'parsers') {
+      baseItemQuery = (baseItemQuery as any).eq('validation_status', 'passed');
     }
     const itemQuery = applyCountryFilter(
       applyActiveDeltaFilter(baseItemQuery, since),
@@ -113,8 +109,8 @@ Deno.serve(async (req) => {
       client
         .from(table)
         .select(idColumnByCategory[category])
-        .gt("deleted_version", since)
-        .eq("is_deleted", true),
+        .gt('deleted_version', since)
+        .eq('is_deleted', true),
       category,
       country,
       client,
@@ -125,7 +121,7 @@ Deno.serve(async (req) => {
     const idColumn = idColumnByCategory[category];
     const deletedIds = (deletedRows ?? [])
       .map((row: Record<string, unknown>) => row[idColumn])
-      .filter((id: unknown): id is string => typeof id === "string");
+      .filter((id: unknown): id is string => typeof id === 'string');
 
     return json({
       meta: { category, version, since_version: since },
@@ -133,16 +129,16 @@ Deno.serve(async (req) => {
       deleted_ids: deletedIds,
     });
   } catch (error) {
-    console.error("catalog-delta failed", error);
-    return json({ error: "Unexpected catalog delta failure" }, 500);
+    console.error('catalog-delta failed', error);
+    return json({ error: 'Unexpected catalog delta failure' }, 500);
   }
 });
 
 function applyActiveDeltaFilter(query: any, since: number): any {
   if (since === 0) {
-    return query.eq("is_active", true).eq("is_deleted", false);
+    return query.eq('is_active', true).eq('is_deleted', false);
   }
-  return query.or("is_active.eq.true,is_deleted.eq.true");
+  return query.or('is_active.eq.true,is_deleted.eq.true');
 }
 
 function applyCountryFilter(
@@ -152,10 +148,10 @@ function applyCountryFilter(
   client: any,
 ): any {
   if (!country) return query;
-  if (category === "banks") return query.eq("country_code", country);
-  if (category === "currencies") return query.contains("country_codes", [country]);
-  if (category === "countries") return query.eq("code", country);
-  if (category === "parsers") {
+  if (category === 'banks') return query.eq('country_code', country);
+  if (category === 'currencies') return query.contains('country_codes', [country]);
+  if (category === 'countries') return query.eq('code', country);
+  if (category === 'parsers') {
     // Parser country filtering is reserved for the app-side sync service where
     // the bank cache is available. Returning all active parser deltas is safer
     // than dropping a parser because the country-bank join is incomplete.
@@ -182,25 +178,25 @@ async function fetchMerchantKeywordsDelta(
   }
 
   let itemQuery = client
-    .from("merchant_keywords")
-    .select("*")
-    .eq("is_active", true)
-    .eq("is_deleted", false);
+    .from('merchant_keywords')
+    .select('*')
+    .eq('is_active', true)
+    .eq('is_deleted', false);
   itemQuery = applyMerchantKeywordCountryFilter(itemQuery, country);
   const { data: items, error: itemError } = await itemQuery;
   if (itemError) return { error: itemError.message };
 
   let deletedQuery = client
-    .from("merchant_keywords")
-    .select("id")
-    .eq("is_deleted", true);
+    .from('merchant_keywords')
+    .select('id')
+    .eq('is_deleted', true);
   deletedQuery = applyMerchantKeywordCountryFilter(deletedQuery, country);
   const { data: deletedRows, error: deletedError } = await deletedQuery;
   if (deletedError) return { error: deletedError.message };
 
   const deletedIds = (deletedRows ?? [])
     .map((row: Record<string, unknown>) => row.id)
-    .filter((id: unknown): id is string => typeof id === "string");
+    .filter((id: unknown): id is string => typeof id === 'string');
   return { items: items ?? [], deletedIds };
 }
 
@@ -209,7 +205,7 @@ function applyMerchantKeywordCountryFilter(query: any, country: string | undefin
   // Parameterized — country is validated (^[A-Z]{2,3}$) before reaching here,
   // but .in() with an array avoids ever building a filter expression by
   // string interpolation regardless.
-  return query.in("country_code", ["ALL", country]);
+  return query.in('country_code', ['ALL', country]);
 }
 
 function json(body: unknown, status = 200): Response {
@@ -217,7 +213,7 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: {
       ...corsHeaders,
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
     },
   });
 }

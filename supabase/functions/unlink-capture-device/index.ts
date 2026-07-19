@@ -1,10 +1,4 @@
-import {
-  corsHeaders,
-  json,
-  readString,
-  serviceClient,
-  verifyDevice,
-} from '../_shared/capture_auth.ts';
+import { corsHeaders, json, readString, serviceClient, verifyDevice } from '../_shared/capture_auth.ts';
 
 // Device-authenticated unlink. The relay secret remains valid so the App
 // Intent can capture while signed out; user ownership and APNs delivery are

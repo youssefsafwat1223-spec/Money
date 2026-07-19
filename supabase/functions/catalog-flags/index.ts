@@ -1,31 +1,29 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-app-version",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-version',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
   }
 
-  const appVersion = req.headers.get("x-app-version") ?? "unknown";
+  const appVersion = req.headers.get('x-app-version') ?? 'unknown';
   console.log(`catalog-flags requested by app version: ${appVersion}`);
 
   try {
     const url = new URL(req.url);
-    const country = url.searchParams.get("country")?.trim().toUpperCase();
+    const country = url.searchParams.get('country')?.trim().toUpperCase();
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey =
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-      Deno.env.get("SUPABASE_ANON_KEY");
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ??
+      Deno.env.get('SUPABASE_ANON_KEY');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
     if (!supabaseUrl || !serviceKey || !anonKey) {
-      return json({ error: "Supabase environment is not configured" }, 500);
+      return json({ error: 'Supabase environment is not configured' }, 500);
     }
 
     // Fetch ALL flags (active + inactive) so per-user overrides can re-enable
@@ -35,9 +33,9 @@ Deno.serve(async (req) => {
     });
 
     const { data: allFlags, error: flagsError } = await adminClient
-      .from("feature_flags")
+      .from('feature_flags')
       .select(
-        "key, value_type, value, rollout_percent, target_countries, is_active",
+        'key, value_type, value, rollout_percent, target_countries, is_active',
       );
     if (flagsError) return json({ error: flagsError.message }, 500);
 
@@ -48,8 +46,8 @@ Deno.serve(async (req) => {
 
     // Apply per-user overrides when the request carries a valid user JWT.
     // Guest requests (no Authorization header) skip this block entirely.
-    const authHeader = req.headers.get("authorization");
-    if (authHeader?.startsWith("Bearer ")) {
+    const authHeader = req.headers.get('authorization');
+    if (authHeader?.startsWith('Bearer ')) {
       // Use anon key + user JWT so Supabase enforces RLS on the overrides table
       // (only the authenticated user's own rows are returned).
       const userClient = createClient(supabaseUrl, anonKey, {
@@ -57,15 +55,15 @@ Deno.serve(async (req) => {
         global: { headers: { authorization: authHeader } },
       });
       const { data: overrides } = await userClient
-        .from("feature_flag_overrides")
-        .select("key, enabled");
+        .from('feature_flag_overrides')
+        .select('key, enabled');
       for (const override of overrides ?? []) {
         const flag = flagMap.get(override.key as string);
         if (!flag) continue; // unknown key — skip
         if (override.enabled) {
           flag.is_active = true;
           flag.rollout_percent = 100;
-          if (flag.value_type === "boolean") flag.value = "true";
+          if (flag.value_type === 'boolean') flag.value = 'true';
         } else {
           flag.is_active = false;
           flag.rollout_percent = 0;
@@ -83,14 +81,14 @@ Deno.serve(async (req) => {
 
     return json({ flags });
   } catch (err) {
-    console.error("catalog-flags failed", err);
-    return json({ error: "Unexpected flags failure" }, 500);
+    console.error('catalog-flags failed', err);
+    return json({ error: 'Unexpected flags failure' }, 500);
   }
 });
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }

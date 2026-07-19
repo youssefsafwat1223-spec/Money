@@ -36,15 +36,18 @@ import '../capture/capture_runtime.dart';
 import '../capture/services/capture_notification_content.dart';
 import '../capture/services/capture_sync_service.dart';
 import '../capture/services/local_notification_service.dart';
+import '../capture/services/notification_log_service.dart';
 import '../capture/services/pending_notification_actions.dart';
 import '../capture/services/native_capture_bridge.dart';
 import '../../core/tracking/user_activity_service.dart';
+import '../cards/cards_providers.dart';
 import '../common/category_catalog.dart';
 import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../goals/goals_providers.dart';
 import '../plans/plans_providers.dart';
+import '../reports/reports_providers.dart';
 import '../reports/reports_screen.dart';
 import '../settings/settings_providers.dart';
 import '../settings/settings_screen.dart';
@@ -81,6 +84,26 @@ class _AppShellState extends ConsumerState<AppShell> {
   bool? _lastSubscriptionsSupabasePrimary;
   bool? _lastPlansSupabasePrimary;
   bool? _lastSmartInboxSupabasePrimary;
+  bool _remoteOnboardingCompletionSynced = false;
+  bool _isReconcilingAfterResume = false;
+
+  /// Transaction ids already auto-opened (confirm sheet or a `/transaction/`
+  /// route push) by a notification-driven path this session. A single
+  /// notification tap can be observed by more than one of this app's
+  /// overlapping routing mechanisms at once — the native pending-route queue
+  /// drained in [_drainPendingNotificationRoutes], flutter_local_notifications'
+  /// own cold-launch details (`CaptureRuntime.takeInitialConfirmation`/
+  /// `takeInitialNavigation`), and the live [CaptureRuntime] streams — and
+  /// without this guard two of them can both fire for the same tap, stacking
+  /// a confirm sheet and a full transaction-details route push on top of each
+  /// other (visible as the screen "loading twice"/flickering right after
+  /// opening a transaction notification). Each transaction id is claimed at
+  /// most once per app session; a later, genuinely separate notification for
+  /// a different transaction is unaffected since ids are unique per capture.
+  final Set<String> _autoNavigatedTransactionIds = {};
+
+  bool _claimAutoNavigation(String transactionId) =>
+      _autoNavigatedTransactionIds.add(transactionId);
 
   @override
   void initState() {
@@ -122,18 +145,26 @@ class _AppShellState extends ConsumerState<AppShell> {
       await _drainPendingNotificationRoutes();
     });
 
+    // Providers mounted with the currently resolved repository flags. Keep
+    // that state as the baseline so the first catalog check only refreshes
+    // financial data when sync actually changes a flag.
+    _captureSupabasePrimaryFlagSnapshot();
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Defensive: the router should already have redirected away from this
       // shell for a non-authenticated status before it ever mounted, but
       // never run Supabase-primary startup work without re-confirming.
       if (!await _revalidateAuthSession()) return;
+      unawaited(_syncRemoteOnboardingCompletion());
       await syncCatalog(ref, force: true);
-      await _repairDirtyFinancialCaches();
+      // Same coordinated path as app resume — drains any Confirm/Dismiss
+      // notification action applied while the app was closed, repairs any
+      // dirty Supabase-mirror cache, and refreshes financial providers.
+      await _reconcileDataAfterResume();
       _handleSupabasePrimaryFlagTransition();
       unawaited(UserActivityService.ping()); // cold start — always writes
       await _syncNativeCaptureState();
       unawaited(_linkCaptureDeviceToUser());
-      await _drainPendingNotificationActions();
       await _consumeSharedInput();
       unawaited(_runLedgerSync());
       await _drainPendingNotificationRoutes();
@@ -181,15 +212,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     _lastSessionStatus = now;
     if (wasAuthenticated && now != SessionStatus.authenticated) {
       if (!mounted) return;
-      ref.invalidate(accountsProvider);
-      ref.invalidate(transactionsListProvider);
-      ref.invalidate(billsViewProvider);
-      ref.invalidate(budgetsViewProvider);
-      ref.invalidate(goalsListProvider);
-      ref.invalidate(savedBillsProvider);
-      ref.invalidate(plansWithSpentProvider);
-      ref.invalidate(smartInboxItemsProvider);
-      ref.invalidate(dashboardDataProvider);
+      _invalidateFinancialProviders();
       ref.read(activeAccountIdProvider.notifier).state = null;
       if (kDebugMode) {
         debugPrint(
@@ -204,8 +227,15 @@ class _AppShellState extends ConsumerState<AppShell> {
     // auth-state event ever delivered until something touches the client
     // again — re-check before running any Supabase-primary-dependent work.
     if (!await _revalidateAuthSession()) return;
+    unawaited(_syncRemoteOnboardingCompletion());
     await syncCatalog(ref);
-    await _repairDirtyFinancialCaches();
+    // Reconciles writes that landed through a connection other than this
+    // shell's live `appDatabaseProvider` instance while the app was
+    // backgrounded — background notification Confirm/Dismiss actions open
+    // their own `AppDatabase` connection (local_notification_service.dart),
+    // so `dbRevisionProvider` never ticks for them on its own. See
+    // docs/STALE_UI_ROOT_CAUSE_REPORT.md.
+    await _reconcileDataAfterResume();
     _handleSupabasePrimaryFlagTransition();
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
     await _syncNativeCaptureState();
@@ -225,6 +255,12 @@ class _AppShellState extends ConsumerState<AppShell> {
     await AppSession.instance
         .revalidateSupabaseSessionOnResume(supabase.Supabase.instance.client);
     return AppSession.instance.status != SessionStatus.sessionExpired;
+  }
+
+  Future<void> _syncRemoteOnboardingCompletion() async {
+    if (_remoteOnboardingCompletionSynced) return;
+    final synced = await AppSession.instance.syncRemoteOnboardingCompletion();
+    if (synced) _remoteOnboardingCompletionSynced = true;
   }
 
   /// The one centralized entry point for a Supabase-primary repository call
@@ -247,6 +283,70 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (kDebugMode) {
         debugPrint('[FinancialCache] repair pending: ${error.runtimeType}');
       }
+    }
+  }
+
+  /// Financial-data providers that may hold stale results after a write that
+  /// bypassed this shell's live `dbRevisionProvider` connection (background
+  /// notification actions, a repaired dirty mirror, or a session change).
+  /// Shared by [_handleSessionStatusChange] and [_reconcileDataAfterResume]
+  /// so both stay in sync with one list instead of two.
+  void _invalidateFinancialProviders() {
+    ref.invalidate(accountsProvider);
+    ref.invalidate(transactionsListProvider);
+    ref.invalidate(billsViewProvider);
+    ref.invalidate(budgetsViewProvider);
+    ref.invalidate(goalsListProvider);
+    ref.invalidate(savedBillsProvider);
+    ref.invalidate(plansWithSpentProvider);
+    ref.invalidate(smartInboxItemsProvider);
+    ref.invalidate(cardSummariesProvider);
+    ref.invalidate(subscriptionsProvider);
+    ref.invalidate(reportsProvider);
+    ref.invalidate(dashboardDataProvider);
+  }
+
+  /// Coordinated reconciliation for writes that `dbRevisionProvider` cannot
+  /// see on its own — background notification Confirm/Dismiss actions write
+  /// through a separate `AppDatabase` connection
+  /// (local_notification_service.dart's `_backgroundTapHandler`), and a
+  /// Supabase-primary mirror-write failure only marks the cache dirty
+  /// without ticking the revision counter. Runs on both initial startup and
+  /// every app resume (see `initState` and [_onResume]) so the two paths
+  /// can't drift apart. See docs/STALE_UI_ROOT_CAUSE_REPORT.md.
+  ///
+  /// Guarded against re-entry: a second resume firing while the first is
+  /// still running is a no-op rather than a duplicate reconciliation pass.
+  Future<void> _reconcileDataAfterResume() async {
+    if (_isReconcilingAfterResume) {
+      if (kDebugMode) {
+        debugPrint('[Reconcile] already running — skipping duplicate trigger');
+      }
+      return;
+    }
+    _isReconcilingAfterResume = true;
+    if (kDebugMode) debugPrint('[Reconcile] start');
+    try {
+      // A. Pending notification actions — idempotent (PendingNotificationActions
+      // .drain() empties the queue first; _applyQuickAction tolerates a
+      // confirm/delete that already landed via the background path).
+      await _drainPendingNotificationActions();
+      if (!mounted) return;
+      // B. Repair any Supabase-mirror cache marked dirty by a failed local
+      // write — this itself writes through the live AppDatabase connection,
+      // so it also ticks dbRevisionProvider for anything that watches it.
+      await _repairDirtyFinancialCaches();
+      if (!mounted) return;
+      // C. Explicit invalidation as a safety net — do not rely solely on
+      // dbRevisionProvider having ticked for A/B above.
+      _invalidateFinancialProviders();
+      if (kDebugMode) debugPrint('[Reconcile] success');
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[Reconcile] failed: $error\n$stackTrace');
+      }
+    } finally {
+      _isReconcilingAfterResume = false;
     }
   }
 
@@ -286,6 +386,20 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// معروضًا في نموذج أو مزوّد مفتوح بعد التحوّل. لا يُشغَّل خارج نقطتَي
   /// بدء التشغيل/الاستئناف — أي تغيير للعلامة أثناء الجلسة الأمامية نفسها
   /// لا يُلتقَط إلا عند الاستئناف/بدء التشغيل التالي (موثَّق في خطة المرحلة 2).
+  void _captureSupabasePrimaryFlagSnapshot() {
+    final flags = featureFlags;
+    _lastAccountsSupabasePrimary = flags.getBool('accounts_supabase_primary');
+    _lastTransactionsSupabasePrimary =
+        flags.getBool('transactions_supabase_primary');
+    _lastBudgetsSupabasePrimary = flags.getBool('budgets_supabase_primary');
+    _lastGoalsSupabasePrimary = flags.getBool('goals_supabase_primary');
+    _lastSubscriptionsSupabasePrimary =
+        flags.getBool('subscriptions_supabase_primary');
+    _lastPlansSupabasePrimary = flags.getBool('plans_supabase_primary');
+    _lastSmartInboxSupabasePrimary =
+        flags.getBool('smart_inbox_supabase_primary');
+  }
+
   void _handleSupabasePrimaryFlagTransition() {
     if (!mounted) return;
     final flags = featureFlags;
@@ -297,27 +411,20 @@ class _AppShellState extends ConsumerState<AppShell> {
     final plansNow = flags.getBool('plans_supabase_primary');
     final smartInboxNow = flags.getBool('smart_inbox_supabase_primary');
 
-    final accountsChanged = _lastAccountsSupabasePrimary == null
-        ? accountsNow
-        : _lastAccountsSupabasePrimary != accountsNow;
-    final transactionsChanged = _lastTransactionsSupabasePrimary == null
-        ? transactionsNow
-        : _lastTransactionsSupabasePrimary != transactionsNow;
-    final budgetsChanged = _lastBudgetsSupabasePrimary == null
-        ? budgetsNow
-        : _lastBudgetsSupabasePrimary != budgetsNow;
-    final goalsChanged = _lastGoalsSupabasePrimary == null
-        ? goalsNow
-        : _lastGoalsSupabasePrimary != goalsNow;
-    final subscriptionsChanged = _lastSubscriptionsSupabasePrimary == null
-        ? subscriptionsNow
-        : _lastSubscriptionsSupabasePrimary != subscriptionsNow;
-    final plansChanged = _lastPlansSupabasePrimary == null
-        ? plansNow
-        : _lastPlansSupabasePrimary != plansNow;
-    final smartInboxChanged = _lastSmartInboxSupabasePrimary == null
-        ? smartInboxNow
-        : _lastSmartInboxSupabasePrimary != smartInboxNow;
+    final accountsChanged = _lastAccountsSupabasePrimary != null &&
+        _lastAccountsSupabasePrimary != accountsNow;
+    final transactionsChanged = _lastTransactionsSupabasePrimary != null &&
+        _lastTransactionsSupabasePrimary != transactionsNow;
+    final budgetsChanged = _lastBudgetsSupabasePrimary != null &&
+        _lastBudgetsSupabasePrimary != budgetsNow;
+    final goalsChanged = _lastGoalsSupabasePrimary != null &&
+        _lastGoalsSupabasePrimary != goalsNow;
+    final subscriptionsChanged = _lastSubscriptionsSupabasePrimary != null &&
+        _lastSubscriptionsSupabasePrimary != subscriptionsNow;
+    final plansChanged = _lastPlansSupabasePrimary != null &&
+        _lastPlansSupabasePrimary != plansNow;
+    final smartInboxChanged = _lastSmartInboxSupabasePrimary != null &&
+        _lastSmartInboxSupabasePrimary != smartInboxNow;
 
     if (accountsChanged) {
       ref.invalidate(accountsProvider);
@@ -527,7 +634,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           if (kDebugMode) {
             debugPrint(
               '[Capture] message processing failed '
-              '(${error.runtimeType}); requeued=$requeued',
+              '($error); requeued=$requeued',
             );
           }
         }
@@ -614,6 +721,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
+  bool _syncEngagementInFlight = false;
+
   /// Wraps the actual engagement sync so an `auth_required` failure from any
   /// Supabase-primary repository call inside it (budgets/goals/bills — all
   /// now require a live session) triggers the one centralized session-invalid
@@ -621,10 +730,14 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// type is intentionally left to propagate — this must not become a
   /// blanket catch-all that hides unrelated bugs.
   Future<void> _syncEngagement() async {
+    if (_syncEngagementInFlight) return;
+    _syncEngagementInFlight = true;
     try {
       await _syncEngagementBody();
     } on AuthRepoException {
       await _handleAuthRequiredFailure();
+    } finally {
+      _syncEngagementInFlight = false;
     }
   }
 
@@ -676,6 +789,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         ),
       ]);
     }
+    if (passive.isNotEmpty && mounted) {
+      refreshAchievements(ref);
+    }
 
     final streak = await ref.read(gamificationRepositoryProvider).getStreak();
     final hasActivityToday = RiyadhTime.dayGap(
@@ -696,7 +812,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     await LocalNotificationService.instance.schedulePlannedNotifications(
       planned,
     );
-    _refreshAll();
+    // Opportunistic — drains native (iOS Shortcut) notification events and
+    // syncs the local outbox to notification_logs. Never blocks engagement
+    // evaluation on network availability.
+    unawaited(ref.read(notificationLogSyncServiceProvider).sync());
   }
 
   void _refreshAll() {
@@ -704,6 +823,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     refreshBudgets(ref);
     refreshAchievements(ref);
     refreshNotificationPreferences(ref);
+    ref.invalidate(accountsProvider);
     ref.invalidate(dashboardDataProvider);
   }
 
@@ -737,6 +857,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     String? secondaryNotice,
   }) async {
     if (!mounted) {
+      return;
+    }
+    if (!_claimAutoNavigation(transactionId)) {
       return;
     }
     _refreshAll();
@@ -786,6 +909,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   Future<void> _drainPendingNotificationRoutes() async {
     final routes = await NativeCaptureBridge.consumePendingNotificationRoutes();
     if (routes.isEmpty) return;
+    _recordOpenedForRoutes(routes);
     CaptureSyncResult? syncResult;
     try {
       syncResult = await ref.read(captureSyncServiceProvider).sync();
@@ -799,6 +923,27 @@ class _AppShellState extends ConsumerState<AppShell> {
     final route = routes.last;
     final target = await _routeForCaptureNotification(route, syncResult);
     _handleNotificationRoute(target);
+  }
+
+  /// Records the 'opened' lifecycle event for every drained route that
+  /// carries a notificationLogId (remote APNs pushes and the iOS Shortcut's
+  /// local fallback both attach one — see local_notification_service.dart
+  /// and BankMessageShortcuts.swift). Idempotent and never awaited by the
+  /// caller — routing must not wait on this. See
+  /// docs/NOTIFICATION_PIPELINE_AUDIT.md.
+  void _recordOpenedForRoutes(List<CaptureNotificationRoute> routes) {
+    final service = ref.read(notificationLogServiceProvider);
+    for (final route in routes) {
+      final logId = route.notificationLogId;
+      if (logId == null) continue;
+      unawaited(service.recordOpened(
+        logId: logId,
+        channel: NotificationLogChannel.apns,
+        notificationType: route.notificationType ?? 'unknown',
+        relatedEntityType: route.transactionId != null ? 'transaction' : null,
+        relatedEntityId: route.transactionId,
+      ));
+    }
   }
 
   Future<String> _routeForCaptureNotification(
@@ -849,6 +994,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       return;
     }
     if (route.startsWith('/transaction/')) {
+      final transactionId = route.substring('/transaction/'.length);
+      if (!_claimAutoNavigation(transactionId)) return;
       context.push(route);
       return;
     }

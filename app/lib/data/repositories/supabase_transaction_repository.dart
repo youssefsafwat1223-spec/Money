@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart' show Variable;
+import 'package:flutter/foundation.dart';
 import 'package:postgrest/postgrest.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -16,6 +17,7 @@ import '../db/app_database.dart';
 import '../db/financial_cache_health.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
+import 'supabase_planning_support.dart';
 
 /// حجم الصفحة عند جلب صفوف للتجميع في Dart — أقل من الحد الافتراضي لـ
 /// PostgREST (max_rows=1000) حتى لا نعتمد على القيمة الافتراضية ضمنيًا.
@@ -38,6 +40,15 @@ class SupabaseTransactionRepository implements TransactionRepository {
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
 
+  /// Test-only seam to deterministically simulate a local mirror-write
+  /// failure *after* a Supabase write already succeeded, without needing to
+  /// violate a real SQL constraint (the row-mapping code validates every
+  /// column, so organically triggering a write failure through valid-looking
+  /// server data isn't practical). Null in production; never set outside
+  /// tests. See `_mirrorUpsertRow`/`_mirrorDeleteByServerId`.
+  @visibleForTesting
+  Object? Function()? debugMirrorWriteError;
+
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
     try {
@@ -51,6 +62,14 @@ class SupabaseTransactionRepository implements TransactionRepository {
     final uid = await _getAuthUserId();
     if (uid == null) throw const AuthRepoException();
     return uid;
+  }
+
+  Future<String?> _serverAccountId(String? accountId) {
+    return SupabasePlanningSupport(
+      db: _db,
+      getClient: _getClient,
+      getAuthUserId: _getAuthUserId,
+    ).serverAccountId(accountId);
   }
 
   // ── ترحيل النوع/الاتجاه بين Supabase (direction/transaction_type) و
@@ -134,8 +153,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
   // الكيان، وإلا تظهر كل عملية Supabase-primary كـ«غير مصنّف» في الواجهة.
   Future<TransactionEntity> _fromServerRow(Map<String, dynamic> row) async {
     final direction = directionFromServer(row['direction'] as String?);
-    final localCategoryId =
-        await _localCategoryIdForKey(row['category_id'] as String?);
+    final localCategoryId = await _localCategoryIdForRow(row);
     final metadata = _metadata(row);
     final source = _transactionSourceFromMetadata(
       metadata['transaction_source'] as String?,
@@ -236,7 +254,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
       case 'manual':
         return TransactionSourceEntity.unknown;
       case 'import':
-        return TransactionSourceEntity.unknown;
+        return TransactionSourceEntity.imported;
       case 'share_extension':
         return TransactionSourceEntity.aiParsed;
       default:
@@ -258,6 +276,8 @@ class SupabaseTransactionRepository implements TransactionRepository {
         return 'share_extension';
       case TransactionSourceEntity.unknown:
         return 'manual';
+      case TransactionSourceEntity.imported:
+        return 'import';
     }
   }
 
@@ -612,14 +632,12 @@ class SupabaseTransactionRepository implements TransactionRepository {
       from,
       to,
       accountId,
-      columns: 'amount,category_id,transaction_type',
+      columns: 'amount,category_id,user_category_id,transaction_type',
     );
     final byCategory = <String, (double, int)>{};
     for (final r in rows) {
       if (r['transaction_type'] != 'expense') continue;
-      final categoryKey = r['category_id'] as String?;
-      if (categoryKey == null) continue;
-      final categoryId = await _localCategoryIdForKey(categoryKey);
+      final categoryId = await _localCategoryIdForRow(r);
       if (categoryId == null) continue;
       final (total, count) = byCategory[categoryId] ?? (0.0, 0);
       byCategory[categoryId] =
@@ -645,12 +663,22 @@ class SupabaseTransactionRepository implements TransactionRepository {
       from,
       to,
       accountId,
-      columns: 'amount,category_id,transaction_type',
+      columns: 'amount,category_id,user_category_id,transaction_type',
     );
+    final local = await _db.customSelect(
+      'SELECT server_id FROM categories WHERE id = ? OR key = ? LIMIT 1;',
+      variables: [
+        Variable.withString(categoryId),
+        Variable.withString(categoryId)
+      ],
+    ).getSingleOrNull();
+    final userCategoryId = local?.readNullable<String>('server_id');
     return rows
         .where((r) =>
             r['transaction_type'] == 'expense' &&
-            r['category_id'] == categoryKey)
+            (r['category_id'] == categoryKey ||
+                (userCategoryId != null &&
+                    r['user_category_id'] == userCategoryId)))
         .fold<double>(0, (sum, r) => sum + (r['amount'] as num).toDouble());
   }
 
@@ -850,6 +878,9 @@ class SupabaseTransactionRepository implements TransactionRepository {
         transaction.id.isEmpty ? IdGenerator.next() : transaction.id;
     final direction =
         transaction.direction ?? TransactionDirectionEntity.unknown;
+    final serverAccountId = await _serverAccountId(transaction.accountId);
+    final categoryRefs =
+        await _categoryRefs(categoryKey ?? transaction.categoryId);
     final metadata = <String, dynamic>{
       'transaction_source': transaction.source.name,
       if (transaction.cardLast4 != null) 'last4': transaction.cardLast4,
@@ -884,13 +915,14 @@ class SupabaseTransactionRepository implements TransactionRepository {
             'currency': transaction.currency,
             'merchant': transaction.rawMerchant,
             'description': transaction.note,
-            'category_id': categoryKey ?? transaction.categoryId,
+            'category_id': categoryRefs.$1,
+            'user_category_id': categoryRefs.$2,
             'occurred_at': transaction.occurredAt.toUtc().toIso8601String(),
             'source': sourceToServer(transaction.source),
             'confidence': transaction.parseConfidence,
             'direction': directionToServer(direction),
             'transaction_type': typeToServer(transaction.type, direction),
-            'server_account_id': transaction.accountId,
+            'server_account_id': serverAccountId,
             'balance_after': transaction.balanceAfter,
             'status': transaction.status.name,
             'foreign_amount': transaction.foreignAmount,
@@ -938,6 +970,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
     final uid = await _requireUserId();
     final direction =
         transaction.direction ?? TransactionDirectionEntity.unknown;
+    final serverAccountId = await _serverAccountId(transaction.accountId);
     final clientRequestId = 'capture_$payloadId';
     final metadata = <String, dynamic>{
       'transaction_source': transaction.source.name,
@@ -964,13 +997,14 @@ class SupabaseTransactionRepository implements TransactionRepository {
       'currency': transaction.currency,
       'merchant': transaction.rawMerchant,
       'description': transaction.note,
-      'category_id': categoryKey ?? transaction.categoryId,
+      ..._categoryRefsMap(
+          await _categoryRefs(categoryKey ?? transaction.categoryId)),
       'occurred_at': transaction.occurredAt.toUtc().toIso8601String(),
       'source': 'ios_shortcut',
       'confidence': transaction.parseConfidence,
       'direction': directionToServer(direction),
       'transaction_type': typeToServer(transaction.type, direction),
-      'server_account_id': transaction.accountId,
+      'server_account_id': serverAccountId,
       'balance_after': transaction.balanceAfter,
       'status': transaction.status.name,
       'comparison_timestamp':
@@ -1058,8 +1092,10 @@ class SupabaseTransactionRepository implements TransactionRepository {
   Future<TransactionEntity> updateCategory({
     required String transactionId,
     required String categoryKey,
-  }) =>
-      _updateFields(transactionId, {'category_id': categoryKey});
+  }) async {
+    final refs = await _categoryRefs(categoryKey);
+    return _updateFields(transactionId, _categoryRefsMap(refs));
+  }
 
   @override
   Future<TransactionEntity> updateTransaction({
@@ -1075,6 +1111,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
   }) async {
     final categoryKey =
         categoryId == null ? null : await _categoryKeyForLocalId(categoryId);
+    final categoryRefs = await _categoryRefs(categoryKey ?? categoryId);
     final direction = switch (type) {
       TransactionTypeEntity.income || TransactionTypeEntity.refund => 'credit',
       TransactionTypeEntity.payment ||
@@ -1090,7 +1127,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
       'occurred_at': occurredAt.toUtc().toIso8601String(),
       'comparison_timestamp': occurredAt.toUtc().toIso8601String(),
       'merchant': rawMerchant,
-      'category_id': categoryKey,
+      ..._categoryRefsMap(categoryRefs),
       'description': note,
       if (accountId != null) 'server_account_id': accountId,
     });
@@ -1123,7 +1160,11 @@ class SupabaseTransactionRepository implements TransactionRepository {
     required String transactionId,
     required String accountId,
   }) async {
-    await _updateFields(transactionId, {'server_account_id': accountId});
+    final serverAccountId = await _serverAccountId(accountId);
+    await _updateFields(
+      transactionId,
+      {'server_account_id': serverAccountId},
+    );
   }
 
   @override
@@ -1192,6 +1233,37 @@ class SupabaseTransactionRepository implements TransactionRepository {
     return row?.readNullable<String>('id');
   }
 
+  Future<String?> _localCategoryIdForRow(Map<String, dynamic> row) async {
+    final userCategoryId = row['user_category_id'] as String?;
+    if (userCategoryId != null) {
+      final local = await _db.customSelect(
+        'SELECT id FROM categories WHERE server_id = ? OR id = ? LIMIT 1;',
+        variables: [
+          Variable.withString(userCategoryId),
+          Variable.withString(userCategoryId),
+        ],
+      ).getSingleOrNull();
+      if (local != null) return local.read<String>('id');
+    }
+    return _localCategoryIdForKey(row['category_id'] as String?);
+  }
+
+  Future<(String?, String?)> _categoryRefs(String? keyOrId) async {
+    if (keyOrId == null) return (null, null);
+    final row = await _db.customSelect(
+      'SELECT key, server_id FROM categories WHERE id = ? OR key = ? LIMIT 1;',
+      variables: [Variable.withString(keyOrId), Variable.withString(keyOrId)],
+    ).getSingleOrNull();
+    final key = row?.readNullable<String>('key') ?? keyOrId;
+    final serverId = row?.readNullable<String>('server_id');
+    return serverId == null ? (key, null) : (null, serverId);
+  }
+
+  Map<String, dynamic> _categoryRefsMap((String?, String?) refs) => {
+        'category_id': refs.$1,
+        'user_category_id': refs.$2,
+      };
+
   Future<String?> _categoryKeyForLocalId(String? localId) async {
     if (localId == null) return null;
     final row = await _db.customSelect(
@@ -1209,14 +1281,18 @@ class SupabaseTransactionRepository implements TransactionRepository {
     required Map<String, dynamic> row,
     bool isDeleted = false,
   }) async {
+    final rawServerId = row['id']?.toString();
+    String? resolvedLocalId = localId;
     try {
       final serverId = row['id'] as String;
-      final resolvedLocalId =
+      resolvedLocalId =
           localId ?? await _localIdForServerId(serverId) ?? IdGenerator.next();
       final entity = await _fromServerRow(row);
       final localCategoryId = entity.categoryId;
       final now = dateTimeToSql(DateTime.now().toUtc());
       final status = isDeleted ? 'ignored' : entity.status.name;
+      final forcedError = debugMirrorWriteError?.call();
+      if (forcedError != null) throw forcedError;
       await _db.customStatement(
         '''
           INSERT INTO transactions(
@@ -1270,16 +1346,25 @@ class SupabaseTransactionRepository implements TransactionRepository {
         ],
       );
       await clearFinancialCacheDirty(_db, transactionsCacheEntityType);
-    } catch (e) {
-      await markFinancialCacheDirty(_db, transactionsCacheEntityType, e);
+    } catch (e, stackTrace) {
+      await _logAndMarkMirrorFailure(
+        operation: '_mirrorUpsertRow',
+        serverId: rawServerId,
+        localId: resolvedLocalId,
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
   }
 
   Future<void> _mirrorDeleteByServerId(String serverId) async {
+    String? localId;
     try {
-      final localId = await _localIdForServerId(serverId);
+      localId = await _localIdForServerId(serverId);
       if (localId == null) return;
       final now = dateTimeToSql(DateTime.now().toUtc());
+      final forcedError = debugMirrorWriteError?.call();
+      if (forcedError != null) throw forcedError;
       await _db.customStatement(
         '''
           UPDATE transactions
@@ -1289,8 +1374,46 @@ class SupabaseTransactionRepository implements TransactionRepository {
         [now, localId],
       );
       await clearFinancialCacheDirty(_db, transactionsCacheEntityType);
+    } catch (e, stackTrace) {
+      await _logAndMarkMirrorFailure(
+        operation: '_mirrorDeleteByServerId',
+        serverId: serverId,
+        localId: localId,
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// A server write already committed before the mirror ran, so a mirror
+  /// failure must never surface as a failed user operation (Supabase stays
+  /// authoritative; [markFinancialCacheDirty] queues the row for repair on
+  /// next resume/startup — see `FinancialCacheRepairService`). This only
+  /// makes the failure observable; `markFinancialCacheDirty` failing too is
+  /// swallowed the same way `mirrorFinancialCacheSafely` does elsewhere.
+  Future<void> _logAndMarkMirrorFailure({
+    required String operation,
+    required String? serverId,
+    required String? localId,
+    required Object error,
+    required StackTrace stackTrace,
+  }) async {
+    var markedDirty = false;
+    Object? markError;
+    try {
+      await markFinancialCacheDirty(_db, transactionsCacheEntityType, error);
+      markedDirty = true;
     } catch (e) {
-      await markFinancialCacheDirty(_db, transactionsCacheEntityType, e);
+      markError = e;
+    }
+    if (kDebugMode) {
+      debugPrint(
+        '[FinancialCacheMirror] $operation failed: '
+        'serverId=$serverId localId=$localId '
+        'cacheMarkedDirty=$markedDirty'
+        '${markError != null ? ' markFinancialCacheDirtyError=$markError' : ''} '
+        'error=$error\n$stackTrace',
+      );
     }
   }
 }

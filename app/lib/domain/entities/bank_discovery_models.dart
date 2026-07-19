@@ -4,12 +4,14 @@ class BankDiscoveryRequest {
     required this.sanitizedSms,
     this.detectedCurrency,
     this.localeHint,
+    this.installId,
   });
 
   final String senderId;
   final String sanitizedSms;
   final String? detectedCurrency;
   final String? localeHint;
+  final String? installId;
 }
 
 class BankDiscoverySuggestion {

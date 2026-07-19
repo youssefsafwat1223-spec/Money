@@ -7,13 +7,16 @@ class CaptureBackendClient {
     required String supabaseUrl,
     required String anonKey,
     http.Client? httpClient,
+    Duration processIosSmsTimeout = const Duration(seconds: 25),
   })  : _supabaseUrl = supabaseUrl,
         _anonKey = anonKey,
-        _http = httpClient ?? http.Client();
+        _http = httpClient ?? http.Client(),
+        _processIosSmsTimeout = processIosSmsTimeout;
 
   final String _supabaseUrl;
   final String _anonKey;
   final http.Client _http;
+  final Duration _processIosSmsTimeout;
 
   Uri _functionUri(String name) =>
       Uri.parse('$_supabaseUrl/functions/v1/$name');
@@ -146,7 +149,10 @@ class CaptureBackendClient {
             'allowAi': allowAi,
           }),
         )
-        .timeout(const Duration(seconds: 12));
+        // Unlike the App Intent's strict 8-second budget, this replay runs
+        // after Flutter is open. Give a cold Edge Function enough time for
+        // bounded AI parsing and APNs without forcing another app resume.
+        .timeout(_processIosSmsTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw CaptureBackendException(
         'process_ios_sms_failed_${response.statusCode}',

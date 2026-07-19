@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -12,24 +12,21 @@ import 'core/session/app_session.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_assets.dart';
 import 'core/theme/app_colors.dart';
-import 'core/theme/theme_mode_provider.dart';
 import 'core/i18n/locale_provider.dart';
+import 'core/theme/widgets/mesh_gradient_bg.dart';
 
-/// جذر التطبيق. Arabic-first / RTL، يدعم الوضعين.
+/// جذر التطبيق. Arabic-first / RTL.
 class MoneyApp extends ConsumerWidget {
   const MoneyApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeModeProvider);
     final activeLocale = ref.watch(localeProvider);
 
     return MaterialApp.router(
       title: 'قرش',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: themeMode,
       routerConfig: appRouter,
       scrollBehavior:
           const MaterialScrollBehavior().copyWith(scrollbars: false),
@@ -118,148 +115,54 @@ class _MaliSplashState extends State<_MaliSplash>
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SizedBox.expand(
-      child: _AmbientLiquidBackground(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) => Opacity(
-                opacity: _textOpacity.value,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: MeshGradientBackground(
+              backgroundColor: const Color(0xFFE8F2F6),
+              primaryColor: c.primary.withValues(alpha: 0.4),
+              secondaryColor: const Color(0xFFF4C84B).withValues(alpha: 0.3),
+              tertiaryColor: c.accent.withValues(alpha: 0.2),
+            ),
+          ),
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) => Opacity(
+              opacity: _textOpacity.value,
+              child: Transform.translate(
+                offset: Offset(0, 10 * (1 - _textOpacity.value)),
                 child: Transform.scale(scale: _textScale.value, child: child),
               ),
-              child: Image.asset(
-                AppAssets.getLogoTagline(context),
-                width: isDark ? 230 : 260,
-                filterQuality: FilterQuality.high,
+            ),
+            child: Image.asset(
+              AppAssets.getLogoTagline(context),
+              width: 260,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
+          // Sleek breathing loading bar at the bottom
+          Positioned(
+            bottom: 64,
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: _loadingOpacity.value,
+                  child: child,
+                );
+              },
+              child: SizedBox(
+                width: 48,
+                child: _SleekLoadingIndicator(
+                    color: c.textLight.withValues(alpha: 0.4)),
               ),
             ),
-            // Sleek breathing loading bar at the bottom
-            Positioned(
-              bottom: 64,
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  return Opacity(
-                    opacity: _loadingOpacity.value,
-                    child: child,
-                  );
-                },
-                child: SizedBox(
-                  width: 48,
-                  child: _SleekLoadingIndicator(
-                      color: c.textLight.withValues(alpha: 0.4)),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
-}
-
-/// خلفية سائلة ومضيئة — Drift Ambient Background
-class _AmbientLiquidBackground extends StatefulWidget {
-  const _AmbientLiquidBackground({required this.child});
-  final Widget child;
-
-  @override
-  State<_AmbientLiquidBackground> createState() =>
-      _AmbientLiquidBackgroundState();
-}
-
-class _AmbientLiquidBackgroundState extends State<_AmbientLiquidBackground>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _driftController;
-
-  @override
-  void initState() {
-    super.initState();
-    _driftController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 8),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _driftController.dispose();
-    super.dispose();
-  }
-
-  Size get size => MediaQuery.of(context).size;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return AnimatedBuilder(
-      animation: _driftController,
-      builder: (context, child) {
-        final t = _driftController.value * 2.0 * pi;
-
-        final dx1 = 0.25 * size.width * cos(t);
-        final dy1 = 0.15 * size.height * sin(t);
-
-        final dx2 = 0.2 * size.width * sin(2 * t);
-        final dy2 = 0.1 * size.height * cos(2 * t);
-
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(color: c.bg),
-              ),
-            ),
-            // Light 1: Blue / Teal
-            Positioned(
-              left: (size.width * 0.15) + dx1,
-              top: (size.height * 0.18) + dy1,
-              child: Container(
-                width: size.width * 0.8,
-                height: size.width * 0.8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      (isDark ? c.primary : const Color(0xFFC7E3F0))
-                          .withValues(alpha: isDark ? 0.08 : 0.4),
-                      (isDark ? c.primary : const Color(0xFFC7E3F0))
-                          .withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // Light 2: Accent / Success
-            Positioned(
-              right: (size.width * 0.1) + dx2,
-              bottom: (size.height * 0.22) + dy2,
-              child: Container(
-                width: size.width * 0.9,
-                height: size.width * 0.9,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      (isDark ? c.accent : const Color(0xFFE3F6EC))
-                          .withValues(alpha: isDark ? 0.06 : 0.35),
-                      (isDark ? c.accent : const Color(0xFFE3F6EC))
-                          .withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(child: widget.child),
-          ],
-        );
-      },
     );
   }
 }

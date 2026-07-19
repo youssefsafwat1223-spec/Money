@@ -304,8 +304,8 @@ class _AchievementsHeader extends StatelessWidget {
                           Text(
                             '$level',
                             style: AppTypography.title2(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
@@ -324,10 +324,10 @@ class _AchievementsHeader extends StatelessWidget {
                         children: [
                           Text(
                             '$xp',
-                            style: AppTypography.bodyStrong(c.textMain)
-                                .copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Outfit'),
+                            style:
+                                AppTypography.bodyStrong(c.textMain).copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -348,10 +348,10 @@ class _AchievementsHeader extends StatelessWidget {
                         children: [
                           Text(
                             '$streak يوم',
-                            style: AppTypography.bodyStrong(c.textMain)
-                                .copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Outfit'),
+                            style:
+                                AppTypography.bodyStrong(c.textMain).copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(

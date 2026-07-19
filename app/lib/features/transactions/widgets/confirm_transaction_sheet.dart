@@ -5,6 +5,7 @@ import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/formatters.dart';
@@ -18,6 +19,7 @@ import '../../common/category_catalog.dart';
 import '../../dashboard/dashboard_providers.dart';
 import '../manual_transaction_sheet.dart';
 import '../transactions_providers.dart';
+import '../../../core/theme/widgets/app_toast.dart';
 
 Future<void> showConfirmTransactionSheet(
   BuildContext context,
@@ -29,10 +31,10 @@ Future<void> showConfirmTransactionSheet(
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _ConfirmSheet(
+    builder: (_) => navySheetTheme(_ConfirmSheet(
       transactionId: transactionId,
       secondaryNotice: secondaryNotice,
-    ),
+    )),
   );
 }
 
@@ -64,6 +66,7 @@ class _ConfirmSheet extends ConsumerStatefulWidget {
 class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
   String? _selectedCategoryKey;
   final _priceController = TextEditingController();
+  bool _confirming = false;
 
   @override
   void dispose() {
@@ -277,9 +280,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                           final message = e is RepoException
                               ? repoExceptionMessage(e)
                               : 'تعذر تحديث التصنيف.';
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(message)),
-                          );
+                          AppToast.show(context, message);
                         });
                       },
                     ),
@@ -367,9 +368,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                               );
                         } on RepoException catch (e) {
                           if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(repoExceptionMessage(e))),
-                          );
+                          AppToast.show(context, repoExceptionMessage(e));
                           return;
                         }
                         ref.invalidate(
@@ -386,32 +385,49 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
 
           AppButton(
             label: 'تأكيد العملية',
-            onPressed: () async {
-              // Price a foreign "awaiting pricing" spend if a value was typed.
-              if (_awaitingPricing(tx)) {
-                final priced = double.tryParse(_priceController.text.trim());
-                if (priced != null && priced > 0) {
-                  try {
-                    await ref.read(transactionRepositoryProvider).updateAmount(
-                          transactionId: tx.id,
-                          amount: priced,
+            loading: _confirming,
+            onPressed: _confirming
+                ? null
+                : () async {
+                    setState(() => _confirming = true);
+                    try {
+                      // Price a foreign "awaiting pricing" spend if a value was typed.
+                      if (_awaitingPricing(tx)) {
+                        final priced =
+                            double.tryParse(_priceController.text.trim());
+                        if (priced != null && priced > 0) {
+                          try {
+                            await ref
+                                .read(transactionRepositoryProvider)
+                                .updateAmount(
+                                  transactionId: tx.id,
+                                  amount: priced,
+                                );
+                          } on RepoException catch (e) {
+                            if (!context.mounted) return;
+                            AppToast.show(context, repoExceptionMessage(e));
+                            return;
+                          }
+                        }
+                      }
+                      if (tx.status == TransactionStatus.pending) {
+                        await ref.read(confirmTransactionUseCaseProvider)(
+                          tx.id,
                         );
-                  } on RepoException catch (e) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(repoExceptionMessage(e))),
-                    );
-                    return;
-                  }
-                }
-              }
-              if (tx.status == TransactionStatus.pending) {
-                await ref.read(confirmTransactionUseCaseProvider)(tx.id);
-              }
-              refreshTransactions(ref);
-              ref.invalidate(dashboardDataProvider);
-              if (context.mounted) Navigator.of(context).pop();
-            },
+                      }
+                      refreshTransactions(ref);
+                      ref.invalidate(dashboardDataProvider);
+                      if (context.mounted) Navigator.of(context).pop();
+                    } on RepoException catch (e) {
+                      if (!context.mounted) return;
+                      AppToast.show(context, repoExceptionMessage(e));
+                    } catch (_) {
+                      if (!context.mounted) return;
+                      AppToast.show(context, 'تعذّر تأكيد العملية. حاول مرة أخرى.');
+                    } finally {
+                      if (mounted) setState(() => _confirming = false);
+                    }
+                  },
             isPrimary: true,
           ),
           const SizedBox(height: AppSpacing.s2),

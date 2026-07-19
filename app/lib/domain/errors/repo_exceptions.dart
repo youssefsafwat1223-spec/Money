@@ -50,12 +50,18 @@ class UnknownRepoException extends RepoException {
 
 /// يترجم استثناء Postgrest/Auth الخام إلى نوع RepoException محدد.
 RepoException mapSupabaseError(Object error) {
-  // Never print the raw server message: it may include row values, request
-  // details, or other financial context. The stable code is enough to debug.
   if (kDebugMode) {
+    final diagnostic =
+        error is PostgrestException ? _safePostgrestDiagnostic(error) : '';
     debugPrint(
       '[RepoError] type=${error.runtimeType}'
-      '${error is PostgrestException ? ' code=${error.code ?? 'unknown'}' : ''}',
+      '${error is PostgrestException ? ' code=${error.code ?? 'unknown'}' : ''}'
+      '${diagnostic.isEmpty ? '' : ' message=$diagnostic'}',
+    );
+    debugPrintStack(
+      label: '[RepoError] safe call site',
+      stackTrace: StackTrace.current,
+      maxFrames: 8,
     );
   }
   if (error is PostgrestException) {
@@ -94,6 +100,31 @@ RepoException mapSupabaseError(Object error) {
     return NetworkRepoException(error.toString());
   }
   return UnknownRepoException(error.toString());
+}
+
+String _safePostgrestDiagnostic(PostgrestException error) {
+  var value = error.message.trim();
+  if (value.isEmpty) return '';
+
+  // Physical-device debugging needs the response shape, while auth tokens,
+  // email addresses and row identifiers must never be echoed to the console.
+  value = value
+      .replaceAll(
+        RegExp(r'Bearer\s+[A-Za-z0-9._~-]+', caseSensitive: false),
+        'Bearer <redacted>',
+      )
+      .replaceAll(
+        RegExp(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'),
+        '<email>',
+      )
+      .replaceAll(
+        RegExp(
+          r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b',
+        ),
+        '<uuid>',
+      )
+      .replaceAll(RegExp(r'\b[A-Za-z0-9_-]{20,}\b'), '<id>');
+  return value.length <= 240 ? value : '${value.substring(0, 240)}...';
 }
 
 /// رسالة عربية مناسبة للمستخدم لكل نوع خطأ — تُستخدم في نقاط الاستدعاء

@@ -11,6 +11,7 @@ import '../../../domain/entities/suspected_duplicate_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/repositories/account_repository.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
+import '../../../engine/privacy/sms_sanitizer.dart';
 import 'capture_backend_client.dart';
 import 'capture_device_registration_service.dart';
 import 'native_capture_bridge.dart';
@@ -39,7 +40,7 @@ class CaptureSyncService {
     bool? backendConfigured,
     Future<String> Function()? loadInstallId,
     SupabaseTransactionRepository? directTransactionRepository,
-    bool Function()? isDirectCaptureEnabled,
+    bool Function()? isSupabasePrimaryEnabled,
   })  : _settingsRepository = settingsRepository,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
@@ -50,7 +51,7 @@ class CaptureSyncService {
         _backendConfigured = backendConfigured,
         _loadInstallId = loadInstallId,
         _directTransactionRepository = directTransactionRepository,
-        _isDirectCaptureEnabled = isDirectCaptureEnabled;
+        _isSupabasePrimaryEnabled = isSupabasePrimaryEnabled;
 
   static final DateTime _payloadMarkerTime =
       DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
@@ -65,7 +66,7 @@ class CaptureSyncService {
   final bool? _backendConfigured;
   final Future<String> Function()? _loadInstallId;
   final SupabaseTransactionRepository? _directTransactionRepository;
-  final bool Function()? _isDirectCaptureEnabled;
+  final bool Function()? _isSupabasePrimaryEnabled;
 
   // مزامنة واحدة في الرحلة الواحدة: الاستئناف (resume) وضغطة الإشعار يصلان
   // في نفس اللحظة تقريبًا، وبدون هذا القفل يجلب الاثنان نفس صفوف الـ relay
@@ -114,17 +115,31 @@ class CaptureSyncService {
 
     final imported = <String>{};
     final needsReviewTransactionIds = <String>[];
-    final directMode = _isDirectCaptureEnabled?.call() ?? false;
+    // The Edge Function's capture_direct_supabase_write flag controls whether
+    // it writes before the app opens. Relay recovery is separate: it must
+    // import into the repository currently powering the transaction UI.
+    final supabasePrimaryMode = _isSupabasePrimaryEnabled?.call() ?? false;
     for (final capture in captures) {
       if (capture.payloadId.isEmpty) continue;
       if (await isPayloadImported(capture.payloadId)) {
         imported.add(capture.payloadId);
         continue;
       }
-      if (directMode && _directTransactionRepository != null) {
+      if (supabasePrimaryMode && _directTransactionRepository != null) {
         final existing = await _directTransactionRepository
             .getBySourcePayloadId(capture.payloadId);
         if (existing != null) {
+          if (existing.accountId == null) {
+            final currency = _string(capture.parsed['currency']);
+            final account =
+                currency == null ? null : await _accountForCurrency(currency);
+            if (account != null) {
+              await _directTransactionRepository.updateAccount(
+                transactionId: existing.id,
+                accountId: account.id,
+              );
+            }
+          }
           await markPayloadImported(
             payloadId: capture.payloadId,
             transactionId: existing.id,
@@ -138,7 +153,7 @@ class CaptureSyncService {
       }
       final needsReviewTransactionId = await _importCapture(
         capture,
-        directMode: directMode,
+        supabasePrimaryMode: supabasePrimaryMode,
       );
       if (needsReviewTransactionId != null) {
         needsReviewTransactionIds.add(needsReviewTransactionId);
@@ -184,7 +199,12 @@ class CaptureSyncService {
       installId: await (_loadInstallId ?? InstallId.get)(),
       deviceSecret: secret,
       payloadId: message.id!,
-      smsText: message.text,
+      // The server persists this value verbatim (processed_captures.parsed.
+      // rawMessage) for every message regardless of outcome, so it must never
+      // carry card/phone/account numbers or third-party beneficiary names —
+      // sanitize on-device first, same discipline as SmsSanitizer's other
+      // call sites (add_transaction_usecase.dart, bank_discovery_service.dart).
+      smsText: SmsSanitizer.sanitize(message.text),
       sender: message.sender,
       receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
       locale: message.locale,
@@ -216,7 +236,7 @@ class CaptureSyncService {
 
   Future<String?> _importCapture(
     ProcessedCaptureDto capture, {
-    required bool directMode,
+    required bool supabasePrimaryMode,
   }) async {
     final parsed = capture.parsed;
     var duplicateOf = _string(parsed['possibleDuplicateOfTransactionId']);
@@ -268,8 +288,7 @@ class CaptureSyncService {
 
     final now = DateTime.now().toUtc();
     final normalizedCurrency = currency.trim().toUpperCase();
-    final account =
-        directMode ? null : await _accountForCurrency(normalizedCurrency);
+    final account = await _accountForCurrency(normalizedCurrency);
     final occurredAt = _date(parsed['occurredAt']) ??
         _date(parsed['comparisonTimestamp']) ??
         capture.createdAt ??
@@ -332,7 +351,7 @@ class CaptureSyncService {
           _string(parsed['possibleDuplicateOfTransactionId']),
       duplicateReason: _string(parsed['duplicateReason']),
     );
-    final saved = directMode && _directTransactionRepository != null
+    final saved = supabasePrimaryMode && _directTransactionRepository != null
         ? await _directTransactionRepository.saveCapturedTransaction(
             transaction: transaction,
             categoryKey: _string(parsed['category']),

@@ -1,30 +1,28 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-app-version",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-version',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
   }
 
-  const appVersion = req.headers.get("x-app-version") ?? "0.0.0";
+  const appVersion = req.headers.get('x-app-version') ?? '0.0.0';
   console.log(`catalog-announcements requested by app version: ${appVersion}`);
 
   try {
     const url = new URL(req.url);
-    const country = url.searchParams.get("country")?.trim().toUpperCase();
+    const country = url.searchParams.get('country')?.trim().toUpperCase();
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey =
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-      Deno.env.get("SUPABASE_ANON_KEY");
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ??
+      Deno.env.get('SUPABASE_ANON_KEY');
     if (!supabaseUrl || !serviceKey) {
-      return json({ error: "Supabase environment is not configured" }, 500);
+      return json({ error: 'Supabase environment is not configured' }, 500);
     }
 
     const client = createClient(supabaseUrl, serviceKey, {
@@ -34,12 +32,12 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
 
     const { data, error } = await client
-      .from("announcements")
-      .select("*")
-      .eq("is_active", true)
-      .lte("valid_from", now)
+      .from('announcements')
+      .select('*')
+      .eq('is_active', true)
+      .lte('valid_from', now)
       .or(`valid_until.is.null,valid_until.gte.${now}`)
-      .order("priority", { ascending: false });
+      .order('priority', { ascending: false });
 
     if (error) return json({ error: error.message }, 500);
 
@@ -63,8 +61,8 @@ Deno.serve(async (req) => {
 
     return json({ announcements });
   } catch (err) {
-    console.error("catalog-announcements failed", err);
-    return json({ error: "Unexpected announcements failure" }, 500);
+    console.error('catalog-announcements failed', err);
+    return json({ error: 'Unexpected announcements failure' }, 500);
   }
 });
 
@@ -87,13 +85,13 @@ function compareSemver(a: string, b: string): number {
 }
 
 function parseSemver(v: string): [number, number, number] {
-  const parts = (v ?? "0.0.0").replace(/[^0-9.]/g, "").split(".").map(Number);
+  const parts = (v ?? '0.0.0').replace(/[^0-9.]/g, '').split('.').map(Number);
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
 }
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }

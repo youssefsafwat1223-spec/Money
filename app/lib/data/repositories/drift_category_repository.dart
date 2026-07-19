@@ -15,7 +15,8 @@ class DriftCategoryRepository implements CategoryRepository {
   Future<List<CategoryEntity>> getAll() async {
     final rows = await _db
         .customSelect(
-          'SELECT * FROM categories ORDER BY sort_order ASC;',
+          'SELECT * FROM categories WHERE deleted_at IS NULL '
+          'ORDER BY sort_order ASC;',
         )
         .get();
     return rows
@@ -107,12 +108,15 @@ class DriftCategoryRepository implements CategoryRepository {
       variables: [Variable.withString(id)],
     );
     await _db.customUpdate(
-      'DELETE FROM budgets WHERE category_id = ?;',
-      variables: [Variable.withString(id)],
+      'UPDATE budgets SET category_id = ? WHERE category_id = ?;',
+      variables: [Variable.withString(fallback), Variable.withString(id)],
     );
     await _db.customUpdate(
-      'DELETE FROM categories WHERE id = ?;',
-      variables: [Variable.withString(id)],
+      'UPDATE categories SET deleted_at = ? WHERE id = ?;',
+      variables: [
+        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(id),
+      ],
     );
   }
 

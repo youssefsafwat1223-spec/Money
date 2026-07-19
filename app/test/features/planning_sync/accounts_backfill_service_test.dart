@@ -42,9 +42,9 @@ void main() {
   // to accounts — see that test file for the full end-to-end sign-out/
   // sign-in/backfill scenario.
 
-  test('refuses to backfill accounts when the owner marker conflicts with '
-      'the currently authenticated uid — and never touches Supabase',
-      () async {
+  test(
+      'refuses to backfill accounts when the owner marker conflicts with '
+      'the currently authenticated uid — and never touches Supabase', () async {
     final db = await _openDb();
     addTearDown(db.close);
 
@@ -61,8 +61,7 @@ void main() {
     );
   });
 
-  test('proceeds when the owner marker is null (no known conflict)',
-      () async {
+  test('proceeds when the owner marker is null (no known conflict)', () async {
     final db = await _openDb();
     addTearDown(db.close);
     // Clear the freshly-seeded default account so the per-row loop (the
@@ -81,7 +80,8 @@ void main() {
     expect(report.total, 0);
   });
 
-  test('proceeds when the owner marker matches the currently authenticated '
+  test(
+      'proceeds when the owner marker matches the currently authenticated '
       'uid', () async {
     final db = await _openDb();
     addTearDown(db.close);

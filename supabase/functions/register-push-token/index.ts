@@ -1,6 +1,6 @@
 import {
-  corsHeaders,
   bumpCaptureEndpointRateLimit,
+  corsHeaders,
   json,
   readString,
   serviceClient,
@@ -27,7 +27,30 @@ Deno.serve(async (req) => {
   const supabase = serviceClient();
   const auth = await verifyDevice(supabase, installId, deviceSecret);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
-  if (await bumpCaptureEndpointRateLimit(supabase, auth.installIdHash, 'register-push-token', REGISTER_PUSH_TOKEN_LIMIT_PER_DAY)) {
+
+  // iOS may deliver the same APNs token repeatedly on startup/resume. Treat
+  // that as an idempotent success before consuming rate-limit budget; only
+  // actual token/environment changes count toward the abuse limit.
+  const current = await supabase
+    .from('capture_devices')
+    .select('apns_token,apns_environment')
+    .eq('install_id_hash', auth.installIdHash)
+    .maybeSingle();
+  if (current.error) return json({ error: 'token_lookup_failed' }, 500);
+  if (
+    current.data?.apns_token === apnsToken &&
+    current.data?.apns_environment === environment
+  ) {
+    return json({ ok: true, unchanged: true });
+  }
+  if (
+    await bumpCaptureEndpointRateLimit(
+      supabase,
+      auth.installIdHash,
+      'register-push-token',
+      REGISTER_PUSH_TOKEN_LIMIT_PER_DAY,
+    )
+  ) {
     return json({ error: 'rate_limit_exceeded' }, 429);
   }
 

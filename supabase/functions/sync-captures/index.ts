@@ -1,4 +1,11 @@
-import { bumpCaptureEndpointRateLimit, corsHeaders, json, readString, serviceClient, verifyDevice } from '../_shared/capture_auth.ts';
+import {
+  bumpCaptureEndpointRateLimit,
+  corsHeaders,
+  json,
+  readString,
+  serviceClient,
+  verifyDevice,
+} from '../_shared/capture_auth.ts';
 
 const SYNC_CAPTURES_LIMIT_PER_DAY = 240;
 
@@ -27,9 +34,7 @@ Deno.serve(async (req) => {
       .delete()
       .eq('install_id_hash', auth.installIdHash)
       .in('payload_id', ackIds);
-    ackQuery = auth.userId == null
-      ? ackQuery.is('claimed_user_id', null)
-      : ackQuery.eq('claimed_user_id', auth.userId);
+    ackQuery = auth.userId == null ? ackQuery.is('claimed_user_id', null) : ackQuery.eq('claimed_user_id', auth.userId);
     const { error } = await ackQuery;
     if (error) return json({ error: 'ack_failed' }, 500);
   }

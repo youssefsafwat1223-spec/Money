@@ -1,26 +1,37 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/auth/auth_service.dart';
-import '../../core/backup/backup_service.dart';
+import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import 'restore_prompt_screen.dart';
-import 'widgets/luxe_starry_bg.dart';
+import '../../core/theme/widgets/premium_glass_container.dart';
+import '../../core/utils/l10n_ext.dart';
+import 'widgets/word_reveal_text.dart';
+import '../../core/theme/widgets/app_toast.dart';
+
+/// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
+/// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
+const _authBlue = Color(0xFF021B79);
 
 /// Page 3 of the redesigned onboarding: mandatory sign-in.
 ///
+/// Same flat navy background and small fixed logo as the rest of the
+/// onboarding sequence — no photo backdrop.
+///
 /// Auth success only sets the identity — onboarding is finished later by the
-/// setup page. If the account already has a remote backup we offer to restore
-/// it before proceeding.
+/// setup page. Legacy backup restore remains available later from Data Transfer
+/// and no longer interrupts the first authenticated session.
 class OnboardingAuthScreen extends ConsumerStatefulWidget {
   const OnboardingAuthScreen({super.key});
 
@@ -40,6 +51,7 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     required bool apple,
   }) async {
     if (_busy) return;
+    HapticFeedback.lightImpact();
     setState(() => apple ? _busyApple = true : _busyGoogle = true);
     try {
       final identity = await method();
@@ -48,30 +60,35 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         email: identity.email,
         userId: identity.userId,
       );
-      unawaited(
-        ref
-            .read(captureDeviceRegistrationServiceProvider)
-            .linkToCurrentUser()
-            .catchError((_) {}),
-      );
-      if (!mounted) return;
-
-      var hasBackup = false;
-      try {
-        hasBackup = await ref.read(backupServiceProvider).hasRemoteBackup();
-      } catch (_) {}
-      if (!mounted) return;
-
-      if (hasBackup) {
-        await _offerRestore();
-      } else {
-        context.go('/onboarding/setup');
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تعذّر تسجيل الدخول. جرب تاني.')),
+      if (SupabaseConfig.isConfigured) {
+        await AppSession.instance.reconcileAccountOnboarding(
+          supabase.Supabase.instance.client,
         );
+        if (!mounted) return;
+        unawaited(
+          ref
+              .read(captureDeviceRegistrationServiceProvider)
+              .linkToCurrentUser()
+              .catchError((_) {}),
+        );
+      }
+      if (!mounted) return;
+      if (AppSession.instance.hasCompletedOnboarding) {
+        context.go('/');
+        return;
+      }
+
+      context.go('/onboarding/setup');
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          '[Auth] interactive sign-in failed: '
+          '${error.runtimeType}: $error',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      if (mounted) {
+        AppToast.showError(context, context.l10n.authSignInError);
       }
     } finally {
       if (mounted) {
@@ -83,84 +100,144 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     }
   }
 
-  Future<void> _offerRestore() async {
-    final choice = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        final c = ctx.colors;
-        return AlertDialog(
-          backgroundColor: c.surface,
-          title: Text('لقينا نسخة احتياطية لحسابك',
-              style: AppTypography.title2(c.textMain)),
-          content: Text(
-            'تحب نرجّع بياناتك من آخر نسخة، ولا تبدأ من جديد؟',
-            style: AppTypography.body(c.textSecondary),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('ابدأ من جديد'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('استرجاعها'),
-            ),
-          ],
-        );
-      },
-    );
-    if (!mounted) return;
-    if (choice == true) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const RestorePromptScreen(onboardingFlow: true),
-        ),
-      );
-    } else {
-      context.go('/onboarding/setup');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Scaffold(
-      backgroundColor: c.bg,
-      body: Stack(
-        children: [
-          const Positioned.fill(child: LuxeStarryBackground()),
-          SafeArea(
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-              child: Column(
-                children: [
-                  const Spacer(flex: 2),
-                  Image.asset(AppAssets.qirshCoinGold, width: 84, height: 84)
-                      .animate()
-                      .fadeIn(duration: 500.ms)
-                      .scale(begin: const Offset(0.8, 0.8)),
-                  const SizedBox(height: AppSpacing.s5),
-                  Text('سجّل دخولك',
-                      style: AppTypography.title1(c.textMain)
-                          .copyWith(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 8),
-                  Text(
-                    'حسابك بيحمي بياناتك ويخلي كل حاجة متزامنة.',
-                    textAlign: TextAlign.center,
-                    style: AppTypography.body(c.textLight),
-                  ),
-                  const Spacer(flex: 3),
-                  _appleButton(c),
-                  const SizedBox(height: AppSpacing.s3),
-                  _googleButton(c),
-                  const SizedBox(height: AppSpacing.s5),
-                ],
+    final l10n = context.l10n;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: _authBlue,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Centers the block when it's shorter than the available
+                    // space; scrolls instead of overflowing when it's taller
+                    // (small phones, large accessibility text).
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter,
+                      ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(
+                              width: double.infinity,
+                              child: Center(
+                                child: ExcludeSemantics(
+                                  child: Image(
+                                    image: AssetImage(AppAssets.qirshLogoFull),
+                                    height: 100,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.s5),
+                            WordRevealText(
+                              l10n.authTitle,
+                              style: AppTypography.custom(
+                                size: 30,
+                                weight: FontWeight.w700,
+                                height: 1.12,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              l10n.authSubtitle,
+                              style: AppTypography.body(
+                                Colors.white.withValues(alpha: 0.74),
+                              ).copyWith(height: 1.6),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  0,
+                  AppSpacing.gutter,
+                  AppSpacing.s5,
+                ),
+                child: PremiumGlassContainer(
+                  blurSigma: 25,
+                  noiseOpacity: 0.05,
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  borderColor: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(32),
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _appleButton(c),
+                      const SizedBox(height: 16),
+                      _googleButton(c),
+                      const SizedBox(height: 24),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 4,
+                        runSpacing: 6,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.security,
+                                size: 14,
+                                color: Colors.white54,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                l10n.authTrustLocalEncryption,
+                                style: AppTypography.micro(Colors.white54),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 12),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.phonelink_lock,
+                                size: 14,
+                                color: Colors.white54,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                l10n.authTrustOnDevice,
+                                style: AppTypography.micro(Colors.white54),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        l10n.authTermsNotice,
+                        textAlign: TextAlign.center,
+                        style: AppTypography.micro(
+                          Colors.white.withValues(alpha: 0.48),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -171,23 +248,30 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
       child: FilledButton.icon(
         onPressed: _busy
             ? null
-            : () => _signIn(ref.read(authServiceProvider).signInWithApple,
-                apple: true),
+            : () => _signIn(
+                  ref.read(authServiceProvider).signInWithApple,
+                  apple: true,
+                ),
         style: FilledButton.styleFrom(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
           minimumSize: const Size.fromHeight(54),
+          shape: const StadiumBorder(),
         ),
         icon: _busyApple
             ? const SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
+                  strokeWidth: 2,
+                  color: Colors.black,
+                ),
               )
-            : const Icon(Icons.apple, size: 22),
-        label: Text('المتابعة بحساب Apple',
-            style: AppTypography.bodyStrong(Colors.white)),
+            : const Icon(Icons.apple, size: 24),
+        label: Text(
+          context.l10n.authAppleCta,
+          style: AppTypography.bodyStrong(Colors.black),
+        ),
       ),
     );
   }
@@ -198,23 +282,31 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
       child: OutlinedButton.icon(
         onPressed: _busy
             ? null
-            : () => _signIn(ref.read(authServiceProvider).signInWithGoogle,
-                apple: false),
+            : () => _signIn(
+                  ref.read(authServiceProvider).signInWithGoogle,
+                  apple: false,
+                ),
         style: OutlinedButton.styleFrom(
-          foregroundColor: c.textMain,
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.transparent,
           minimumSize: const Size.fromHeight(54),
-          side: BorderSide(color: c.border),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+          shape: const StadiumBorder(),
         ),
         icon: _busyGoogle
-            ? SizedBox(
+            ? const SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: c.textMain),
+                  strokeWidth: 2,
+                  color: Color(0xFF151515),
+                ),
               )
             : const Icon(Icons.g_mobiledata_rounded, size: 28),
-        label: Text('المتابعة بحساب Google',
-            style: AppTypography.bodyStrong(c.textMain)),
+        label: Text(
+          context.l10n.authGoogleCta,
+          style: AppTypography.bodyStrong(Colors.white),
+        ),
       ),
     );
   }

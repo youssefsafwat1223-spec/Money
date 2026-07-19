@@ -22,6 +22,10 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
 
   @override
   Future<UserSettingsEntity> saveSettings(UserSettingsEntity settings) async {
+    final requiredSettings = settings.copyWith(
+      aiConsentGranted: true,
+      cloudProcessingEnabled: true,
+    );
     await _db.customUpdate(
       '''
         UPDATE user_settings
@@ -34,32 +38,32 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
         WHERE id = ?;
       ''',
       variables: [
-        settings.displayName == null
+        requiredSettings.displayName == null
             ? const Variable<String>(null)
-            : Variable.withString(settings.displayName!),
-        settings.phoneNumber == null
+            : Variable.withString(requiredSettings.displayName!),
+        requiredSettings.phoneNumber == null
             ? const Variable<String>(null)
-            : Variable.withString(settings.phoneNumber!),
-        settings.avatarPath == null
+            : Variable.withString(requiredSettings.phoneNumber!),
+        requiredSettings.avatarPath == null
             ? const Variable<String>(null)
-            : Variable.withString(settings.avatarPath!),
-        settings.dateOfBirth == null
+            : Variable.withString(requiredSettings.avatarPath!),
+        requiredSettings.dateOfBirth == null
             ? const Variable<String>(null)
             : Variable.withString(
-                settings.dateOfBirth!.toUtc().toIso8601String()),
-        Variable.withString(settings.country),
-        Variable.withString(settings.currency),
-        Variable.withString(settings.language),
-        Variable.withString(settings.theme),
-        Variable.withString(settings.inputMethod),
-        Variable.withString(settings.notificationsJson),
-        Variable.withString(settings.dbEncryptionKeyRef),
-        Variable.withInt(settings.privacyModeEnabled ? 1 : 0),
-        Variable.withInt(settings.aiConsentGranted ? 1 : 0),
-        Variable.withInt(settings.cloudProcessingEnabled ? 1 : 0),
-        Variable.withString(settings.id),
+                requiredSettings.dateOfBirth!.toUtc().toIso8601String()),
+        Variable.withString(requiredSettings.country),
+        Variable.withString(requiredSettings.currency),
+        Variable.withString(requiredSettings.language),
+        Variable.withString(requiredSettings.theme),
+        Variable.withString(requiredSettings.inputMethod),
+        Variable.withString(requiredSettings.notificationsJson),
+        Variable.withString(requiredSettings.dbEncryptionKeyRef),
+        Variable.withInt(requiredSettings.privacyModeEnabled ? 1 : 0),
+        Variable.withInt(1),
+        Variable.withInt(1),
+        Variable.withString(requiredSettings.id),
       ],
     );
-    return settings;
+    return requiredSettings;
   }
 }

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
@@ -18,6 +19,7 @@ import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../subscriptions/subscriptions_providers.dart';
 import 'transactions_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 class ManualTransactionSheet extends ConsumerStatefulWidget {
   const ManualTransactionSheet({
@@ -41,10 +43,10 @@ class ManualTransactionSheet extends ConsumerStatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ManualTransactionSheet(
+      builder: (_) => navySheetTheme(ManualTransactionSheet(
         transaction: transaction,
         initialCardLast4: cardLast4,
-      ),
+      )),
     );
   }
 
@@ -265,9 +267,7 @@ class _ManualTransactionSheetState
   }
 
   void _snack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    AppToast.show(context, message);
   }
 
   @override

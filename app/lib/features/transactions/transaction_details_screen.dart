@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
@@ -25,6 +26,7 @@ import 'manual_transaction_sheet.dart';
 import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
 import '../common/motion.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 class TransactionDetailsScreen extends ConsumerWidget {
   const TransactionDetailsScreen({super.key, required this.transactionId});
@@ -46,6 +48,7 @@ class TransactionDetailsScreen extends ConsumerWidget {
     TransactionSourceEntity.wallet: 'محفظة',
     TransactionSourceEntity.unknown: 'غير محدد',
     TransactionSourceEntity.aiParsed: 'ذكاء اصطناعي',
+    TransactionSourceEntity.imported: 'ملف مستورد',
   };
 
   static Future<void> showSheet(BuildContext context, String transactionId) {
@@ -54,7 +57,8 @@ class TransactionDetailsScreen extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _TransactionDetailsSheet(transactionId: transactionId),
+      builder: (_) => navySheetTheme(
+          _TransactionDetailsSheet(transactionId: transactionId)),
     );
   }
 
@@ -398,9 +402,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
       await ref.read(transactionRepositoryProvider).deleteTransaction(id);
     } on RepoException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(repoExceptionMessage(e))),
-      );
+      AppToast.show(context, repoExceptionMessage(e));
       return;
     }
     final affectedBillIds =
@@ -494,9 +496,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
           .updateAmount(transactionId: tx.id, amount: value);
     } on RepoException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(repoExceptionMessage(e))),
-      );
+      AppToast.show(context, repoExceptionMessage(e));
       return;
     }
     ref.invalidate(transactionByIdProvider(tx.id));

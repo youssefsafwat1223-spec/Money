@@ -205,13 +205,11 @@ void main() {
     expect(ids, hasLength(500));
   });
 
-  test('always falls within the previously-reserved [93000, 993000) range',
-      () {
+  test('always falls within the previously-reserved [93000, 993000) range', () {
     for (var i = 0; i < 200; i++) {
       final id = goalMilestoneNotificationId('goal-range-check-$i');
       expect(id, greaterThanOrEqualTo(93000));
       expect(id, lessThan(993000));
     }
   });
-
 }

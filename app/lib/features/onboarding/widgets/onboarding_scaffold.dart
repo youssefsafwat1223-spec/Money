@@ -1,22 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../common/app_button.dart';
 import 'premium_ui.dart';
 
 TextStyle obFont(double size, FontWeight w, double h, Color color) {
-  return GoogleFonts.inter(
-    fontSize: size,
-    fontWeight: w,
+  return AppTypography.custom(
+    size: size,
+    weight: w,
     height: h,
     color: color,
-  ).copyWith(
-    fontFamilyFallback: [
-      GoogleFonts.ibmPlexSansArabic().fontFamily!,
-      GoogleFonts.alexandria().fontFamily!,
-    ],
   );
 }
 

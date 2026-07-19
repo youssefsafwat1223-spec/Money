@@ -163,11 +163,29 @@ struct PostBankStatusIntent: AppIntent {
   /// replaces the earlier banner instead of stacking a duplicate. userInfo
   /// carries the same routing keys as the APNs payload so AppDelegate's
   /// didReceive handler routes taps on local banners too.
+  ///
+  /// notificationLogId is this attempt's stable id for the Phase 1
+  /// notification tracking pipeline (docs/NOTIFICATION_PIPELINE_AUDIT.md) —
+  /// it travels via userInfo into the tap-routing queue so an open can be
+  /// correlated back to this exact send. Previously this scheduling call
+  /// used `try?` and silently swallowed any failure — a dropped notification
+  /// with no log, no retry, and no way to detect it. Now every outcome is
+  /// recorded via SharedCaptureStore for Flutter to sync.
   private func scheduleNotification(
     _ notification: BackendNotification,
     payloadID: String,
     identifierPrefix: String
   ) async {
+    let notificationLogId = UUID().uuidString.lowercased()
+    SharedCaptureStore.enqueueNotificationLogEvent(
+      notificationLogId: notificationLogId,
+      eventType: "created",
+      channel: "ios_shortcut_local",
+      notificationType: notification.type,
+      relatedEntityType: "payload",
+      relatedEntityId: payloadID
+    )
+
     let content = UNMutableNotificationContent()
     content.title = notification.title
     content.body = notification.body
@@ -176,6 +194,7 @@ struct PostBankStatusIntent: AppIntent {
       "payloadId": payloadID,
       "source": "ios_shortcut",
       "notificationType": notification.type,
+      "notificationLogId": notificationLogId,
     ]
 
     let notifRequest = UNNotificationRequest(
@@ -183,7 +202,28 @@ struct PostBankStatusIntent: AppIntent {
       content: content,
       trigger: nil
     )
-    try? await UNUserNotificationCenter.current().add(notifRequest)
+    do {
+      try await UNUserNotificationCenter.current().add(notifRequest)
+      SharedCaptureStore.enqueueNotificationLogEvent(
+        notificationLogId: notificationLogId,
+        eventType: "sent",
+        channel: "ios_shortcut_local",
+        notificationType: notification.type,
+        relatedEntityType: "payload",
+        relatedEntityId: payloadID
+      )
+    } catch {
+      SharedCaptureStore.enqueueNotificationLogEvent(
+        notificationLogId: notificationLogId,
+        eventType: "failed",
+        channel: "ios_shortcut_local",
+        notificationType: notification.type,
+        relatedEntityType: "payload",
+        relatedEntityId: payloadID,
+        errorCode: "\(type(of: error))",
+        errorReason: "\(error)"
+      )
+    }
   }
 
   private func scheduleLocalParsedOrGenericNotification(payloadID: String) async {
@@ -509,6 +549,43 @@ struct BackendCaptureClient {
         in: value,
         range: NSRange(location: 0, length: (value as NSString).length),
         withTemplate: replacement
+      )
+    }
+    // Third-party PII: beneficiary/sender names after إلى:/الى:/To: and
+    // Arabic greetings with a personal name — mirrors
+    // lib/engine/privacy/sms_sanitizer.dart so both capture paths (this
+    // direct Shortcut→backend call and the Dart retry-fallback in
+    // capture_sync_service.dart) redact the same way. No transaction-type
+    // detection happens client-side here, so this always strips — safer to
+    // over-redact an unknown message than leak a third party's identity.
+    if let arBeneficiary = try? NSRegularExpression(
+      pattern: #"(إلى|الى)\s*:?\s*.+"#,
+      options: .caseInsensitive
+    ) {
+      value = arBeneficiary.stringByReplacingMatches(
+        in: value,
+        range: NSRange(location: 0, length: (value as NSString).length),
+        withTemplate: "$1: [REDACTED]"
+      )
+    }
+    if let enBeneficiary = try? NSRegularExpression(
+      pattern: #"\bTo\s*:\s*.+"#,
+      options: .caseInsensitive
+    ) {
+      value = enBeneficiary.stringByReplacingMatches(
+        in: value,
+        range: NSRange(location: 0, length: (value as NSString).length),
+        withTemplate: "To: [REDACTED]"
+      )
+    }
+    if let greeting = try? NSRegularExpression(
+      pattern: #"(عزيزي|عزيزتي)\s+\S+"#,
+      options: .caseInsensitive
+    ) {
+      value = greeting.stringByReplacingMatches(
+        in: value,
+        range: NSRange(location: 0, length: (value as NSString).length),
+        withTemplate: "[REDACTED]"
       )
     }
     return value.trimmingCharacters(in: .whitespacesAndNewlines)

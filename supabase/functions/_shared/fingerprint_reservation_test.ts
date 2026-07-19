@@ -1,8 +1,8 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
-  reserveCaptureFingerprint,
   type FingerprintReservationStore,
   type FingerprintRow,
+  reserveCaptureFingerprint,
 } from './fingerprint_reservation.ts';
 
 class AtomicMemoryStore implements FingerprintReservationStore {

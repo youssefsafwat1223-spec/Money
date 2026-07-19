@@ -12,6 +12,201 @@ class AppL10nEn extends AppL10n {
   String get appTitle => 'Qirsh';
 
   @override
+  String get setupHeaderTitle => 'Let\'s set up Qirsh';
+
+  @override
+  String get setupHeaderSubtitle => 'A few quick steps and you\'re ready.';
+
+  @override
+  String setupStepLabel(int current, int total) {
+    return 'Step $current of $total';
+  }
+
+  @override
+  String get setupCountryTitle => 'Your country and currency';
+
+  @override
+  String get setupCountryBody =>
+      'We\'ll use it as the base currency for your accounts.';
+
+  @override
+  String get setupNotificationsTitle => 'Turn on notifications';
+
+  @override
+  String get setupNotificationsBody =>
+      'So every transaction reaches you the moment it happens.';
+
+  @override
+  String get setupNotificationsCta => 'Enable';
+
+  @override
+  String get setupCloudTitle => 'Smart processing';
+
+  @override
+  String get setupCloudBody =>
+      'Qirsh processes bank messages you share through its server and AI to turn them into transactions and reports without storing your full numbers.';
+
+  @override
+  String get setupCloudCta => 'Continue';
+
+  @override
+  String get setupShortcutTitle => 'Install the Qirsh Shortcut';
+
+  @override
+  String get setupShortcutBody =>
+      'It\'s what sends us your bank messages automatically.';
+
+  @override
+  String get setupShortcutStep1Title => 'Remove the old one';
+
+  @override
+  String get setupShortcutStep1Body =>
+      'Open the Shortcuts app, go to the Automation tab, and delete any old automation for the app.';
+
+  @override
+  String get setupShortcutStep2Title => 'New (+)';
+
+  @override
+  String get setupShortcutStep2Body =>
+      'Tap New Automation (+) and scroll down until you find \"Message\".';
+
+  @override
+  String get setupShortcutStep3Title => 'Filter messages';
+
+  @override
+  String setupShortcutStep3Body(String currency) {
+    return 'Tap \"Message Contents\" and type your currency code, like $currency.';
+  }
+
+  @override
+  String get setupShortcutStep4Title => 'No confirmation';
+
+  @override
+  String get setupShortcutStep4Body =>
+      'Turn on \"Run Immediately\" and turn off \"Notify When Run\" if it appears, then Next.';
+
+  @override
+  String get setupShortcutStep5Title => 'Send to the app';
+
+  @override
+  String get setupShortcutStep5Body =>
+      'Choose New Blank Automation, search for \"Process Bank SMS\", and set SMS Text to \"Shortcut Input\".';
+
+  @override
+  String get setupShortcutStep6Title => 'Save';
+
+  @override
+  String get setupShortcutStep6Body =>
+      'Turn off \"Show When Run\" if it appears, and tap Save.';
+
+  @override
+  String get setupShortcutCta => 'Installed';
+
+  @override
+  String get setupFinishCta => 'Start';
+
+  @override
+  String get brandTagline => 'Your money, clearer. Your decisions, smarter.';
+
+  @override
+  String get brandContinueCta => 'Let\'s get started';
+
+  @override
+  String get authTitle => 'Your financial journey, saved';
+
+  @override
+  String get authSubtitle =>
+      'Sign in to protect your data and restore it on your devices.';
+
+  @override
+  String get authTrustLocalEncryption => 'Local encryption';
+
+  @override
+  String get authTrustOnDevice => 'Your data stays on your device';
+
+  @override
+  String get authTermsNotice =>
+      'By continuing, you agree to the Terms of Service and Privacy Policy.';
+
+  @override
+  String get authAppleCta => 'Continue with Apple';
+
+  @override
+  String get authGoogleCta => 'Continue with Google';
+
+  @override
+  String get authSignInError => 'Couldn\'t sign in. Please try again.';
+
+  @override
+  String get authBackupFoundTitle => 'We found a backup for your account';
+
+  @override
+  String get authBackupFoundBody =>
+      'Want to restore your data from the latest backup, or start fresh?';
+
+  @override
+  String get authBackupStartFresh => 'Start fresh';
+
+  @override
+  String get authBackupRestore => 'Restore it';
+
+  @override
+  String get storyPromiseTitle => 'Excited\nto start with you';
+
+  @override
+  String get storyPromiseSubtitle =>
+      'We\'ll be your partner on your financial journey.';
+
+  @override
+  String get storyPromiseHighlight =>
+      'At Qirsh, we believe financial stability starts with simple habits.';
+
+  @override
+  String get storyPromiseBody =>
+      'We built an app that helps you manage your money with ease — from logging expenses and setting budgets, to subscription alerts and smart reports.';
+
+  @override
+  String get storyPromiseSectionTitle => 'Our goal?';
+
+  @override
+  String get storyPromiseSectionBody =>
+      'To help you know where your money goes, save more, and live with greater ease.';
+
+  @override
+  String get storyPromiseClosing =>
+      'Qirsh...\nYour partner on your financial journey.';
+
+  @override
+  String get storySpendingTitle => 'Small expenses add up';
+
+  @override
+  String get storySpendingBody =>
+      'Daily expenses can seem small,\nbut over time they make a big difference.';
+
+  @override
+  String get storySpendingHighlight =>
+      'What you don\'t track... is hard to control';
+
+  @override
+  String get storySpendingSupporting =>
+      'Qirsh helps you see the full picture,\nand understand where your money goes.';
+
+  @override
+  String get storyContinueCta => 'Continue';
+
+  @override
+  String get storyStartCta => 'Start with Qirsh';
+
+  @override
+  String get storySkip => 'Skip';
+
+  @override
+  String get storyPageOneSemanticLabel => 'Page 1 of 2';
+
+  @override
+  String get storyPageTwoSemanticLabel => 'Page 2 of 2';
+
+  @override
   String get next => 'Next';
 
   @override
@@ -195,7 +390,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get privacyRule1 =>
-      'All processing and intelligence is done on your phone without internet';
+      'Qirsh processes bank messages you share through its server and AI';
 
   @override
   String get privacyRule2 =>

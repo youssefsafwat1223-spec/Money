@@ -8,23 +8,21 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/account_entity.dart';
-import '../../domain/entities/budget_entity.dart';
+import '../../domain/entities/budget_entity.dart' show BudgetPeriod;
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
-import '../../core/utils/id_generator.dart';
 import '../../domain/entities/report_models.dart';
 import '../cards/bank_mark.dart';
 import '../cards/brand_mark.dart';
 import '../cards/my_cards_screen.dart';
-import '../budgets/budgets_providers.dart';
 import '../capture/capture_entry_sheet.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
@@ -45,9 +43,6 @@ import '../app/app_shell.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
-
-final _dashboardBudgetPeriodProvider =
-    StateProvider<BudgetPeriod>((ref) => BudgetPeriod.monthly);
 
 String _monthsLabel(int n) {
   if (n == 1) return 'شهر';
@@ -189,12 +184,34 @@ class DashboardScreen extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        PremiumMotion(
-                          delay: const Duration(milliseconds: 60),
-                          child: _financialOverviewCard(context, ref, data,
-                              privacyMode: privacyMode),
-                        ),
-                        const SizedBox(height: AppSpacing.s5),
+                        // 1. Account summary (income vs. expense) — first
+                        if (!data.isEmpty) ...[
+                          PremiumMotion(
+                            delay: const Duration(milliseconds: 50),
+                            child: _financialOverviewCard(context, ref, data,
+                                privacyMode: privacyMode),
+                          ),
+                          const SizedBox(height: AppSpacing.s5),
+                        ],
+                        // 2. All budgets
+                        if (data.budgetProgress.isNotEmpty) ...[
+                          PremiumMotion(
+                            delay: const Duration(milliseconds: 55),
+                            child: _allBudgetsSection(context, data,
+                                privacyMode: privacyMode),
+                          ),
+                          const SizedBox(height: AppSpacing.s5),
+                        ],
+                        // 3. Daily expenses
+                        if (!data.isEmpty) ...[
+                          PremiumMotion(
+                            delay: const Duration(milliseconds: 60),
+                            child: _weeklySpendVisualCard(context, data,
+                                privacyMode: privacyMode),
+                          ),
+                          const SizedBox(height: AppSpacing.s5),
+                        ],
+                        // 4. Coupons
                         const PremiumMotion(
                           delay: Duration(milliseconds: 70),
                           child: _DashboardCouponsRail(),
@@ -203,12 +220,6 @@ class DashboardScreen extends ConsumerWidget {
                         if (data.isEmpty)
                           _emptyState(context)
                         else ...[
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 75),
-                            child: _weeklySpendVisualCard(context, data,
-                                privacyMode: privacyMode),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
                           if (data.pendingReviewCount > 0) ...[
                             PremiumMotion(
                               child: _reviewCard(context, ref, data,
@@ -240,11 +251,6 @@ class DashboardScreen extends ConsumerWidget {
                             child: _cardsEntryCard(context),
                           ),
                           const SizedBox(height: AppSpacing.s5),
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 95),
-                            child: _plansEntryCard(context),
-                          ),
-                          const SizedBox(height: AppSpacing.s5),
                           if (data.weekChangeRatio.abs() >= 0.05) ...[
                             PremiumMotion(
                               delay: const Duration(milliseconds: 40),
@@ -253,22 +259,34 @@ class DashboardScreen extends ConsumerWidget {
                             ),
                             const SizedBox(height: AppSpacing.s5),
                           ],
-                          if (data.activeGoal != null ||
-                              data.subscriptions.isNotEmpty) ...[
+                          PremiumMotion(
+                            delay: const Duration(milliseconds: 100),
+                            child: _qirshScoreCard(context, data,
+                                privacyMode: privacyMode),
+                          ),
+                          const SizedBox(height: AppSpacing.s5),
+                          // 5. Subscriptions
+                          if (data.subscriptions.isNotEmpty) ...[
                             PremiumMotion(
-                              child: _nextUpSection(context, data,
+                              child: _subscriptionsPreview(context, data,
                                   privacyMode: privacyMode),
                             ),
                             const SizedBox(height: AppSpacing.s5),
                           ],
-                          if (!data.isEmpty) ...[
+                          // 6. Goals
+                          if (data.activeGoal != null) ...[
                             PremiumMotion(
-                              delay: const Duration(milliseconds: 100),
-                              child: _qirshScoreCard(context, data,
+                              child: _goalCard(context, data,
                                   privacyMode: privacyMode),
                             ),
                             const SizedBox(height: AppSpacing.s5),
                           ],
+                          // 7. Plans — last
+                          PremiumMotion(
+                            delay: const Duration(milliseconds: 95),
+                            child: _plansEntryCard(context),
+                          ),
+                          const SizedBox(height: AppSpacing.s5),
                         ],
                       ],
                     ),
@@ -293,7 +311,7 @@ class DashboardScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
+      builder: (context) => navySheetTheme(StatefulBuilder(
         builder: (context, setState) {
           final c = context.colors;
           return AppSheetScaffold(
@@ -402,7 +420,7 @@ class DashboardScreen extends ConsumerWidget {
             ),
           );
         },
-      ),
+      )),
     );
   }
 
@@ -448,21 +466,6 @@ class DashboardScreen extends ConsumerWidget {
           ? '•••• ${_currencyLabel(currency)}'
           : '${Formatters.amount(amount)} ${_currencyLabel(currency)}';
 
-  /// "صرف من ميزانية الفترة": shows "spent من limit" when a daily/weekly budget
-  /// is set for the period, otherwise just the spent amount.
-  String _spendVsLimit(
-    double spent,
-    double? periodLimit,
-    String currency, {
-    bool privacyMode = false,
-  }) {
-    final spentText = _money(spent, currency, privacyMode: privacyMode);
-    if (privacyMode || periodLimit == null || periodLimit <= 0) {
-      return spentText;
-    }
-    return '${Formatters.amount(spent)} من ${_money(periodLimit, currency)}';
-  }
-
   Widget _financialOverviewCard(
     BuildContext context,
     WidgetRef ref,
@@ -470,14 +473,23 @@ class DashboardScreen extends ConsumerWidget {
     required bool privacyMode,
   }) {
     final c = context.colors;
-    final limit = data.monthlyBudgetLimit;
-    final hasBudget = limit > 0;
-    final spent = data.spentThisMonth;
-    final ratio = data.monthlyBudgetRatio;
-
-    final selectedPeriod = ref.watch(_dashboardBudgetPeriodProvider);
     final isCtaDark = Theme.of(context).brightness == Brightness.light;
     final onCta = c.onCta;
+
+    final net = data.rangeIncome - data.rangeExpense;
+    final isPositive = net >= 0;
+    final netTone = isPositive
+        ? (isCtaDark ? const Color(0xFF34D399) : c.success)
+        : (isCtaDark ? const Color(0xFFFCA5A5) : c.danger);
+    final sign = isPositive ? '+' : '-';
+    final netText = privacyMode
+        ? '••••'
+        : '$sign${_money(net.abs(), data.currency, privacyMode: false)}';
+
+    // Visual expense/income proportion — a quick read on the balance between
+    // the two before even looking at the numbers.
+    final total = data.rangeExpense + data.rangeIncome;
+    final expenseShare = total <= 0 ? 0.5 : (data.rangeExpense / total);
 
     return AppCard(
       color: c.cta,
@@ -511,8 +523,61 @@ class DashboardScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (hasBudget) _budgetRing(context, ratio, darkBg: isCtaDark),
             ],
+          ),
+          const SizedBox(height: AppSpacing.s5),
+          // Hero figure: the net (income − expense) for the range — the one
+          // number that answers "how did this period go?".
+          Text(
+            isPositive ? 'صافي وفّرته' : 'صافي تجاوزته',
+            style: AppTypography.caption(onCta.withValues(alpha: 0.75)),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(
+                isPositive
+                    ? Icons.trending_up_rounded
+                    : Icons.trending_down_rounded,
+                size: 22,
+                color: netTone,
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(netText,
+                      style: AppTypography.display(netTone),
+                      textDirection: TextDirection.ltr),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          // Proportion bar: expense share vs. income share of the period.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            child: SizedBox(
+              height: 6,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: (expenseShare * 1000).round().clamp(1, 999),
+                    child: ColoredBox(
+                        color: (isCtaDark ? const Color(0xFFFCA5A5) : c.danger)
+                            .withValues(alpha: 0.85)),
+                  ),
+                  Expanded(
+                    flex: ((1 - expenseShare) * 1000).round().clamp(1, 999),
+                    child: ColoredBox(
+                        color: (isCtaDark ? const Color(0xFF34D399) : c.success)
+                            .withValues(alpha: 0.85)),
+                  ),
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: AppSpacing.s4),
           Row(
@@ -520,173 +585,31 @@ class DashboardScreen extends ConsumerWidget {
               Expanded(
                 child: _snapshotMetric(
                   context,
-                  title: 'مصروفات الفترة',
-                  value: _money(spent, data.currency, privacyMode: privacyMode),
-                  tone: isCtaDark ? Colors.white : Colors.black,
+                  title: 'المصروفات',
+                  value: _money(data.rangeExpense, data.currency,
+                      privacyMode: privacyMode),
+                  tone: c.danger,
                   darkBg: isCtaDark,
+                  action: Icon(Icons.arrow_downward_rounded,
+                      size: 14,
+                      color: (isCtaDark ? const Color(0xFFFCA5A5) : c.danger)
+                          .withValues(alpha: 0.9)),
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
                 child: _snapshotMetric(
                   context,
-                  title: 'دخل الفترة',
-                  value: _money(
-                    data.incomeThisMonth,
-                    data.currency,
-                    privacyMode: privacyMode,
-                  ),
+                  title: 'الدخل',
+                  value: _money(data.rangeIncome, data.currency,
+                      privacyMode: privacyMode),
                   tone: c.success,
                   darkBg: isCtaDark,
+                  action: Icon(Icons.arrow_upward_rounded,
+                      size: 14,
+                      color: (isCtaDark ? const Color(0xFF34D399) : c.success)
+                          .withValues(alpha: 0.9)),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: onCta.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            padding: const EdgeInsets.all(2),
-            child: Row(
-              children: [
-                _budgetTab(context, ref, 'اليوم', BudgetPeriod.daily,
-                    selectedPeriod, onCta),
-                _budgetTab(context, ref, 'الأسبوع', BudgetPeriod.weekly,
-                    selectedPeriod, onCta),
-                _budgetTab(context, ref, 'الشهر', BudgetPeriod.monthly,
-                    selectedPeriod, onCta),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          if (selectedPeriod == BudgetPeriod.daily)
-            _budgetSpendMetric(
-              context,
-              ref,
-              title: 'صرف اليوم',
-              period: BudgetPeriod.daily,
-              value: _spendVsLimit(
-                data.todaySpend,
-                data.dailyBudgetLimit,
-                data.currency,
-                privacyMode: privacyMode,
-              ),
-              tone: c.danger,
-              darkBg: isCtaDark,
-            )
-          else if (selectedPeriod == BudgetPeriod.weekly)
-            _budgetSpendMetric(
-              context,
-              ref,
-              title: 'صرف الأسبوع',
-              period: BudgetPeriod.weekly,
-              value: _spendVsLimit(
-                data.weekSpend,
-                data.weeklyBudgetLimit,
-                data.currency,
-                privacyMode: privacyMode,
-              ),
-              tone: c.accent,
-              darkBg: isCtaDark,
-            )
-          else
-            _budgetSpendMetric(
-              context,
-              ref,
-              title: 'صرف الشهر',
-              period: BudgetPeriod.monthly,
-              value: _spendVsLimit(
-                data.spentThisMonth,
-                data.monthlyBudgetLimit,
-                data.currency,
-                privacyMode: privacyMode,
-              ),
-              tone: c.warning,
-              darkBg: isCtaDark,
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _budgetTab(
-    BuildContext context,
-    WidgetRef ref,
-    String label,
-    BudgetPeriod period,
-    BudgetPeriod selected,
-    Color onCta,
-  ) {
-    final isSelected = period == selected;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          ref.read(_dashboardBudgetPeriodProvider.notifier).state = period;
-        },
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color:
-                isSelected ? onCta.withValues(alpha: 0.2) : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.md - 2),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: AppTypography.caption(
-              isSelected ? onCta : onCta.withValues(alpha: 0.6),
-            ).copyWith(
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _budgetRing(BuildContext context, double ratio,
-      {bool darkBg = false}) {
-    final c = context.colors;
-    final pct = ratio * 100;
-    final over = ratio > 1.0;
-    final ringColor = over ? c.warning : (darkBg ? Colors.white : c.cta);
-    return SizedBox(
-      width: 88,
-      height: 88,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          SizedBox(
-            width: 88,
-            height: 88,
-            child: CircularProgressIndicator(
-              value: ratio.clamp(0.0, 1.0),
-              strokeWidth: 8,
-              backgroundColor: darkBg
-                  ? Colors.white.withValues(alpha: 0.20)
-                  : c.surfaceMuted,
-              valueColor: AlwaysStoppedAnimation(ringColor),
-              strokeCap: StrokeCap.round,
-            ),
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${pct.toStringAsFixed(1)}%',
-                style:
-                    AppTypography.subhead(darkBg ? Colors.white : c.textPrimary)
-                        .copyWith(fontWeight: FontWeight.w900),
-              ),
-              Text(
-                'مستخدم',
-                style: AppTypography.caption(darkBg
-                    ? Colors.white.withValues(alpha: 0.70)
-                    : c.textMuted),
               ),
             ],
           ),
@@ -991,180 +914,6 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _showQuickBudgetSheet(
-    BuildContext context,
-    WidgetRef ref,
-    BudgetPeriod period,
-  ) async {
-    final amountController = TextEditingController();
-    var saving = false;
-    final label = switch (period) {
-      BudgetPeriod.daily => 'اليوم',
-      BudgetPeriod.weekly => 'الأسبوع',
-      BudgetPeriod.monthly => 'الشهر',
-      BudgetPeriod.yearly => 'السنة',
-    };
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final c = sheetContext.colors;
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            Future<void> save() async {
-              final amount = double.tryParse(
-                amountController.text.trim().replaceAll(',', '.'),
-              );
-              if (amount == null || amount <= 0 || saving) return;
-              setSheetState(() => saving = true);
-              final budgetRepo = ref.read(budgetRepositoryProvider);
-              final accounts = await ref.read(accountsProvider.future);
-              final selectedId = ref.read(dashboardAccountProvider);
-              final defaultAccount = accounts.where((account) {
-                return account.isDefault;
-              }).isEmpty
-                  ? (accounts.isEmpty ? null : accounts.first)
-                  : accounts.firstWhere((account) => account.isDefault);
-              final activeAccountId = accounts.any((a) => a.id == selectedId)
-                  ? selectedId
-                  : defaultAccount?.id;
-              final existing = (await budgetRepo.getAll())
-                  .where((budget) =>
-                      budget.isAllExpenses &&
-                      budget.period == period &&
-                      budget.accountId == activeAccountId &&
-                      budget.isActive)
-                  .fold<BudgetEntity?>(null, (prev, budget) => budget);
-              final now = DateTime.now();
-              final startDate = switch (period) {
-                BudgetPeriod.daily => DateTime(now.year, now.month, now.day),
-                BudgetPeriod.weekly => DateTime(now.year, now.month, now.day)
-                    .subtract(
-                        Duration(days: (now.weekday - DateTime.saturday) % 7)),
-                BudgetPeriod.monthly => DateTime(now.year, now.month),
-                BudgetPeriod.yearly => DateTime(now.year),
-              };
-              final budget = BudgetEntity(
-                id: existing?.id ?? IdGenerator.next(),
-                categoryId: BudgetEntity.allExpensesCategoryId,
-                amount: amount,
-                period: period,
-                startDate: startDate,
-                isActive: true,
-                alert80Sent: existing?.alert80Sent ?? true,
-                alert100Sent: existing?.alert100Sent ?? true,
-                showOnHeader: false,
-                accountId: activeAccountId,
-              );
-              await ref.read(saveBudgetUseCaseProvider).call(budget);
-              ref.invalidate(dashboardDataProvider);
-              ref.invalidate(budgetsViewProvider);
-              if (context.mounted) Navigator.of(context).pop();
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: AppSpacing.gutter,
-                right: AppSpacing.gutter,
-                bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
-              ),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: c.surfaceCard,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: c.border),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.s4),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('ميزانية صرف $label',
-                          style: AppTypography.title2(c.textMain)),
-                      const SizedBox(height: AppSpacing.s3),
-                      TextField(
-                        controller: amountController,
-                        autofocus: true,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        decoration: InputDecoration(
-                          labelText: 'المبلغ',
-                          suffixText: Currency.arabicLabel(
-                            ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR',
-                          ),
-                        ),
-                        onSubmitted: (_) => save(),
-                      ),
-                      const SizedBox(height: AppSpacing.s4),
-                      FilledButton(
-                        onPressed: saving ? null : save,
-                        child: saving
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('حفظ'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _budgetSpendMetric(
-    BuildContext context,
-    WidgetRef ref, {
-    required String title,
-    required BudgetPeriod period,
-    required String value,
-    required Color tone,
-    bool darkBg = false,
-  }) {
-    return _snapshotMetric(
-      context,
-      title: title,
-      value: value,
-      tone: tone,
-      darkBg: darkBg,
-      action: IconButton(
-        tooltip: 'تحديد ميزانية',
-        onPressed: () => _showQuickBudgetSheet(context, ref, period),
-        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-        color: Colors.white.withValues(alpha: 0.88),
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-      ),
-    );
-  }
-
-  Widget _nextUpSection(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    return Column(
-      children: [
-        if (data.activeGoal != null)
-          _goalCard(context, data, privacyMode: privacyMode),
-        if (data.activeGoal != null && data.subscriptions.isNotEmpty)
-          const SizedBox(height: AppSpacing.s4),
-        if (data.subscriptions.isNotEmpty)
-          _subscriptionsPreview(context, data, privacyMode: privacyMode),
-      ],
-    );
-  }
-
   Widget _subscriptionsPreview(
     BuildContext context,
     DashboardData data, {
@@ -1241,7 +990,7 @@ class DashboardScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => AppSheetScaffold(
+      builder: (_) => navySheetTheme(AppSheetScaffold(
         title: 'اشتراكاتك المكتشفة',
         subtitle:
             'إجمالي متوقع ${_money(data.subscriptionsMonthlyTotal, data.currency, privacyMode: privacyMode)} شهرياً.',
@@ -1283,7 +1032,7 @@ class DashboardScreen extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 
@@ -1399,6 +1148,101 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  /// كل الميزانيات الفعّالة (يومية/أسبوعية/شهرية/سنوية، عامة أو حسب تصنيف)
+  /// مع نسبة الصرف من كل حد، بنفس منطق تلوين شاشة الميزانيات
+  /// (context.colors.budgetState).
+  Widget _allBudgetsSection(
+    BuildContext context,
+    DashboardData data, {
+    required bool privacyMode,
+  }) {
+    final c = context.colors;
+    return AppCard(
+      onTap: () => context.push('/budgets'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.pie_chart_rounded, color: c.cta, size: 21),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Text('كل الميزانيات',
+                    style: AppTypography.bodyStrong(c.textMain)),
+              ),
+              Icon(Icons.chevron_left_rounded, color: c.textLight, size: 20),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          for (var i = 0; i < data.budgetProgress.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.s3),
+            _budgetProgressRow(context, data.budgetProgress[i],
+                currency: data.currency, privacyMode: privacyMode),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _budgetProgressRow(
+    BuildContext context,
+    DashboardBudgetEntry budget, {
+    required String currency,
+    required bool privacyMode,
+  }) {
+    final c = context.colors;
+    final periodLabel = switch (budget.period) {
+      BudgetPeriod.daily => 'يومي',
+      BudgetPeriod.weekly => 'أسبوعي',
+      BudgetPeriod.monthly => 'شهري',
+      BudgetPeriod.yearly => 'سنوي',
+    };
+    final tone = c.budgetState(budget.ratio);
+    final spentText = _money(budget.spent, currency, privacyMode: privacyMode);
+    final limitText = _money(budget.limit, currency, privacyMode: privacyMode);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                        text: budget.label,
+                        style: AppTypography.subhead(c.textMain)),
+                    TextSpan(
+                        text: ' · $periodLabel',
+                        style: AppTypography.caption(c.textLight)),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Text('${(budget.ratio * 100).toStringAsFixed(0)}%',
+                style: AppTypography.caption(tone)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          child: LinearProgressIndicator(
+            value: budget.ratio.clamp(0.0, 1.0),
+            minHeight: 6,
+            backgroundColor: c.surfaceMuted,
+            valueColor: AlwaysStoppedAnimation(tone),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text('$spentText / $limitText',
+            style: AppTypography.caption(c.textLight)),
+      ],
     );
   }
 

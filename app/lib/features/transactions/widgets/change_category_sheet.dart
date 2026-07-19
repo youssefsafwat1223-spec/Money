@@ -5,6 +5,7 @@ import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/usecases/correct_category_usecase.dart';
@@ -24,8 +25,8 @@ Future<void> showChangeCategorySheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) =>
-        _ChangeCategorySheet(transaction: transaction, catalog: catalog),
+    builder: (_) => navySheetTheme(
+        _ChangeCategorySheet(transaction: transaction, catalog: catalog)),
   );
 }
 
@@ -98,11 +99,12 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
             const SizedBox(height: AppSpacing.s5),
             Text('نطاق التعديل', style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
-            Container(
-              decoration: BoxDecoration(
-                color: c.surface2.withValues(alpha: 0.5),
+            Material(
+              color: c.surface2.withValues(alpha: 0.5),
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: c.border),
+                side: BorderSide(color: c.border),
               ),
               child: Column(
                 children: [

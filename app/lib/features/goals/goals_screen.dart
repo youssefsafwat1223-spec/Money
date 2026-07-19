@@ -400,8 +400,8 @@ class _GoalsHeader extends StatelessWidget {
                           Text(
                             '${Formatters.amount(saved)} $currencyLabel',
                             style: AppTypography.title2(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
@@ -420,10 +420,10 @@ class _GoalsHeader extends StatelessWidget {
                         children: [
                           Text(
                             '$count',
-                            style: AppTypography.bodyStrong(c.textMain)
-                                .copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Outfit'),
+                            style:
+                                AppTypography.bodyStrong(c.textMain).copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -444,10 +444,10 @@ class _GoalsHeader extends StatelessWidget {
                         children: [
                           Text(
                             '$ratio%',
-                            style: AppTypography.bodyStrong(c.textMain)
-                                .copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Outfit'),
+                            style:
+                                AppTypography.bodyStrong(c.textMain).copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(

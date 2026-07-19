@@ -80,7 +80,8 @@ void main() {
     expect(find.text('إلغاء الحذف'), findsWidgets);
   });
 
-  testWidgets('cancelling a pending deletion calls the service and hides the card',
+  testWidgets(
+      'cancelling a pending deletion calls the service and hides the card',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     final scheduled = DateTime.utc(2026, 8, 14);
@@ -144,5 +145,9 @@ void main() {
     expect(service.requestCalls, 1);
     expect(wipe.wipeCalls, 0);
     expect(find.text('تعذّر جدولة الحذف الآن. حاول مجدداً.'), findsOneWidget);
+
+    // AppToast schedules a static 3-second auto-dismiss Timer (app_toast.dart)
+    // that outlives this test's widget tree unless drained here.
+    await tester.pump(const Duration(seconds: 3));
   });
 }

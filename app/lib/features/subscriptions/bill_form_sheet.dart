@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
@@ -14,6 +15,7 @@ import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../transactions/transactions_providers.dart';
 import 'subscriptions_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 class BillFormSheet extends ConsumerStatefulWidget {
   const BillFormSheet({
@@ -38,11 +40,11 @@ class BillFormSheet extends ConsumerStatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => BillFormSheet(
+      builder: (_) => navySheetTheme(BillFormSheet(
         bill: bill,
         initialType: initialType,
         initialName: initialName,
-      ),
+      )),
     );
   }
 
@@ -338,9 +340,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
           : e is RepoException
               ? repoExceptionMessage(e)
               : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      AppToast.show(context, message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

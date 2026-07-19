@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -416,7 +417,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
       context: context,
       showDragHandle: true,
       backgroundColor: c.surface,
-      builder: (context) => Directionality(
+      builder: (context) => navySheetTheme(Directionality(
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -465,7 +466,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -611,7 +612,7 @@ class _DateRangeChips extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
+      builder: (context) => navySheetTheme(StatefulBuilder(
         builder: (context, setState) {
           final c = context.colors;
           return AppSheetScaffold(
@@ -722,7 +723,7 @@ class _DateRangeChips extends ConsumerWidget {
             ),
           );
         },
-      ),
+      )),
     );
   }
 }
@@ -871,7 +872,7 @@ class _BillsTabState extends State<_BillsTab> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => Directionality(
+      builder: (context) => navySheetTheme(Directionality(
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.gutter),
@@ -896,7 +897,7 @@ class _BillsTabState extends State<_BillsTab> {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -960,7 +961,7 @@ class _BillsHero extends StatelessWidget {
           Text(
             '${Formatters.amount(monthlyTotal)} $currencyLabel',
             style: AppTypography.title1(Colors.white)
-                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                .copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: AppSpacing.s4),
           Container(
@@ -1151,8 +1152,7 @@ class _BillCard extends StatelessWidget {
                     children: [
                       Text(
                         Formatters.amount(bill.amount),
-                        style: AppTypography.bodyStrong(c.textMain)
-                            .copyWith(fontFamily: 'Outfit'),
+                        style: AppTypography.bodyStrong(c.textMain),
                       ),
                       Text(
                         Currency.arabicLabel(bill.currency),
@@ -1219,8 +1219,7 @@ class _BillCard extends StatelessWidget {
                         children: [
                           Text(
                             Formatters.amount(bill.amount),
-                            style: AppTypography.bodyStrong(c.primary)
-                                .copyWith(fontFamily: 'Outfit'),
+                            style: AppTypography.bodyStrong(c.primary),
                           ),
                           Text(
                             '$currLabel / قسط',
@@ -1280,8 +1279,8 @@ class _BillCard extends StatelessWidget {
                           Text(
                             '${Formatters.amount(bill.totalPurchaseAmount!)} $currLabel',
                             style: AppTypography.caption(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           if (bill.interestRate != null) ...[
                             const Spacer(),
@@ -1329,7 +1328,6 @@ class _BillCard extends StatelessWidget {
                             '${Formatters.amount(bill.safeManualPaidAmount)} $currLabel',
                             style: AppTypography.caption(c.success).copyWith(
                               fontWeight: FontWeight.bold,
-                              fontFamily: 'Outfit',
                             ),
                           ),
                         ],
@@ -1415,7 +1413,8 @@ class _SuggestionCard extends StatelessWidget {
                     Text(
                       '${Formatters.amount(suggestion.averageAmount)} $currencyLabel/شهر',
                       style: AppTypography.caption(c.textMain).copyWith(
-                          fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Container(
@@ -1566,8 +1565,7 @@ class _HeaderMetric extends StatelessWidget {
           Text(
             value,
             textAlign: TextAlign.center,
-            style: AppTypography.bodyStrong(c.textMain)
-                .copyWith(fontFamily: 'Outfit'),
+            style: AppTypography.bodyStrong(c.textMain),
           ),
           const SizedBox(height: 4),
           Text(
@@ -1695,8 +1693,8 @@ class _TransactionsHeader extends StatelessWidget {
                                 ? '${Formatters.amount(expenseTotal)} $currencyLabel'
                                 : '${Formatters.amount(monthlyTotal)} $currencyLabel',
                             style: AppTypography.title2(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
@@ -1796,10 +1794,10 @@ class _SmartInboxSheet extends ConsumerWidget {
         isScrollControlled: true,
         showDragHandle: true,
         backgroundColor: context.colors.surface,
-        builder: (_) => const Directionality(
+        builder: (_) => navySheetTheme(const Directionality(
           textDirection: TextDirection.rtl,
           child: _SmartInboxSheet(),
-        ),
+        )),
       );
 
   @override
@@ -1928,13 +1926,13 @@ Future<void> showSuspectedDuplicateReviewSheet(
     context: context,
     showDragHandle: true,
     backgroundColor: context.colors.surface,
-    builder: (_) => Directionality(
+    builder: (_) => navySheetTheme(Directionality(
       textDirection: TextDirection.rtl,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         child: _SuspectedDuplicateCard(dupe: dupe),
       ),
-    ),
+    )),
   );
 }
 
@@ -1947,10 +1945,10 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: context.colors.surface,
-      builder: (_) => const Directionality(
+      builder: (_) => navySheetTheme(const Directionality(
         textDirection: TextDirection.rtl,
         child: _SuspectedDuplicatesSheet(),
-      ),
+      )),
     );
   }
 

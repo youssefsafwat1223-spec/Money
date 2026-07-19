@@ -20,6 +20,9 @@ class SupabaseAuthService implements AuthService {
   final GoogleSignIn _googleSignIn;
 
   @override
+  Future<void> signOutProviderSession() => _googleSignIn.signOut();
+
+  @override
   Future<AuthIdentity> signInWithGoogle() async {
     final account = await _googleSignIn.signIn();
     if (account == null) {

@@ -565,14 +565,12 @@ void main() {
     });
   });
 
-  group('scenario L — local data owner marker (backfill defense in depth)',
-      () {
+  group('scenario L — local data owner marker (backfill defense in depth)', () {
     test('is null before any session has ever reconciled', () async {
       expect(await AppSession.instance.readLocalDataOwnerUid(), isNull);
     });
 
-    test('is claimed by the first uid to reconcile a valid session',
-        () async {
+    test('is claimed by the first uid to reconcile a valid session', () async {
       await AppSession.instance.completeOnboarding(
         method: 'google',
         email: 'user@example.com',
@@ -619,7 +617,8 @@ void main() {
       // device's AppSession without an intervening sign-out (the exact
       // scenario the marker is meant to catch, e.g. a crash mid-wipe).
       final clientB = _client();
-      await _recoverValidSession(clientB, userId: 'uid-b', email: 'b@example.com');
+      await _recoverValidSession(clientB,
+          userId: 'uid-b', email: 'b@example.com');
       AppSession.instance.authMethod = 'google';
       await AppSession.instance.bindSupabaseAuth(clientB);
 

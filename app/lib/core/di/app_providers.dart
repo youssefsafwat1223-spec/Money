@@ -8,6 +8,8 @@ import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
 import '../session/app_session.dart';
+import '../data_portability/app_data_portability_service.dart';
+import '../data_portability/data_portability_models.dart';
 import '../../engine/ai/ai_parser_client.dart';
 import '../../engine/ai/bank_discovery_client.dart';
 import '../../data/catalog/announcement_service.dart';
@@ -21,6 +23,7 @@ import '../../data/db/app_database.dart';
 import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/financial_cache_repair_service.dart';
 import '../../data/repositories/routed_account_repository.dart';
+import '../../data/repositories/routed_category_repository.dart';
 import '../../data/repositories/routed_bill_repository.dart';
 import '../../data/repositories/routed_budget_repository.dart';
 import '../../data/repositories/routed_goal_repository.dart';
@@ -28,6 +31,7 @@ import '../../data/repositories/routed_plan_repository.dart';
 import '../../data/repositories/routed_smart_inbox_repository.dart';
 import '../../data/repositories/routed_transaction_repository.dart';
 import '../../data/repositories/supabase_account_repository.dart';
+import '../../data/repositories/supabase_category_repository.dart';
 import '../../data/repositories/supabase_bill_repository.dart';
 import '../../data/repositories/supabase_budget_repository.dart';
 import '../../data/repositories/supabase_financial_summary_service.dart';
@@ -83,6 +87,8 @@ import '../../features/capture/services/notification_journey_service.dart';
 import '../../features/capture/services/capture_backend_client.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
 import '../../features/capture/services/capture_sync_service.dart';
+import '../../features/capture/services/notification_log_service.dart';
+import '../../features/capture/services/notification_log_sync_service.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../features/capture/services/ledger_push_service.dart';
 import '../../features/capture/services/ledger_sync_engine.dart';
@@ -611,7 +617,28 @@ final userSettingsRepositoryProvider = Provider<UserSettingsRepository>((ref) {
 });
 
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
-  return DriftCategoryRepository(ref.watch(appDatabaseProvider));
+  final db = ref.watch(appDatabaseProvider);
+  return RoutedCategoryRepository(
+    drift: DriftCategoryRepository(db),
+    supabase: SupabaseCategoryRepository(db: db),
+    flags: () => featureFlags,
+  );
+});
+
+final dataPortabilityServiceProvider = Provider<DataPortabilityService>((ref) {
+  return AppDataPortabilityService(
+    db: ref.watch(appDatabaseProvider),
+    accounts: ref.watch(accountRepositoryProvider),
+    categories: ref.watch(categoryRepositoryProvider),
+    transactions: ref.watch(transactionRepositoryProvider),
+    settings: ref.watch(userSettingsRepositoryProvider),
+    flags: () => featureFlags,
+    getSupabase: SupabaseConfig.isConfigured
+        ? () => supabase.Supabase.instance.client
+        : null,
+    repairFinancialCache:
+        ref.watch(financialCacheRepairServiceProvider).repairAll,
+  );
 });
 
 final recordEngagementUseCaseProvider =
@@ -659,6 +686,7 @@ final bankDiscoveryServiceProvider = Provider<BankDiscoveryService?>((ref) {
       ).getSettings();
       return settings.aiConsentGranted;
     },
+    loadInstallId: InstallId.get,
   );
 });
 
@@ -693,6 +721,16 @@ final captureDeviceRegistrationServiceProvider =
   );
 });
 
+/// Phase 1 notification tracking (docs/NOTIFICATION_PIPELINE_AUDIT.md).
+final notificationLogServiceProvider = Provider<NotificationLogService>((ref) {
+  return NotificationLogService(ref.watch(appDatabaseProvider));
+});
+
+final notificationLogSyncServiceProvider =
+    Provider<NotificationLogSyncService>((ref) {
+  return NotificationLogSyncService(db: ref.watch(appDatabaseProvider));
+});
+
 final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   final directTransactions = SupabaseTransactionRepository(db: db);
@@ -705,10 +743,9 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
     accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
     directTransactionRepository: directTransactions,
-    isDirectCaptureEnabled: () {
+    isSupabasePrimaryEnabled: () {
       try {
-        return featureFlags.getBool('capture_direct_supabase_write') &&
-            featureFlags.getBool('transactions_supabase_primary');
+        return featureFlags.getBool('transactions_supabase_primary');
       } catch (_) {
         return false;
       }
@@ -958,10 +995,6 @@ final notificationJourneyServiceProvider =
 final loadUserSettingsUseCaseProvider =
     Provider<LoadUserSettingsUseCase>((ref) {
   return LoadUserSettingsUseCase(ref.watch(userSettingsRepositoryProvider));
-});
-
-final saveThemeModeUseCaseProvider = Provider<SaveThemeModeUseCase>((ref) {
-  return SaveThemeModeUseCase(ref.watch(userSettingsRepositoryProvider));
 });
 
 final saveCountryCurrencyUseCaseProvider =

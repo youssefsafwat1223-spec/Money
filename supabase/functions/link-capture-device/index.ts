@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
-  corsHeaders,
   bumpCaptureEndpointRateLimit,
+  corsHeaders,
   json,
   readString,
   serviceClient,
@@ -36,7 +36,14 @@ Deno.serve(async (req) => {
   const supabase = serviceClient();
   const auth = await verifyDevice(supabase, installId, deviceSecret);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
-  if (await bumpCaptureEndpointRateLimit(supabase, auth.installIdHash, 'link-capture-device', LINK_CAPTURE_DEVICE_LIMIT_PER_DAY)) {
+  if (
+    await bumpCaptureEndpointRateLimit(
+      supabase,
+      auth.installIdHash,
+      'link-capture-device',
+      LINK_CAPTURE_DEVICE_LIMIT_PER_DAY,
+    )
+  ) {
     return json({ error: 'rate_limit_exceeded' }, 429);
   }
 

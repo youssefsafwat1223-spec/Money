@@ -383,7 +383,8 @@ void main() {
       await expectLater(RestoreBackupUseCase(db)(snapshot), completes);
     });
 
-    test('invalid (non-positive/non-int) schema version is accepted, '
+    test(
+        'invalid (non-positive/non-int) schema version is accepted, '
         'floored to the oldest known version', () async {
       for (final invalid in [0, -1, 'not-a-number', null]) {
         final snapshot = {...emptySnapshot(), 'schemaVersion': invalid};
@@ -439,8 +440,7 @@ void main() {
 
       await expectLater(RestoreBackupUseCase(db)(snapshot), throwsException);
 
-      final pragma =
-          await db.customSelect('PRAGMA foreign_keys;').getSingle();
+      final pragma = await db.customSelect('PRAGMA foreign_keys;').getSingle();
       expect(pragma.data.values.first, 1,
           reason: 'foreign_keys must be back ON after the failure, not left '
               'OFF by the aborted restore');

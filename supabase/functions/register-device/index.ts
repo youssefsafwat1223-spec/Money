@@ -1,4 +1,12 @@
-import { bumpCaptureEndpointRateLimit, corsHeaders, installHash, json, readString, serviceClient, sha256Hex } from '../_shared/capture_auth.ts';
+import {
+  bumpCaptureEndpointRateLimit,
+  corsHeaders,
+  installHash,
+  json,
+  readString,
+  serviceClient,
+  sha256Hex,
+} from '../_shared/capture_auth.ts';
 
 const REGISTER_DEVICE_LIMIT_PER_DAY = 20;
 

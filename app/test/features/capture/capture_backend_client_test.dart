@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -30,6 +31,30 @@ void main() {
     expect(body['payloadId'], 'stable-payload');
     expect(body['allowAi'], isFalse);
     expect(sent.url.path, '/functions/v1/process-ios-sms');
+  });
+
+  test('pending-send replay keeps a bounded configurable timeout', () async {
+    final client = CaptureBackendClient(
+      supabaseUrl: 'https://example.supabase.co',
+      anonKey: 'anon-key',
+      processIosSmsTimeout: const Duration(milliseconds: 1),
+      httpClient: MockClient((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return Response('{"status":"processed"}', 200);
+      }),
+    );
+
+    await expectLater(
+      client.processIosSms(
+        installId: 'install-a',
+        deviceSecret: 'device-secret',
+        payloadId: 'stable-payload',
+        smsText: 'bank message',
+        receivedAt: DateTime.utc(2026, 7, 14, 12),
+        allowAi: false,
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
   });
 
   test('unlink uses device credentials and never requires a user JWT',

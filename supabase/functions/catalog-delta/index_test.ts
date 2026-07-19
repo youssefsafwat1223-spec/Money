@@ -15,13 +15,12 @@ Deno.test('accepts a valid 3-letter uppercase country code', () => {
   assertEquals(isValidCountryParam('EGY'), true);
 });
 
-Deno.test('rejects lowercase — the caller must normalize before calling',
-  () => {
-    // The handler itself upper-cases before validating (see index.ts); this
-    // documents that the predicate is intentionally case-sensitive rather
-    // than silently accepting anything.
-    assertEquals(isValidCountryParam('sa'), false);
-  });
+Deno.test('rejects lowercase — the caller must normalize before calling', () => {
+  // The handler itself upper-cases before validating (see index.ts); this
+  // documents that the predicate is intentionally case-sensitive rather
+  // than silently accepting anything.
+  assertEquals(isValidCountryParam('sa'), false);
+});
 
 Deno.test('rejects a comma/operator-injection attempt', () => {
   assertEquals(

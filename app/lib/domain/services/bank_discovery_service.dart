@@ -14,6 +14,7 @@ class BankDiscoveryService {
     required SenderBankMappingRepository mappingRepository,
     required BankDiscoveryClient client,
     required Future<bool> Function() loadAiConsent,
+    this.loadInstallId,
     this.confidenceThreshold = 0.95,
     this.rateLimitAllowsDiscovery,
   })  : _mappingRepository = mappingRepository,
@@ -25,6 +26,12 @@ class BankDiscoveryService {
   final Future<bool> Function() _loadAiConsent;
   final double confidenceThreshold;
   final Future<bool> Function(String senderId)? rateLimitAllowsDiscovery;
+
+  /// Sent to the backend so it can cap discovery calls per install — the
+  /// server-side rate limit is the one that actually matters (it also gates
+  /// direct API callers using just the public anon key), this is optional
+  /// only so a caller that has no install id yet doesn't fail discovery.
+  final Future<String> Function()? loadInstallId;
 
   Future<BankDiscoveryResult> discoverIfEligible({
     required String rawSms,
@@ -96,6 +103,7 @@ class BankDiscoveryService {
       detectedCurrency:
           parseResult.transaction?.currency ?? _detectCurrency(rawSms),
       localeHint: localeHint,
+      installId: await loadInstallId?.call(),
     );
     final suggestion = await _client.detectBank(request);
     if (suggestion == null) {

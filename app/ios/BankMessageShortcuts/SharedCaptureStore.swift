@@ -28,6 +28,7 @@ enum SharedCaptureStore {
   private static let apnsTokenKey = "apns_token"
   private static let apnsEnvironmentKey = "apns_environment"
   private static let pendingNotificationRoutesKey = "pending_notification_routes_v1"
+  private static let notificationLogEventsKey = "pending_notification_log_events_v1"
   private static let queueLockFileName = "pending_bank_messages.lock"
 
   private static var defaults: UserDefaults? {
@@ -66,6 +67,24 @@ enum SharedCaptureStore {
     let notificationType: String?
     let source: String?
     let receivedAt: String?
+    let notificationLogId: String?
+  }
+
+  /// One notification lifecycle event, queued here until the host Flutter
+  /// app can sync it to `notification_logs`
+  /// (docs/NOTIFICATION_PIPELINE_AUDIT.md Phase 1). `notificationLogId` is
+  /// the SAME id used for the whole notification's lifecycle — never
+  /// regenerated between created/sent/failed/opened.
+  struct NotificationLogEventPayload: Codable {
+    let notificationLogId: String
+    let eventType: String
+    let channel: String
+    let notificationType: String
+    let relatedEntityType: String?
+    let relatedEntityId: String?
+    let errorCode: String?
+    let errorReason: String?
+    let occurredAt: String
   }
 
   enum EnqueueResult {
@@ -345,7 +364,8 @@ enum SharedCaptureStore {
       smartInboxItemId: clean(userInfo["smartInboxItemId"] as? String),
       notificationType: clean(userInfo["notificationType"] as? String),
       source: clean(userInfo["source"] as? String),
-      receivedAt: isoFormatter.string(from: Date())
+      receivedAt: isoFormatter.string(from: Date()),
+      notificationLogId: clean(userInfo["notificationLogId"] as? String)
     )
     guard payload.payloadId != nil ||
       payload.transactionId != nil ||
@@ -377,6 +397,61 @@ enum SharedCaptureStore {
 
   static func isoString(from date: Date) -> String {
     isoFormatter.string(from: date)
+  }
+
+  /// Queues one notification lifecycle event. Capped at 200 entries (oldest
+  /// dropped first) so a host app that never opens cannot grow this
+  /// unboundedly — losing the oldest diagnostic events is an acceptable
+  /// trade-off; losing the ability to record new ones is not.
+  static func enqueueNotificationLogEvent(
+    notificationLogId: String,
+    eventType: String,
+    channel: String,
+    notificationType: String,
+    relatedEntityType: String? = nil,
+    relatedEntityId: String? = nil,
+    errorCode: String? = nil,
+    errorReason: String? = nil
+  ) {
+    let payload = NotificationLogEventPayload(
+      notificationLogId: notificationLogId,
+      eventType: eventType,
+      channel: channel,
+      notificationType: notificationType,
+      relatedEntityType: clean(relatedEntityType),
+      relatedEntityId: clean(relatedEntityId),
+      errorCode: clean(errorCode),
+      errorReason: clean(errorReason).map { String($0.prefix(300)) },
+      occurredAt: isoFormatter.string(from: Date())
+    )
+    var queue = loadNotificationLogEvents()
+    queue.append(payload)
+    if queue.count > 200 {
+      queue.removeFirst(queue.count - 200)
+    }
+    guard let data = try? JSONEncoder().encode(queue) else { return }
+    defaults?.set(data, forKey: notificationLogEventsKey)
+    defaults?.synchronize()
+  }
+
+  static func consumePendingNotificationLogEventsJSON() -> String? {
+    let queue = loadNotificationLogEvents()
+    guard !queue.isEmpty,
+          let data = try? JSONEncoder().encode(queue),
+          let json = String(data: data, encoding: .utf8) else {
+      return nil
+    }
+    defaults?.removeObject(forKey: notificationLogEventsKey)
+    defaults?.synchronize()
+    return json
+  }
+
+  private static func loadNotificationLogEvents() -> [NotificationLogEventPayload] {
+    guard let data = defaults?.data(forKey: notificationLogEventsKey),
+          let queue = try? JSONDecoder().decode([NotificationLogEventPayload].self, from: data) else {
+      return []
+    }
+    return queue
   }
 
   /// Signals the host Flutter app that backend relay state may have changed.

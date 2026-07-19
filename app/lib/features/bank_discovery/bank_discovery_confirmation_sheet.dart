@@ -7,6 +7,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import 'bank_discovery_controller.dart';
 
@@ -19,7 +20,9 @@ Future<void> showBankDiscoveryConfirmationSheet(
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => BankDiscoveryConfirmationSheet(mapping: mapping),
+    builder: (_) => navySheetTheme(
+      BankDiscoveryConfirmationSheet(mapping: mapping),
+    ),
   );
 }
 

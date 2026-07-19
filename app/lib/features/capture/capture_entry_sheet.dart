@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../features/common/app_sheet_scaffold.dart';
 import '../transactions/manual_transaction_sheet.dart';
@@ -12,7 +13,7 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
-    builder: (_) => AppSheetScaffold(
+    builder: (_) => navySheetTheme(AppSheetScaffold(
       title: 'إضافة عملية جديدة',
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       body: Column(
@@ -41,7 +42,7 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
           ),
         ],
       ),
-    ),
+    )),
   );
 }
 

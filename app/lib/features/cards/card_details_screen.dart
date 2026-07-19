@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/card_summary.dart';
@@ -26,7 +27,7 @@ class CardDetailsScreen extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CardDetailsSheet(last4: last4),
+      builder: (_) => navySheetTheme(_CardDetailsSheet(last4: last4)),
     );
   }
 

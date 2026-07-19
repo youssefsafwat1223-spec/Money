@@ -9,7 +9,48 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData light = _build(AppColors.light, Brightness.light);
-  static ThemeData dark = _build(AppColors.dark, Brightness.dark);
+
+  /// Shared navy palette for every modal sheet and the database recovery UI.
+  static const AppColors sheetColors = AppColors(
+    bg: Color(0xFF021B79),
+    surface: Color(0xFF021B79),
+    surfaceElevated: Color(0xFF0F2E96),
+    surfaceCard: Color(0xFF0F2E96),
+    surfaceMuted: Color(0xFF173A9E),
+    primary: Color(0xFF8DBBFF),
+    onPrimary: Color(0xFFFFFFFF),
+    cta: Color(0xFF3B82F6),
+    onCta: Color(0xFFFFFFFF),
+    ctaSoft: Color(0xFF102B52),
+    accent: Color(0xFFFBC926),
+    income: Color(0xFF22C55E),
+    expense: Color(0xFFEF4444),
+    success: Color(0xFF34D399),
+    warning: Color(0xFFF59E0B),
+    danger: Color(0xFFF87171),
+    info: Color(0xFF60A5FA),
+    neutral: Color(0xFF7F8EA3),
+    disabled: Color(0xFF172238),
+    disabledFg: Color(0xFF64748B),
+    border: Color(0xFF243553),
+    divider: Color(0xFF172844),
+    textPrimary: Color(0xFFF4F7FC),
+    textSecondary: Color(0xFFB5C2D6),
+    textMuted: Color(0xFF8190A8),
+    onSurface: Color(0xFFF4F7FC),
+    onSurfaceMuted: Color(0xFFB5C2D6),
+    successBg: Color(0xFF0D2B1D),
+    dangerBg: Color(0xFF2B1515),
+    warningBg: Color(0xFF2B1E00),
+    infoBg: Color(0xFF102B52),
+    onSuccess: Color(0xFF000000),
+    onDanger: Color(0xFFFFFFFF),
+    onWarning: Color(0xFF000000),
+    onInfo: Color(0xFFFFFFFF),
+    gradA: Color(0xFF2563EB),
+    gradB: Color(0xFF061A40),
+  );
+  static final ThemeData sheet = _build(sheetColors, Brightness.dark);
 
   static ThemeData _build(AppColors c, Brightness brightness) {
     // Seed the Material colour scheme from the CTA colour (interactive blue),
@@ -51,11 +92,12 @@ class AppTheme {
         space: 1,
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: c.surfaceElevated,
-        modalBackgroundColor: c.surfaceElevated,
+        backgroundColor: sheetColors.surfaceElevated,
+        modalBackgroundColor: sheetColors.surfaceElevated,
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
-        dragHandleColor: c.border,
+        dragHandleColor: sheetColors.textSecondary,
+        clipBehavior: Clip.antiAlias,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(AppRadius.sheet),
@@ -143,8 +185,8 @@ class AppTheme {
         fillColor: c.surfaceMuted.withValues(
           alpha: brightness == Brightness.dark ? 0.72 : 0.86,
         ),
-        labelStyle: TextStyle(color: c.textMuted),
-        hintStyle: TextStyle(color: c.textMuted.withValues(alpha: 0.6)),
+        labelStyle: AppTypography.body(c.textMuted),
+        hintStyle: AppTypography.body(c.textMuted.withValues(alpha: 0.6)),
         prefixIconColor: c.textMuted,
         suffixIconColor: c.textMuted,
         contentPadding:

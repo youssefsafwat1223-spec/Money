@@ -15,7 +15,7 @@ type ApnsMessage = {
 
 type ApnsResult =
   | { ok: true; apnsId: string | null }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; httpStatus: number | null; errorCode: string };
 
 const encoder = new TextEncoder();
 let cachedJwt: { token: string; expiresAt: number } | null = null;
@@ -26,7 +26,12 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
   const bundleId = Deno.env.get('APNS_BUNDLE_ID') ?? '';
   const privateKey = Deno.env.get('APNS_PRIVATE_KEY') ?? '';
   if (!keyId || !teamId || !bundleId || !privateKey) {
-    return { ok: false, reason: 'apns_not_configured' };
+    return {
+      ok: false,
+      reason: 'apns_not_configured',
+      httpStatus: null,
+      errorCode: 'not_configured',
+    };
   }
 
   try {
@@ -66,11 +71,22 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
     });
     if (!response.ok) {
       const reason = await safeReason(response);
-      return { ok: false, reason: `apns_${response.status}_${reason}` };
+      return {
+        ok: false,
+        reason: `apns_${response.status}_${reason}`,
+        httpStatus: response.status,
+        errorCode: reason,
+      };
     }
     return { ok: true, apnsId: response.headers.get('apns-id') };
   } catch (error) {
-    return { ok: false, reason: `apns_exception_${String(error).slice(0, 80)}` };
+    const isTimeout = error instanceof DOMException && error.name === 'TimeoutError';
+    return {
+      ok: false,
+      reason: `apns_exception_${String(error).slice(0, 80)}`,
+      httpStatus: null,
+      errorCode: isTimeout ? 'timeout' : 'network_exception',
+    };
   }
 }
 
@@ -92,11 +108,13 @@ async function apnsJwt(input: {
     false,
     ['sign'],
   );
-  const derSignature = new Uint8Array(await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    key,
-    encoder.encode(signingInput),
-  ));
+  const derSignature = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      key,
+      encoder.encode(signingInput),
+    ),
+  );
   const jwt = `${signingInput}.${base64Url(derSignature)}`;
   cachedJwt = { token: jwt, expiresAt: now + 20 * 60 };
   return jwt;

@@ -5,6 +5,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
@@ -14,6 +15,7 @@ import '../cards/cards_providers.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'plans_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 /// Create or edit a plan/envelope (travel, wedding, Ramadan…).
 class PlanFormSheet extends ConsumerStatefulWidget {
@@ -27,7 +29,7 @@ class PlanFormSheet extends ConsumerStatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => PlanFormSheet._(existing: existing),
+      builder: (_) => navySheetTheme(PlanFormSheet._(existing: existing)),
     );
   }
 
@@ -115,8 +117,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
       final message = error is RepoException
           ? repoExceptionMessage(error)
           : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      AppToast.show(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

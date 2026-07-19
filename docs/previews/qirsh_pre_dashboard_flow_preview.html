@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>قِرش — معاينة رحلة البداية</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #f7f7f5;
+        --muted: #b6b7b9;
+        --gold: #f4c84b;
+        --gold-strong: #e3ad24;
+        --blue: #0f56c2;
+        --line: rgba(255, 255, 255, 0.13);
+        --panel: #111316;
+        --black: #050505;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans Arabic", system-ui, sans-serif;
+        background: #0b0d10;
+        color: var(--ink);
+      }
+
+      button { font: inherit; }
+
+      .workspace {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(280px, 360px) minmax(360px, 1fr);
+        direction: ltr;
+      }
+
+      .inspector {
+        direction: rtl;
+        padding: 34px 28px;
+        border-right: 1px solid var(--line);
+        background: #0e1013;
+      }
+
+      .eyebrow {
+        color: var(--gold);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      h1 {
+        margin: 8px 0 10px;
+        font-size: 27px;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+
+      .intro {
+        margin: 0 0 26px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .flow-list {
+        display: grid;
+        gap: 7px;
+      }
+
+      .flow-button {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 30px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 54px;
+        padding: 8px 10px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        text-align: right;
+      }
+
+      .flow-button:hover { background: rgba(255,255,255,.04); }
+
+      .flow-button.active {
+        color: var(--ink);
+        border-color: rgba(244, 200, 75, 0.35);
+        background: rgba(244, 200, 75, 0.08);
+      }
+
+      .flow-number {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        color: var(--gold);
+        font-size: 12px;
+      }
+
+      .flow-title { font-weight: 600; }
+      .flow-kind { font-size: 11px; opacity: .65; }
+
+      .decision {
+        margin-top: 26px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }
+
+      .decision strong { display: block; margin-bottom: 8px; font-size: 14px; }
+      .decision p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+
+      .stage {
+        direction: rtl;
+        min-width: 0;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        align-items: center;
+        justify-items: center;
+        padding: 22px;
+        background: #15181d;
+      }
+
+      .stage-head,
+      .stage-foot {
+        width: min(100%, 660px);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        direction: rtl;
+      }
+
+      .stage-head { margin-bottom: 14px; }
+      .stage-foot { margin-top: 14px; direction: ltr; }
+
+      .status { color: var(--muted); font-size: 12px; }
+
+      .device-toggle {
+        display: inline-flex;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 3px;
+      }
+
+      .device-toggle button,
+      .nav-button {
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        padding: 7px 11px;
+      }
+
+      .device-toggle button.active { background: #292d33; color: white; }
+      .nav-button { border: 1px solid var(--line); min-width: 92px; }
+      .nav-button.primary { background: var(--gold); border-color: var(--gold); color: #17120a; font-weight: 700; }
+
+      .phone {
+        position: relative;
+        width: 390px;
+        height: min(79vh, 844px);
+        min-height: 650px;
+        overflow: hidden;
+        border: 8px solid #020203;
+        border-radius: 42px;
+        background: #030303;
+        box-shadow: 0 34px 80px rgba(0, 0, 0, .52);
+      }
+
+      .phone.android { border-radius: 25px; }
+
+      .screen {
+        position: absolute;
+        inset: 0;
+        display: none;
+        overflow: hidden;
+        background: var(--black);
+      }
+
+      .screen.active { display: block; animation: screen-in .42s ease both; }
+
+      @keyframes screen-in {
+        from { opacity: 0; transform: translateX(-12px); }
+        to { opacity: 1; transform: translateX(0); }
+      }
+
+      .safe {
+        position: absolute;
+        inset: 0;
+        padding: 54px 24px 24px;
+        display: flex;
+        flex-direction: column;
+        z-index: 4;
+      }
+
+      .system-bar {
+        position: absolute;
+        z-index: 8;
+        inset: 14px 22px auto;
+        display: flex;
+        justify-content: space-between;
+        direction: ltr;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .story-media {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .story-one .story-media { object-position: center; }
+      .story-two .story-media { object-position: top center; }
+
+      .story-one::after {
+        content: "";
+        position: absolute;
+        z-index: 2;
+        left: 0;
+        right: 0;
+        top: 17%;
+        bottom: 21%;
+        background: rgba(0, 0, 0, .94);
+        box-shadow: 0 -30px 34px rgba(0,0,0,.92), 0 30px 34px rgba(0,0,0,.92);
+      }
+
+      .story-two::after,
+      .auth-screen::after {
+        content: "";
+        position: absolute;
+        z-index: 2;
+        inset: 0;
+        background: linear-gradient(to bottom, rgba(0,0,0,.08) 0%, rgba(0,0,0,.42) 42%, #050505 71%);
+      }
+
+      .progress {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+        z-index: 5;
+      }
+
+      .progress span { height: 3px; border-radius: 2px; background: rgba(255,255,255,.24); }
+      .progress span.done { background: var(--gold); }
+
+      .skip {
+        position: absolute;
+        top: 68px;
+        left: 22px;
+        z-index: 7;
+        border: 0;
+        background: transparent;
+        color: rgba(255,255,255,.72);
+        cursor: pointer;
+      }
+
+      .story-copy {
+        margin-top: auto;
+        margin-bottom: 44px;
+        position: relative;
+        z-index: 5;
+      }
+
+      .story-one .story-copy { margin-top: 170px; margin-bottom: auto; }
+
+      .story-copy h2,
+      .brand-copy h2,
+      .auth-copy h2 {
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.08;
+        letter-spacing: 0;
+        font-weight: 700;
+      }
+
+      .story-copy p {
+        margin: 16px 0 0;
+        font-size: 17px;
+        line-height: 1.75;
+        color: rgba(255,255,255,.86);
+      }
+
+      .gold { color: var(--gold); }
+
+      .typed-word {
+        display: inline-block;
+        opacity: 0;
+        transform: translateY(7px);
+        animation: word-in .34s ease forwards;
+      }
+
+      @keyframes word-in {
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .cursor {
+        display: inline-block;
+        width: 2px;
+        height: 1.1em;
+        margin-inline-start: 4px;
+        vertical-align: -.15em;
+        background: var(--gold);
+        animation: blink .8s step-end infinite;
+      }
+
+      @keyframes blink { 50% { opacity: 0; } }
+
+      .story-action {
+        width: 100%;
+        min-height: 52px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--gold);
+        color: #151006;
+        font-weight: 700;
+        cursor: pointer;
+        position: relative;
+        z-index: 5;
+      }
+
+      .brand-screen {
+        background: radial-gradient(circle at 50% 35%, rgba(244,200,75,.13), transparent 29%), #050505;
+      }
+
+      .brand-center {
+        flex: 1;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        text-align: center;
+      }
+
+      .coin {
+        width: 128px;
+        height: 128px;
+        object-fit: contain;
+        filter: drop-shadow(0 0 28px rgba(244,200,75,.38));
+        animation: coin-in 1s cubic-bezier(.2,.8,.2,1) both;
+      }
+
+      @keyframes coin-in { from { opacity: 0; transform: scale(.7) rotate(-7deg); } }
+      .brand-copy { margin-top: 24px; }
+      .brand-copy h2 { font-size: 42px; }
+      .brand-copy p { color: var(--gold); margin: 8px 0 0; }
+
+      .auth-screen .story-media {
+        filter: saturate(.72) brightness(.54);
+        transform: scale(1.04);
+      }
+
+      .auth-screen::after {
+        background: linear-gradient(to bottom, rgba(1,3,6,.18), rgba(2,5,9,.78) 49%, #05070a 76%);
+      }
+
+      .auth-safe { z-index: 5; }
+      .auth-mark { width: 72px; height: 72px; object-fit: contain; filter: drop-shadow(0 0 20px rgba(244,200,75,.3)); }
+      .auth-copy { margin-top: auto; margin-bottom: 28px; }
+      .auth-copy h2 { font-size: 30px; }
+      .auth-copy p { color: rgba(255,255,255,.72); line-height: 1.65; margin: 10px 0 0; }
+
+      .auth-actions { display: grid; gap: 10px; }
+      .auth-button {
+        min-height: 52px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,.18);
+        color: white;
+        background: rgba(8,10,13,.9);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .auth-button.google { background: rgba(255,255,255,.96); color: #151515; }
+      .legal { margin: 14px 0 0; color: rgba(255,255,255,.45); font-size: 11px; text-align: center; line-height: 1.55; }
+
+      .setup-screen { background: #08101d; }
+      .setup-safe { padding-inline: 18px; }
+      .setup-head { margin-bottom: 16px; }
+      .setup-head h2 { margin: 0; font-size: 25px; line-height: 1.25; }
+      .setup-head p { margin: 5px 0 12px; color: #9ca7b7; font-size: 13px; }
+      .setup-progress { height: 5px; overflow: hidden; border-radius: 3px; background: #1a2638; }
+      .setup-progress span { display: block; width: 62%; height: 100%; background: var(--blue); }
+      .checklist { display: grid; gap: 8px; overflow: auto; padding-bottom: 88px; scrollbar-width: none; }
+      .check-item {
+        display: grid;
+        grid-template-columns: 38px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 70px;
+        padding: 10px;
+        border: 1px solid rgba(255,255,255,.09);
+        border-radius: 8px;
+        background: #101a29;
+      }
+      .check-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 7px; background: rgba(15,86,194,.18); color: #69a7ff; }
+      .check-title { font-weight: 600; font-size: 14px; }
+      .check-body { color: #8e9bad; font-size: 11px; margin-top: 3px; line-height: 1.45; }
+      .check-state { color: #53c88b; font-size: 12px; }
+      .setup-action { position: absolute; z-index: 7; inset: auto 18px 20px; }
+
+      @media (max-width: 820px) {
+        .workspace { grid-template-columns: 1fr; }
+        .inspector { border-right: 0; border-bottom: 1px solid var(--line); padding: 18px; }
+        .intro, .decision { display: none; }
+        .flow-list { grid-template-columns: repeat(5, minmax(130px, 1fr)); overflow-x: auto; direction: rtl; }
+        .flow-button { min-width: 140px; }
+        .stage { min-height: 820px; padding: 14px; }
+        .phone { height: 760px; max-height: 76vh; }
+      }
+
+      @media (max-width: 450px) {
+        .phone { width: min(100%, 390px); border-width: 0; border-radius: 0; }
+        .stage { padding-inline: 0; }
+        .stage-head, .stage-foot { padding-inline: 14px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="workspace">
+      <aside class="inspector">
+        <div class="eyebrow">معاينة قبل التنفيذ</div>
+        <h1>رحلة قِرش قبل الداشبورد</h1>
+        <p class="intro">
+          نفس منطق النظام الحالي، باتجاه بصري أهدأ: صور حقيقية للخلفية، نص حيّ يظهر كلمة بكلمة، وAuth واضح بدون نقل أي منطق تسجيل الدخول.
+        </p>
+        <nav class="flow-list" aria-label="شاشات الرحلة">
+          <button class="flow-button active" data-index="0"><span class="flow-number">١</span><span class="flow-title">الوعد</span><span class="flow-kind">Story</span></button>
+          <button class="flow-button" data-index="1"><span class="flow-number">٢</span><span class="flow-title">المصروفات</span><span class="flow-kind">Story</span></button>
+          <button class="flow-button" data-index="2"><span class="flow-number">٣</span><span class="flow-title">قِرش</span><span class="flow-kind">Brand</span></button>
+          <button class="flow-button" data-index="3"><span class="flow-number">٤</span><span class="flow-title">تسجيل الدخول</span><span class="flow-kind">Auth</span></button>
+          <button class="flow-button" data-index="4"><span class="flow-number">٥</span><span class="flow-title">التجهيز</span><span class="flow-kind">Setup</span></button>
+        </nav>
+        <section class="decision">
+          <strong>ما الذي سيتغيّر لاحقًا في Flutter؟</strong>
+          <p>الخلفية والـmotion فقط في Story/Auth. منطق Apple وGoogle، النسخ الاحتياطي، إعداد الدولة، الإشعارات، Cloud/AI وShortcut سيظل كما هو.</p>
+        </section>
+      </aside>
+
+      <section class="stage">
+        <header class="stage-head">
+          <span class="status" id="screen-status">١ من ٥ · الوعد</span>
+          <div class="device-toggle" aria-label="حجم الجهاز">
+            <button class="active" data-device="iphone">iPhone</button>
+            <button data-device="android">Android</button>
+          </div>
+        </header>
+
+        <div class="phone" id="phone">
+          <div class="system-bar"><span>9:41</span><span>●●●  5G  ▰</span></div>
+
+          <article class="screen story-one active" data-name="الوعد">
+            <img class="story-media" src="../../supabase/WhatsApp Image 2026-07-03 at 14.09.13.jpeg" alt="عملة قِرش ويد تضعها في حصالة" />
+            <button class="skip" data-go="3">تخطّي</button>
+            <div class="safe">
+              <div class="progress"><span class="done"></span><span></span></div>
+              <div class="story-copy">
+                <h2 class="type-line" data-text="متحمّسين نبدأ معك"></h2>
+                <p class="type-line" data-delay="520" data-text="ونكون شريكك في رحلتك المالية. في قِرش نؤمن أن الاستقرار المالي يبدأ بعادات بسيطة."></p>
+              </div>
+              <button class="story-action" data-next>كمّل</button>
+            </div>
+          </article>
+
+          <article class="screen story-two" data-name="المصروفات">
+            <img class="story-media" src="../../supabase/IMG_20260703_140841_350.jpg" alt="مشهد ذهبي لعملة قِرش والادخار" />
+            <button class="skip" data-go="3">تخطّي</button>
+            <div class="safe">
+              <div class="progress"><span class="done"></span><span class="done"></span></div>
+              <div class="story-copy">
+                <h2 class="type-line gold" data-text="المصروفات الصغيرة"></h2>
+                <p class="type-line" data-delay="520" data-text="قد تبدو بسيطة، لكنها مع الوقت تصنع فرقًا كبيرًا. ما لا تتابعه يصعب عليك التحكم به."></p>
+              </div>
+              <button class="story-action" data-next>شوف قِرش</button>
+            </div>
+          </article>
+
+          <article class="screen brand-screen" data-name="قِرش">
+            <div class="safe">
+              <div class="brand-center">
+                <img class="coin" src="../../app/assets/qirsh/qirsh_coin_gold.png" alt="عملة قِرش" />
+                <div class="brand-copy">
+                  <h2>قِرش</h2>
+                  <p>فلوسك أوضح. قرارك أذكى.</p>
+                </div>
+              </div>
+              <button class="story-action" data-next>يلا نبدأ</button>
+            </div>
+          </article>
+
+          <article class="screen auth-screen" data-name="تسجيل الدخول">
+            <img class="story-media" src="../../supabase/IMG_20260703_140841_350.jpg" alt="خلفية قِرش المالية" />
+            <div class="safe auth-safe">
+              <img class="auth-mark" src="../../app/assets/qirsh/qirsh_coin_gold.png" alt="قِرش" />
+              <div class="auth-copy">
+                <h2 class="type-line" data-text="رحلتك المالية محفوظة"></h2>
+                <p>سجّل دخولك لحماية بياناتك واستعادتها على أجهزتك.</p>
+              </div>
+              <div class="auth-actions">
+                <button class="auth-button">&nbsp;&nbsp; المتابعة بحساب Apple</button>
+                <button class="auth-button google">G&nbsp;&nbsp; المتابعة بحساب Google</button>
+              </div>
+              <p class="legal">بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية.</p>
+            </div>
+          </article>
+
+          <article class="screen setup-screen" data-name="التجهيز">
+            <div class="safe setup-safe">
+              <div class="setup-head">
+                <h2>يلا نجهّز قِرش</h2>
+                <p>خطوات قليلة ونبدأ نرتّب مصروفاتك.</p>
+                <div class="setup-progress"><span></span></div>
+              </div>
+              <div class="checklist">
+                <div class="check-item"><span class="check-icon">◎</span><span><span class="check-title">دولتك وعملتك</span><span class="check-body">العملة الأساسية لحساباتك وتقاريرك.</span></span><span class="check-state">تم</span></div>
+                <div class="check-item"><span class="check-icon">♢</span><span><span class="check-title">الإشعارات</span><span class="check-body">اعرف فورًا عندما تُسجل عملية جديدة.</span></span><span class="check-state">تفعيل</span></div>
+                <div class="check-item"><span class="check-icon">✦</span><span><span class="check-title">المعالجة الذكية</span><span class="check-body">Cloud وAI لتحليل رسائل البنك بدقة.</span></span><span class="check-state">تفعيل</span></div>
+                <div class="check-item"><span class="check-icon">↗</span><span><span class="check-title">Shortcut الرسائل</span><span class="check-body">أرسل رسالة البنك إلى قِرش تلقائيًا.</span></span><span class="check-state">إعداد</span></div>
+                <div class="check-item"><span class="check-icon">✓</span><span><span class="check-title">اختبار أول عملية</span><span class="check-body">خطوة اختيارية للتأكد أن كل شيء جاهز.</span></span><span class="check-state">اختبار</span></div>
+              </div>
+              <button class="story-action setup-action">ابدأ مع قِرش</button>
+            </div>
+          </article>
+        </div>
+
+        <footer class="stage-foot">
+          <button class="nav-button" id="prev">السابق</button>
+          <button class="nav-button primary" id="next">التالي</button>
+        </footer>
+      </section>
+    </main>
+
+    <script>
+      const screens = [...document.querySelectorAll('.screen')];
+      const flowButtons = [...document.querySelectorAll('.flow-button')];
+      const status = document.getElementById('screen-status');
+      const phone = document.getElementById('phone');
+      let current = 0;
+      let timers = [];
+
+      function clearTyping() {
+        timers.forEach(clearTimeout);
+        timers = [];
+      }
+
+      function typeWords(root) {
+        clearTyping();
+        root.querySelectorAll('.type-line').forEach((line) => {
+          const words = line.dataset.text.trim().split(/\s+/);
+          const delay = Number(line.dataset.delay || 120);
+          line.textContent = '';
+          words.forEach((word, index) => {
+            const span = document.createElement('span');
+            span.className = 'typed-word';
+            span.textContent = word + (index === words.length - 1 ? '' : ' ');
+            span.style.animationDelay = `${delay + index * 115}ms`;
+            line.appendChild(span);
+          });
+          const cursor = document.createElement('span');
+          cursor.className = 'cursor';
+          line.appendChild(cursor);
+          timers.push(setTimeout(() => cursor.remove(), delay + words.length * 115 + 850));
+        });
+      }
+
+      function show(index) {
+        current = Math.max(0, Math.min(screens.length - 1, index));
+        screens.forEach((screen, i) => screen.classList.toggle('active', i === current));
+        flowButtons.forEach((button, i) => button.classList.toggle('active', i === current));
+        status.textContent = `${current + 1} من ${screens.length} · ${screens[current].dataset.name}`;
+        typeWords(screens[current]);
+        document.getElementById('prev').disabled = current === 0;
+        document.getElementById('next').textContent = current === screens.length - 1 ? 'الداشبورد' : 'التالي';
+      }
+
+      flowButtons.forEach((button) => button.addEventListener('click', () => show(Number(button.dataset.index))));
+      document.querySelectorAll('[data-next]').forEach((button) => button.addEventListener('click', () => show(current + 1)));
+      document.querySelectorAll('[data-go]').forEach((button) => button.addEventListener('click', () => show(Number(button.dataset.go))));
+      document.getElementById('prev').addEventListener('click', () => show(current - 1));
+      document.getElementById('next').addEventListener('click', () => show(current + 1));
+      document.querySelectorAll('[data-device]').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('[data-device]').forEach((item) => item.classList.remove('active'));
+          button.classList.add('active');
+          phone.classList.toggle('android', button.dataset.device === 'android');
+        });
+      });
+
+      show(0);
+    </script>
+  </body>
+</html>

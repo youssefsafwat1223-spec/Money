@@ -2,99 +2,135 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:flutter/services.dart';
+
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import 'widgets/luxe_starry_bg.dart';
+import '../../core/utils/l10n_ext.dart';
 
-const _kGold = Color(0xFFDAA520);
+/// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
+/// `color: "#021B79"`) and the same shade the story pages use.
+const _brandBlue = Color(0xFF021B79);
+const _brandAccent = Color(0xFF8DBBFF);
 
-/// Page 2 of onboarding — the brand reveal that closes the cinematic sequence.
+/// Page 2 of onboarding — the brand reveal that closes the cinematic sequence
+/// started by the story screen.
 ///
-/// This is where the welcome-seen flag is set (end of the story→brand flow),
-/// right before handing off to mandatory auth.
-class OnboardingBrandScreen extends StatelessWidget {
+/// Always renders on the same flat navy background as the native launch
+/// screen and the story pages (not the app's light/dark theme), with a
+/// small fixed logo up top — no gradient, no big hero coin — so the
+/// /welcome → /onboarding/brand hand-off reads as one continuous scene
+/// instead of a flash to a visually different screen. This is where the
+/// welcome-seen flag is set, right before handing off to mandatory auth.
+class OnboardingBrandScreen extends StatefulWidget {
   const OnboardingBrandScreen({super.key});
 
-  Future<void> _continue(BuildContext context) async {
+  @override
+  State<OnboardingBrandScreen> createState() => _OnboardingBrandScreenState();
+}
+
+class _OnboardingBrandScreenState extends State<OnboardingBrandScreen> {
+  bool _navigating = false;
+
+  bool get _reduceMotion =>
+      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+  Future<void> _continue() async {
+    if (_navigating) return;
+    _navigating = true;
+    HapticFeedback.lightImpact();
     await AppSession.instance.markWelcomeManifestoSeen();
-    if (context.mounted) context.go('/onboarding/auth');
+    if (mounted) context.go('/onboarding/auth');
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
+    final l10n = context.l10n;
+    final reduceMotion = _reduceMotion;
+
     return Scaffold(
-      backgroundColor: c.bg,
-      body: Stack(
-        children: [
-          const Positioned.fill(child: LuxeStarryBackground()),
-          SafeArea(
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-              child: Column(
-                children: [
-                  const Spacer(flex: 3),
-                  // Logo condenses in with a single gold glow pulse.
-                  Container(
-                    padding: const EdgeInsets.all(28),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: _kGold.withValues(alpha: 0.35),
-                          blurRadius: 60,
-                          spreadRadius: 4,
+      backgroundColor: _brandBlue,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+          child: Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const ExcludeSemantics(
+                        child: Image(
+                          image: AssetImage(AppAssets.qirshLogoFull),
+                          height: 100,
                         ),
-                      ],
-                    ),
-                    child: Image.asset(AppAssets.qirshCoinGold,
-                        width: 120, height: 120),
-                  )
-                      .animate()
-                      .scale(
-                        begin: const Offset(0.6, 0.6),
-                        end: const Offset(1, 1),
-                        duration: 900.ms,
-                        curve: Curves.easeOutBack,
-                      )
-                      .fadeIn(duration: 700.ms),
-                  const SizedBox(height: AppSpacing.s5),
-                  Text(
-                    'قِرش',
-                    style: AppTypography.title1(c.textMain).copyWith(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 40,
-                    ),
-                  ).animate().fadeIn(delay: 700.ms, duration: 600.ms),
-                  const SizedBox(height: 8),
-                  Text(
-                    'فلوسك واضحة.',
-                    style: AppTypography.body(_kGold),
-                  ).animate().fadeIn(delay: 1000.ms, duration: 600.ms),
-                  const Spacer(flex: 4),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () => _continue(context),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: c.primary,
-                        minimumSize: const Size.fromHeight(54),
                       ),
-                      child: Text('يلا نبدأ',
-                          style: AppTypography.bodyStrong(Colors.white)),
-                    ),
-                  ).animate().fadeIn(delay: 1400.ms, duration: 500.ms),
-                  const SizedBox(height: AppSpacing.s5),
-                ],
+                      const SizedBox(height: AppSpacing.s5),
+                      _fadeIn(
+                        Text(
+                          l10n.appTitle,
+                          style: AppTypography.custom(
+                            size: 40,
+                            weight: FontWeight.w800,
+                            height: 1.1,
+                            color: Colors.white,
+                          ),
+                        ),
+                        reduceMotion: reduceMotion,
+                        delay: const Duration(milliseconds: 200),
+                      ),
+                      const SizedBox(height: 8),
+                      _fadeIn(
+                        Text(
+                          l10n.brandTagline,
+                          style: AppTypography.body(_brandAccent),
+                        ),
+                        reduceMotion: reduceMotion,
+                        delay: const Duration(milliseconds: 400),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              _fadeIn(
+                SizedBox(
+                  width: double.infinity,
+                  height: AppSpacing.buttonHeight,
+                  child: FilledButton(
+                    onPressed: _continue,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: _brandBlue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.button),
+                      ),
+                    ),
+                    child: Text(
+                      l10n.brandContinueCta,
+                      style: AppTypography.bodyStrong(_brandBlue),
+                    ),
+                  ),
+                ),
+                reduceMotion: reduceMotion,
+                delay: const Duration(milliseconds: 700),
+              ),
+              const SizedBox(height: AppSpacing.s5),
+            ],
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  Widget _fadeIn(
+    Widget child, {
+    required bool reduceMotion,
+    required Duration delay,
+  }) {
+    if (reduceMotion) return child;
+    return child.animate().fadeIn(delay: delay, duration: 600.ms);
   }
 }

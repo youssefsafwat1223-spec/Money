@@ -14,9 +14,10 @@ import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
 import '../transactions/transactions_providers.dart';
 
-/// ملخص ميزانية تُعرض في هيدر الداشبورد (showOnHeader = true).
-class BudgetHeaderEntry {
-  const BudgetHeaderEntry({
+/// ملخص تقدّم ميزانية واحدة (كل الميزانيات الفعّالة)، تُعرض في قسم
+/// "كل الميزانيات" على الداشبورد.
+class DashboardBudgetEntry {
+  const DashboardBudgetEntry({
     required this.budgetId,
     required this.label,
     required this.spent,
@@ -82,7 +83,9 @@ class DashboardData {
     required this.subscriptionsMonthlyTotal,
     required this.range,
     required this.currencyTotals,
-    required this.budgetsForHeader,
+    required this.budgetProgress,
+    required this.rangeExpense,
+    required this.rangeIncome,
     this.activeGoal,
   });
 
@@ -117,8 +120,14 @@ class DashboardData {
   final double subscriptionsMonthlyTotal;
   final TransactionsDateRange range;
   final List<CurrencyTotal> currencyTotals;
-  final List<BudgetHeaderEntry> budgetsForHeader;
+  final List<DashboardBudgetEntry> budgetProgress;
   final GoalEntity? activeGoal;
+
+  /// Expense/income totals for the currently selected filter [range] — not
+  /// tied to the calendar month, unlike [spentThisMonth]/[incomeThisMonth].
+  /// Feeds the dashboard's income-vs-expense summary card.
+  final double rangeExpense;
+  final double rangeIncome;
 
   /// عرض إجماليات منفصلة لكل عملة (عند تعدّد العملات في «كل الحسابات»).
   bool get hasMultipleCurrencies => currencyTotals.length > 1;
@@ -291,9 +300,17 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final catalog = await ref.watch(categoryCatalogProvider.future);
   final range =
       effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
-  final settings = await userSettingsRepo.getSettings();
-  final initialAccounts = await accountRepo.getAll();
-  final initialTransactions = await txRepo.getAll();
+  // These reads are independent. Starting them together keeps a dashboard
+  // refresh to one network round-trip instead of three when Supabase-primary
+  // repositories are active.
+  final settingsFuture = userSettingsRepo.getSettings();
+  final initialAccountsFuture = accountRepo.getAll();
+  final initialTransactionsFuture = txRepo.getAll();
+  final (settings, initialAccounts, initialTransactions) = await (
+    settingsFuture,
+    initialAccountsFuture,
+    initialTransactionsFuture,
+  ).wait;
   final currencyAccountState = await _ensureCurrencyAccounts(
     accountRepo: accountRepo,
     txRepo: txRepo,
@@ -304,11 +321,13 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final accounts = currencyAccountState.accounts;
   final allTransactions = currencyAccountState.transactions;
   final selectedAccountId = ref.watch(dashboardAccountProvider);
-  final selectedAccount = selectedAccountId == null
-      ? null
-      : await accountRepo.getById(selectedAccountId);
+  AccountEntity? selectedAccount;
+  AccountEntity? defaultAccount;
+  for (final account in accounts) {
+    if (account.id == selectedAccountId) selectedAccount = account;
+    if (account.isDefault) defaultAccount = account;
+  }
   // الحساب المختار غير موجود (حُذف) → ارجع للحساب الافتراضي، وليس كل الحسابات.
-  final defaultAccount = await accountRepo.getDefault();
   final activeAccount = selectedAccount ??
       defaultAccount ??
       (accounts.isEmpty ? null : accounts.first);
@@ -331,74 +350,148 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   // سارف/دخل الشهر ثابتان على الشهر الحالي بغض النظر عن الفلتر المختار.
   final calendarMonthStart = DateTime(now.year, now.month, 1);
-  final monthSummary = useSupabaseSummary
-      ? await summaryService.periodSummary(
+  // A refresh used to await every summary RPC serially while Riverpod kept
+  // showing the previous numbers. Start all independent summaries together so
+  // a newly-saved transaction is reflected as soon as the slowest request
+  // completes, rather than after the sum of all request times.
+  final monthSummaryFuture = useSupabaseSummary
+      ? summaryService.periodSummary(
           from: calendarMonthStart,
           to: now.add(const Duration(microseconds: 1)),
           accountId: accountId,
         )
-      : null;
-  final previousRangeSummary = useSupabaseSummary
-      ? await summaryService.periodSummary(
+      : Future.value(null);
+  final previousRangeSummaryFuture = useSupabaseSummary
+      ? summaryService.periodSummary(
           from: previousStart,
           to: rangeStart,
           accountId: accountId,
         )
-      : null;
-  final weekSummary = useSupabaseSummary
-      ? await summaryService.periodSummary(
+      : Future.value(null);
+  final weekSummaryFuture = useSupabaseSummary
+      ? summaryService.periodSummary(
           from: weekStart,
           to: now.add(const Duration(microseconds: 1)),
           accountId: accountId,
         )
-      : null;
-  final todaySummary = useSupabaseSummary
-      ? await summaryService.periodSummary(
+      : Future.value(null);
+  final todaySummaryFuture = useSupabaseSummary
+      ? summaryService.periodSummary(
           from: today,
           to: now.add(const Duration(microseconds: 1)),
           accountId: accountId,
         )
-      : null;
-  final previousWeekSummary = useSupabaseSummary
-      ? await summaryService.periodSummary(
+      : Future.value(null);
+  final previousWeekSummaryFuture = useSupabaseSummary
+      ? summaryService.periodSummary(
           from: prevWeekStart,
           to: weekStart,
           accountId: accountId,
         )
-      : null;
-  final thisMonthExpenses = monthSummary?.expense ??
-      await txRepo.expenseTotalBetween(
+      : Future.value(null);
+  final balanceFuture = useSupabaseSummary && accountId != null
+      ? summaryService
+          .accountBalance(accountId)
+          .then((summary) => summary?.effectiveBalance)
+      : txRepo.latestBalanceAfter(accountId: accountId);
+  // The selected filter range's own income/expense totals — distinct from
+  // monthSummary (always calendar-month) and previousRangeSummary (the prior
+  // period, for comparison). Feeds the dashboard's income-vs-expense summary.
+  final rangeSummaryFuture = useSupabaseSummary
+      ? summaryService.periodSummary(
+          from: rangeStart,
+          to: rangeEnd.add(const Duration(microseconds: 1)),
+          accountId: accountId,
+        )
+      : Future.value(null);
+
+  final (
+    monthSummary,
+    previousRangeSummary,
+    weekSummary,
+    todaySummary,
+    previousWeekSummary,
+    balance,
+    rangeSummary,
+  ) = await (
+    monthSummaryFuture,
+    previousRangeSummaryFuture,
+    weekSummaryFuture,
+    todaySummaryFuture,
+    previousWeekSummaryFuture,
+    balanceFuture,
+    rangeSummaryFuture,
+  ).wait;
+
+  final thisMonthExpensesFuture = monthSummary != null
+      ? Future.value(monthSummary.expense)
+      : txRepo.expenseTotalBetween(
           from: calendarMonthStart, to: now, accountId: accountId);
-  final thisMonthIncome = monthSummary?.income ??
-      await txRepo.incomeTotalBetween(
+  final thisMonthIncomeFuture = monthSummary != null
+      ? Future.value(monthSummary.income)
+      : txRepo.incomeTotalBetween(
           from: calendarMonthStart, to: now, accountId: accountId);
-  final balance = useSupabaseSummary && accountId != null
-      ? (await summaryService.accountBalance(accountId))?.effectiveBalance
-      : await txRepo.latestBalanceAfter(accountId: accountId);
-  final prevMonthExpenses = previousRangeSummary?.expense ??
-      await txRepo.expenseTotalBetween(
-        from: previousStart,
-        to: previousEnd,
-        accountId: accountId,
-      );
-  final weekSpend = weekSummary?.expense ??
-      await txRepo.expenseTotalBetween(
+  final prevMonthExpensesFuture = previousRangeSummary != null
+      ? Future.value(previousRangeSummary.expense)
+      : txRepo.expenseTotalBetween(
+          from: previousStart,
+          to: previousEnd,
+          accountId: accountId,
+        );
+  final weekSpendFuture = weekSummary != null
+      ? Future.value(weekSummary.expense)
+      : txRepo.expenseTotalBetween(
           from: weekStart, to: now, accountId: accountId);
-  final todaySpend = todaySummary?.expense ??
-      await txRepo.expenseTotalBetween(
-          from: today, to: now, accountId: accountId);
-  final todayIncome = todaySummary?.income ??
-      await txRepo.incomeTotalBetween(
-          from: today, to: now, accountId: accountId);
-  final weekIncome = weekSummary?.income ??
-      await txRepo.incomeTotalBetween(
+  final todaySpendFuture = todaySummary != null
+      ? Future.value(todaySummary.expense)
+      : txRepo.expenseTotalBetween(from: today, to: now, accountId: accountId);
+  final todayIncomeFuture = todaySummary != null
+      ? Future.value(todaySummary.income)
+      : txRepo.incomeTotalBetween(from: today, to: now, accountId: accountId);
+  final weekIncomeFuture = weekSummary != null
+      ? Future.value(weekSummary.income)
+      : txRepo.incomeTotalBetween(
           from: weekStart, to: now, accountId: accountId);
-  final previousWeekSpend = previousWeekSummary?.expense ??
-      await txRepo.expenseTotalBetween(
-        from: prevWeekStart,
-        to: weekStart,
-        accountId: accountId,
-      );
+  final previousWeekSpendFuture = previousWeekSummary != null
+      ? Future.value(previousWeekSummary.expense)
+      : txRepo.expenseTotalBetween(
+          from: prevWeekStart,
+          to: weekStart,
+          accountId: accountId,
+        );
+  final rangeExpenseFuture = rangeSummary != null
+      ? Future.value(rangeSummary.expense)
+      : txRepo.expenseTotalBetween(
+          from: rangeStart, to: rangeEnd, accountId: accountId);
+  final rangeIncomeFuture = rangeSummary != null
+      ? Future.value(rangeSummary.income)
+      : txRepo.incomeTotalBetween(
+          from: rangeStart, to: rangeEnd, accountId: accountId);
+  final (
+    thisMonthExpenses,
+    thisMonthIncome,
+    prevMonthExpenses,
+    weekSpend,
+    todaySpend,
+    todayIncome,
+    weekIncome,
+    previousWeekSpend,
+  ) = await (
+    thisMonthExpensesFuture,
+    thisMonthIncomeFuture,
+    prevMonthExpensesFuture,
+    weekSpendFuture,
+    todaySpendFuture,
+    todayIncomeFuture,
+    weekIncomeFuture,
+    previousWeekSpendFuture,
+  ).wait;
+  // Dart's tuple `.wait` extension tops out at 8 elements, so the two new
+  // range totals are awaited separately (still concurrently with each other,
+  // and their own futures were already started above alongside everything
+  // else — this split only affects how the results are collected).
+  final (rangeExpense, rangeIncome) =
+      await (rangeExpenseFuture, rangeIncomeFuture).wait;
   final pendingReview = allTransactions
       .where((tx) =>
           tx.status == TransactionStatus.pending &&
@@ -408,7 +501,57 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final pendingReviewTotal =
       pendingReview.fold<double>(0, (sum, tx) => sum + tx.amount);
   final saved = prevMonthExpenses - thisMonthExpenses;
-  final allBudgets = await budgetRepo.getAll();
+  // Start the remaining independent sections before awaiting any one of them.
+  // This is especially important with direct Supabase repositories, where
+  // every aggregate is otherwise a separate network wait.
+  final allBudgetsFuture = budgetRepo.getAll();
+  final breakdownFuture = useSupabaseSummary
+      ? summaryService.categorySummary(
+          from: rangeStart,
+          to: rangeEnd.add(const Duration(microseconds: 1)),
+          accountId: accountId,
+        )
+      : txRepo.categoryBreakdown(
+          from: rangeStart, to: rangeEnd, accountId: accountId);
+  final dailySpendTrendFuture = txRepo.dailyExpenseTotals(
+      from: rangeStart, to: rangeEnd, accountId: accountId);
+  final weeklyDailySpendFuture = txRepo.dailyExpenseTotals(
+    from: weekStart,
+    to: now,
+    accountId: accountId,
+  );
+  final topMerchantsFuture = txRepo.merchantBreakdown(
+    from: rangeStart,
+    to: rangeEnd,
+    limit: 5,
+    accountId: accountId,
+  );
+  final recentFuture = txRepo.getRecent(limit: 50, accountId: accountId);
+  final streakFuture = gamificationRepo.getStreak();
+  final subscriptionsFuture = txRepo.recurringCandidates(accountId: accountId);
+  final goalsFuture = goalRepo.getAll();
+
+  final (
+    allBudgets,
+    breakdown,
+    dailySpendRows,
+    weeklyDailySpend,
+    topMerchants,
+    recentRows,
+    streak,
+    subscriptionRows,
+    goals,
+  ) = await (
+    allBudgetsFuture,
+    breakdownFuture,
+    dailySpendTrendFuture,
+    weeklyDailySpendFuture,
+    topMerchantsFuture,
+    recentFuture,
+    streakFuture,
+    subscriptionsFuture,
+    goalsFuture,
+  ).wait;
   final activeBudgets = allBudgets.where((budget) {
     if (!budget.isActive) return false;
     return accountId == null
@@ -436,12 +579,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final monthlyBudgetRatio =
       monthlyBudgetLimit == 0 ? 0.0 : thisMonthExpenses / monthlyBudgetLimit;
 
-  // ميزانيات الهيدر للحساب النشط فقط.
-  final headerBudgets =
-      activeBudgets.where((b) => b.showOnHeader).toList(growable: false);
   final accountMap = {for (final a in accounts) a.id: a.name};
-  final budgetsForHeader = <BudgetHeaderEntry>[];
-  for (final budget in headerBudgets) {
+  final budgetProgress = await Future.wait(activeBudgets.map((budget) async {
     final ps = switch (budget.period) {
       BudgetPeriod.daily => today,
       BudgetPeriod.weekly =>
@@ -460,7 +599,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
           );
     final bRatio = budget.amount == 0 ? 0.0 : bSpent / budget.amount;
     final catView = catalog.byId(budget.categoryId);
-    budgetsForHeader.add(BudgetHeaderEntry(
+    return DashboardBudgetEntry(
       budgetId: budget.id,
       label: budget.isAllExpenses
           ? 'كل المصروفات'
@@ -472,17 +611,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       accountId: budget.accountId,
       accountName:
           budget.accountId != null ? accountMap[budget.accountId] : null,
-    ));
-  }
+    );
+  }));
 
-  final breakdown = useSupabaseSummary
-      ? await summaryService.categorySummary(
-          from: rangeStart,
-          to: rangeEnd.add(const Duration(microseconds: 1)),
-          accountId: accountId,
-        )
-      : await txRepo.categoryBreakdown(
-          from: rangeStart, to: rangeEnd, accountId: accountId);
   final totalSpend = breakdown.fold<double>(0, (sum, item) => sum + item.total);
   final topCategories = <CategorySlice>[];
   for (final item in breakdown.take(3)) {
@@ -498,23 +629,10 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       ),
     );
   }
-  final dailySpendTrend = (await txRepo.dailyExpenseTotals(
-          from: rangeStart, to: rangeEnd, accountId: accountId))
-      .map((day) => day.total)
-      .toList(growable: false);
-  final weeklyDailySpend = await txRepo.dailyExpenseTotals(
-    from: weekStart,
-    to: now,
-    accountId: accountId,
-  );
-  final topMerchants = await txRepo.merchantBreakdown(
-    from: rangeStart,
-    to: rangeEnd,
-    limit: 5,
-    accountId: accountId,
-  );
+  final dailySpendTrend =
+      dailySpendRows.map((day) => day.total).toList(growable: false);
 
-  final recent = (await txRepo.getRecent(limit: 50, accountId: accountId))
+  final recent = recentRows
       .where((tx) =>
           !tx.occurredAt.isBefore(rangeStart) &&
           !tx.occurredAt.isAfter(rangeEnd))
@@ -522,10 +640,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       .toList(growable: false);
   // الداشبورد يعرض عملة الحساب النشط فقط لتجنب جمع عملات مختلفة في رقم واحد.
   const currencyTotals = <CurrencyTotal>[];
-  final streak = await gamificationRepo.getStreak();
-  final subscriptions = (await txRepo.recurringCandidates(accountId: accountId))
-      .take(3)
-      .toList(growable: false);
+  final subscriptions = subscriptionRows.take(3).toList(growable: false);
   final subscriptionsMonthlyTotal = subscriptions.fold<double>(
     0,
     (sum, item) => sum + item.averageAmount,
@@ -534,7 +649,6 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       ? thisMonthExpenses
       : (thisMonthExpenses / daysInRange) * 30;
 
-  final goals = await goalRepo.getAll();
   final activeGoal = goals
       .where((g) =>
           g.status == 'active' &&
@@ -576,7 +690,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     subscriptionsMonthlyTotal: subscriptionsMonthlyTotal,
     range: range,
     currencyTotals: currencyTotals,
-    budgetsForHeader: budgetsForHeader,
+    budgetProgress: budgetProgress,
     activeGoal: activeGoal,
+    rangeExpense: rangeExpense,
+    rangeIncome: rangeIncome,
   );
 });

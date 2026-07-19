@@ -10,17 +10,19 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../../core/auth/auth_service.dart';
 import '../../core/backend/supabase_config.dart';
 import '../../core/privacy/data_wipe_service.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/di/app_providers.dart';
+import '../../core/theme/app_shadows.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../core/security/app_lock_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/theme_mode_provider.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/category_entity.dart';
@@ -29,18 +31,27 @@ import '../../domain/entities/supporting_entities.dart';
 import '../budgets/budgets_providers.dart';
 import '../cards/my_cards_screen.dart';
 import '../plans/plans_screen.dart';
-import '../common/app_card.dart';
 import '../common/category_catalog.dart';
 import '../common/motion.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../capture/services/local_notification_service.dart';
 import '../onboarding/ios_shortcut_guide.dart';
 import '../transactions/transactions_providers.dart';
-import 'data_export.dart';
 import 'settings_providers.dart';
 
-class SettingsScreen extends ConsumerWidget {
-  const SettingsScreen({super.key});
+enum _SettingsTab { general, notifications, data }
+
+class SettingsScreen extends ConsumerStatefulWidget {
+  const SettingsScreen({super.key, this.showBackButton = false});
+
+  final bool showBackButton;
+
+  @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  _SettingsTab _selectedTab = _SettingsTab.general;
 
   static const _methodLabels = {
     'google': 'Google',
@@ -50,13 +61,14 @@ class SettingsScreen extends ConsumerWidget {
   };
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final prefsAsync = ref.watch(notificationPreferencesProvider);
     final captureHealthAsync = ref.watch(captureHealthStatusProvider);
     final settingsAsync = ref.watch(userSettingsProvider);
     final countriesAsync = ref.watch(supportedCountriesProvider);
     final currenciesAsync = ref.watch(activeCurrenciesProvider);
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final session = AppSession.instance;
     final email = session.email ?? '—';
     final method = _methodLabels[session.authMethod] ?? '—';
@@ -64,500 +76,560 @@ class SettingsScreen extends ConsumerWidget {
     final currencies = currenciesAsync.valueOrNull ?? const <RemoteCurrency>[];
 
     return Scaffold(
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(0, 0, 0, 120),
+      backgroundColor: c.bg,
+      body: Stack(
         children: [
-          _SettingsHeader(email: email, method: method),
-          const SizedBox(height: AppSpacing.s5),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-            child: Column(
-              children: [
-                settingsAsync.maybeWhen(
-                  data: (settings) => PremiumMotion(
-                    delay: const Duration(milliseconds: 40),
-                    child: _ProfileSettingsCard(
-                      settings: settings,
-                      email: email,
-                      method: method,
-                      countries: countries,
-                      currencies: currencies,
-                      catalogsLoading:
-                          countriesAsync.isLoading || currenciesAsync.isLoading,
-                      onAvatarTap: () => _pickProfileImage(
-                        context,
-                        ref,
-                        settings,
-                      ),
-                      onNameTap: () => _showProfileTextSheet(
-                        context,
-                        ref,
-                        title: 'الاسم',
-                        label: 'اسمك في التطبيق',
-                        initialValue: settings.displayName ?? '',
-                        apply: (value) =>
-                            settings.copyWith(displayName: value.trim()),
-                      ),
-                      onPhoneTap: () => _showProfileTextSheet(
-                        context,
-                        ref,
-                        title: 'رقم الموبايل',
-                        label: 'رقم الموبايل',
-                        keyboardType: TextInputType.phone,
-                        initialValue: settings.phoneNumber ?? '',
-                        apply: (value) =>
-                            settings.copyWith(phoneNumber: value.trim()),
-                      ),
-                      onCountryTap: countries.isEmpty
-                          ? null
-                          : () => _showSettingsPicker(
-                                context,
-                                ref,
-                                title: 'الدولة',
-                                current: settings.country.toUpperCase(),
-                                values: _countryValues(countries),
-                                save: (value) async {
-                                  final country = value.toUpperCase();
-                                  final currency = _preferredCurrencyForCountry(
-                                    country,
-                                    currencies,
-                                    settings.currency,
-                                  );
-                                  await ref
-                                      .read(saveCountryCurrencyUseCaseProvider)
-                                      .call(country, currency);
-                                },
-                              ),
-                      onCurrencyTap: currencies.isEmpty
-                          ? null
-                          : () => _showSettingsPicker(
-                                context,
-                                ref,
-                                title: 'العملة الأساسية',
-                                current: settings.currency.toUpperCase(),
-                                values: _currencyValuesForCountry(
-                                  settings.country,
-                                  currencies,
-                                ),
-                                save: (value) async {
-                                  await ref
-                                      .read(saveCountryCurrencyUseCaseProvider)
-                                      .call(
-                                        settings.country.toUpperCase(),
-                                        value.toUpperCase(),
-                                      );
-                                },
-                              ),
-                    ),
-                  ),
-                  orElse: () => const _ProfileSkeletonCard(),
-                ),
-                const SizedBox(height: AppSpacing.s5),
-                PremiumMotion(
-                  delay: const Duration(milliseconds: 80),
-                  child: _Section(
-                    title: 'إدارة المال',
-                    children: [
-                      _NavTile(
-                        icon: Icons.account_balance_wallet_outlined,
-                        title: 'الحسابات والمحافظ',
-                        subtitle: 'حسابات متعددة، كل واحد بعملته الخاصة',
-                        onTap: () => context.push('/accounts'),
-                      ),
-                      _NavTile(
-                        icon: Icons.credit_card_outlined,
-                        title: 'بطاقاتي',
-                        subtitle: 'كل بطاقاتك وحركتها، وأضف عملية لأي بطاقة',
-                        onTap: () => MyCardsScreen.open(context),
-                      ),
-                      _NavTile(
-                        icon: Icons.luggage_outlined,
-                        title: 'الخطط',
-                        subtitle: 'ميزانية لرحلة أو مناسبة، بتتابع نفسها',
-                        onTap: () => PlansScreen.open(context),
-                      ),
-                      _NavTile(
-                        icon: Icons.receipt_long_outlined,
-                        title: 'الاشتراكات والفواتير',
-                        subtitle: 'تتبع اشتراكاتك وأقساطك والتزاماتك الدورية',
-                        onTap: () => context.push('/subscriptions'),
-                      ),
-                      _NavTile(
-                        icon: Icons.bar_chart_outlined,
-                        title: 'الرؤى والتقارير',
-                        subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر',
-                        onTap: () => context.push('/reports'),
-                      ),
-                      _NavTile(
-                        icon: Icons.emoji_events_outlined,
-                        title: 'الإنجازات والمستوى',
-                        subtitle: 'شارات ومستويات تشجعك تكمل عادة المتابعة',
-                        onTap: () => context.push('/achievements'),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.inbox,
-                        title: 'التصنيفات',
-                        subtitle: 'مصروفات ودخل وتحويلات في مجموعات واضحة',
-                        onTap: () => _showCategoriesSheet(context, ref),
-                      ),
-                      if (Platform.isIOS)
-                        _NavTile(
-                          icon: Icons.ios_share_rounded,
-                          title: 'إعداد اختصار آبل',
-                          subtitle:
-                              'مرّر رسائل البنك تلقائياً إلى قرش عبر Shortcuts',
-                          onTap: () => showIosShortcutSheet(context),
-                        ),
+          // Ambient glow for dark mode (matches dashboard)
+          if (isDark) ...[
+            Positioned(
+              right: -100,
+              top: -100,
+              width: 320,
+              height: 320,
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      c.cta.withValues(alpha: 0.05),
+                      c.cta.withValues(alpha: 0.0),
                     ],
                   ),
                 ),
-                const SizedBox(height: AppSpacing.s5),
-                settingsAsync.maybeWhen(
-                  data: (settings) => PremiumMotion(
-                    delay: const Duration(milliseconds: 120),
-                    child: _Section(
-                      title: 'اللغة والمظهر',
-                      children: [
-                        _NavTile(
-                          icon: Icons.language_outlined,
-                          title: 'اللغة',
-                          subtitle: _languageLabel(settings.language),
-                          onTap: () => _showSettingsPicker(
+              ),
+            ),
+            Positioned(
+              left: -120,
+              bottom: -120,
+              width: 360,
+              height: 360,
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      c.accent.withValues(alpha: 0.035),
+                      c.accent.withValues(alpha: 0.0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: _SettingsHeader(
+                  method: method,
+                  onBack: widget.showBackButton
+                      ? () {
+                          if (context.canPop()) context.pop();
+                        }
+                      : null,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  AppSpacing.s4,
+                  AppSpacing.gutter,
+                  120,
+                ),
+                sliver: SliverList.list(
+                  children: [
+                    settingsAsync.maybeWhen(
+                      data: (settings) => PremiumMotion(
+                        delay: const Duration(milliseconds: 40),
+                        child: _ProfileSettingsCard(
+                          settings: settings,
+                          email: email,
+                          method: method,
+                          countries: countries,
+                          currencies: currencies,
+                          catalogsLoading: countriesAsync.isLoading ||
+                              currenciesAsync.isLoading,
+                          onAvatarTap: () =>
+                              _pickProfileImage(context, ref, settings),
+                          onNameTap: () => _showProfileTextSheet(
                             context,
                             ref,
-                            title: 'اللغة',
-                            current: settings.language,
-                            values: const {'ar': 'العربية', 'en': 'English'},
+                            title: 'الاسم',
+                            label: 'اسمك في التطبيق',
+                            initialValue: settings.displayName ?? '',
                             apply: (value) =>
-                                settings.copyWith(language: value),
+                                settings.copyWith(displayName: value.trim()),
                           ),
-                        ),
-                        _ThemeTile(
-                          value: themeModeFromKey(settings.theme),
-                          onChanged: (mode) => _saveTheme(ref, mode),
-                        ),
-                      ],
-                    ),
-                  ),
-                  orElse: () => const SizedBox.shrink(),
-                ),
-                const SizedBox(height: AppSpacing.s5),
-                prefsAsync.when(
-                  skipLoadingOnReload: true,
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (error, _) => const Text('حدث خطأ'),
-                  data: (prefs) => PremiumMotion(
-                    delay: const Duration(milliseconds: 150),
-                    child: _Section(
-                      title: 'الإشعارات والتنبيهات',
-                      children: [
-                        captureHealthAsync.maybeWhen(
-                          data: (status) => _CaptureHealthTile(status: status),
-                          orElse: () => const SizedBox.shrink(),
-                        ),
-                        const _TrustNoticeTile(
-                          text:
-                              'قرش يرسل إشعارات من نفسه لمساعدتك. لا يقرأ إشعارات البنك أو رسائل SMS من النظام.',
-                        ),
-                        _SwitchTile(
-                          title: 'رسائل ونصائح قرش',
-                          icon: Icons.campaign_outlined,
-                          iconColor: c.primary,
-                          value: prefs.marketingMessages,
-                          onChanged: (value) => _savePrefs(
+                          onPhoneTap: () => _showProfileTextSheet(
+                            context,
                             ref,
-                            prefs.copyWith(marketingMessages: value),
+                            title: 'رقم الموبايل',
+                            label: 'رقم الموبايل',
+                            keyboardType: TextInputType.phone,
+                            initialValue: settings.phoneNumber ?? '',
+                            apply: (value) =>
+                                settings.copyWith(phoneNumber: value.trim()),
                           ),
+                          onCountryTap: countries.isEmpty
+                              ? null
+                              : () => _showSettingsPicker(
+                                    context,
+                                    ref,
+                                    title: 'الدولة',
+                                    current: settings.country.toUpperCase(),
+                                    values: _countryValues(countries),
+                                    save: (value) async {
+                                      final country = value.toUpperCase();
+                                      final currency =
+                                          _preferredCurrencyForCountry(
+                                        country,
+                                        currencies,
+                                        settings.currency,
+                                      );
+                                      await ref
+                                          .read(
+                                              saveCountryCurrencyUseCaseProvider)
+                                          .call(country, currency);
+                                    },
+                                  ),
+                          onCurrencyTap: currencies.isEmpty
+                              ? null
+                              : () => _showSettingsPicker(
+                                    context,
+                                    ref,
+                                    title: 'العملة الأساسية',
+                                    current: settings.currency.toUpperCase(),
+                                    values: _currencyValuesForCountry(
+                                      settings.country,
+                                      currencies,
+                                    ),
+                                    save: (value) async {
+                                      await ref
+                                          .read(
+                                              saveCountryCurrencyUseCaseProvider)
+                                          .call(
+                                            settings.country.toUpperCase(),
+                                            value.toUpperCase(),
+                                          );
+                                    },
+                                  ),
                         ),
-                        _SwitchTile(
-                          title: 'تنبيهات تأكيد العمليات',
-                          icon: Icons.rate_review_outlined,
-                          iconColor: c.primary,
-                          value: prefs.captureReview,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(captureReview: value)),
-                        ),
-                        _SwitchTile(
-                          title: 'إشعارات التقاط العمليات',
-                          icon: Icons.notifications_active_outlined,
-                          iconColor: c.accent,
-                          value: prefs.captureLight,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(captureLight: value)),
-                        ),
-                        _SwitchTile(
-                          title: 'تنبيه 80% من الميزانية',
-                          icon: Icons.warning_amber_rounded,
-                          iconColor: c.accent,
-                          value: prefs.budgetWarning,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(budgetWarning: value)),
-                        ),
-                        _SwitchTile(
-                          title: 'تنبيه تجاوز الميزانية',
-                          icon: Icons.error_outline_rounded,
-                          iconColor: c.danger,
-                          value: prefs.budgetOver,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(budgetOver: value)),
-                        ),
-                        _SwitchTile(
-                          title: 'تنبيهات الإنجازات',
-                          icon: Icons.emoji_events_outlined,
-                          iconColor: c.success,
-                          value: prefs.achievements,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(achievements: value)),
-                        ),
-                        _SwitchTile(
-                          title: 'تذكير السلسلة',
-                          icon: Icons.local_fire_department_outlined,
-                          iconColor: c.accent,
-                          value: prefs.streakReminder,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(streakReminder: value)),
-                        ),
-                        _SwitchTile(
-                          title: 'التقرير الأسبوعي',
-                          icon: Icons.insights_outlined,
-                          iconColor: c.primary,
-                          value: prefs.weeklyReport,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(weeklyReport: value)),
-                        ),
-                        _SwitchTile(
-                          title: 'تذكير الاشتراكات والفواتير',
-                          icon: Icons.event_available_outlined,
-                          iconColor: c.accent,
-                          value: prefs.subscriptionReminder,
-                          onChanged: (value) => _savePrefs(
-                            ref,
-                            prefs.copyWith(subscriptionReminder: value),
-                          ),
-                        ),
-                        _SwitchTile(
-                          title: 'احتفالات الأهداف',
-                          icon: Icons.flag_outlined,
-                          iconColor: c.success,
-                          value: prefs.goalMilestone,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(goalMilestone: value)),
-                        ),
-                        _SwitchTile(
-                          icon: AppLucideIcons.moon,
-                          iconColor: c.textMuted,
-                          title: 'ساعات الهدوء',
-                          subtitle: prefs.quietHoursEnabled
-                              ? '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00'
-                              : 'معطّل',
-                          value: prefs.quietHoursEnabled,
-                          onChanged: (value) => _savePrefs(
-                              ref, prefs.copyWith(quietHoursEnabled: value)),
-                        ),
-                        if (prefs.quietHoursEnabled)
-                          _NavTile(
-                            icon: Icons.access_time_outlined,
-                            title: 'تعديل وقت الهدوء',
-                            subtitle:
-                                '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
-                            onTap: () =>
-                                _showQuietHoursSheet(context, ref, prefs),
-                          ),
-                        _NavTile(
-                          icon: Icons.notification_add_outlined,
-                          title: 'اختبار إشعارات قرش',
-                          subtitle:
-                              'يرسل إشعاراً من قرش نفسه. لا يقرأ إشعارات البنك أو الرسائل.',
-                          onTap: () => _sendTestNotification(context),
-                        ),
-                        _NavTile(
-                          icon: Icons.inbox_outlined,
-                          title: 'مركز رسائل قرش',
-                          subtitle:
-                              'تاريخ الإشعارات والحملات والإعلانات داخل التطبيق.',
-                          onTap: () => context.push('/announcements'),
-                        ),
-                      ],
+                      ),
+                      orElse: () => const _ProfileSkeletonCard(),
                     ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s5),
-                PremiumMotion(
-                  delay: const Duration(milliseconds: 200),
-                  child: _Section(
-                    title: 'النسخ الاحتياطي والأمان',
-                    children: [
-                      _NavTile(
-                        icon: AppLucideIcons.shieldCheck,
-                        title: 'النسخ الاحتياطي المشفر',
-                        subtitle:
-                            'نسخ مشفّر E2E لا نقدر نقرأه واستعادته بأي وقت',
-                        onTap: () => context.push('/backup'),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.heartPulse,
-                        title: 'الخصوصية والبيانات',
-                        subtitle: 'إدارة أمن بياناتك وسياسة خصوصية التطبيق',
-                        onTap: () => context.push('/privacy'),
-                      ),
-                      settingsAsync.maybeWhen(
-                        data: (settings) => _SwitchTile(
-                          title: 'إخفاء الأرقام في الواجهة',
-                          icon: Icons.visibility_off_outlined,
-                          iconColor: c.primary,
-                          value: settings.privacyModeEnabled,
-                          onChanged: (value) async {
-                            await ref
-                                .read(userSettingsRepositoryProvider)
-                                .saveSettings(settings.copyWith(
-                                  privacyModeEnabled: value,
-                                ));
-                            refreshUserSettings(ref);
-                            ref.invalidate(dashboardDataProvider);
-                          },
-                        ),
-                        orElse: () => const SizedBox.shrink(),
-                      ),
-                      settingsAsync.maybeWhen(
-                        data: (settings) => _SwitchTile(
-                          title: 'معالجة رسائل البنك عبر خادم قرش',
-                          subtitle:
-                              'اختياري ومغلق افتراضياً. نرسل نصاً مُعقماً '
-                              'إلى خادم قرش لإظهار إشعار فوري بنفس نتيجة العملية، '
-                              'ويمكنك إيقافه في أي وقت.',
-                          icon: Icons.cloud_sync_outlined,
-                          iconColor: c.primary,
-                          value: settings.cloudProcessingEnabled,
-                          onChanged: (value) async {
-                            final nextSettings = settings.copyWith(
-                              cloudProcessingEnabled: value,
-                            );
-                            await ref
-                                .read(userSettingsRepositoryProvider)
-                                .saveSettings(nextSettings);
-                            refreshUserSettings(ref);
-                            try {
-                              await ref
-                                  .read(
-                                      captureDeviceRegistrationServiceProvider)
-                                  .syncNativeState();
-                            } catch (_) {
-                              // Syncing native state is best-effort; fallback
-                              // capture stays local if registration fails.
-                            }
-                          },
-                        ),
-                        orElse: () => const SizedBox.shrink(),
-                      ),
-                      settingsAsync.maybeWhen(
-                        data: (settings) => _SwitchTile(
-                          title: 'اقتراحات الذكاء الاصطناعي',
-                          subtitle: 'للرسائل التي يعجز المحرك عن تحليلها، '
-                              'نرسل نصاً مُعقَّماً (بدون أرقام بطاقات أو أسماء) '
-                              'لخدمة ذكاء اصطناعي. المبالغ والتواريخ تبقى على جهازك.',
-                          icon: Icons.auto_awesome_outlined,
-                          iconColor: c.accent,
-                          value: settings.aiConsentGranted,
-                          onChanged: (value) async {
-                            final nextSettings = settings.copyWith(
-                              aiConsentGranted: value,
-                            );
-                            await ref
-                                .read(userSettingsRepositoryProvider)
-                                .saveSettings(nextSettings);
-                            refreshUserSettings(ref);
-                            try {
-                              await ref
-                                  .read(
-                                      captureDeviceRegistrationServiceProvider)
-                                  .syncNativeState();
-                            } catch (_) {
-                              // Native consent sync is best-effort. If it
-                              // cannot sync, backend capture remains disabled
-                              // by the service's fail-safe path where possible.
-                            }
-                          },
-                        ),
-                        orElse: () => const SizedBox.shrink(),
-                      ),
-                      const _AppLockTile(),
-                      _NavTile(
-                        icon: AppLucideIcons.receipt,
-                        title: 'تصدير البيانات',
-                        subtitle: 'مشاركة ملف CSV بكل عملياتك',
-                        onTap: () => exportTransactionsCsv(context, ref),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.repeat,
-                        title: 'ابدأ من جديد',
-                        subtitle:
-                            'مسح جميع بياناتك المحلية مع إبقاء حسابك نشطاً',
-                        onTap: () => _confirmReset(context, ref),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s5),
-                PremiumMotion(
-                  delay: const Duration(milliseconds: 240),
-                  child: _Section(
-                    title: 'المكافآت والدعم',
-                    children: [
-                      _NavTile(
-                        icon: AppLucideIcons.gift,
-                        title: 'دعوة الأصدقاء',
-                        subtitle: 'انسخ رسالة دعوة مختصرة وشاركها بطريقتك',
-                        onTap: () => _copyInviteText(context),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.alertTriangle,
-                        title: 'عن التطبيق',
-                        subtitle: 'قرش / Qirsh',
-                        onTap: () => _showAboutApp(context),
-                      ),
-                      _NavTile(
-                        icon: AppLucideIcons.receipt,
-                        title: 'تواصل معنا',
-                        subtitle: 'تواصل مع الدعم الفني للإجابة على استفساراتك',
-                        onTap: () => _showContactSupport(context),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s6),
-                PremiumMotion(
-                  delay: const Duration(milliseconds: 280),
-                  child: OutlinedButton.icon(
-                    onPressed: () => _signOut(context),
-                    icon: const Icon(Icons.logout),
-                    label: const Text('تسجيل الخروج'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      foregroundColor: c.danger,
-                      side: BorderSide(color: c.danger.withValues(alpha: 0.35)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                    const SizedBox(height: AppSpacing.s4),
+                    PremiumMotion(
+                      delay: const Duration(milliseconds: 60),
+                      child: _SettingsTabs(
+                        selected: _selectedTab,
+                        onChanged: (tab) => setState(() => _selectedTab = tab),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s4),
-                PremiumMotion(
-                  delay: const Duration(milliseconds: 320),
-                  child: Center(
-                    child: TextButton(
-                      onPressed: () => context.push('/privacy'),
-                      child: Text('حذف الحساب وكل بياناتي',
-                          style: AppTypography.body(c.danger)),
+                    const SizedBox(height: AppSpacing.s5),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child: KeyedSubtree(
+                        key: ValueKey(_selectedTab),
+                        child: switch (_selectedTab) {
+                          _SettingsTab.general => _buildGeneralTab(
+                              context,
+                              ref,
+                              settingsAsync,
+                            ),
+                          _SettingsTab.notifications => _buildNotificationsTab(
+                              context,
+                              ref,
+                              prefsAsync,
+                              captureHealthAsync,
+                            ),
+                          _SettingsTab.data => _buildDataTab(
+                              context,
+                              ref,
+                              settingsAsync,
+                            ),
+                        },
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGeneralTab(
+    BuildContext context,
+    WidgetRef ref,
+    AsyncValue<UserSettingsEntity> settingsAsync,
+  ) {
+    return Column(
+      children: [
+        PremiumMotion(
+            delay: const Duration(milliseconds: 80),
+            child: _Section(
+              title: 'إدارة أموالك',
+              description: 'كل الأدوات المالية في مكان واحد',
+              children: [
+                _NavTile(
+                  icon: Icons.account_balance_wallet_outlined,
+                  title: 'الحسابات والمحافظ',
+                  subtitle: 'حسابات متعددة، كل واحد بعملته الخاصة',
+                  onTap: () => context.push('/accounts'),
+                ),
+                _NavTile(
+                  icon: Icons.credit_card_outlined,
+                  title: 'بطاقاتي',
+                  subtitle: 'بطاقاتك وحركتها وإضافة عملية لأي بطاقة',
+                  onTap: () => MyCardsScreen.open(context),
+                ),
+                _NavTile(
+                  icon: Icons.receipt_long_outlined,
+                  title: 'الاشتراكات والفواتير',
+                  subtitle: 'التزاماتك الدورية ومواعيد السداد',
+                  onTap: () => context.push('/subscriptions'),
+                ),
+                _NavTile(
+                  icon: Icons.luggage_outlined,
+                  title: 'الخطط',
+                  subtitle: 'ميزانية رحلة أو مناسبة تتابع نفسها',
+                  onTap: () => PlansScreen.open(context),
+                ),
+                _NavTile(
+                  icon: Icons.bar_chart_outlined,
+                  title: 'الرؤى والتقارير',
+                  subtitle: 'اتجاهات صرفك وتصنيفاتك ومتاجرك',
+                  onTap: () => context.push('/reports'),
+                ),
+                _NavTile(
+                  icon: Icons.emoji_events_outlined,
+                  title: 'الإنجازات والمستوى',
+                  subtitle: 'شارات ومستويات تشجع عادة المتابعة',
+                  onTap: () => context.push('/achievements'),
+                ),
+                _NavTile(
+                  icon: AppLucideIcons.inbox,
+                  title: 'التصنيفات',
+                  subtitle: 'نظم المصروفات والدخل والتحويلات',
+                  onTap: () => _showCategoriesSheet(context, ref),
+                ),
+                if (Platform.isIOS)
+                  _NavTile(
+                    icon: Icons.ios_share_rounded,
+                    title: 'اختصار آبل',
+                    subtitle: 'مرر رسائل البنك إلى قرش عبر Shortcuts',
+                    onTap: () => showIosShortcutSheet(context),
+                  ),
+              ],
+            )),
+        const SizedBox(height: AppSpacing.s5),
+        PremiumMotion(
+            delay: const Duration(milliseconds: 120),
+            child: _Section(
+              title: 'المكافآت والدعم',
+              children: [
+                _NavTile(
+                  icon: AppLucideIcons.gift,
+                  title: 'دعوة الأصدقاء',
+                  subtitle: 'انسخ رسالة الدعوة وشاركها',
+                  onTap: () => _copyInviteText(context),
+                ),
+                _NavTile(
+                  icon: AppLucideIcons.receipt,
+                  title: 'تواصل معنا',
+                  subtitle: 'الدعم الفني والإجابة على استفساراتك',
+                  onTap: () => _showContactSupport(context),
+                ),
+                _NavTile(
+                  icon: Icons.info_outline_rounded,
+                  title: 'عن قرش',
+                  subtitle: 'معلومات التطبيق والإصدار',
+                  onTap: () => _showAboutApp(context),
+                ),
+              ],
+            )),
+      ],
+    );
+  }
+
+  Widget _buildNotificationsTab(
+    BuildContext context,
+    WidgetRef ref,
+    AsyncValue<NotificationPreferences> prefsAsync,
+    AsyncValue<CaptureHealthStatus> captureHealthAsync,
+  ) {
+    final c = context.colors;
+    return prefsAsync.when(
+      skipLoadingOnReload: true,
+      loading: () => const _SettingsLoadingState(),
+      error: (error, _) => const _SettingsErrorState(),
+      data: (prefs) => Column(
+        children: [
+          PremiumMotion(
+              delay: const Duration(milliseconds: 80),
+              child: _Section(
+                title: 'رصد العمليات',
+                description: 'حالة الربط مع رسائل البنك واختصار آبل',
+                children: [
+                  captureHealthAsync.maybeWhen(
+                    data: (status) => _CaptureHealthTile(status: status),
+                    orElse: () => const SizedBox.shrink(),
+                  ),
+                  const _TrustNoticeTile(
+                    text:
+                        'قرش يرسل إشعارات لمساعدتك، ولا يقرأ إشعارات البنك أو رسائل SMS من النظام.',
+                  ),
+                  _SwitchTile(
+                    title: 'تأكيد العمليات الملتقطة',
+                    icon: Icons.rate_review_outlined,
+                    value: prefs.captureReview,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(captureReview: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'إشعار عند التقاط عملية',
+                    icon: Icons.notifications_active_outlined,
+                    iconColor: c.accent,
+                    value: prefs.captureLight,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(captureLight: value),
+                    ),
+                  ),
+                ],
+              )),
+          const SizedBox(height: AppSpacing.s5),
+          PremiumMotion(
+              delay: const Duration(milliseconds: 100),
+              child: _Section(
+                title: 'تنبيهاتك',
+                children: [
+                  _SwitchTile(
+                    title: 'رسائل ونصائح قرش',
+                    icon: Icons.campaign_outlined,
+                    value: prefs.marketingMessages,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(marketingMessages: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'تنبيه 80% من الميزانية',
+                    icon: Icons.warning_amber_rounded,
+                    iconColor: c.accent,
+                    value: prefs.budgetWarning,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(budgetWarning: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'تنبيه تجاوز الميزانية',
+                    icon: Icons.error_outline_rounded,
+                    iconColor: c.danger,
+                    value: prefs.budgetOver,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(budgetOver: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'التقرير الأسبوعي',
+                    icon: Icons.insights_outlined,
+                    value: prefs.weeklyReport,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(weeklyReport: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'تذكير الاشتراكات والفواتير',
+                    icon: Icons.event_available_outlined,
+                    iconColor: c.accent,
+                    value: prefs.subscriptionReminder,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(subscriptionReminder: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'احتفالات الأهداف',
+                    icon: Icons.flag_outlined,
+                    iconColor: c.success,
+                    value: prefs.goalMilestone,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(goalMilestone: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'تنبيهات الإنجازات',
+                    icon: Icons.emoji_events_outlined,
+                    iconColor: c.success,
+                    value: prefs.achievements,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(achievements: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    title: 'تذكير السلسلة',
+                    icon: Icons.local_fire_department_outlined,
+                    iconColor: c.accent,
+                    value: prefs.streakReminder,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(streakReminder: value),
+                    ),
+                  ),
+                  _SwitchTile(
+                    icon: AppLucideIcons.moon,
+                    iconColor: c.textMuted,
+                    title: 'ساعات الهدوء',
+                    subtitle: prefs.quietHoursEnabled
+                        ? '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00'
+                        : 'معطّل',
+                    value: prefs.quietHoursEnabled,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(quietHoursEnabled: value),
+                    ),
+                  ),
+                  if (prefs.quietHoursEnabled)
+                    _NavTile(
+                      icon: Icons.access_time_outlined,
+                      title: 'تعديل وقت الهدوء',
+                      subtitle:
+                          '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
+                      onTap: () => _showQuietHoursSheet(context, ref, prefs),
+                    ),
+                ],
+              )),
+          const SizedBox(height: AppSpacing.s5),
+          PremiumMotion(
+              delay: const Duration(milliseconds: 120),
+              child: _Section(
+                title: 'أدوات الإشعارات',
+                children: [
+                  _NavTile(
+                    icon: Icons.notification_add_outlined,
+                    title: 'اختبار إشعارات قرش',
+                    subtitle: 'أرسل إشعارًا تجريبيًا إلى هذا الجهاز',
+                    onTap: () => _sendTestNotification(context),
+                  ),
+                  _NavTile(
+                    icon: Icons.inbox_outlined,
+                    title: 'مركز رسائل قرش',
+                    subtitle: 'الإشعارات والحملات والإعلانات السابقة',
+                    onTap: () => context.push('/announcements'),
+                  ),
+                ],
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataTab(
+    BuildContext context,
+    WidgetRef ref,
+    AsyncValue<UserSettingsEntity> settingsAsync,
+  ) {
+    final c = context.colors;
+    return Column(
+      children: [
+        PremiumMotion(
+            delay: const Duration(milliseconds: 80),
+            child: _Section(
+              title: 'نقل البيانات',
+              description: 'بياناتك المالية تظل تحت سيطرتك',
+              children: [
+                _NavTile(
+                  icon: Icons.file_open_outlined,
+                  title: 'استيراد ملف',
+                  subtitle: 'CSV من أي تطبيق أو ZIP صادر من قرش',
+                  onTap: () => context.push('/data-transfer?intent=import'),
+                ),
+                _NavTile(
+                  icon: Icons.table_view_outlined,
+                  title: 'تصدير العمليات CSV',
+                  subtitle: 'ملف بسيط لكل عملياتك',
+                  onTap: () =>
+                      context.push('/data-transfer?intent=transactions'),
+                ),
+                _NavTile(
+                  icon: Icons.archive_outlined,
+                  title: 'تصدير كل بيانات قرش',
+                  subtitle: 'حزمة ZIP قابلة للنقل والاستعادة',
+                  onTap: () => context.push('/data-transfer?intent=package'),
+                ),
+              ],
+            )),
+        const SizedBox(height: AppSpacing.s5),
+        PremiumMotion(
+            delay: const Duration(milliseconds: 100),
+            child: _Section(
+              title: 'الأمان والخصوصية',
+              children: [
+                _NavTile(
+                  icon: AppLucideIcons.heartPulse,
+                  title: 'الخصوصية والبيانات',
+                  subtitle: 'أمان بياناتك وسياسة الخصوصية',
+                  onTap: () => context.push('/privacy'),
+                ),
+                settingsAsync.maybeWhen(
+                  data: (settings) => _SwitchTile(
+                    title: 'إخفاء الأرقام في الواجهة',
+                    icon: Icons.visibility_off_outlined,
+                    value: settings.privacyModeEnabled,
+                    onChanged: (value) async {
+                      await ref
+                          .read(userSettingsRepositoryProvider)
+                          .saveSettings(settings.copyWith(
+                            privacyModeEnabled: value,
+                          ));
+                      refreshUserSettings(ref);
+                      ref.invalidate(dashboardDataProvider);
+                    },
+                  ),
+                  orElse: () => const SizedBox.shrink(),
+                ),
+                const _AppLockTile(),
+              ],
+            )),
+        const SizedBox(height: AppSpacing.s5),
+        PremiumMotion(
+            delay: const Duration(milliseconds: 120),
+            child: _Section(
+              title: 'الحساب',
+              children: [
+                _NavTile(
+                  icon: AppLucideIcons.repeat,
+                  title: 'ابدأ من جديد',
+                  subtitle: 'امسح البيانات المحلية مع إبقاء الحساب نشطًا',
+                  onTap: () => _confirmReset(context, ref),
+                ),
+                _NavTile(
+                  icon: Icons.logout_rounded,
+                  iconColor: c.danger,
+                  title: 'تسجيل الخروج',
+                  onTap: () => _signOut(context, ref),
+                ),
+                _NavTile(
+                  icon: Icons.delete_outline_rounded,
+                  iconColor: c.danger,
+                  title: 'حذف الحساب وكل بياناتي',
+                  subtitle: 'إجراء نهائي يتطلب تأكيدك',
+                  onTap: () => context.push('/privacy'),
+                ),
+              ],
+            )),
+      ],
     );
   }
 
@@ -571,19 +643,16 @@ class SettingsScreen extends ConsumerWidget {
     refreshNotificationPreferences(ref);
   }
 
-  Future<void> _saveTheme(WidgetRef ref, ThemeMode mode) async {
-    ref.read(themeModeOverrideProvider.notifier).state = mode;
-    await ref.read(saveThemeModeUseCaseProvider).call(themeModeToKey(mode));
-    refreshUserSettings(ref);
-    ref.invalidate(persistedThemeModeProvider);
-  }
-
   Future<void> _sendTestNotification(BuildContext context) async {
-    await LocalNotificationService.instance.showTestNotification();
+    final sent = await LocalNotificationService.instance.showTestNotification();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('أرسلنا إشعاراً تجريبياً من قرش.'),
+      SnackBar(
+        content: Text(
+          sent
+              ? 'أرسلنا إشعاراً تجريبياً من قرش.'
+              : 'تعذّر إرسال الإشعار التجريبي.',
+        ),
       ),
     );
   }
@@ -592,19 +661,24 @@ class SettingsScreen extends ConsumerWidget {
   /// يفشل بالكامل بدل الاستمرار صامتاً إن تعذّر المسح) قبل إنهاء الجلسة على
   /// خادم Supabase — بهذا الترتيب فقط: فشل المسح المحلي لا يترك الجهاز بلا
   /// جلسة بعيدة بينما تبقى بياناته المالية قابلة للقراءة لمن يسجّل دخوله بعده.
-  Future<void> _signOut(BuildContext context) async {
+  Future<void> _signOut(BuildContext context, WidgetRef ref) async {
     try {
       await AppSession.instance.signOut();
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text('تعذّر تسجيل الخروج بأمان. حاول مجدداً.'),
+            content: Text('تعذّر تسجيل الخروج بأمان. حاول مجدداً.'),
           ),
         );
       }
       return;
+    }
+    try {
+      await ref.read(authServiceProvider).signOutProviderSession();
+    } catch (_) {
+      // The local wipe is already authoritative. A provider logout failure
+      // must not restore access to the previous user's local financial data.
     }
     if (SupabaseConfig.isConfigured) {
       try {
@@ -709,7 +783,7 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => Directionality(
+      builder: (context) => navySheetTheme(Directionality(
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: EdgeInsets.fromLTRB(
@@ -752,7 +826,7 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
     // Do NOT dispose controller here – the sheet's exit animation may still
     // reference it.  Because it is a local variable, it will be GC'd once
@@ -765,11 +839,6 @@ class SettingsScreen extends ConsumerWidget {
     ref.invalidate(accountsProvider);
     ref.invalidate(dashboardDataProvider);
   }
-
-  String _languageLabel(String value) => switch (value) {
-        'en' => 'English',
-        _ => 'العربية',
-      };
 
   Future<void> _showSettingsPicker(
     BuildContext context,
@@ -784,7 +853,7 @@ class SettingsScreen extends ConsumerWidget {
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => Directionality(
+      builder: (context) => navySheetTheme(Directionality(
         textDirection: TextDirection.rtl,
         child: ListView(
           shrinkWrap: true,
@@ -830,7 +899,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
           ],
         ),
-      ),
+      )),
     );
   }
 
@@ -851,7 +920,7 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => Directionality(
+      builder: (context) => navySheetTheme(Directionality(
         textDirection: TextDirection.rtl,
         child: Container(
           constraints: BoxConstraints(
@@ -900,7 +969,7 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 
@@ -949,7 +1018,7 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => StatefulBuilder(
+      builder: (context) => navySheetTheme(StatefulBuilder(
         builder: (context, setState) => Directionality(
           textDirection: TextDirection.rtl,
           child: Padding(
@@ -1063,7 +1132,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
     name.dispose();
   }
@@ -1116,7 +1185,7 @@ class SettingsScreen extends ConsumerWidget {
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => StatefulBuilder(
+      builder: (context) => navySheetTheme(StatefulBuilder(
         builder: (context, setState) => Directionality(
           textDirection: TextDirection.rtl,
           child: Padding(
@@ -1186,7 +1255,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 
@@ -1208,7 +1277,7 @@ class SettingsScreen extends ConsumerWidget {
       context,
       title: 'عن التطبيق',
       body:
-          'قرش لتتبع المصروفات من رسائل البنك والإدخال اليدوي. بياناتك المالية تبقى على جهازك افتراضياً، والنسخ الاحتياطي اختياري ومشفّر end-to-end عند تفعيله.',
+          'قرش لتتبع المصروفات من رسائل البنك والإدخال اليدوي. يمكنك نقل بياناتك المالية كملفات CSV أو حزمة ZIP من قسم البيانات والخصوصية.',
       actionLabel: 'تمام',
     );
   }
@@ -1239,7 +1308,7 @@ class SettingsScreen extends ConsumerWidget {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => Directionality(
+      builder: (context) => navySheetTheme(Directionality(
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -1278,7 +1347,7 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 
@@ -1304,6 +1373,170 @@ class SettingsScreen extends ConsumerWidget {
     await ref.read(dataWipeServiceProvider).wipeAll();
     await AppSession.instance.wipeAndReset();
     if (context.mounted) context.go('/welcome');
+  }
+}
+
+class _SettingsTabs extends StatelessWidget {
+  const _SettingsTabs({required this.selected, required this.onChanged});
+
+  final _SettingsTab selected;
+  final ValueChanged<_SettingsTab> onChanged;
+
+  static const _labels = <_SettingsTab, String>{
+    _SettingsTab.general: 'عام',
+    _SettingsTab.notifications: 'التنبيهات',
+    _SettingsTab.data: 'البيانات',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: c.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: c.border),
+      ),
+      child: Row(
+        children: [
+          for (final tab in _SettingsTab.values)
+            Expanded(
+              child: Semantics(
+                selected: selected == tab,
+                button: true,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    key: ValueKey('settings-tab-${tab.name}'),
+                    onTap: () => onChanged(tab),
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: selected == tab ? c.cta : Colors.transparent,
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ),
+                      child: Text(
+                        _labels[tab]!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodyStrong(
+                          selected == tab ? c.onCta : c.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsLoadingState extends StatelessWidget {
+  const _SettingsLoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      height: 180,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: c.border),
+      ),
+      child: const CircularProgressIndicator(),
+    );
+  }
+}
+
+class _SettingsErrorState extends StatelessWidget {
+  const _SettingsErrorState();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s5),
+      decoration: BoxDecoration(
+        color: c.dangerBg,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: c.danger.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline_rounded, color: c.danger),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Text(
+              'تعذر تحميل الإعدادات. حاول مرة أخرى بعد قليل.',
+              style: AppTypography.body(c.textMain),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderBackButton extends StatelessWidget {
+  const _HeaderBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return IconButton(
+      tooltip: 'رجوع',
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        fixedSize: const Size.square(40),
+        backgroundColor: c.surfaceMuted,
+        foregroundColor: c.textMain,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+        ),
+      ),
+      icon: const Icon(Icons.arrow_forward_rounded),
+    );
+  }
+}
+
+class _CompactIconButton extends StatelessWidget {
+  const _CompactIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        fixedSize: const Size.square(40),
+        backgroundColor: c.surfaceMuted,
+        foregroundColor: c.primary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+        ),
+      ),
+      icon: Icon(icon, size: 20),
+    );
   }
 }
 
@@ -1370,80 +1603,89 @@ class _ProfileSettingsCard extends StatelessWidget {
     final phone = _clean(settings.phoneNumber);
     final avatarPath = _clean(settings.avatarPath);
 
-    return AppCard(
-      child: Column(
-        children: [
-          Row(
-            children: [
-              _ProfileAvatarButton(
-                path: avatarPath,
-                initials: name.isEmpty ? 'م' : name.substring(0, 1),
-                onTap: onAvatarTap,
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  onTap: onNameTap,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.headline(c.textMain),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '$email · $method',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.caption(c.textLight),
-                        ),
-                      ],
+    return Material(
+      color: c.surface,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        side: BorderSide(color: c.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                _ProfileAvatarButton(
+                  path: avatarPath,
+                  initials: name.isEmpty ? 'م' : name.substring(0, 1),
+                  onTap: onAvatarTap,
+                ),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    onTap: onNameTap,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.headline(c.textMain),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '$email · $method',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption(c.textLight),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              IconButton(
-                tooltip: 'تعديل الاسم',
-                onPressed: onNameTap,
-                icon: const Icon(Icons.edit_outlined),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          Divider(height: 1, color: c.border),
-          _ProfileActionRow(
-            icon: Icons.phone_iphone_outlined,
-            title: 'رقم الموبايل',
-            value: phone.isEmpty ? 'أضف رقمك' : phone,
-            onTap: onPhoneTap,
-          ),
-          Divider(height: 1, color: c.border),
-          _ProfileActionRow(
-            icon: Icons.flag_outlined,
-            title: 'الدولة',
-            value: country == null
-                ? (catalogsLoading ? 'تحميل الدول...' : settings.country)
-                : '${country.flagEmoji} ${country.nameAr}',
-            subtitle: country?.phonePrefix,
-            onTap: onCountryTap,
-          ),
-          Divider(height: 1, color: c.border),
-          _ProfileActionRow(
-            icon: Icons.payments_outlined,
-            title: 'العملة الأساسية',
-            value: currency == null
-                ? (catalogsLoading ? 'تحميل العملات...' : settings.currency)
-                : '${currency.code} · ${currency.nameAr}',
-            subtitle: currency?.symbol,
-            onTap: onCurrencyTap,
-          ),
-        ],
+                _CompactIconButton(
+                  tooltip: 'تعديل الاسم',
+                  icon: Icons.edit_outlined,
+                  onPressed: onNameTap,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            Divider(height: 1, color: c.border),
+            _ProfileActionRow(
+              icon: Icons.phone_iphone_outlined,
+              title: 'رقم الموبايل',
+              value: phone.isEmpty ? 'أضف رقمك' : phone,
+              onTap: onPhoneTap,
+            ),
+            Divider(height: 1, color: c.border),
+            _ProfileActionRow(
+              icon: Icons.flag_outlined,
+              title: 'الدولة',
+              value: country == null
+                  ? (catalogsLoading ? 'تحميل الدول...' : settings.country)
+                  : '${country.flagEmoji} ${country.nameAr}',
+              subtitle: country?.phonePrefix,
+              onTap: onCountryTap,
+            ),
+            Divider(height: 1, color: c.border),
+            _ProfileActionRow(
+              icon: Icons.payments_outlined,
+              title: 'العملة الأساسية',
+              value: currency == null
+                  ? (catalogsLoading ? 'تحميل العملات...' : settings.currency)
+                  : '${currency.code} · ${currency.nameAr}',
+              subtitle: currency?.symbol,
+              onTap: onCurrencyTap,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1454,11 +1696,15 @@ class _ProfileSkeletonCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const AppCard(
-      child: SizedBox(
-        height: 156,
-        child: Center(child: CircularProgressIndicator()),
+    final c = context.colors;
+    return Container(
+      height: 180,
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: c.border),
       ),
+      child: const Center(child: CircularProgressIndicator()),
     );
   }
 }
@@ -1486,8 +1732,8 @@ class _ProfileAvatarButton extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Container(
-            width: 72,
-            height: 72,
+            width: 64,
+            height: 64,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: hasImage ? null : c.primaryGradient,
@@ -1578,21 +1824,15 @@ class _ProfileActionRow extends StatelessWidget {
 }
 
 class _SettingsHeader extends StatelessWidget {
-  const _SettingsHeader({required this.email, required this.method});
+  const _SettingsHeader({required this.method, this.onBack});
 
-  final String email;
   final String method;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -1603,42 +1843,82 @@ class _SettingsHeader extends StatelessWidget {
           end: Alignment.bottomCenter,
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s4,
+            AppSpacing.gutter,
+            AppSpacing.s6,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  'الإعدادات والملف الشخصي',
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
+              Row(
+                children: [
+                  if (onBack != null) ...[
+                    _HeaderBackButton(onPressed: onBack!),
+                    const SizedBox(width: AppSpacing.s3),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'الإعدادات',
+                          style: AppTypography.title1(c.textMain).copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'حسابك، تنبيهاتك، وبياناتك',
+                          style: AppTypography.caption(c.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Image.asset(AppAssets.getCoin(context),
+                      width: 48, height: 48),
+                ],
               ),
-              Image.asset(AppAssets.getCoin(context), width: 44, height: 44),
+              const SizedBox(height: AppSpacing.s5),
+              Row(
+                children: [
+                  Icon(
+                    Icons.verified_user_outlined,
+                    size: 18,
+                    color: c.textMuted,
+                  ),
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: Text(
+                      'الدخول عبر $method',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption(c.textMuted),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            '$email · الدخول عبر $method',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.caption(c.textLight),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
+  const _Section({
+    required this.title,
+    required this.children,
+    this.description,
+  });
 
   final String title;
+  final String? description;
   final List<Widget> children;
 
   @override
@@ -1648,22 +1928,29 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
-          child: Text(title, style: AppTypography.caption(c.textLight)),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s1),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: AppTypography.headline(c.textMain)),
+              if (description != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  description!,
+                  style: AppTypography.caption(c.textLight),
+                ),
+              ],
+            ],
+          ),
         ),
-        const SizedBox(height: AppSpacing.s2),
+        const SizedBox(height: AppSpacing.s3),
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: c.surface,
+            color: c.surfaceCard,
             borderRadius: BorderRadius.circular(AppRadius.card),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            border: Border.all(color: c.border),
+            boxShadow: AppShadows.card,
           ),
           child: Material(
             color: Colors.transparent,
@@ -1672,7 +1959,12 @@ class _Section extends StatelessWidget {
                 for (var i = 0; i < children.length; i++) ...[
                   children[i],
                   if (i != children.length - 1)
-                    Divider(height: 1, color: c.border),
+                    Divider(
+                      height: 1,
+                      indent: AppSpacing.s4,
+                      endIndent: AppSpacing.s4,
+                      color: c.divider,
+                    ),
                 ],
               ],
             ),
@@ -1850,65 +2142,19 @@ class _AppLockTileState extends State<_AppLockTile> {
   }
 }
 
-class _ThemeTile extends StatelessWidget {
-  const _ThemeTile({required this.value, required this.onChanged});
-
-  final ThemeMode value;
-  final ValueChanged<ThemeMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _TileIcon(icon: AppLucideIcons.sun, color: c.accent),
-              const SizedBox(width: AppSpacing.s3),
-              Text('المظهر', style: AppTypography.bodyStrong(c.textMain)),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          SizedBox(
-            width: double.infinity,
-            child: SegmentedButton<ThemeMode>(
-              segments: const [
-                ButtonSegment(value: ThemeMode.system, label: Text('تلقائي')),
-                ButtonSegment(value: ThemeMode.light, label: Text('فاتح')),
-                ButtonSegment(value: ThemeMode.dark, label: Text('داكن')),
-              ],
-              selected: {value},
-              onSelectionChanged: (selected) => onChanged(selected.first),
-              style: SegmentedButton.styleFrom(
-                selectedBackgroundColor: c.primary,
-                selectedForegroundColor:
-                    Theme.of(context).brightness == Brightness.dark
-                        ? Colors.black
-                        : Colors.white,
-                foregroundColor: c.textMain,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _NavTile extends StatelessWidget {
   const _NavTile({
     required this.icon,
     required this.title,
     this.subtitle,
+    this.iconColor,
     required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String? subtitle;
+  final Color? iconColor;
   final VoidCallback onTap;
 
   @override
@@ -1916,13 +2162,19 @@ class _NavTile extends StatelessWidget {
     final c = context.colors;
     return ListTile(
       contentPadding:
-          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
-      leading: _TileIcon(icon: icon, color: c.primary),
+          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 4),
+      minVerticalPadding: AppSpacing.s3,
+      leading: _TileIcon(icon: icon, color: iconColor ?? c.primary),
       title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
       subtitle: subtitle == null
           ? null
-          : Text(subtitle!, style: AppTypography.caption(c.textLight)),
-      trailing: Icon(Icons.chevron_left, color: c.textLight, size: 20),
+          : Text(
+              subtitle!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.caption(c.textLight),
+            ),
+      trailing: Icon(Icons.chevron_left_rounded, color: c.textMuted, size: 20),
       onTap: onTap,
     );
   }
@@ -2035,11 +2287,13 @@ class _SwitchTile extends StatelessWidget {
     final c = context.colors;
     return SwitchListTile(
       contentPadding:
-          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
+          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 4),
+      minVerticalPadding: AppSpacing.s3,
       secondary: _TileIcon(icon: icon, color: iconColor ?? c.primary),
       value: value,
       onChanged: onChanged,
-      activeColor: c.primary,
+      activeThumbColor: c.onCta,
+      activeTrackColor: c.cta,
       title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
       subtitle: subtitle == null
           ? null
@@ -2057,13 +2311,13 @@ class _TileIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 42,
-      height: 42,
+      width: 38,
+      height: 38,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
-      child: Icon(icon, color: color, size: 21),
+      child: Icon(icon, color: color, size: 20),
     );
   }
 }

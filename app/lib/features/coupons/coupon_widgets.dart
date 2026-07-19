@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../cards/brand_mark.dart';
 import '../common/top_banner.dart';
 import 'coupon_models.dart';
@@ -156,7 +157,7 @@ Future<void> showCouponDetailsSheet(BuildContext context, CouponOffer offer) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (context) => _CouponDetailsSheet(offer: offer),
+    builder: (context) => navySheetTheme(_CouponDetailsSheet(offer: offer)),
   );
 }
 

@@ -5,6 +5,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
@@ -12,6 +13,7 @@ import '../../domain/errors/repo_exceptions.dart';
 import '../cards/bank_mark.dart';
 import '../cards/my_cards_screen.dart';
 import '../dashboard/dashboard_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 String _accountTypeLabel(AccountType type) => switch (type) {
       AccountType.cash => 'نقدي',
@@ -241,7 +243,7 @@ Future<void> _showAccountForm(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) => Directionality(
+    builder: (context) => navySheetTheme(Directionality(
       textDirection: TextDirection.rtl,
       child: Padding(
         padding: EdgeInsets.only(
@@ -249,7 +251,7 @@ Future<void> _showAccountForm(
         ),
         child: _AccountForm(account: account),
       ),
-    ),
+    )),
   );
 }
 
@@ -325,9 +327,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       saved = true;
     } on RepoException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(repoExceptionMessage(e))),
-      );
+      AppToast.show(context, repoExceptionMessage(e));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -359,14 +359,11 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       );
     } on RepoException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e is ValidationRepoException && e.message.contains('last_account')
-                ? 'لا يمكن حذف آخر حساب.'
-                : repoExceptionMessage(e),
-          ),
-        ),
+      AppToast.show(
+        context,
+        e is ValidationRepoException && e.message.contains('last_account')
+            ? 'لا يمكن حذف آخر حساب.'
+            : repoExceptionMessage(e),
       );
     } catch (_) {
       if (!mounted) return;

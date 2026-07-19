@@ -241,7 +241,9 @@ class TransactionsListNotifier
       offset: _loaded.length,
       limit: transactionsPageSize,
     );
-    _loaded = [..._loaded, ...page];
+    final existingIds = _loaded.map((t) => t.id).toSet();
+    final newItems = page.where((t) => !existingIds.contains(t.id));
+    _loaded = [..._loaded, ...newItems];
     _hasMore = page.length == transactionsPageSize;
     _loadingMore = false;
     return _viewForLoaded();
@@ -351,8 +353,10 @@ final billsViewProvider = FutureProvider<BillsView>((ref) async {
 /// عملية واحدة بالـ id (لشاشة التفاصيل).
 final transactionByIdProvider =
     FutureProvider.family<TransactionEntity?, String>((ref, id) async {
-  // الاعتماد على القائمة لإعادة التحميل عند التغيير.
-  ref.watch(transactionsListProvider);
+  // React to DB changes without depending on the heavy list provider,
+  // which rebuilds on every filter/range/search change and causes
+  // unnecessary cascading refreshes of this single-record lookup.
+  ref.watch(dbRevisionProvider);
   return ref.watch(transactionRepositoryProvider).getById(id);
 });
 

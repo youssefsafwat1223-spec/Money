@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
@@ -16,6 +17,7 @@ import '../common/vault_widget.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'goal_form_screen.dart';
 import 'goals_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 class GoalDetailsScreen extends ConsumerWidget {
   const GoalDetailsScreen({super.key, required this.goalId});
@@ -28,7 +30,7 @@ class GoalDetailsScreen extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _GoalDetailsSheet(goalId: goalId),
+      builder: (_) => navySheetTheme(_GoalDetailsSheet(goalId: goalId)),
     );
   }
 
@@ -324,7 +326,7 @@ Future<void> _showAddContributionSheet(
     backgroundColor: Colors.transparent,
     builder: (context) {
       var saving = false;
-      return StatefulBuilder(
+      return navySheetTheme(StatefulBuilder(
         builder: (context, setSheetState) {
           Future<void> saveContribution() async {
             if (saving) return;
@@ -354,9 +356,7 @@ Future<void> _showAddContributionSheet(
               ref.invalidate(goalDetailsProvider(goalId));
             } on RepoException catch (error) {
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(repoExceptionMessage(error))),
-              );
+              AppToast.showError(context, repoExceptionMessage(error));
             } catch (_) {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
@@ -512,7 +512,7 @@ Future<void> _showAddContributionSheet(
             ),
           );
         },
-      );
+      ));
     },
   );
   // Do NOT dispose controllers here – the sheet's exit animation may still

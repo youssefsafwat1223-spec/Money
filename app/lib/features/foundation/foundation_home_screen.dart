@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/theme_mode_provider.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../engine/categorization/categorizer.dart';
 import '../../engine/categorization/category.dart';
@@ -56,7 +55,6 @@ class _FoundationHomeScreenState extends ConsumerState<FoundationHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final mode = ref.watch(themeModeProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -82,19 +80,6 @@ class _FoundationHomeScreenState extends ConsumerState<FoundationHomeScreen> {
                   Expanded(
                     child: Text('رفيقك المالي — الأساس',
                         style: AppTypography.title2(c.textMain)),
-                  ),
-                  IconButton(
-                    onPressed: () =>
-                        ref.read(themeModeOverrideProvider.notifier).state =
-                            mode == ThemeMode.dark
-                                ? ThemeMode.light
-                                : ThemeMode.dark,
-                    icon: Icon(
-                      mode == ThemeMode.dark
-                          ? AppLucideIcons.sun
-                          : AppLucideIcons.moon,
-                      color: c.textLight,
-                    ),
                   ),
                 ],
               ),

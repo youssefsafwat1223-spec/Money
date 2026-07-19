@@ -1,31 +1,40 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../capture/services/captured_message_processor.dart';
+import '../../core/utils/l10n_ext.dart';
+import '../../domain/errors/repo_exceptions.dart';
+import '../../l10n/app_localizations.dart';
 import '../capture/services/local_notification_service.dart';
-import '../capture/services/native_capture_bridge.dart';
 import 'onboarding_options.dart';
-import 'widgets/luxe_starry_bg.dart';
 
-/// Page 4 of the redesigned onboarding: a single activation checklist.
+/// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
+/// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
+const _setupBlue = Color(0xFF021B79);
+const _setupAccent = Color(0xFF8DBBFF);
+
+/// Page 4 of the redesigned onboarding: one activation step at a time.
 ///
-/// Steps unlock top-to-bottom:
+/// Steps, in order:
 ///   0. Country / currency   → saves the base currency (required for accounts)
 ///   1. Notifications        → OS permission prompt
-///   2. Cloud processing     → enables backend + AI consent, then syncNativeState
-///   3. Shortcut install     → instructions carousel, self-declared
-///   4. Verify (optional)    → listens for the first captured transaction
+///   2. Shortcut install     → instructions carousel, self-declared
 ///
-/// The final "ابدأ" finishes onboarding and enters the app.
+/// Cloud and AI processing are required capabilities enabled during database
+/// initialization and synced to iOS on app startup, so they are not presented
+/// as optional onboarding controls.
+///
+/// Completing a step auto-advances to the next one. The final "ابدأ" finishes
+/// onboarding and enters the app once all three are done.
 enum OnboardingSetupEntry { full, captureGuide }
 
 class OnboardingSetupScreen extends ConsumerStatefulWidget {
@@ -60,17 +69,13 @@ const _countries = <_CountryChoice>[
   _CountryChoice('JO', '🇯🇴', 'الأردن', 'JOD'),
 ];
 
-class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
-    with WidgetsBindingObserver {
-  static const _stepCount = 5;
+class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
+  static const _stepCount = 3;
 
   final _done = List<bool>.filled(_stepCount, false);
   _CountryChoice _country = _countries.first;
   bool _busy = false;
-
-  Timer? _verifyTimer;
-  bool _verifyChecking = false;
-  bool _verifyDetected = false;
+  int _currentStep = 0;
 
   @override
   void initState() {
@@ -78,11 +83,10 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
     if (widget.entry == OnboardingSetupEntry.captureGuide) {
       _done
         ..[0] = true
-        ..[1] = true
-        ..[2] = true;
+        ..[1] = true;
+      _currentStep = 2;
       unawaited(_loadRestoredCurrency());
     }
-    WidgetsBinding.instance.addObserver(this);
   }
 
   Future<void> _loadRestoredCurrency() async {
@@ -96,30 +100,31 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
     }
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _verifyTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _verifyTimer != null) {
-      _pollVerify();
-    }
-  }
-
-  bool get _canFinish => _done[0] && _done[1] && _done[2] && _done[3];
+  bool get _canFinish => _done.every((done) => done);
   int get _completed => _done.where((d) => d).length;
 
   void _markDone(int step) {
     if (!mounted) return;
+    HapticFeedback.lightImpact();
     setState(() => _done[step] = true);
+    if (step == _currentStep && step < _stepCount - 1) {
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (!mounted || _currentStep != step) return;
+        setState(() => _currentStep = step + 1);
+      });
+    }
+  }
+
+  void _goBack() {
+    if (_currentStep == 0) return;
+    HapticFeedback.selectionClick();
+    setState(() => _currentStep--);
   }
 
   // ── Step 0: country / currency ────────────────────────────────────────
   Future<void> _saveCountry(_CountryChoice choice) async {
+    if (_busy) return;
+    HapticFeedback.selectionClick();
     setState(() {
       _country = choice;
       _busy = true;
@@ -135,6 +140,14 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
           .read(saveCountryCurrencyUseCaseProvider)
           .call(choice.code, choice.currency);
       _markDone(0);
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is RepoException
+          ? repoExceptionMessage(error)
+          : 'تعذّر حفظ الإعدادات. حاول مرة أخرى.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -151,240 +164,261 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
     }
   }
 
-  // ── Step 2: cloud processing + AI consent ─────────────────────────────
-  Future<void> _enableCloud() async {
-    setState(() => _busy = true);
-    try {
-      final repo = ref.read(userSettingsRepositoryProvider);
-      final settings = await repo.getSettings();
-      await repo.saveSettings(settings.copyWith(
-        cloudProcessingEnabled: true,
-        aiConsentGranted: true,
-      ));
-      // NON-NEGOTIABLE: writes the App Group backend config, registers the
-      // device, and uploads the APNs token. Without it the iOS Shortcut cannot
-      // reach the backend. Best-effort — the app also re-syncs on every launch.
-      try {
-        await ref
-            .read(captureDeviceRegistrationServiceProvider)
-            .syncNativeState();
-      } catch (_) {}
-      _markDone(2);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  // ── Step 4: verify ────────────────────────────────────────────────────
-  void _startVerify() {
-    _verifyTimer ??=
-        Timer.periodic(const Duration(seconds: 2), (_) => _pollVerify());
-  }
-
-  Future<void> _pollVerify() async {
-    if (_verifyChecking || !mounted) return;
-    _verifyChecking = true;
-    try {
-      final messages = await NativeCaptureBridge.consumePendingSharedMessages();
-      for (final msg in messages) {
-        final result = await CapturedMessageProcessor.process(
-          rawMessage: msg.text,
-          senderId: msg.sender,
-          showNotifications: false,
-        );
-        if (result.transactionId != null && mounted) {
-          _verifyTimer?.cancel();
-          _verifyTimer = null;
-          setState(() {
-            _verifyDetected = true;
-            _done[4] = true;
-          });
-          return;
-        }
-      }
-    } finally {
-      _verifyChecking = false;
-    }
-  }
-
   // ── Finish ────────────────────────────────────────────────────────────
   Future<void> _finish() async {
+    HapticFeedback.lightImpact();
     setState(() => _busy = true);
-    await AppSession.instance.finishOnboarding();
-    if (mounted) context.go('/');
+    try {
+      await AppSession.instance.finishOnboarding();
+      if (mounted) context.go('/');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('تعذّر إنهاء الإعداد. حاول مرة أخرى.')),
+        );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
+    final l10n = context.l10n;
     return Scaffold(
-      backgroundColor: c.bg,
-      body: Stack(
-        children: [
-          const Positioned.fill(child: LuxeStarryBackground()),
-          SafeArea(
-            child: Column(
-              children: [
-                _header(c),
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.gutter, 8, AppSpacing.gutter, 24),
-                    children: [
-                      _countryStep(c),
-                      const SizedBox(height: AppSpacing.s3),
-                      _actionStep(
-                        c,
-                        step: 1,
-                        icon: Icons.notifications_active_outlined,
-                        title: 'فعّل الإشعارات',
-                        body: 'عشان توصلك كل عملية فور حدوثها.',
-                        cta: 'تفعيل',
-                        onTap: _enableNotifications,
-                      ),
-                      const SizedBox(height: AppSpacing.s3),
-                      _actionStep(
-                        c,
-                        step: 2,
-                        icon: Icons.cloud_done_outlined,
-                        title: 'فعّل المعالجة الذكية',
-                        body:
-                            'بنحلل رسائل البنك ونسجل عملياتك تلقائياً. بتفعيلك بتوافق '
-                            'على معالجة نصوص الرسائل سحابياً لتحليلها — بياناتك متشفرة '
-                            'ولا نخزن أرقامك الكاملة.',
-                        cta: 'موافق وفعّل',
-                        onTap: _enableCloud,
-                      ),
-                      const SizedBox(height: AppSpacing.s3),
-                      _shortcutStep(c),
-                      const SizedBox(height: AppSpacing.s3),
-                      _verifyStep(c),
-                    ],
+      backgroundColor: _setupBlue,
+      body: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: AppSpacing.s2),
+            const ExcludeSemantics(
+              child: Image(
+                image: AssetImage(AppAssets.qirshLogoFull),
+                height: 32,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            _header(l10n),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 320),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.03),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
                   ),
                 ),
-                _finishBar(c),
+                child: KeyedSubtree(
+                  key: ValueKey(_currentStep),
+                  child: _stepPage(l10n, _currentStep),
+                ),
+              ),
+            ),
+            _finishBar(l10n),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header(AppL10n l10n) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, 12, AppSpacing.gutter, 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 36,
+            height: 36,
+            child: _currentStep > 0
+                ? IconButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _busy ? null : _goBack,
+                    icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                        size: 18, color: Colors.white70),
+                  )
+                : null,
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Row(
+              children: [
+                for (var i = 0; i < _stepCount; i++) ...[
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: SizedBox(
+                        height: 4,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          color: _done[i] || i < _currentStep
+                              ? _setupAccent
+                              : Colors.white.withValues(alpha: 0.16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (i < _stepCount - 1) const SizedBox(width: 6),
+                ],
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _header(AppColors c) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, 16, AppSpacing.gutter, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('يلا نجهّز قِرش',
-              style: AppTypography.title1(c.textMain)
-                  .copyWith(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 4),
-          Text('كام خطوة سريعة وتكون جاهز.',
-              style: AppTypography.caption(c.textLight)),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: LinearProgressIndicator(
-              value: _completed / _stepCount,
-              minHeight: 6,
-              backgroundColor: c.surface2,
-              valueColor: AlwaysStoppedAnimation(c.primary),
-            ),
+          const SizedBox(width: AppSpacing.s3),
+          Text(
+            l10n.setupStepLabel(_currentStep + 1, _stepCount),
+            style: AppTypography.caption(Colors.white.withValues(alpha: 0.56)),
           ),
         ],
       ),
     );
   }
 
-  Widget _stepCard(
-    AppColors c, {
+  Widget _stepPage(AppL10n l10n, int step) {
+    switch (step) {
+      case 0:
+        return _countryStep(l10n);
+      case 1:
+        return _actionStep(
+          step: 1,
+          icon: Icons.notifications_active_outlined,
+          title: l10n.setupNotificationsTitle,
+          body: l10n.setupNotificationsBody,
+          cta: l10n.setupNotificationsCta,
+          onTap: _enableNotifications,
+        );
+      default:
+        return _shortcutStep(l10n);
+    }
+  }
+
+  /// Shared hero layout for a single step: a glowing icon, a big centered
+  /// title/body, then the step's own control underneath.
+  Widget _stepHero({
     required int step,
-    required bool locked,
-    required Widget child,
+    required IconData icon,
+    required String title,
+    required String body,
+    required Widget control,
+    Widget? eyebrow,
   }) {
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 250),
-      opacity: locked ? 0.45 : 1,
-      child: IgnorePointer(
-        key: ValueKey('onboarding-step-$step-lock'),
-        ignoring: locked,
-        child: Container(
-          padding: const EdgeInsets.all(AppSpacing.s4),
-          decoration: BoxDecoration(
-            color: c.surface.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(AppRadius.card),
-            border: Border.all(
-              color: _done[step]
-                  ? c.primary.withValues(alpha: 0.5)
-                  : c.border.withValues(alpha: 0.4),
+    final done = _done[step];
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, AppSpacing.s6, AppSpacing.gutter, AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (eyebrow != null) ...[
+            eyebrow,
+            const SizedBox(height: AppSpacing.s7),
+          ],
+          Center(
+            child: Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _setupAccent.withValues(alpha: 0.12),
+                boxShadow: [
+                  BoxShadow(
+                    color: _setupAccent.withValues(alpha: 0.28),
+                    blurRadius: 44,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: done
+                  ? const Icon(Icons.check_rounded,
+                          color: _setupAccent, size: 36)
+                      .animate(key: ValueKey('done-icon-$step'))
+                      .scale(curve: Curves.easeOutBack, duration: 400.ms)
+                      .then()
+                      .shimmer(duration: 600.ms, color: Colors.white)
+                  : Icon(icon, color: _setupAccent, size: 36),
             ),
           ),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  Widget _stepHeader(AppColors c,
-      {required int step, required IconData icon, required String title}) {
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: c.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(AppRadius.md),
+          const SizedBox(height: AppSpacing.s6),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: AppTypography.custom(
+              size: 26,
+              weight: FontWeight.w800,
+              height: 1.22,
+              color: Colors.white,
+            ),
           ),
-          child: Icon(_done[step] ? Icons.check_rounded : icon,
-              color: c.primary, size: 20),
-        ),
-        const SizedBox(width: AppSpacing.s3),
-        Expanded(
-          child: Text(title, style: AppTypography.bodyStrong(c.textMain)),
-        ),
-        if (_done[step]) Icon(Icons.check_circle, color: c.success, size: 22),
-      ],
-    );
-  }
-
-  Widget _countryStep(AppColors c) {
-    return _stepCard(
-      c,
-      step: 0,
-      locked: false,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _stepHeader(c,
-              step: 0, icon: Icons.public_rounded, title: 'دولتك وعملتك'),
-          const SizedBox(height: 6),
-          Text('بنستخدمها كعملة أساسية لحساباتك.',
-              style: AppTypography.caption(c.textLight)),
           const SizedBox(height: AppSpacing.s3),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final choice in _countries)
-                ChoiceChip(
-                  label: Text(
-                      '${choice.flag} ${choice.name} · ${choice.currency}'),
-                  selected: _done[0] && _country.code == choice.code,
-                  onSelected: _busy ? null : (_) => _saveCountry(choice),
-                ),
-            ],
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            style: AppTypography.body(Colors.white.withValues(alpha: 0.68))
+                .copyWith(height: 1.55),
           ),
+          const SizedBox(height: AppSpacing.s7),
+          control,
         ],
       ),
     );
   }
 
-  Widget _actionStep(
-    AppColors c, {
+  Widget _countryStep(AppL10n l10n) {
+    return _stepHero(
+      step: 0,
+      icon: Icons.public_rounded,
+      title: l10n.setupCountryTitle,
+      body: l10n.setupCountryBody,
+      eyebrow: Column(
+        children: [
+          Text(
+            l10n.setupHeaderTitle,
+            textAlign: TextAlign.center,
+            style: AppTypography.custom(
+              size: 20,
+              weight: FontWeight.w700,
+              height: 1.2,
+              color: _setupAccent,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            l10n.setupHeaderSubtitle,
+            textAlign: TextAlign.center,
+            style: AppTypography.caption(Colors.white.withValues(alpha: 0.5)),
+          ),
+        ],
+      ),
+      control: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final choice in _countries)
+            ChoiceChip(
+              label: Text('${choice.flag} ${choice.name} · ${choice.currency}'),
+              selected: _country.code == choice.code,
+              selectedColor: _setupAccent.withValues(alpha: 0.22),
+              backgroundColor: Colors.white.withValues(alpha: 0.06),
+              labelStyle: AppTypography.caption(Colors.white),
+              side: BorderSide(
+                color: _country.code == choice.code
+                    ? _setupAccent.withValues(alpha: 0.6)
+                    : Colors.white.withValues(alpha: 0.14),
+              ),
+              onSelected: _busy ? null : (_) => _saveCountry(choice),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionStep({
     required int step,
     required IconData icon,
     required String title,
@@ -392,208 +426,130 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen>
     required String cta,
     required Future<void> Function() onTap,
   }) {
-    final locked = !_done[step - 1];
-    return _stepCard(
-      c,
+    return _stepHero(
       step: step,
-      locked: locked,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _stepHeader(c, step: step, icon: icon, title: title),
-          const SizedBox(height: 8),
-          Text(body, style: AppTypography.caption(c.textLight)),
-          const SizedBox(height: AppSpacing.s3),
-          if (!_done[step])
-            SizedBox(
+      icon: icon,
+      title: title,
+      body: body,
+      control: _done[step]
+          ? const SizedBox.shrink()
+          : SizedBox(
               width: double.infinity,
+              height: AppSpacing.buttonHeight,
               child: FilledButton(
                 onPressed: _busy ? null : () => onTap(),
                 style: FilledButton.styleFrom(
-                  backgroundColor: c.primary,
-                  minimumSize: const Size.fromHeight(46),
+                  backgroundColor: Colors.white,
+                  foregroundColor: _setupBlue,
                 ),
-                child: Text(cta, style: AppTypography.bodyStrong(Colors.white)),
+                child: Text(cta, style: AppTypography.bodyStrong(_setupBlue)),
               ),
             ),
-        ],
-      ),
     );
   }
 
-  Widget _shortcutStep(AppColors c) {
-    const step = 3;
-    final locked = !_done[step - 1];
+  Widget _shortcutStep(AppL10n l10n) {
+    const step = 2;
     final steps = <(String, String)>[
+      (l10n.setupShortcutStep1Title, l10n.setupShortcutStep1Body),
+      (l10n.setupShortcutStep2Title, l10n.setupShortcutStep2Body),
       (
-        'احذف القديم',
-        'افتح تطبيق Shortcuts وروح لتبويب Automation واحذف أي أتمتة قديمة للتطبيق.'
+        l10n.setupShortcutStep3Title,
+        l10n.setupShortcutStep3Body(_country.currency)
       ),
-      ('جديد (+)', 'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».'),
-      (
-        'حدّد الرسائل',
-        'اضغط «Message Contents» واكتب رمز عملتك مثل ${_country.currency}.'
-      ),
-      (
-        'بدون تأكيد',
-        'فعّل «Run Immediately» واقفل «Notify When Run» لو ظهر، ثم Next.'
-      ),
-      (
-        'إرسال للتطبيق',
-        'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input».'
-      ),
-      ('حفظ', 'اقفل «Show When Run» لو ظهر، واضغط حفظ.'),
+      (l10n.setupShortcutStep4Title, l10n.setupShortcutStep4Body),
+      (l10n.setupShortcutStep5Title, l10n.setupShortcutStep5Body),
+      (l10n.setupShortcutStep6Title, l10n.setupShortcutStep6Body),
     ];
-    return _stepCard(
-      c,
+    return _stepHero(
       step: step,
-      locked: locked,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _stepHeader(c,
-              step: step,
-              icon: Icons.ios_share_rounded,
-              title: 'ثبّت اختصار قِرش'),
-          const SizedBox(height: 6),
-          Text('هو اللي بيبعتلنا رسائل البنك تلقائياً.',
-              style: AppTypography.caption(c.textLight)),
-          const SizedBox(height: AppSpacing.s3),
-          SizedBox(
-            height: 118,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: steps.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (context, i) {
-                final (title, body) = steps[i];
-                return Container(
-                  width: 220,
-                  padding: const EdgeInsets.all(AppSpacing.s3),
-                  decoration: BoxDecoration(
-                    color: c.surface2.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('${i + 1}. $title',
-                          style: AppTypography.bodyStrong(c.textMain)),
-                      const SizedBox(height: 6),
-                      Expanded(
-                        child: Text(body,
-                            style: AppTypography.caption(c.textLight),
-                            maxLines: 4,
-                            overflow: TextOverflow.ellipsis),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          if (!_done[step])
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _busy ? null : () => _markDone(step),
-                style: FilledButton.styleFrom(
-                  backgroundColor: c.primary,
-                  minimumSize: const Size.fromHeight(46),
-                ),
-                child: Text('ثبّتّه',
-                    style: AppTypography.bodyStrong(Colors.white)),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _verifyStep(AppColors c) {
-    const step = 4;
-    final locked = !_done[step - 1];
-    return _stepCard(
-      c,
-      step: step,
-      locked: locked,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _stepHeader(c,
-              step: step,
-              icon: Icons.wifi_tethering_rounded,
-              title: 'جرّب بنفسك'),
-          const SizedBox(height: 6),
-          Text(
-            _verifyDetected
-                ? 'وصلت! قِرش سجّلها. ✓'
-                : 'ابعت رسالة تجربة من الاختصار وسيب الباقي علينا.',
-            style: AppTypography.caption(
-                _verifyDetected ? c.success : c.textLight),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          if (_verifyDetected)
-            Icon(Icons.check_circle, color: c.success, size: 40)
-                .animate()
-                .scale(duration: 320.ms, curve: Curves.easeOutBack)
-          else ...[
-            Row(
+      icon: Icons.ios_share_rounded,
+      title: l10n.setupShortcutTitle,
+      body: l10n.setupShortcutBody,
+      control: _done[step]
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                SizedBox(
+                  height: 118,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: steps.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, i) {
+                      final (title, body) = steps[i];
+                      return Container(
+                        width: 220,
+                        padding: const EdgeInsets.all(AppSpacing.s3),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${i + 1}. $title',
+                                style: AppTypography.bodyStrong(Colors.white)),
+                            const SizedBox(height: 6),
+                            Expanded(
+                              child: Text(body,
+                                  style: AppTypography.caption(
+                                      Colors.white.withValues(alpha: 0.6)),
+                                  maxLines: 4,
+                                  overflow: TextOverflow.ellipsis),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  _verifyTimer != null
-                      ? 'بنستنى أول رسالة...'
-                      : 'اضغط ابدأ الاستماع.',
-                  style: AppTypography.caption(c.textSecondary),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            Row(
-              children: [
-                if (_verifyTimer == null)
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _startVerify,
-                      child: const Text('ابدأ الاستماع'),
+                const SizedBox(height: AppSpacing.s4),
+                SizedBox(
+                  width: double.infinity,
+                  height: AppSpacing.buttonHeight,
+                  child: FilledButton(
+                    onPressed: _busy ? null : () => _markDone(step),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: _setupBlue,
                     ),
+                    child: Text(l10n.setupShortcutCta,
+                        style: AppTypography.bodyStrong(_setupBlue)),
                   ),
-                if (_verifyTimer == null) const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => _markDone(step),
-                  child: Text('تخطي دلوقتي',
-                      style: AppTypography.caption(c.textLight)),
                 ),
               ],
             ),
-          ],
-        ],
-      ),
     );
   }
 
-  Widget _finishBar(AppColors c) {
+  Widget _finishBar(AppL10n l10n) {
+    final ready = _canFinish && !_busy;
     return Container(
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.gutter, 8, AppSpacing.gutter, 16),
       child: SizedBox(
         width: double.infinity,
+        height: AppSpacing.buttonHeight,
         child: FilledButton(
-          onPressed: (_canFinish && !_busy) ? _finish : null,
+          onPressed: ready ? _finish : null,
           style: FilledButton.styleFrom(
-            backgroundColor: c.primary,
-            minimumSize: const Size.fromHeight(54),
+            backgroundColor: Colors.white,
+            foregroundColor: _setupBlue,
+            disabledBackgroundColor: Colors.white.withValues(alpha: 0.1),
           ),
-          child: Text('ابدأ', style: AppTypography.bodyStrong(Colors.white)),
+          child: Text(l10n.setupFinishCta,
+              style: AppTypography.bodyStrong(
+                ready ? _setupBlue : Colors.white38,
+              )),
         ),
-      ),
+      ).animate(target: _completed == _stepCount ? 1 : 0).scaleXY(
+            begin: 1,
+            end: 1.03,
+            duration: 260.ms,
+            curve: Curves.easeOutBack,
+          ),
     );
   }
 }

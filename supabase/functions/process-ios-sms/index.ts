@@ -1,23 +1,15 @@
 import rules from './parser_rules.json' with { type: 'json' };
-import {
-  corsHeaders,
-  json,
-  readString,
-  serviceClient,
-  sha256Hex,
-  verifyDevice,
-} from '../_shared/capture_auth.ts';
+import { corsHeaders, json, readString, serviceClient, sha256Hex, verifyDevice } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
+import { markApnsLogFailed, markApnsLogSent, upsertQueuedApnsLog } from '../_shared/notification_logs.ts';
 import {
-  reserveCaptureFingerprint,
-  type FingerprintReservationStore,
-} from '../_shared/fingerprint_reservation.ts';
-import {
-  isDirectCaptureWriteEnabled,
-  isLedgerDualWriteEnabled,
-  upsertLedgerTransaction,
-} from '../_shared/ledger.ts';
+  isTransientApnsFailure,
+  MAX_NOTIFICATION_RETRY_ATTEMPTS,
+  nextRetryDelayMs,
+} from '../_shared/notification_retry_policy.ts';
+import { type FingerprintReservationStore, reserveCaptureFingerprint } from '../_shared/fingerprint_reservation.ts';
+import { isDirectCaptureWriteEnabled, isLedgerDualWriteEnabled, upsertLedgerTransaction } from '../_shared/ledger.ts';
 
 type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
 type ParsedCapture = {
@@ -81,12 +73,21 @@ Deno.serve(async (req) => {
 
   const existing = await supabase
     .from('processed_captures')
-    .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at')
+    .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at,notification_log_id')
     .eq('payload_id', payloadId)
     .eq('install_id_hash', auth.installIdHash)
     .maybeSingle();
   if (existing.data) {
-    return json(await idempotentReplayResponse(supabase, auth.installIdHash, payloadId, existing.data));
+    return json(
+      await idempotentReplayResponse(
+        supabase,
+        auth.installIdHash,
+        installId,
+        auth.userId,
+        payloadId,
+        existing.data,
+      ),
+    );
   }
 
   const limited = await bumpRateLimit(supabase, auth.installIdHash);
@@ -144,7 +145,7 @@ Deno.serve(async (req) => {
       raw_fingerprint: rawFingerprint,
       failure_reason: status === 'rejected' ? 'not_parseable' : null,
     })
-    .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at')
+    .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at,notification_log_id')
     .single();
 
   if (error) {
@@ -154,12 +155,21 @@ Deno.serve(async (req) => {
     if (error.code === '23505') {
       const winner = await supabase
         .from('processed_captures')
-        .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at')
+        .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at,notification_log_id')
         .eq('payload_id', payloadId)
         .eq('install_id_hash', auth.installIdHash)
         .maybeSingle();
       if (winner.data) {
-        return json(await idempotentReplayResponse(supabase, auth.installIdHash, payloadId, winner.data));
+        return json(
+          await idempotentReplayResponse(
+            supabase,
+            auth.installIdHash,
+            installId,
+            auth.userId,
+            payloadId,
+            winner.data,
+          ),
+        );
       }
     }
     return json({ error: 'store_failed' }, 500);
@@ -178,9 +188,7 @@ Deno.serve(async (req) => {
   if (auth.userId && (status === 'processed' || status === 'needs_review')) {
     try {
       const directWriteEnabled = await isDirectCaptureWriteEnabled(supabase, auth.userId);
-      const dualWriteEnabled = directWriteEnabled
-        ? false
-        : await isLedgerDualWriteEnabled(supabase, auth.userId);
+      const dualWriteEnabled = directWriteEnabled ? false : await isLedgerDualWriteEnabled(supabase, auth.userId);
       if (directWriteEnabled || dualWriteEnabled) {
         const ledger = await upsertLedgerTransaction(supabase, auth.userId, {
           payloadId,
@@ -222,6 +230,8 @@ Deno.serve(async (req) => {
   const pushSent = await sendApnsIfPossible(
     supabase,
     auth.installIdHash,
+    installId,
+    auth.userId,
     payloadId,
     notification,
     parsed,
@@ -251,6 +261,8 @@ Deno.serve(async (req) => {
 async function idempotentReplayResponse(
   supabase: ReturnType<typeof serviceClient>,
   installIdHash: string,
+  installId: string,
+  userId: string | null,
   payloadId: string,
   row: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -261,6 +273,8 @@ async function idempotentReplayResponse(
     pushSent = await sendApnsIfPossible(
       supabase,
       installIdHash,
+      installId,
+      userId,
       payloadId,
       notification,
       parsed,
@@ -271,9 +285,7 @@ async function idempotentReplayResponse(
   return {
     capture: {
       ...row,
-      apns_push_sent_at: pushSent
-        ? (row.apns_push_sent_at ?? new Date().toISOString())
-        : row.apns_push_sent_at,
+      apns_push_sent_at: pushSent ? (row.apns_push_sent_at ?? new Date().toISOString()) : row.apns_push_sent_at,
     },
     idempotent: true,
     pushSent,
@@ -339,10 +351,10 @@ async function parseSms(input: {
       );
       const deterministicTimestamp = deterministic.comparisonTimestampSource === 'sms_body'
         ? trustedSmsTimestamp(
-            deterministic.comparisonTimestamp,
-            input.receivedAt,
-            input.tzOffsetMinutes,
-          )
+          deterministic.comparisonTimestamp,
+          input.receivedAt,
+          input.tzOffsetMinutes,
+        )
         : undefined;
       const comparisonTimestamp = deterministicTimestamp ?? aiTimestamp ?? input.receivedAt;
       return {
@@ -418,6 +430,7 @@ async function aiParse(text: string): Promise<ParsedCapture | null> {
   const prompt = `Extract one bank transaction from this sanitized SMS.
 Return only JSON. If not a transaction return {"is_transaction":false}.
 Fields: amount number, currency ISO, merchant string, type payment|withdrawal|transfer|income|refund|unknown, direction credit|debit|unknown, category restaurants|groceries|transport|fuel|bills|shopping|health|education|entertainment|subscriptions|transfers|cash|travel|gifts|kids|home|cafes|maintenance|fitness|beauty|charity|pets|insurance|income|other, occurredAt ISO if present, last4 if present.
+IPN/InstaPay/person-to-person transfers (SMS contains "IPN REF", "IPN transfer", "Instapay", "credited by ... from <person>", "received from <person>", or "sent to <person>") are type=transfer, category=transfers, and merchant must be omitted even if a person's name appears — never type=income, never a merchant name. direction=credit for incoming/received, debit for sent/outgoing.
 SMS: ${text}`;
   try {
     // Bounded: an unbounded Gemini call pushes the whole request past the App
@@ -571,22 +584,32 @@ function detailLines(
 function typeTitle(parsed: ParsedCapture): string {
   if (parsed.direction === 'credit') return 'إيداع';
   switch (parsed.type) {
-    case 'withdrawal': return 'سحب نقدي';
-    case 'transfer': return 'تحويل';
-    case 'refund': return 'استرداد';
-    case 'payment': return 'عملية شراء';
-    default: return 'عملية';
+    case 'withdrawal':
+      return 'سحب نقدي';
+    case 'transfer':
+      return 'تحويل';
+    case 'refund':
+      return 'استرداد';
+    case 'payment':
+      return 'عملية شراء';
+    default:
+      return 'عملية';
   }
 }
 
 function typeEmoji(parsed: ParsedCapture): string {
   if (parsed.direction === 'credit') return '💰';
   switch (parsed.type) {
-    case 'withdrawal': return '🏧';
-    case 'transfer': return '🔁';
-    case 'refund': return '↩️';
-    case 'payment': return '🛒';
-    default: return '💳';
+    case 'withdrawal':
+      return '🏧';
+    case 'transfer':
+      return '🔁';
+    case 'refund':
+      return '↩️';
+    case 'payment':
+      return '🛒';
+    default:
+      return '💳';
   }
 }
 
@@ -618,37 +641,89 @@ function timeLabel(iso: string, tzOffsetMinutes: number | null): string | null {
 // نفس تسميات lib/features/capture/services/capture_notification_content.dart.
 function categoryLabelAr(key: string | undefined): string | null {
   switch (key) {
-    case 'restaurants': return 'مطاعم 🍔';
-    case 'cafes': return 'مقاهي ☕';
-    case 'groceries': return 'بقالة 🛒';
-    case 'transport': return 'مواصلات 🚗';
-    case 'fuel': return 'وقود ⛽';
-    case 'bills': return 'فواتير 📱';
-    case 'shopping': return 'تسوق 🛍';
-    case 'health': return 'صحة 🏥';
-    case 'education': return 'تعليم 📚';
-    case 'entertainment': return 'ترفيه 🎬';
-    case 'subscriptions': return 'اشتراكات 📲';
-    case 'transfers': return 'تحويل 💸';
-    case 'cash': return 'كاش 💵';
-    case 'travel': return 'سفر ✈️';
-    case 'gifts': return 'هدايا 🎁';
-    case 'kids': return 'أطفال 👶';
-    case 'home': return 'منزل 🏠';
-    case 'maintenance': return 'صيانة 🔧';
-    case 'fitness': return 'رياضة 💪';
-    case 'beauty': return 'جمال 💅';
-    case 'charity': return 'خيرية 🤲';
-    case 'pets': return 'حيوانات 🐾';
-    case 'insurance': return 'تأمين 🛡️';
-    case 'income': return 'دخل 💰';
-    default: return null;
+    case 'restaurants':
+      return 'مطاعم 🍔';
+    case 'cafes':
+      return 'مقاهي ☕';
+    case 'groceries':
+      return 'بقالة 🛒';
+    case 'transport':
+      return 'مواصلات 🚗';
+    case 'fuel':
+      return 'وقود ⛽';
+    case 'bills':
+      return 'فواتير 📱';
+    case 'shopping':
+      return 'تسوق 🛍';
+    case 'health':
+      return 'صحة 🏥';
+    case 'education':
+      return 'تعليم 📚';
+    case 'entertainment':
+      return 'ترفيه 🎬';
+    case 'subscriptions':
+      return 'اشتراكات 📲';
+    case 'transfers':
+      return 'تحويل 💸';
+    case 'cash':
+      return 'كاش 💵';
+    case 'travel':
+      return 'سفر ✈️';
+    case 'gifts':
+      return 'هدايا 🎁';
+    case 'kids':
+      return 'أطفال 👶';
+    case 'home':
+      return 'منزل 🏠';
+    case 'maintenance':
+      return 'صيانة 🔧';
+    case 'fitness':
+      return 'رياضة 💪';
+    case 'beauty':
+      return 'جمال 💅';
+    case 'charity':
+      return 'خيرية 🤲';
+    case 'pets':
+      return 'حيوانات 🐾';
+    case 'insurance':
+      return 'تأمين 🛡️';
+    case 'income':
+      return 'دخل 💰';
+    default:
+      return null;
   }
+}
+
+// Reuses the same notification_log_id across a replay/retry of the same
+// payload (stored on processed_captures) rather than minting a new one per
+// attempt — see docs/NOTIFICATION_PIPELINE_AUDIT.md Phase 1, item 2.
+async function ensureNotificationLogId(
+  supabase: ReturnType<typeof serviceClient>,
+  installIdHash: string,
+  payloadId: string,
+): Promise<string> {
+  const { data } = await supabase
+    .from('processed_captures')
+    .select('notification_log_id')
+    .eq('install_id_hash', installIdHash)
+    .eq('payload_id', payloadId)
+    .maybeSingle();
+  const existing = data?.notification_log_id;
+  if (typeof existing === 'string' && existing) return existing;
+  const id = crypto.randomUUID();
+  await supabase
+    .from('processed_captures')
+    .update({ notification_log_id: id })
+    .eq('install_id_hash', installIdHash)
+    .eq('payload_id', payloadId);
+  return id;
 }
 
 async function sendApnsIfPossible(
   supabase: ReturnType<typeof serviceClient>,
   installIdHash: string,
+  installId: string,
+  userId: string | null,
   payloadId: string,
   notification: NotificationPayload,
   parsed: ParsedCapture,
@@ -671,6 +746,24 @@ async function sendApnsIfPossible(
     }));
     return false;
   }
+
+  const notificationLogId = await ensureNotificationLogId(supabase, installIdHash, payloadId);
+  await upsertQueuedApnsLog(supabase, {
+    id: notificationLogId,
+    userId,
+    installId,
+    notificationType: notification.type,
+    relatedEntityType: 'payload',
+    relatedEntityId: payloadId,
+    apnsEnvironment: environment,
+  });
+  console.log(JSON.stringify({
+    event: 'notification_created',
+    notificationLogId,
+    channel: 'apns',
+    notificationType: notification.type,
+    platform: 'ios',
+  }));
 
   const result = await sendCapturePush({
     token,
@@ -701,17 +794,58 @@ async function sendApnsIfPossible(
       })
       .eq('install_id_hash', installIdHash)
       .eq('payload_id', payloadId);
+    await markApnsLogSent(supabase, notificationLogId, result.apnsId);
+    console.log(JSON.stringify({
+      event: 'notification_sent',
+      notificationLogId,
+      channel: 'apns',
+      notificationType: notification.type,
+    }));
     return true;
   }
+
   await supabase
     .from('processed_captures')
     .update({ apns_push_error: result.reason })
     .eq('install_id_hash', installIdHash)
     .eq('payload_id', payloadId);
+  await markApnsLogFailed(supabase, notificationLogId, {
+    errorCode: result.errorCode,
+    errorReason: result.reason,
+    retryCount: 0,
+  });
   console.warn(JSON.stringify({
-    event: 'capture_apns_failed',
-    reason: result.reason,
+    event: 'notification_failed',
+    notificationLogId,
+    channel: 'apns',
+    notificationType: notification.type,
+    attempt: 1,
+    errorCode: result.errorCode,
   }));
+
+  if (isTransientApnsFailure(result.httpStatus, result.errorCode)) {
+    await supabase.from('notification_retry_queue').insert({
+      notification_log_id: notificationLogId,
+      install_id_hash: installIdHash,
+      payload_id: payloadId,
+      attempt_number: 1,
+      max_attempts: MAX_NOTIFICATION_RETRY_ATTEMPTS,
+      next_attempt_at: new Date(Date.now() + nextRetryDelayMs(1)).toISOString(),
+      last_error_code: result.errorCode,
+    });
+    console.log(JSON.stringify({
+      event: 'notification_retry_scheduled',
+      notificationLogId,
+      attempt: 1,
+    }));
+  } else {
+    console.log(JSON.stringify({
+      event: 'notification_retry_exhausted',
+      notificationLogId,
+      reason: 'permanent_failure',
+      errorCode: result.errorCode,
+    }));
+  }
   return false;
 }
 
@@ -926,9 +1060,7 @@ function localReference(
   tzOffsetMinutes: number | null,
 ): { year: number; month: number; day: number } {
   const reference = parseTimestamp(receivedAt) ?? new Date();
-  const local = tzOffsetMinutes == null
-    ? reference
-    : new Date(reference.getTime() + tzOffsetMinutes * 60_000);
+  const local = tzOffsetMinutes == null ? reference : new Date(reference.getTime() + tzOffsetMinutes * 60_000);
   return {
     year: local.getUTCFullYear(),
     month: local.getUTCMonth() + 1,

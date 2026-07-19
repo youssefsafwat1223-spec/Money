@@ -60,7 +60,10 @@ function amountFromText(text: string): { amount: number; currency: string } | nu
   const currencyBefore = new RegExp(`\\b(${escapedCurrencies})\\b\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)`, 'i');
   const currencyAfter = new RegExp(`([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*\\b(${escapedCurrencies})\\b`, 'i');
   const egyptianPoundAfter = /([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:جم|جنيه)/i;
-  const withAmountWord = new RegExp(`(?:amount(?:\\s+of)?|مبلغ)\\s*(?:of\\s*)?\\b(${escapedCurrencies})\\b\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)`, 'i');
+  const withAmountWord = new RegExp(
+    `(?:amount(?:\\s+of)?|مبلغ)\\s*(?:of\\s*)?\\b(${escapedCurrencies})\\b\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)`,
+    'i',
+  );
   const match = text.match(withAmountWord) ?? text.match(currencyBefore);
   if (match) {
     return {
@@ -116,8 +119,7 @@ function fallbackParse(text: string): Record<string, unknown> | null {
 
   const locationMatch = text.match(/[@]\s*([^,.;\n]+)|\bat\s+([^,.;\n]+)/i);
   const location = cleanLocation(locationMatch?.[1] ?? locationMatch?.[2] ?? '');
-  const debitCardAtm =
-    lower.includes('debit card') &&
+  const debitCardAtm = lower.includes('debit card') &&
     (lower.includes('successful transaction') || lower.includes('transaction of')) &&
     location.length > 0 &&
     looksLikeBankAtmLocation(location);
@@ -130,8 +132,7 @@ function fallbackParse(text: string): Record<string, unknown> | null {
       direction: 'debit',
     };
   }
-  const looksLikePayment =
-    lower.includes('purchase') ||
+  const looksLikePayment = lower.includes('purchase') ||
     lower.includes('payment') ||
     lower.includes('successful transaction') ||
     lower.includes('transaction of') ||
@@ -153,8 +154,7 @@ function fallbackParse(text: string): Record<string, unknown> | null {
 
 function looksLikePersonTransfer(text: string): boolean {
   const lower = text.toLowerCase();
-  const hasTransferWord =
-    lower.includes('ipn transfer') ||
+  const hasTransferWord = lower.includes('ipn transfer') ||
     lower.includes('transfer sent') ||
     lower.includes('transfer received') ||
     lower.includes('outward transfer') ||
@@ -162,17 +162,14 @@ function looksLikePersonTransfer(text: string): boolean {
     lower.includes('internal transfer') ||
     lower.includes('تحويل') ||
     lower.includes('حوالة');
-  const hasIpnReference =
-    lower.includes('ipn ref') ||
+  const hasIpnReference = lower.includes('ipn ref') ||
     lower.includes('ipn ref#') ||
     lower.includes('instapay') ||
     lower.includes('انستاباي');
-  const hasPersonCounterparty =
-    /\bfrom\s+\*{0,2}[\p{L}]/iu.test(text) ||
+  const hasPersonCounterparty = /\bfrom\s+\*{0,2}[\p{L}]/iu.test(text) ||
     /\bto\s+\*{0,2}[\p{L}]/iu.test(text) ||
     /(?:من|إلى|الى)\s+\*{0,2}[\p{L}]/iu.test(text);
-  const hasCreditDebitTransferWording =
-    lower.includes('credited by') ||
+  const hasCreditDebitTransferWording = lower.includes('credited by') ||
     lower.includes('credited with') ||
     lower.includes('debited by') ||
     lower.includes('sent to') ||
@@ -187,9 +184,7 @@ function inferCategory(parsed: Record<string, unknown>): string | null {
   if (type === 'withdrawal') return 'cash';
   if (type === 'income') return 'income';
 
-  const merchant = typeof parsed.merchant_name === 'string'
-    ? parsed.merchant_name.toUpperCase()
-    : '';
+  const merchant = typeof parsed.merchant_name === 'string' ? parsed.merchant_name.toUpperCase() : '';
   if (!merchant) return null;
   const rules: Array<[string, string]> = [
     ['STARBUCKS', 'cafes'],
@@ -231,7 +226,7 @@ function normalizeParsedCategory(
   text = '',
 ): Record<string, unknown> {
   if (text && looksLikePersonTransfer(text)) {
-    const next = { ...parsed, type: 'transfer', category_key: 'transfers' };
+    const next: Record<string, unknown> = { ...parsed, type: 'transfer', category_key: 'transfers' };
     if (!next.direction || next.direction === 'unknown') {
       next.direction = /\b(sent|debited|to)\b/i.test(text) ? 'debit' : 'credit';
     }
@@ -259,7 +254,8 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401, headers: corsHeaders,
+      status: 401,
+      headers: corsHeaders,
     });
   }
 
@@ -277,7 +273,8 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => null);
   if (!body?.sanitized_sms || !body?.install_id) {
     return new Response(JSON.stringify({ error: 'missing_fields' }), {
-      status: 400, headers: corsHeaders,
+      status: 400,
+      headers: corsHeaders,
     });
   }
 
@@ -295,7 +292,8 @@ Deno.serve(async (req) => {
   const currentCount = (rateRow?.call_count ?? 0) as number;
   if (currentCount >= RATE_LIMIT_PER_DAY) {
     return new Response(JSON.stringify({ error: 'rate_limit_exceeded' }), {
-      status: 429, headers: corsHeaders,
+      status: 429,
+      headers: corsHeaders,
     });
   }
 
@@ -309,7 +307,8 @@ Deno.serve(async (req) => {
 
   if (!GEMINI_API_KEY) {
     return new Response(JSON.stringify({ error: 'ai_not_configured' }), {
-      status: 503, headers: corsHeaders,
+      status: 503,
+      headers: corsHeaders,
     });
   }
 
@@ -401,7 +400,8 @@ Return ONLY valid JSON. No markdown, no explanation.`;
       );
     }
     return new Response(JSON.stringify({ error: 'ai_parse_failed' }), {
-      status: 502, headers: corsHeaders,
+      status: 502,
+      headers: corsHeaders,
     });
   }
 
@@ -421,7 +421,8 @@ Return ONLY valid JSON. No markdown, no explanation.`;
       );
     }
     return new Response(JSON.stringify({ error: 'invalid_ai_response' }), {
-      status: 502, headers: corsHeaders,
+      status: 502,
+      headers: corsHeaders,
     });
   }
 

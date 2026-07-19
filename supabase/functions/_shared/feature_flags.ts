@@ -14,8 +14,7 @@ export async function resolveUserBooleanFlag(
     .eq('key', key)
     .maybeSingle();
 
-  let enabled =
-    globalFlag?.is_active === true &&
+  let enabled = globalFlag?.is_active === true &&
     globalFlag?.value_type === 'boolean' &&
     String(globalFlag?.value).toLowerCase() === 'true';
 

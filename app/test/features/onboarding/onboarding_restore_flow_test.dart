@@ -52,7 +52,7 @@ Widget _app(Widget home, {List<Override> overrides = const []}) {
 }
 
 void main() {
-  testWidgets('start fresh enters the complete setup instead of dashboard',
+  testWidgets('start fresh enters setup and starts at the first step',
       (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -67,15 +67,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byType(OnboardingSetupScreen), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('ثبّت اختصار قِرش'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    final shortcutLock = tester.widget<IgnorePointer>(
-      find.byKey(const ValueKey('onboarding-step-3-lock')),
-    );
-    expect(shortcutLock.ignoring, isTrue);
+    // The setup screen shows one step at a time now — a full entry starts
+    // at step 0 (country/currency); the shortcut step isn't built yet.
+    expect(find.text('دولتك وعملتك'), findsOneWidget);
+    expect(find.text('ثبّت اختصار قِرش'), findsNothing);
   });
 
   testWidgets('restored entry starts at the device capture guide',
@@ -97,16 +92,17 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.scrollUntilVisible(
-      find.text('ثبّت اختصار قِرش'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.pump();
 
-    final shortcutLock = tester.widget<IgnorePointer>(
-      find.byKey(const ValueKey('onboarding-step-3-lock')),
+    // captureGuide pre-completes steps 0-1 and jumps straight to the
+    // shortcut step, pre-filled with the restored currency. The currency
+    // shows up inside the (horizontally scrolling) instructions carousel.
+    expect(find.text('ثبّت اختصار قِرش'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('EGP'),
+      200,
+      scrollable: find.byType(Scrollable).last,
     );
-    expect(shortcutLock.ignoring, isFalse);
     expect(find.textContaining('EGP'), findsWidgets);
   });
 }

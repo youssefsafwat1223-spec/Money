@@ -78,9 +78,12 @@ function mapTransactionType(
   if (['income', 'deposit', 'received'].includes(t)) return 'income';
   if (['payment', 'purchase', 'charged', 'paid', 'withdrawal'].includes(t)) return 'expense';
   switch (mapDirection(direction, type)) {
-    case 'credit': return 'income';
-    case 'debit': return 'expense';
-    default: return 'unknown';
+    case 'credit':
+      return 'income';
+    case 'debit':
+      return 'expense';
+    default:
+      return 'unknown';
   }
 }
 

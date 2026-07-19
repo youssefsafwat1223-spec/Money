@@ -2,28 +2,24 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/l10n_ext.dart';
 import 'widgets/premium_ui.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
-  return GoogleFonts.inter(
-    fontSize: size,
-    fontWeight: weight,
+  return AppTypography.custom(
+    size: size,
+    weight: weight,
     height: height,
     color: color,
     shadows: shadows,
-    fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
-  ).copyWith(
-    fontFamilyFallback: [
-      GoogleFonts.ibmPlexSansArabic().fontFamily!,
-      GoogleFonts.alexandria().fontFamily!,
-    ],
+    tabular: tabular,
   );
 }
 
@@ -230,7 +226,7 @@ Future<void> showIosShortcutSheet(BuildContext context) {
     constraints: BoxConstraints(
       maxHeight: MediaQuery.of(context).size.height * 0.9,
     ),
-    builder: (_) => const _IosShortcutSheet(),
+    builder: (_) => navySheetTheme(const _IosShortcutSheet()),
   );
 }
 

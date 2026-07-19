@@ -134,6 +134,10 @@ void main() {
     expect(find.text('حفظ التعديل'), findsOneWidget);
     expect(tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
         isNotNull);
+
+    // AppToast schedules a static 3-second auto-dismiss Timer (app_toast.dart)
+    // that outlives this test's widget tree unless drained here.
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('deadline is revalidated at submit time', (tester) async {

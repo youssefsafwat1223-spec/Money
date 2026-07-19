@@ -5,6 +5,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
@@ -40,7 +41,7 @@ class AllocateIncomeSheet extends ConsumerStatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const AllocateIncomeSheet._(),
+      builder: (_) => navySheetTheme(const AllocateIncomeSheet._()),
     );
   }
 

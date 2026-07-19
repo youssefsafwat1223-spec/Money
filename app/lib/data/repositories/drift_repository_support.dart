@@ -65,6 +65,8 @@ TransactionSourceEntity transactionSourceFromSql(String value) {
       return TransactionSourceEntity.unknown;
     case 'aiParsed':
       return TransactionSourceEntity.aiParsed;
+    case 'imported':
+      return TransactionSourceEntity.imported;
     default:
       throw ArgumentError.value(value, 'value', 'Unknown transaction source.');
   }
@@ -309,10 +311,9 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     notificationsJson: row.read<String>('notifications_json'),
     dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
     privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
-    // NULL = لم يوافق صراحةً بعد → opt-in افتراضياً مرفوض.
-    aiConsentGranted:
-        sqlToBool(row.readNullable<int>('ai_consent_granted') ?? 0),
-    cloudProcessingEnabled:
-        sqlToBool(row.readNullable<int>('cloud_processing_enabled') ?? 0),
+    // Required capabilities. Persisted columns remain for compatibility with
+    // older databases/backups, but runtime processing cannot be disabled.
+    aiConsentGranted: true,
+    cloudProcessingEnabled: true,
   );
 }

@@ -1,8 +1,5 @@
 import { assertEquals, assertNotEquals } from 'jsr:@std/assert@1';
-import {
-  fingerprintTimeKeys,
-  RECEIVED_AT_BUCKET_MS,
-} from './capture_fingerprint.ts';
+import { fingerprintTimeKeys, RECEIVED_AT_BUCKET_MS } from './capture_fingerprint.ts';
 
 Deno.test('sms_body timestamps stay exact — no tolerance window', () => {
   const keys = fingerprintTimeKeys('2026-07-13T10:00:00.000Z', 'sms_body');

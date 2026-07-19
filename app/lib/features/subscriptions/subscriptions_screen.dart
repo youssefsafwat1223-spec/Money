@@ -295,8 +295,8 @@ class _BillsHeader extends StatelessWidget {
                           Text(
                             '${Formatters.amount(monthly)} $currency',
                             style: AppTypography.title2(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
@@ -368,8 +368,7 @@ class _HeaderMetric extends StatelessWidget {
           Text(
             value,
             textAlign: TextAlign.center,
-            style: AppTypography.bodyStrong(c.textMain)
-                .copyWith(fontFamily: 'Outfit'),
+            style: AppTypography.bodyStrong(c.textMain),
           ),
           const SizedBox(height: 4),
           Text(
@@ -599,8 +598,7 @@ class _SubscriptionCard extends StatelessWidget {
                         children: [
                           Text(
                             Formatters.amount(bill.amount),
-                            style: AppTypography.bodyStrong(c.textMain)
-                                .copyWith(fontFamily: 'Outfit'),
+                            style: AppTypography.bodyStrong(c.textMain),
                           ),
                           Text(
                             Currency.arabicLabel(bill.currency),
@@ -641,7 +639,6 @@ class _SubscriptionCard extends StatelessWidget {
                             '${Formatters.amount(bill.safeManualPaidAmount)} ${Currency.arabicLabel(bill.currency)}',
                             style: AppTypography.caption(c.success).copyWith(
                               fontWeight: FontWeight.bold,
-                              fontFamily: 'Outfit',
                             ),
                           ),
                         ],
@@ -728,7 +725,8 @@ class _SuggestionCard extends StatelessWidget {
                       Text(
                         '${Formatters.amount(item.averageAmount as double)} ${Currency.arabicLabel(baseCurrency)}/شهر',
                         style: AppTypography.caption(c.textMain).copyWith(
-                            fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Container(
@@ -964,8 +962,7 @@ class _InstallmentCard extends StatelessWidget {
                         children: [
                           Text(
                             Formatters.amount(bill.amount),
-                            style: AppTypography.bodyStrong(c.primary)
-                                .copyWith(fontFamily: 'Outfit'),
+                            style: AppTypography.bodyStrong(c.primary),
                           ),
                           Text(
                             '$currLabel / قسط',
@@ -1025,8 +1022,8 @@ class _InstallmentCard extends StatelessWidget {
                           Text(
                             '${Formatters.amount(bill.totalPurchaseAmount!)} $currLabel',
                             style: AppTypography.caption(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           if (bill.interestRate != null) ...[
                             const Spacer(),
@@ -1074,7 +1071,6 @@ class _InstallmentCard extends StatelessWidget {
                             '${Formatters.amount(bill.safeManualPaidAmount)} $currLabel',
                             style: AppTypography.caption(c.success).copyWith(
                               fontWeight: FontWeight.bold,
-                              fontFamily: 'Outfit',
                             ),
                           ),
                         ],

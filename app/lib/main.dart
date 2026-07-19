@@ -14,6 +14,7 @@ import 'core/backend/supabase_config.dart';
 import 'core/di/app_providers.dart';
 import 'core/privacy/data_wipe_service.dart';
 import 'core/session/app_session.dart';
+import 'core/theme/app_theme.dart';
 import 'data/catalog/seed_loader.dart';
 import 'data/repositories/drift_goal_repository.dart';
 import 'domain/usecases/run_goal_auto_saves_usecase.dart';
@@ -26,6 +27,7 @@ import 'data/sync/sender_bank_mapping_sync_service.dart';
 import 'features/capture/capture_runtime.dart';
 import 'features/capture/services/capture_device_registration_service.dart';
 import 'features/capture/services/local_notification_service.dart';
+import 'features/capture/services/notification_log_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -90,6 +92,8 @@ Future<void> _bootstrap() async {
   // first frame so flags have real values (not just defaults) immediately.
   await const SeedLoader().seedIfEmpty(database);
   _bindNotificationHistory(database);
+  LocalNotificationService.instance.logService =
+      NotificationLogService(database);
   await _registerBrandLogos();
   await initFeatureFlagService(database);
   final captureRegistration = CaptureDeviceRegistrationService(
@@ -158,7 +162,7 @@ class _DatabaseRecoveryAppState extends State<_DatabaseRecoveryApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(useMaterial3: true),
+      theme: AppTheme.sheet,
       home: Directionality(
         textDirection: TextDirection.rtl,
         child: Scaffold(

@@ -58,7 +58,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
       if (widget.onboardingFlow) {
         _replaceWithSetup(OnboardingSetupEntry.captureGuide);
       } else {
-        context.go('/backup');
+        context.go('/data-transfer');
       }
     } on BackupException catch (error) {
       if (!mounted) return;

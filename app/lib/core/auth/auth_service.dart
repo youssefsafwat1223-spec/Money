@@ -23,6 +23,10 @@ abstract class AuthService {
   Future<void> sendEmailCode(String email);
   Future<AuthIdentity?> verifyEmailCode(
       {required String email, required String code});
+
+  /// Clears any provider-owned native session after the app signs out.
+  /// Supabase logout alone does not clear Google Sign-In's selected account.
+  Future<void> signOutProviderSession();
 }
 
 class StubAuthService implements AuthService {
@@ -59,6 +63,9 @@ class StubAuthService implements AuthService {
     }
     return null;
   }
+
+  @override
+  Future<void> signOutProviderSession() async {}
 }
 
 final authServiceProvider = Provider<AuthService>((ref) {

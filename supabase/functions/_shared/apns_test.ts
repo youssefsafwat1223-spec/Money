@@ -38,14 +38,15 @@ Deno.test('sendCapturePush sends the corrected, length-safe collapse-id header',
   await withApnsEnv(async () => {
     const originalFetch = globalThis.fetch;
     let capturedHeaders: Headers | null = null;
-    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+    globalThis.fetch = ((_url: string | URL, init?: RequestInit) => {
       capturedHeaders = new Headers(init?.headers);
-      return new Response(null, { status: 200, headers: { 'apns-id': 'test-apns-id' } });
+      return Promise.resolve(
+        new Response(null, { status: 200, headers: { 'apns-id': 'test-apns-id' } }),
+      );
     }) as typeof fetch;
 
     try {
-      const payloadId =
-        '56e65066ae0f8355e51ab618b04cd4d768ca8056855b8a4461a1a78ea1c720cd';
+      const payloadId = '56e65066ae0f8355e51ab618b04cd4d768ca8056855b8a4461a1a78ea1c720cd';
       const result = await sendCapturePush({
         token: 'device-token',
         environment: 'sandbox',
@@ -79,10 +80,12 @@ Deno.test('replaying the same payloadId sends the identical collapse-id (correct
   await withApnsEnv(async () => {
     const originalFetch = globalThis.fetch;
     const collapseIdsSent: string[] = [];
-    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+    globalThis.fetch = ((_url: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       collapseIdsSent.push(headers.get('apns-collapse-id') ?? '');
-      return new Response(null, { status: 200, headers: { 'apns-id': 'test-apns-id' } });
+      return Promise.resolve(
+        new Response(null, { status: 200, headers: { 'apns-id': 'test-apns-id' } }),
+      );
     }) as typeof fetch;
 
     try {
@@ -114,9 +117,9 @@ Deno.test('request body still carries routing fields unchanged', async () => {
   await withApnsEnv(async () => {
     const originalFetch = globalThis.fetch;
     let capturedBody: Record<string, unknown> | null = null;
-    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+    globalThis.fetch = ((_url: string | URL, init?: RequestInit) => {
       capturedBody = JSON.parse(init?.body as string);
-      return new Response(null, { status: 200, headers: { 'apns-id': 'x' } });
+      return Promise.resolve(new Response(null, { status: 200, headers: { 'apns-id': 'x' } }));
     }) as typeof fetch;
 
     try {
@@ -144,4 +147,106 @@ Deno.test('request body still carries routing fields unchanged', async () => {
       globalThis.fetch = originalFetch;
     }
   });
+});
+
+// docs/NOTIFICATION_PIPELINE_AUDIT.md Phase 1, item 8/9 — the retry
+// dispatcher and the notification_logs writer both need httpStatus/errorCode
+// as structured fields, not just the squashed `reason` string.
+
+Deno.test('a non-2xx response exposes httpStatus and the raw APNs reason as errorCode', async () => {
+  await withApnsEnv(async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ reason: 'BadDeviceToken' }), { status: 400 }),
+      )) as typeof fetch;
+
+    try {
+      const result = await sendCapturePush({
+        token: 'device-token',
+        environment: 'sandbox',
+        payloadId: 'qa_bad_token',
+        title: 't',
+        body: 'b',
+        notificationType: 'new_transaction',
+      });
+      assert(!result.ok);
+      if (result.ok) throw new Error('unreachable');
+      assertEquals(result.httpStatus, 400);
+      assertEquals(result.errorCode, 'BadDeviceToken');
+      assertEquals(result.reason, 'apns_400_BadDeviceToken');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+Deno.test('a 500 response is classified with httpStatus 500 for the retry policy', async () => {
+  await withApnsEnv(async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ reason: 'InternalServerError' }), { status: 500 }),
+      )) as typeof fetch;
+
+    try {
+      const result = await sendCapturePush({
+        token: 'device-token',
+        environment: 'sandbox',
+        payloadId: 'qa_server_error',
+        title: 't',
+        body: 'b',
+        notificationType: 'new_transaction',
+      });
+      assert(!result.ok);
+      if (result.ok) throw new Error('unreachable');
+      assertEquals(result.httpStatus, 500);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+Deno.test('a successful send never claims delivery — only ok and an APNs id', async () => {
+  await withApnsEnv(async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(null, { status: 200, headers: { 'apns-id': 'server-assigned-id' } }),
+      )) as typeof fetch;
+
+    try {
+      const result = await sendCapturePush({
+        token: 'device-token',
+        environment: 'production',
+        payloadId: 'qa_success',
+        title: 't',
+        body: 'b',
+        notificationType: 'new_transaction',
+      });
+      assert(result.ok);
+      // The success shape is exactly {ok, apnsId} — no "delivered" field
+      // exists anywhere in this result, matching the documented limitation
+      // that APNs's HTTP/2 API gives no delivery receipt.
+      assertEquals(Object.keys(result).sort(), ['apnsId', 'ok']);
+      if (result.ok) assertEquals(result.apnsId, 'server-assigned-id');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+Deno.test('missing APNs configuration fails closed with a non-transient error code', async () => {
+  const result = await sendCapturePush({
+    token: 'device-token',
+    environment: 'sandbox',
+    payloadId: 'qa_not_configured',
+    title: 't',
+    body: 'b',
+    notificationType: 'new_transaction',
+  });
+  assert(!result.ok);
+  if (result.ok) throw new Error('unreachable');
+  assertEquals(result.errorCode, 'not_configured');
+  assertEquals(result.httpStatus, null);
 });

@@ -1,12 +1,12 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
@@ -15,21 +15,17 @@ import '../../domain/errors/repo_exceptions.dart';
 import '../budgets/budgets_providers.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'goals_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
-  return GoogleFonts.inter(
-    fontSize: size,
-    fontWeight: weight,
+  return AppTypography.custom(
+    size: size,
+    weight: weight,
     height: height,
     color: color,
     shadows: shadows,
-    fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
-  ).copyWith(
-    fontFamilyFallback: [
-      GoogleFonts.ibmPlexSansArabic().fontFamily!,
-      GoogleFonts.alexandria().fontFamily!,
-    ],
+    tabular: tabular,
   );
 }
 
@@ -44,7 +40,7 @@ class GoalFormScreen extends ConsumerStatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _GoalFormSheet(goal: goal),
+      builder: (_) => navySheetTheme(_GoalFormSheet(goal: goal)),
     );
   }
 
@@ -541,8 +537,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       final message = error is RepoException
           ? repoExceptionMessage(error)
           : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      AppToast.show(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

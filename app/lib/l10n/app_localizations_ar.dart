@@ -12,6 +12,194 @@ class AppL10nAr extends AppL10n {
   String get appTitle => 'قرش';
 
   @override
+  String get setupHeaderTitle => 'يلا نجهّز قِرش';
+
+  @override
+  String get setupHeaderSubtitle => 'كام خطوة سريعة وتكون جاهز.';
+
+  @override
+  String setupStepLabel(int current, int total) {
+    return 'الخطوة $current من $total';
+  }
+
+  @override
+  String get setupCountryTitle => 'دولتك وعملتك';
+
+  @override
+  String get setupCountryBody => 'بنستخدمها كعملة أساسية لحساباتك.';
+
+  @override
+  String get setupNotificationsTitle => 'فعّل الإشعارات';
+
+  @override
+  String get setupNotificationsBody => 'عشان توصلك كل عملية فور حدوثها.';
+
+  @override
+  String get setupNotificationsCta => 'تفعيل';
+
+  @override
+  String get setupCloudTitle => 'المعالجة الذكية';
+
+  @override
+  String get setupCloudBody =>
+      'يعالج قِرش رسائل البنك التي تشاركها عبر خادمه والذكاء الاصطناعي لتحويلها إلى عمليات وتقارير، بدون تخزين أرقامك الكاملة.';
+
+  @override
+  String get setupCloudCta => 'متابعة';
+
+  @override
+  String get setupShortcutTitle => 'ثبّت اختصار قِرش';
+
+  @override
+  String get setupShortcutBody => 'هو اللي بيبعتلنا رسائل البنك تلقائياً.';
+
+  @override
+  String get setupShortcutStep1Title => 'احذف القديم';
+
+  @override
+  String get setupShortcutStep1Body =>
+      'افتح تطبيق Shortcuts وروح لتبويب Automation واحذف أي أتمتة قديمة للتطبيق.';
+
+  @override
+  String get setupShortcutStep2Title => 'جديد (+)';
+
+  @override
+  String get setupShortcutStep2Body =>
+      'اضغط New Automation (+) ومرّر للأسفل حتى تلقى «Message».';
+
+  @override
+  String get setupShortcutStep3Title => 'حدّد الرسائل';
+
+  @override
+  String setupShortcutStep3Body(String currency) {
+    return 'اضغط «Message Contents» واكتب رمز عملتك مثل $currency.';
+  }
+
+  @override
+  String get setupShortcutStep4Title => 'بدون تأكيد';
+
+  @override
+  String get setupShortcutStep4Body =>
+      'فعّل «Run Immediately» واقفل «Notify When Run» لو ظهر، ثم Next.';
+
+  @override
+  String get setupShortcutStep5Title => 'إرسال للتطبيق';
+
+  @override
+  String get setupShortcutStep5Body =>
+      'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input».';
+
+  @override
+  String get setupShortcutStep6Title => 'حفظ';
+
+  @override
+  String get setupShortcutStep6Body =>
+      'اقفل «Show When Run» لو ظهر، واضغط حفظ.';
+
+  @override
+  String get setupShortcutCta => 'ثبّتّه';
+
+  @override
+  String get setupFinishCta => 'ابدأ';
+
+  @override
+  String get brandTagline => 'فلوسك أوضح. قرارك أذكى.';
+
+  @override
+  String get brandContinueCta => 'يلا نبدأ';
+
+  @override
+  String get authTitle => 'رحلتك المالية محفوظة';
+
+  @override
+  String get authSubtitle => 'سجّل دخولك لحماية بياناتك واستعادتها على أجهزتك.';
+
+  @override
+  String get authTrustLocalEncryption => 'تشفير محلي';
+
+  @override
+  String get authTrustOnDevice => 'بياناتك على جهازك';
+
+  @override
+  String get authTermsNotice =>
+      'بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية.';
+
+  @override
+  String get authAppleCta => 'المتابعة بحساب Apple';
+
+  @override
+  String get authGoogleCta => 'المتابعة بحساب Google';
+
+  @override
+  String get authSignInError => 'تعذّر تسجيل الدخول. جرب تاني.';
+
+  @override
+  String get authBackupFoundTitle => 'لقينا نسخة احتياطية لحسابك';
+
+  @override
+  String get authBackupFoundBody =>
+      'تحب نرجّع بياناتك من آخر نسخة، ولا تبدأ من جديد؟';
+
+  @override
+  String get authBackupStartFresh => 'ابدأ من جديد';
+
+  @override
+  String get authBackupRestore => 'استرجاعها';
+
+  @override
+  String get storyPromiseTitle => 'متحمّسين\nنبدأ معك';
+
+  @override
+  String get storyPromiseSubtitle => 'ونكون شريكك في رحلتك المالية.';
+
+  @override
+  String get storyPromiseHighlight =>
+      'في قِرش، نؤمن أن الاستقرار المالي يبدأ بعادات بسيطة.';
+
+  @override
+  String get storyPromiseBody =>
+      'بنينا تطبيقًا يساعدك على إدارة أموالك بسهولة، من تسجيل المصروفات ووضع الميزانيات، إلى تنبيهات الاشتراكات والتقارير الذكية.';
+
+  @override
+  String get storyPromiseSectionTitle => 'هدفنا؟';
+
+  @override
+  String get storyPromiseSectionBody =>
+      'أن تعرف أين يذهب مالك، وتدّخر أكثر وتعيش براحة أكبر.';
+
+  @override
+  String get storyPromiseClosing => 'قِرش...\nشريكك في رحلتك المالية.';
+
+  @override
+  String get storySpendingTitle => 'المصروفات الصغيرة بتفرق';
+
+  @override
+  String get storySpendingBody =>
+      'المصروفات اليومية قد تبدو بسيطة،\nلكنها مع الوقت تصنع فرقًا كبيرًا.';
+
+  @override
+  String get storySpendingHighlight => 'ما لا تتابعه... يصعب عليك التحكم به';
+
+  @override
+  String get storySpendingSupporting =>
+      'قِرش يساعدك تشوف الصورة كاملة،\nوتفهم أين تذهب أموالك.';
+
+  @override
+  String get storyContinueCta => 'كمّل';
+
+  @override
+  String get storyStartCta => 'ابدأ مع قِرش';
+
+  @override
+  String get storySkip => 'تخطّي';
+
+  @override
+  String get storyPageOneSemanticLabel => 'الصفحة ١ من ٢';
+
+  @override
+  String get storyPageTwoSemanticLabel => 'الصفحة ٢ من ٢';
+
+  @override
   String get next => 'التالي';
 
   @override
@@ -194,7 +382,8 @@ class AppL10nAr extends AppL10n {
       'مبادئ الأمان والخصوصية لدينا تعني أنك المتحكم الوحيد ببياناتك المالية.';
 
   @override
-  String get privacyRule1 => 'كل المعالجة والذكاء يتم على هاتفك بدون إنترنت';
+  String get privacyRule1 =>
+      'يعالج قِرش رسائل البنك التي تشاركها عبر خادمه والذكاء الاصطناعي';
 
   @override
   String get privacyRule2 =>

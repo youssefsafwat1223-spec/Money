@@ -5,6 +5,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/transaction_entity.dart';
@@ -14,6 +15,7 @@ import '../transactions/manual_transaction_sheet.dart';
 import 'card_details_screen.dart';
 import 'card_network_badge.dart';
 import 'cards_providers.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 /// صفحة «بطاقاتي»: كل البطاقات + داخل/خارج/الصافي لكل بطاقة، مع إضافة عملية
 /// جديدة أو ربط عملية موجودة بالبطاقة. تُفتح من كارت في الـ Dashboard/الإعدادات.
@@ -220,7 +222,7 @@ Future<void> _showAttachSheet(
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _AttachExistingSheet(last4: last4),
+    builder: (_) => navySheetTheme(_AttachExistingSheet(last4: last4)),
   );
 }
 
@@ -304,12 +306,8 @@ class _AttachExistingSheet extends ConsumerWidget {
                                             );
                                       } on RepoException catch (e) {
                                         if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          SnackBar(
-                                              content: Text(
-                                                  repoExceptionMessage(e))),
-                                        );
+                                        AppToast.show(
+                                            context, repoExceptionMessage(e));
                                         return;
                                       }
                                       ref.invalidate(cardSummariesProvider);
@@ -319,13 +317,8 @@ class _AttachExistingSheet extends ConsumerWidget {
                                           cardTransactionsProvider(last4));
                                       if (context.mounted) {
                                         Navigator.of(context).pop();
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                                'اتربطت العملية بـ •••• $last4'),
-                                          ),
-                                        );
+                                        AppToast.show(context,
+                                            'اتربطت العملية بـ •••• $last4');
                                       }
                                     },
                             );

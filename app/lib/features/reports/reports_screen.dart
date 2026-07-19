@@ -910,8 +910,8 @@ class _ReportsHeader extends StatelessWidget {
                                 currencyLabel: currencyLabel,
                                 privacyMode: privacyMode),
                             style: AppTypography.title2(c.textMain).copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit'),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
@@ -1079,7 +1079,7 @@ class _HeaderMetric extends StatelessWidget {
           Text(
             value,
             style: AppTypography.bodyStrong(c.textMain)
-                .copyWith(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                .copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 2),
           Text(

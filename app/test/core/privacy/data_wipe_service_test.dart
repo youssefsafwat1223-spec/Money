@@ -104,7 +104,8 @@ void main() {
 
     await DataWipeService(db).wipeAll();
 
-    final row = await db.customSelect('SELECT * FROM user_settings LIMIT 1;')
+    final row = await db
+        .customSelect('SELECT * FROM user_settings LIMIT 1;')
         .getSingle();
     expect(row.readNullable<String>('display_name'), isNull,
         reason: 'the previous user\'s name must not survive the wipe');

@@ -147,9 +147,8 @@ class UserSettingsEntity {
     this.phoneNumber,
     this.avatarPath,
     this.dateOfBirth,
-    // opt-in: تُسأل صراحةً في الـ onboarding (مرحلة موافقة الذكاء الاصطناعي).
-    this.aiConsentGranted = false,
-    this.cloudProcessingEnabled = false,
+    this.aiConsentGranted = true,
+    this.cloudProcessingEnabled = true,
   });
 
   final String id;
@@ -166,14 +165,12 @@ class UserSettingsEntity {
   final String dbEncryptionKeyRef;
   final bool privacyModeEnabled;
 
-  /// User has opted in to AI suggestions (off by default).
-  /// When true, low-confidence messages may be sent (sanitized) to an AI
-  /// service for parsing or merchant categorization.
+  /// AI-assisted parsing is a required Qirsh processing capability.
+  /// The legacy persisted field remains for backup/schema compatibility.
   final bool aiConsentGranted;
 
-  /// User has explicitly allowed sanitized SMS processing on Qirsh backend.
-  /// This is separate from AI: cloud processing can run deterministic rules,
-  /// while AI still requires [aiConsentGranted].
+  /// Qirsh backend processing is always enabled when backend configuration is
+  /// available. The legacy field remains for backup/schema compatibility.
   final bool cloudProcessingEnabled;
 
   UserSettingsEntity copyWith({

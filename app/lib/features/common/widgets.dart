@@ -157,7 +157,6 @@ class TransactionRow extends StatelessWidget {
                       : '${Formatters.signed(transaction.amount, isExpense: isDebit)} ${transaction.currency}',
                   style: AppTypography.bodyStrong(amountColor).copyWith(
                     fontWeight: FontWeight.bold,
-                    letterSpacing: -0.2,
                   ),
                 ),
               ],

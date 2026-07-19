@@ -88,7 +88,8 @@ void main() {
   // local row belongs to whoever is currently authenticated" — it must
   // refuse when AppSession's local-data-owner marker names a different uid.
 
-  test('refuses to backfill when the owner marker conflicts with the '
+  test(
+      'refuses to backfill when the owner marker conflicts with the '
       'currently authenticated uid — and never touches Supabase', () async {
     final db = await _openDb();
     addTearDown(db.close);
@@ -107,7 +108,8 @@ void main() {
     );
   });
 
-  test('proceeds when the owner marker is null (no known conflict — '
+  test(
+      'proceeds when the owner marker is null (no known conflict — '
       'forward-compatible with installs from before this fix)', () async {
     final db = await _openDb();
     addTearDown(db.close);
@@ -129,7 +131,8 @@ void main() {
     expect(report.total, 0);
   });
 
-  test('proceeds when the owner marker matches the currently authenticated '
+  test(
+      'proceeds when the owner marker matches the currently authenticated '
       'uid', () async {
     final db = await _openDb();
     addTearDown(db.close);
@@ -152,8 +155,7 @@ void main() {
   // A's rows — proven here by both an empty table AND a getClient that fails
   // the test outright if anything ever tries to call Supabase.
 
-  test(
-      'end-to-end: sign-out wipes A\'s data, B\'s backfill uploads zero rows',
+  test('end-to-end: sign-out wipes A\'s data, B\'s backfill uploads zero rows',
       () async {
     final db = await _openDb();
     addTearDown(db.close);

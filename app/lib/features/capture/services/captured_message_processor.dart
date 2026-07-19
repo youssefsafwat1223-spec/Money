@@ -150,6 +150,7 @@ class CapturedMessageProcessor {
                   client: bankDiscoveryClient,
                   loadAiConsent: () async =>
                       (await settingsRepository.getSettings()).aiConsentGranted,
+                  loadInstallId: InstallId.get,
                 ),
         ),
       );

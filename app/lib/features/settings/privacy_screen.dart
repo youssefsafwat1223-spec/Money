@@ -13,7 +13,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../onboarding/widgets/neon_illustration.dart';
-import 'data_export.dart';
+import '../../core/theme/widgets/app_toast.dart';
 
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
@@ -43,29 +43,20 @@ class PrivacyScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s6),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.description_outlined),
-                  title: const Text('سياسة الخصوصية'),
+                _PrivacyCard(
+                  icon: Icons.description_outlined,
+                  title: 'سياسة الخصوصية',
                   onTap: () => _openExternalLink(context, _privacyPolicyUrl),
                 ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.gavel_outlined),
-                  title: const Text('الشروط والأحكام'),
+                _PrivacyCard(
+                  icon: Icons.gavel_outlined,
+                  title: 'الشروط والأحكام',
                   onTap: () => _openExternalLink(context, _termsUrl),
                 ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.download_outlined),
-                  title: const Text('تصدير بياناتي'),
-                  onTap: () => exportTransactionsCsv(context, ref),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.cloud_outlined),
-                  title: const Text('النسخ الاحتياطي'),
-                  onTap: () => context.push('/backup'),
+                _PrivacyCard(
+                  icon: Icons.swap_vert_circle_outlined,
+                  title: 'نقل واستيراد بياناتي',
+                  onTap: () => context.push('/data-transfer'),
                 ),
                 const SizedBox(height: AppSpacing.s5),
                 Text('منطقة خطرة', style: AppTypography.subhead(c.danger)),
@@ -74,21 +65,18 @@ class PrivacyScreen extends ConsumerWidget {
                       data: (status) => status.isPending
                           ? _PendingDeletionCard(
                               scheduledAt: status.scheduledAt!,
-                              onCancel: () => _confirmCancelDeletion(context, ref),
+                              onCancel: () =>
+                                  _confirmCancelDeletion(context, ref),
                             )
                           : const SizedBox.shrink(),
                       orElse: () => const SizedBox.shrink(),
                     ),
                 const SizedBox(height: AppSpacing.s2),
-                OutlinedButton.icon(
-                  onPressed: () => _confirmDelete(context, ref),
-                  icon: Icon(Icons.delete_outline, color: c.danger),
-                  label: Text('حذف الحساب وكل بياناتي',
-                      style: TextStyle(color: c.danger)),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: c.danger),
-                    minimumSize: const Size.fromHeight(52),
-                  ),
+                _PrivacyCard(
+                  icon: Icons.delete_outline,
+                  title: 'حذف الحساب وكل بياناتي',
+                  onTap: () => _confirmDelete(context, ref),
+                  danger: true,
                 ),
               ],
             ),
@@ -135,8 +123,7 @@ class PrivacyScreen extends ConsumerWidget {
         final message = error is RepoException
             ? repoExceptionMessage(error)
             : 'تعذّر جدولة الحذف الآن. حاول مجدداً.';
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
+        AppToast.show(context, message);
       }
       return;
     }
@@ -180,8 +167,7 @@ class PrivacyScreen extends ConsumerWidget {
       final message = error is RepoException
           ? repoExceptionMessage(error)
           : 'تعذّر إلغاء الحذف الآن. حاول مجدداً.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      AppToast.show(context, message);
     }
   }
 }
@@ -272,10 +258,57 @@ class _PrivacyHeader extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'بياناتك المالية على جهازك. النسخ الاحتياطي اختياري ومشفّر E2E. نجمع إحصاءات مجهولة فقط.',
+            'رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.',
             style: AppTypography.caption(c.textMuted),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PrivacyCard extends StatelessWidget {
+  const _PrivacyCard({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final color = danger ? c.danger : c.primary;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: danger ? c.danger.withValues(alpha: 0.05) : c.surface,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color:
+                danger ? c.danger.withValues(alpha: 0.3) : Colors.transparent,
+          ),
+        ),
+        child: ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: Icon(icon, color: color),
+          title: Text(
+            title,
+            style: AppTypography.bodyStrong(danger ? c.danger : c.textMain),
+          ),
+          trailing: Icon(Icons.chevron_left_rounded, color: c.textMuted),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          onTap: onTap,
+        ),
       ),
     );
   }

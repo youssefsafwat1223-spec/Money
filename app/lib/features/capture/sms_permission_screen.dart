@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import 'manual_paste_screen.dart';
 
@@ -17,10 +18,10 @@ class SmsPermissionScreen extends StatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const FractionallySizedBox(
+      builder: (_) => navySheetTheme(const FractionallySizedBox(
         heightFactor: 0.82,
         child: SmsPermissionScreen(),
-      ),
+      )),
     );
   }
 

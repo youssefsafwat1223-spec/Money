@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Qirsh - Premium Onboarding Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg: #0B0F19;
+      --surface: #131924;
+      --surface-2: #1E2535;
+      --primary: #818CF8;
+      --primary-press: #6366F1;
+      --accent-gold: #FF7D66;
+      --danger: #F87171;
+      --success: #2FD27A;
+      --text-main: #F8FAFC;
+      --text-sec: #8295A5;
+      --gold: #DAA520;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    
+    body {
+      background-color: #000;
+      color: var(--text-main);
+      font-family: 'IBM Plex Sans Arabic', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 400px;
+      height: 100vh;
+      max-height: 850px;
+      background-color: var(--bg);
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 0 40px rgba(129, 140, 248, 0.1);
+      border-radius: 40px; /* Simulate mobile screen */
+      border: 8px solid #1a1a1a;
+    }
+
+    .screen {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+      transform: translateX(-20px);
+    }
+    .screen.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0);
+      z-index: 10;
+    }
+
+    /* 1. Splash Screen */
+    .splash-bg {
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 30% 30%, rgba(129,140,248,0.15) 0%, transparent 60%),
+                  radial-gradient(circle at 70% 70%, rgba(255,125,102,0.1) 0%, transparent 60%);
+      filter: blur(40px);
+      animation: breathe 6s infinite alternate ease-in-out;
+    }
+    @keyframes breathe { 0% { transform: scale(1); } 100% { transform: scale(1.1); } }
+    .splash-content {
+      position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;
+    }
+    .splash-logo { width: 120px; height: 120px; background: var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #000; font-size: 2rem; box-shadow: 0 0 30px rgba(218,165,32,0.4); animation: pulse 2s infinite ease-in-out; }
+    @keyframes pulse { 0% { box-shadow: 0 0 20px rgba(218,165,32,0.2); } 50% { box-shadow: 0 0 50px rgba(218,165,32,0.6); } 100% { box-shadow: 0 0 20px rgba(218,165,32,0.2); } }
+    .splash-loading { width: 60px; height: 3px; background: rgba(255,255,255,0.2); margin-top: 60px; border-radius: 2px; position: relative; overflow: hidden; }
+    .splash-loading::after { content:''; position: absolute; top:0; left:0; height:100%; width: 40%; background: var(--text-main); border-radius: 2px; animation: loadbar 1.5s infinite ease-in-out; }
+    @keyframes loadbar { 0% { left: -40%; } 100% { left: 100%; } }
+
+    /* 2. Story Sequence */
+    .story-bg {
+      position: absolute; inset: 0;
+      background: url('https://images.unsplash.com/photo-1616077168079-7e09a6a38f4d?q=80&w=800&auto=format&fit=crop') center/cover;
+      animation: kenburns 15s linear forwards;
+    }
+    @keyframes kenburns { 0% { transform: scale(1); } 100% { transform: scale(1.15); } }
+    .glass-bottom {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(11, 15, 25, 0.65);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      padding: 40px 24px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      border-radius: 32px 32px 0 0;
+    }
+    .story-title { font-size: 32px; font-weight: 700; color: var(--gold); margin-bottom: 12px; }
+    .story-text { font-size: 16px; line-height: 1.7; color: rgba(255,255,255,0.8); margin-bottom: 32px; }
+    .btn-primary {
+      width: 100%; padding: 16px; background: var(--gold); color: #000; border: none; border-radius: 12px; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s, background 0.2s;
+    }
+    .btn-primary:active { transform: scale(0.97); }
+
+    /* 3. Auth Screen */
+    .auth-bg {
+      position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(11,15,25,0.1) 0%, var(--bg) 60%);
+    }
+    .auth-content { position: relative; z-index: 1; padding: 40px 24px; display: flex; flex-direction: column; height: 100%; justify-content: flex-end; }
+    .auth-header { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+    .auth-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .auth-subtitle { font-size: 15px; color: var(--text-sec); line-height: 1.6; margin-bottom: 40px; }
+    
+    .btn-apple, .btn-google {
+      width: 100%; padding: 16px; display: flex; align-items: center; justify-content: center; gap: 12px;
+      border-radius: 12px; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 16px;
+    }
+    .btn-apple { background: #fff; color: #000; border: none; }
+    .btn-google { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.2); }
+    .btn-apple:active, .btn-google:active { transform: scale(0.98); }
+    
+    .trust-badges { display: flex; justify-content: center; gap: 16px; margin-top: 24px; }
+    .trust-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-sec); }
+
+    /* 4. Setup Screen (Progressive Disclosure) */
+    .setup-header { padding: 40px 24px 20px; }
+    .setup-title { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
+    .progress-track { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin-bottom: 24px; }
+    .progress-fill { height: 100%; background: var(--primary); width: 25%; transition: width 0.4s ease; box-shadow: 0 0 10px var(--primary); }
+    
+    .setup-steps { padding: 0 24px; display: flex; flex-direction: column; gap: 12px; flex-grow: 1; overflow-y: auto; }
+    .step-card {
+      background: var(--surface); border: 1px solid var(--surface-2); border-radius: 16px; padding: 16px; transition: all 0.3s ease;
+    }
+    .step-card.locked { opacity: 0.5; pointer-events: none; }
+    .step-card.done { border-color: rgba(47, 210, 122, 0.4); background: rgba(47, 210, 122, 0.05); }
+    
+    .step-head { display: flex; align-items: center; gap: 12px; }
+    .step-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(129,140,248,0.1); color: var(--primary); display: flex; align-items: center; justify-content: center; transition: all 0.3s; }
+    .step-card.done .step-icon { background: var(--success); color: #000; }
+    .step-title { font-size: 16px; font-weight: 600; flex-grow: 1; }
+    .step-body { font-size: 13px; color: var(--text-sec); line-height: 1.5; margin-top: 12px; display: block; }
+    .step-card.done .step-body { display: none; } /* Collapse when done */
+    .step-action { margin-top: 16px; width: 100%; }
+
+    /* 5. Privacy Screen */
+    .privacy-header {
+      padding: 60px 24px 30px;
+      background: linear-gradient(180deg, rgba(129,140,248,0.15) 0%, var(--bg) 100%);
+      border-bottom: 1px solid var(--surface-2);
+    }
+    .privacy-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+    .privacy-subtitle { font-size: 14px; color: var(--text-sec); line-height: 1.5; }
+    .privacy-list { padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+    .privacy-card {
+      background: var(--surface); border-radius: 16px; padding: 16px; display: flex; align-items: center; gap: 16px; cursor: pointer; transition: background 0.2s;
+    }
+    .privacy-card:active { background: var(--surface-2); }
+    .danger-zone { margin-top: 24px; border: 1px solid rgba(248,113,113,0.3); background: rgba(248,113,113,0.05); }
+    .danger-zone .step-title { color: var(--danger); }
+    .danger-zone .step-icon { color: var(--danger); background: rgba(248,113,113,0.1); }
+
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- 1. Splash Screen -->
+  <div class="screen active" id="splash">
+    <div class="splash-bg"></div>
+    <div class="splash-content">
+      <div class="splash-logo">ق</div>
+      <div class="splash-loading"></div>
+    </div>
+  </div>
+
+  <!-- 2. Story Screen -->
+  <div class="screen" id="story">
+    <div class="story-bg"></div>
+    <div class="glass-bottom">
+      <div class="story-title">المصروفات الصغيرة</div>
+      <div class="story-text">قد تبدو بسيطة، لكنها مع الوقت تصنع فرقًا كبيرًا. ما لا تتابعه يصعب عليك التحكم به.</div>
+      <button class="btn-primary" onclick="nav('auth')">شوف قِرش</button>
+    </div>
+  </div>
+
+  <!-- 3. Auth Screen -->
+  <div class="screen" id="auth">
+    <div class="auth-bg"></div>
+    <div class="auth-content">
+      <div class="auth-header">
+        <div class="splash-logo" style="width: 80px; height: 80px; font-size: 1.5rem; margin-bottom: 24px;">ق</div>
+        <div class="auth-title">رحلتك المالية محفوظة</div>
+        <div class="auth-subtitle">سجّل دخولك لحماية بياناتك واستعادتها<br>على جميع أجهزتك بأمان.</div>
+      </div>
+      
+      <div style="background: rgba(19, 25, 36, 0.7); backdrop-filter: blur(20px); padding: 24px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.05);">
+        <button class="btn-apple" onclick="nav('setup')">
+          <i data-lucide="apple"></i> المتابعة بحساب Apple
+        </button>
+        <button class="btn-google" onclick="nav('setup')">
+          <i data-lucide="chrome"></i> المتابعة بحساب Google
+        </button>
+        
+        <div class="trust-badges">
+          <div class="trust-badge"><i data-lucide="shield-check" style="width:16px;"></i> تشفير محلي</div>
+          <div class="trust-badge"><i data-lucide="smartphone" style="width:16px;"></i> بياناتك بجهازك</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Setup Screen -->
+  <div class="screen" id="setup">
+    <div class="setup-header">
+      <div class="setup-title">يلا نجهّز قِرش</div>
+      <div class="progress-track">
+        <div class="progress-fill" id="setup-progress"></div>
+      </div>
+    </div>
+    
+    <div class="setup-steps">
+      <!-- Step 1 -->
+      <div class="step-card" id="step1">
+        <div class="step-head">
+          <div class="step-icon"><i data-lucide="globe"></i></div>
+          <div class="step-title">العملة الأساسية</div>
+        </div>
+        <div class="step-body">اختر عملتك. بنستخدمها لحساباتك.</div>
+        <button class="btn-primary step-action" onclick="completeStep(1)" style="padding:10px; font-size:14px; background:var(--primary); color:#fff;">تأكيد (ريال سعودي)</button>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step-card locked" id="step2">
+        <div class="step-head">
+          <div class="step-icon"><i data-lucide="bell"></i></div>
+          <div class="step-title">الإشعارات</div>
+        </div>
+        <div class="step-body">عشان توصلك كل عملية فور حدوثها وتقدر تتابع ميزانيتك.</div>
+        <button class="btn-primary step-action" onclick="completeStep(2)" style="padding:10px; font-size:14px; background:var(--primary); color:#fff;">تفعيل</button>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step-card locked" id="step3">
+        <div class="step-head">
+          <div class="step-icon"><i data-lucide="cpu"></i></div>
+          <div class="step-title">المعالجة الذكية</div>
+        </div>
+        <div class="step-body">أتمتة ذكية ومجهولة لمصروفاتك. لا نقرأ إلا رسائل البنوك.</div>
+        <button class="btn-primary step-action" onclick="completeStep(3)" style="padding:10px; font-size:14px; background:var(--primary); color:#fff;">موافق وفعّل</button>
+      </div>
+
+      <button class="btn-primary" id="btn-finish-setup" style="margin-top:20px; display:none;" onclick="nav('privacy')">ابدأ الاستخدام</button>
+    </div>
+  </div>
+
+  <!-- 5. Privacy Screen -->
+  <div class="screen" id="privacy">
+    <div class="privacy-header">
+      <div class="privacy-title">الخصوصية والبيانات</div>
+      <div class="privacy-subtitle">بياناتك المالية على جهازك. نجمع إحصاءات مجهولة فقط لتحسين التطبيق.</div>
+    </div>
+    <div class="privacy-list">
+      <div class="privacy-card">
+        <i data-lucide="file-text" style="color:var(--primary);"></i>
+        <div class="step-title">سياسة الخصوصية</div>
+        <i data-lucide="chevron-left" style="color:var(--text-sec); margin-right:auto;"></i>
+      </div>
+      <div class="privacy-card">
+        <i data-lucide="download" style="color:var(--primary);"></i>
+        <div class="step-title">تصدير بياناتي</div>
+        <i data-lucide="chevron-left" style="color:var(--text-sec); margin-right:auto;"></i>
+      </div>
+      
+      <div style="margin-top: 16px; font-size: 14px; color: var(--danger);">منطقة خطرة</div>
+      <div class="privacy-card danger-zone">
+        <div class="step-icon"><i data-lucide="trash-2"></i></div>
+        <div class="step-title">حذف الحساب وكل بياناتي</div>
+      </div>
+      
+      <button class="btn-primary" style="margin-top: 24px; background: var(--surface-2); color: #fff;" onclick="nav('splash')">إعادة التشغيل</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  lucide.createIcons();
+
+  // Navigation
+  function nav(targetId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(targetId).classList.add('active');
+  }
+
+  // Simulate Splash Timeout
+  setTimeout(() => {
+    if(document.getElementById('splash').classList.contains('active')) {
+      nav('story');
+    }
+  }, 2500);
+
+  // Setup Progressive Disclosure Logic
+  function completeStep(stepNum) {
+    const card = document.getElementById('step' + stepNum);
+    card.classList.add('done');
+    card.querySelector('.step-action').style.display = 'none';
+    card.querySelector('.step-icon').innerHTML = '<i data-lucide="check"></i>';
+    lucide.createIcons();
+    
+    // Update progress
+    document.getElementById('setup-progress').style.width = (stepNum * 33.33) + '%';
+    
+    // Unlock next step
+    if (stepNum < 3) {
+      const nextCard = document.getElementById('step' + (stepNum + 1));
+      nextCard.classList.remove('locked');
+    } else {
+      document.getElementById('btn-finish-setup').style.display = 'block';
+    }
+  }
+</script>
+
+</body>
+</html>
