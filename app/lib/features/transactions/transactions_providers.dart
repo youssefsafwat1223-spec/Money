@@ -181,6 +181,9 @@ final transactionsDateRangeProvider =
 final transactionKindFilterProvider =
     StateProvider<TransactionKindFilter>((ref) => TransactionKindFilter.all);
 
+/// Selected category filter (by category id). `null` means all categories.
+final transactionCategoryFilterProvider = StateProvider<String?>((ref) => null);
+
 final transactionSearchQueryProvider = StateProvider<String>((ref) => '');
 
 final transactionsPageTabProvider = StateProvider<int>((ref) => 0);
@@ -205,6 +208,7 @@ class TransactionsListNotifier
     ref.watch(dbRevisionProvider);
     ref.watch(transactionsDateRangeProvider);
     ref.watch(transactionKindFilterProvider);
+    ref.watch(transactionCategoryFilterProvider);
     ref.watch(transactionSearchQueryProvider);
     ref.watch(transactionsPendingFilterProvider);
     ref.watch(activeAccountIdProvider);
@@ -255,6 +259,7 @@ class TransactionsListNotifier
     final range =
         effectiveTransactionsRange(ref.read(transactionsDateRangeProvider));
     final kind = ref.read(transactionKindFilterProvider);
+    final categoryId = ref.read(transactionCategoryFilterProvider);
     final query = ref.read(transactionSearchQueryProvider).trim().toLowerCase();
     final pendingOnly = ref.read(transactionsPendingFilterProvider);
     final selectedAccountId = ref.read(activeAccountIdProvider);
@@ -289,7 +294,11 @@ class TransactionsListNotifier
           tx.type == TransactionTypeEntity.transfer,
       };
     });
-    final filtered = filteredByKind.where((tx) {
+    final filteredByCategory = filteredByKind.where((tx) {
+      if (categoryId == null) return true;
+      return tx.categoryId == categoryId;
+    });
+    final filtered = filteredByCategory.where((tx) {
       if (query.isEmpty) return true;
       final category = catalog.byId(tx.categoryId);
       final haystack = [

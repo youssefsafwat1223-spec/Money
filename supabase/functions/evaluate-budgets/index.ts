@@ -35,6 +35,8 @@ serve(async (req) => {
     .not('apns_token', 'is', null);
 
   for (const budget of budgets) {
+    if (!budget.amount || budget.amount <= 0) continue;
+
     // Scoped to the budget's current period (client resets start_date on
     // rollover), so this doesn't sum spend across every past period.
     let query = supabase
@@ -60,25 +62,48 @@ serve(async (req) => {
 
     const currentSpend = (txs || []).reduce((sum, tx) => sum + (tx.amount || 0), 0);
     const lastNotified = budget.last_notified_spent_amount || 0;
-    const thresholdIncrement = budget.amount * 0.1;
 
-    if (currentSpend >= budget.amount && currentSpend >= lastNotified + thresholdIncrement) {
-      await supabase
-        .from('user_budgets')
-        .update({ last_notified_spent_amount: currentSpend })
-        .eq('id', budget.id);
+    // Three thresholds: 75% / 90% / over 100% — same tiers the on-device
+    // checker uses. Only fire on entering a *new*, higher tier than the one
+    // already notified, or (once over 100%) every further +10% of budget
+    // spent, so a single transaction doesn't spam repeat alerts.
+    const bucketFor = (spend: number) =>
+      spend >= budget.amount ? 3 : spend >= budget.amount * 0.9 ? 2 : spend >= budget.amount * 0.75 ? 1 : 0;
+    const bucket = bucketFor(currentSpend);
+    if (bucket === 0) continue;
+    const lastBucket = bucketFor(lastNotified);
+    const crossedNewTier = bucket > lastBucket;
+    const grewFurtherPastOver = bucket === 3 && lastBucket === 3 && currentSpend >= lastNotified + budget.amount * 0.1;
+    if (!crossedNewTier && !grewFurtherPastOver) continue;
 
-      if (devices && devices.length > 0) {
-        for (const device of devices) {
-          await sendCapturePush({
-            token: device.apns_token,
-            environment: device.apns_environment as any,
-            payloadId: crypto.randomUUID(),
-            title: 'تجاوزت ميزانيتك',
-            body: `صرفت ${currentSpend.toFixed(0)} زيادة عن ميزانيتك (${budget.amount.toFixed(0)}).`,
-            notificationType: 'budget_alert',
-          });
-        }
+    let title: string;
+    let body: string;
+    if (bucket === 3) {
+      title = 'تجاوزت ميزانيتك';
+      body = `صرفت ${currentSpend.toFixed(0)} زيادة عن ميزانيتك (${budget.amount.toFixed(0)}).`;
+    } else if (bucket === 2) {
+      title = 'ميزانيتك على وشك الاكتمال';
+      body = `بقيلك ${(budget.amount - currentSpend).toFixed(0)} فقط من ميزانيتك (${budget.amount.toFixed(0)}).`;
+    } else {
+      title = 'وصلت ٧٥٪ من ميزانيتك';
+      body = `صرفت ${currentSpend.toFixed(0)} من ${budget.amount.toFixed(0)}.`;
+    }
+
+    await supabase
+      .from('user_budgets')
+      .update({ last_notified_spent_amount: currentSpend })
+      .eq('id', budget.id);
+
+    if (devices && devices.length > 0) {
+      for (const device of devices) {
+        await sendCapturePush({
+          token: device.apns_token,
+          environment: device.apns_environment as 'sandbox' | 'production',
+          payloadId: crypto.randomUUID(),
+          title,
+          body,
+          notificationType: 'budget_alert',
+        });
       }
     }
   }

@@ -8,7 +8,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/account_entity.dart';
-import '../../domain/entities/budget_entity.dart' show BudgetPeriod;
+import '../../domain/entities/bill_entity.dart';
+import '../../domain/entities/engagement_entities.dart';
+import '../../domain/entities/goal_entity.dart';
+import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../core/session/app_session.dart';
@@ -19,37 +22,32 @@ import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
-import '../../domain/entities/report_models.dart';
+import '../budgets/budgets_providers.dart';
 import '../cards/bank_mark.dart';
 import '../cards/brand_mark.dart';
 import '../cards/my_cards_screen.dart';
 import '../capture/capture_entry_sheet.dart';
-import '../common/charts/spending_charts.dart';
+import '../common/category_avatar.dart';
+import '../common/category_catalog.dart';
 import '../common/motion.dart';
 import '../common/transaction_direction.dart';
 import '../common/premium_loading.dart';
 import '../common/widgets.dart';
 import '../common/app_card.dart';
-import '../common/app_insight_card.dart';
 import '../common/app_empty_state.dart';
+import '../coupons/coupon_models.dart';
 import '../coupons/coupon_widgets.dart';
 import '../coupons/coupons_providers.dart';
 import '../../core/security/app_lock_service.dart';
-import '../goals/goal_details_screen.dart';
 import '../goals/goals_providers.dart';
+import '../plans/plans_providers.dart';
 import '../plans/plans_screen.dart';
 import '../settings/settings_providers.dart';
 import '../app/app_shell.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
-
-String _monthsLabel(int n) {
-  if (n == 1) return 'شهر';
-  if (n == 2) return 'شهرين';
-  if (n <= 10) return '$n أشهر';
-  return '$n شهراً';
-}
+import 'home_sections_providers.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -184,109 +182,65 @@ class DashboardScreen extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 1. Account summary (income vs. expense) — first
+                        // Account summary — compact snapshot only (balance,
+                        // period income/expense, net). No proportion bar or
+                        // other comparison visual — those live in Reports.
                         if (!data.isEmpty) ...[
                           PremiumMotion(
                             delay: const Duration(milliseconds: 50),
                             child: _financialOverviewCard(context, ref, data,
                                 privacyMode: privacyMode),
                           ),
-                          const SizedBox(height: AppSpacing.s5),
+                          const SizedBox(height: AppSpacing.s4),
                         ],
-                        // 2. All budgets
-                        if (data.budgetProgress.isNotEmpty) ...[
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 55),
-                            child: _allBudgetsSection(context, data,
-                                privacyMode: privacyMode),
-                          ),
-                          const SizedBox(height: AppSpacing.s5),
-                        ],
-                        // 3. Daily expenses
-                        if (!data.isEmpty) ...[
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 60),
-                            child: _weeklySpendVisualCard(context, data,
-                                privacyMode: privacyMode),
-                          ),
-                          const SizedBox(height: AppSpacing.s5),
-                        ],
-                        // 4. Coupons
-                        const PremiumMotion(
-                          delay: Duration(milliseconds: 70),
-                          child: _DashboardCouponsRail(),
-                        ),
-                        const SizedBox(height: AppSpacing.s5),
                         if (data.isEmpty)
                           _emptyState(context)
                         else ...[
+                          // Smart Inbox — an actionable system state (needs
+                          // review), not a reporting widget.
                           if (data.pendingReviewCount > 0) ...[
                             PremiumMotion(
                               child: _reviewCard(context, ref, data,
                                   privacyMode: privacyMode),
                             ),
-                            const SizedBox(height: AppSpacing.s5),
-                          ],
-                          PremiumMotion(
-                            child: _whereMoneyWent(context, data,
-                                privacyMode: privacyMode),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                          if (data.topMerchants.isNotEmpty) ...[
-                            PremiumMotion(
-                              delay: const Duration(milliseconds: 75),
-                              child: _merchantRankingVisualCard(context, data,
-                                  privacyMode: privacyMode),
-                            ),
                             const SizedBox(height: AppSpacing.s4),
                           ],
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 80),
-                            child: _recentMiniCard(context, ref, data,
-                                privacyMode: privacyMode),
+                          // 1. Daily Expenses
+                          const PremiumMotion(
+                            delay: Duration(milliseconds: 60),
+                            child: _DailyExpensesSection(),
                           ),
-                          const SizedBox(height: AppSpacing.s5),
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 90),
-                            child: _cardsEntryCard(context),
+                          const SizedBox(height: AppSpacing.s4),
+                          // 2. Coupons
+                          const PremiumMotion(
+                            delay: Duration(milliseconds: 70),
+                            child: _DashboardCouponsRail(),
                           ),
-                          const SizedBox(height: AppSpacing.s5),
-                          if (data.weekChangeRatio.abs() >= 0.05) ...[
-                            PremiumMotion(
-                              delay: const Duration(milliseconds: 40),
-                              child: _smartInsightCard(context, data,
-                                  privacyMode: privacyMode),
-                            ),
-                            const SizedBox(height: AppSpacing.s5),
-                          ],
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 100),
-                            child: _qirshScoreCard(context, data,
-                                privacyMode: privacyMode),
+                          const SizedBox(height: AppSpacing.s4),
+                          // 3. Monthly Expenses
+                          const PremiumMotion(
+                            delay: Duration(milliseconds: 75),
+                            child: _MonthlyExpensesSection(),
                           ),
-                          const SizedBox(height: AppSpacing.s5),
-                          // 5. Subscriptions
-                          if (data.subscriptions.isNotEmpty) ...[
-                            PremiumMotion(
-                              child: _subscriptionsPreview(context, data,
-                                  privacyMode: privacyMode),
-                            ),
-                            const SizedBox(height: AppSpacing.s5),
-                          ],
-                          // 6. Goals
-                          if (data.activeGoal != null) ...[
-                            PremiumMotion(
-                              child: _goalCard(context, data,
-                                  privacyMode: privacyMode),
-                            ),
-                            const SizedBox(height: AppSpacing.s5),
-                          ],
-                          // 7. Plans — last
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 95),
-                            child: _plansEntryCard(context),
+                          const SizedBox(height: AppSpacing.s4),
+                          // 4. Subscriptions
+                          const PremiumMotion(
+                            delay: Duration(milliseconds: 80),
+                            child: _SubscriptionsSection(),
                           ),
-                          const SizedBox(height: AppSpacing.s5),
+                          const SizedBox(height: AppSpacing.s4),
+                          // 5. Goals
+                          const PremiumMotion(
+                            delay: Duration(milliseconds: 90),
+                            child: _GoalsSection(),
+                          ),
+                          const SizedBox(height: AppSpacing.s4),
+                          // 6. Plans
+                          const PremiumMotion(
+                            delay: Duration(milliseconds: 95),
+                            child: _PlansSection(),
+                          ),
+                          const SizedBox(height: AppSpacing.s4),
                         ],
                       ],
                     ),
@@ -466,6 +420,20 @@ class DashboardScreen extends ConsumerWidget {
           ? '•••• ${_currencyLabel(currency)}'
           : '${Formatters.amount(amount)} ${_currencyLabel(currency)}';
 
+  /// Quick eye-icon toggle on the Account Summary card — flips the same
+  /// `privacyModeEnabled` setting the Settings screen controls, so both
+  /// stay in sync instead of introducing a separate Home-only flag.
+  Future<void> _togglePrivacyMode(WidgetRef ref, bool current) async {
+    HapticFeedback.selectionClick();
+    final settings = ref.read(userSettingsProvider).valueOrNull;
+    if (settings == null) return;
+    await ref
+        .read(userSettingsRepositoryProvider)
+        .saveSettings(settings.copyWith(privacyModeEnabled: !current));
+    refreshUserSettings(ref);
+    ref.invalidate(dashboardDataProvider);
+  }
+
   Widget _financialOverviewCard(
     BuildContext context,
     WidgetRef ref,
@@ -486,117 +454,61 @@ class DashboardScreen extends ConsumerWidget {
         ? '••••'
         : '$sign${_money(net.abs(), data.currency, privacyMode: false)}';
 
-    // Visual expense/income proportion — a quick read on the balance between
-    // the two before even looking at the numbers.
-    final total = data.rangeExpense + data.rangeIncome;
-    final expenseShare = total <= 0 ? 0.5 : (data.rangeExpense / total);
-
     return AppCard(
       color: c.cta,
       border: Border.all(color: onCta.withValues(alpha: 0.12)),
+      padding: const EdgeInsets.all(AppSpacing.s4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: onCta.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(Icons.query_stats_rounded, color: onCta, size: 21),
-              ),
-              const SizedBox(width: AppSpacing.s3),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('ملخص الحساب', style: AppTypography.bodyStrong(onCta)),
-                    const SizedBox(height: 2),
-                    Text(_rangeLabel(data.range, context),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption(
-                            onCta.withValues(alpha: 0.70))),
-                  ],
-                ),
+                child: Text(isPositive ? 'صافي وفّرته' : 'صافي تجاوزته',
+                    style:
+                        AppTypography.caption(onCta.withValues(alpha: 0.75))),
               ),
+              Text(_rangeLabel(data.range, context),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption(onCta.withValues(alpha: 0.55))),
             ],
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          // Hero figure: the net (income − expense) for the range — the one
-          // number that answers "how did this period go?".
-          Text(
-            isPositive ? 'صافي وفّرته' : 'صافي تجاوزته',
-            style: AppTypography.caption(onCta.withValues(alpha: 0.75)),
           ),
           const SizedBox(height: 2),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(
-                isPositive
-                    ? Icons.trending_up_rounded
-                    : Icons.trending_down_rounded,
-                size: 22,
-                color: netTone,
-              ),
-              const SizedBox(width: AppSpacing.s2),
               Flexible(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: AlignmentDirectional.centerStart,
                   child: Text(netText,
-                      style: AppTypography.display(netTone),
+                      style: AppTypography.title1(netTone)
+                          .copyWith(fontWeight: FontWeight.w800),
                       textDirection: TextDirection.ltr),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                onTap: () => _togglePrivacyMode(ref, privacyMode),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    privacyMode
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
+                    size: 18,
+                    color: onCta.withValues(alpha: 0.75),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s4),
-          // Proportion bar: expense share vs. income share of the period.
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: SizedBox(
-              height: 6,
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: (expenseShare * 1000).round().clamp(1, 999),
-                    child: ColoredBox(
-                        color: (isCtaDark ? const Color(0xFFFCA5A5) : c.danger)
-                            .withValues(alpha: 0.85)),
-                  ),
-                  Expanded(
-                    flex: ((1 - expenseShare) * 1000).round().clamp(1, 999),
-                    child: ColoredBox(
-                        color: (isCtaDark ? const Color(0xFF34D399) : c.success)
-                            .withValues(alpha: 0.85)),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
+          const SizedBox(height: AppSpacing.s3),
           Row(
             children: [
-              Expanded(
-                child: _snapshotMetric(
-                  context,
-                  title: 'المصروفات',
-                  value: _money(data.rangeExpense, data.currency,
-                      privacyMode: privacyMode),
-                  tone: c.danger,
-                  darkBg: isCtaDark,
-                  action: Icon(Icons.arrow_downward_rounded,
-                      size: 14,
-                      color: (isCtaDark ? const Color(0xFFFCA5A5) : c.danger)
-                          .withValues(alpha: 0.9)),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
               Expanded(
                 child: _snapshotMetric(
                   context,
@@ -605,10 +517,17 @@ class DashboardScreen extends ConsumerWidget {
                       privacyMode: privacyMode),
                   tone: c.success,
                   darkBg: isCtaDark,
-                  action: Icon(Icons.arrow_upward_rounded,
-                      size: 14,
-                      color: (isCtaDark ? const Color(0xFF34D399) : c.success)
-                          .withValues(alpha: 0.9)),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: _snapshotMetric(
+                  context,
+                  title: 'المصروفات',
+                  value: _money(data.rangeExpense, data.currency,
+                      privacyMode: privacyMode),
+                  tone: c.danger,
+                  darkBg: isCtaDark,
                 ),
               ),
             ],
@@ -813,46 +732,12 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _smartInsightCard(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final ratio = data.weekChangeRatio;
-    final isUp = ratio > 0.05;
-    final isDown = ratio < -0.05;
-    final title = isDown
-        ? 'أداء ممتاز هذا الأسبوع'
-        : isUp
-            ? 'الصرف أعلى من الأسبوع الماضي'
-            : 'في المسار الصحيح';
-    final percent = (ratio.abs() * 100).clamp(0, 999).round();
-    final body = isDown
-        ? 'صرفك أقل بـ $percent% عن الأسبوع الماضي. استمر بنفس الهدوء.'
-        : isUp
-            ? 'زاد بـ $percent%. راقب أكثر تصنيف صرف قبل نهاية الأسبوع.'
-            : 'صرفك قريب من الأسبوع الماضي، والتوقع الشهري ${_money(data.projectedMonthSpend, data.currency, privacyMode: privacyMode)}.';
-    return AppInsightCard(
-      type: isDown
-          ? AppInsightType.success
-          : (isUp ? AppInsightType.warning : AppInsightType.info),
-      title: title,
-      message: body,
-      icon: isUp ? AppLucideIcons.alertTriangle : AppLucideIcons.medal,
-      onTap: () {
-        HapticFeedback.selectionClick();
-        context.push('/reports');
-      },
-    );
-  }
-
   Widget _snapshotMetric(
     BuildContext context, {
     required String title,
     required String value,
     required Color tone,
     bool darkBg = false,
-    Widget? action,
   }) {
     final c = context.colors;
     final bg = darkBg
@@ -877,7 +762,8 @@ class DashboardScreen extends ConsumerWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s3),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s2, vertical: AppSpacing.s2),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -885,729 +771,27 @@ class DashboardScreen extends ConsumerWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTypography.caption(darkBg
-                      ? Colors.white.withValues(alpha: 0.70)
-                      : c.textLight),
-                ),
-              ),
-              if (action != null) action,
-            ],
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption(
+                darkBg ? Colors.white.withValues(alpha: 0.70) : c.textLight),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
             child: Text(
               value,
-              maxLines: 2,
-              style: AppTypography.bodyStrong(displayTone),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _subscriptionsPreview(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    return AppCard(
-      onTap: () => _showSubscriptionsSheet(
-        context,
-        data,
-        privacyMode: privacyMode,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'اشتراكاتك القادمة',
-                  style: AppTypography.title2(c.textMain),
-                ),
-              ),
-              Text(
-                _money(
-                  data.subscriptionsMonthlyTotal,
-                  data.currency,
-                  privacyMode: privacyMode,
-                ),
-                style: AppTypography.bodyStrong(c.primary),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          for (final item in data.subscriptions) ...[
-            Row(
-              children: [
-                BrandMark(name: item.name, size: 34),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: Text(
-                    item.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.subhead(c.textMain),
-                  ),
-                ),
-                Text(
-                  '${_money(item.averageAmount, data.currency, privacyMode: privacyMode)} / شهر',
-                  style: AppTypography.caption(c.textLight),
-                ),
-              ],
-            ),
-            if (item != data.subscriptions.last)
-              const SizedBox(height: AppSpacing.s3),
-          ],
-          const SizedBox(height: AppSpacing.s3),
-          Text(
-            'تقدر تضبط التنبيهات وتراجع الاشتراكات من شاشة الفواتير.',
-            style: AppTypography.caption(c.textLight),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showSubscriptionsSheet(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => navySheetTheme(AppSheetScaffold(
-        title: 'اشتراكاتك المكتشفة',
-        subtitle:
-            'إجمالي متوقع ${_money(data.subscriptionsMonthlyTotal, data.currency, privacyMode: privacyMode)} شهرياً.',
-        scrollable: true,
-        body: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-          child: Column(
-            children: [
-              for (final item in data.subscriptions) ...[
-                AppCard(
-                  child: Row(
-                    children: [
-                      BrandMark(name: item.name, size: 46),
-                      const SizedBox(width: AppSpacing.s3),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(item.name,
-                                style: AppTypography.bodyStrong(c.textMain)),
-                            Text('تكرر ${_monthsLabel(item.monthsSeen)}',
-                                style: AppTypography.caption(c.textLight)),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        _money(
-                          item.averageAmount,
-                          data.currency,
-                          privacyMode: privacyMode,
-                        ),
-                        style: AppTypography.bodyStrong(c.primary),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s3),
-              ],
-            ],
-          ),
-        ),
-      )),
-    );
-  }
-
-  Widget _goalCard(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final goal = data.activeGoal!;
-    final progress =
-        goal.targetAmount == 0 ? 0.0 : goal.savedAmount / goal.targetAmount;
-    final percent = (progress * 100).round();
-    final remaining =
-        (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
-    return AppCard(
-      onTap: () => GoalDetailsScreen.showSheet(context, goal.id),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.savings_outlined, color: c.primary),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child:
-                    Text(goal.name, style: AppTypography.headline(c.textMain)),
-              ),
-              Text('$percent%', style: AppTypography.bodyStrong(c.primary)),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0, 1).toDouble(),
-              minHeight: 10,
-              backgroundColor: c.surface2,
-              valueColor: AlwaysStoppedAnimation(
-                remaining == 0 ? c.success : c.primary,
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Text(
-            remaining == 0
-                ? 'اكتمل الهدف'
-                : 'باقي ${Formatters.integer(remaining)} ${_currencyLabel(data.currency)} للوصول',
-            style: AppTypography.caption(
-              remaining == 0 ? c.success : c.textLight,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _whereMoneyWent(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final chartSlices = [
-      for (final slice in data.topCategories)
-        SpendingChartSlice(
-          category: slice.category,
-          total: slice.total,
-          percent: slice.percent,
-          count: slice.count,
-        ),
-    ];
-    if (chartSlices.isEmpty) {
-      return _infoCard(
-        context,
-        icon: AppLucideIcons.shapes,
-        title: 'تصنيفاتك هتظهر هنا',
-        body:
-            'بعد أول كام عملية مؤكدة، قرش هيعرض أكثر أماكن صرفك ونِسب كل تصنيف.',
-      );
-    }
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('نظرة سريعة على المصروفات',
-                        style: AppTypography.bodyStrong(c.textPrimary)),
-                    const SizedBox(height: 2),
-                    Text('أكبر التصنيفات في الفترة المختارة',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption(c.textMuted)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          CategoryDonutChart(
-            slices: chartSlices,
-            currencyLabel: _currencyLabel(data.currency),
-            centerLabel: _money(data.spentThisMonth, data.currency,
-                privacyMode: privacyMode),
-            height: 136,
-            compactCenter: true,
-            framed: false,
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// كل الميزانيات الفعّالة (يومية/أسبوعية/شهرية/سنوية، عامة أو حسب تصنيف)
-  /// مع نسبة الصرف من كل حد، بنفس منطق تلوين شاشة الميزانيات
-  /// (context.colors.budgetState).
-  Widget _allBudgetsSection(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    return AppCard(
-      onTap: () => context.push('/budgets'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.pie_chart_rounded, color: c.cta, size: 21),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Text('كل الميزانيات',
-                    style: AppTypography.bodyStrong(c.textMain)),
-              ),
-              Icon(Icons.chevron_left_rounded, color: c.textLight, size: 20),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          for (var i = 0; i < data.budgetProgress.length; i++) ...[
-            if (i > 0) const SizedBox(height: AppSpacing.s3),
-            _budgetProgressRow(context, data.budgetProgress[i],
-                currency: data.currency, privacyMode: privacyMode),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _budgetProgressRow(
-    BuildContext context,
-    DashboardBudgetEntry budget, {
-    required String currency,
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final periodLabel = switch (budget.period) {
-      BudgetPeriod.daily => 'يومي',
-      BudgetPeriod.weekly => 'أسبوعي',
-      BudgetPeriod.monthly => 'شهري',
-      BudgetPeriod.yearly => 'سنوي',
-    };
-    final tone = c.budgetState(budget.ratio);
-    final spentText = _money(budget.spent, currency, privacyMode: privacyMode);
-    final limitText = _money(budget.limit, currency, privacyMode: privacyMode);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                        text: budget.label,
-                        style: AppTypography.subhead(c.textMain)),
-                    TextSpan(
-                        text: ' · $periodLabel',
-                        style: AppTypography.caption(c.textLight)),
-                  ],
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Text('${(budget.ratio * 100).toStringAsFixed(0)}%',
-                style: AppTypography.caption(tone)),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          child: LinearProgressIndicator(
-            value: budget.ratio.clamp(0.0, 1.0),
-            minHeight: 6,
-            backgroundColor: c.surfaceMuted,
-            valueColor: AlwaysStoppedAnimation(tone),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text('$spentText / $limitText',
-            style: AppTypography.caption(c.textLight)),
-      ],
-    );
-  }
-
-  Widget _weeklySpendVisualCard(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.bar_chart_rounded, color: c.success, size: 21),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('استهلاك الأسبوع الحالي',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyStrong(c.textPrimary)),
-                    const SizedBox(height: 2),
-                    Text('آخر 7 أيام حسب الحساب المختار',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption(c.textMuted)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          WeeklyCapsuleBarChart(
-            days: data.weeklyDailySpend,
-            currencyLabel: _currencyLabel(data.currency),
-            privacyMode: privacyMode,
-            height: 168,
-            barWidth: 24,
-            maxBarHeight: 76,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _merchantRankingVisualCard(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final maxTotal = data.topMerchants.fold<double>(
-      1,
-      (max, merchant) => merchant.total > max ? merchant.total : max,
-    );
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(AppLucideIcons.store, color: c.success, size: 21),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('مصروفاتك في المتاجر',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyStrong(c.textPrimary)),
-                    const SizedBox(height: 2),
-                    Text('أكبر أماكن الصرف في الفترة',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption(c.textMuted)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          for (final merchant in data.topMerchants.take(4)) ...[
-            _MerchantMiniRow(
-              merchant: merchant,
-              maxTotal: maxTotal,
-              currency: data.currency,
-              privacyMode: privacyMode,
-            ),
-            if (merchant != data.topMerchants.take(4).last)
-              const SizedBox(height: AppSpacing.s2),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _miniSectionHeader(
-    BuildContext context, {
-    required String title,
-    required String action,
-    required VoidCallback onAction,
-  }) {
-    final c = context.colors;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(title,
               maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTypography.bodyStrong(c.textPrimary)),
-        ),
-        const SizedBox(width: 4),
-        InkWell(
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onAction();
-          },
-          child: Text(action,
-              style: AppTypography.caption(c.cta)
-                  .copyWith(fontWeight: FontWeight.w800)),
-        ),
-      ],
-    );
-  }
-
-  Widget _recentMiniCard(
-    BuildContext context,
-    WidgetRef ref,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final items = data.recent.take(10).toList();
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _miniSectionHeader(
-            context,
-            title: 'آخر العمليات',
-            action: 'عرض الكل',
-            onAction: () => ref.read(shellIndexProvider.notifier).state = 1,
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          if (items.isEmpty)
-            Text('لا توجد عمليات بعد.',
-                style: AppTypography.caption(context.colors.textMuted))
-          else
-            for (final tx in items)
-              _recentRowMini(context, data, tx, privacyMode: privacyMode),
-        ],
-      ),
-    );
-  }
-
-  Widget _recentRowMini(
-    BuildContext context,
-    DashboardData data,
-    TransactionEntity tx, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final cat = data.catalog.byId(tx.categoryId);
-    final accent = cat?.color ?? c.cta;
-    final name = tx.rawMerchant ?? cat?.nameAr ?? 'عملية';
-    final isDebit = transactionIsDebit(tx);
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        TransactionDetailsScreen.showSheet(context, tx.id);
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        child: Row(
-          children: [
-            if (BrandMark.hasBrand(name))
-              BrandMark(name: name, size: 30)
-            else
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(cat?.icon ?? AppLucideIcons.receipt,
-                    color: accent, size: 15),
-              ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(c.textPrimary)
-                          .copyWith(fontWeight: FontWeight.w700)),
-                  Text(Formatters.fullDate(tx.occurredAt, context),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(c.textMuted)),
-                ],
-              ),
+              style: AppTypography.subhead(displayTone)
+                  .copyWith(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(width: 6),
-            Text(
-              privacyMode
-                  ? '••••'
-                  : Formatters.signed(tx.amount, isExpense: isDebit),
-              maxLines: 1,
-              style: AppTypography.caption(isDebit ? c.expense : c.success)
-                  .copyWith(fontWeight: FontWeight.w900),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _plansEntryCard(BuildContext context) {
-    final c = context.colors;
-    return AppCard(
-      onTap: () => PlansScreen.open(context),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: const Icon(Icons.luggage_rounded,
-                color: Colors.white, size: 22),
-          ),
-          const SizedBox(width: AppSpacing.s4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('الخطط', style: AppTypography.bodyStrong(c.textMain)),
-                Text('ميزانية لرحلة أو مناسبة، بتتابع نفسها',
-                    style: AppTypography.footnote(c.textLight)),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_left, color: c.textLight, size: 22),
-        ],
-      ),
-    );
-  }
-
-  Widget _cardsEntryCard(BuildContext context) {
-    final c = context.colors;
-    return AppCard(
-      onTap: () => MyCardsScreen.open(context),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: const Icon(Icons.credit_card, color: Colors.white, size: 22),
-          ),
-          const SizedBox(width: AppSpacing.s4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('بطاقاتي', style: AppTypography.bodyStrong(c.textMain)),
-                Text('اعرض كل بطاقاتك وأضف عملية',
-                    style: AppTypography.footnote(c.textLight)),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_left, color: c.textLight, size: 22),
-        ],
-      ),
-    );
-  }
-
-  Widget _qirshScoreCard(
-    BuildContext context,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final score = data.qirshScore;
-    final color = score >= 80
-        ? c.success
-        : score >= 60
-            ? c.warning
-            : c.danger;
-
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text('درجة قرش',
-                    style: AppTypography.bodyStrong(c.textMain)),
-              ),
-              AnimatedAmountText(
-                amount: score.toDouble(),
-                color: color,
-                style: AppTypography.title1(color)
-                    .copyWith(fontWeight: FontWeight.w900),
-              ),
-              Text(' / 100', style: AppTypography.caption(c.textMuted)),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: [
-              _scorePill(c, 'الميزانية', data.budgetScore),
-              const SizedBox(width: AppSpacing.s2),
-              _scorePill(c, 'الادخار', data.savingsScore),
-              const SizedBox(width: AppSpacing.s2),
-              _scorePill(c, 'الانتظام', data.streakScore),
-              const SizedBox(width: AppSpacing.s2),
-              _scorePill(c, 'التنوع', data.diversityScore),
-            ],
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _scorePill(AppColors c, String label, double score) {
-    final color = score >= 80
-        ? c.success
-        : score >= 60
-            ? c.warning
-            : c.danger;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          children: [
-            Text('${score.round()}',
-                style: AppTypography.caption(color)
-                    .copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 2),
-            Text(label,
-                style: AppTypography.caption(c.textMuted),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ],
-        ),
       ),
     );
   }
@@ -1622,41 +806,809 @@ class DashboardScreen extends ConsumerWidget {
       onPrimary: () => showCaptureEntrySheet(context),
     );
   }
+}
 
-  Widget _infoCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String body,
-  }) {
+// ─── Operational Home Sections ───────────────────────────────────────────────
+
+class _DailyExpensesSection extends ConsumerWidget {
+  const _DailyExpensesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(todayExpensesProvider);
+    final budgetsAsync = ref.watch(budgetsViewProvider);
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const _SectionErrorCard(title: 'مصروفات اليوم'),
+      data: (transactions) {
+        return _HomeSectionCard(
+          title: 'مصروفات اليوم',
+          subtitle: 'آخر العمليات اللي حصلت النهارده',
+          actionLabel: 'عرض الكل',
+          onAction: () => ref.read(shellIndexProvider.notifier).state = 1,
+          emptyTitle: 'لا توجد مصروفات اليوم',
+          emptyBody: 'أول عملية هتظهر هنا فور تسجيلها',
+          isEmpty: transactions.isEmpty,
+          children: [
+            for (final tx in transactions.take(3))
+              _DailyExpenseTile(
+                transaction: tx,
+                budget: budgetsAsync.valueOrNull == null
+                    ? null
+                    : matchBudgetForCategory(
+                        budgetsAsync.valueOrNull!.snapshot,
+                        tx.categoryId,
+                      ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DailyExpenseTile extends ConsumerWidget {
+  const _DailyExpenseTile({required this.transaction, required this.budget});
+
+  final TransactionEntity transaction;
+  final BudgetProgressEntry? budget;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
+    final category = catalog?.byId(transaction.categoryId);
     final c = context.colors;
-    return AppCard(
-      child: Row(
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: c.primary.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(16),
+    final title = transaction.rawMerchant?.trim().isNotEmpty == true
+        ? transaction.rawMerchant!.trim()
+        : category?.nameAr ?? 'مصروف';
+
+    final merchantName = transaction.rawMerchant;
+
+    final bool isOverBudget = budget != null && budget!.remaining < 0;
+    final String? budgetText = budget == null
+        ? null
+        : (isOverBudget
+            ? 'تجاوزت بـ ${_plainMoney(budget!.remaining.abs(), transaction.currency)}'
+            : 'متبقي ${_plainMoney(budget!.remaining, transaction.currency)}');
+
+    // Compact 2-line row (~60-72px): line 1 is merchant + amount, line 2 is
+    // category/time + remaining budget — everything the spec asks for
+    // without a per-row progress bar or a 3-line leading text stack.
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () =>
+                TransactionDetailsScreen.showSheet(context, transaction.id),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  vertical: AppSpacing.s2, horizontal: AppSpacing.s1),
+              child: Row(
+                children: [
+                  merchantName != null && BrandMark.hasBrand(merchantName)
+                      ? BrandMark(name: merchantName, size: 36)
+                      : CategoryAvatar(
+                          merchantName: merchantName,
+                          category: category,
+                          size: 36,
+                        ),
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.bodyStrong(c.textMain),
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.s2),
+                            _SignedAmount(
+                              amount: transaction.amount,
+                              currency: transaction.currency,
+                              color: c.expense,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${category?.nameAr ?? 'غير مصنفة'} • ${Formatters.time(transaction.occurredAt)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.caption(c.textMuted),
+                              ),
+                            ),
+                            if (budgetText != null) ...[
+                              const SizedBox(width: AppSpacing.s2),
+                              Text(
+                                budgetText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.caption(
+                                  isOverBudget ? c.danger : c.success,
+                                ).copyWith(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Icon(icon, color: c.primary),
           ),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
+        ),
+        Divider(color: c.border.withValues(alpha: 0.5), height: 1),
+      ],
+    );
+  }
+}
+
+class _MonthlyExpensesSection extends ConsumerWidget {
+  const _MonthlyExpensesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(monthlyExpenseGroupsProvider);
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const _SectionErrorCard(title: 'مصروفات الشهر'),
+      data: (groups) => _HomeSectionCard(
+        title: 'مصروفات الشهر',
+        subtitle: 'مجمعة حسب التصنيف، بدون رسوم بيانية',
+        actionLabel: 'عرض الكل',
+        onAction: () => ref.read(shellIndexProvider.notifier).state = 1,
+        emptyTitle: 'لا توجد مصروفات مسجلة هذا الشهر',
+        isEmpty: groups.isEmpty,
+        children: [
+          for (final group in groups.take(4))
+            _MonthlyCategoryTile(group: group),
+        ],
+      ),
+    );
+  }
+}
+
+/// Category row for the Monthly Expenses accordion — collapsed by default
+/// (icon, category, total, remaining budget in one ~60px row); the
+/// transaction preview only renders once tapped open, which is what keeps
+/// this section from dominating the whole Home scroll.
+class _MonthlyCategoryTile extends ConsumerStatefulWidget {
+  const _MonthlyCategoryTile({required this.group});
+
+  final MonthlyCategoryGroup group;
+
+  @override
+  ConsumerState<_MonthlyCategoryTile> createState() =>
+      _MonthlyCategoryTileState();
+}
+
+class _MonthlyCategoryTileState extends ConsumerState<_MonthlyCategoryTile> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final group = widget.group;
+    final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
+    final category = catalog?.byId(group.categoryId);
+    final txPreview = group.transactions.take(3).toList(growable: false);
+    final currency = txPreview.isEmpty ? 'SAR' : txPreview.first.currency;
+    final c = context.colors;
+    final isOverBudget = group.budget != null && group.budget!.remaining < 0;
+    final subtitle = group.budget != null
+        ? budgetContextText(group.budget,
+            categoryName: category?.nameAr, currency: currency)
+        : 'إجمالي هذا الشهر';
+
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  vertical: AppSpacing.s2, horizontal: AppSpacing.s1),
+              child: Row(
+                children: [
+                  CategoryAvatar(category: category, size: 36),
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(category?.nameAr ?? 'غير مصنفة',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.bodyStrong(c.textMain)),
+                            ),
+                            const SizedBox(width: AppSpacing.s2),
+                            Text(_plainMoney(group.total, currency),
+                                style: AppTypography.bodyStrong(c.textMain)
+                                    .copyWith(fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.caption(
+                            group.budget != null
+                                ? (isOverBudget ? c.danger : c.success)
+                                : c.textMuted,
+                          ).copyWith(
+                              fontWeight: group.budget != null
+                                  ? FontWeight.w700
+                                  : FontWeight.w400),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.s2),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(Icons.keyboard_arrow_down_rounded,
+                        size: 20, color: c.textMuted),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (_expanded)
+          Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(
+                51, 0, AppSpacing.s1, AppSpacing.s2),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: AppTypography.bodyStrong(c.textMain)),
-                const SizedBox(height: 4),
-                Text(body, style: AppTypography.caption(c.textLight)),
+                for (final tx in txPreview)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            tx.rawMerchant ?? 'عملية',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption(c.textMain),
+                          ),
+                        ),
+                        Text(_plainMoney(tx.amount, tx.currency),
+                            style: AppTypography.caption(c.textSecondary)
+                                .copyWith(fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                  ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () =>
+                      ref.read(shellIndexProvider.notifier).state = 1,
+                  child: Text('عرض كل عمليات الفئة',
+                      style: AppTypography.caption(c.cta)
+                          .copyWith(fontWeight: FontWeight.w700)),
+                ),
               ],
             ),
+          ),
+        Divider(color: c.border.withValues(alpha: 0.5), height: 1),
+      ],
+    );
+  }
+}
+
+class _SubscriptionsSection extends ConsumerWidget {
+  const _SubscriptionsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(homeSubscriptionsProvider);
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const _SectionErrorCard(title: 'الاشتراكات'),
+      data: (subscriptions) => _HomeSectionCard(
+        title: 'الاشتراكات',
+        subtitle: 'أقرب مدفوعات جاية',
+        actionLabel: 'عرض الكل',
+        onAction: () => context.push('/subscriptions'),
+        emptyTitle: 'لا توجد اشتراكات مضافة',
+        isEmpty: subscriptions.isEmpty,
+        noCard: true,
+        children: [
+          if (subscriptions.isNotEmpty)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.pagePadding, vertical: 4),
+              child: Row(
+                children: [
+                  for (int i = 0; i < subscriptions.take(3).length; i++) ...[
+                    if (i > 0) const SizedBox(width: AppSpacing.s3),
+                    SizedBox(
+                      width: 155,
+                      child: _SubscriptionCard(bill: subscriptions[i]),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SubscriptionCard extends StatelessWidget {
+  const _SubscriptionCard({required this.bill});
+
+  final BillEntity bill;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final days = bill.nextDueDate
+        .difference(DateTime(
+            DateTime.now().year, DateTime.now().month, DateTime.now().day))
+        .inDays;
+    final due = days < 0
+        ? 'متأخر ${days.abs()} يوم'
+        : days == 0
+            ? 'مستحق اليوم'
+            : 'متبقي $days يوم';
+    final warningColor = days <= 2 ? c.warning : c.success;
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      color: c.surfaceCard,
+      border: Border.all(color: c.border.withValues(alpha: 0.15)),
+      onTap: () => context.push('/subscriptions'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              BrandMark(name: bill.name, size: 32),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      bill.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.bodyStrong(c.textMain),
+                    ),
+                    Text(
+                      '${Formatters.amount(bill.amount)} ${bill.currency}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption(c.textSecondary)
+                          .copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  Formatters.dateGroupLabel(bill.nextDueDate, context),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption(c.textMuted),
+                ),
+              ),
+              Text(
+                due,
+                maxLines: 1,
+                style: AppTypography.caption(warningColor)
+                    .copyWith(fontWeight: FontWeight.w800),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+}
+
+class _GoalsSection extends ConsumerWidget {
+  const _GoalsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(homeGoalsProvider);
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const _SectionErrorCard(title: 'الأهداف'),
+      data: (goals) => _HomeSectionCard(
+        title: 'الأهداف',
+        subtitle: 'أقرب أهداف محتاجة متابعة',
+        actionLabel: 'عرض كل الأهداف',
+        onAction: () => context.push('/goals'),
+        emptyTitle: 'ابدأ أول هدف مالي ليك',
+        isEmpty: goals.isEmpty,
+        noCard: true,
+        children: [
+          if (goals.isNotEmpty)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.pagePadding, vertical: 4),
+              child: Row(
+                children: [
+                  for (int i = 0; i < goals.take(3).length; i++) ...[
+                    if (i > 0) const SizedBox(width: AppSpacing.s3),
+                    SizedBox(
+                      width: 170,
+                      child: _GoalTile(goal: goals[i]),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalTile extends StatelessWidget {
+  const _GoalTile({required this.goal});
+
+  final GoalEntity goal;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final ratio = goal.targetAmount <= 0
+        ? 0.0
+        : (goal.savedAmount / goal.targetAmount).clamp(0.0, 1.0);
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      color: c.surfaceCard,
+      border: Border.all(color: c.border.withValues(alpha: 0.15)),
+      onTap: () => context.push('/goals/${goal.id}'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(goal.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.bodyStrong(c.textMain)),
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Text('${(ratio * 100).round()}%',
+                  style: AppTypography.caption(c.accent)
+                      .copyWith(fontWeight: FontWeight.w900)),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 6,
+              backgroundColor: c.surface2,
+              valueColor: AlwaysStoppedAnimation(c.accent),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            '${_plainMoney(goal.savedAmount, '')} / ${_plainMoney(goal.targetAmount, '')}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption(c.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlansSection extends ConsumerWidget {
+  const _PlansSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(homePlansProvider);
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const _SectionErrorCard(title: 'الخطط'),
+      data: (plans) => _HomeSectionCard(
+        title: 'الخطط',
+        subtitle: 'ميزانيات السفر والمناسبات النشطة',
+        actionLabel: 'عرض كل الخطط',
+        onAction: () => PlansScreen.open(context),
+        emptyTitle: 'لا توجد خطط مالية نشطة',
+        isEmpty: plans.isEmpty,
+        noCard: true,
+        children: [
+          if (plans.isNotEmpty)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.pagePadding, vertical: 4),
+              child: Row(
+                children: [
+                  for (int i = 0; i < plans.take(3).length; i++) ...[
+                    if (i > 0) const SizedBox(width: AppSpacing.s3),
+                    SizedBox(
+                      width: 175,
+                      child: _PlanCard(progress: plans[i]),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanCard extends StatelessWidget {
+  const _PlanCard({required this.progress});
+
+  final PlanProgress progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final plan = progress.plan;
+    final ratio = progress.ratio.clamp(0.0, 1.0);
+    final isOver = progress.isOver;
+    final tone = isOver ? c.danger : c.primary;
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      color: c.surfaceCard,
+      border: Border.all(color: c.border.withValues(alpha: 0.15)),
+      onTap: () => PlansScreen.open(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  plan.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.bodyStrong(c.textMain),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Text('${(progress.ratio * 100).round()}%',
+                  style: AppTypography.caption(tone)
+                      .copyWith(fontWeight: FontWeight.w900)),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            plan.status == PlanStatus.active ? 'نشطة' : 'مغلقة',
+            style: AppTypography.caption(
+              plan.status == PlanStatus.active ? c.success : c.textMuted,
+            ).copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 6,
+              backgroundColor: c.surface2,
+              valueColor: AlwaysStoppedAnimation(tone),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            'ينتهي ${Formatters.dateGroupLabel(plan.endDate, context)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption(c.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeSectionCard extends StatelessWidget {
+  const _HomeSectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.onAction,
+    required this.emptyTitle,
+    required this.isEmpty,
+    required this.children,
+    this.emptyBody,
+    this.noCard = false,
+  });
+
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final VoidCallback onAction;
+  final String emptyTitle;
+  final String? emptyBody;
+  final bool isEmpty;
+  final List<Widget> children;
+  final bool noCard;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    // A slimmer, single-row header than the shared [SectionHeader] — that
+    // widget bakes in its own AppSpacing.gutter horizontal padding, which
+    // double-counted against this wrapper's own padding and made every
+    // section header taller and more indented than the content below it.
+    final horizontalPad = noCard ? AppSpacing.pagePadding : 0.0;
+    final header = Padding(
+      padding: EdgeInsets.symmetric(horizontal: horizontalPad),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.headline(c.textPrimary)
+                      .copyWith(fontWeight: FontWeight.bold),
+                ),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption(c.textMuted),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: onAction,
+            child: Text(
+              actionLabel,
+              style: AppTypography.caption(c.cta)
+                  .copyWith(fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        header,
+        const SizedBox(height: AppSpacing.s2),
+        if (isEmpty)
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: horizontalPad),
+            child: SizedBox(
+              width: double.infinity,
+              child: AppEmptyState(
+                icon: AppLucideIcons.receipt,
+                title: emptyTitle,
+                subtitle: emptyBody ?? '',
+              ),
+            ),
+          )
+        else
+          ...children,
+      ],
+    );
+
+    if (noCard) {
+      return content;
+    }
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      child: content,
+    );
+  }
+}
+
+class _SectionErrorCard extends StatelessWidget {
+  const _SectionErrorCard({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => AppCard(
+        child: AppErrorState(
+          title: 'تعذر تحميل $title',
+          description: 'سيتم المحاولة مرة أخرى مع التحديث التالي.',
+        ),
+      );
+}
+
+class _SignedAmount extends StatelessWidget {
+  const _SignedAmount({
+    required this.amount,
+    required this.currency,
+    required this.color,
+  });
+
+  final double amount;
+  final String currency;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Text(
+        '-${_plainMoney(amount, currency)}',
+        textDirection: TextDirection.ltr,
+        style: AppTypography.bodyStrong(color)
+            .copyWith(fontWeight: FontWeight.w900),
+      );
+}
+
+String _plainMoney(double amount, String currency) {
+  final suffix = currency.trim().isEmpty
+      ? ''
+      : ' ${Currency.arabicLabel(currency.toUpperCase())}';
+  return '${Formatters.amount(amount)}$suffix';
 }
 
 // ─── Setup Nudge ─────────────────────────────────────────────────────────────
@@ -1851,6 +1803,31 @@ class _AccountSwitcher extends ConsumerWidget {
                         },
                       ),
                   ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: 'بطاقاتي',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    MyCardsScreen.open(context);
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: context.colors.surfaceCard,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: context.colors.border),
+                    ),
+                    child: Icon(
+                      Icons.credit_card,
+                      color: context.colors.cta,
+                      size: 18,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -2181,71 +2158,6 @@ class _DashboardHeader extends StatelessWidget {
   }
 }
 
-class _MerchantMiniRow extends StatelessWidget {
-  const _MerchantMiniRow({
-    required this.merchant,
-    required this.maxTotal,
-    required this.currency,
-    required this.privacyMode,
-  });
-
-  final MerchantSpend merchant;
-  final double maxTotal;
-  final String currency;
-  final bool privacyMode;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final ratio =
-        maxTotal <= 0 ? 0.0 : (merchant.total / maxTotal).clamp(0.0, 1.0);
-    final amountText = privacyMode
-        ? '•••• ${Currency.arabicLabel(currency.toUpperCase())}'
-        : '${Formatters.amount(merchant.total)} '
-            '${Currency.arabicLabel(currency.toUpperCase())}';
-    return Row(
-      children: [
-        BrandMark(name: merchant.name, size: 36),
-        const SizedBox(width: AppSpacing.s3),
-        Expanded(
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      merchant.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.subhead(c.textPrimary),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s2),
-                  Text(
-                    amountText,
-                    style: AppTypography.caption(c.textSecondary)
-                        .copyWith(fontWeight: FontWeight.w800),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                child: LinearProgressIndicator(
-                  value: ratio,
-                  minHeight: 6,
-                  backgroundColor: c.surface2,
-                  valueColor: AlwaysStoppedAnimation(c.primary),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _DashboardCouponsRail extends ConsumerWidget {
   const _DashboardCouponsRail();
 
@@ -2257,43 +2169,162 @@ class _DashboardCouponsRail extends ConsumerWidget {
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (offers) {
-        if (offers.isEmpty) return const SizedBox.shrink();
         final c = context.colors;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SectionHeader(
-              title: 'كوبونات توفر عليك',
-              subtitle: 'عروض شركاء مناسبة لمصروفاتك',
-              action: TextButton(
-                onPressed: () => context.push('/coupons'),
-                child: Text(
-                  'عرض الكل',
-                  style: AppTypography.caption(c.cta)
-                      .copyWith(fontWeight: FontWeight.w900),
-                ),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.pagePadding),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('كوبونات توفر عليك',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.headline(c.textPrimary)
+                                .copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 1),
+                        Text('عروض شركاء مناسبة لمصروفاتك',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption(c.textMuted)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.s2),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () => context.push('/coupons'),
+                    child: Text(
+                      'عرض الكل',
+                      style: AppTypography.caption(c.cta)
+                          .copyWith(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: AppSpacing.s2),
-            SizedBox(
-              height: 206,
-              child: ListView.separated(
-                clipBehavior: Clip.none,
-                scrollDirection: Axis.horizontal,
+            if (offers.isEmpty)
+              Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                itemCount: offers.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(width: AppSpacing.s3),
-                itemBuilder: (context, index) => CouponCard(
-                  offer: offers[index],
-                  compact: true,
+                child: Text('لا توجد كوبونات متاحة حاليًا',
+                    style: AppTypography.caption(c.textMuted)),
+              )
+            else
+              SizedBox(
+                height: 112,
+                child: ListView.separated(
+                  clipBehavior: Clip.none,
+                  scrollDirection: Axis.horizontal,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                  itemCount: offers.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(width: AppSpacing.s3),
+                  itemBuilder: (context, index) =>
+                      _HomeCouponCard(offer: offers[index]),
                 ),
               ),
-            ),
           ],
         );
       },
+    );
+  }
+}
+
+/// Compact coupon card for the Home carousel — brand + title + code/expiry
+/// only, ~100-120px tall. The full [CouponCard] (used on the dedicated
+/// Coupons screen) shows a description and is intentionally taller.
+class _HomeCouponCard extends StatelessWidget {
+  const _HomeCouponCard({required this.offer});
+
+  final CouponOffer offer;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => showCouponDetailsSheet(context, offer),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        child: Container(
+          width: 220,
+          padding: const EdgeInsets.all(AppSpacing.s3),
+          decoration: BoxDecoration(
+            color: c.surfaceCard,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: c.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  BrandMark(name: offer.partnerName, size: 36),
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(offer.partnerName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption(c.textMuted)
+                                .copyWith(fontWeight: FontWeight.w700)),
+                        Text(offer.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.bodyStrong(c.textPrimary)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.s2, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: c.ctaSoft,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Text(offer.code,
+                        style: AppTypography.caption(c.cta)
+                            .copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                  const Spacer(),
+                  Flexible(
+                    child: Text(
+                      Formatters.dateGroupLabel(offer.validUntil, context),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption(c.textMuted),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

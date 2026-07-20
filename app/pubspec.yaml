@@ -1,7 +1,7 @@
 name: money_companion
 description: "تطبيق عربي لتتبع المصاريف تلقائياً من رسائل البنك — Arabic-first, on-device."
 publish_to: "none"
-version: 0.1.2+37
+version: 0.1.2+38
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

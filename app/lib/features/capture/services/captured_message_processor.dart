@@ -6,6 +6,7 @@ import '../../../core/utils/currency.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/repositories/drift_budget_repository.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_account_repository.dart';
 import '../../../data/repositories/drift_gamification_repository.dart';
@@ -19,7 +20,9 @@ import 'package:drift/drift.dart' show Variable;
 import '../../../domain/entities/captured_message.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/bank_discovery_service.dart';
+import '../../../domain/services/budget_alert_planner.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
+import '../../../domain/usecases/budget_progress_usecase.dart';
 import '../../../domain/usecases/engagement_usecase.dart';
 import '../../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../../../domain/usecases/resolve_bank_for_sender_usecase.dart';
@@ -159,7 +162,7 @@ class CapturedMessageProcessor {
 
       if (showNotifications &&
           result.addTransactionResult.outcome == AddTransactionOutcome.added) {
-        await _checkBudgetAlert(db, notificationPreferences);
+        await checkBudgetAlert(db, notificationPreferences);
       }
 
       if (showNotifications) {
@@ -214,96 +217,65 @@ class CapturedMessageProcessor {
     }
   }
 
-  static Future<void> _checkBudgetAlert(
+  /// Checks every active budget (any category, any period) against current
+  /// spend and fires a local alert for each one crossing the 75%/90%/100%
+  /// thresholds. Public so both the capture pipeline (below) and manual
+  /// transaction entry (manual_transaction_sheet.dart) can call it after
+  /// adding a transaction — a budget can be blown by either path.
+  static Future<void> checkBudgetAlert(
     AppDatabase db,
     NotificationPreferences prefs,
   ) async {
-    // اسحب ميزانية الشهر الكلية (أول ميزانية نشطة من نوع all-expenses/monthly).
-    final budgetRows = await db
-        .customSelect(
-          "SELECT amount FROM budgets "
-          "WHERE is_all_expenses = 1 AND period = 'monthly' AND is_active = 1 "
-          "LIMIT 1;",
-        )
-        .get();
-    if (budgetRows.isEmpty) return;
-    final limit = budgetRows.first.read<double>('amount');
-    if (limit <= 0) return;
+    final progress = await BudgetProgressUseCase(
+      budgetRepository: DriftBudgetRepository(db),
+      transactionRepository: DriftTransactionRepository(db),
+    )();
+    if (progress.entries.isEmpty) return;
 
+    final accountRepo = DriftAccountRepository(db);
+    final defaultAccount = await accountRepo.getDefault();
+    const planner = BudgetAlertPlanner();
     final now = DateTime.now().toUtc();
-    final monthStart = DateTime.utc(now.year, now.month, 1).toIso8601String();
-    final spendRows = await db.customSelect(
-      "SELECT COALESCE(SUM(amount), 0.0) AS total FROM transactions "
-      "WHERE type = 'expense' AND status = 'confirmed' "
-      "AND occurred_at >= ? AND occurred_at <= ?;",
-      variables: [
-        Variable.withString(monthStart),
-        Variable.withString(now.toIso8601String()),
-      ],
-    ).get();
-    final spent = spendRows.first.read<double>('total');
-    final ratio = spent / limit;
 
-    // ثلاث عتبات: 75% / 90% / تجاوز 100%.
-    final bucket = ratio >= 1.0
-        ? 3
-        : ratio >= 0.9
-            ? 2
-            : ratio >= 0.75
-                ? 1
-                : 0;
-    if (bucket == 0) return;
+    for (final entry in progress.entries) {
+      final budgetAccountId = entry.budget.accountId;
+      final account = budgetAccountId == null
+          ? defaultAccount
+          : await accountRepo.getById(budgetAccountId);
+      final currencyLabel = Currency.arabicLabel(
+        account?.currency ?? defaultAccount?.currency ?? '',
+      );
+      final categoryLabel = entry.budget.isAllExpenses
+          ? 'ميزانيتك الكلية'
+          : await _categoryNameAr(db, entry.budget.categoryId) ??
+              'ميزانية الفئة';
 
-    // معرّف فريد لكل شهر + عتبة حتى لا يتكرر الإشعار.
-    final notifId = 94000 + (now.year * 12 + now.month) * 10 + bucket;
+      final content = planner.plan(
+        entry: entry,
+        now: now,
+        currencyLabel: currencyLabel,
+        categoryLabel: categoryLabel,
+      );
+      if (content == null) continue;
 
-    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-    final daysPassed = now.day.clamp(1, daysInMonth);
-    final daysRemaining = (daysInMonth - daysPassed).clamp(0, daysInMonth);
-    final dailyRate = spent / daysPassed;
-    final projected = spent + dailyRate * daysRemaining;
-    final remaining = (limit - spent).clamp(0.0, limit);
-
-    final currency = (await db
-                .customSelect(
-                    "SELECT currency FROM accounts WHERE is_default = 1 LIMIT 1;")
-                .get())
-            .firstOrNull
-            ?.read<String>('currency') ??
-        '';
-
-    String fmt(double v) => v.toStringAsFixed(0);
-
-    final currencyLabel = Currency.arabicLabel(currency);
-
-    late final String title, body;
-    if (bucket == 3) {
-      title = 'تجاوزت ميزانية الشهر';
-      body = 'صرفت ${fmt(spent - limit)} $currencyLabel زيادة عن ميزانيتك.';
-    } else if (bucket == 2) {
-      title = 'ميزانيتك على وشك الاكتمال';
-      body = 'بقيلك ${fmt(remaining)} $currencyLabel فقط — '
-          'معدلك الحالي سيستهلكها في $daysRemaining يوم.';
-    } else {
-      title = 'وصلت ٧٥٪ من ميزانيتك';
-      if (projected > limit) {
-        body = 'بقيلك ${fmt(remaining)} $currencyLabel. '
-            'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - limit)} $currencyLabel.';
-      } else {
-        body = 'بقيلك ${fmt(remaining)} $currencyLabel حتى نهاية الشهر.';
-      }
+      await LocalNotificationService.instance.showBudgetAlert(
+        title: content.title,
+        body: content.body,
+        type: content.type,
+        preferences: prefs,
+        notifId: content.notifId,
+      );
     }
+  }
 
-    final type = bucket == 3
-        ? NotificationType.budgetOver
-        : NotificationType.budgetWarning;
-
-    await LocalNotificationService.instance.showBudgetAlert(
-      title: title,
-      body: body,
-      type: type,
-      preferences: prefs,
-      notifId: notifId,
-    );
+  static Future<String?> _categoryNameAr(
+    AppDatabase db,
+    String categoryId,
+  ) async {
+    final rows = await db.customSelect(
+      'SELECT name_ar FROM categories WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(categoryId)],
+    ).get();
+    return rows.firstOrNull?.read<String>('name_ar');
   }
 }

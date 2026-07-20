@@ -20,6 +20,7 @@ import '../common/app_pill_tab_bar.dart';
 import '../common/app_empty_state.dart';
 import '../common/app_transaction_row.dart';
 import '../common/app_button.dart';
+import '../common/app_category_chip.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../common/category_catalog.dart';
 import '../subscriptions/bill_details_sheet.dart';
@@ -237,7 +238,7 @@ class TransactionsScreen extends ConsumerWidget {
                         if (index == 1) {
                           return const SizedBox(height: AppSpacing.s3);
                         }
-                        if (index == 2) return const _KindFilterChips();
+                        if (index == 2) return const _FilterBar();
                         if (index == 3) {
                           return const SizedBox(height: AppSpacing.s4);
                         }
@@ -728,6 +729,22 @@ class _DateRangeChips extends ConsumerWidget {
   }
 }
 
+class _FilterBar extends StatelessWidget {
+  const _FilterBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: _KindFilterChips()),
+        SizedBox(width: AppSpacing.s2),
+        _CategoryFilterButton(),
+      ],
+    );
+  }
+}
+
 class _KindFilterChips extends ConsumerWidget {
   const _KindFilterChips();
 
@@ -742,6 +759,7 @@ class _KindFilterChips extends ConsumerWidget {
     };
     return Wrap(
       spacing: 8,
+      runSpacing: 8,
       children: [
         for (final entry in items.entries)
           ChoiceChip(
@@ -752,6 +770,121 @@ class _KindFilterChips extends ConsumerWidget {
                 .state = entry.key,
           ),
       ],
+    );
+  }
+}
+
+/// Opens a category picker; shows the selected category (icon + name) or a
+/// neutral "التصنيف" placeholder when no category filter is active.
+class _CategoryFilterButton extends ConsumerWidget {
+  const _CategoryFilterButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final selectedId = ref.watch(transactionCategoryFilterProvider);
+    final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
+    final selected = catalog?.byId(selectedId);
+    final active = selectedId != null;
+
+    return Material(
+      color: active ? c.cta.withValues(alpha: 0.12) : c.surfaceMuted,
+      borderRadius: BorderRadius.circular(AppRadius.pill),
+      child: InkWell(
+        onTap: () => _showCategoryFilterSheet(context, ref),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s3, vertical: AppSpacing.s2),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(
+              color: active ? c.cta.withValues(alpha: 0.3) : c.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(selected?.icon ?? Icons.category_outlined,
+                  size: 15, color: active ? c.cta : c.textSecondary),
+              const SizedBox(width: 6),
+              Text(
+                selected?.nameAr ?? 'التصنيف',
+                style: AppTypography.caption(active ? c.cta : c.textSecondary)
+                    .copyWith(fontWeight: FontWeight.bold),
+              ),
+              if (active) ...[
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => ref
+                      .read(transactionCategoryFilterProvider.notifier)
+                      .state = null,
+                  child: Icon(Icons.close, size: 14, color: c.cta),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCategoryFilterSheet(
+      BuildContext context, WidgetRef ref) async {
+    final catalog = await ref.read(categoryCatalogProvider.future);
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => navySheetTheme(_CategoryFilterSheet(catalog: catalog)),
+    );
+  }
+}
+
+class _CategoryFilterSheet extends ConsumerWidget {
+  const _CategoryFilterSheet({required this.catalog});
+
+  final CategoryCatalog catalog;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final selectedId = ref.watch(transactionCategoryFilterProvider);
+    return AppSheetScaffold(
+      title: 'تصفية حسب التصنيف',
+      scrollable: true,
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+        child: Wrap(
+          spacing: AppSpacing.s2,
+          runSpacing: AppSpacing.s2,
+          children: [
+            AppCategoryChip(
+              label: 'الكل',
+              selected: selectedId == null,
+              color: c.primary,
+              onTap: () {
+                ref.read(transactionCategoryFilterProvider.notifier).state =
+                    null;
+                Navigator.of(context).pop();
+              },
+            ),
+            for (final cat in catalog.all)
+              AppCategoryChip(
+                label: cat.nameAr,
+                icon: cat.icon,
+                color: selectedId == cat.id ? c.primary : c.textLight,
+                selected: selectedId == cat.id,
+                onTap: () {
+                  ref.read(transactionCategoryFilterProvider.notifier).state =
+                      cat.id;
+                  Navigator.of(context).pop();
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -23,76 +23,80 @@ class GoalsScreen extends ConsumerWidget {
     final currencyLabel = Currency.arabicLabel(
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
 
-    return async.when(
-      loading: () => const PremiumSkeletonPage(cardCount: 4),
-      error: (error, _) => const Center(child: Text('حدث خطأ')),
-      data: (goals) {
-        final saved =
-            goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
-        final target =
-            goals.fold<double>(0, (sum, goal) => sum + goal.targetAmount);
-        if (goals.isEmpty) {
-          return ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              _GoalsHeader(
-                count: 0,
-                saved: 0,
-                target: 0,
-                currencyLabel: currencyLabel,
-                onAdd: () => GoalFormScreen.showSheet(context),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.gutter,
-                  AppSpacing.gutter,
-                  0,
-                ),
-                child: AccountRangeControls(showRange: false),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.gutter),
-                child: _EmptyGoalsCard(
+    return Scaffold(
+      backgroundColor: context.colors.bg,
+      body: async.when(
+        skipLoadingOnReload: true,
+        loading: () => const PremiumSkeletonPage(cardCount: 4),
+        error: (error, _) => const Center(child: Text('حدث خطأ')),
+        data: (goals) {
+          final saved =
+              goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
+          final target =
+              goals.fold<double>(0, (sum, goal) => sum + goal.targetAmount);
+          if (goals.isEmpty) {
+            return ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _GoalsHeader(
+                  count: 0,
+                  saved: 0,
+                  target: 0,
+                  currencyLabel: currencyLabel,
                   onAdd: () => GoalFormScreen.showSheet(context),
                 ),
-              ),
-            ],
-          );
-        }
-        return RefreshIndicator(
-          onRefresh: () async => refreshGoals(ref),
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              _GoalsHeader(
-                count: goals.length,
-                saved: saved,
-                target: target,
-                currencyLabel: currencyLabel,
-                onAdd: () => GoalFormScreen.showSheet(context),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.gutter),
-                child: Column(
-                  children: [
-                    const AccountRangeControls(showRange: false),
-                    const SizedBox(height: AppSpacing.s4),
-                    for (final goal in goals) ...[
-                      _GoalCard(
-                        goal: goal,
-                        currencyLabel: currencyLabel,
-                      ),
-                      const SizedBox(height: AppSpacing.s4),
-                    ],
-                    const SizedBox(height: 120),
-                  ],
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.gutter,
+                    AppSpacing.gutter,
+                    AppSpacing.gutter,
+                    0,
+                  ),
+                  child: AccountRangeControls(showRange: false),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.gutter),
+                  child: _EmptyGoalsCard(
+                    onAdd: () => GoalFormScreen.showSheet(context),
+                  ),
+                ),
+              ],
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: () async => refreshGoals(ref),
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _GoalsHeader(
+                  count: goals.length,
+                  saved: saved,
+                  target: target,
+                  currencyLabel: currencyLabel,
+                  onAdd: () => GoalFormScreen.showSheet(context),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.gutter),
+                  child: Column(
+                    children: [
+                      const AccountRangeControls(showRange: false),
+                      const SizedBox(height: AppSpacing.s4),
+                      for (final goal in goals) ...[
+                        _GoalCard(
+                          goal: goal,
+                          currencyLabel: currencyLabel,
+                        ),
+                        const SizedBox(height: AppSpacing.s4),
+                      ],
+                      const SizedBox(height: 120),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

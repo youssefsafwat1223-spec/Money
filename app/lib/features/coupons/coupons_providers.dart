@@ -13,7 +13,7 @@ final couponsProvider = FutureProvider<List<CouponOffer>>((ref) async {
 
 final dashboardCouponsProvider = Provider<AsyncValue<List<CouponOffer>>>((ref) {
   final async = ref.watch(couponsProvider);
-  return async.whenData((offers) => offers.take(4).toList(growable: false));
+  return async.whenData((offers) => offers.take(3).toList(growable: false));
 });
 
 List<CouponOffer> _sampleCoupons(DateTime now) {

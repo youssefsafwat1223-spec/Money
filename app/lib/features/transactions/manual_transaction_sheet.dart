@@ -14,6 +14,7 @@ import '../../domain/errors/repo_exceptions.dart';
 import '../../engine/parser/normalizer.dart';
 import '../achievements/achievements_providers.dart';
 import '../budgets/budgets_providers.dart';
+import '../capture/services/captured_message_processor.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -185,6 +186,15 @@ class _ManualTransactionSheetState
       refreshBudgets(ref);
       refreshAchievements(ref);
       ref.invalidate(dashboardDataProvider);
+      // Manually-added/edited transactions can cross a budget threshold just
+      // like SMS-captured ones — reuse the same checker so both paths alert.
+      final prefs =
+          await ref.read(loadNotificationPreferencesUseCaseProvider)();
+      await CapturedMessageProcessor.checkBudgetAlert(
+        ref.read(appDatabaseProvider),
+        prefs,
+      );
+      if (!mounted) return;
       Navigator.of(context).pop();
     } on RepoException catch (e) {
       if (mounted) _snack(repoExceptionMessage(e));
@@ -277,6 +287,7 @@ class _ManualTransactionSheetState
     return AppSheetScaffold(
       title: _isEditing ? 'تعديل العملية' : 'إضافة عملية يدويًا',
       body: catalogAsync.when(
+        skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
             const Center(child: Text('تعذر تحميل التصنيفات')),
