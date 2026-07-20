@@ -1,10 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/card_summary.dart';
 import 'package:money_companion/domain/entities/category_spend.dart';
-import 'package:money_companion/domain/entities/engagement_entities.dart';
 import 'package:money_companion/domain/entities/report_models.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/repositories/budget_repository.dart';
@@ -12,10 +9,9 @@ import 'package:money_companion/domain/repositories/transaction_repository.dart'
 import 'package:money_companion/domain/usecases/budget_progress_usecase.dart';
 
 class _FakeBudgetRepository implements BudgetRepository {
-  _FakeBudgetRepository(this.budgets, {this.releaseGetAll});
+  _FakeBudgetRepository(this.budgets);
 
   final List<BudgetEntity> budgets;
-  final Completer<void>? releaseGetAll;
   var getAllCalls = 0;
 
   @override
@@ -29,10 +25,6 @@ class _FakeBudgetRepository implements BudgetRepository {
   @override
   Future<List<BudgetEntity>> getAll() async {
     getAllCalls += 1;
-    final release = releaseGetAll;
-    if (release != null && !release.isCompleted) {
-      await release.future;
-    }
     return budgets;
   }
 
@@ -266,7 +258,6 @@ class _FakeTransactionRepository implements TransactionRepository {
 }
 
 void main() {
-
   test('uses injected batch spent summary for current budget periods',
       () async {
     final repo = _FakeBudgetRepository([
@@ -328,4 +319,4 @@ void main() {
     expect(snapshot.entries.single.ratio, 0.5);
     expect(snapshot.entries.single.budget.isAllExpenses, isTrue);
   });
-
+}

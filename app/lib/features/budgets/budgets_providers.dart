@@ -121,7 +121,7 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
       ));
     }
     entries.sort((a, b) => b.ratio.compareTo(a.ratio));
-    return BudgetProgressSnapshot(entries: entries, alerts: const []);
+    return BudgetProgressSnapshot(entries: entries);
   }
 
   final snapshot = await buildSnapshot(budgets, fallbackAccountId: accountId);

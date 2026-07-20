@@ -256,7 +256,7 @@ class DriftFinancialImporter {
           _or(row['period'], 'monthly'),
           _date(row['start_date']),
           _boolInt(row['is_active']),
-          (row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0.0,
+          _double(row['last_notified_spent_amount']) ?? 0.0,
           _or(row['last_notified_period_start'], '2000-01-01T00:00:00Z'),
           _boolInt(row['show_on_header']),
         ]);
@@ -352,7 +352,7 @@ class DriftFinancialImporter {
           _double(row['auto_save_amount']),
           _nullable(row['auto_save_period']),
           _nullableDate(row['auto_save_last_run']),
-          (row['last_notified_saved_amount'] as num?)?.toDouble() ?? 0.0,
+          _double(row['last_notified_saved_amount']) ?? 0.0,
         ]);
       case 'goal_contributions':
         await _db.customStatement('''

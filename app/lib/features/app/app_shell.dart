@@ -19,14 +19,10 @@ import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
-import '../../core/utils/currency.dart';
-import '../../core/utils/riyadh_time.dart';
-import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
-import '../../domain/services/notification_planner.dart';
 import '../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../achievements/achievements_providers.dart';
 import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
@@ -41,13 +37,10 @@ import '../capture/services/pending_notification_actions.dart';
 import '../capture/services/native_capture_bridge.dart';
 import '../../core/tracking/user_activity_service.dart';
 import '../cards/cards_providers.dart';
-import '../common/category_catalog.dart';
 import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
-import '../discover/services/bank_discovery_service.dart';
 import '../gamification/services/gamification_sync_service.dart';
-import '../goals/goal_detail_sheet.dart';
 import '../goals/goals_providers.dart';
 import '../plans/plans_providers.dart';
 import '../reports/reports_providers.dart';
@@ -512,7 +505,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         }
       }
     }
-    
+
     // Gamification Sync (1-way Supabase -> Local)
     try {
       await ref.read(gamificationSyncServiceProvider).performSync();

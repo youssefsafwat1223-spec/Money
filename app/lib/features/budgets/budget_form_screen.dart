@@ -402,48 +402,6 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     );
   }
 
-  Widget _buildSwitchRow({
-    required String title,
-    String? subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: c.surface.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: c.border.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(title, style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
-                if (subtitle != null)
-                  Text(subtitle,
-                      style: _alex(11, FontWeight.w500, 1.3, c.textLight)),
-              ],
-            ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: c.accent,
-            activeTrackColor: c.accent.withValues(alpha: 0.3),
-            inactiveThumbColor: Colors.white,
-            inactiveTrackColor: c.border.withValues(alpha: 0.5),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _submit(BudgetEntity? existing) async {
     if (_saving || !_formKey.currentState!.validate() || _categoryId == null) {
       return;
