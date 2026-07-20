@@ -624,8 +624,8 @@ void main() {
       period: BudgetPeriod.monthly,
       startDate: DateTime.utc(2026, 6, 1),
       isActive: true,
-      alert80Sent: false,
-      alert100Sent: false,
+      lastNotifiedSpentAmount: 0.0,
+      lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
     );
 
     final saved = await saveBudget(budget);

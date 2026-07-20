@@ -11,8 +11,8 @@ class BudgetEntity {
     required this.period,
     required this.startDate,
     required this.isActive,
-    required this.alert80Sent,
-    required this.alert100Sent,
+    required this.lastNotifiedSpentAmount,
+    required this.lastNotifiedPeriodStart,
     this.showOnHeader = false,
     this.accountId,
   });
@@ -23,8 +23,8 @@ class BudgetEntity {
   final BudgetPeriod period;
   final DateTime startDate;
   final bool isActive;
-  final bool alert80Sent;
-  final bool alert100Sent;
+  final double lastNotifiedSpentAmount;
+  final DateTime lastNotifiedPeriodStart;
   final bool showOnHeader;
   final String? accountId;
 
@@ -37,8 +37,8 @@ class BudgetEntity {
     BudgetPeriod? period,
     DateTime? startDate,
     bool? isActive,
-    bool? alert80Sent,
-    bool? alert100Sent,
+    double? lastNotifiedSpentAmount,
+    DateTime? lastNotifiedPeriodStart,
     bool? showOnHeader,
     String? accountId,
   }) {
@@ -49,8 +49,8 @@ class BudgetEntity {
       period: period ?? this.period,
       startDate: startDate ?? this.startDate,
       isActive: isActive ?? this.isActive,
-      alert80Sent: alert80Sent ?? this.alert80Sent,
-      alert100Sent: alert100Sent ?? this.alert100Sent,
+      lastNotifiedSpentAmount: lastNotifiedSpentAmount ?? this.lastNotifiedSpentAmount,
+      lastNotifiedPeriodStart: lastNotifiedPeriodStart ?? this.lastNotifiedPeriodStart,
       showOnHeader: showOnHeader ?? this.showOnHeader,
       accountId: accountId ?? this.accountId,
     );

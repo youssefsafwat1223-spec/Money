@@ -92,6 +92,7 @@ class SupabaseGoalRepository implements GoalRepository {
       'auto_save_amount': goal.autoSaveAmount,
       'auto_save_period': goal.autoSavePeriod,
       'auto_save_last_run': goal.autoSaveLastRun?.toUtc().toIso8601String(),
+      'last_notified_saved_amount': goal.lastNotifiedSavedAmount,
       'metadata': <String, dynamic>{},
     };
     Map<String, dynamic>? row;
@@ -296,6 +297,7 @@ class SupabaseGoalRepository implements GoalRepository {
       accountId: row['server_account_id'] as String?,
       targetAmount: (row['target_amount'] as num).toDouble(),
       savedAmount: (row['saved_amount'] as num).toDouble(),
+      lastNotifiedSavedAmount: (row['last_notified_saved_amount'] as num?)?.toDouble() ?? 0.0,
       deadline: _date(row['deadline']),
       vaultSkin: row['vault_skin'] as String,
       status: row['status'] as String,

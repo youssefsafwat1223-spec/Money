@@ -221,8 +221,8 @@ BudgetEntity budgetFromRow(QueryRow row) {
     period: budgetPeriodFromSql(period),
     startDate: dateTimeFromSql(startDate),
     isActive: sqlToBool(row.read<int>('is_active')),
-    alert80Sent: sqlToBool(row.read<int>('alert_80_sent')),
-    alert100Sent: sqlToBool(row.read<int>('alert_100_sent')),
+    lastNotifiedSpentAmount: row.readNullable<double>('last_notified_spent_amount') ?? 0,
+    lastNotifiedPeriodStart: dateTimeFromSql(row.readNullable<String>('last_notified_period_start') ?? '2000-01-01T00:00:00Z'),
     showOnHeader: sqlToBool(row.readNullable<int>('show_on_header') ?? 0),
     accountId: row.readNullable<String>('account_id'),
   );
@@ -230,22 +230,18 @@ BudgetEntity budgetFromRow(QueryRow row) {
 
 GoalEntity goalFromRow(QueryRow row) {
   final deadlineValue = row.readNullable<String>('deadline');
-  final targetAmount = row.read<double>('target_amount');
-  final savedAmount = row.read<double>('saved_amount');
-  final vaultSkin = row.read<String>('vault_skin');
-  final status = row.read<String>('status');
-  final createdAt = row.read<String>('created_at');
   final autoSaveLastRun = row.readNullable<String>('auto_save_last_run');
   return GoalEntity(
     id: row.read<String>('id'),
     name: row.read<String>('name'),
     accountId: row.readNullable<String>('account_id'),
-    targetAmount: targetAmount,
-    savedAmount: savedAmount,
+    targetAmount: row.read<double>('target_amount'),
+    savedAmount: row.read<double>('saved_amount'),
+    lastNotifiedSavedAmount: row.readNullable<double>('last_notified_saved_amount') ?? 0.0,
     deadline: deadlineValue == null ? null : dateTimeFromSql(deadlineValue),
-    vaultSkin: vaultSkin,
-    status: status,
-    createdAt: dateTimeFromSql(createdAt),
+    vaultSkin: row.read<String>('vault_skin'),
+    status: row.read<String>('status'),
+    createdAt: dateTimeFromSql(row.read<String>('created_at')),
     autoSaveAmount: row.readNullable<double>('auto_save_amount'),
     autoSavePeriod: row.readNullable<String>('auto_save_period'),
     autoSaveLastRun:

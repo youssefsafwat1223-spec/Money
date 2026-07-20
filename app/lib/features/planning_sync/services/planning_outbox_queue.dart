@@ -295,8 +295,8 @@ class PlanningOutboxQueue {
       'period': budget.period.name,
       'start_date': budget.startDate.toUtc().toIso8601String(),
       'is_active': budget.isActive,
-      'alert_80_sent': budget.alert80Sent,
-      'alert_100_sent': budget.alert100Sent,
+      'last_notified_spent_amount': budget.lastNotifiedSpentAmount,
+      'last_notified_period_start': budget.lastNotifiedPeriodStart.toUtc().toIso8601String(),
       'show_on_header': budget.showOnHeader,
       'local_account_id': budget.accountId,
     });
@@ -347,6 +347,7 @@ class PlanningOutboxQueue {
       'auto_save_amount': goal.autoSaveAmount,
       'auto_save_period': goal.autoSavePeriod,
       'auto_save_last_run': goal.autoSaveLastRun?.toUtc().toIso8601String(),
+      'last_notified_saved_amount': goal.lastNotifiedSavedAmount,
       'created_at': goal.createdAt.toUtc().toIso8601String(),
     });
   }

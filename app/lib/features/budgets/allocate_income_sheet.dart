@@ -128,8 +128,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
           period: BudgetPeriod.monthly,
           startDate: now,
           isActive: true,
-          alert80Sent: false,
-          alert100Sent: false,
+          lastNotifiedSpentAmount: 0,
+          lastNotifiedPeriodStart: now,
           accountId: accountId,
         ),
       );

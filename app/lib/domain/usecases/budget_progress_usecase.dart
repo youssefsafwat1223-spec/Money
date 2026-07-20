@@ -49,7 +49,6 @@ class BudgetProgressUseCase {
         .where((budget) => budget.isActive)
         .toList();
     final entries = <BudgetProgressEntry>[];
-    final alerts = <BudgetAlertTrigger>[];
     final currentPeriods = <BudgetPeriod, (DateTime, DateTime)>{
       for (final period in BudgetPeriod.values)
         period: _currentPeriodFor(period, current),
@@ -79,32 +78,10 @@ class BudgetProgressUseCase {
         periodEnd: period.$2,
       );
       entries.add(entry);
-
-      if (ratio >= 1 && !normalizedBudget.alert100Sent) {
-        final updated = normalizedBudget.copyWith(alert100Sent: true);
-        await _budgetRepository.save(updated);
-        alerts.add(
-          BudgetAlertTrigger(
-            budget: updated,
-            progress: entry,
-            kind: BudgetAlertKind.over100,
-          ),
-        );
-      } else if (ratio >= 0.8 && ratio < 1 && !normalizedBudget.alert80Sent) {
-        final updated = normalizedBudget.copyWith(alert80Sent: true);
-        await _budgetRepository.save(updated);
-        alerts.add(
-          BudgetAlertTrigger(
-            budget: updated,
-            progress: entry,
-            kind: BudgetAlertKind.warning80,
-          ),
-        );
-      }
     }
 
     entries.sort((a, b) => b.ratio.compareTo(a.ratio));
-    return BudgetProgressSnapshot(entries: entries, alerts: alerts);
+    return BudgetProgressSnapshot(entries: entries);
   }
 
   Future<Map<String, double>?> _fetchCurrentBatchSpent(
@@ -155,8 +132,8 @@ class BudgetProgressUseCase {
 
     final updated = budget.copyWith(
       startDate: expectedStart,
-      alert80Sent: false,
-      alert100Sent: false,
+      lastNotifiedSpentAmount: 0,
+      lastNotifiedPeriodStart: expectedStart,
     );
     return _budgetRepository.save(updated);
   }

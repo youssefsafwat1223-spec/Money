@@ -7,6 +7,7 @@ class GoalEntity {
     required this.vaultSkin,
     required this.status,
     required this.createdAt,
+    this.lastNotifiedSavedAmount = 0.0,
     this.accountId,
     this.deadline,
     this.autoSaveAmount,
@@ -19,6 +20,7 @@ class GoalEntity {
   final String? accountId;
   final double targetAmount;
   final double savedAmount;
+  final double lastNotifiedSavedAmount;
   final DateTime? deadline;
   final String vaultSkin;
   final String status;
@@ -37,6 +39,7 @@ class GoalEntity {
     String? name,
     double? targetAmount,
     double? savedAmount,
+    double? lastNotifiedSavedAmount,
     String? accountId,
     DateTime? deadline,
     String? vaultSkin,
@@ -52,6 +55,7 @@ class GoalEntity {
       accountId: accountId ?? this.accountId,
       targetAmount: targetAmount ?? this.targetAmount,
       savedAmount: savedAmount ?? this.savedAmount,
+      lastNotifiedSavedAmount: lastNotifiedSavedAmount ?? this.lastNotifiedSavedAmount,
       deadline: deadline ?? this.deadline,
       vaultSkin: vaultSkin ?? this.vaultSkin,
       status: status ?? this.status,

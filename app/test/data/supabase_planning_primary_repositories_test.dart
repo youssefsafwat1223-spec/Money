@@ -139,8 +139,8 @@ void main() {
       period: BudgetPeriod.monthly,
       startDate: DateTime.utc(2026, 7),
       isActive: true,
-      alert80Sent: false,
-      alert100Sent: false,
+      lastNotifiedSpentAmount: 0.0,
+      lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       showOnHeader: true,
     ));
 
@@ -389,8 +389,8 @@ void main() {
         period: BudgetPeriod.monthly,
         startDate: DateTime.utc(2026, 7),
         isActive: true,
-        alert80Sent: false,
-        alert100Sent: false,
+        lastNotifiedSpentAmount: 0.0,
+        lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
         showOnHeader: false,
       )),
       throwsA(isA<Exception>()),
@@ -425,8 +425,8 @@ void main() {
       period: BudgetPeriod.monthly,
       startDate: DateTime.utc(2026, 7),
       isActive: true,
-      alert80Sent: false,
-      alert100Sent: false,
+      lastNotifiedSpentAmount: 0.0,
+      lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       showOnHeader: false,
     ));
 

@@ -128,6 +128,7 @@ class DriftGoalRepository implements GoalRepository {
       await _db.customStatement('''
         INSERT INTO goals(
           id, name, account_id, target_amount, saved_amount, deadline, vault_skin, status, created_at,
+          last_notified_saved_amount,
           auto_save_amount, auto_save_period, auto_save_last_run
         ) VALUES (
           ${sqlString(goal.id)},
@@ -139,6 +140,7 @@ class DriftGoalRepository implements GoalRepository {
           ${sqlString(goal.vaultSkin)},
           ${sqlString(goal.status)},
           ${sqlString(dateTimeToSql(goal.createdAt))},
+          ${goal.lastNotifiedSavedAmount},
           $autoAmount, $autoPeriod, $autoLastRun
         );
       ''');
@@ -157,6 +159,7 @@ class DriftGoalRepository implements GoalRepository {
             vault_skin = ${sqlString(goal.vaultSkin)},
             status = ${sqlString(goal.status)},
             created_at = ${sqlString(dateTimeToSql(goal.createdAt))},
+            last_notified_saved_amount = ${goal.lastNotifiedSavedAmount},
             auto_save_amount = $autoAmount,
             auto_save_period = $autoPeriod,
             auto_save_last_run = $autoLastRun

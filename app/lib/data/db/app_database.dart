@@ -280,8 +280,8 @@ class AppDatabase extends GeneratedDatabase {
         period TEXT NOT NULL,
         start_date TEXT NOT NULL,
         is_active INTEGER NOT NULL,
-        alert_80_sent INTEGER NOT NULL,
-        alert_100_sent INTEGER NOT NULL,
+        last_notified_spent_amount REAL NOT NULL DEFAULT 0,
+        last_notified_period_start TEXT NOT NULL DEFAULT '2000-01-01T00:00:00Z',
         show_on_header INTEGER NOT NULL DEFAULT 0,
         account_id TEXT NULL,
         server_id TEXT NULL,
@@ -303,6 +303,7 @@ class AppDatabase extends GeneratedDatabase {
         deadline TEXT NULL,
         vault_skin TEXT NOT NULL,
         status TEXT NOT NULL,
+        last_notified_saved_amount REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         auto_save_amount REAL NULL,
         auto_save_period TEXT NULL,
@@ -548,6 +549,21 @@ class AppDatabase extends GeneratedDatabase {
     }
     await _ensureColumn('transactions', 'note', 'TEXT NULL');
     await _ensureColumn('remote_merchant_keywords', 'logo_url', 'TEXT');
+    await _ensureColumn(
+      'budgets',
+      'last_notified_spent_amount',
+      'REAL NOT NULL DEFAULT 0',
+    );
+    await _ensureColumn(
+      'budgets',
+      'last_notified_period_start',
+      "TEXT NOT NULL DEFAULT '2000-01-01T00:00:00Z'",
+    );
+    await _ensureColumn(
+      'goals',
+      'last_notified_saved_amount',
+      'REAL NOT NULL DEFAULT 0',
+    );
     await _ensureColumn('subscriptions', 'name', "TEXT NOT NULL DEFAULT ''");
     await _ensureColumn(
       'subscriptions',

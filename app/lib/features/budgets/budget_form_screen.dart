@@ -150,8 +150,6 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   final _amountController = TextEditingController();
   BudgetPeriod _period = BudgetPeriod.monthly;
   String? _categoryId;
-  bool _alert80 = true;
-  bool _alert100 = true;
   String? _accountId;
   bool _didSeedInitialState = false;
   bool _suggestionLoading = false;
@@ -342,17 +340,6 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                     ),
                   ],
                   const SizedBox(height: AppSpacing.s4),
-                  _buildSwitchRow(
-                    title: 'نبّهني عند 80%',
-                    value: _alert80,
-                    onChanged: (value) => setState(() => _alert80 = value),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSwitchRow(
-                    title: 'نبّهني عند 100%',
-                    value: _alert100,
-                    onChanged: (value) => setState(() => _alert100 = value),
-                  ),
                   const SizedBox(height: AppSpacing.s5),
                   SizedBox(
                     height: 52,
@@ -476,15 +463,13 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                 period: _period,
                 startDate: DateTime.now().toUtc(),
                 isActive: true,
-                alert80Sent: false,
-                alert100Sent: false,
+                lastNotifiedSpentAmount: 0,
+                lastNotifiedPeriodStart: DateTime.now().toUtc(),
               ))
           .copyWith(
         categoryId: _categoryId,
         amount: amount,
         period: _period,
-        alert80Sent: !_alert80,
-        alert100Sent: !_alert100,
         showOnHeader: false,
         accountId: selectedAccount?.id,
       );
@@ -553,8 +538,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     _amountController.text = budget.amount.toStringAsFixed(0);
     _period = budget.period;
     _categoryId = budget.categoryId;
-    _alert80 = !budget.alert80Sent;
-    _alert100 = !budget.alert100Sent;
+    _categoryId = budget.categoryId;
     _accountId = budget.accountId;
   }
 

@@ -24,28 +24,12 @@ class BudgetProgressEntry {
   final DateTime periodEnd;
 }
 
-enum BudgetAlertKind { warning80, over100 }
-
-class BudgetAlertTrigger {
-  const BudgetAlertTrigger({
-    required this.budget,
-    required this.progress,
-    required this.kind,
-  });
-
-  final BudgetEntity budget;
-  final BudgetProgressEntry progress;
-  final BudgetAlertKind kind;
-}
-
 class BudgetProgressSnapshot {
   const BudgetProgressSnapshot({
     required this.entries,
-    required this.alerts,
   });
 
   final List<BudgetProgressEntry> entries;
-  final List<BudgetAlertTrigger> alerts;
 }
 
 class GoalDetailsEntity {

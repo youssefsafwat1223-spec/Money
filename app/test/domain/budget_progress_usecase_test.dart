@@ -266,39 +266,6 @@ class _FakeTransactionRepository implements TransactionRepository {
 }
 
 void main() {
-  test('BudgetProgress يحسب النسبة ويرسل تنبيه 80% مرة واحدة', () async {
-    final repo = _FakeBudgetRepository([
-      BudgetEntity(
-        id: 'budget-1',
-        categoryId: 'restaurants',
-        amount: 100,
-        period: BudgetPeriod.daily,
-        startDate: DateTime.utc(2026, 6, 14, 0),
-        isActive: true,
-        alert80Sent: false,
-        alert100Sent: false,
-      ),
-    ]);
-    final useCase = BudgetProgressUseCase(
-      budgetRepository: repo,
-      transactionRepository: _FakeTransactionRepository(
-        currentSpend: 90,
-        previousSpend: 40,
-      ),
-    );
-
-    final snapshot = await useCase.call(now: DateTime.utc(2026, 6, 14, 10));
-
-    expect(snapshot.entries, hasLength(1));
-    expect(snapshot.entries.first.health, BudgetHealth.warning);
-    expect(snapshot.entries.first.ratio, 0.9);
-    expect(snapshot.alerts, hasLength(1));
-    expect(snapshot.alerts.first.kind, BudgetAlertKind.warning80);
-
-    final secondSnapshot =
-        await useCase.call(now: DateTime.utc(2026, 6, 14, 12));
-    expect(secondSnapshot.alerts, isEmpty);
-  });
 
   test('uses injected batch spent summary for current budget periods',
       () async {
@@ -310,8 +277,8 @@ void main() {
         period: BudgetPeriod.monthly,
         startDate: DateTime(2026, 7),
         isActive: true,
-        alert80Sent: false,
-        alert100Sent: false,
+        lastNotifiedSpentAmount: 0.0,
+        lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       ),
     ]);
     var calls = 0;
@@ -343,8 +310,8 @@ void main() {
         period: BudgetPeriod.daily,
         startDate: DateTime.utc(2026, 6, 14, 0),
         isActive: true,
-        alert80Sent: false,
-        alert100Sent: false,
+        lastNotifiedSpentAmount: 0.0,
+        lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       ),
     ]);
     final useCase = BudgetProgressUseCase(
@@ -362,44 +329,3 @@ void main() {
     expect(snapshot.entries.single.budget.isAllExpenses, isTrue);
   });
 
-  test('concurrent BudgetProgress calls share one in-flight alert pass',
-      () async {
-    final releaseGetAll = Completer<void>();
-    final repo = _FakeBudgetRepository(
-      [
-        BudgetEntity(
-          id: 'budget-race',
-          categoryId: 'restaurants',
-          amount: 100,
-          period: BudgetPeriod.daily,
-          startDate: DateTime.utc(2026, 6, 14, 0),
-          isActive: true,
-          alert80Sent: false,
-          alert100Sent: false,
-        ),
-      ],
-      releaseGetAll: releaseGetAll,
-    );
-    final useCase = BudgetProgressUseCase(
-      budgetRepository: repo,
-      transactionRepository: _FakeTransactionRepository(
-        currentSpend: 90,
-        previousSpend: 40,
-      ),
-    );
-
-    final first = useCase.call(now: DateTime.utc(2026, 6, 14, 10));
-    final second = useCase.call(now: DateTime.utc(2026, 6, 14, 10));
-
-    await Future<void>.delayed(Duration.zero);
-    expect(repo.getAllCalls, 1);
-
-    releaseGetAll.complete();
-    final snapshots = await Future.wait([first, second]);
-
-    expect(repo.getAllCalls, 1);
-    expect(snapshots.first.alerts, hasLength(1));
-    expect(snapshots[1].alerts, hasLength(1));
-    expect(repo.budgets.single.alert80Sent, isTrue);
-  });
-}

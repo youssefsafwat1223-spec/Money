@@ -73,7 +73,7 @@ class DriftBudgetRepository implements BudgetRepository {
       await _db.customInsert(
         '''
           INSERT INTO budgets(
-            id, category_id, amount, period, start_date, is_active, alert_80_sent, alert_100_sent, show_on_header, account_id
+            id, category_id, amount, period, start_date, is_active, last_notified_spent_amount, last_notified_period_start, show_on_header, account_id
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
         variables: [
@@ -83,8 +83,8 @@ class DriftBudgetRepository implements BudgetRepository {
           Variable.withString(budgetPeriodToSql(budget.period)),
           Variable.withString(dateTimeToSql(budget.startDate)),
           Variable.withInt(boolToSql(budget.isActive)),
-          Variable.withInt(boolToSql(budget.alert80Sent)),
-          Variable.withInt(boolToSql(budget.alert100Sent)),
+          Variable.withReal(budget.lastNotifiedSpentAmount),
+          Variable.withString(dateTimeToSql(budget.lastNotifiedPeriodStart)),
           Variable.withInt(boolToSql(budget.showOnHeader)),
           budget.accountId == null
               ? const Variable<String>(null)
@@ -100,7 +100,7 @@ class DriftBudgetRepository implements BudgetRepository {
         '''
           UPDATE budgets
           SET category_id = ?, amount = ?, period = ?, start_date = ?, is_active = ?,
-              alert_80_sent = ?, alert_100_sent = ?, show_on_header = ?, account_id = ?
+              last_notified_spent_amount = ?, last_notified_period_start = ?, show_on_header = ?, account_id = ?
           WHERE id = ?;
         ''',
         variables: [
@@ -109,8 +109,8 @@ class DriftBudgetRepository implements BudgetRepository {
           Variable.withString(budgetPeriodToSql(budget.period)),
           Variable.withString(dateTimeToSql(budget.startDate)),
           Variable.withInt(boolToSql(budget.isActive)),
-          Variable.withInt(boolToSql(budget.alert80Sent)),
-          Variable.withInt(boolToSql(budget.alert100Sent)),
+          Variable.withReal(budget.lastNotifiedSpentAmount),
+          Variable.withString(dateTimeToSql(budget.lastNotifiedPeriodStart)),
           Variable.withInt(boolToSql(budget.showOnHeader)),
           budget.accountId == null
               ? const Variable<String>(null)

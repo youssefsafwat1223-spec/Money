@@ -45,6 +45,9 @@ import '../common/category_catalog.dart';
 import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../discover/services/bank_discovery_service.dart';
+import '../gamification/services/gamification_sync_service.dart';
+import '../goals/goal_detail_sheet.dart';
 import '../goals/goals_providers.dart';
 import '../plans/plans_providers.dart';
 import '../reports/reports_providers.dart';
@@ -509,6 +512,15 @@ class _AppShellState extends ConsumerState<AppShell> {
         }
       }
     }
+    
+    // Gamification Sync (1-way Supabase -> Local)
+    try {
+      await ref.read(gamificationSyncServiceProvider).performSync();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[GamificationSync] sync skipped: ${error.runtimeType}');
+      }
+    }
   }
 
   Future<void> _consumeSharedInput() async {
@@ -742,76 +754,6 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _syncEngagementBody() async {
-    final preferences =
-        await ref.read(loadNotificationPreferencesUseCaseProvider).call();
-    final snapshot = await ref.read(budgetProgressUseCaseProvider).call();
-    final catalog = await ref.read(categoryCatalogProvider.future);
-    // Budget notifications follow the active/default account currency.
-    final budgetCurrency = await ref.read(baseCurrencyProvider.future);
-    for (final alert in snapshot.alerts) {
-      final category = catalog.byId(alert.budget.categoryId);
-      final label =
-          alert.budget.categoryId == BudgetEntity.allExpensesCategoryId
-              ? 'كل المصروفات'
-              : category?.nameAr ?? 'ميزانية';
-      if (alert.kind == BudgetAlertKind.warning80) {
-        await LocalNotificationService.instance.showBudgetAlert(
-          title: 'اقتربت من ميزانية $label',
-          body:
-              'وصلت إلى ${(alert.progress.ratio * 100).round()}% من ميزانية ${Currency.moneyInt(alert.progress.budget.amount, budgetCurrency)}.',
-          type: NotificationType.budgetWarning,
-          preferences: preferences,
-        );
-      } else {
-        await LocalNotificationService.instance.showBudgetAlert(
-          title: 'تم تجاوز ميزانية $label',
-          body:
-              'تجاوزت الميزانية بمقدار ${Currency.moneyInt(alert.progress.remaining.abs(), budgetCurrency)}.',
-          type: NotificationType.budgetOver,
-          preferences: preferences,
-        );
-      }
-    }
-
-    final passive =
-        await ref.read(recordEngagementUseCaseProvider).evaluatePassiveBadges();
-    for (final achievement in passive) {
-      await LocalNotificationService.instance.showAchievementNotification(
-        title: 'شارة جديدة',
-        body: achievement.nameAr,
-        preferences: preferences,
-      );
-      CelebrationRuntime.instance.pushAll([
-        CelebrationEvent(
-          kind: CelebrationKind.badgeUnlocked,
-          title: 'شارة جديدة',
-          message: achievement.nameAr,
-        ),
-      ]);
-    }
-    if (passive.isNotEmpty && mounted) {
-      refreshAchievements(ref);
-    }
-
-    final streak = await ref.read(gamificationRepositoryProvider).getStreak();
-    final hasActivityToday = RiyadhTime.dayGap(
-          streak.lastActiveDate,
-          DateTime.now().toUtc(),
-        ) ==
-        0;
-    await LocalNotificationService.instance.scheduleStreakReminder(
-      hasActivityToday: hasActivityToday,
-      preferences: preferences,
-    );
-    final bills = await ref.read(billRepositoryProvider).getAll();
-    final planned = const NotificationPlanner().planScheduled(
-      preferences: preferences,
-      bills: bills,
-      nowRiyadh: RiyadhTime.toRiyadh(DateTime.now().toUtc()),
-    );
-    await LocalNotificationService.instance.schedulePlannedNotifications(
-      planned,
-    );
     // Opportunistic — drains native (iOS Shortcut) notification events and
     // syncs the local outbox to notification_logs. Never blocks engagement
     // evaluation on network availability.
