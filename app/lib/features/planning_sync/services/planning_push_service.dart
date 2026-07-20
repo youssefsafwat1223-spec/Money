@@ -299,8 +299,8 @@ class PlanningPushService {
           'period': payload['period'],
           'start_date': payload['start_date'],
           'is_active': payload['is_active'] == true,
-          'alert_80_sent': payload['alert_80_sent'] == true,
-          'alert_100_sent': payload['alert_100_sent'] == true,
+          'last_notified_spent_amount': payload['last_notified_spent_amount'],
+          'last_notified_period_start': payload['last_notified_period_start'],
           'show_on_header': payload['show_on_header'] == true,
         },
       PlanningOutboxQueue.subscriptionsEntityType => {
@@ -340,6 +340,7 @@ class PlanningPushService {
           'auto_save_amount': payload['auto_save_amount'],
           'auto_save_period': payload['auto_save_period'],
           'auto_save_last_run': payload['auto_save_last_run'],
+          'last_notified_saved_amount': payload['last_notified_saved_amount'],
           'created_at': payload['created_at'],
         },
       PlanningOutboxQueue.plansEntityType => {

@@ -272,7 +272,7 @@ class PlanningPullService {
     await _db.customStatement('''
       INSERT OR IGNORE INTO budgets(
         id, category_id, amount, period, start_date, is_active,
-        alert_80_sent, alert_100_sent, show_on_header, account_id,
+        last_notified_spent_amount, last_notified_period_start, show_on_header, account_id,
         server_id, synced_at, server_updated_at, sync_status, deleted_at
       ) VALUES (
         ${sqlString(id)},
@@ -281,8 +281,8 @@ class PlanningPullService {
         ${sqlString(row['period'] as String? ?? 'monthly')},
         ${sqlString(_dateString(row['start_date']) ?? now)},
         ${row['is_active'] == false ? 0 : 1},
-        ${row['alert_80_sent'] == true ? 1 : 0},
-        ${row['alert_100_sent'] == true ? 1 : 0},
+        ${(row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0},
+        ${sqlString(row['last_notified_period_start'] as String? ?? '2000-01-01T00:00:00Z')},
         ${row['show_on_header'] == true ? 1 : 0},
         ${sqlNullableString(row['local_account_id'] as String?)},
         ${sqlString(row['id'] as String)},
@@ -302,8 +302,8 @@ class PlanningPullService {
           period = ${sqlString(row['period'] as String? ?? 'monthly')},
           start_date = ${sqlString(_dateString(row['start_date']) ?? dateTimeToSql(DateTime.now().toUtc()))},
           is_active = ${row['is_active'] == false ? 0 : 1},
-          alert_80_sent = ${row['alert_80_sent'] == true ? 1 : 0},
-          alert_100_sent = ${row['alert_100_sent'] == true ? 1 : 0},
+          last_notified_spent_amount = ${(row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0},
+          last_notified_period_start = ${sqlString(row['last_notified_period_start'] as String? ?? '2000-01-01T00:00:00Z')},
           show_on_header = ${row['show_on_header'] == true ? 1 : 0},
           account_id = ${sqlNullableString(row['local_account_id'] as String?)},
           server_id = ${sqlString(row['id'] as String)},

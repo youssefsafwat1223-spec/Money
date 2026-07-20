@@ -57,8 +57,8 @@ Map<String, dynamic> _budgetRow() => {
       'period': 'monthly',
       'start_date': '2026-07-01T00:00:00.000Z',
       'is_active': true,
-      'alert_80_sent': false,
-      'alert_100_sent': false,
+      'last_notified_spent_amount': 0,
+      'last_notified_period_start': '2000-01-01T00:00:00Z',
       'show_on_header': true,
       'created_at': '2026-07-01T00:00:00.000Z',
       'updated_at': '2026-07-13T00:00:00.000Z',
@@ -481,8 +481,8 @@ void main() {
     await db.customStatement('''
       INSERT INTO budgets(
         id, category_id, amount, period, start_date, is_active,
-        alert_80_sent, alert_100_sent, show_on_header, account_id
-      ) VALUES ('local-budget-backfill', ?, 100, 'monthly', ?, 1, 0, 0, 0, ?);
+        last_notified_spent_amount, last_notified_period_start, show_on_header, account_id
+      ) VALUES ('local-budget-backfill', ?, 100, 'monthly', ?, 1, 0, '2000-01-01T00:00:00Z', 0, ?);
     ''', [
       BudgetEntity.allExpensesCategoryId,
       '2026-07-01T00:00:00.000Z',

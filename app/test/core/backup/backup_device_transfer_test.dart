@@ -158,9 +158,9 @@ Future<void> _seedSourceDevice(AppDatabase db) async {
     '''
       INSERT INTO budgets(
         id, category_id, amount, period, start_date, is_active,
-        alert_80_sent, alert_100_sent
+        last_notified_spent_amount, last_notified_period_start
       )
-      VALUES (?, ?, 5000.0, 'monthly', ?, 1, 0, 0);
+      VALUES (?, ?, 5000.0, 'monthly', ?, 1, 0, '2000-01-01T00:00:00Z');
     ''',
     variables: [
       Variable.withString('budget_device_a_1'),

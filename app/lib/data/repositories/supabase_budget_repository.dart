@@ -233,14 +233,14 @@ class SupabaseBudgetRepository implements BudgetRepository {
     await _support.db.customStatement('''
       INSERT INTO budgets(
         id, category_id, amount, period, start_date, is_active,
-        alert_80_sent, alert_100_sent, show_on_header, account_id,
+        last_notified_spent_amount, last_notified_period_start, show_on_header, account_id,
         server_id, synced_at, server_updated_at, sync_status, deleted_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
       ON CONFLICT(id) DO UPDATE SET
         category_id = excluded.category_id, amount = excluded.amount,
         period = excluded.period, start_date = excluded.start_date,
-        is_active = excluded.is_active, alert_80_sent = excluded.alert_80_sent,
-        alert_100_sent = excluded.alert_100_sent,
+        is_active = excluded.is_active, last_notified_spent_amount = excluded.last_notified_spent_amount,
+        last_notified_period_start = excluded.last_notified_period_start,
         show_on_header = excluded.show_on_header, account_id = excluded.account_id,
         server_id = excluded.server_id, synced_at = excluded.synced_at,
         server_updated_at = excluded.server_updated_at,
@@ -252,8 +252,8 @@ class SupabaseBudgetRepository implements BudgetRepository {
       row['period'] as String,
       row['start_date'] as String,
       boolToSql(row['is_active'] as bool? ?? true),
-      boolToSql(row['alert_80_sent'] as bool? ?? false),
-      boolToSql(row['alert_100_sent'] as bool? ?? false),
+      (row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0.0,
+      row['last_notified_period_start'] as String? ?? '2000-01-01T00:00:00Z',
       boolToSql(row['show_on_header'] as bool? ?? false),
       localAccountId,
       serverId,

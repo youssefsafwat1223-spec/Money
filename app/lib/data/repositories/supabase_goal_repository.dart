@@ -339,9 +339,9 @@ class SupabaseGoalRepository implements GoalRepository {
       INSERT INTO goals(
         id, name, account_id, target_amount, saved_amount, deadline,
         vault_skin, status, created_at, auto_save_amount, auto_save_period,
-        auto_save_last_run, server_id, synced_at, server_updated_at,
+        auto_save_last_run, last_notified_saved_amount, server_id, synced_at, server_updated_at,
         sync_status, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name, account_id = excluded.account_id,
         target_amount = excluded.target_amount, saved_amount = excluded.saved_amount,
@@ -349,6 +349,7 @@ class SupabaseGoalRepository implements GoalRepository {
         status = excluded.status, auto_save_amount = excluded.auto_save_amount,
         auto_save_period = excluded.auto_save_period,
         auto_save_last_run = excluded.auto_save_last_run,
+        last_notified_saved_amount = excluded.last_notified_saved_amount,
         server_id = excluded.server_id, synced_at = excluded.synced_at,
         server_updated_at = excluded.server_updated_at,
         sync_status = 'synced', deleted_at = excluded.deleted_at;
@@ -365,6 +366,7 @@ class SupabaseGoalRepository implements GoalRepository {
       (row['auto_save_amount'] as num?)?.toDouble(),
       row['auto_save_period'] as String?,
       row['auto_save_last_run'] as String?,
+      (row['last_notified_saved_amount'] as num?)?.toDouble() ?? 0.0,
       serverId,
       now,
       row['updated_at'] as String,

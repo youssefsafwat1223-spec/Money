@@ -56,8 +56,8 @@ class BackupSnapshotBuilder {
       'period',
       'start_date',
       'is_active',
-      'alert_80_sent',
-      'alert_100_sent',
+      'last_notified_spent_amount',
+      'last_notified_period_start',
       'show_on_header',
     ],
     'goals': [
@@ -73,6 +73,7 @@ class BackupSnapshotBuilder {
       'auto_save_amount',
       'auto_save_period',
       'auto_save_last_run',
+      'last_notified_saved_amount',
     ],
     'goal_contributions': [
       'id',

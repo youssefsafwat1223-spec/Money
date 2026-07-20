@@ -204,14 +204,14 @@ const _tableSpecs = <_ExportTableSpec>[
     'period',
     'start_date',
     'is_active',
-    'alert_80_sent',
-    'alert_100_sent',
+    'last_notified_spent_amount',
+    'last_notified_period_start',
     'show_on_header',
   ], '''
     SELECT b.id AS record_id, b.account_id AS account_record_id,
            b.category_id AS category_record_id, c.key AS category_key,
            b.amount, b.period, b.start_date, b.is_active,
-           b.alert_80_sent, b.alert_100_sent, b.show_on_header
+           b.last_notified_spent_amount, b.last_notified_period_start, b.show_on_header
     FROM budgets b LEFT JOIN categories c ON c.id = b.category_id
     WHERE b.deleted_at IS NULL ORDER BY b.id;
   '''),
@@ -279,10 +279,12 @@ const _tableSpecs = <_ExportTableSpec>[
     'auto_save_amount',
     'auto_save_period',
     'auto_save_last_run',
+    'last_notified_saved_amount',
   ], '''
     SELECT id AS record_id, account_id AS account_record_id, name,
            target_amount, saved_amount, deadline, vault_skin, status,
-           created_at, auto_save_amount, auto_save_period, auto_save_last_run
+           created_at, auto_save_amount, auto_save_period, auto_save_last_run,
+           last_notified_saved_amount
     FROM goals WHERE deleted_at IS NULL ORDER BY id;
   '''),
   _ExportTableSpec('goal_contributions', [

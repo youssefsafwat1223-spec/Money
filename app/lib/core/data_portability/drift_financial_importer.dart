@@ -240,13 +240,13 @@ class DriftFinancialImporter {
         final categoryId = await _categoryId(row) ?? await _fallbackCategory();
         await _db.customStatement('''
           INSERT INTO budgets(id,account_id,category_id,amount,period,start_date,
-            is_active,alert_80_sent,alert_100_sent,show_on_header,deleted_at)
+            is_active,last_notified_spent_amount,last_notified_period_start,show_on_header,deleted_at)
           VALUES(?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,
             category_id=excluded.category_id,amount=excluded.amount,
             period=excluded.period,start_date=excluded.start_date,
-            is_active=excluded.is_active,alert_80_sent=excluded.alert_80_sent,
-            alert_100_sent=excluded.alert_100_sent,
+            is_active=excluded.is_active,last_notified_spent_amount=excluded.last_notified_spent_amount,
+            last_notified_period_start=excluded.last_notified_period_start,
             show_on_header=excluded.show_on_header,deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
@@ -256,8 +256,8 @@ class DriftFinancialImporter {
           _or(row['period'], 'monthly'),
           _date(row['start_date']),
           _boolInt(row['is_active']),
-          _boolInt(row['alert_80_sent']),
-          _boolInt(row['alert_100_sent']),
+          (row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0.0,
+          _or(row['last_notified_period_start'], '2000-01-01T00:00:00Z'),
           _boolInt(row['show_on_header']),
         ]);
       case 'subscriptions':
@@ -330,14 +330,15 @@ class DriftFinancialImporter {
         await _db.customStatement('''
           INSERT INTO goals(id,account_id,name,target_amount,saved_amount,deadline,
             vault_skin,status,created_at,auto_save_amount,auto_save_period,
-            auto_save_last_run,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+            auto_save_last_run,last_notified_saved_amount,deleted_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,name=excluded.name,
             target_amount=excluded.target_amount,saved_amount=excluded.saved_amount,
             deadline=excluded.deadline,vault_skin=excluded.vault_skin,status=excluded.status,
             auto_save_amount=excluded.auto_save_amount,
             auto_save_period=excluded.auto_save_period,
-            auto_save_last_run=excluded.auto_save_last_run,deleted_at=NULL;
+            auto_save_last_run=excluded.auto_save_last_run,
+            last_notified_saved_amount=excluded.last_notified_saved_amount,deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
@@ -351,6 +352,7 @@ class DriftFinancialImporter {
           _double(row['auto_save_amount']),
           _nullable(row['auto_save_period']),
           _nullableDate(row['auto_save_last_run']),
+          (row['last_notified_saved_amount'] as num?)?.toDouble() ?? 0.0,
         ]);
       case 'goal_contributions':
         await _db.customStatement('''

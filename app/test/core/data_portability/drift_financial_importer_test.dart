@@ -99,9 +99,9 @@ void main() {
     ''', [createdAt, createdAt, createdAt, createdAt]);
     await source.customStatement('''
       INSERT INTO budgets(id,account_id,category_id,amount,period,start_date,
-        is_active,alert_80_sent,alert_100_sent,show_on_header)
+        is_active,last_notified_spent_amount,last_notified_period_start,show_on_header)
       VALUES('portable-budget','portable-account','portable-category',500,
-        'monthly',?,1,0,0,1);
+        'monthly',?,1,0,'2000-01-01T00:00:00Z',1);
     ''', [createdAt]);
     await source.customStatement('''
       INSERT INTO subscriptions(id,account_id,merchant_id,name,amount,currency,
