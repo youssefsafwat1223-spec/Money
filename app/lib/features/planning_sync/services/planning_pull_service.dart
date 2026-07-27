@@ -5,6 +5,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../domain/entities/budget_entity.dart';
 import 'planning_outbox_queue.dart';
 
 class PlanningPullResult {
@@ -92,6 +93,9 @@ class PlanningPullService {
     PlanningOutboxQueue.subscriptionsEntityType: 'user_subscriptions',
     PlanningOutboxQueue.goalsEntityType: 'user_goals',
     PlanningOutboxQueue.plansEntityType: 'user_plans',
+    PlanningOutboxQueue.cardsEntityType: 'user_cards',
+    PlanningOutboxQueue.categoriesEntityType: 'user_categories',
+    PlanningOutboxQueue.settingsEntityType: 'user_settings',
   };
 
   static const _localTable = {
@@ -99,6 +103,9 @@ class PlanningPullService {
     PlanningOutboxQueue.subscriptionsEntityType: 'subscriptions',
     PlanningOutboxQueue.goalsEntityType: 'goals',
     PlanningOutboxQueue.plansEntityType: 'plans',
+    PlanningOutboxQueue.cardsEntityType: 'cards',
+    PlanningOutboxQueue.categoriesEntityType: 'categories',
+    PlanningOutboxQueue.settingsEntityType: 'user_settings',
   };
 
   static Future<String?> _defaultGetAuthUserId() async {
@@ -173,6 +180,10 @@ class PlanningPullService {
     String entityType,
     Map<String, dynamic> row,
   ) async {
+    // الإعدادات singleton: يوجد صف واحد محلي دائمًا — نحدّثه ولا نُدرج صفًا ثانيًا.
+    if (entityType == PlanningOutboxQueue.settingsEntityType) {
+      return _processSettingsRow(row);
+    }
     final serverId = row['id'] as String?;
     final localTable = _localTable[entityType];
     if (serverId == null || localTable == null) {
@@ -185,12 +196,27 @@ class PlanningPullService {
       row['local_id'] as String?,
     );
     if (localId != null) {
-      final status = await _syncStatus(localTable, localId);
-      if (status == null) return _PlanningPullOutcome.skipped;
+      final meta = await _db
+          .customSelect(
+            'SELECT sync_status, server_id, server_updated_at FROM $localTable '
+            'WHERE id = ${sqlString(localId)} LIMIT 1;',
+          )
+          .getSingleOrNull();
+      if (meta == null) return _PlanningPullOutcome.skipped;
+      final status = meta.readNullable<String>('sync_status');
       if (status == 'conflict') return _PlanningPullOutcome.conflict;
       if (status == 'pending') {
         await _markConflict(localTable, localId);
         return _PlanningPullOutcome.conflict;
+      }
+      // No-op when unchanged since the last sync — stops the pull re-writing
+      // every planning row each cycle (which ticks dbRevisionProvider and
+      // flickers the UI). Only write when the server row actually moved.
+      if (status == 'synced' &&
+          meta.readNullable<String>('server_id') == serverId &&
+          meta.readNullable<String>('server_updated_at') ==
+              _dateString(row['updated_at'])) {
+        return _PlanningPullOutcome.skipped;
       }
       await _updateLocal(entityType, localTable, localId, row);
       return _PlanningPullOutcome.updated;
@@ -246,6 +272,10 @@ class PlanningPullService {
         await _insertGoal(id, row);
       case PlanningOutboxQueue.plansEntityType:
         await _insertPlan(id, row);
+      case PlanningOutboxQueue.cardsEntityType:
+        await _insertCard(id, row);
+      case PlanningOutboxQueue.categoriesEntityType:
+        await _insertCategory(id, row);
     }
   }
 
@@ -264,11 +294,16 @@ class PlanningPullService {
         await _updateGoal(id, row);
       case PlanningOutboxQueue.plansEntityType:
         await _updatePlan(id, row);
+      case PlanningOutboxQueue.cardsEntityType:
+        await _updateCard(id, row);
+      case PlanningOutboxQueue.categoriesEntityType:
+        await _updateCategory(id, row);
     }
   }
 
   Future<void> _insertBudget(String id, Map<String, dynamic> row) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
+    final categoryId = await _localBudgetCategoryId(row);
     await _db.customStatement('''
       INSERT OR IGNORE INTO budgets(
         id, category_id, amount, period, start_date, is_active,
@@ -276,7 +311,7 @@ class PlanningPullService {
         server_id, synced_at, server_updated_at, sync_status, deleted_at
       ) VALUES (
         ${sqlString(id)},
-        ${sqlString(row['category_id'] as String? ?? '__all_expenses__')},
+        ${sqlString(categoryId)},
         ${(row['amount'] as num?)?.toDouble() ?? 0},
         ${sqlString(row['period'] as String? ?? 'monthly')},
         ${sqlString(_dateString(row['start_date']) ?? now)},
@@ -295,9 +330,10 @@ class PlanningPullService {
   }
 
   Future<void> _updateBudget(String id, Map<String, dynamic> row) async {
+    final categoryId = await _localBudgetCategoryId(row);
     await _db.customStatement('''
       UPDATE budgets
-      SET category_id = ${sqlString(row['category_id'] as String? ?? '__all_expenses__')},
+      SET category_id = ${sqlString(categoryId)},
           amount = ${(row['amount'] as num?)?.toDouble() ?? 0},
           period = ${sqlString(row['period'] as String? ?? 'monthly')},
           start_date = ${sqlString(_dateString(row['start_date']) ?? dateTimeToSql(DateTime.now().toUtc()))},
@@ -306,6 +342,180 @@ class PlanningPullService {
           last_notified_period_start = ${sqlString(row['last_notified_period_start'] as String? ?? '2000-01-01T00:00:00Z')},
           show_on_header = ${row['show_on_header'] == true ? 1 : 0},
           account_id = ${sqlNullableString(row['local_account_id'] as String?)},
+          server_id = ${sqlString(row['id'] as String)},
+          synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
+          server_updated_at = ${sqlNullableString(_dateString(row['updated_at']))},
+          sync_status = 'synced',
+          deleted_at = NULL
+      WHERE id = ${sqlString(id)};
+    ''');
+  }
+
+  Future<String> _localBudgetCategoryId(Map<String, dynamic> row) async {
+    final categoryKey = row['category_id'] as String?;
+    if (categoryKey == null ||
+        categoryKey == BudgetEntity.allExpensesCategoryKey ||
+        categoryKey == BudgetEntity.allExpensesCategoryId) {
+      return BudgetEntity.allExpensesCategoryId;
+    }
+
+    final userCategoryServerId = row['user_category_id'] as String?;
+    final serverIdPredicate = userCategoryServerId == null
+        ? ''
+        : ' OR server_id = ${sqlString(userCategoryServerId)}';
+    final match = await _db.customSelect(
+      '''
+        SELECT id FROM categories
+        WHERE key = ${sqlString(categoryKey)}
+           $serverIdPredicate
+        LIMIT 1;
+      ''',
+    ).getSingleOrNull();
+    if (match != null) return match.read<String>('id');
+
+    final fallback = await _db
+        .customSelect(
+          "SELECT id FROM categories WHERE key = 'other' LIMIT 1;",
+        )
+        .getSingleOrNull();
+    return fallback?.read<String>('id') ?? BudgetEntity.allExpensesCategoryId;
+  }
+
+  Future<void> _insertCard(String id, Map<String, dynamic> row) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    // حقول التصميم تُكتَب فقط بعد ترقية 0064 (kUserCardsCloudV2) — قبلها
+    // يُبقيها الخادم غير موجودة، ولا نلمس القيمة المحلية.
+    const designCols = kUserCardsCloudV2 ? ', color_theme, accent_hex' : '';
+    final designVals = kUserCardsCloudV2
+        ? ', ${sqlNullableString(row['color_theme'] as String?)}, '
+            '${sqlNullableString(row['accent_hex'] as String?)}'
+        : '';
+    await _db.customStatement('''
+      INSERT OR IGNORE INTO cards(
+        id, account_id, nickname, last4, network, source,
+        created_at, updated_at,
+        server_id, synced_at, server_updated_at, sync_status, deleted_at$designCols
+      ) VALUES (
+        ${sqlString(id)},
+        ${sqlNullableString(row['local_account_id'] as String?)},
+        ${sqlNullableString(row['nickname'] as String?)},
+        ${sqlString(row['last4'] as String? ?? '')},
+        ${sqlString(row['network'] as String? ?? 'unknown')},
+        ${sqlString(row['source'] as String? ?? 'auto')},
+        ${sqlString(_dateString(row['created_at']) ?? now)},
+        ${sqlString(_dateString(row['updated_at']) ?? now)},
+        ${sqlString(row['id'] as String)},
+        ${sqlString(now)},
+        ${sqlNullableString(_dateString(row['updated_at']))},
+        'synced',
+        NULL$designVals
+      );
+    ''');
+  }
+
+  Future<void> _updateCard(String id, Map<String, dynamic> row) async {
+    final designSet = kUserCardsCloudV2
+        ? 'color_theme = ${sqlNullableString(row['color_theme'] as String?)}, '
+            'accent_hex = ${sqlNullableString(row['accent_hex'] as String?)}, '
+        : '';
+    await _db.customStatement('''
+      UPDATE cards
+      SET account_id = ${sqlNullableString(row['local_account_id'] as String?)},
+          nickname = ${sqlNullableString(row['nickname'] as String?)},
+          last4 = ${sqlString(row['last4'] as String? ?? '')},
+          network = ${sqlString(row['network'] as String? ?? 'unknown')},
+          source = ${sqlString(row['source'] as String? ?? 'auto')},
+          ${designSet}server_id = ${sqlString(row['id'] as String)},
+          synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
+          server_updated_at = ${sqlNullableString(_dateString(row['updated_at']))},
+          sync_status = 'synced',
+          deleted_at = NULL
+      WHERE id = ${sqlString(id)};
+    ''');
+  }
+
+  /// singleton pull للإعدادات: يحدّث الصف الوحيد المحلي بالأعمدة السحابية فقط،
+  /// ولا يمسّ الأعمدة المحلية (مفتاح التشفير/الأفاتار/الملف الشخصي). حارس التعارض
+  /// نفسه: تعديل محلي معلّق (pending) يمنع الكتابة فوقه.
+  Future<_PlanningPullOutcome> _processSettingsRow(
+      Map<String, dynamic> row) async {
+    final serverId = row['id'] as String?;
+    if (serverId == null) return _PlanningPullOutcome.skipped;
+    final local = await _db
+        .customSelect('SELECT id, sync_status FROM user_settings LIMIT 1;')
+        .getSingleOrNull();
+    if (local == null) return _PlanningPullOutcome.skipped;
+    final id = local.read<String>('id');
+    final status = local.readNullable<String>('sync_status');
+    if (status == 'conflict') return _PlanningPullOutcome.conflict;
+    if (status == 'pending') {
+      await _markConflict('user_settings', id);
+      return _PlanningPullOutcome.conflict;
+    }
+    await _updateSettings(id, serverId, row);
+    return _PlanningPullOutcome.updated;
+  }
+
+  Future<void> _updateSettings(
+      String id, String serverId, Map<String, dynamic> row) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    // نبقي القيمة المحلية إن كان الخادم لم يرسلها (أعمدة محلية NOT NULL).
+    String keep(String col, Object? v) =>
+        v == null ? col : sqlString(v as String);
+    await _db.customStatement('''
+      UPDATE user_settings
+      SET display_name = ${keep('display_name', row['display_name'])},
+          phone_number = ${keep('phone_number', row['phone_number'])},
+          date_of_birth = ${keep('date_of_birth', row['date_of_birth'])},
+          theme = ${keep('theme', row['theme'])},
+          currency = ${keep('currency', row['currency'])},
+          language = ${keep('language', row['language'])},
+          country = ${keep('country', row['country'])},
+          input_method = ${keep('input_method', row['input_method'])},
+          notifications_json = ${keep('notifications_json', row['notifications_json'])},
+          privacy_mode_enabled = ${(row['privacy_mode_enabled'] == true) ? 1 : 0},
+          ai_consent_granted = ${(row['ai_consent_granted'] == true) ? 1 : 0},
+          cloud_processing_enabled = ${(row['cloud_processing_enabled'] == true) ? 1 : 0},
+          server_id = ${sqlString(serverId)},
+          synced_at = ${sqlString(now)},
+          server_updated_at = ${sqlNullableString(_dateString(row['updated_at']))},
+          sync_status = 'synced'
+      WHERE id = ${sqlString(id)};
+    ''');
+  }
+
+  Future<void> _insertCategory(String id, Map<String, dynamic> row) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    // key فريد؛ لو تعارض مع فئة موجودة (مثل فئات البذور) نتجاهل الإدراج بأمان.
+    await _db.customStatement('''
+      INSERT OR IGNORE INTO categories(
+        id, key, name_ar, icon, color, is_income, sort_order,
+        server_id, synced_at, server_updated_at, sync_status, deleted_at
+      ) VALUES (
+        ${sqlString(id)},
+        ${sqlString(row['key'] as String? ?? id)},
+        ${sqlString(row['name_ar'] as String? ?? '')},
+        ${sqlString(row['icon'] as String? ?? 'tag')},
+        ${sqlString(row['color'] as String? ?? '#888888')},
+        ${(row['is_income'] == true) ? 1 : 0},
+        (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories),
+        ${sqlString(row['id'] as String)},
+        ${sqlString(now)},
+        ${sqlNullableString(_dateString(row['updated_at']))},
+        'synced',
+        NULL
+      );
+    ''');
+  }
+
+  Future<void> _updateCategory(String id, Map<String, dynamic> row) async {
+    // نُبقي key و sort_order المحليّين؛ نُحدّث الحقول القابلة للتعديل فقط.
+    await _db.customStatement('''
+      UPDATE categories
+      SET name_ar = ${sqlString(row['name_ar'] as String? ?? '')},
+          icon = ${sqlString(row['icon'] as String? ?? 'tag')},
+          color = ${sqlString(row['color'] as String? ?? '#888888')},
+          is_income = ${(row['is_income'] == true) ? 1 : 0},
           server_id = ${sqlString(row['id'] as String)},
           synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
           server_updated_at = ${sqlNullableString(_dateString(row['updated_at']))},

@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/repositories/supabase_transaction_repository.dart';
 import '../../../domain/entities/transaction_entity.dart';
 
 enum OutboxOperation { create, update, delete }
@@ -32,15 +33,16 @@ class LedgerOutboxQueue {
     required AppDatabase db,
     required bool Function() isPushEnabled,
     required Future<String?> Function() getAuthUserId,
+    void Function()? onQueued,
   })  : _db = db,
         _isPushEnabled = isPushEnabled,
-        _getAuthUserId = getAuthUserId;
-
-  static const int _maxAttempts = 5;
+        _getAuthUserId = getAuthUserId,
+        _onQueued = onQueued;
 
   final AppDatabase _db;
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
+  final void Function()? _onQueued;
 
   Future<void> enqueue(
     OutboxOperation op,
@@ -68,6 +70,7 @@ class LedgerOutboxQueue {
         ${sqlString(now)}
       );
     ''');
+    _onQueued?.call();
   }
 
   Future<List<OutboxItem>> pendingItems({int limit = 50}) async {
@@ -76,8 +79,9 @@ class LedgerOutboxQueue {
       SELECT id, transaction_id, operation, payload_json,
              attempt_count, last_error, next_retry_at
       FROM ledger_sync_outbox
-      WHERE attempt_count < $_maxAttempts
-        AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
+      WHERE attempt_count >= 5
+         OR next_retry_at IS NULL
+         OR next_retry_at <= ${sqlString(now)}
       ORDER BY created_at ASC
       LIMIT $limit;
     ''').get();
@@ -117,7 +121,8 @@ class LedgerOutboxQueue {
         .getSingleOrNull();
     if (row == null) return;
 
-    final attempts = row.read<int>('attempt_count') + 1;
+    final previousAttempts = row.read<int>('attempt_count');
+    final attempts = previousAttempts >= 5 ? 1 : previousAttempts + 1;
     final backoffSeconds = _backoff(attempts);
     final nextRetry = dateTimeToSql(
       DateTime.now().toUtc().add(Duration(seconds: backoffSeconds)),
@@ -134,7 +139,8 @@ class LedgerOutboxQueue {
     ''');
   }
 
-  // Exponential backoff: 30s, 2m, 8m, 32m, 128m.
+  // Capped exponential backoff. Rows are never discarded: an old exhausted
+  // row is released once after an app update and restarts at attempt one.
   static int _backoff(int attempt) => 30 * (1 << (attempt - 1).clamp(0, 7));
 
   Map<String, dynamic> _buildPayload(OutboxOperation op, TransactionEntity tx) {
@@ -157,6 +163,14 @@ class LedgerOutboxQueue {
       'account_id': tx.accountId,
       'card_last4': tx.cardLast4,
       'confidence': tx.parseConfidence,
+      // Fields the push previously dropped — without these the server row lands
+      // with no category, empty metadata and no card link, so a sync round-trip
+      // (2nd device / reinstall) returns the transaction uncategorized and
+      // unlinked. Kept in parity with TransactionsBackfillService.
+      'category_id': tx.categoryId,
+      'balance_after': tx.balanceAfter,
+      'foreign_amount': tx.foreignAmount,
+      'foreign_currency': tx.foreignCurrency,
     };
 
     // Include source only for create operations.
@@ -175,9 +189,11 @@ class LedgerOutboxQueue {
         _ => 'debit',
       };
 
-  // All user-initiated creates map to 'manual'.
-  // Relay-imported transactions (bank/ios_shortcut/android_sms) bypass the
-  // outbox entirely for creates — CaptureSyncService constructs
-  // DriftTransactionRepository(db) directly without the outbox parameter.
-  static String _mapSource(TransactionSourceEntity source) => 'manual';
+  // Every create carries its real provenance via the canonical server mapping:
+  // captured transactions push as their true source (bank/card/ai → import/
+  // share_extension), manual adds as 'manual'. Updates strip source (see
+  // LedgerPushService._pushUpdate) so a server source already set by the relay
+  // is never clobbered.
+  static String _mapSource(TransactionSourceEntity source) =>
+      SupabaseTransactionRepository.sourceToServer(source);
 }

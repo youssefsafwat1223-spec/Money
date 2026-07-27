@@ -66,6 +66,12 @@ class ParserEngine {
     r'(?:card|بطاقة|account|حساب)[^0-9]{0,40}رقم\s*([0-9]{4})(?![0-9])',
     caseSensitive: false,
   );
+  // رقم حساب بنكي يتبع كلمة «حساب/account/acct/a/c» (قد يكون مُقنّعًا بـ */x).
+  // نمط منفصل عن البطاقة (بطاقة/card) لتجنّب الخلط مع آخر 4 أرقام البطاقة.
+  static final RegExp _accountNumberCtx = RegExp(
+    r'(?:حساب[ء-ي]*|الحساب|account|acct|a/c)\s*(?:no\.?|number|رقم|#|:)?\s*[x×\*•]*\s*([0-9]{4,20})',
+    caseSensitive: false,
+  );
   // At/To require a following space or colon to avoid matching "AT" inside "ATM".
   static final RegExp _merchant = RegExp(
       r'(?:^|\b)(لدى|لدي|لـ|عند|الجهة|اسم\s+التاجر|At(?=[\s:])|Merchant|من|إلى|الى|To(?=[\s:]))\s*:?\s*(.+)',
@@ -149,6 +155,7 @@ class ParserEngine {
     final currency =
         amountExtraction.currency ?? _extractCurrency(text) ?? defaultCurrency;
     final last4 = _extractLast4(text);
+    final accountNumber = _extractAccountNumber(text);
     final balance = amountExtraction.balance;
     final dateResult = _extractDateResult(text, bank: bank);
     final occurredAt = dateResult.date;
@@ -175,6 +182,7 @@ class ParserEngine {
       source: source,
       rawMerchant: merchant,
       cardLast4: last4,
+      accountNumber: accountNumber,
       balanceAfter: balance,
       occurredAt: occurredAt,
       foreignAmount: amountExtraction.foreignAmount,
@@ -675,6 +683,16 @@ class ParserEngine {
   String? _extractCurrency(String text) {
     final m = _currency.firstMatch(text);
     return m?.group(0)?.toUpperCase();
+  }
+
+  /// يستخرج رقم/جزء رقم الحساب البنكي إذا ذُكر صراحةً بجوار كلمة «حساب/account».
+  /// أفضل جهد فقط — يُستخدم لاحقًا للمطابقة مع bank_account_number؛ لو لم يطابق
+  /// أي حساب فلا ضرر (يُتجاهَل). لا يمسّ استخراج آخر 4 أرقام البطاقة.
+  String? _extractAccountNumber(String text) {
+    final match = _accountNumberCtx.firstMatch(text);
+    if (match == null) return null;
+    final digits = match.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
+    return digits.length >= 4 ? digits : null;
   }
 
   String? _extractLast4(String text) {

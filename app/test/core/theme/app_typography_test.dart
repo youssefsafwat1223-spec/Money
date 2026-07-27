@@ -5,17 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('centralized typography uses IBM Plex Sans Arabic', () {
+  test('centralized typography uses Alexandria (IBM Plex Sans fallback)', () {
     final source = File(
       'lib/core/theme/app_typography.dart',
     ).readAsStringSync();
 
-    expect(source, contains('GoogleFonts.ibmPlexSansArabic'));
+    // Primary Arabic-first family is Alexandria; IBM Plex Sans stays as the
+    // Latin fallback safety net.
+    expect(source, contains('GoogleFonts.alexandria'));
     expect(source, contains('GoogleFonts.ibmPlexSans'));
     expect(source, contains('double letterSpacing = 0'));
     expect(source, contains('FontFeature.tabularFigures()'));
     expect(source, isNot(contains('GoogleFonts.inter')));
-    expect(source, isNot(contains('GoogleFonts.alexandria')));
   });
 
   for (final brightness in Brightness.values) {
@@ -30,10 +31,10 @@ void main() {
             brightness == Brightness.light ? Colors.black : Colors.white;
         final typographyTheme = ThemeData(
           brightness: brightness,
-          fontFamily: 'IBM Plex Sans Arabic',
+          fontFamily: 'Alexandria',
           textTheme: TextTheme(
             displayLarge: TextStyle(
-              fontFamily: 'IBM Plex Sans Arabic',
+              fontFamily: 'Alexandria',
               fontSize: 36,
               fontWeight: FontWeight.w700,
               height: 1.06,
@@ -41,7 +42,7 @@ void main() {
               color: color,
             ),
             bodyLarge: TextStyle(
-              fontFamily: 'IBM Plex Sans Arabic',
+              fontFamily: 'Alexandria',
               fontSize: 16,
               fontWeight: FontWeight.w400,
               height: 1.55,
@@ -49,7 +50,7 @@ void main() {
               color: color,
             ),
             titleMedium: TextStyle(
-              fontFamily: 'IBM Plex Sans Arabic',
+              fontFamily: 'Alexandria',
               fontSize: 18,
               fontWeight: FontWeight.w600,
               height: 1.3,

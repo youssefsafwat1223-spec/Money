@@ -225,6 +225,10 @@ void main() {
       expect(result.failed, 0);
       expect(await _outboxCount(db), 0);
       expect(remote.rowsByLocalId['push-account']?['name'], 'Updated');
+      expect(
+        remote.rowsByLocalId['push-account']?['metadata'],
+        isA<Map<String, dynamic>>().having((value) => value, 'value', isEmpty),
+      );
       expect(remote.deletes, 1);
     });
 

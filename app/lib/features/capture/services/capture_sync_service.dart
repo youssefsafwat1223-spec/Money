@@ -1,5 +1,4 @@
 import '../../../core/backend/supabase_config.dart';
-import '../../../core/utils/id_generator.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
@@ -314,7 +313,12 @@ class CaptureSyncService {
       }
     }
     final transaction = TransactionEntity(
-      id: IdGenerator.next(),
+      // The payload id IS the transaction's identity. The outbox push uses the
+      // local id as client_request_id, and the server's direct-write (Phase 5)
+      // stores the same payloadId there — so this import's push UPDATES the
+      // server row the edge function already wrote instead of duplicating it.
+      // isPayloadImported() above guarantees this id is never inserted twice.
+      id: capture.payloadId,
       amount: amount,
       currency: normalizedCurrency,
       accountId: account?.id,

@@ -168,6 +168,12 @@ class DriftPlanRepository implements PlanRepository {
         Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
       ],
     );
+    await _outboxQueue?.enqueuePlanLink(
+      PlanningSyncOperation.create,
+      planId: planId,
+      transactionId: transactionId,
+      createdAt: DateTime.now().toUtc(),
+    );
   }
 
   @override
@@ -175,14 +181,21 @@ class DriftPlanRepository implements PlanRepository {
     required String planId,
     required String transactionId,
   }) async {
+    final now = DateTime.now().toUtc();
     await _db.customUpdate(
       'UPDATE plan_transaction_links SET deleted_at = ? '
       'WHERE plan_id = ? AND transaction_id = ?;',
       variables: [
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        Variable.withString(dateTimeToSql(now)),
         Variable.withString(planId),
         Variable.withString(transactionId),
       ],
+    );
+    await _outboxQueue?.enqueuePlanLink(
+      PlanningSyncOperation.delete,
+      planId: planId,
+      transactionId: transactionId,
+      createdAt: now,
     );
   }
 

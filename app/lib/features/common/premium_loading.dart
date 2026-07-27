@@ -1,8 +1,32 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import 'motion.dart';
+
+/// First-load placeholder for a screen's initial provider load.
+///
+/// Startup already has a branded full-screen loader. A screen that still needs
+/// its first provider result uses one quiet spinner instead of briefly exposing
+/// an empty card skeleton that can be mistaken for the loaded UI.
+class FirstLoadPlaceholder extends StatelessWidget {
+  const FirstLoadPlaceholder({super.key, this.cardCount = 4});
+
+  /// Kept for source compatibility with existing call sites.
+  final int cardCount;
+
+  @override
+  Widget build(BuildContext context) {
+    // iOS-native spinner (the one Apple/GitHub use), not the Material ring.
+    return Center(
+      child: CupertinoActivityIndicator(
+        radius: 14,
+        color: context.colors.textLight,
+      ),
+    );
+  }
+}
 
 class PremiumSkeletonPage extends StatelessWidget {
   const PremiumSkeletonPage({

@@ -1,27 +1,15 @@
-import '../../data/catalog/feature_flag_service.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../domain/repositories/category_repository.dart';
 
 class RoutedCategoryRepository implements CategoryRepository {
-  RoutedCategoryRepository({
-    required CategoryRepository drift,
-    required CategoryRepository supabase,
-    required FeatureFlagService Function() flags,
-  })  : _drift = drift,
-        _supabase = supabase,
-        _flags = flags;
+  RoutedCategoryRepository({required CategoryRepository drift})
+      : _drift = drift;
 
   final CategoryRepository _drift;
-  final CategoryRepository _supabase;
-  final FeatureFlagService Function() _flags;
 
-  bool get _useSupabase {
-    final flags = _flags();
-    return flags.getBool('transactions_supabase_primary') ||
-        flags.getBool('budgets_supabase_primary');
-  }
-
-  CategoryRepository get _active => _useSupabase ? _supabase : _drift;
+  // S0: الواجهة تقرأ وتكتب من Drift دائمًا. مزامنة الفئات المخصّصة إلى Supabase
+  // تُدقَّق وتُضاف في S3 (كمزامنة خلفية، لا قراءة مباشرة من الواجهة).
+  CategoryRepository get _active => _drift;
 
   @override
   Future<List<CategoryEntity>> getAll() => _active.getAll();

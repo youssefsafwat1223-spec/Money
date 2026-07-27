@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/async_reload_safe.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -41,7 +42,7 @@ class BillDetailsSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    final currentBill = ref.watch(savedBillsProvider).maybeWhen(
+    final currentBill = ref.watch(savedBillsProvider).dataOrWhen(
           data: (bills) {
             for (final item in bills) {
               if (item.id == bill.id) return item;
@@ -53,7 +54,7 @@ class BillDetailsSheet extends ConsumerWidget {
     final paymentsAsync = ref.watch(billPaymentsProvider(currentBill.id));
     final isInstallment = currentBill.type == BillType.installment;
     final currLabel = Currency.arabicLabel(currentBill.currency);
-    final accountName = ref.watch(accountsProvider).maybeWhen(
+    final accountName = ref.watch(accountsProvider).dataOrWhen(
           data: (accounts) {
             final matches = accounts
                 .where((account) => account.id == currentBill.accountId);
@@ -619,7 +620,7 @@ class _BillPaymentRow extends ConsumerWidget {
                 Text(
                   title,
                   style: AppTypography.caption(c.textPrimary)
-                      .copyWith(fontWeight: FontWeight.w900),
+                      .copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -642,7 +643,7 @@ class _BillPaymentRow extends ConsumerWidget {
           Text(
             '${Formatters.amount(payment.amount)} ${Currency.arabicLabel(payment.currency)}',
             style: AppTypography.caption(c.success).copyWith(
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
@@ -695,7 +696,7 @@ class _BillTransactionRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.caption(c.textPrimary)
-                        .copyWith(fontWeight: FontWeight.w800),
+                        .copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -709,7 +710,7 @@ class _BillTransactionRow extends StatelessWidget {
             Text(
               '${Formatters.amount(tx.amount)} ${Currency.arabicLabel(tx.currency)}',
               style: AppTypography.caption(c.textPrimary)
-                  .copyWith(fontWeight: FontWeight.w900),
+                  .copyWith(fontWeight: FontWeight.w700),
             ),
           ],
         ),

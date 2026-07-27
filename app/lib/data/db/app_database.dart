@@ -11,7 +11,17 @@ import 'database_key_store.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 23;
+const int _targetSchemaVersion = 27;
+
+/// Stable local id for the auto-seeded default account ("الحساب الرئيسي").
+/// It must NOT be random: sign-out wipes the accounts table and reseeds this
+/// account, so a random id would mint a brand-new identity every cycle and the
+/// sync backfill would push it to Supabase as yet another account — accounts
+/// accumulate without bound. A fixed sentinel makes the seed idempotent so the
+/// backfill/pull match the existing server row instead of duplicating it.
+/// (User-created accounts keep using random IdGenerator ids — this applies only
+/// to the single auto-seeded default.)
+const String kDefaultAccountLocalId = 'default_account';
 
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
@@ -431,7 +441,12 @@ class AppDatabase extends GeneratedDatabase {
         db_encryption_key_ref TEXT NOT NULL,
         privacy_mode_enabled INTEGER NOT NULL DEFAULT 0,
         ai_consent_granted INTEGER NOT NULL DEFAULT 1,
-        cloud_processing_enabled INTEGER NOT NULL DEFAULT 1
+        cloud_processing_enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict'))
       );
     ''');
 
@@ -444,6 +459,13 @@ class AppDatabase extends GeneratedDatabase {
         type TEXT NOT NULL,
         initial_balance REAL NULL,
         current_balance REAL NULL,
+        bank_account_number TEXT NULL,
+        credit_limit REAL NULL,
+        available_credit REAL NULL,
+        payment_due_day INTEGER NULL,
+        wallet_provider TEXT NULL,
+        exclude_from_totals INTEGER NOT NULL DEFAULT 0,
+        metadata TEXT NULL,
         is_default INTEGER NOT NULL DEFAULT 0,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
@@ -455,6 +477,35 @@ class AppDatabase extends GeneratedDatabase {
         deleted_at TEXT NULL
       );
     ''');
+
+    // البطاقات الحقيقية — مصدر الحقيقة لهوية البطاقة وبياناتها، تنتمي لحساب.
+    // العمليات تحتفظ بـ card_last4 مستقلًّا؛ الربط عبر (account_id, last4).
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS cards(
+        id TEXT PRIMARY KEY,
+        account_id TEXT NULL,
+        nickname TEXT NULL,
+        last4 TEXT NOT NULL,
+        network TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual', 'auto')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        server_id TEXT NULL,
+        synced_at TEXT NULL,
+        server_updated_at TEXT NULL,
+        sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+        deleted_at TEXT NULL,
+        color_theme TEXT NULL,
+        accent_hex TEXT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_cards_account ON cards(account_id);',
+    );
+    await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS uidx_cards_account_last4_active '
+      'ON cards(account_id, last4) WHERE deleted_at IS NULL;',
+    );
 
     // Phase 2: تتبّع صحة الكاش المحلي (Drift) أثناء فترة الطرح التدريجي
     // للقراءة/الكتابة المباشرة على Supabase. يُستخدم فقط لمعرفة متى فشلت
@@ -610,6 +661,12 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn('user_settings', 'phone_number', 'TEXT NULL');
     await _ensureColumn('user_settings', 'avatar_path', 'TEXT NULL');
     await _ensureColumn('user_settings', 'date_of_birth', 'TEXT NULL');
+    // S2: مزامنة تفضيلات المستخدم (offline-first، نفس محرك الحسابات/البطاقات).
+    await _ensureColumn('user_settings', 'updated_at', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'server_id', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'synced_at', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'server_updated_at', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'sync_status', 'TEXT NULL');
     // v2: ربط المعاملات/الاشتراكات بالحساب (multi-currency accounts).
     await _ensureColumn('transactions', 'account_id', 'TEXT NULL');
     await _ensureColumn('subscriptions', 'account_id', 'TEXT NULL');
@@ -632,6 +689,11 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn('subscriptions', 'interest_rate', 'REAL NULL');
     await _createBillPaymentsTable();
     await _createSuspectedDuplicatesTable();
+
+    // v27: تخصيص تصميم البطاقة + ربط الحساب اختياري.
+    await _ensureColumn('cards', 'color_theme', 'TEXT NULL');
+    await _ensureColumn('cards', 'accent_hex', 'TEXT NULL');
+    await _relaxCardsAccountNullable();
 
     if (version < 3) {
       await _createCatalogMetadataTable();
@@ -766,6 +828,7 @@ class AppDatabase extends GeneratedDatabase {
         server_updated_at TEXT NULL,
         synced_at TEXT NOT NULL,
         dismissed_locally INTEGER NOT NULL DEFAULT 0,
+        pending_sync INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -778,6 +841,9 @@ class AppDatabase extends GeneratedDatabase {
       'CREATE INDEX IF NOT EXISTS idx_smart_inbox_status '
       'ON smart_inbox_items(status);',
     );
+    // S3 gap#1: علم دفع محلي لتغييرات صندوق الوارد (رفض/معالجة) offline-first.
+    await _ensureColumn(
+        'smart_inbox_items', 'pending_sync', 'INTEGER NOT NULL DEFAULT 0');
     // v18-v19: Phase G — planning sync foundation.
     await _ensureAccountsSyncSchema();
     await _ensurePlanningEntitySyncSchema();
@@ -824,6 +890,14 @@ class AppDatabase extends GeneratedDatabase {
       "TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict'))",
     );
     await _ensureColumn('accounts', 'deleted_at', 'TEXT NULL');
+    await _ensureColumn('accounts', 'bank_account_number', 'TEXT NULL');
+    await _ensureColumn('accounts', 'credit_limit', 'REAL NULL');
+    await _ensureColumn('accounts', 'available_credit', 'REAL NULL');
+    await _ensureColumn('accounts', 'payment_due_day', 'INTEGER NULL');
+    await _ensureColumn('accounts', 'wallet_provider', 'TEXT NULL');
+    await _ensureColumn(
+        'accounts', 'exclude_from_totals', 'INTEGER NOT NULL DEFAULT 0');
+    await _ensureColumn('accounts', 'metadata', 'TEXT NULL');
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_accounts_server_id ON accounts(server_id);',
     );
@@ -1260,6 +1334,64 @@ class AppDatabase extends GeneratedDatabase {
     }
   }
 
+  /// v27: يجعل `account_id` في جدول `cards` قابلًا لأن يكون NULL (بطاقة بلا
+  /// حساب مرتبط). SQLite لا يدعم إسقاط NOT NULL بـ ALTER — نعيد بناء الجدول مرة
+  /// واحدة. idempotent: لا يفعل شيئًا إن كان العمود بالفعل NULLable. يفترض أن
+  /// عمودَي color_theme/accent_hex أُضيفا مسبقًا عبر _ensureColumn.
+  Future<void> _relaxCardsAccountNullable() async {
+    final info = await customSelect('PRAGMA table_info(cards);').get();
+    final accountCol =
+        info.where((row) => row.read<String>('name') == 'account_id').toList();
+    if (accountCol.isEmpty) return; // حماية دفاعية — لا يُفترض حدوثه.
+    final notNull = accountCol.first.read<int>('notnull') == 1;
+    if (!notNull) return; // بالفعل NULLable — لا حاجة لإعادة البناء.
+
+    // إعادة البناء ذرّية (transaction) حتى لا تُترك cards_new يتيمة لو انقطع
+    // التطبيق في المنتصف.
+    await transaction(() async {
+      await customStatement('DROP TABLE IF EXISTS cards_new;');
+      await customStatement('''
+        CREATE TABLE cards_new(
+          id TEXT PRIMARY KEY,
+          account_id TEXT NULL,
+          nickname TEXT NULL,
+          last4 TEXT NOT NULL,
+          network TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual', 'auto')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          server_id TEXT NULL,
+          synced_at TEXT NULL,
+          server_updated_at TEXT NULL,
+          sync_status TEXT NULL CHECK(sync_status IN ('local_only', 'synced', 'pending', 'conflict')),
+          deleted_at TEXT NULL,
+          color_theme TEXT NULL,
+          accent_hex TEXT NULL
+        );
+      ''');
+      await customStatement('''
+        INSERT INTO cards_new(
+          id, account_id, nickname, last4, network, source,
+          created_at, updated_at, server_id, synced_at, server_updated_at,
+          sync_status, deleted_at, color_theme, accent_hex
+        )
+        SELECT id, account_id, nickname, last4, network, source,
+          created_at, updated_at, server_id, synced_at, server_updated_at,
+          sync_status, deleted_at, color_theme, accent_hex
+        FROM cards;
+      ''');
+      await customStatement('DROP TABLE cards;');
+      await customStatement('ALTER TABLE cards_new RENAME TO cards;');
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_cards_account ON cards(account_id);',
+      );
+      await customStatement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS uidx_cards_account_last4_active '
+        'ON cards(account_id, last4) WHERE deleted_at IS NULL;',
+      );
+    });
+  }
+
   Future<void> _seedIfNeeded() async {
     if (await count('categories') == 0) {
       for (final category in DatabaseSeed.categories) {
@@ -1432,7 +1564,10 @@ class AppDatabase extends GeneratedDatabase {
         'SELECT currency FROM user_settings LIMIT 1;',
       ).getSingleOrNull();
       final currency = settingsRow?.read<String>('currency') ?? 'SAR';
-      final accountId = IdGenerator.next();
+      // Stable id (not random) so the reseed after every sign-out is one
+      // identity — otherwise each cycle creates a new account that the sync
+      // backfill pushes to the server, accumulating duplicate default accounts.
+      const accountId = kDefaultAccountLocalId;
       final now = dateTimeToSql(DateTime.now().toUtc());
       await customInsert(
         '''

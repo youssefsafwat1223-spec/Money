@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:drift/drift.dart' show Variable;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -85,6 +86,12 @@ class LocalNotificationService {
   LocalNotificationService._();
 
   static final LocalNotificationService instance = LocalNotificationService._();
+
+  /// Clamp any id to a non-negative 31-bit int. The Android plugin reads the id
+  /// as a Java `Integer`; a Dart hashCode > 2^31 throws (Long→Integer) and the
+  /// notification is silently dropped. Every id goes through here.
+  static int _safeId(int raw) => raw & 0x7FFFFFFF;
+
   static const String _reviewChannelId = 'capture_review';
   // v2 because Android keeps the original channel importance forever after it
   // is created. The old capture_light channel was low importance, so confirmed
@@ -128,7 +135,7 @@ class LocalNotificationService {
     }
 
     tz.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('Asia/Riyadh'));
+    await _configureLocalTimezone();
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     final darwin = DarwinInitializationSettings(
@@ -183,6 +190,18 @@ class LocalNotificationService {
     return _extractTransactionId(initialPayload);
   }
 
+  /// Schedules must fire in the user's own timezone, not a fixed one. Resolve
+  /// the device IANA zone and make it `tz.local`; fall back to Asia/Riyadh only
+  /// if the platform can't report a zone (never leave scheduling broken).
+  Future<void> _configureLocalTimezone() async {
+    try {
+      final name = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(name));
+    } catch (_) {
+      tz.setLocalLocation(tz.getLocation('Asia/Riyadh'));
+    }
+  }
+
   Future<void> requestPermissionsIfNeeded() async {
     if (!_initialized) {
       await initialize();
@@ -213,7 +232,7 @@ class LocalNotificationService {
       return;
     }
     await _show(
-      id: transactionId.hashCode,
+      id: _safeId(transactionId.hashCode),
       title: title,
       body: body,
       notificationType: NotificationType.captureReview,
@@ -225,6 +244,7 @@ class LocalNotificationService {
           channelDescription: 'تنبيهات العمليات التي تحتاج مراجعة',
           importance: Importance.max,
           priority: Priority.high,
+          visibility: NotificationVisibility.private,
           actions: [
             AndroidNotificationAction(_actionConfirm, 'تأكيد ✓'),
             AndroidNotificationAction(_actionDismiss, 'تجاهل',
@@ -251,6 +271,7 @@ class LocalNotificationService {
     required String title,
     required String body,
     required NotificationPreferences preferences,
+    String? stableId,
   }) async {
     debugPrint(
         '[Notif] showLightCapture captureLight=${preferences.captureLight}');
@@ -258,7 +279,9 @@ class LocalNotificationService {
       return;
     }
     await _show(
-      id: DateTime.now().millisecondsSinceEpoch.remainder(1 << 31),
+      // Idempotent per transaction (or per content when no id is available):
+      // the same capture notified twice replaces rather than duplicates.
+      id: _safeId((stableId ?? '$title|$body').hashCode),
       title: title,
       body: body,
       notificationType: NotificationType.captureLight,
@@ -270,6 +293,7 @@ class LocalNotificationService {
           channelDescription: 'إشعارات فورية عند التقاط عملية من رسائل البنك',
           importance: Importance.high,
           priority: Priority.high,
+          visibility: NotificationVisibility.private,
         ),
         iOS: DarwinNotificationDetails(
           presentBanner: true,
@@ -377,7 +401,7 @@ class LocalNotificationService {
     int? notifId,
   }) async {
     await _show(
-      id: notifId ?? (title.hashCode ^ body.hashCode),
+      id: notifId ?? _safeId(title.hashCode ^ body.hashCode),
       title: title,
       body: body,
       notificationType: type,
@@ -389,6 +413,7 @@ class LocalNotificationService {
           channelDescription: 'تنبيهات الاقتراب من الميزانية أو تجاوزها',
           importance: Importance.high,
           priority: Priority.high,
+          visibility: NotificationVisibility.private,
         ),
         iOS: DarwinNotificationDetails(
           presentBanner: true,
@@ -406,7 +431,7 @@ class LocalNotificationService {
     required NotificationPreferences preferences,
   }) async {
     await _show(
-      id: title.hashCode ^ body.hashCode,
+      id: _safeId(title.hashCode ^ body.hashCode),
       title: title,
       body: body,
       notificationType: NotificationType.achievements,
@@ -998,10 +1023,54 @@ class LocalNotificationService {
           ],
         );
       } else {
-        await db.customUpdate(
-          "DELETE FROM transactions WHERE id = ? AND status = 'pending';",
-          variables: [Variable.withString(transactionId)],
-        );
+        // Atomic: the local delete, the outbox-create removal, and the
+        // tombstone must all commit together, or none — otherwise an
+        // interruption between them could leave the `create` behind and
+        // resurrect the dismissed capture (docs/NOTIFICATION_FORENSIC_AUDIT.md
+        // C1). One Drift transaction = one SQLite write lock, so it is also
+        // serialized against any concurrent connection.
+        await db.transaction(() async {
+          // Read server state BEFORE deleting so we can tombstone if it already
+          // reached Supabase.
+          final existing = await db.customSelect(
+            "SELECT server_id FROM transactions "
+            "WHERE id = ? AND status = 'pending';",
+            variables: [Variable.withString(transactionId)],
+          ).getSingleOrNull();
+          final serverId = existing?.readNullable<String>('server_id');
+
+          await db.customUpdate(
+            "DELETE FROM transactions WHERE id = ? AND status = 'pending';",
+            variables: [Variable.withString(transactionId)],
+          );
+
+          // A captured pending row already enqueued an outbox `create`. Drop it
+          // so a dismissed capture is never pushed to the server...
+          await db.customUpdate(
+            "DELETE FROM ledger_sync_outbox "
+            "WHERE transaction_id = ? AND operation = 'create';",
+            variables: [Variable.withString(transactionId)],
+          );
+          // ...and if it already reached the server, enqueue a tombstone delete
+          // so the next push removes it there too (else the pull re-imports it).
+          if (serverId != null) {
+            final now = DateTime.now().toUtc().toIso8601String();
+            await db.customInsert(
+              "INSERT INTO ledger_sync_outbox(id, transaction_id, operation, "
+              "payload_json, attempt_count, created_at, updated_at) "
+              "VALUES (?, ?, 'delete', ?, 0, ?, ?);",
+              variables: [
+                Variable.withString(
+                    'bgdel_${transactionId}_${DateTime.now().microsecondsSinceEpoch}'),
+                Variable.withString(transactionId),
+                Variable.withString(jsonEncode(
+                    {'local_id': transactionId, 'server_id': serverId})),
+                Variable.withString(now),
+                Variable.withString(now),
+              ],
+            );
+          }
+        });
       }
     } catch (_) {
       // الإجراء مسجَّل بالفعل لإعادة التطبيق — لا شيء يُفقد هنا.

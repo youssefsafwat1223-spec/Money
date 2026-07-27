@@ -49,8 +49,10 @@ class BudgetEntity {
       period: period ?? this.period,
       startDate: startDate ?? this.startDate,
       isActive: isActive ?? this.isActive,
-      lastNotifiedSpentAmount: lastNotifiedSpentAmount ?? this.lastNotifiedSpentAmount,
-      lastNotifiedPeriodStart: lastNotifiedPeriodStart ?? this.lastNotifiedPeriodStart,
+      lastNotifiedSpentAmount:
+          lastNotifiedSpentAmount ?? this.lastNotifiedSpentAmount,
+      lastNotifiedPeriodStart:
+          lastNotifiedPeriodStart ?? this.lastNotifiedPeriodStart,
       showOnHeader: showOnHeader ?? this.showOnHeader,
       accountId: accountId ?? this.accountId,
     );

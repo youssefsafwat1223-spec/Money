@@ -68,6 +68,15 @@ void main() {
       "INSERT INTO pending_merchant_feedback(normalized_keyword, last_seen_at) "
       "VALUES ('MERCHANT X', '$now');",
     );
+    await db.customStatement(
+      "INSERT INTO cards(id, account_id, last4, network, source, created_at, updated_at) "
+      "VALUES ('card-user-a', (SELECT id FROM accounts LIMIT 1), '1234', "
+      "'visa', 'manual', '$now', '$now');",
+    );
+    await db.customStatement(
+      "INSERT INTO categories(id, key, name_ar, icon, color, is_income, sort_order, sync_status) "
+      "VALUES ('cat-user-a', 'custom_user_a', 'خاصة', 'tag', '#000000', 0, 999, 'pending');",
+    );
 
     final accountsBefore = await _count(db, 'accounts');
     expect(accountsBefore, greaterThan(0),
@@ -83,13 +92,25 @@ void main() {
       'dedup_hashes',
       'ledger_sync_outbox',
       'pending_merchant_feedback',
+      'cards',
     ]) {
       expect(await _count(db, table), 0, reason: '$table must be wiped');
     }
 
+    expect(
+      await db
+          .customSelect(
+            "SELECT COUNT(*) AS n FROM categories WHERE key LIKE 'custom_%';",
+          )
+          .getSingle()
+          .then((row) => row.read<int>('n')),
+      0,
+      reason: 'custom categories from the previous user must be wiped',
+    );
+
     // Reference/catalog tables are not personal — preserved across users.
-    expect(await _count(db, 'categories'), categoriesBefore,
-        reason: 'category catalog is shared, not personal');
+    expect(await _count(db, 'categories'), categoriesBefore - 1,
+        reason: 'built-in category catalog is shared and remains seeded');
   });
 
   test(
@@ -131,6 +152,30 @@ void main() {
         .customSelect('SELECT id FROM accounts WHERE is_default = 1;')
         .get();
     expect(defaults, hasLength(1));
+  });
+
+  test(
+      'the reseeded default account keeps a STABLE id across sign-out cycles '
+      '(so sign-in never accumulates duplicate server accounts)', () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+
+    Future<String> defaultId() async => (await db
+            .customSelect('SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;')
+            .getSingle())
+        .read<String>('id');
+
+    final first = await defaultId();
+    await DataWipeService(db).wipeAll(); // sign-out #1
+    final second = await defaultId();
+    await DataWipeService(db).wipeAll(); // sign-out #2
+    final third = await defaultId();
+
+    expect(first, kDefaultAccountLocalId,
+        reason: 'the auto-seeded default must use the fixed sentinel id');
+    expect(second, first,
+        reason: 'a random id here is exactly what accumulated duplicates');
+    expect(third, first);
   });
 
   test('wipeAll is idempotent — calling it twice in a row is safe', () async {

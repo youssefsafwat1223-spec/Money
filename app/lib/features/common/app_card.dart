@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/theme/mali_tokens.dart';
 
 enum AppCardVariant { base, elevated, gradient, danger }
 
@@ -36,7 +37,10 @@ class AppCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final effectiveRadius = radius ?? AppRadius.card;
+    final t = MaliTokens.of(context);
+    // Calm Capital: match the flagship MaliCard so AppCard-based screens look
+    // identical (28px radius + translucent floating fill). `radius:` overrides.
+    final effectiveRadius = radius ?? AppRadius.xxl;
     final effectiveGradient = gradient ??
         switch (variant) {
           AppCardVariant.gradient => LinearGradient(
@@ -56,18 +60,18 @@ class AppCard extends StatelessWidget {
           color: switch (variant) {
             AppCardVariant.danger => c.danger.withValues(alpha: 0.24),
             AppCardVariant.gradient => c.border.withValues(alpha: 0.8),
-            _ => c.border,
+            _ => t.cardBorder,
           },
           width: 1.0,
         );
     final decoration = BoxDecoration(
-      color: effectiveGradient == null ? (color ?? c.surfaceCard) : null,
+      color: effectiveGradient == null ? (color ?? t.surfaceFloating) : null,
       gradient: effectiveGradient,
       borderRadius: BorderRadius.circular(effectiveRadius),
       border: effectiveBorder,
       boxShadow: variant == AppCardVariant.elevated
           ? AppShadows.elevatedCard
-          : AppShadows.card,
+          : t.floatShadow,
     );
 
     final cardContent = Material(

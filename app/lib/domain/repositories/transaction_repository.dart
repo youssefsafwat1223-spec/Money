@@ -2,6 +2,7 @@ import '../entities/card_summary.dart';
 import '../entities/category_spend.dart';
 import '../entities/report_models.dart';
 import '../entities/transaction_entity.dart';
+import '../services/card_account_grouper.dart';
 
 abstract class TransactionRepository {
   Future<TransactionEntity?> findDuplicate({
@@ -135,6 +136,10 @@ abstract class TransactionRepository {
 
   /// ملخّص لكل بطاقة (آخر 4 أرقام + الشبكة + الداخل/الخارج).
   Future<List<CardSummary>> getCardSummaries();
+
+  /// صفوف تجميعية لكل (آخر 4 أرقام، حساب) — أساس ربط البطاقة بحسابها بثقة.
+  /// قراءة فقط؛ لا يكتب account_id.
+  Future<List<CardAccountBreakdownRow>> getCardAccountBreakdown();
 
   /// عمليات بطاقة محددة (بآخر 4 أرقام) مرتّبة بالأحدث.
   Future<List<TransactionEntity>> getByCard(String last4);

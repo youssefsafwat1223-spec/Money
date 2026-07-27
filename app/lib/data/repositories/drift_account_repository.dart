@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../core/utils/id_generator.dart';
@@ -7,6 +9,16 @@ import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 
+Map<String, dynamic>? _decodeMetadata(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  try {
+    final decoded = jsonDecode(raw);
+    return decoded is Map<String, dynamic> ? decoded : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 AccountEntity accountFromRow(QueryRow row) {
   return AccountEntity(
     id: row.read<String>('id'),
@@ -15,12 +27,41 @@ AccountEntity accountFromRow(QueryRow row) {
     type: accountTypeFromKey(row.read<String>('type')),
     initialBalance: row.readNullable<double>('initial_balance'),
     currentBalance: row.readNullable<double>('current_balance'),
+    bankAccountNumber: row.readNullable<String>('bank_account_number'),
+    creditLimit: row.readNullable<double>('credit_limit'),
+    availableCredit: row.readNullable<double>('available_credit'),
+    paymentDueDay: row.readNullable<int>('payment_due_day'),
+    walletProvider: row.readNullable<String>('wallet_provider'),
+    excludeFromTotals: sqlToBool(row.read<int>('exclude_from_totals')),
+    metadata: _decodeMetadata(row.readNullable<String>('metadata')),
     isDefault: sqlToBool(row.read<int>('is_default')),
     sortOrder: row.read<int>('sort_order'),
     createdAt: dateTimeFromSql(row.read<String>('created_at')),
     updatedAt: dateTimeFromSql(row.read<String>('updated_at')),
   );
 }
+
+List<Variable> _accountFieldVars(AccountEntity account) => [
+      account.bankAccountNumber == null
+          ? const Variable<String>(null)
+          : Variable.withString(account.bankAccountNumber!),
+      account.creditLimit == null
+          ? const Variable<double>(null)
+          : Variable.withReal(account.creditLimit!),
+      account.availableCredit == null
+          ? const Variable<double>(null)
+          : Variable.withReal(account.availableCredit!),
+      account.paymentDueDay == null
+          ? const Variable<int>(null)
+          : Variable.withInt(account.paymentDueDay!),
+      account.walletProvider == null
+          ? const Variable<String>(null)
+          : Variable.withString(account.walletProvider!),
+      Variable.withInt(boolToSql(account.excludeFromTotals)),
+      account.metadata == null
+          ? const Variable<String>(null)
+          : Variable.withString(jsonEncode(account.metadata)),
+    ];
 
 class DriftAccountRepository implements AccountRepository {
   DriftAccountRepository(
@@ -79,9 +120,11 @@ class DriftAccountRepository implements AccountRepository {
       '''
         INSERT INTO accounts(
           id, name, currency, type, initial_balance, current_balance,
+          bank_account_number, credit_limit, available_credit,
+          payment_due_day, wallet_provider, exclude_from_totals, metadata,
           is_default, sort_order, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
       variables: [
         Variable.withString(id),
@@ -94,6 +137,7 @@ class DriftAccountRepository implements AccountRepository {
         account.currentBalance == null
             ? const Variable<double>(null)
             : Variable.withReal(account.currentBalance!),
+        ..._accountFieldVars(account),
         Variable.withInt(boolToSql(makeDefault)),
         Variable.withInt(account.sortOrder),
         Variable.withString(dateTimeToSql(now)),
@@ -122,7 +166,9 @@ class DriftAccountRepository implements AccountRepository {
       '''
         UPDATE accounts
         SET name = ?, currency = ?, type = ?, initial_balance = ?,
-            current_balance = ?, sort_order = ?, updated_at = ?
+            current_balance = ?, bank_account_number = ?, credit_limit = ?,
+            available_credit = ?, payment_due_day = ?, wallet_provider = ?,
+            exclude_from_totals = ?, metadata = ?, sort_order = ?, updated_at = ?
         WHERE id = ?;
       ''',
       variables: [
@@ -135,6 +181,7 @@ class DriftAccountRepository implements AccountRepository {
         account.currentBalance == null
             ? const Variable<double>(null)
             : Variable.withReal(account.currentBalance!),
+        ..._accountFieldVars(account),
         Variable.withInt(account.sortOrder),
         Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
         Variable.withString(account.id),

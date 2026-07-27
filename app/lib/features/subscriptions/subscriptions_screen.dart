@@ -6,12 +6,13 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/mali_card.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../cards/brand_mark.dart';
-import '../common/account_range_controls.dart';
 import '../common/premium_loading.dart';
 import 'bill_details_sheet.dart';
 import 'bill_form_sheet.dart';
@@ -50,11 +51,12 @@ class SubscriptionsScreen extends ConsumerWidget {
     final baseCur = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
 
     return billsAsync.when(
+      skipLoadingOnReload: true,
       loading: () => Scaffold(
         appBar: Navigator.of(context).canPop()
             ? AppBar(title: const Text('الاشتراكات والفواتير'))
             : null,
-        body: const PremiumSkeletonPage(cardCount: 4),
+        body: const FirstLoadPlaceholder(cardCount: 4),
       ),
       error: (e, _) => Scaffold(
         appBar: Navigator.of(context).canPop()
@@ -76,93 +78,84 @@ class SubscriptionsScreen extends ConsumerWidget {
         return DefaultTabController(
           length: 2,
           child: Scaffold(
-            body: NestedScrollView(
-              headerSliverBuilder: (context, innerBoxIsScrolled) {
-                return [
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        _BillsHeader(
-                          monthly: monthlyTotal,
-                          subsCount: subs.length,
-                          instsCount: insts.length,
-                          currency: Currency.arabicLabel(baseCur),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter),
-                          child: AccountRangeControls(
-                            onAccountChanged: () {
-                              ref.invalidate(savedBillsProvider);
-                              ref.invalidate(subscriptionsProvider);
-                            },
-                            onRangeChanged: () {
-                              ref.invalidate(savedBillsProvider);
-                              ref.invalidate(subscriptionsProvider);
-                            },
+            body: SafeArea(
+              top: false,
+              bottom: false,
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) {
+                  return [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          _BillsHeader(
+                            monthly: monthlyTotal,
+                            subsCount: subs.length,
+                            instsCount: insts.length,
+                            currency: Currency.arabicLabel(baseCur),
                           ),
-                        ),
-                        const SizedBox(height: AppSpacing.s2),
-                      ],
+                          const SizedBox(height: AppSpacing.s2),
+                        ],
+                      ),
                     ),
-                  ),
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _TabBarDelegate(
-                      child: Container(
-                        height: 64.0,
-                        color: context.colors.bg,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.gutter,
-                        ),
-                        alignment: Alignment.center,
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _TabBarDelegate(
                         child: Container(
-                          height: 48,
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: context.colors.surface2,
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          height: 64.0,
+                          color: context.colors.bg,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.gutter,
                           ),
-                          child: TabBar(
-                            indicatorSize: TabBarIndicatorSize.tab,
-                            dividerColor: Colors.transparent,
-                            labelColor:
-                                Theme.of(context).brightness == Brightness.dark
-                                    ? context.colors.accent
-                                    : Colors.white,
-                            unselectedLabelColor: context.colors.textLight,
-                            indicator: BoxDecoration(
-                              color: Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? context.colors.accent
-                                      .withValues(alpha: 0.22)
-                                  : context.colors.primary,
+                          alignment: Alignment.center,
+                          child: Container(
+                            height: 48,
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: context.colors.surface2,
                               borderRadius:
                                   BorderRadius.circular(AppRadius.pill),
                             ),
-                            tabs: [
-                              Tab(text: 'الاشتراكات (${subs.length})'),
-                              Tab(text: 'الأقساط (${insts.length})'),
-                            ],
+                            child: TabBar(
+                              indicatorSize: TabBarIndicatorSize.tab,
+                              dividerColor: Colors.transparent,
+                              labelColor: Theme.of(context).brightness ==
+                                      Brightness.dark
+                                  ? context.colors.accent
+                                  : Colors.white,
+                              unselectedLabelColor: context.colors.textLight,
+                              indicator: BoxDecoration(
+                                color: Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? context.colors.accent
+                                        .withValues(alpha: 0.22)
+                                    : context.colors.primary,
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.pill),
+                              ),
+                              tabs: [
+                                Tab(text: 'الاشتراكات (${subs.length})'),
+                                Tab(text: 'الأقساط (${insts.length})'),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
+                  ];
+                },
+                body: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                  child: TabBarView(
+                    children: [
+                      _SubscriptionsTab(
+                        bills: subs,
+                        suggestions: suggestions,
+                        baseCurrency: baseCur,
+                      ),
+                      _InstallmentsTab(bills: insts),
+                    ],
                   ),
-                ];
-              },
-              body: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                child: TabBarView(
-                  children: [
-                    _SubscriptionsTab(
-                      bills: subs,
-                      suggestions: suggestions,
-                      baseCurrency: baseCur,
-                    ),
-                    _InstallmentsTab(bills: insts),
-                  ],
                 ),
               ),
             ),
@@ -210,120 +203,26 @@ class _BillsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+    return CalmPageHeader(
+      title: 'الاشتراكات والفواتير',
+      subtitle: 'إجمالي الصرف الشهري',
+      leading: Navigator.of(context).canPop()
+          ? const BackButton(color: Colors.white)
+          : null,
+      trailing: _AddButton(
+        onTap: () => BillFormSheet.show(
+          context,
+          initialType: BillType.subscription,
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  'الاشتراكات والفواتير',
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-              _AddButton(
-                onTap: () => BillFormSheet.show(
-                  context,
-                  initialType: BillType.subscription,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: c.cta.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(Icons.receipt_long_rounded,
-                          color: c.cta, size: 22),
-                    ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'إجمالي الصرف الشهري',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${Formatters.amount(monthly)} $currency',
-                            style: AppTypography.title2(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
-                  child: Divider(color: c.border, height: 1),
-                ),
-                Row(
-                  children: [
-                    _HeaderMetric(label: 'اشتراكات نشطة', value: '$subsCount'),
-                    const _Divider(),
-                    _HeaderMetric(label: 'أقساط جارية', value: '$instsCount'),
-                    const _Divider(),
-                    _HeaderMetric(
-                      label: 'سنوياً المجموع',
-                      value: '${Formatters.amount(monthly * 12)} $currency',
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      amount: Formatters.amount(monthly),
+      currency: currency,
+      metrics: [
+        CalmMetric(label: 'اشتراكات نشطة', value: '$subsCount'),
+        CalmMetric(label: 'أقساط جارية', value: '$instsCount'),
+        CalmMetric(
+            label: 'سنوياً المجموع', value: Formatters.amount(monthly * 12)),
+      ],
     );
   }
 }
@@ -334,7 +233,6 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -344,52 +242,14 @@ class _AddButton extends StatelessWidget {
         width: 42,
         height: 42,
         decoration: BoxDecoration(
-          color: c.surfaceCard,
           shape: BoxShape.circle,
-          border: Border.all(color: c.border),
+          color: Colors.white.withValues(alpha: 0.16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
         ),
-        child: Icon(Icons.add, color: c.cta, size: 22),
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }
-}
-
-class _HeaderMetric extends StatelessWidget {
-  const _HeaderMetric({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: AppTypography.bodyStrong(c.textMain),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: AppTypography.caption(c.textLight),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  const _Divider();
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 32,
-        color: context.colors.divider,
-      );
 }
 
 // ─── Subscriptions Tab ───────────────────────────────────────────────────────
@@ -428,7 +288,7 @@ class _SubscriptionsTab extends StatelessWidget {
           Text(
             'مكتشفة تلقائياً',
             style: AppTypography.caption(c.textLight)
-                .copyWith(letterSpacing: 1.4, fontWeight: FontWeight.w800),
+                .copyWith(letterSpacing: 1.4, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: AppSpacing.s3),
           for (final item in suggestions)
@@ -504,151 +364,131 @@ class _SubscriptionCard extends StatelessWidget {
       dueIcon = Icons.calendar_month_outlined;
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.s3),
-      child: Container(
-        decoration: BoxDecoration(
-          color: c.surfaceCard,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => BillDetailsSheet.show(context, bill),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.s4),
-              child: Column(
-                children: [
-                  Row(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        onTap: () => BillDetailsSheet.show(context, bill),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                BrandMark(name: bill.name, size: 48),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      BrandMark(name: bill.name, size: 48),
-                      const SizedBox(width: AppSpacing.s3),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    bill.name,
-                                    style: AppTypography.bodyStrong(c.textMain),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: statusColor.withValues(alpha: 0.10),
-                                    borderRadius:
-                                        BorderRadius.circular(AppRadius.pill),
-                                    border: Border.all(
-                                        color: statusColor.withValues(
-                                            alpha: 0.20)),
-                                  ),
-                                  child: Text(
-                                    statusLabel,
-                                    style: AppTypography.caption(statusColor)
-                                        .copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ],
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              bill.name,
+                              style: AppTypography.bodyStrong(c.textMain),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            if (bill.mightBeUnused) ...[
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Icon(Icons.info_outline_rounded,
-                                      size: 12, color: c.warning),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    'قد لا تستخدم هذا الاشتراك',
-                                    style: AppTypography.caption(c.warning),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(dueIcon, size: 13, color: dueColor),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '$freqLabel · $dueLabel',
-                                  style: AppTypography.caption(dueColor),
-                                ),
-                              ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.10),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                              border: Border.all(
+                                  color: statusColor.withValues(alpha: 0.20)),
+                            ),
+                            child: Text(
+                              statusLabel,
+                              style: AppTypography.caption(statusColor)
+                                  .copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (bill.mightBeUnused) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.info_outline_rounded,
+                                size: 12, color: c.warning),
+                            const SizedBox(width: 3),
+                            Text(
+                              'قد لا تستخدم هذا الاشتراك',
+                              style: AppTypography.caption(c.warning),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: AppSpacing.s3),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                      ],
+                      const SizedBox(height: 6),
+                      Row(
                         children: [
+                          Icon(dueIcon, size: 13, color: dueColor),
+                          const SizedBox(width: 4),
                           Text(
-                            Formatters.amount(bill.amount),
-                            style: AppTypography.bodyStrong(c.textMain),
+                            '$freqLabel · $dueLabel',
+                            style: AppTypography.caption(dueColor),
                           ),
-                          Text(
-                            Currency.arabicLabel(bill.currency),
-                            style: AppTypography.caption(c.textLight),
-                          ),
-                          if (bill.type == BillType.subscription)
-                            Text(
-                              '≈ ${Formatters.amount(_annualSubscriptionCost(bill))}/سنة',
-                              style: AppTypography.caption(c.textLight),
-                            ),
                         ],
                       ),
                     ],
                   ),
-                  if (bill.safeManualPaidAmount > 0) ...[
-                    const SizedBox(height: AppSpacing.s3),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: c.success.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(
-                          color: c.success.withValues(alpha: 0.28),
-                        ),
+                ),
+                const SizedBox(width: AppSpacing.s3),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      Formatters.amount(bill.amount),
+                      style: AppTypography.bodyStrong(c.textMain),
+                    ),
+                    Text(
+                      Currency.arabicLabel(bill.currency),
+                      style: AppTypography.caption(c.textLight),
+                    ),
+                    if (bill.type == BillType.subscription)
+                      Text(
+                        '≈ ${Formatters.amount(_annualSubscriptionCost(bill))}/سنة',
+                        style: AppTypography.caption(c.textLight),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.payments_outlined,
-                              size: 16, color: c.success),
-                          const SizedBox(width: 6),
-                          Text(
-                            'مدفوع يدويًا: ',
-                            style: AppTypography.caption(c.textLight),
-                          ),
-                          Text(
-                            '${Formatters.amount(bill.safeManualPaidAmount)} ${Currency.arabicLabel(bill.currency)}',
-                            style: AppTypography.caption(c.success).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
+                  ],
+                ),
+              ],
+            ),
+            if (bill.safeManualPaidAmount > 0) ...[
+              const SizedBox(height: AppSpacing.s3),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: c.success.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(
+                    color: c.success.withValues(alpha: 0.28),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.payments_outlined, size: 16, color: c.success),
+                    const SizedBox(width: 6),
+                    Text(
+                      'مدفوع يدويًا: ',
+                      style: AppTypography.caption(c.textLight),
+                    ),
+                    Text(
+                      '${Formatters.amount(bill.safeManualPaidAmount)} ${Currency.arabicLabel(bill.currency)}',
+                      style: AppTypography.caption(c.success).copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
-          ),
+            ],
+          ],
         ),
       ),
     );
@@ -670,91 +510,70 @@ class _SuggestionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.s3),
-      child: Container(
-        decoration: BoxDecoration(
-          color: c.surfaceCard.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(
-            color: c.border.withValues(alpha: 0.3),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        onTap: () => BillFormSheet.show(
+          context,
+          initialType: BillType.subscription,
+          initialName: item.name as String,
         ),
-        clipBehavior: Clip.antiAlias,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => BillFormSheet.show(
-              context,
-              initialType: BillType.subscription,
-              initialName: item.name as String,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.s4),
-              child: Row(
+        child: Row(
+          children: [
+            BrandMark(name: item.name as String, size: 48),
+            const SizedBox(width: AppSpacing.s3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  BrandMark(name: item.name as String, size: 48),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.name as String,
-                          style: AppTypography.bodyStrong(c.textMain),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'تكرر ${_monthsLabel((item.monthsSeen as num).toInt())} · اضغط للتفعيل',
-                          style: AppTypography.caption(c.textLight),
-                        ),
-                      ],
-                    ),
+                  Text(
+                    item.name as String,
+                    style: AppTypography.bodyStrong(c.textMain),
                   ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        '${Formatters.amount(item.averageAmount as double)} ${Currency.arabicLabel(baseCurrency)}/شهر',
-                        style: AppTypography.caption(c.textMain).copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: c.cta.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add, size: 12, color: c.cta),
-                            const SizedBox(width: 2),
-                            Text(
-                              'إضافة',
-                              style: AppTypography.caption(c.cta)
-                                  .copyWith(fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 4),
+                  Text(
+                    'تكرر ${_monthsLabel((item.monthsSeen as num).toInt())} · اضغط للتفعيل',
+                    style: AppTypography.caption(c.textLight),
                   ),
                 ],
               ),
             ),
-          ),
+            const SizedBox(width: AppSpacing.s3),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '${Formatters.amount(item.averageAmount as double)} ${Currency.arabicLabel(baseCurrency)}/شهر',
+                  style: AppTypography.caption(c.textMain).copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: c.cta.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add, size: 12, color: c.cta),
+                      const SizedBox(width: 2),
+                      Text(
+                        'إضافة',
+                        style: AppTypography.caption(c.cta)
+                            .copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -809,7 +628,7 @@ class _InstallmentsTab extends StatelessWidget {
                 Text(
                   '${Formatters.amount(totalRemaining)} $currency',
                   style: AppTypography.title1(Colors.white)
-                      .copyWith(fontWeight: FontWeight.w900),
+                      .copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: AppSpacing.s3),
                 Row(
@@ -867,7 +686,7 @@ class _DebtStat extends StatelessWidget {
         Text(
           value,
           style: AppTypography.bodyStrong(Colors.white)
-              .copyWith(fontWeight: FontWeight.w900),
+              .copyWith(fontWeight: FontWeight.w700),
         ),
         Text(
           label,
@@ -908,193 +727,172 @@ class _InstallmentCard extends StatelessWidget {
       dueLabel = 'بعد $daysLeft يوم';
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.s3),
-      child: Container(
-        decoration: BoxDecoration(
-          color: c.surfaceCard,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => BillDetailsSheet.show(context, bill),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.s4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        onTap: () => BillDetailsSheet.show(context, bill),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                BrandMark(name: bill.lenderName ?? bill.name, size: 44),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      BrandMark(name: bill.lenderName ?? bill.name, size: 44),
-                      const SizedBox(width: AppSpacing.s3),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              bill.name,
-                              style: AppTypography.bodyStrong(c.textMain),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (bill.lenderName != null) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                bill.lenderName!,
-                                style: AppTypography.caption(c.textLight),
-                              ),
-                            ],
-                          ],
-                        ),
+                      Text(
+                        bill.name,
+                        style: AppTypography.bodyStrong(c.textMain),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: AppSpacing.s2),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            Formatters.amount(bill.amount),
-                            style: AppTypography.bodyStrong(c.primary),
-                          ),
-                          Text(
-                            '$currLabel / قسط',
-                            style: AppTypography.caption(c.textLight),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  if (hasProg) ...[
-                    const SizedBox(height: AppSpacing.s4),
-                    Row(
-                      children: [
+                      if (bill.lenderName != null) ...[
+                        const SizedBox(height: 2),
                         Text(
-                          '${bill.paidCount ?? 0} من ${bill.totalInstallments} قسط مدفوع',
+                          bill.lenderName!,
                           style: AppTypography.caption(c.textLight),
                         ),
-                        const Spacer(),
-                        Text(
-                          'متبقي $remaining قسط',
-                          style: AppTypography.caption(c.primary)
-                              .copyWith(fontWeight: FontWeight.bold),
-                        ),
                       ],
-                    ),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                      child: SizedBox(
-                        height: 6,
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: c.surface2,
-                          valueColor: AlwaysStoppedAnimation(
-                            progress >= 1.0 ? c.success : c.primary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (bill.totalPurchaseAmount != null) ...[
-                    const SizedBox(height: AppSpacing.s3),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: c.bg,
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(color: c.border),
-                      ),
-                      child: Row(
-                        children: [
-                          Text(
-                            'القيمة الكلية: ',
-                            style: AppTypography.caption(c.textLight),
-                          ),
-                          Text(
-                            '${Formatters.amount(bill.totalPurchaseAmount!)} $currLabel',
-                            style: AppTypography.caption(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (bill.interestRate != null) ...[
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: c.accent.withValues(alpha: 0.10),
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.pill),
-                              ),
-                              child: Text(
-                                'فائدة ${(bill.interestRate! * 100).toStringAsFixed(1)}%',
-                                style: AppTypography.caption(c.accent)
-                                    .copyWith(fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (bill.safeManualPaidAmount > 0) ...[
-                    const SizedBox(height: AppSpacing.s3),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: c.success.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(
-                          color: c.success.withValues(alpha: 0.28),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.payments_outlined,
-                              size: 16, color: c.success),
-                          const SizedBox(width: 6),
-                          Text(
-                            'مدفوع يدويًا: ',
-                            style: AppTypography.caption(c.textLight),
-                          ),
-                          Text(
-                            '${Formatters.amount(bill.safeManualPaidAmount)} $currLabel',
-                            style: AppTypography.caption(c.success).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: AppSpacing.s3),
-                  Row(
-                    children: [
-                      Icon(Icons.calendar_month_outlined,
-                          size: 14, color: dueColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        'القسط القادم: $dueLabel',
-                        style: AppTypography.caption(dueColor).copyWith(
-                            fontWeight:
-                                dueColor == c.danger ? FontWeight.bold : null),
-                      ),
                     ],
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.s2),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      Formatters.amount(bill.amount),
+                      style: AppTypography.bodyStrong(c.primary),
+                    ),
+                    Text(
+                      '$currLabel / قسط',
+                      style: AppTypography.caption(c.textLight),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (hasProg) ...[
+              const SizedBox(height: AppSpacing.s4),
+              Row(
+                children: [
+                  Text(
+                    '${bill.paidCount ?? 0} من ${bill.totalInstallments} قسط مدفوع',
+                    style: AppTypography.caption(c.textLight),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'متبقي $remaining قسط',
+                    style: AppTypography.caption(c.primary)
+                        .copyWith(fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                child: SizedBox(
+                  height: 6,
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: c.surface2,
+                    valueColor: AlwaysStoppedAnimation(
+                      progress >= 1.0 ? c.success : c.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            if (bill.totalPurchaseAmount != null) ...[
+              const SizedBox(height: AppSpacing.s3),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: c.bg,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: c.border),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      'القيمة الكلية: ',
+                      style: AppTypography.caption(c.textLight),
+                    ),
+                    Text(
+                      '${Formatters.amount(bill.totalPurchaseAmount!)} $currLabel',
+                      style: AppTypography.caption(c.textMain).copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (bill.interestRate != null) ...[
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: c.accent.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
+                        child: Text(
+                          'فائدة ${(bill.interestRate! * 100).toStringAsFixed(1)}%',
+                          style: AppTypography.caption(c.accent)
+                              .copyWith(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            if (bill.safeManualPaidAmount > 0) ...[
+              const SizedBox(height: AppSpacing.s3),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: c.success.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(
+                    color: c.success.withValues(alpha: 0.28),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.payments_outlined, size: 16, color: c.success),
+                    const SizedBox(width: 6),
+                    Text(
+                      'مدفوع يدويًا: ',
+                      style: AppTypography.caption(c.textLight),
+                    ),
+                    Text(
+                      '${Formatters.amount(bill.safeManualPaidAmount)} $currLabel',
+                      style: AppTypography.caption(c.success).copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.s3),
+            Row(
+              children: [
+                Icon(Icons.calendar_month_outlined, size: 14, color: dueColor),
+                const SizedBox(width: 4),
+                Text(
+                  'القسط القادم: $dueLabel',
+                  style: AppTypography.caption(dueColor).copyWith(
+                      fontWeight:
+                          dueColor == c.danger ? FontWeight.bold : null),
+                ),
+              ],
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -1132,8 +930,8 @@ class _EmptyState extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 84,
-                height: 84,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
                   color: c.primary.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(26),
@@ -1143,8 +941,7 @@ class _EmptyState extends StatelessWidget {
               const SizedBox(height: AppSpacing.s4),
               Text(title,
                   textAlign: TextAlign.center,
-                  style: AppTypography.title2(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold)),
+                  style: AppTypography.cardTitle(c.textMain)),
               const SizedBox(height: AppSpacing.s2),
               Text(body,
                   textAlign: TextAlign.center,

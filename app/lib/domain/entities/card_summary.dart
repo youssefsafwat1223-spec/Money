@@ -8,6 +8,8 @@ class CardSummary {
     required this.totalOut,
     required this.totalIn,
     required this.count,
+    this.colorTheme,
+    this.accentHex,
   });
 
   final String last4;
@@ -15,4 +17,23 @@ class CardSummary {
   final double totalOut;
   final double totalIn;
   final int count;
+
+  /// تصميم البطاقة اليدوية المطابقة (جدول cards) — null للبطاقات المشتقّة فقط.
+  final String? colorTheme;
+  final String? accentHex;
+
+  CardSummary copyWith({
+    String? colorTheme,
+    String? accentHex,
+  }) {
+    return CardSummary(
+      last4: last4,
+      network: network,
+      totalOut: totalOut,
+      totalIn: totalIn,
+      count: count,
+      colorTheme: colorTheme ?? this.colorTheme,
+      accentHex: accentHex ?? this.accentHex,
+    );
+  }
 }

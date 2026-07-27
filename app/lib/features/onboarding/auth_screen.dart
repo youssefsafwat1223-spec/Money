@@ -24,6 +24,11 @@ import '../../core/theme/widgets/app_toast.dart';
 /// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
 const _authBlue = Color(0xFF021B79);
 
+/// The deep navy the hand/jar hero art (`banner_onboarding_1.jpg`) fades into.
+/// The screen blends from this at the top to [_authBlue] at the buttons so the
+/// hero melts seamlessly into the background.
+const _authDeepNavy = Color(0xFF031322);
+
 /// Page 3 of the redesigned onboarding: mandatory sign-in.
 ///
 /// Same flat navy background and small fixed logo as the rest of the
@@ -45,6 +50,13 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
   bool _busyGoogle = false;
 
   bool get _busy => _busyApple || _busyGoogle;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Warm the hero art so it doesn't flash in on first frame.
+    precacheImage(const AssetImage(AppAssets.authHero), context);
+  }
 
   Future<void> _signIn(
     Future<AuthIdentity> Function() method, {
@@ -107,136 +119,149 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: _authBlue,
-        body: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    // Centers the block when it's shorter than the available
-                    // space; scrolls instead of overflowing when it's taller
-                    // (small phones, large accessibility text).
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.gutter,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: constraints.maxHeight,
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(
-                              width: double.infinity,
-                              child: Center(
-                                child: ExcludeSemantics(
-                                  child: Image(
-                                    image: AssetImage(AppAssets.qirshLogoFull),
-                                    height: 100,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: AppSpacing.s5),
-                            WordRevealText(
-                              l10n.authTitle,
-                              style: AppTypography.custom(
-                                size: 30,
-                                weight: FontWeight.w700,
-                                height: 1.12,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              l10n.authSubtitle,
-                              style: AppTypography.body(
-                                Colors.white.withValues(alpha: 0.74),
-                              ).copyWith(height: 1.6),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  0,
-                  AppSpacing.gutter,
-                  AppSpacing.s5,
-                ),
-                child: PremiumGlassContainer(
-                  blurSigma: 25,
-                  noiseOpacity: 0.05,
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                  borderColor: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(32),
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _appleButton(c),
-                      const SizedBox(height: 16),
-                      _googleButton(c),
-                      const SizedBox(height: 24),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 4,
-                        runSpacing: 6,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.security,
-                                size: 14,
-                                color: Colors.white54,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                l10n.authTrustLocalEncryption,
-                                style: AppTypography.micro(Colors.white54),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 12),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.phonelink_lock,
-                                size: 14,
-                                color: Colors.white54,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                l10n.authTrustOnDevice,
-                                style: AppTypography.micro(Colors.white54),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        l10n.authTermsNotice,
-                        textAlign: TextAlign.center,
-                        style: AppTypography.micro(
-                          Colors.white.withValues(alpha: 0.48),
-                        ),
-                      ),
-                    ],
+        backgroundColor: _authDeepNavy,
+        body: Stack(
+          children: [
+            // Navy gradient behind everything: the hero's own deep navy up top,
+            // landing on the brand navy where the buttons sit.
+            const Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [_authDeepNavy, _authBlue],
+                    stops: [0.42, 1.0],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+            Column(
+              children: [
+                // Tight-cropped hand/jar hero (ends just below the emblem in the
+                // image's own deep navy). Fills the band above the content; its
+                // navy foot fades into the matching background so there's no
+                // seam and no empty navy gap.
+                Expanded(
+                  child: ShaderMask(
+                    shaderCallback: (rect) => const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.white, Colors.white, Colors.transparent],
+                      stops: [0.0, 0.9, 1.0],
+                    ).createShader(rect),
+                    blendMode: BlendMode.dstIn,
+                    child: const Image(
+                      image: AssetImage(AppAssets.authHero),
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                    ),
+                  ),
+                ),
+                // Title + subtitle + sign-in card, in the navy below the hero.
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.gutter,
+                      0,
+                      AppSpacing.gutter,
+                      AppSpacing.s5,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        WordRevealText(
+                          l10n.authTitle,
+                          textAlign: TextAlign.center,
+                          style: AppTypography.custom(
+                            size: 28,
+                            weight: FontWeight.w700,
+                            height: 1.14,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          l10n.authSubtitle,
+                          textAlign: TextAlign.center,
+                          style: AppTypography.body(
+                            Colors.white.withValues(alpha: 0.74),
+                          ).copyWith(height: 1.6),
+                        ),
+                        const SizedBox(height: AppSpacing.s6),
+                        PremiumGlassContainer(
+                          blurSigma: 25,
+                          noiseOpacity: 0.05,
+                          backgroundColor: Colors.white.withValues(alpha: 0.08),
+                          borderColor: Colors.white.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(32),
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _appleButton(c),
+                              const SizedBox(height: 16),
+                              _googleButton(c),
+                              const SizedBox(height: 24),
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 4,
+                                runSpacing: 6,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.security,
+                                        size: 14,
+                                        color: Colors.white54,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        l10n.authTrustLocalEncryption,
+                                        style:
+                                            AppTypography.micro(Colors.white54),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.phonelink_lock,
+                                        size: 14,
+                                        color: Colors.white54,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        l10n.authTrustOnDevice,
+                                        style:
+                                            AppTypography.micro(Colors.white54),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                l10n.authTermsNotice,
+                                textAlign: TextAlign.center,
+                                style: AppTypography.micro(
+                                  Colors.white.withValues(alpha: 0.48),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

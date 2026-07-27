@@ -134,7 +134,7 @@ class TransactionRow extends StatelessWidget {
                                 'AI',
                                 style: AppTypography.caption(c.accent).copyWith(
                                   fontSize: 11.0,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w700,
                                   letterSpacing: 0.5,
                                 ),
                               ),

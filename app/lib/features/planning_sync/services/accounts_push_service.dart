@@ -105,11 +105,6 @@ class AccountsPushService {
     int abandoned = 0;
 
     for (final item in items) {
-      if (item.attemptCount >= 5) {
-        abandoned++;
-        await _queue.markSuccess(item.id);
-        continue;
-      }
       try {
         final outcome = await _processItem(item, userId);
         switch (outcome) {
@@ -249,6 +244,15 @@ class AccountsPushService {
       'type': payload['type'],
       'initial_balance': payload['initial_balance'],
       'current_balance': payload['current_balance'],
+      'bank_account_number': payload['bank_account_number'],
+      'credit_limit': payload['credit_limit'],
+      'available_credit': payload['available_credit'],
+      'payment_due_day': payload['payment_due_day'],
+      'wallet_provider': payload['wallet_provider'],
+      'exclude_from_totals': payload['exclude_from_totals'] == true,
+      // Older outbox rows may predate the local metadata default. The server
+      // column is NOT NULL, so normalize them at send time as well.
+      'metadata': payload['metadata'] ?? const <String, dynamic>{},
       'is_default': payload['is_default'] == true,
       'sort_order': payload['sort_order'] ?? 0,
       'created_at': payload['created_at'],

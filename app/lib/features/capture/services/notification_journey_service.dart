@@ -104,7 +104,8 @@ class NotificationJourneyService {
       final decision = _canSendMarketing(campaign.id, preferences, now);
       if (!decision.allowed) continue;
       await _localNotifications.showMarketingNotification(
-        id: campaign.id.hashCode,
+        // 31-bit-safe: a raw hashCode > 2^31 is dropped by the Android plugin.
+        id: campaign.id.hashCode & 0x7FFFFFFF,
         title: campaign.titleAr,
         body: campaign.bodyAr?.trim().isNotEmpty == true
             ? campaign.bodyAr!.trim()

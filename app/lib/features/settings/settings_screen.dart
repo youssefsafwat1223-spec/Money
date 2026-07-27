@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,7 +14,6 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../core/auth/auth_service.dart';
 import '../../core/backend/supabase_config.dart';
 import '../../core/privacy/data_wipe_service.dart';
-import '../../core/theme/app_assets.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../data/catalog/catalog_daos.dart';
@@ -22,8 +22,10 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/theme_mode_controller.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/category_glyph.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
@@ -39,7 +41,16 @@ import '../onboarding/ios_shortcut_guide.dart';
 import '../transactions/transactions_providers.dart';
 import 'settings_providers.dart';
 
-enum _SettingsTab { general, notifications, data }
+/// maybeWhen that keeps rendering the last loaded value during a reload, so the
+/// frequent `user_settings` writes (sync, notification history, journey) don't
+/// flash the settings cards back to their skeleton/placeholder — the settings
+/// screen flicker. Falls back only on a genuine first load with no value yet.
+extension _AsyncReloadSafe<T> on AsyncValue<T> {
+  R dataOr<R>(R Function(T value) onData, R Function() orElse) {
+    final value = valueOrNull;
+    return value != null ? onData(value) : orElse();
+  }
+}
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key, this.showBackButton = false});
@@ -51,27 +62,93 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  _SettingsTab _selectedTab = _SettingsTab.general;
+  String _profileName(UserSettingsEntity? s, String email) {
+    final n = s?.displayName?.trim() ?? '';
+    if (n.isNotEmpty) return n;
+    final local = email.split('@').first.trim();
+    if (local.isEmpty || local == '—') return 'صديق مالي';
+    return local.replaceAll('.', ' ').replaceAll('_', ' ');
+  }
 
-  static const _methodLabels = {
-    'google': 'Google',
-    'apple': 'Apple',
-    'email': 'البريد الإلكتروني',
-    'guest': 'بدون حساب',
-  };
+  String _countryLabel(
+      UserSettingsEntity s, List<RemoteCountry> countries, bool loading) {
+    final code = s.country.toUpperCase();
+    for (final country in countries) {
+      if (country.code.toUpperCase() == code) {
+        return '${country.flagEmoji} ${country.nameAr}';
+      }
+    }
+    return loading ? 'تحميل الدول...' : s.country;
+  }
+
+  String _currencyLabel(
+      UserSettingsEntity s, List<RemoteCurrency> currencies, bool loading) {
+    final code = s.currency.toUpperCase();
+    for (final currency in currencies) {
+      if (currency.code.toUpperCase() == code) {
+        return '${currency.code} · ${currency.nameAr}';
+      }
+    }
+    return loading ? 'تحميل العملات...' : s.currency;
+  }
+
+  void _editCountry(
+    BuildContext context,
+    WidgetRef ref,
+    UserSettingsEntity settings,
+    List<RemoteCountry> countries,
+    List<RemoteCurrency> currencies,
+  ) {
+    _showSettingsPicker(
+      context,
+      ref,
+      title: 'الدولة',
+      current: settings.country.toUpperCase(),
+      values: _countryValues(countries),
+      save: (value) async {
+        final country = value.toUpperCase();
+        final currency = _preferredCurrencyForCountry(
+            country, currencies, settings.currency);
+        await ref
+            .read(saveCountryCurrencyUseCaseProvider)
+            .call(country, currency);
+      },
+    );
+  }
+
+  void _editCurrency(
+    BuildContext context,
+    WidgetRef ref,
+    UserSettingsEntity settings,
+    List<RemoteCurrency> currencies,
+  ) {
+    _showSettingsPicker(
+      context,
+      ref,
+      title: 'العملة الأساسية',
+      current: settings.currency.toUpperCase(),
+      values: _currencyValuesForCountry(settings.country, currencies),
+      save: (value) async {
+        await ref.read(saveCountryCurrencyUseCaseProvider).call(
+              settings.country.toUpperCase(),
+              value.toUpperCase(),
+            );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final prefsAsync = ref.watch(notificationPreferencesProvider);
     final captureHealthAsync = ref.watch(captureHealthStatusProvider);
     final settingsAsync = ref.watch(userSettingsProvider);
+    final settings = settingsAsync.valueOrNull;
     final countriesAsync = ref.watch(supportedCountriesProvider);
     final currenciesAsync = ref.watch(activeCurrenciesProvider);
     final c = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final session = AppSession.instance;
     final email = session.email ?? '—';
-    final method = _methodLabels[session.authMethod] ?? '—';
     final countries = countriesAsync.valueOrNull ?? const <RemoteCountry>[];
     final currencies = currenciesAsync.valueOrNull ?? const <RemoteCurrency>[];
 
@@ -120,12 +197,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             slivers: [
               SliverToBoxAdapter(
                 child: _SettingsHeader(
-                  method: method,
+                  name: _profileName(settings, email),
+                  contact: (settings?.phoneNumber?.trim().isNotEmpty ?? false)
+                      ? settings!.phoneNumber!.trim()
+                      : email,
+                  avatarPath: settings?.avatarPath?.trim() ?? '',
                   onBack: widget.showBackButton
                       ? () {
                           if (context.canPop()) context.pop();
                         }
                       : null,
+                  onAvatarTap: settings == null
+                      ? null
+                      : () => _pickProfileImage(context, ref, settings),
+                  onNameTap: settings == null
+                      ? null
+                      : () => _showProfileTextSheet(
+                            context,
+                            ref,
+                            title: 'الاسم',
+                            label: 'اسمك في التطبيق',
+                            initialValue: settings.displayName ?? '',
+                            apply: (value) =>
+                                settings.copyWith(displayName: value.trim()),
+                          ),
                 ),
               ),
               SliverPadding(
@@ -137,120 +232,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 sliver: SliverList.list(
                   children: [
-                    settingsAsync.maybeWhen(
-                      data: (settings) => PremiumMotion(
-                        delay: const Duration(milliseconds: 40),
-                        child: _ProfileSettingsCard(
-                          settings: settings,
-                          email: email,
-                          method: method,
-                          countries: countries,
-                          currencies: currencies,
-                          catalogsLoading: countriesAsync.isLoading ||
-                              currenciesAsync.isLoading,
-                          onAvatarTap: () =>
-                              _pickProfileImage(context, ref, settings),
-                          onNameTap: () => _showProfileTextSheet(
-                            context,
-                            ref,
-                            title: 'الاسم',
-                            label: 'اسمك في التطبيق',
-                            initialValue: settings.displayName ?? '',
-                            apply: (value) =>
-                                settings.copyWith(displayName: value.trim()),
-                          ),
-                          onPhoneTap: () => _showProfileTextSheet(
-                            context,
-                            ref,
+                    if (settings != null) ...[
+                      _Section(
+                        title: 'الحساب',
+                        children: [
+                          _NavTile(
+                            icon: Icons.phone_iphone_outlined,
                             title: 'رقم الموبايل',
-                            label: 'رقم الموبايل',
-                            keyboardType: TextInputType.phone,
-                            initialValue: settings.phoneNumber ?? '',
-                            apply: (value) =>
-                                settings.copyWith(phoneNumber: value.trim()),
+                            subtitle:
+                                (settings.phoneNumber?.trim().isNotEmpty ??
+                                        false)
+                                    ? settings.phoneNumber!.trim()
+                                    : 'أضف رقمك',
+                            onTap: () => _showProfileTextSheet(
+                              context,
+                              ref,
+                              title: 'رقم الموبايل',
+                              label: 'رقم الموبايل',
+                              keyboardType: TextInputType.phone,
+                              initialValue: settings.phoneNumber ?? '',
+                              apply: (value) =>
+                                  settings.copyWith(phoneNumber: value.trim()),
+                            ),
                           ),
-                          onCountryTap: countries.isEmpty
-                              ? null
-                              : () => _showSettingsPicker(
-                                    context,
-                                    ref,
-                                    title: 'الدولة',
-                                    current: settings.country.toUpperCase(),
-                                    values: _countryValues(countries),
-                                    save: (value) async {
-                                      final country = value.toUpperCase();
-                                      final currency =
-                                          _preferredCurrencyForCountry(
-                                        country,
-                                        currencies,
-                                        settings.currency,
-                                      );
-                                      await ref
-                                          .read(
-                                              saveCountryCurrencyUseCaseProvider)
-                                          .call(country, currency);
-                                    },
-                                  ),
-                          onCurrencyTap: currencies.isEmpty
-                              ? null
-                              : () => _showSettingsPicker(
-                                    context,
-                                    ref,
-                                    title: 'العملة الأساسية',
-                                    current: settings.currency.toUpperCase(),
-                                    values: _currencyValuesForCountry(
-                                      settings.country,
-                                      currencies,
-                                    ),
-                                    save: (value) async {
-                                      await ref
-                                          .read(
-                                              saveCountryCurrencyUseCaseProvider)
-                                          .call(
-                                            settings.country.toUpperCase(),
-                                            value.toUpperCase(),
-                                          );
-                                    },
-                                  ),
-                        ),
+                          _NavTile(
+                            icon: Icons.flag_outlined,
+                            title: 'الدولة',
+                            subtitle: _countryLabel(
+                                settings, countries, countriesAsync.isLoading),
+                            onTap: countries.isEmpty
+                                ? null
+                                : () => _editCountry(context, ref, settings,
+                                    countries, currencies),
+                          ),
+                          _NavTile(
+                            icon: Icons.payments_outlined,
+                            title: 'العملة الأساسية',
+                            subtitle: _currencyLabel(settings, currencies,
+                                currenciesAsync.isLoading),
+                            onTap: currencies.isEmpty
+                                ? null
+                                : () => _editCurrency(
+                                    context, ref, settings, currencies),
+                          ),
+                        ],
                       ),
-                      orElse: () => const _ProfileSkeletonCard(),
+                      const SizedBox(height: AppSpacing.s4),
+                    ],
+                    _buildGeneralTab(context, ref, settingsAsync),
+                    const SizedBox(height: AppSpacing.s4),
+                    _buildNotificationsTab(
+                      context,
+                      ref,
+                      prefsAsync,
+                      captureHealthAsync,
                     ),
                     const SizedBox(height: AppSpacing.s4),
-                    PremiumMotion(
-                      delay: const Duration(milliseconds: 60),
-                      child: _SettingsTabs(
-                        selected: _selectedTab,
-                        onChanged: (tab) => setState(() => _selectedTab = tab),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      child: KeyedSubtree(
-                        key: ValueKey(_selectedTab),
-                        child: switch (_selectedTab) {
-                          _SettingsTab.general => _buildGeneralTab(
-                              context,
-                              ref,
-                              settingsAsync,
-                            ),
-                          _SettingsTab.notifications => _buildNotificationsTab(
-                              context,
-                              ref,
-                              prefsAsync,
-                              captureHealthAsync,
-                            ),
-                          _SettingsTab.data => _buildDataTab(
-                              context,
-                              ref,
-                              settingsAsync,
-                            ),
-                        },
-                      ),
-                    ),
+                    _buildDataTab(context, ref, settingsAsync),
                   ],
                 ),
               ),
@@ -269,6 +307,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Column(
       children: [
         PremiumMotion(
+            delay: const Duration(milliseconds: 40),
+            child: _Section(
+              title: 'المظهر',
+              description: 'فاتح، داكن، أو حسب النظام',
+              children: [
+                _ThemeModeSelector(
+                  value: ref.watch(themeModeProvider),
+                  onChanged: (mode) =>
+                      ref.read(themeModeProvider.notifier).set(mode),
+                ),
+              ],
+            )),
+        const SizedBox(height: AppSpacing.s3),
+        PremiumMotion(
             delay: const Duration(milliseconds: 80),
             child: _Section(
               title: 'إدارة أموالك',
@@ -282,8 +334,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 _NavTile(
                   icon: Icons.credit_card_outlined,
-                  title: 'بطاقاتي',
-                  subtitle: 'بطاقاتك وحركتها وإضافة عملية لأي بطاقة',
+                  title: 'كل البطاقات',
+                  subtitle: 'نظرة عامة على بطاقاتك مجمّعة حسب الحساب',
                   onTap: () => MyCardsScreen.open(context),
                 ),
                 _NavTile(
@@ -325,7 +377,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
               ],
             )),
-        const SizedBox(height: AppSpacing.s5),
+        const SizedBox(height: AppSpacing.s3),
         PremiumMotion(
             delay: const Duration(milliseconds: 120),
             child: _Section(
@@ -374,9 +426,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 title: 'رصد العمليات',
                 description: 'حالة الربط مع رسائل البنك واختصار آبل',
                 children: [
-                  captureHealthAsync.maybeWhen(
-                    data: (status) => _CaptureHealthTile(status: status),
-                    orElse: () => const SizedBox.shrink(),
+                  captureHealthAsync.dataOr(
+                    (status) => _CaptureHealthTile(status: status),
+                    () => const SizedBox.shrink(),
                   ),
                   const _TrustNoticeTile(
                     text:
@@ -403,7 +455,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ],
               )),
-          const SizedBox(height: AppSpacing.s5),
+          const SizedBox(height: AppSpacing.s3),
           PremiumMotion(
               delay: const Duration(milliseconds: 100),
               child: _Section(
@@ -510,7 +562,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                 ],
               )),
-          const SizedBox(height: AppSpacing.s5),
+          const SizedBox(height: AppSpacing.s3),
           PremiumMotion(
               delay: const Duration(milliseconds: 120),
               child: _Section(
@@ -570,7 +622,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ],
             )),
-        const SizedBox(height: AppSpacing.s5),
+        const SizedBox(height: AppSpacing.s3),
         PremiumMotion(
             delay: const Duration(milliseconds: 100),
             child: _Section(
@@ -582,8 +634,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   subtitle: 'أمان بياناتك وسياسة الخصوصية',
                   onTap: () => context.push('/privacy'),
                 ),
-                settingsAsync.maybeWhen(
-                  data: (settings) => _SwitchTile(
+                settingsAsync.dataOr(
+                  (settings) => _SwitchTile(
                     title: 'إخفاء الأرقام في الواجهة',
                     icon: Icons.visibility_off_outlined,
                     value: settings.privacyModeEnabled,
@@ -593,16 +645,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           .saveSettings(settings.copyWith(
                             privacyModeEnabled: value,
                           ));
-                      refreshUserSettings(ref);
-                      ref.invalidate(dashboardDataProvider);
+                      // dbRevision (from saveSettings) rebuilds the switch and
+                      // dashboard while keeping their value — invalidating would
+                      // blank them and flicker.
                     },
                   ),
-                  orElse: () => const SizedBox.shrink(),
+                  () => const SizedBox.shrink(),
                 ),
                 const _AppLockTile(),
               ],
             )),
-        const SizedBox(height: AppSpacing.s5),
+        const SizedBox(height: AppSpacing.s3),
         PremiumMotion(
             delay: const Duration(milliseconds: 120),
             child: _Section(
@@ -629,6 +682,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ],
             )),
+        // Debug-only entry point into the Mali design-system review surface
+        // (docs/MALI_DESIGN_SYSTEM.md). The route itself is also gated by
+        // kDebugMode in app_router.dart, so this tile is redundant defense,
+        // not the only gate — it simply doesn't exist in release builds.
+        if (kDebugMode) ...[
+          const SizedBox(height: AppSpacing.s3),
+          PremiumMotion(
+              delay: const Duration(milliseconds: 140),
+              child: _Section(
+                title: 'Developer',
+                children: [
+                  _NavTile(
+                    icon: AppLucideIcons.shapes,
+                    title: 'Design Gallery',
+                    subtitle: 'Mali flagship design system — debug only',
+                    onTap: () => context.push('/design'),
+                  ),
+                ],
+              )),
+        ],
       ],
     );
   }
@@ -796,8 +869,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(title, style: AppTypography.title2(c.textMain)),
-              const SizedBox(height: AppSpacing.s4),
+              Text(title, style: AppTypography.sectionTitle(c.textMain)),
+              const SizedBox(height: AppSpacing.s3),
               TextField(
                 controller: controller,
                 autofocus: true,
@@ -809,9 +882,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.s5),
+              const SizedBox(height: AppSpacing.s3),
               SizedBox(
-                height: 52,
+                height: AppSpacing.buttonHeight,
                 child: FilledButton(
                   onPressed: () async {
                     await ref
@@ -864,7 +937,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             AppSpacing.s6,
           ),
           children: [
-            Text(title, style: AppTypography.title2(c.textMain)),
+            Text(title, style: AppTypography.sectionTitle(c.textMain)),
             const SizedBox(height: AppSpacing.s3),
             for (final entry in values.entries)
               RadioListTile<String>(
@@ -934,32 +1007,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               AppSpacing.s6,
             ),
             children: [
-              Text('التصنيفات', style: AppTypography.title2(c.textMain)),
+              Text('التصنيفات', style: AppTypography.sectionTitle(c.textMain)),
               Text(
                 'أضف أو عدّل التصنيفات التي تظهر في العمليات والتقارير.',
                 style: AppTypography.callout(c.textLight),
               ),
-              const SizedBox(height: AppSpacing.s4),
+              const SizedBox(height: AppSpacing.s3),
               FilledButton.icon(
                 onPressed: () => _showCategoryForm(context, ref),
                 icon: const Icon(Icons.add),
                 label: const Text('إضافة تصنيف'),
               ),
-              const SizedBox(height: AppSpacing.s4),
+              const SizedBox(height: AppSpacing.s3),
               _CategoryGroup(
                 title: 'مصروفات',
                 items: expenses,
                 onEdit: (item) => _showCategoryForm(context, ref, item: item),
                 onDelete: (item) => _deleteCategory(context, ref, item),
               ),
-              const SizedBox(height: AppSpacing.s4),
+              const SizedBox(height: AppSpacing.s3),
               _CategoryGroup(
                 title: 'دخل',
                 items: income,
                 onEdit: (item) => _showCategoryForm(context, ref, item: item),
                 onDelete: (item) => _deleteCategory(context, ref, item),
               ),
-              const SizedBox(height: AppSpacing.s4),
+              const SizedBox(height: AppSpacing.s3),
               _CategoryGroup(
                 title: 'تحويلات',
                 items: transfers,
@@ -1032,9 +1105,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 Text(
                   isEditing ? 'تعديل تصنيف' : 'إضافة تصنيف',
-                  style: AppTypography.title2(c.textMain),
+                  style: AppTypography.sectionTitle(c.textMain),
                 ),
-                const SizedBox(height: AppSpacing.s4),
+                const SizedBox(height: AppSpacing.s3),
                 TextField(
                   controller: name,
                   decoration: const InputDecoration(
@@ -1060,7 +1133,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       .map(
                         (value) => DropdownMenuItem(
                           value: value,
-                          child: Text(value),
+                          child: Row(
+                            children: [
+                              CategoryGlyph(
+                                  name: value, size: 18, color: c.textMain),
+                              const SizedBox(width: 8),
+                              Text(value),
+                            ],
+                          ),
                         ),
                       )
                       .toList(),
@@ -1092,7 +1172,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       .toList(),
                   onChanged: (value) => setState(() => color = value ?? color),
                 ),
-                const SizedBox(height: AppSpacing.s5),
+                const SizedBox(height: AppSpacing.s3),
                 FilledButton(
                   onPressed: () async {
                     final title = name.text.trim();
@@ -1199,13 +1279,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('ساعات الهدوء', style: AppTypography.title2(c.textMain)),
+                Text('ساعات الهدوء',
+                    style: AppTypography.sectionTitle(c.textMain)),
                 const SizedBox(height: AppSpacing.s2),
                 Text(
                   'نؤجل الإشعارات المجدولة خلال هذه الفترة لأول وقت مسموح.',
                   style: AppTypography.callout(c.textLight),
                 ),
-                const SizedBox(height: AppSpacing.s4),
+                const SizedBox(height: AppSpacing.s3),
                 Row(
                   children: [
                     Expanded(
@@ -1225,9 +1306,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.s5),
+                const SizedBox(height: AppSpacing.s3),
                 SizedBox(
-                  height: 52,
+                  height: AppSpacing.buttonHeight,
                   child: FilledButton(
                     onPressed: () async {
                       await _savePrefs(
@@ -1321,12 +1402,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(title, style: AppTypography.title2(c.textMain)),
+              Text(title, style: AppTypography.sectionTitle(c.textMain)),
               const SizedBox(height: AppSpacing.s2),
               Text(body, style: AppTypography.callout(c.textLight)),
-              const SizedBox(height: AppSpacing.s4),
+              const SizedBox(height: AppSpacing.s3),
               SizedBox(
-                height: 52,
+                height: AppSpacing.buttonHeight,
                 child: FilledButton(
                   onPressed: () async {
                     await onAction?.call();
@@ -1376,68 +1457,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-class _SettingsTabs extends StatelessWidget {
-  const _SettingsTabs({required this.selected, required this.onChanged});
-
-  final _SettingsTab selected;
-  final ValueChanged<_SettingsTab> onChanged;
-
-  static const _labels = <_SettingsTab, String>{
-    _SettingsTab.general: 'عام',
-    _SettingsTab.notifications: 'التنبيهات',
-    _SettingsTab.data: 'البيانات',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: c.surfaceMuted,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: c.border),
-      ),
-      child: Row(
-        children: [
-          for (final tab in _SettingsTab.values)
-            Expanded(
-              child: Semantics(
-                selected: selected == tab,
-                button: true,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    key: ValueKey('settings-tab-${tab.name}'),
-                    onTap: () => onChanged(tab),
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: selected == tab ? c.cta : Colors.transparent,
-                        borderRadius: BorderRadius.circular(AppRadius.xs),
-                      ),
-                      child: Text(
-                        _labels[tab]!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyStrong(
-                          selected == tab ? c.onCta : c.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SettingsLoadingState extends StatelessWidget {
   const _SettingsLoadingState();
 
@@ -1445,7 +1464,7 @@ class _SettingsLoadingState extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      height: 180,
+      height: 140,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: c.surface,
@@ -1486,425 +1505,148 @@ class _SettingsErrorState extends StatelessWidget {
   }
 }
 
-class _HeaderBackButton extends StatelessWidget {
-  const _HeaderBackButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return IconButton(
-      tooltip: 'رجوع',
-      onPressed: onPressed,
-      style: IconButton.styleFrom(
-        fixedSize: const Size.square(40),
-        backgroundColor: c.surfaceMuted,
-        foregroundColor: c.textMain,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-      ),
-      icon: const Icon(Icons.arrow_forward_rounded),
-    );
-  }
-}
-
-class _CompactIconButton extends StatelessWidget {
-  const _CompactIconButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      style: IconButton.styleFrom(
-        fixedSize: const Size.square(40),
-        backgroundColor: c.surfaceMuted,
-        foregroundColor: c.primary,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-      ),
-      icon: Icon(icon, size: 20),
-    );
-  }
-}
-
-class _ProfileSettingsCard extends StatelessWidget {
-  const _ProfileSettingsCard({
-    required this.settings,
-    required this.email,
-    required this.method,
-    required this.countries,
-    required this.currencies,
-    required this.catalogsLoading,
-    required this.onAvatarTap,
-    required this.onNameTap,
-    required this.onPhoneTap,
-    required this.onCountryTap,
-    required this.onCurrencyTap,
-  });
-
-  final UserSettingsEntity settings;
-  final String email;
-  final String method;
-  final List<RemoteCountry> countries;
-  final List<RemoteCurrency> currencies;
-  final bool catalogsLoading;
-  final VoidCallback onAvatarTap;
-  final VoidCallback onNameTap;
-  final VoidCallback onPhoneTap;
-  final VoidCallback? onCountryTap;
-  final VoidCallback? onCurrencyTap;
-
-  String _clean(String? value) => value?.trim() ?? '';
-
-  String _fallbackName() {
-    if (_clean(settings.displayName).isNotEmpty) {
-      return _clean(settings.displayName);
-    }
-    final local = email.split('@').first.trim();
-    if (local.isEmpty || local == '—') return 'صديق مالي';
-    return local.replaceAll('.', ' ').replaceAll('_', ' ');
-  }
-
-  RemoteCountry? _selectedCountry() {
-    final code = settings.country.toUpperCase();
-    for (final country in countries) {
-      if (country.code.toUpperCase() == code) return country;
-    }
-    return null;
-  }
-
-  RemoteCurrency? _selectedCurrency() {
-    final code = settings.currency.toUpperCase();
-    for (final currency in currencies) {
-      if (currency.code.toUpperCase() == code) return currency;
-    }
-    return null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final name = _fallbackName();
-    final country = _selectedCountry();
-    final currency = _selectedCurrency();
-    final phone = _clean(settings.phoneNumber);
-    final avatarPath = _clean(settings.avatarPath);
-
-    return Material(
-      color: c.surface,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        side: BorderSide(color: c.border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.s4),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                _ProfileAvatarButton(
-                  path: avatarPath,
-                  initials: name.isEmpty ? 'م' : name.substring(0, 1),
-                  onTap: onAvatarTap,
-                ),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    onTap: onNameTap,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.headline(c.textMain),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '$email · $method',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.caption(c.textLight),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                _CompactIconButton(
-                  tooltip: 'تعديل الاسم',
-                  icon: Icons.edit_outlined,
-                  onPressed: onNameTap,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            Divider(height: 1, color: c.border),
-            _ProfileActionRow(
-              icon: Icons.phone_iphone_outlined,
-              title: 'رقم الموبايل',
-              value: phone.isEmpty ? 'أضف رقمك' : phone,
-              onTap: onPhoneTap,
-            ),
-            Divider(height: 1, color: c.border),
-            _ProfileActionRow(
-              icon: Icons.flag_outlined,
-              title: 'الدولة',
-              value: country == null
-                  ? (catalogsLoading ? 'تحميل الدول...' : settings.country)
-                  : '${country.flagEmoji} ${country.nameAr}',
-              subtitle: country?.phonePrefix,
-              onTap: onCountryTap,
-            ),
-            Divider(height: 1, color: c.border),
-            _ProfileActionRow(
-              icon: Icons.payments_outlined,
-              title: 'العملة الأساسية',
-              value: currency == null
-                  ? (catalogsLoading ? 'تحميل العملات...' : settings.currency)
-                  : '${currency.code} · ${currency.nameAr}',
-              subtitle: currency?.symbol,
-              onTap: onCurrencyTap,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ProfileSkeletonCard extends StatelessWidget {
-  const _ProfileSkeletonCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      height: 180,
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: c.border),
-      ),
-      child: const Center(child: CircularProgressIndicator()),
-    );
-  }
-}
-
-class _ProfileAvatarButton extends StatelessWidget {
-  const _ProfileAvatarButton({
-    required this.path,
-    required this.initials,
-    required this.onTap,
-  });
-
-  final String path;
-  final String initials;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final file = path.isEmpty ? null : File(path);
-    final hasImage = file != null && file.existsSync();
-    return InkWell(
-      customBorder: const CircleBorder(),
-      onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: hasImage ? null : c.primaryGradient,
-              color: hasImage ? c.surface2 : null,
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: hasImage
-                ? Image.file(file, fit: BoxFit.cover)
-                : Center(
-                    child: Text(
-                      initials,
-                      style: AppTypography.title2(Colors.white),
-                    ),
-                  ),
-          ),
-          Positioned(
-            right: -2,
-            bottom: -2,
-            child: Container(
-              width: 26,
-              height: 26,
-              decoration: BoxDecoration(
-                color: c.primary,
-                shape: BoxShape.circle,
-                border: Border.all(color: c.surface, width: 2),
-              ),
-              child: const Icon(
-                Icons.photo_camera_outlined,
-                size: 14,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileActionRow extends StatelessWidget {
-  const _ProfileActionRow({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.onTap,
-    this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String value;
-  final String? subtitle;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      enabled: onTap != null,
-      leading: _TileIcon(icon: icon, color: c.primary),
-      title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
-      subtitle: subtitle == null || subtitle!.isEmpty
-          ? null
-          : Text(subtitle!, style: AppTypography.caption(c.textLight)),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 150),
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: AppTypography.caption(
-                onTap == null ? c.textMuted : c.textMain,
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Icon(Icons.chevron_left, color: c.textLight, size: 20),
-        ],
-      ),
-      onTap: onTap,
-    );
-  }
-}
-
+/// Blue profile hero for Settings — title + avatar/name/contact/edit on the
+/// gradient, then the rounded page-bg lip (same language as CalmPageHeader).
 class _SettingsHeader extends StatelessWidget {
-  const _SettingsHeader({required this.method, this.onBack});
+  const _SettingsHeader({
+    required this.name,
+    required this.contact,
+    required this.avatarPath,
+    this.onBack,
+    this.onAvatarTap,
+    this.onNameTap,
+  });
 
-  final String method;
+  final String name;
+  final String contact;
+  final String avatarPath;
   final VoidCallback? onBack;
+  final VoidCallback? onAvatarTap;
+  final VoidCallback? onNameTap;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final topPad = MediaQuery.paddingOf(context).top + AppSpacing.s2;
+    final file = avatarPath.isEmpty ? null : File(avatarPath);
+    final hasImage = file != null && file.existsSync();
+    final initial = name.trim().isEmpty ? 'م' : name.characters.first;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          stops: const [0.0, 0.55, 1.0],
+          colors: isDark
+              ? const [Color(0xFF071634), Color(0xFF0E3A86), Color(0xFF1E74F0)]
+              : const [Color(0xFF1E74F0), Color(0xFF3E8CF7), Color(0xFF7FB2FF)],
         ),
       ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s4,
-            AppSpacing.gutter,
-            AppSpacing.s6,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  if (onBack != null) ...[
-                    _HeaderBackButton(onPressed: onBack!),
-                    const SizedBox(width: AppSpacing.s3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                AppSpacing.gutter, topPad, AppSpacing.gutter, AppSpacing.s5),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (onBack != null) ...[
+                      IconButton(
+                        tooltip: 'رجوع',
+                        onPressed: onBack,
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.arrow_forward_rounded,
+                            color: Colors.white),
+                      ),
+                      const SizedBox(width: AppSpacing.s2),
+                    ],
+                    Text(
+                      'الإعدادات',
+                      style: AppTypography.calmTitle(Colors.white)
+                          .copyWith(fontSize: 24, letterSpacing: -0.5),
+                    ),
                   ],
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'الإعدادات',
-                          style: AppTypography.title1(c.textMain).copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: onAvatarTap,
+                      child: Container(
+                        width: 58,
+                        height: 58,
+                        alignment: Alignment.center,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(19),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'حسابك، تنبيهاتك، وبياناتك',
-                          style: AppTypography.caption(c.textMuted),
+                        child: hasImage
+                            ? Image.file(file,
+                                fit: BoxFit.cover, width: 58, height: 58)
+                            : Text(initial,
+                                style: AppTypography.title2(Colors.white)),
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: onNameTap,
+                        behavior: HitTestBehavior.opaque,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.headline(Colors.white)),
+                            const SizedBox(height: 2),
+                            Text(contact,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textDirection: TextDirection.ltr,
+                                style: AppTypography.caption(
+                                    Colors.white.withValues(alpha: 0.75))),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                  Image.asset(AppAssets.getCoin(context),
-                      width: 48, height: 48),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s5),
-              Row(
-                children: [
-                  Icon(
-                    Icons.verified_user_outlined,
-                    size: 18,
-                    color: c.textMuted,
-                  ),
-                  const SizedBox(width: AppSpacing.s2),
-                  Expanded(
-                    child: Text(
-                      'الدخول عبر $method',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(c.textMuted),
+                    GestureDetector(
+                      onTap: onNameTap,
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.16),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.28)),
+                        ),
+                        child: const Icon(Icons.edit_outlined,
+                            color: Colors.white, size: 18),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
+          Container(
+            height: 22,
+            decoration: BoxDecoration(
+              color: c.bg,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(26)),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1928,22 +1670,27 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s1),
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s2, 0, AppSpacing.s2, AppSpacing.s1),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: AppTypography.headline(c.textMain)),
+              Text(
+                title,
+                style: AppTypography.footnote(c.textLight)
+                    .copyWith(fontWeight: FontWeight.w700),
+              ),
               if (description != null) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   description!,
-                  style: AppTypography.caption(c.textLight),
+                  style: AppTypography.micro(c.textMuted),
                 ),
               ],
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.s3),
+        const SizedBox(height: AppSpacing.s2),
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
@@ -1971,6 +1718,67 @@ class _Section extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ThemeModeSelector extends StatelessWidget {
+  const _ThemeModeSelector({required this.value, required this.onChanged});
+
+  final ThemeMode value;
+  final ValueChanged<ThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    const options = <(ThemeMode, IconData, String)>[
+      (ThemeMode.system, Icons.brightness_auto_rounded, 'تلقائي'),
+      (ThemeMode.light, Icons.light_mode_rounded, 'فاتح'),
+      (ThemeMode.dark, Icons.dark_mode_rounded, 'داكن'),
+    ];
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      child: Row(
+        children: [
+          for (final (mode, icon, label) in options) ...[
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onChanged(mode),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+                  decoration: BoxDecoration(
+                    color: value == mode ? c.ctaSoft : c.surfaceMuted,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(
+                      color: value == mode ? c.cta : c.border,
+                      width: value == mode ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        icon,
+                        size: 20,
+                        color: value == mode ? c.cta : c.textSecondary,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        label,
+                        style: AppTypography.caption(
+                          value == mode ? c.cta : c.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (mode != ThemeMode.dark) const SizedBox(width: AppSpacing.s3),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -2155,17 +1963,18 @@ class _NavTile extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Color? iconColor;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return ListTile(
+      visualDensity: VisualDensity.compact,
       contentPadding:
-          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 4),
-      minVerticalPadding: AppSpacing.s3,
+          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
+      minVerticalPadding: AppSpacing.s2,
       leading: _TileIcon(icon: icon, color: iconColor ?? c.primary),
-      title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
+      title: Text(title, style: AppTypography.subhead(c.textMain)),
       subtitle: subtitle == null
           ? null
           : Text(
@@ -2286,15 +2095,16 @@ class _SwitchTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return SwitchListTile(
+      visualDensity: VisualDensity.compact,
       contentPadding:
-          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 4),
-      minVerticalPadding: AppSpacing.s3,
+          const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
+      minVerticalPadding: AppSpacing.s2,
       secondary: _TileIcon(icon: icon, color: iconColor ?? c.primary),
       value: value,
       onChanged: onChanged,
       activeThumbColor: c.onCta,
       activeTrackColor: c.cta,
-      title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
+      title: Text(title, style: AppTypography.subhead(c.textMain)),
       subtitle: subtitle == null
           ? null
           : Text(subtitle!, style: AppTypography.caption(c.textLight)),
@@ -2310,14 +2120,16 @@ class _TileIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Solid deep tile + white glyph — same language as the category avatars.
     return Container(
       width: 38,
       height: 38,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
+        color: Color.lerp(color, Colors.black, 0.45),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Icon(icon, color: color, size: 20),
+      child: Icon(icon, color: Colors.white, size: 19),
     );
   }
 }

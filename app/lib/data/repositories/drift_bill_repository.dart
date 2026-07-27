@@ -292,7 +292,12 @@ class DriftBillRepository implements BillRepository {
     }
 
     final rows = await getPayments(payment.billId);
-    return rows.firstWhere((item) => item.id == payment.id);
+    final saved = rows.firstWhere((item) => item.id == payment.id);
+    await _outboxQueue?.enqueueBillPayment(
+      PlanningSyncOperation.create,
+      saved,
+    );
+    return saved;
   }
 
   @override
@@ -321,7 +326,7 @@ class DriftBillRepository implements BillRepository {
   Future<List<String>> deletePaymentForTransaction(String transactionId) async {
     var rows = await _db.customSelect(
       '''
-        SELECT id, bill_id
+        SELECT *
         FROM bill_payments
         WHERE transaction_id = ?
           AND deleted_at IS NULL;
@@ -332,7 +337,7 @@ class DriftBillRepository implements BillRepository {
     if (rows.isEmpty) {
       rows = await _db.customSelect(
         '''
-          SELECT bp.id, bp.bill_id
+          SELECT bp.*
           FROM bill_payments bp
           JOIN subscriptions s ON s.id = bp.bill_id
           JOIN transactions t ON t.id = ?
@@ -353,8 +358,8 @@ class DriftBillRepository implements BillRepository {
     final billIds =
         rows.map((row) => row.read<String>('bill_id')).toList(growable: false);
     if (billIds.isEmpty) return const [];
-    final paymentIds =
-        rows.map((row) => row.read<String>('id')).toList(growable: false);
+    final payments = rows.map(_paymentFromRow).toList(growable: false);
+    final paymentIds = payments.map((item) => item.id).toList(growable: false);
 
     for (final paymentId in paymentIds) {
       await _db.customUpdate(
@@ -363,6 +368,13 @@ class DriftBillRepository implements BillRepository {
           Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
           Variable.withString(paymentId),
         ],
+      );
+    }
+
+    for (final payment in payments) {
+      await _outboxQueue?.enqueueBillPayment(
+        PlanningSyncOperation.delete,
+        payment,
       );
     }
 
@@ -395,6 +407,11 @@ class DriftBillRepository implements BillRepository {
 
   @override
   Future<void> deletePayment(String paymentId) async {
+    final row = await _db.customSelect(
+      'SELECT * FROM bill_payments WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(paymentId)],
+    ).getSingleOrNull();
+    final payment = row == null ? null : _paymentFromRow(row);
     await _db.customUpdate(
       'UPDATE bill_payments SET deleted_at = ? WHERE id = ?;',
       variables: [
@@ -402,6 +419,12 @@ class DriftBillRepository implements BillRepository {
         Variable.withString(paymentId),
       ],
     );
+    if (payment != null) {
+      await _outboxQueue?.enqueueBillPayment(
+        PlanningSyncOperation.delete,
+        payment,
+      );
+    }
   }
 
   BillEntity _fromRow(QueryRow row) {

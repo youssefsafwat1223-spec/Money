@@ -92,7 +92,8 @@ class SupabaseBudgetRepository implements BudgetRepository {
       'start_date': budget.startDate.toUtc().toIso8601String(),
       'is_active': budget.isActive,
       'last_notified_spent_amount': budget.lastNotifiedSpentAmount,
-      'last_notified_period_start': budget.lastNotifiedPeriodStart.toUtc().toIso8601String(),
+      'last_notified_period_start':
+          budget.lastNotifiedPeriodStart.toUtc().toIso8601String(),
       'show_on_header': budget.showOnHeader,
       'server_account_id': accountId,
       'metadata': <String, dynamic>{},
@@ -209,8 +210,12 @@ class SupabaseBudgetRepository implements BudgetRepository {
       ),
       startDate: DateTime.parse(row['start_date'] as String).toUtc(),
       isActive: row['is_active'] as bool? ?? true,
-      lastNotifiedSpentAmount: (row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0,
-      lastNotifiedPeriodStart: DateTime.tryParse(row['last_notified_period_start'] as String? ?? '')?.toUtc() ?? DateTime.utc(2000, 1, 1),
+      lastNotifiedSpentAmount:
+          (row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0,
+      lastNotifiedPeriodStart:
+          DateTime.tryParse(row['last_notified_period_start'] as String? ?? '')
+                  ?.toUtc() ??
+              DateTime.utc(2000, 1, 1),
       showOnHeader: row['show_on_header'] as bool? ?? false,
       accountId: row['server_account_id'] as String?,
     );

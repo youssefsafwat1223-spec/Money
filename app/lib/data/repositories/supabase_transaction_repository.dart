@@ -11,12 +11,14 @@ import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/repositories/transaction_repository.dart';
+import '../../domain/services/card_account_grouper.dart';
 import '../../domain/services/duplicate_transaction_detector.dart';
 import '../../engine/parser/card_network.dart';
 import '../db/app_database.dart';
 import '../db/financial_cache_health.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
+import 'drift_transaction_repository.dart';
 import 'supabase_planning_support.dart';
 
 /// حجم الصفحة عند جلب صفوف للتجميع في Dart — أقل من الحد الافتراضي لـ
@@ -172,7 +174,7 @@ class SupabaseTransactionRepository implements TransactionRepository {
       currency: row['currency'] as String,
       accountId: row['server_account_id'] as String?,
       rawMerchant: row['merchant'] as String?,
-      categoryId: localCategoryId,
+      categoryId: localCategoryId ?? row['category_id'] as String?,
       type: typeFromServer(row['transaction_type'] as String?),
       source: source,
       cardLast4: metadata['last4'] as String?,
@@ -782,6 +784,14 @@ class SupabaseTransactionRepository implements TransactionRepository {
     } catch (e) {
       throw mapSupabaseError(e);
     }
+  }
+
+  @override
+  Future<List<CardAccountBreakdownRow>> getCardAccountBreakdown() {
+    // البطاقات مُشتقّة دائمًا من المرآة المحلية (نفس منطق Drift) لأنها تعتمد
+    // على card_last4/account_id الموجودَين محليًا للعمليات المؤكَّدة — بغضّ
+    // النظر عن المرجع الأساسي.
+    return DriftTransactionRepository(_db).getCardAccountBreakdown();
   }
 
   @override

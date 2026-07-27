@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_typography.dart';
 
 class AppSheetScaffold extends StatelessWidget {
@@ -35,6 +36,8 @@ class AppSheetScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final viewInsets = MediaQuery.viewInsetsOf(context);
+    // Sheet surface matches the design mockups: charcoal in dark, white in light.
+    final sheetBg = AppTheme.sheetSurfaceFor(Theme.of(context).brightness);
 
     Widget content = body;
     if (padding != null) {
@@ -49,11 +52,11 @@ class AppSheetScaffold extends StatelessWidget {
     }
 
     return ClipRRect(
-      borderRadius:
-          const BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
+      // Mockup `.sheet`: 30px top corners.
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: c.surfaceElevated,
+          color: sheetBg,
           border: Border(top: BorderSide(color: c.border)),
           boxShadow: AppShadows.sheet,
         ),
@@ -73,7 +76,7 @@ class AppSheetScaffold extends StatelessWidget {
                   const SizedBox(height: AppSpacing.s3),
                   Center(
                     child: Container(
-                      width: 44,
+                      width: 40,
                       height: 5,
                       decoration: BoxDecoration(
                         color: c.textMuted.withValues(alpha: 0.3),
@@ -88,46 +91,66 @@ class AppSheetScaffold extends StatelessWidget {
                     padding: const EdgeInsetsDirectional.symmetric(
                       horizontal: AppSpacing.gutter,
                     ),
-                    child: Row(
+                    // Mockup `.sheet-h`: centered title (19px w600), optional
+                    // action floated to a side.
+                    child: Stack(
+                      alignment: Alignment.center,
                       children: [
-                        if (leading != null) ...[
-                          leading!,
-                          const SizedBox(width: AppSpacing.s3),
-                        ],
-                        Expanded(
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 40),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               if (title != null)
                                 Text(
                                   title!,
+                                  textAlign: TextAlign.center,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: AppTypography.title2(c.textPrimary),
+                                  style: AppTypography.calmTitle(c.textPrimary)
+                                      .copyWith(fontSize: 19),
                                 ),
                               if (subtitle != null) ...[
-                                const SizedBox(height: 2),
+                                const SizedBox(height: 3),
                                 Text(
                                   subtitle!,
+                                  textAlign: TextAlign.center,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: AppTypography.caption(c.textSecondary),
+                                  style: AppTypography.caption(c.textSecondary)
+                                      .copyWith(fontSize: 12.5),
                                 ),
                               ],
                             ],
                           ),
                         ),
-                        if (trailing != null) ...[
-                          const SizedBox(width: AppSpacing.s3),
-                          trailing!,
-                        ] else if (showCloseButton) ...[
-                          const SizedBox(width: AppSpacing.s3),
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close_rounded),
-                            color: c.textSecondary,
+                        if (leading != null)
+                          PositionedDirectional(
+                            start: 0,
+                            top: 0,
+                            bottom: 0,
+                            child: Center(child: leading!),
                           ),
-                        ],
+                        if (trailing != null)
+                          PositionedDirectional(
+                            end: 0,
+                            top: 0,
+                            bottom: 0,
+                            child: Center(child: trailing!),
+                          )
+                        else if (showCloseButton)
+                          PositionedDirectional(
+                            end: 0,
+                            top: 0,
+                            bottom: 0,
+                            child: Center(
+                              child: IconButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.close_rounded),
+                                color: c.textSecondary,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),

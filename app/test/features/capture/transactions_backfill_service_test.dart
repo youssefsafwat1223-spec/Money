@@ -89,6 +89,33 @@ void main() {
   // refuse when AppSession's local-data-owner marker names a different uid.
 
   test(
+      'skips rows already synced (server_id set) — re-pushing them minted a '
+      'duplicate server copy per reconcile run', () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    // Accounts gate satisfied.
+    await db.customStatement("UPDATE accounts SET server_id = 'srv-acct';");
+    // A pull-imported transaction: already on the server, server_id attached.
+    await _seedOneTransaction(db);
+    await db.customStatement(
+      "UPDATE transactions SET server_id = 'srv-tx-1', sync_status = 'synced' "
+      "WHERE id = 't1';",
+    );
+
+    final service = TransactionsBackfillService(
+      db: db,
+      getAuthUserId: () async => 'user-a',
+      getLocalDataOwnerUid: () async => 'user-a',
+      // Throws on any use — proves the synced row triggers ZERO upload calls.
+      getClient: _refusingClient,
+    );
+
+    final report = await service.run();
+    expect(report.total, 0,
+        reason: 'synced rows must be invisible to the backfill');
+  });
+
+  test(
       'refuses to backfill when the owner marker conflicts with the '
       'currently authenticated uid — and never touches Supabase', () async {
     final db = await _openDb();

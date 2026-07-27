@@ -11,15 +11,16 @@ import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/app_lucide_icons.dart';
-import '../common/account_range_controls.dart';
 import '../common/category_catalog.dart';
 import '../common/premium_loading.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../common/app_card.dart';
 import '../common/app_empty_state.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -43,7 +44,8 @@ class BudgetsScreen extends ConsumerWidget {
 
     return Scaffold(
       body: async.when(
-        loading: () => const PremiumSkeletonPage(cardCount: 4),
+        skipLoadingOnReload: true,
+        loading: () => const FirstLoadPlaceholder(cardCount: 4),
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (data) {
           final historyEntries = data.historyEntries;
@@ -82,124 +84,118 @@ class BudgetsScreen extends ConsumerWidget {
 
           return RefreshIndicator(
             onRefresh: () async => refreshBudgets(ref),
-            child: NestedScrollView(
-              headerSliverBuilder: (context, innerBoxIsScrolled) {
-                return [
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        _BudgetsHeader(
-                          tab: tab,
-                          usedRatio: usedRatio,
-                          usedAmount: used,
-                          limit: limit,
-                          saved: saved,
-                          target: target,
-                          progress: progress,
-                          goalsCount: data.goals.length,
-                          budgetsCount: budgetEntries.length,
-                          safeCount: safeCount,
-                          warningCount: warningCount,
-                          overCount: overCount,
-                          currencyLabel: currencyLabel,
-                          onAdd: () {
-                            if (tab == 2) {
-                              GoalFormScreen.showSheet(context);
-                            } else {
-                              BudgetFormScreen.showSheet(context);
-                            }
-                          },
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter),
-                          child: AccountRangeControls(
-                            onAccountChanged: () =>
-                                ref.invalidate(budgetsViewProvider),
-                            onRangeChanged: () =>
-                                ref.invalidate(budgetsViewProvider),
+            child: SafeArea(
+              top: false,
+              bottom: false,
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) {
+                  return [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          _BudgetsHeader(
+                            tab: tab,
+                            usedRatio: usedRatio,
+                            usedAmount: used,
+                            limit: limit,
+                            saved: saved,
+                            target: target,
+                            progress: progress,
+                            goalsCount: data.goals.length,
+                            budgetsCount: budgetEntries.length,
+                            safeCount: safeCount,
+                            warningCount: warningCount,
+                            overCount: overCount,
+                            currencyLabel: currencyLabel,
+                            onAdd: () {
+                              if (tab == 2) {
+                                GoalFormScreen.showSheet(context);
+                              } else {
+                                BudgetFormScreen.showSheet(context);
+                              }
+                            },
                           ),
-                        ),
-                        const SizedBox(height: AppSpacing.s2),
-                      ],
+                          const SizedBox(height: AppSpacing.s2),
+                        ],
+                      ),
                     ),
-                  ),
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _TabBarDelegate(
-                      child: Container(
-                        height: 64.0,
-                        color: context.colors.bg,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.gutter,
-                        ),
-                        alignment: Alignment.center,
-                        child: AppPillTabBar(
-                          tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
-                          selectedIndex: tab,
-                          onSelected: (value) => ref
-                              .read(budgetsPageTabProvider.notifier)
-                              .state = value,
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _TabBarDelegate(
+                        child: Container(
+                          height: 64.0,
+                          color: context.colors.bg,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.gutter,
+                          ),
+                          alignment: Alignment.center,
+                          child: AppPillTabBar(
+                            tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
+                            selectedIndex: tab,
+                            onSelected: (value) => ref
+                                .read(budgetsPageTabProvider.notifier)
+                                .state = value,
+                          ),
                         ),
                       ),
                     ),
+                  ];
+                },
+                body: ListView(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.gutter,
+                    AppSpacing.s3,
+                    AppSpacing.gutter,
+                    120,
                   ),
-                ];
-              },
-              body: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s3,
-                  AppSpacing.gutter,
-                  120,
-                ),
-                children: [
-                  if (tab == 0) ...[
-                    _AllocateIncomeButton(
-                      onTap: () => AllocateIncomeSheet.show(context),
-                    ),
-                    const SizedBox(height: AppSpacing.s3),
-                    ..._budgetEntryChildren(
-                      context,
-                      ref,
-                      data,
-                      entries: data.snapshot.entries,
-                      currencyLabel: currencyLabel,
-                      showGlobalAccountLabel: false,
-                      emptyTitle: 'لا توجد ميزانيات',
-                      emptySubtitle:
-                          'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
-                    ),
-                  ] else if (tab == 1) ...[
-                    _HistoryPeriodFilterRow(ref: ref),
-                    const SizedBox(height: AppSpacing.s2),
-                    ..._budgetHistoryChildren(
-                      context,
-                      data,
-                      entries: _applyHistoryFilter(historyEntries,
-                          ref.watch(budgetsHistoryPeriodFilterProvider)),
-                      currencyLabel: currencyLabel,
-                    ),
-                  ] else ...[
-                    if (data.goals.isEmpty)
-                      AppEmptyState(
-                        icon: AppLucideIcons.target,
-                        title: 'لا توجد أهداف',
-                        subtitle:
-                            'أضف هدف ادخار عشان قرش يتابع تقدمك جنب ميزانياتك.',
-                        primaryLabel: 'إضافة هدف',
-                        onPrimary: () => GoalFormScreen.showSheet(context),
-                      )
-                    else
-                      for (final goal in data.goals) ...[
-                        _GoalPlannerCard(
-                          goal: goal,
-                          currencyLabel: currencyLabel,
-                        ),
-                        const SizedBox(height: AppSpacing.s4),
-                      ]
+                  children: [
+                    if (tab == 0) ...[
+                      _AllocateIncomeButton(
+                        onTap: () => AllocateIncomeSheet.show(context),
+                      ),
+                      const SizedBox(height: AppSpacing.s3),
+                      ..._budgetEntryChildren(
+                        context,
+                        ref,
+                        data,
+                        entries: data.snapshot.entries,
+                        currencyLabel: currencyLabel,
+                        showGlobalAccountLabel: false,
+                        emptyTitle: 'لا توجد ميزانيات',
+                        emptySubtitle:
+                            'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
+                      ),
+                    ] else if (tab == 1) ...[
+                      _HistoryPeriodFilterRow(ref: ref),
+                      const SizedBox(height: AppSpacing.s2),
+                      ..._budgetHistoryChildren(
+                        context,
+                        data,
+                        entries: _applyHistoryFilter(historyEntries,
+                            ref.watch(budgetsHistoryPeriodFilterProvider)),
+                        currencyLabel: currencyLabel,
+                      ),
+                    ] else ...[
+                      if (data.goals.isEmpty)
+                        AppEmptyState(
+                          icon: AppLucideIcons.target,
+                          title: 'لا توجد أهداف',
+                          subtitle:
+                              'أضف هدف ادخار عشان قرش يتابع تقدمك جنب ميزانياتك.',
+                          primaryLabel: 'إضافة هدف',
+                          onPrimary: () => GoalFormScreen.showSheet(context),
+                        )
+                      else
+                        for (final goal in data.goals) ...[
+                          _GoalPlannerCard(
+                            goal: goal,
+                            currencyLabel: currencyLabel,
+                          ),
+                          const SizedBox(height: AppSpacing.s4),
+                        ]
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           );
@@ -461,7 +457,6 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -471,49 +466,11 @@ class _AddButton extends StatelessWidget {
         width: 42,
         height: 42,
         decoration: BoxDecoration(
-          color: c.surfaceCard,
           shape: BoxShape.circle,
-          border: Border.all(color: c.border),
+          color: Colors.white.withValues(alpha: 0.16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
         ),
-        child: Icon(Icons.add, color: c.cta, size: 22),
-      ),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  const _Divider();
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 32,
-        color: context.colors.divider,
-      );
-}
-
-class _HeaderMetric extends StatelessWidget {
-  const _HeaderMetric({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: AppTypography.bodyStrong(c.textMain),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: AppTypography.caption(c.textLight),
-            textAlign: TextAlign.center,
-          ),
-        ],
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }
@@ -554,7 +511,6 @@ class _BudgetsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     final isGoals = tab == 2;
     final isAllLog = tab == 1;
     final title = switch (tab) {
@@ -567,150 +523,38 @@ class _BudgetsHeader extends StatelessWidget {
       2 => 'مجموع المدخرات المستهدفة',
       _ => 'إجمالي الميزانيات المرصودة',
     };
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-              _AddButton(onTap: onAdd),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: c.cta.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        isGoals
-                            ? Icons.track_changes_rounded
-                            : Icons.donut_large_rounded,
-                        color: c.cta,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            totalLabel,
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isAllLog
-                                ? '$budgetsCount ميزانية'
-                                : isGoals
-                                    ? '${Formatters.amount(target)} $currencyLabel'
-                                    : '${Formatters.amount(limit)} $currencyLabel',
-                            style: AppTypography.title2(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
-                  child: Divider(color: c.border, height: 1),
-                ),
-                Row(
-                  children: isGoals
-                      ? [
-                          _HeaderMetric(
-                              label: 'أهداف نشطة', value: '$goalsCount'),
-                          const _Divider(),
-                          _HeaderMetric(
-                              label: 'نسبة التقدم', value: '$progress%'),
-                          const _Divider(),
-                          _HeaderMetric(
-                            label: 'إجمالي الادخار',
-                            value: '${Formatters.amount(saved)} $currencyLabel',
-                          ),
-                        ]
-                      : isAllLog
-                          ? [
-                              _HeaderMetric(label: 'آمنة', value: '$safeCount'),
-                              const _Divider(),
-                              _HeaderMetric(
-                                  label: 'اقتربت', value: '$warningCount'),
-                              const _Divider(),
-                              _HeaderMetric(
-                                  label: 'تجاوزت', value: '$overCount'),
-                            ]
-                          : [
-                              _HeaderMetric(
-                                  label: 'ميزانيات', value: '$budgetsCount'),
-                              const _Divider(),
-                              _HeaderMetric(
-                                  label: 'نسبة الاستهلاك',
-                                  value: '$usedRatio%'),
-                              const _Divider(),
-                              _HeaderMetric(
-                                label: 'المصروف الفعلي',
-                                value:
-                                    '${Formatters.amount(usedAmount)} $currencyLabel',
-                              ),
-                            ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    final metrics = isGoals
+        ? [
+            CalmMetric(label: 'أهداف نشطة', value: '$goalsCount'),
+            CalmMetric(label: 'نسبة التقدم', value: '$progress%'),
+            CalmMetric(
+                label: 'إجمالي الادخار', value: Formatters.amount(saved)),
+          ]
+        : isAllLog
+            ? [
+                CalmMetric(label: 'آمنة', value: '$safeCount'),
+                CalmMetric(label: 'اقتربت', value: '$warningCount'),
+                CalmMetric(label: 'تجاوزت', value: '$overCount'),
+              ]
+            : [
+                CalmMetric(label: 'ميزانيات', value: '$budgetsCount'),
+                CalmMetric(label: 'نسبة الاستهلاك', value: '$usedRatio%'),
+                CalmMetric(
+                    label: 'المصروف الفعلي',
+                    value: Formatters.amount(usedAmount)),
+              ];
+    return CalmPageHeader(
+      title: title,
+      subtitle: totalLabel,
+      leading: Navigator.of(context).canPop()
+          ? const BackButton(color: Colors.white)
+          : null,
+      trailing: _AddButton(onTap: onAdd),
+      amount: isAllLog
+          ? '$budgetsCount'
+          : Formatters.amount(isGoals ? target : limit),
+      currency: isAllLog ? 'ميزانية' : currencyLabel,
+      metrics: metrics,
     );
   }
 }
@@ -764,15 +608,15 @@ class _BudgetCard extends StatelessWidget {
                 width: 50,
                 height: 50,
                 decoration: BoxDecoration(
-                  color: (category?.color ?? progressColor)
-                      .withValues(alpha: 0.14),
+                  color: category?.tileColor ?? progressColor,
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: Icon(
-                  isGeneral
-                      ? Icons.account_balance_wallet_outlined
-                      : category?.icon ?? Icons.category_outlined,
-                  color: category?.color ?? progressColor,
+                child: CategoryGlyph(
+                  name: isGeneral
+                      ? 'wallet-cards'
+                      : (category?.iconName ?? 'shapes'),
+                  size: 24,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
@@ -782,7 +626,7 @@ class _BudgetCard extends StatelessWidget {
                   children: [
                     Text(
                       isGeneral ? 'كل المصروفات' : category?.nameAr ?? 'تصنيف',
-                      style: AppTypography.headline(c.textPrimary),
+                      style: AppTypography.cardTitle(c.textPrimary),
                     ),
                     const SizedBox(height: AppSpacing.s1),
                     Wrap(
@@ -858,7 +702,7 @@ class _BudgetCard extends StatelessWidget {
             children: [
               Text(
                 '$percent%',
-                style: AppTypography.title2(progressColor),
+                style: AppTypography.bodyStrong(progressColor),
               ),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
@@ -935,7 +779,7 @@ class _MonthHeader extends StatelessWidget {
           Text(
             label,
             style: AppTypography.footnote(c.textSecondary)
-                .copyWith(fontWeight: FontWeight.w800),
+                .copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(width: AppSpacing.s2),
           Expanded(child: Divider(color: c.border, height: 1)),
@@ -967,7 +811,7 @@ class _BudgetHistoryRow extends StatelessWidget {
     final isGeneral = entry.budget.isAllExpenses;
     final isOver = entry.remaining < 0;
     final progressColor = c.budgetState(entry.ratio);
-    final iconColor = category?.color ?? progressColor;
+    final iconColor = category?.tileColor ?? progressColor;
     final periodLabel = switch (entry.budget.period) {
       BudgetPeriod.daily => 'يومي',
       BudgetPeriod.weekly => 'أسبوعي',
@@ -1008,15 +852,14 @@ class _BudgetHistoryRow extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.14),
+              color: iconColor,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: Icon(
-              isGeneral
-                  ? Icons.account_balance_wallet_outlined
-                  : category?.icon ?? Icons.category_outlined,
-              color: iconColor,
+            child: CategoryGlyph(
+              name:
+                  isGeneral ? 'wallet-cards' : (category?.iconName ?? 'shapes'),
               size: 20,
+              color: Colors.white,
             ),
           ),
           const SizedBox(width: AppSpacing.s3),
@@ -1043,7 +886,7 @@ class _BudgetHistoryRow extends StatelessWidget {
                     Text(
                       resultText,
                       style: AppTypography.caption(resultColor)
-                          .copyWith(fontWeight: FontWeight.w800),
+                          .copyWith(fontWeight: FontWeight.w700),
                     ),
                   ],
                 ),
@@ -1139,15 +982,15 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: (category?.color ?? progressColor)
-                        .withValues(alpha: 0.14),
+                    color: category?.tileColor ?? progressColor,
                     borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
-                  child: Icon(
-                    entry.budget.isAllExpenses
-                        ? Icons.account_balance_wallet_outlined
-                        : category?.icon ?? Icons.category_outlined,
-                    color: category?.color ?? progressColor,
+                  child: CategoryGlyph(
+                    name: entry.budget.isAllExpenses
+                        ? 'wallet-cards'
+                        : (category?.iconName ?? 'shapes'),
+                    size: 24,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.s3),
@@ -1165,7 +1008,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                     ],
                   ),
                 ),
-                Text('$percent%', style: AppTypography.title2(progressColor)),
+                Text('$percent%',
+                    style: AppTypography.bodyStrong(progressColor)),
               ],
             ),
             const SizedBox(height: AppSpacing.s4),
@@ -1221,7 +1065,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
               style: AppTypography.caption(c.textSecondary),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: AppSpacing.s5),
+            const SizedBox(height: AppSpacing.s4),
             Text('عمليات الفترة',
                 style: AppTypography.bodyStrong(c.textPrimary)),
             const SizedBox(height: AppSpacing.s2),
@@ -1295,11 +1139,18 @@ class _BudgetTransactionRow extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: c.expense.withValues(alpha: 0.12),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    c.expense,
+                    Color.lerp(c.expense, Colors.black, 0.24)!,
+                  ],
+                ),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child:
-                  Icon(Icons.receipt_long_outlined, size: 17, color: c.expense),
+              child: const Icon(Icons.receipt_long_outlined,
+                  size: 17, color: Colors.white),
             ),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
@@ -1311,7 +1162,7 @@ class _BudgetTransactionRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.caption(c.textPrimary)
-                        .copyWith(fontWeight: FontWeight.w800),
+                        .copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -1325,7 +1176,7 @@ class _BudgetTransactionRow extends StatelessWidget {
             Text(
               '${Formatters.amount(tx.amount)} $currencyLabel',
               style: AppTypography.caption(c.expense)
-                  .copyWith(fontWeight: FontWeight.w900),
+                  .copyWith(fontWeight: FontWeight.w700),
             ),
           ],
         ),
@@ -1364,7 +1215,7 @@ class _GoalPlannerCard extends StatelessWidget {
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(goal.name,
-                    style: AppTypography.headline(c.textPrimary)),
+                    style: AppTypography.cardTitle(c.textPrimary)),
               ),
               Text('$percent%', style: AppTypography.bodyStrong(c.primary)),
             ],
@@ -1451,8 +1302,8 @@ class _AllocateIncomeButton extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(14),

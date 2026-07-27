@@ -29,6 +29,12 @@ class AppAssets {
   static const String bannerOnboarding2 =
       'assets/qirsh/banner_onboarding_2.jpg';
 
+  /// قصاصة شفافة لليد والعملة الذهبية — تظهر فوق الخلفية الكحلية في صفحة الوعد
+  static const String handCoinCutout = 'assets/qirsh/hand_coin_cutout.png';
+
+  /// صورة البطل لشاشة تسجيل الدخول — اليد والبرطمان مقصوصة لتذوب في الكحلي
+  static const String authHero = 'assets/qirsh/auth_hero.jpg';
+
   /// العملة المناسبة حسب الثيم (زرقاء light / ذهبية dark)
   static String getCoin(BuildContext context) {
     final brightness = Theme.of(context).brightness;

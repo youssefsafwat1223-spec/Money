@@ -67,12 +67,6 @@ class LedgerPushService implements LedgerPushAdapter {
     int abandoned = 0;
 
     for (final item in items) {
-      if (item.attemptCount >= 5) {
-        abandoned++;
-        await _queue.markSuccess(item.id); // remove exhausted items
-        continue;
-      }
-
       try {
         final outcome = await _processItem(item, userId);
         switch (outcome) {
@@ -123,14 +117,14 @@ class LedgerPushService implements LedgerPushAdapter {
     String userId,
   ) async {
     final localId = payload['local_id'] as String? ?? item.transactionId;
-    final serverRow = _toServerRow(payload, userId);
+    final serverRow = await _toServerRow(payload, userId);
 
     try {
       final response = await _getClient()
           .from('user_transactions')
           .upsert(
-            {...serverRow, 'payload_id': localId},
-            onConflict: 'user_id,payload_id',
+            {...serverRow, 'client_request_id': localId},
+            onConflict: 'user_id,client_request_id',
           )
           .select('id, updated_at')
           .single();
@@ -158,7 +152,7 @@ class LedgerPushService implements LedgerPushAdapter {
     final localId = payload['local_id'] as String? ?? item.transactionId;
     String? serverId = payload['server_id'] as String?;
 
-    // If server_id unknown, try to find it via payload_id.
+    // If server_id unknown, try to find it via the stable client request id.
     serverId ??= await _findServerId(localId, userId);
 
     if (serverId == null) {
@@ -166,7 +160,7 @@ class LedgerPushService implements LedgerPushAdapter {
       return _pushCreate(item, payload, userId);
     }
 
-    final serverRow = _toServerRow(payload, userId);
+    final serverRow = await _toServerRow(payload, userId);
     // Never overwrite source on existing server rows — the server already has
     // the authoritative source (e.g. 'ios_shortcut' from the relay dual-write).
     // Relay-imported transactions only appear in the outbox as updates/deletes,
@@ -246,7 +240,7 @@ class LedgerPushService implements LedgerPushAdapter {
           .from('user_transactions')
           .select('id')
           .eq('user_id', userId)
-          .eq('payload_id', localId)
+          .eq('client_request_id', localId)
           .maybeSingle();
       return row?['id'] as String?;
     } catch (_) {
@@ -280,15 +274,26 @@ class LedgerPushService implements LedgerPushAdapter {
         msg.contains('duplicate');
   }
 
-  static Map<String, dynamic> _toServerRow(
+  Future<Map<String, dynamic>> _toServerRow(
     Map<String, dynamic> payload,
     String userId,
-  ) {
+  ) async {
+    final legacyType = payload['type'] as String? ?? 'debit';
     final row = <String, dynamic>{
       'user_id': userId,
       'amount': payload['amount'],
       'currency': payload['currency'],
-      'type': payload['type'] ?? 'debit',
+      'direction': switch (legacyType) {
+        'credit' => 'credit',
+        'debit' => 'debit',
+        _ => 'unknown',
+      },
+      'transaction_type': switch (legacyType) {
+        'credit' => 'income',
+        'transfer' => 'transfer',
+        'debit' => 'expense',
+        _ => 'unknown',
+      },
       // source is present for create operations; absent for update operations.
       // The fallback 'manual' is only reached when an update is redirected to
       // a create (_pushUpdate → _pushCreate) because the row is not on the
@@ -299,12 +304,54 @@ class LedgerPushService implements LedgerPushAdapter {
     };
     if (payload['merchant'] != null) row['merchant'] = payload['merchant'];
     if (payload['note'] != null) row['description'] = payload['note'];
-    if (payload['account_id'] != null) {
-      row['account_id'] = payload['account_id'];
+    final localAccountId = payload['account_id'] as String?;
+    if (localAccountId != null) {
+      row['local_account_id'] = localAccountId;
+      final account = await _db
+          .customSelect(
+            'SELECT server_id FROM accounts '
+            'WHERE id = ${sqlString(localAccountId)} LIMIT 1;',
+          )
+          .getSingleOrNull();
+      final serverAccountId = account?.readNullable<String>('server_id');
+      if (serverAccountId != null) {
+        row['server_account_id'] = serverAccountId;
+      }
     }
     if (payload['confidence'] != null) {
       row['confidence'] = payload['confidence'];
     }
+    // Category: the server stores the stable category KEY, not the local UUID.
+    final localCategoryId = payload['category_id'] as String?;
+    if (localCategoryId != null) {
+      final cat = await _db
+          .customSelect(
+            'SELECT key FROM categories '
+            'WHERE id = ${sqlString(localCategoryId)} LIMIT 1;',
+          )
+          .getSingleOrNull();
+      final key = cat?.readNullable<String>('key');
+      if (key != null) row['category_id'] = key;
+    }
+    if (payload['balance_after'] != null) {
+      row['balance_after'] = payload['balance_after'];
+    }
+    if (payload['foreign_amount'] != null) {
+      row['foreign_amount'] = payload['foreign_amount'];
+    }
+    if (payload['foreign_currency'] != null) {
+      row['foreign_currency'] = payload['foreign_currency'];
+    }
+    // Metadata mirrors the backfill so card linkage + provenance survive the
+    // round-trip (the server has no dedicated card_last4 column — last4 lives
+    // in metadata). Only written when non-empty so an update never blanks
+    // server metadata it has nothing to say about.
+    final metadata = <String, dynamic>{};
+    if (payload['card_last4'] != null) metadata['last4'] = payload['card_last4'];
+    if (payload['source'] != null) {
+      metadata['transaction_source'] = payload['source'];
+    }
+    if (metadata.isNotEmpty) row['metadata'] = metadata;
     return row;
   }
 }

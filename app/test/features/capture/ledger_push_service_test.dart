@@ -1,11 +1,17 @@
+import 'dart:convert';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
+import 'package:money_companion/features/capture/services/ledger_push_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -33,11 +39,13 @@ LedgerOutboxQueue _queue(
   AppDatabase db, {
   bool flagOn = true,
   bool signedIn = true,
+  void Function()? onQueued,
 }) =>
     LedgerOutboxQueue(
       db: db,
       isPushEnabled: () => flagOn,
       getAuthUserId: () async => signedIn ? 'user-123' : null,
+      onQueued: onQueued,
     );
 
 void main() {
@@ -87,6 +95,140 @@ void main() {
     expect(items.first.payloadJson['type'], 'debit');
   });
 
+  test('successful durable enqueue wakes the background sync worker', () async {
+    await _insertTx(db);
+    var wakeups = 0;
+    final q = _queue(db, onQueued: () => wakeups++);
+    final tx = (await DriftTransactionRepository(db).getById('tx-001'))!;
+
+    await q.enqueue(OutboxOperation.create, tx);
+
+    expect(wakeups, 1);
+    expect(await q.pendingItems(), hasLength(1));
+  });
+
+  test('push maps legacy outbox payload to current transaction schema',
+      () async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await db.customStatement('''
+      INSERT INTO accounts(
+        id, name, currency, type, is_default, sort_order,
+        created_at, updated_at, initial_balance, current_balance, server_id
+      ) VALUES (
+        'local-account', 'Main', 'SAR', 'bank', 1, 0,
+        '$now', '$now', 0, 0, '00000000-0000-4000-8000-000000000001'
+      );
+    ''');
+    await _insertTx(db);
+    await db.customStatement(
+      "UPDATE transactions SET account_id = 'local-account' WHERE id = 'tx-001';",
+    );
+    final queue = _queue(db);
+    final tx = (await DriftTransactionRepository(db).getById('tx-001'))!;
+    await queue.enqueue(OutboxOperation.create, tx);
+
+    Map<String, dynamic>? sent;
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'public-anon-key',
+      accessToken: () async => 'qa-access-token',
+      httpClient: MockClient((request) async {
+        final decoded = jsonDecode(request.body);
+        sent = Map<String, dynamic>.from(
+          decoded is List ? decoded.single as Map : decoded as Map,
+        );
+        return http.Response(
+          jsonEncode({
+            'id': '00000000-0000-4000-8000-000000000002',
+            'updated_at': now,
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+          request: request,
+        );
+      }),
+    );
+    final result = await LedgerPushService(
+      db: db,
+      queue: queue,
+      isPushEnabled: () => true,
+      getAuthUserId: () async => 'user-123',
+      getClient: () => client,
+    ).push();
+
+    expect(result.pushed, 1);
+    expect(sent?['client_request_id'], 'tx-001');
+    expect(sent?['local_account_id'], 'local-account');
+    expect(
+      sent?['server_account_id'],
+      '00000000-0000-4000-8000-000000000001',
+    );
+    expect(sent?['direction'], 'debit');
+    expect(sent?['transaction_type'], 'expense');
+    expect(sent?.containsKey('account_id'), isFalse);
+    expect(sent?.containsKey('type'), isFalse);
+    expect(sent?.containsKey('payload_id'), isFalse);
+  });
+
+  test('push sends category (as key), card last4 in metadata, balance & '
+      'foreign amounts', () async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    // Use a seeded category so we assert on a real key round-trip.
+    final catId = (await db
+            .customSelect(
+                "SELECT id FROM categories WHERE key = 'restaurants' LIMIT 1;")
+            .getSingle())
+        .read<String>('id');
+    await db.customStatement('''
+      INSERT INTO transactions(
+        id, amount, currency, category_id, card_last4, balance_after,
+        foreign_amount, foreign_currency, type, source, occurred_at,
+        raw_message, parse_confidence, status, created_at, updated_at
+      ) VALUES (
+        'tx-cat', 250.0, 'SAR', '$catId', '4242', 900.5,
+        10.0, 'USD', 'payment', 'bank',
+        '$now', '', 0.9, 'confirmed', '$now', '$now'
+      );
+    ''');
+    final queue = _queue(db);
+    final tx = (await DriftTransactionRepository(db).getById('tx-cat'))!;
+    await queue.enqueue(OutboxOperation.create, tx);
+
+    Map<String, dynamic>? sent;
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'public-anon-key',
+      accessToken: () async => 'qa-access-token',
+      httpClient: MockClient((request) async {
+        final decoded = jsonDecode(request.body);
+        sent = Map<String, dynamic>.from(
+          decoded is List ? decoded.single as Map : decoded as Map,
+        );
+        return http.Response(
+          jsonEncode({'id': 'srv-cat', 'updated_at': now}),
+          200,
+          headers: const {'content-type': 'application/json'},
+          request: request,
+        );
+      }),
+    );
+    await LedgerPushService(
+      db: db,
+      queue: queue,
+      isPushEnabled: () => true,
+      getAuthUserId: () async => 'user-123',
+      getClient: () => client,
+    ).push();
+
+    // Category is sent as the stable KEY, not the local UUID.
+    expect(sent?['category_id'], 'restaurants');
+    // Card last4 rides in metadata (server has no card_last4 column).
+    expect((sent?['metadata'] as Map?)?['last4'], '4242');
+    expect(sent?['balance_after'], 900.5);
+    expect(sent?['foreign_amount'], 10.0);
+    expect(sent?['foreign_currency'], 'USD');
+  });
+
   test('delete operation stores local_id and omits amount', () async {
     await _insertTx(db);
     final q = _queue(db);
@@ -113,14 +255,17 @@ void main() {
 
   // ── source mapping ────────────────────────────────────────────────────────
 
-  test('create payload includes source=manual', () async {
-    await _insertTx(db); // source = 'bank' in raw SQL
+  test('create payload carries the real source (bank capture → import)',
+      () async {
+    await _insertTx(db); // source = 'bank' in raw SQL (SMS/relay capture)
     final q = _queue(db);
     final tx = (await DriftTransactionRepository(db).getById('tx-001'))!;
     await q.enqueue(OutboxOperation.create, tx);
 
     final item = (await q.pendingItems()).first;
-    expect(item.payloadJson['source'], 'manual');
+    // Captured transactions now flow through the outbox and must push with
+    // honest provenance, not a blanket 'manual'.
+    expect(item.payloadJson['source'], 'import');
   });
 
   test('update payload omits source to preserve server-side source', () async {
@@ -225,17 +370,14 @@ void main() {
     expect(items.isNotEmpty, isTrue);
   });
 
-  // ── max-attempts guard ────────────────────────────────────────────────────
+  // ── durable retries ───────────────────────────────────────────────────────
 
-  test('item at attempt_count=5 is excluded from pendingItems', () async {
-    // Simulate an item that has been failed 5 times. The outbox table only
-    // surfaces items with attempt_count < 5, so exhausted items never retry.
+  test('failed item remains durable after five attempts', () async {
     await _insertTx(db);
     final q = _queue(db);
     final tx = (await DriftTransactionRepository(db).getById('tx-001'))!;
     await q.enqueue(OutboxOperation.create, tx);
 
-    // Exhaust all 5 attempts by calling markFailed repeatedly.
     for (var i = 0; i < 5; i++) {
       final items = await db
           .customSelect(
@@ -247,9 +389,8 @@ void main() {
       await q.markFailed(id, 'error $i');
     }
 
-    // After 5 failures, pendingItems (attempt_count < 5 filter) returns empty.
-    expect((await q.pendingItems()).length, 0,
-        reason: 'item with attempt_count=5 must not appear in pending '
-            'so LedgerPushService.push() never retries it');
+    // Exhausted rows from an older app version are released once so a fixed
+    // schema/network condition can recover without losing the local write.
+    expect(await q.pendingItems(), hasLength(1));
   });
 }

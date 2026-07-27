@@ -35,29 +35,30 @@ class AppEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Padding(
+      // Compact UI system: tighter vertical rhythm, smaller art + heading.
       padding: const EdgeInsets.symmetric(
         horizontal: 0,
-        vertical: AppSpacing.s7,
+        vertical: AppSpacing.s5,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           illustration ??
               Container(
-                width: 78,
-                height: 78,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
                   color: c.ctaSoft,
-                  borderRadius: BorderRadius.circular(AppRadius.xlarge),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
                   border: Border.all(color: c.cta.withValues(alpha: 0.16)),
                 ),
-                child: Icon(icon, size: 32, color: c.cta),
+                child: Icon(icon, size: 26, color: c.cta),
               ),
-          const SizedBox(height: AppSpacing.s4),
+          const SizedBox(height: AppSpacing.s3),
           Text(
             title,
             textAlign: TextAlign.center,
-            style: AppTypography.title2(c.textPrimary),
+            style: AppTypography.sectionTitle(c.textPrimary),
           ),
           const SizedBox(height: AppSpacing.s2),
           Text(
@@ -65,10 +66,10 @@ class AppEmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: AppTypography.callout(c.textSecondary),
+            style: AppTypography.footnote(c.textSecondary),
           ),
           if (primaryLabel != null && onPrimary != null) ...[
-            const SizedBox(height: AppSpacing.s5),
+            const SizedBox(height: AppSpacing.s4),
             SizedBox(
               width: double.infinity,
               child: AppPrimaryButton(

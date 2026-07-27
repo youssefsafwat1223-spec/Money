@@ -3,13 +3,16 @@ import 'package:drift/drift.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../domain/repositories/category_repository.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 
 class DriftCategoryRepository implements CategoryRepository {
-  DriftCategoryRepository(this._db);
+  DriftCategoryRepository(this._db, {PlanningOutboxQueue? outboxQueue})
+      : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final PlanningOutboxQueue? _outboxQueue;
 
   @override
   Future<List<CategoryEntity>> getAll() async {
@@ -59,7 +62,9 @@ class DriftCategoryRepository implements CategoryRepository {
         Variable.withInt(sort),
       ],
     );
-    return _getById(id);
+    final saved = await _getById(id);
+    await _outboxQueue?.enqueueCategory(PlanningSyncOperation.create, saved);
+    return saved;
   }
 
   @override
@@ -82,7 +87,9 @@ class DriftCategoryRepository implements CategoryRepository {
         Variable.withString(category.id),
       ],
     );
-    return _getById(category.id);
+    final saved = await _getById(category.id);
+    await _outboxQueue?.enqueueCategory(PlanningSyncOperation.update, saved);
+    return saved;
   }
 
   @override
@@ -118,6 +125,7 @@ class DriftCategoryRepository implements CategoryRepository {
         Variable.withString(id),
       ],
     );
+    await _outboxQueue?.enqueueCategory(PlanningSyncOperation.delete, category);
   }
 
   Future<CategoryEntity> _getById(String id) async {

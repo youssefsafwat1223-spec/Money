@@ -13,6 +13,7 @@ import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../budgets/budgets_providers.dart';
+import '../common/app_header.dart';
 import '../common/vault_widget.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'goal_form_screen.dart';
@@ -37,7 +38,7 @@ class GoalDetailsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(title: const Text('تفاصيل الهدف')),
+      appBar: const AppHeader(title: 'تفاصيل الهدف'),
       body: _GoalDetailsContent(goalId: goalId),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddContributionSheet(context, ref, goalId),
@@ -101,7 +102,7 @@ class _GoalDetailsSheet extends StatelessWidget {
                     child: Row(
                       children: [
                         Text('تفاصيل الهدف',
-                            style: AppTypography.title2(c.textMain)),
+                            style: AppTypography.sectionTitle(c.textMain)),
                         const Spacer(),
                         IconButton(
                           onPressed: () => Navigator.of(context).pop(),
@@ -139,6 +140,7 @@ class _GoalDetailsContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(goalDetailsProvider(goalId));
     return async.when(
+      skipLoadingOnReload: true,
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => const Center(child: Text('حدث خطأ')),
       data: (data) {
@@ -161,7 +163,7 @@ class _GoalDetailsContent extends ConsumerWidget {
             Center(
               child: Text(
                 '${(data.progress * 100).round()}%',
-                style: AppTypography.title1(c.textMain),
+                style: AppTypography.bodyStrong(c.textMain),
               ),
             ),
             const SizedBox(height: AppSpacing.s2),
@@ -188,12 +190,12 @@ class _GoalDetailsContent extends ConsumerWidget {
               ),
             ),
             if (sheetMode) ...[
-              const SizedBox(height: AppSpacing.s5),
+              const SizedBox(height: AppSpacing.s4),
               Row(
                 children: [
                   Expanded(
                     child: SizedBox(
-                      height: 52,
+                      height: AppSpacing.buttonHeight,
                       child: FilledButton.icon(
                         onPressed: () =>
                             _showAddContributionSheet(context, ref, goalId),
@@ -211,7 +213,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                   const SizedBox(width: AppSpacing.s2),
                   Expanded(
                     child: SizedBox(
-                      height: 52,
+                      height: AppSpacing.buttonHeight,
                       child: OutlinedButton.icon(
                         onPressed: () => GoalFormScreen.showSheet(
                           context,
@@ -236,7 +238,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: c.danger,
                   side: BorderSide(color: c.danger),
-                  minimumSize: const Size.fromHeight(52),
+                  minimumSize: const Size.fromHeight(AppSpacing.buttonHeight),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -245,8 +247,8 @@ class _GoalDetailsContent extends ConsumerWidget {
                 label: const Text('حذف الهدف'),
               ),
             ],
-            const SizedBox(height: AppSpacing.s6),
-            Text('المساهمات', style: AppTypography.title2(c.textMain)),
+            const SizedBox(height: AppSpacing.s4),
+            Text('المساهمات', style: AppTypography.sectionTitle(c.textMain)),
             const SizedBox(height: AppSpacing.s3),
             if (data.contributions.isEmpty)
               Text(
@@ -414,7 +416,7 @@ Future<void> _showAddContributionSheet(
                         child: Row(
                           children: [
                             Text('إضافة مساهمة',
-                                style: AppTypography.title2(c.textMain)),
+                                style: AppTypography.sectionTitle(c.textMain)),
                             const Spacer(),
                             IconButton(
                               onPressed: () => Navigator.of(context).pop(),
@@ -479,9 +481,9 @@ Future<void> _showAddContributionSheet(
                           ),
                         ),
                       ),
-                      const SizedBox(height: AppSpacing.s5),
+                      const SizedBox(height: AppSpacing.s4),
                       SizedBox(
-                        height: 52,
+                        height: AppSpacing.buttonHeight,
                         width: double.infinity,
                         child: FilledButton(
                           onPressed: saving ? null : saveContribution,

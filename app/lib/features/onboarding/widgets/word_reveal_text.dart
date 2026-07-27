@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Reveals Arabic copy one complete word at a time.
 ///
@@ -16,6 +17,7 @@ class WordRevealText extends StatefulWidget {
     this.initialDelay = const Duration(milliseconds: 120),
     this.wordInterval = const Duration(milliseconds: 115),
     this.showCursor = true,
+    this.hapticPerWord = false,
     this.onComplete,
   });
 
@@ -25,6 +27,11 @@ class WordRevealText extends StatefulWidget {
   final Duration initialDelay;
   final Duration wordInterval;
   final bool showCursor;
+
+  /// When true, fires a light [HapticFeedback.selectionClick] as each word is
+  /// revealed, giving a "typing" feel. Only fires on the animated path (reduced
+  /// motion skips the reveal entirely), and never on line-break tokens.
+  final bool hapticPerWord;
 
   /// Called once, the moment the last word becomes visible (or immediately,
   /// if reduced motion skips the reveal entirely).
@@ -111,6 +118,10 @@ class _WordRevealTextState extends State<WordRevealText> {
   void _revealNextWord() {
     if (!mounted || _visibleWords >= _words.length) return;
     setState(() => _visibleWords++);
+    // Only reached on the animated path, so no reduced-motion re-check needed.
+    if (widget.hapticPerWord && _words[_visibleWords - 1] != _lineBreak) {
+      HapticFeedback.selectionClick();
+    }
     if (_visibleWords < _words.length) {
       _timer = Timer(widget.wordInterval, _revealNextWord);
     } else {

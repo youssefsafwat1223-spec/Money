@@ -178,10 +178,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
         Currency.arabicLabel(selectedAccount?.currency ?? baseCurrency);
 
     return budgetAsync.when(
+      skipLoadingOnReload: true,
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => const Center(child: Text('حدث خطأ')),
       data: (budget) {
         return categoriesAsync.when(
+          skipLoadingOnReload: true,
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) => const Center(child: Text('حدث خطأ')),
           data: (catalog) {
@@ -248,7 +250,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                       labelText: 'المبلغ',
                       labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
                       suffixText: currencyLabel,
-                      suffixStyle: _alex(14, FontWeight.w800, 1.2, c.textMain),
+                      suffixStyle: _alex(14, FontWeight.w700, 1.2, c.textMain),
                       filled: true,
                       fillColor: c.surface.withValues(alpha: 0.15),
                       contentPadding: const EdgeInsets.symmetric(
@@ -367,7 +369,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                         ),
                         child: Text(
                           'حفظ الميزانية',
-                          style: _alex(15, FontWeight.w800, 1.2, Colors.white),
+                          style: _alex(15, FontWeight.w700, 1.2, Colors.white),
                         ),
                       ),
                     ),
@@ -388,7 +390,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                         ),
                         child: Text(
                           'حذف الميزانية',
-                          style: _alex(15, FontWeight.w800, 1.2, c.danger),
+                          style: _alex(15, FontWeight.w700, 1.2, c.danger),
                         ),
                       ),
                     ),
@@ -453,7 +455,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       builder: (context) => AlertDialog(
         backgroundColor: c.surface,
         title: Text('حذف الميزانية؟',
-            style: _alex(18, FontWeight.w800, 1.2, c.textMain)),
+            style: _alex(18, FontWeight.w700, 1.2, c.textMain)),
         content: Text('سيتم حذف هذه الميزانية نهائياً.',
             style: _alex(14, FontWeight.w500, 1.4, c.textLight)),
         actions: [

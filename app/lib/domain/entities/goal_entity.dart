@@ -55,7 +55,8 @@ class GoalEntity {
       accountId: accountId ?? this.accountId,
       targetAmount: targetAmount ?? this.targetAmount,
       savedAmount: savedAmount ?? this.savedAmount,
-      lastNotifiedSavedAmount: lastNotifiedSavedAmount ?? this.lastNotifiedSavedAmount,
+      lastNotifiedSavedAmount:
+          lastNotifiedSavedAmount ?? this.lastNotifiedSavedAmount,
       deadline: deadline ?? this.deadline,
       vaultSkin: vaultSkin ?? this.vaultSkin,
       status: status ?? this.status,

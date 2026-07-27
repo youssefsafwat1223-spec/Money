@@ -3,11 +3,15 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/async_reload_safe.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/utils/category_glyph.dart';
+import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
+import '../../core/theme/widgets/segmented_control.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
@@ -316,48 +320,48 @@ class _ManualTransactionSheetState
       ),
       children: [
         const SizedBox(height: AppSpacing.s4),
-        SegmentedButton<TransactionTypeEntity>(
-          segments: const [
-            ButtonSegment(
-              value: TransactionTypeEntity.payment,
-              label: Text('مصروف'),
-              icon: Icon(Icons.remove_circle_outline),
-            ),
-            ButtonSegment(
-              value: TransactionTypeEntity.income,
-              label: Text('دخل'),
-              icon: Icon(Icons.add_circle_outline),
-            ),
-            ButtonSegment(
-              value: TransactionTypeEntity.transfer,
-              label: Text('تحويل'),
-              icon: Icon(Icons.swap_horiz),
-            ),
-          ],
-          selected: {_type},
-          onSelectionChanged: (value) {
+        SegmentedControl<TransactionTypeEntity>(
+          value: _type,
+          accent: true,
+          onChanged: (value) {
             setState(() {
-              _type = value.first;
+              _type = value;
               _categoryKey = null;
               _categoryId = null;
             });
           },
+          options: const [
+            SegmentOption(
+                value: TransactionTypeEntity.payment,
+                label: 'مصروف',
+                icon: Icons.remove),
+            SegmentOption(
+                value: TransactionTypeEntity.income,
+                label: 'دخل',
+                icon: Icons.add),
+            SegmentOption(
+                value: TransactionTypeEntity.transfer,
+                label: 'تحويل',
+                icon: Icons.swap_horiz_rounded),
+          ],
         ),
         const SizedBox(height: AppSpacing.s4),
-        TextField(
+        // Big centered amount entry (mockup `.amountfield`), tinted by kind.
+        _AmountField(
           controller: _amount,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9٠-٩۰-۹.,]')),
-          ],
-          textDirection: TextDirection.ltr,
-          decoration: const InputDecoration(
-            labelText: 'المبلغ',
-            prefixIcon: Icon(Icons.payments_outlined),
-          ),
+          currency: _currency.text,
+          color: switch (_type) {
+            TransactionTypeEntity.income => c.income,
+            TransactionTypeEntity.payment ||
+            TransactionTypeEntity.withdrawal =>
+              c.expense,
+            _ => c.textMain,
+          },
+          autofocus: !_isEditing,
+          onChanged: () => setState(() {}),
         ),
         const SizedBox(height: AppSpacing.s3),
-        ref.watch(accountsProvider).maybeWhen(
+        ref.watch(accountsProvider).dataOrWhen(
               data: (accounts) {
                 if (accounts.isEmpty) return const SizedBox.shrink();
                 final value = accounts.any((a) => a.id == _accountId)
@@ -404,7 +408,10 @@ class _ManualTransactionSheetState
                   value: category.key,
                   child: Row(
                     children: [
-                      Icon(category.icon, color: category.color, size: 18),
+                      CategoryGlyph(
+                          name: category.iconName,
+                          size: 18,
+                          color: category.color),
                       const SizedBox(width: 8),
                       Text(category.nameAr),
                     ],
@@ -443,7 +450,7 @@ class _ManualTransactionSheetState
             prefixIcon: Icon(Icons.notes_outlined),
           ),
         ),
-        const SizedBox(height: AppSpacing.s5),
+        const SizedBox(height: AppSpacing.s4),
         FilledButton.icon(
           onPressed: _busy ? null : () => _save(catalog),
           icon: _busy
@@ -483,6 +490,79 @@ class _ManualTransactionSheetState
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// Big centered amount entry — mockup `.amountfield` (44px, tinted by kind,
+/// with the currency as a smaller trailing label).
+class _AmountField extends StatelessWidget {
+  const _AmountField({
+    required this.controller,
+    required this.currency,
+    required this.color,
+    required this.autofocus,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String currency;
+  final Color color;
+  final bool autofocus;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Column(
+      children: [
+        Text(
+          'المبلغ',
+          style: AppTypography.subhead(c.textSecondary)
+              .copyWith(fontSize: 12.5, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            IntrinsicWidth(
+              child: TextField(
+                controller: controller,
+                autofocus: autofocus,
+                onChanged: (_) => onChanged(),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9٠-٩۰-۹.,]')),
+                ],
+                textAlign: TextAlign.center,
+                textDirection: TextDirection.ltr,
+                cursorColor: c.cta,
+                style: AppTypography.balanceHero(color).copyWith(fontSize: 44),
+                decoration: InputDecoration(
+                  filled: false,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  hintText: '0',
+                  hintStyle: AppTypography.balanceHero(c.textMuted)
+                      .copyWith(fontSize: 44),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              currency,
+              style: AppTypography.title2(c.textSecondary)
+                  .copyWith(fontSize: 17, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
       ],
     );
   }

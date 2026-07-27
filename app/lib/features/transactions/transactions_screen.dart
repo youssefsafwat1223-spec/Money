@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/async_reload_safe.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/calm_chip.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/glass_selector.dart';
+import '../../core/theme/widgets/mali_card.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/account_entity.dart';
@@ -28,6 +34,7 @@ import '../subscriptions/bill_form_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
 import '../../domain/entities/smart_inbox_item_entity.dart';
+import '../capture/capture_entry_sheet.dart';
 import 'manual_transaction_sheet.dart';
 import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
@@ -57,7 +64,7 @@ class TransactionsScreen extends ConsumerWidget {
     return Scaffold(
       body: async.when(
         skipLoadingOnReload: true,
-        loading: () => const PremiumSkeletonPage(cardCount: 6),
+        loading: () => const FirstLoadPlaceholder(cardCount: 6),
         error: (e, _) => const Center(child: Text('حدث خطأ')),
         data: (view) {
           final groups = <String, List<TransactionEntity>>{};
@@ -65,10 +72,26 @@ class TransactionsScreen extends ConsumerWidget {
             final label = Formatters.dateGroupLabel(tx.occurredAt, context);
             groups.putIfAbsent(label, () => []).add(tx);
           }
-          final transactionItems = <Object>[];
-          for (final entry in groups.entries) {
-            transactionItems.add(entry.key);
-            transactionItems.addAll(entry.value);
+          // One card per day group (label above, that day's rows inside).
+          final dayGroups = groups.entries.toList();
+          Widget txRow(TransactionEntity tx) {
+            final category = view.catalog.byId(tx.categoryId);
+            final title = tx.rawMerchant ?? category?.nameAr ?? 'عملية';
+            return AppTransactionRow(
+              title: title,
+              amount: tx.amount,
+              currency: Currency.arabicLabel(tx.currency),
+              subtitle:
+                  '${Formatters.time(tx.occurredAt)} · ${category?.nameAr ?? 'غير مصنّفة'}',
+              categoryIconName: category?.iconName,
+              categoryColor: category?.color,
+              brandLogoUrl: BrandMark.logoFor(title, logos),
+              isPending: tx.status == TransactionStatus.pending,
+              isAi: tx.source == TransactionSourceEntity.aiParsed,
+              isDebit: transactionIsDebit(tx),
+              horizontalPadding: 14,
+              onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
+            );
           }
 
           final bills = billsAsync.valueOrNull?.bills ?? [];
@@ -84,227 +107,248 @@ class TransactionsScreen extends ConsumerWidget {
             (sum, bill) => sum + _monthlyAmount(bill),
           );
 
-          return NestedScrollView(
-            headerSliverBuilder: (context, innerBoxIsScrolled) {
-              return [
-                SliverToBoxAdapter(
-                  child: Column(
-                    children: [
-                      _TransactionsHeader(
-                        tab: tab,
-                        expenseTotal: view.expenseTotal,
-                        transactionsCount: view.transactions.length,
-                        pendingCount: view.pendingCount,
-                        subsCount: subs.length,
-                        instsCount: insts.length,
-                        monthlyTotal: monthlyTotal,
-                        currencyLabel: currencyLabel,
-                        onAdd: () {
-                          if (tab == 0) {
-                            ManualTransactionSheet.show(context);
-                          } else {
-                            BillFormSheet.show(context);
-                          }
-                        },
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.gutter),
-                        child: Column(
-                          children: [
-                            const _ActiveAccountPicker(),
-                            const SizedBox(height: AppSpacing.s3),
-                            const _SuspectedDuplicatesBanner(),
-                            const _SmartInboxBanner(),
-                            if (tab == 0) ...[
-                              if (pendingOnly) ...[
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 8),
-                                      decoration: BoxDecoration(
-                                        color: context.colors.accent
-                                            .withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
+          return SafeArea(
+              top: false,
+              bottom: false,
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) {
+                  return [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          _TransactionsHeader(
+                            tab: tab,
+                            expenseTotal: view.expenseTotal,
+                            transactionsCount: view.transactions.length,
+                            pendingCount: view.pendingCount,
+                            subsCount: subs.length,
+                            instsCount: insts.length,
+                            monthlyTotal: monthlyTotal,
+                            currencyLabel: currencyLabel,
+                            onAdd: () {
+                              if (tab == 0) {
+                                showCaptureEntrySheet(context);
+                              } else {
+                                BillFormSheet.show(context);
+                              }
+                            },
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.gutter),
+                            child: Column(
+                              children: [
+                                if (tab == 0 && !pendingOnly)
+                                  Row(
+                                    children: [
+                                      const Expanded(
+                                          child: _ActiveAccountPicker()),
+                                      const SizedBox(width: AppSpacing.s3),
+                                      Expanded(
+                                          child: _DateRangeChips(
+                                              range: view.range)),
+                                    ],
+                                  )
+                                else
+                                  const _ActiveAccountPicker(),
+                                const SizedBox(height: AppSpacing.s3),
+                                const _SuspectedDuplicatesBanner(),
+                                const _SmartInboxBanner(),
+                                if (tab == 0) ...[
+                                  if (pendingOnly) ...[
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 8),
+                                          decoration: BoxDecoration(
                                             color: context.colors.accent
-                                                .withValues(alpha: 0.30)),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(AppLucideIcons.alertTriangle,
-                                              size: 14,
-                                              color: context.colors.accent),
-                                          const SizedBox(width: 6),
-                                          Text('تصفية: قيد المراجعة',
+                                                .withValues(alpha: 0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            border: Border.all(
+                                                color: context.colors.accent
+                                                    .withValues(alpha: 0.30)),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(AppLucideIcons.alertTriangle,
+                                                  size: 14,
+                                                  color: context.colors.accent),
+                                              const SizedBox(width: 6),
+                                              Text('تصفية: قيد المراجعة',
+                                                  style: AppTypography.caption(
+                                                          context.colors.accent)
+                                                      .copyWith(
+                                                          fontWeight:
+                                                              FontWeight.w700)),
+                                              const SizedBox(width: 8),
+                                              GestureDetector(
+                                                onTap: () => ref
+                                                    .read(
+                                                        transactionsPendingFilterProvider
+                                                            .notifier)
+                                                    .state = false,
+                                                child: Icon(Icons.close,
+                                                    size: 14,
+                                                    color:
+                                                        context.colors.accent),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        if (view.pendingCount > 0)
+                                          TextButton.icon(
+                                            onPressed: () => _confirmAllPending(
+                                                context,
+                                                ref,
+                                                view.transactions),
+                                            icon: Icon(Icons.done_all_rounded,
+                                                size: 18,
+                                                color: context.colors.success),
+                                            label: Text(
+                                              'تأكيد الكل',
                                               style: AppTypography.caption(
-                                                      context.colors.accent)
+                                                      context.colors.success)
                                                   .copyWith(
                                                       fontWeight:
-                                                          FontWeight.w700)),
-                                          const SizedBox(width: 8),
-                                          GestureDetector(
-                                            onTap: () => ref
-                                                .read(
-                                                    transactionsPendingFilterProvider
-                                                        .notifier)
-                                                .state = false,
-                                            child: Icon(Icons.close,
-                                                size: 14,
-                                                color: context.colors.accent),
+                                                          FontWeight.w700),
+                                            ),
                                           ),
-                                        ],
-                                      ),
+                                      ],
                                     ),
-                                    const Spacer(),
-                                    if (view.pendingCount > 0)
-                                      TextButton.icon(
-                                        onPressed: () => _confirmAllPending(
-                                            context, ref, view.transactions),
-                                        icon: Icon(Icons.done_all_rounded,
-                                            size: 18,
-                                            color: context.colors.success),
-                                        label: Text(
-                                          'تأكيد الكل',
-                                          style: AppTypography.caption(
-                                                  context.colors.success)
-                                              .copyWith(
-                                                  fontWeight: FontWeight.w800),
-                                        ),
-                                      ),
+                                    const SizedBox(height: AppSpacing.s3),
                                   ],
-                                ),
-                                const SizedBox(height: AppSpacing.s3),
+                                ],
                               ],
-                              if (!pendingOnly) ...[
-                                _DateRangeChips(range: view.range),
-                                const SizedBox(height: AppSpacing.s4),
-                              ],
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _TabBarDelegate(
-                    child: Container(
-                      height: 64.0,
-                      color: context.colors.bg,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.gutter,
-                      ),
-                      alignment: Alignment.center,
-                      child: AppPillTabBar(
-                        tabs: const ['العمليات', 'الفواتير'],
-                        selectedIndex: tab,
-                        onSelected: (value) => ref
-                            .read(transactionsPageTabProvider.notifier)
-                            .state = value,
-                      ),
-                    ),
-                  ),
-                ),
-              ];
-            },
-            body: tab == 0
-                ? NotificationListener<ScrollNotification>(
-                    onNotification: (notification) {
-                      if (notification.metrics.extentAfter < 900 &&
-                          view.hasMore &&
-                          !view.isLoadingMore) {
-                        ref.read(transactionsListProvider.notifier).loadMore();
-                      }
-                      return false;
-                    },
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.gutter,
-                        AppSpacing.s3,
-                        AppSpacing.gutter,
-                        120,
-                      ),
-                      itemCount: 4 +
-                          (view.transactions.isEmpty
-                              ? 1
-                              : transactionItems.length) +
-                          (view.isLoadingMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index == 0) return const _TransactionSearchField();
-                        if (index == 1) {
-                          return const SizedBox(height: AppSpacing.s3);
-                        }
-                        if (index == 2) return const _FilterBar();
-                        if (index == 3) {
-                          return const SizedBox(height: AppSpacing.s4);
-                        }
-                        final itemIndex = index - 4;
-                        if (view.transactions.isEmpty) {
-                          return const AppEmptyState(
-                            icon: AppLucideIcons.inbox,
-                            title: 'لا توجد عمليات في هذه الفترة',
-                            subtitle:
-                                'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
-                          );
-                        }
-                        if (itemIndex >= transactionItems.length) {
-                          return const Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        final item = transactionItems[itemIndex];
-                        if (item is String) return _DateHeader(label: item);
-                        final tx = item as TransactionEntity;
-                        final category = view.catalog.byId(tx.categoryId);
-                        final title =
-                            tx.rawMerchant ?? category?.nameAr ?? 'عملية';
-                        return AppTransactionRow(
-                          title: title,
-                          amount: tx.amount,
-                          currency: Currency.arabicLabel(tx.currency),
-                          subtitle: category?.nameAr,
-                          categoryIcon: category?.icon,
-                          categoryColor: category?.color,
-                          brandLogoUrl: BrandMark.logoFor(title, logos),
-                          isPending: tx.status == TransactionStatus.pending,
-                          isAi: tx.source == TransactionSourceEntity.aiParsed,
-                          isDebit: transactionIsDebit(tx),
-                          onTap: () => TransactionDetailsScreen.showSheet(
-                            context,
-                            tx.id,
+                            ),
                           ),
-                        );
-                      },
+                        ],
+                      ),
                     ),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.gutter,
-                      AppSpacing.s3,
-                      AppSpacing.gutter,
-                      120,
-                    ),
-                    children: [
-                      billsAsync.when(
-                        skipLoadingOnReload: true,
-                        loading: () => const Padding(
-                          padding: EdgeInsets.all(32),
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                        error: (error, _) => const Text('حدث خطأ'),
-                        data: (bills) => _BillsTab(
-                          view: bills,
-                          currencyLabel: currencyLabel,
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _TabBarDelegate(
+                        child: Container(
+                          height: 64.0,
+                          color: context.colors.bg,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.gutter,
+                          ),
+                          alignment: Alignment.center,
+                          child: AppPillTabBar(
+                            tabs: const ['العمليات', 'الفواتير'],
+                            selectedIndex: tab,
+                            onSelected: (value) => ref
+                                .read(transactionsPageTabProvider.notifier)
+                                .state = value,
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-          );
+                    ),
+                  ];
+                },
+                body: tab == 0
+                    ? NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification.metrics.extentAfter < 900 &&
+                              view.hasMore &&
+                              !view.isLoadingMore) {
+                            ref
+                                .read(transactionsListProvider.notifier)
+                                .loadMore();
+                          }
+                          return false;
+                        },
+                        child: ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.gutter,
+                            AppSpacing.s3,
+                            AppSpacing.gutter,
+                            120,
+                          ),
+                          itemCount: 4 +
+                              (view.transactions.isEmpty
+                                  ? 1
+                                  : dayGroups.length) +
+                              (view.isLoadingMore ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index == 0) {
+                              return const _TransactionSearchField();
+                            }
+                            if (index == 1) {
+                              return const SizedBox(height: AppSpacing.s2);
+                            }
+                            if (index == 2) return const _FilterBar();
+                            if (index == 3) {
+                              return const SizedBox(height: AppSpacing.s2);
+                            }
+                            final itemIndex = index - 4;
+                            if (view.transactions.isEmpty) {
+                              return const AppEmptyState(
+                                icon: AppLucideIcons.inbox,
+                                title: 'لا توجد عمليات في هذه الفترة',
+                                subtitle:
+                                    'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
+                              );
+                            }
+                            if (itemIndex >= dayGroups.length) {
+                              return const Padding(
+                                padding: EdgeInsets.all(AppSpacing.cardPadding),
+                                child:
+                                    Center(child: CircularProgressIndicator()),
+                              );
+                            }
+                            final group = dayGroups[itemIndex];
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.only(bottom: AppSpacing.s4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _DateHeader(label: group.key),
+                                  const SizedBox(height: AppSpacing.s2),
+                                  MaliCard(
+                                    style: MaliSurfaceStyle.floating,
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 4),
+                                    child: Column(
+                                      children: [
+                                        for (final tx in group.value) txRow(tx),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.gutter,
+                          AppSpacing.s3,
+                          AppSpacing.gutter,
+                          120,
+                        ),
+                        children: [
+                          billsAsync.when(
+                            skipLoadingOnReload: true,
+                            loading: () => const Padding(
+                              padding: EdgeInsets.all(AppSpacing.s5),
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                            error: (error, _) => const Text('حدث خطأ'),
+                            data: (bills) => _BillsTab(
+                              view: bills,
+                              currencyLabel: currencyLabel,
+                            ),
+                          ),
+                        ],
+                      ),
+              ));
         },
       ),
     );
@@ -354,7 +398,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final accountsAsync = ref.watch(accountsProvider);
     final selectedId = ref.watch(activeAccountIdProvider);
-    return accountsAsync.maybeWhen(
+    return accountsAsync.dataOrWhen(
       data: (accounts) {
         if (accounts.isEmpty) return const SizedBox.shrink();
         final defaultAccount = accounts.firstWhere(
@@ -365,40 +409,10 @@ class _ActiveAccountPicker extends ConsumerWidget {
           (item) => item.id == selectedId,
           orElse: () => defaultAccount,
         );
-        final c = context.colors;
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              onTap: () => _showAccountSheet(context, ref, account.id),
-              child: Container(
-                padding: const EdgeInsetsDirectional.fromSTEB(14, 8, 12, 8),
-                decoration: BoxDecoration(
-                  color: c.surfaceCard,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(color: c.border),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(AppLucideIcons.walletCards, size: 16, color: c.cta),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${account.name} · ${Currency.arabicLabel(account.currency)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(c.textPrimary)
-                          .copyWith(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(Icons.keyboard_arrow_down_rounded,
-                        size: 18, color: c.textMuted),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        return GlassSelector(
+          icon: AppLucideIcons.walletCards,
+          label: '${account.name} · ${Currency.arabicLabel(account.currency)}',
+          onTap: () => _showAccountSheet(context, ref, account.id),
         );
       },
       orElse: () => const SizedBox.shrink(),
@@ -434,7 +448,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
                   'اختار الحساب',
-                  style: AppTypography.title2(c.textPrimary),
+                  style: AppTypography.sectionTitle(c.textPrimary),
                 ),
               ),
               const SizedBox(height: AppSpacing.s3),
@@ -508,11 +522,21 @@ class _TransactionSearchFieldState
       onChanged: (value) =>
           ref.read(transactionSearchQueryProvider.notifier).state = value,
       decoration: InputDecoration(
+        isDense: true,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         hintText: 'ابحث باسم متجر، تصنيف، مبلغ أو عملة',
-        prefixIcon: const Icon(Icons.search_rounded),
+        hintStyle: TextStyle(fontSize: 14, color: c.textMuted),
+        prefixIconConstraints:
+            const BoxConstraints(minWidth: 40, minHeight: 40),
+        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+        suffixIconConstraints:
+            const BoxConstraints(minWidth: 40, minHeight: 40),
         suffixIcon: query.isEmpty
             ? null
             : IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 20,
                 onPressed: () {
                   _controller.clear();
                   ref.read(transactionSearchQueryProvider.notifier).state = '';
@@ -522,12 +546,12 @@ class _TransactionSearchFieldState
         filled: true,
         fillColor: c.surface2.withValues(alpha: 0.45),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: c.border),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: c.border.withValues(alpha: 0.6)),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          borderSide: BorderSide(color: c.border.withValues(alpha: 0.4)),
         ),
       ),
     );
@@ -541,49 +565,13 @@ class _DateRangeChips extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.colors;
-    return Align(
-      alignment: Alignment.center,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            _showRangeSheet(context, ref, range);
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.calendar_month_rounded, color: c.cta, size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  range.label,
-                  style: AppTypography.subhead(c.textPrimary)
-                      .copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 6),
-                Icon(Icons.keyboard_arrow_down_rounded,
-                    color: c.textMuted, size: 18),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return GlassSelector(
+      icon: Icons.calendar_month_rounded,
+      label: range.label,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        _showRangeSheet(context, ref, range);
+      },
     );
   }
 
@@ -718,7 +706,7 @@ class _DateRangeChips extends ConsumerWidget {
                           },
                     child: const Text('تطبيق الفترة المخصصة'),
                   ),
-                  const SizedBox(height: AppSpacing.s5),
+                  const SizedBox(height: AppSpacing.s4),
                 ],
               ),
             ),
@@ -734,13 +722,16 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: _KindFilterChips()),
-        SizedBox(width: AppSpacing.s2),
-        _CategoryFilterButton(),
-      ],
+    return const SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      clipBehavior: Clip.none,
+      child: Row(
+        children: [
+          _KindFilterChips(),
+          SizedBox(width: 8),
+          _CategoryFilterButton(),
+        ],
+      ),
     );
   }
 }
@@ -757,17 +748,19 @@ class _KindFilterChips extends ConsumerWidget {
       TransactionKindFilter.income: 'دخل',
       TransactionKindFilter.transfers: 'تحويلات',
     };
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         for (final entry in items.entries)
-          ChoiceChip(
-            label: Text(entry.value),
-            selected: filter == entry.key,
-            onSelected: (_) => ref
-                .read(transactionKindFilterProvider.notifier)
-                .state = entry.key,
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: 8),
+            child: CalmChip(
+              label: entry.value,
+              selected: filter == entry.key,
+              onTap: () => ref
+                  .read(transactionKindFilterProvider.notifier)
+                  .state = entry.key,
+            ),
           ),
       ],
     );
@@ -788,25 +781,26 @@ class _CategoryFilterButton extends ConsumerWidget {
     final active = selectedId != null;
 
     return Material(
-      color: active ? c.cta.withValues(alpha: 0.12) : c.surfaceMuted,
+      color: active ? c.cta.withValues(alpha: 0.12) : c.surfaceElevated,
       borderRadius: BorderRadius.circular(AppRadius.pill),
       child: InkWell(
         onTap: () => _showCategoryFilterSheet(context, ref),
         borderRadius: BorderRadius.circular(AppRadius.pill),
         child: Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s3, vertical: AppSpacing.s2),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(
-              color: active ? c.cta.withValues(alpha: 0.3) : c.border,
+              color: active ? c.cta.withValues(alpha: 0.3) : Colors.transparent,
             ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(selected?.icon ?? Icons.category_outlined,
-                  size: 15, color: active ? c.cta : c.textSecondary),
+              CategoryGlyph(
+                  name: selected?.iconName ?? 'shapes',
+                  size: 15,
+                  color: active ? c.cta : c.textSecondary),
               const SizedBox(width: 6),
               Text(
                 selected?.nameAr ?? 'التصنيف',
@@ -949,7 +943,7 @@ class _BillsTabState extends State<_BillsTab> {
           nextThisWeek: nextThisWeek,
           currencyLabel: widget.currencyLabel,
         ),
-        const SizedBox(height: AppSpacing.s5),
+        const SizedBox(height: AppSpacing.s4),
         TextButton.icon(
           onPressed: () => _showBillsHelp(context, _type),
           icon: const Icon(Icons.help_outline, size: 18),
@@ -1017,7 +1011,7 @@ class _BillsTabState extends State<_BillsTab> {
                 type == BillType.subscription
                     ? 'إزاي قرش يتابع الاشتراكات؟'
                     : 'إزاي قرش يتابع الأقساط؟',
-                style: AppTypography.title2(c.textMain),
+                style: AppTypography.cardTitle(c.textMain),
               ),
               const SizedBox(height: AppSpacing.s3),
               Text(
@@ -1590,29 +1584,13 @@ class _DateHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.s4, bottom: AppSpacing.s2),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: AppTypography.subhead(c.primary)
-                .copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Container(
-              height: 1,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    c.primary.withValues(alpha: 0.25),
-                    c.primary.withValues(alpha: 0.0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.only(
+          top: AppSpacing.s2, bottom: AppSpacing.s2, right: 4),
+      child: Text(
+        label,
+        textAlign: TextAlign.start,
+        style: AppTypography.caption(c.textMuted)
+            .copyWith(fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -1654,7 +1632,6 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -1664,49 +1641,11 @@ class _AddButton extends StatelessWidget {
         width: 42,
         height: 42,
         decoration: BoxDecoration(
-          color: c.surfaceCard,
           shape: BoxShape.circle,
-          border: Border.all(color: c.border),
+          color: Colors.white.withValues(alpha: 0.16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
         ),
-        child: Icon(Icons.add, color: c.cta, size: 22),
-      ),
-    );
-  }
-}
-
-class _HeaderDivider extends StatelessWidget {
-  const _HeaderDivider();
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 32,
-        color: context.colors.divider,
-      );
-}
-
-class _HeaderMetric extends StatelessWidget {
-  const _HeaderMetric({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: AppTypography.bodyStrong(c.textMain),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: AppTypography.caption(c.textLight),
-            textAlign: TextAlign.center,
-          ),
-        ],
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }
@@ -1737,142 +1676,35 @@ class _TransactionsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  tab == 0 ? 'العمليات' : 'الفواتير والاشتراكات',
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
+    // Shared design-system header — edit CalmPageHeader once, every screen
+    // that uses it updates.
+    return CalmPageHeader(
+      title: tab == 0 ? 'العمليات' : 'الفواتير والاشتراكات',
+      subtitle:
+          tab == 0 ? 'إجمالي مصروفات الفترة' : 'إجمالي الصرف الشهري النشط',
+      leading: Navigator.of(context).canPop()
+          ? const BackButton(color: Colors.white)
+          : null,
+      trailing: _AddButton(onTap: onAdd),
+      amount: Formatters.amount(tab == 0 ? expenseTotal : monthlyTotal),
+      currency: currencyLabel,
+      metrics: tab == 0
+          ? [
+              CalmMetric(label: 'عملية للفترة', value: '$transactionsCount'),
+              CalmMetric(label: 'قيد المراجعة', value: '$pendingCount'),
+              CalmMetric(
+                label: 'إجمالي المصروف',
+                value: '${Formatters.amount(expenseTotal)} $currencyLabel',
               ),
-              _AddButton(onTap: onAdd),
+            ]
+          : [
+              CalmMetric(label: 'اشتراك نشط', value: '$subsCount'),
+              CalmMetric(label: 'قسط جاري', value: '$instsCount'),
+              CalmMetric(
+                label: 'المجموع سنوياً',
+                value: '${Formatters.amount(monthlyTotal * 12)} $currencyLabel',
+              ),
             ],
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: c.cta.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        tab == 0
-                            ? Icons.payments_outlined
-                            : Icons.receipt_long_rounded,
-                        color: c.cta,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            tab == 0
-                                ? 'إجمالي المصروفات للفترة'
-                                : 'إجمالي الصرف الشهري النشط',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            tab == 0
-                                ? '${Formatters.amount(expenseTotal)} $currencyLabel'
-                                : '${Formatters.amount(monthlyTotal)} $currencyLabel',
-                            style: AppTypography.title2(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
-                  child: Divider(color: c.border, height: 1),
-                ),
-                Row(
-                  children: tab == 0
-                      ? [
-                          _HeaderMetric(
-                              label: 'عملية للفترة',
-                              value: '$transactionsCount'),
-                          const _HeaderDivider(),
-                          _HeaderMetric(
-                              label: 'قيد المراجعة', value: '$pendingCount'),
-                          const _HeaderDivider(),
-                          _HeaderMetric(
-                            label: 'إجمالي المصروف',
-                            value:
-                                '${Formatters.amount(expenseTotal)} $currencyLabel',
-                          ),
-                        ]
-                      : [
-                          _HeaderMetric(
-                              label: 'اشتراك نشط', value: '$subsCount'),
-                          const _HeaderDivider(),
-                          _HeaderMetric(
-                              label: 'قسط جاري', value: '$instsCount'),
-                          const _HeaderDivider(),
-                          _HeaderMetric(
-                            label: 'المجموع سنوياً',
-                            value:
-                                '${Formatters.amount(monthlyTotal * 12)} $currencyLabel',
-                          ),
-                        ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1907,7 +1739,7 @@ class _SmartInboxBanner extends ConsumerWidget {
                 child: Text(
                   'صندوق المراجعة الذكي · ${items.length}',
                   style: AppTypography.caption(c.textMain)
-                      .copyWith(fontWeight: FontWeight.w800),
+                      .copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
               Icon(Icons.chevron_left_rounded, size: 18, color: c.cta),
@@ -1951,7 +1783,7 @@ class _SmartInboxSheet extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
                 'صندوق المراجعة الذكي',
-                style: AppTypography.title2(context.colors.textMain),
+                style: AppTypography.sectionTitle(context.colors.textMain),
               ),
             );
           }
@@ -2102,7 +1934,7 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
               children: [
                 Expanded(
                   child: Text('عمليات مشبوهة',
-                      style: AppTypography.title2(c.textMain)),
+                      style: AppTypography.sectionTitle(c.textMain)),
                 ),
                 TextButton(
                   onPressed: () async {

@@ -100,8 +100,8 @@ void main() {
       categoryLabel: 'الطعام',
     )!;
     final b = planner.plan(
-      entry: _entry(
-          id: 'b2', categoryId: 'transport', amount: 1000, spent: 1200),
+      entry:
+          _entry(id: 'b2', categoryId: 'transport', amount: 1000, spent: 1200),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'المواصلات',

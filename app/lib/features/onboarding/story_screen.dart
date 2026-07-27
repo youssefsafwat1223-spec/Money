@@ -8,6 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/premium_glass_container.dart';
 import '../../core/utils/l10n_ext.dart';
+import 'widgets/coin_rain.dart';
 import 'widgets/word_reveal_text.dart';
 
 /// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
@@ -81,6 +82,7 @@ class _OnboardingStoryScreenState extends State<OnboardingStoryScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     precacheImage(const AssetImage(AppAssets.qirshLogoFull), context);
+    precacheImage(const AssetImage(AppAssets.handCoinCutout), context);
   }
 
   @override
@@ -356,6 +358,18 @@ class _PromisePageState extends State<_PromisePage> {
       fit: StackFit.expand,
       children: [
         const ColoredBox(color: _onboardingBlue),
+        const Positioned.fill(child: CoinRain()),
+        Positioned(
+          left: -width * 0.10,
+          bottom: 90,
+          child: ExcludeSemantics(
+            child: Image(
+              image: const AssetImage(AppAssets.handCoinCutout),
+              width: width * 0.52,
+              fit: BoxFit.fitWidth,
+            ),
+          ),
+        ),
         SafeArea(
           minimum: const EdgeInsets.only(top: AppSpacing.s10 + AppSpacing.s2),
           child: Column(
@@ -387,6 +401,7 @@ class _PromisePageState extends State<_PromisePage> {
                               blocks[i].text,
                               style: blocks[i].style,
                               textAlign: TextAlign.right,
+                              hapticPerWord: true,
                               onComplete: () => _advance(blocks.length),
                             ),
                           ],
@@ -541,6 +556,7 @@ class _StoryPageState extends State<_StoryPage> {
       fit: StackFit.expand,
       children: [
         const ColoredBox(color: _onboardingBlue),
+        const Positioned.fill(child: CoinRain()),
         SafeArea(
           minimum: const EdgeInsets.only(top: AppSpacing.s10 + AppSpacing.s2),
           child: Column(
@@ -566,6 +582,7 @@ class _StoryPageState extends State<_StoryPage> {
                           blocks[i].text,
                           style: blocks[i].style,
                           textAlign: TextAlign.right,
+                          hapticPerWord: true,
                           onComplete: () => _advance(blocks.length),
                         ),
                       ],

@@ -60,7 +60,7 @@ class CouponCard extends StatelessWidget {
                         Text(
                           offer.partnerName,
                           style: AppTypography.caption(c.textMuted)
-                              .copyWith(fontWeight: FontWeight.w800),
+                              .copyWith(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -118,7 +118,7 @@ class _CouponCodePill extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         textDirection: TextDirection.ltr,
         style: AppTypography.caption(c.cta).copyWith(
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w700,
           letterSpacing: 0.5,
         ),
       ),
@@ -146,7 +146,7 @@ class _ExpiryPill extends StatelessWidget {
       child: Text(
         days == 0 ? 'ينتهي اليوم' : '$days يوم',
         style:
-            AppTypography.caption(color).copyWith(fontWeight: FontWeight.w800),
+            AppTypography.caption(color).copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }

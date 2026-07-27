@@ -1,260 +1,346 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
-import '../../domain/entities/account_entity.dart';
-import '../../domain/entities/bill_entity.dart';
-import '../../domain/entities/engagement_entities.dart';
-import '../../domain/entities/goal_entity.dart';
-import '../../domain/entities/plan_entity.dart';
-import '../../domain/entities/transaction_entity.dart';
-import '../../domain/errors/repo_exceptions.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/mali_tokens.dart';
+import '../../core/theme/widgets/attention_card.dart';
+import '../../core/theme/widgets/budget_ring_rail.dart';
+import '../../core/theme/widgets/glass_selector.dart';
+import '../../core/theme/widgets/insight_card.dart';
+import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_screen.dart';
+import '../../core/theme/widgets/ring_progress.dart';
+import '../../core/theme/widgets/section_header.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
-import '../budgets/budgets_providers.dart';
-import '../cards/bank_mark.dart';
+import '../../domain/entities/bill_entity.dart';
+import '../../domain/entities/goal_entity.dart';
+import '../../domain/entities/transaction_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
+import '../../core/security/app_lock_service.dart';
+import '../app/app_shell.dart';
 import '../cards/brand_mark.dart';
-import '../cards/my_cards_screen.dart';
-import '../capture/capture_entry_sheet.dart';
-import '../common/category_avatar.dart';
-import '../common/category_catalog.dart';
-import '../common/motion.dart';
-import '../common/transaction_direction.dart';
-import '../common/premium_loading.dart';
-import '../common/widgets.dart';
-import '../common/app_card.dart';
-import '../common/app_empty_state.dart';
 import '../coupons/coupon_models.dart';
 import '../coupons/coupon_widgets.dart';
 import '../coupons/coupons_providers.dart';
-import '../../core/security/app_lock_service.dart';
 import '../goals/goals_providers.dart';
+import '../plans/plan_form_sheet.dart';
 import '../plans/plans_providers.dart';
 import '../plans/plans_screen.dart';
+import '../common/app_empty_state.dart';
+import '../common/category_catalog.dart';
+import '../common/premium_loading.dart';
+import '../common/transaction_direction.dart';
+// hide SectionHeader — we use the Calm Capital archetype of the same name.
+import '../common/widgets.dart' hide SectionHeader;
 import '../settings/settings_providers.dart';
-import '../app/app_shell.dart';
+import '../capture/capture_entry_sheet.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
 import 'home_sections_providers.dart';
 
+/// Home — the Calm Capital flagship dashboard (docs/MALI_DESIGN_SYSTEM.md).
+///
+/// Rebuilt from scratch: the whole screen is composed from the archetype
+/// primitives over a single read-only source, [dashboardDataProvider]. No sync,
+/// DB, or parser behavior lives here — this is presentation only.
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(dashboardDataProvider);
-    final settingsAsync = ref.watch(userSettingsProvider);
-    final settings = settingsAsync.valueOrNull;
-    final privacyMode = settingsAsync.maybeWhen(
-      data: (settings) => settings.privacyModeEnabled,
-      orElse: () => false,
-    );
-    final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Scaffold(
-      backgroundColor: c.bg,
-      body: Stack(
-        children: [
-          // Ambient glow for dark mode
-          if (isDark) ...[
-            Positioned(
-              right: -100,
-              top: -100,
-              width: 320,
-              height: 320,
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      c.cta.withValues(alpha: 0.05),
-                      c.cta.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: -120,
-              bottom: -120,
-              width: 360,
-              height: 360,
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      c.accent.withValues(alpha: 0.035),
-                      c.accent.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-          RefreshIndicator(
-            onRefresh: () async => ref.invalidate(dashboardDataProvider),
-            child: async.when(
-              skipLoadingOnReload: true,
-              loading: () => const PremiumSkeletonPage(cardCount: 5),
-              error: (error, stackTrace) {
-                // The true cause here is a missing/invalid session, not a
-                // transient load failure — retrying the same fetch would
-                // fail identically forever. Route to sign-in instead of
-                // showing a retry button that can never succeed.
-                if (error is AuthRepoException) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    AppSession.instance.handleAuthRequiredFailure();
-                  });
-                  return ListView(
-                    padding: const EdgeInsets.all(AppSpacing.gutter),
-                    children: [
-                      AppErrorState(
-                        title: 'الرجاء تسجيل الدخول مرة أخرى',
-                        description:
-                            'انتهت صلاحية الجلسة، سجّل دخولك للمتابعة.',
-                        retryLabel: 'تسجيل الدخول',
-                        onRetry: () =>
-                            AppSession.instance.handleAuthRequiredFailure(),
-                      ),
-                    ],
-                  );
-                }
-                return ListView(
-                  padding: const EdgeInsets.all(AppSpacing.gutter),
-                  children: [
-                    AppErrorState(
-                      title: 'تعذر تحميل لوحة التحكم الآن',
-                      description: 'تحقق من البيانات أو حاول التحديث مرة أخرى.',
-                      retryLabel: 'إعادة المحاولة',
-                      onRetry: () => ref.invalidate(dashboardDataProvider),
-                    ),
-                  ],
-                );
-              },
-              data: (data) => ListView(
-                padding: const EdgeInsets.only(bottom: 120),
-                children: [
-                  _DashboardHeader(
-                    data: data,
-                    displayName: settings?.displayName,
-                    avatarPath: settings?.avatarPath,
-                    onAdd: () => showCaptureEntrySheet(context),
-                    onRangeTap: () => _showDashboardRangeSheet(
-                      context,
-                      ref,
-                      data.range,
-                    ),
-                  ),
-                  const Padding(
-                    padding:
-                        EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        PremiumMotion(child: _AccountSwitcher()),
-                        SizedBox(height: AppSpacing.s4),
-                      ],
-                    ),
-                  ),
-                  const AnnouncementBanner(),
-                  const Padding(
-                    padding:
-                        EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                    child: _SetupNudgeCard(),
-                  ),
-                  const SizedBox(height: AppSpacing.s4),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.gutter),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Account summary — compact snapshot only (balance,
-                        // period income/expense, net). No proportion bar or
-                        // other comparison visual — those live in Reports.
-                        if (!data.isEmpty) ...[
-                          PremiumMotion(
-                            delay: const Duration(milliseconds: 50),
-                            child: _financialOverviewCard(context, ref, data,
-                                privacyMode: privacyMode),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                        ],
-                        if (data.isEmpty)
-                          _emptyState(context)
-                        else ...[
-                          // Smart Inbox — an actionable system state (needs
-                          // review), not a reporting widget.
-                          if (data.pendingReviewCount > 0) ...[
-                            PremiumMotion(
-                              child: _reviewCard(context, ref, data,
-                                  privacyMode: privacyMode),
-                            ),
-                            const SizedBox(height: AppSpacing.s4),
-                          ],
-                          // 1. Daily Expenses
-                          const PremiumMotion(
-                            delay: Duration(milliseconds: 60),
-                            child: _DailyExpensesSection(),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                          // 2. Coupons
-                          const PremiumMotion(
-                            delay: Duration(milliseconds: 70),
-                            child: _DashboardCouponsRail(),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                          // 3. Monthly Expenses
-                          const PremiumMotion(
-                            delay: Duration(milliseconds: 75),
-                            child: _MonthlyExpensesSection(),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                          // 4. Subscriptions
-                          const PremiumMotion(
-                            delay: Duration(milliseconds: 80),
-                            child: _SubscriptionsSection(),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                          // 5. Goals
-                          const PremiumMotion(
-                            delay: Duration(milliseconds: 90),
-                            child: _GoalsSection(),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                          // 6. Plans
-                          const PremiumMotion(
-                            delay: Duration(milliseconds: 95),
-                            child: _PlansSection(),
-                          ),
-                          const SizedBox(height: AppSpacing.s4),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    final settings = ref.watch(userSettingsProvider).valueOrNull;
+    // valueOrNull (not maybeWhen) so privacyMode holds through a reload instead
+    // of flashing hidden→shown on every account switch / sync.
+    final privacyMode = settings?.privacyModeEnabled ?? false;
+
+    return MaliScreen(
+      padding: EdgeInsets.zero,
+      safeArea: false,
+      child: RefreshIndicator(
+        onRefresh: () async => ref.invalidate(dashboardDataProvider),
+        child: async.when(
+          skipLoadingOnReload: true,
+          loading: () => const FirstLoadPlaceholder(cardCount: 5),
+          error: (error, _) {
+            if (error is AuthRepoException) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                AppSession.instance.handleAuthRequiredFailure();
+              });
+              return _errorList(
+                title: 'الرجاء تسجيل الدخول مرة أخرى',
+                description: 'انتهت صلاحية الجلسة، سجّل دخولك للمتابعة.',
+                retryLabel: 'تسجيل الدخول',
+                onRetry: () => AppSession.instance.handleAuthRequiredFailure(),
+              );
+            }
+            return _errorList(
+              title: 'تعذر تحميل لوحة التحكم الآن',
+              description: 'تحقق من البيانات أو حاول التحديث مرة أخرى.',
+              retryLabel: 'إعادة المحاولة',
+              onRetry: () => ref.invalidate(dashboardDataProvider),
+            );
+          },
+          data: (data) => _HomeBody(
+            data: data,
+            displayName: settings?.displayName,
+            avatarPath: settings?.avatarPath,
+            privacyMode: privacyMode,
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Future<void> _showDashboardRangeSheet(
+  Widget _errorList({
+    required String title,
+    required String description,
+    required String retryLabel,
+    required VoidCallback onRetry,
+  }) =>
+      ListView(
+        padding: const EdgeInsets.all(AppSpacing.gutter),
+        children: [
+          const SizedBox(height: AppSpacing.s7),
+          AppErrorState(
+            title: title,
+            description: description,
+            retryLabel: retryLabel,
+            onRetry: onRetry,
+          ),
+        ],
+      );
+}
+
+class _HomeBody extends ConsumerWidget {
+  const _HomeBody({
+    required this.data,
+    required this.displayName,
+    required this.avatarPath,
+    required this.privacyMode,
+  });
+
+  final DashboardData data;
+  final String? displayName;
+  final String? avatarPath;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Calm Capital "split" layout: a fixed blue summary zone (balance + today's
+    // pulse) with the scrollable content sheet sliding up over it.
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        _BlueZone(
+          data: data,
+          displayName: displayName,
+          avatarPath: avatarPath,
+          privacyMode: privacyMode,
+        ),
+        _Sheet(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _filters(context, ref),
+              const SizedBox(height: AppSpacing.s4),
+              const AnnouncementBanner(),
+              const _SetupNudgeCard(),
+              if (data.isEmpty)
+                _empty(context)
+              else ...[
+                _afterHero(context, ref),
+                _RecentSection(data: data, privacyMode: privacyMode),
+                if (data.budgetProgress.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.s4),
+                  _BudgetSection(data: data),
+                ],
+                const SizedBox(height: AppSpacing.s4),
+                _SubscriptionSection(privacyMode: privacyMode),
+                if (data.activeGoal != null) ...[
+                  const SizedBox(height: AppSpacing.s4),
+                  _GoalSection(
+                      goal: data.activeGoal!, privacyMode: privacyMode),
+                ],
+                const SizedBox(height: AppSpacing.s4),
+                const _PlansSection(),
+                const SizedBox(height: AppSpacing.s4),
+                const _DashboardCouponsRail(),
+              ],
+              const SizedBox(height: AppSpacing.s6),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Filters (range + account) ──────────────────────────────────────────────
+
+  Widget _filters(BuildContext context, WidgetRef ref) {
+    final accounts = ref.watch(accountsProvider).valueOrNull;
+    final selectedId = ref.watch(dashboardAccountProvider);
+    final String accountLabel;
+    if (accounts == null || accounts.isEmpty) {
+      accountLabel = 'كل الحسابات';
+    } else {
+      final selected = accounts.firstWhere(
+        (a) => a.id == selectedId,
+        orElse: () => accounts.firstWhere((a) => a.isDefault,
+            orElse: () => accounts.first),
+      );
+      accountLabel = 'حساب ${_currencyLabel(selected.currency)}';
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: GlassSelector(
+            icon: Icons.calendar_month_outlined,
+            label: data.range.label,
+            onTap: () => _showRangeSheet(context, ref, data.range),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.s3),
+        Expanded(
+          child: GlassSelector(
+            icon: Icons.account_balance_wallet_outlined,
+            label: accountLabel,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              context.push('/accounts');
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Below-hero context cards (attention + safe-to-spend + insight) ─────────
+  // The balance + today's pulse now live in the blue zone ([_BlueZone]); these
+  // supporting cards sit at the top of the content sheet.
+
+  Widget _afterHero(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final t = MaliTokens.of(context);
+    final ratio = data.weekChangeRatio;
+    final spentMore = ratio > 0.001;
+    final trendText = (ratio.abs() > 0.001)
+        ? '${(ratio.abs() * 100).round()}% عن الأسبوع الماضي'
+        : null;
+
+    final hasBudget = data.monthlyBudgetLimit > 0;
+    final remaining =
+        hasBudget ? (1 - data.monthlyBudgetRatio).clamp(0.0, 1.0) : null;
+    final over = hasBudget && data.monthlyBudgetRatio >= 1.0;
+    final tight = hasBudget && data.monthlyBudgetRatio >= 0.8;
+    final verdict = !hasBudget
+        ? 'حدّد ميزانية شهرية لتتابع المتاح'
+        : over
+            ? 'تجاوزت ميزانية الشهر'
+            : tight
+                ? 'مصروفك أعلى من المعتاد'
+                : 'وضعك مستقر';
+    final ringColor = over ? c.danger : (tight ? c.warning : c.income);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (data.pendingReviewCount > 0) ...[
+          AttentionCard(
+            icon: AppLucideIcons.inbox,
+            title:
+                '${data.pendingReviewCount} ${data.pendingReviewCount == 1 ? 'عملية' : 'عمليات'} في انتظار مراجعتك',
+            subtitle: 'راجعها عشان أرصدتك تفضل مظبوطة',
+            onTap: () {
+              HapticFeedback.selectionClick();
+              ref.read(shellIndexProvider.notifier).state = 1;
+              ref.read(transactionsPendingFilterProvider.notifier).state = true;
+            },
+          ),
+          const SizedBox(height: AppSpacing.s3),
+        ],
+        // Compact "safe to spend" — a thin raised bar (not a floating card).
+        Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s3, vertical: AppSpacing.s3),
+          decoration: BoxDecoration(
+            color: t.surfaceRaised,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+          child: Row(
+            children: [
+              RingProgress(
+                value: remaining,
+                size: 40,
+                strokeWidth: 5,
+                color: ringColor,
+                child: Text(
+                  remaining == null ? '—' : '${(remaining * 100).round()}%',
+                  style: AppTypography.micro(t.textOnCanvasPrimary),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('متاح من ميزانية الشهر',
+                        style: AppTypography.caption(t.textOnCanvasSecondary)),
+                    const SizedBox(height: 2),
+                    Text(verdict,
+                        style: AppTypography.subhead(
+                            !hasBudget ? c.textMuted : ringColor)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (trendText != null) ...[
+          const SizedBox(height: AppSpacing.s4),
+          InsightCard(
+            label: 'ملخص الأسبوع',
+            message: spentMore
+                ? 'انتبه — مصروفك أعلى بـ${(ratio.abs() * 100).round()}% عن الأسبوع اللي فات. راجع أكتر فئة بتصرف فيها.'
+                : 'أحسنت — مصروفك أقل بـ${(ratio.abs() * 100).round()}% عن الأسبوع اللي فات. كمّل كده وهتوفّر أكتر.',
+          ),
+        ],
+        const SizedBox(height: AppSpacing.s4),
+      ],
+    );
+  }
+
+  Widget _empty(BuildContext context) => const Padding(
+        padding: EdgeInsets.only(top: AppSpacing.s5),
+        child: AppEmptyState(
+          icon: AppLucideIcons.receipt,
+          title: 'لا توجد عمليات مضافة',
+          subtitle:
+              'ألصق رسالة الخصم أو الإيداع من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائياً على جهازك.',
+        ),
+      );
+
+  String _currencyLabel(String currency) =>
+      Currency.arabicLabel(currency.toUpperCase());
+
+  // ── Range sheet (preserved from the previous screen) ───────────────────────
+
+  Future<void> _showRangeSheet(
     BuildContext context,
     WidgetRef ref,
     TransactionsDateRange current,
@@ -292,7 +378,10 @@ class DashboardScreen extends ConsumerWidget {
                             }
                             ref
                                 .read(transactionsDateRangeProvider.notifier)
-                                .state = _rangeForPreset(preset);
+                                .state = transactionsRangeForPreset(
+                              preset,
+                              customFallback: defaultTransactionsRange(),
+                            );
                             Navigator.of(context).pop();
                           },
                         ),
@@ -359,14 +448,7 @@ class DashboardScreen extends ConsumerWidget {
                           TransactionsDateRange(
                         preset: TransactionsDatePreset.custom,
                         from: from,
-                        to: DateTime(
-                          to.year,
-                          to.month,
-                          to.day,
-                          23,
-                          59,
-                          59,
-                        ),
+                        to: DateTime(to.year, to.month, to.day, 23, 59, 59),
                       );
                       Navigator.of(context).pop();
                     },
@@ -388,407 +470,180 @@ class DashboardScreen extends ConsumerWidget {
         TransactionsDatePreset.last90Days => 'آخر 90 يوم',
         TransactionsDatePreset.custom => 'مخصص',
       };
+}
 
-  TransactionsDateRange _rangeForPreset(TransactionsDatePreset preset) {
-    return transactionsRangeForPreset(
-      preset,
-      customFallback: defaultTransactionsRange(),
-    );
+// ─── Blue summary zone (balance + today's pulse) ──────────────────────────────
+
+/// The fixed blue hero at the top of Home: greeting, total-expense balance,
+/// and today's pulse — white content on a mode-aware blue gradient. The content
+/// sheet ([_Sheet]) slides up over its bottom edge.
+class _BlueZone extends ConsumerWidget {
+  const _BlueZone({
+    required this.data,
+    required this.privacyMode,
+    this.displayName,
+    this.avatarPath,
+  });
+
+  final DashboardData data;
+  final bool privacyMode;
+  final String? displayName;
+  final String? avatarPath;
+
+  static const _income = Color(0xFF4ADE80);
+  static const _expenseNet = Color(0xFFFCA5A5);
+
+  String _name() {
+    final n = displayName?.trim();
+    if (n != null && n.isNotEmpty) return n;
+    final email = AppSession.instance.email;
+    if (email == null || email.trim().isEmpty) return 'صديق مالي';
+    final local = email.split('@').first.trim();
+    if (local.isEmpty || local.toLowerCase() == 'user') return 'صديق مالي';
+    return local.replaceAll(RegExp(r'[._]'), ' ');
   }
 
-  String _monthLabel(DateTime date, BuildContext context) {
-    return Formatters.monthYear(date, context);
+  String _initials(String name) {
+    final parts =
+        name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return 'م';
+    if (parts.length == 1) return parts.first.characters.first;
+    return '${parts.first.characters.first}${parts[1].characters.first}';
   }
 
-  String _rangeLabel(TransactionsDateRange range, BuildContext context) {
-    if (range.preset == TransactionsDatePreset.thisMonth) {
-      return _monthLabel(range.from, context);
-    }
-    if (range.preset != TransactionsDatePreset.custom) return range.label;
-    return '${Formatters.fullDate(range.from, context)} - ${Formatters.fullDate(range.to, context)}';
-  }
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final topPad = MediaQuery.paddingOf(context).top;
+    final name = _name();
+    final path = avatarPath?.trim();
+    final file = (path == null || path.isEmpty) ? null : File(path);
+    final hasImage = file != null && file.existsSync();
 
-  String _currencyLabel(String currency) =>
-      Currency.arabicLabel(currency.toUpperCase());
+    final heroValue = data.rangeExpense;
+    final ratio = data.weekChangeRatio;
+    final trendText = (ratio.abs() > 0.001)
+        ? '${(ratio.abs() * 100).round()}% عن الأسبوع الماضي'
+        : null;
+    final todayNet = data.todayIncome - data.todaySpend;
+    String signed(double v) =>
+        '${v >= 0 ? '+' : '−'}${Formatters.amount(v.abs())}';
+    final currencyLabel = Currency.arabicLabel(data.currency.toUpperCase());
 
-  String _money(
-    double amount,
-    String currency, {
-    bool privacyMode = false,
-  }) =>
-      privacyMode
-          ? '•••• ${_currencyLabel(currency)}'
-          : '${Formatters.amount(amount)} ${_currencyLabel(currency)}';
-
-  /// Quick eye-icon toggle on the Account Summary card — flips the same
-  /// `privacyModeEnabled` setting the Settings screen controls, so both
-  /// stay in sync instead of introducing a separate Home-only flag.
-  Future<void> _togglePrivacyMode(WidgetRef ref, bool current) async {
-    HapticFeedback.selectionClick();
-    final settings = ref.read(userSettingsProvider).valueOrNull;
-    if (settings == null) return;
-    await ref
-        .read(userSettingsRepositoryProvider)
-        .saveSettings(settings.copyWith(privacyModeEnabled: !current));
-    refreshUserSettings(ref);
-    ref.invalidate(dashboardDataProvider);
-  }
-
-  Widget _financialOverviewCard(
-    BuildContext context,
-    WidgetRef ref,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final isCtaDark = Theme.of(context).brightness == Brightness.light;
-    final onCta = c.onCta;
-
-    final net = data.rangeIncome - data.rangeExpense;
-    final isPositive = net >= 0;
-    final netTone = isPositive
-        ? (isCtaDark ? const Color(0xFF34D399) : c.success)
-        : (isCtaDark ? const Color(0xFFFCA5A5) : c.danger);
-    final sign = isPositive ? '+' : '-';
-    final netText = privacyMode
-        ? '••••'
-        : '$sign${_money(net.abs(), data.currency, privacyMode: false)}';
-
-    return AppCard(
-      color: c.cta,
-      border: Border.all(color: onCta.withValues(alpha: 0.12)),
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Expanded(
-                child: Text(isPositive ? 'صافي وفّرته' : 'صافي تجاوزته',
-                    style:
-                        AppTypography.caption(onCta.withValues(alpha: 0.75))),
-              ),
-              Text(_rangeLabel(data.range, context),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.caption(onCta.withValues(alpha: 0.55))),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Text(netText,
-                      style: AppTypography.title1(netTone)
-                          .copyWith(fontWeight: FontWeight.w800),
-                      textDirection: TextDirection.ltr),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              InkWell(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                onTap: () => _togglePrivacyMode(ref, privacyMode),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    privacyMode
-                        ? Icons.visibility_off_rounded
-                        : Icons.visibility_rounded,
-                    size: 18,
-                    color: onCta.withValues(alpha: 0.75),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: [
-              Expanded(
-                child: _snapshotMetric(
-                  context,
-                  title: 'الدخل',
-                  value: _money(data.rangeIncome, data.currency,
-                      privacyMode: privacyMode),
-                  tone: c.success,
-                  darkBg: isCtaDark,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: _snapshotMetric(
-                  context,
-                  title: 'المصروفات',
-                  value: _money(data.rangeExpense, data.currency,
-                      privacyMode: privacyMode),
-                  tone: c.danger,
-                  darkBg: isCtaDark,
-                ),
-              ),
-            ],
-          ),
-        ],
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          stops: const [0.0, 0.55, 1.0],
+          colors: isDark
+              ? const [Color(0xFF071634), Color(0xFF0E3A86), Color(0xFF1E74F0)]
+              : const [Color(0xFF1E74F0), Color(0xFF3E8CF7), Color(0xFF7FB2FF)],
+        ),
       ),
-    );
-  }
-
-  Widget _reviewCard(
-    BuildContext context,
-    WidgetRef ref,
-    DashboardData data, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final pending = data.pendingReview.take(2).toList();
-    void openReview() {
-      HapticFeedback.selectionClick();
-      ref.read(shellIndexProvider.notifier).state = 1;
-      ref.read(transactionsPendingFilterProvider.notifier).state = true;
-    }
-
-    return AppCard(
+      padding: EdgeInsets.fromLTRB(20, topPad + 12, 20, 36),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: BoxDecoration(
-                      gradient: c.primaryGradient,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Icon(AppLucideIcons.inbox,
-                        color: c.onPrimary, size: 26),
-                  ),
-                  PositionedDirectional(
-                    top: -6,
-                    start: -6,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      constraints: const BoxConstraints(minWidth: 22),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: c.cta,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: c.surfaceCard, width: 2),
-                      ),
-                      child: Text(
-                        '${data.pendingReviewCount}',
-                        style: AppTypography.caption(c.onCta)
-                            .copyWith(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
-                ],
+              Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: hasImage
+                    ? Image.file(file, fit: BoxFit.cover)
+                    : Text(_initials(name),
+                        style: AppTypography.subhead(Colors.white)),
               ),
-              const SizedBox(width: AppSpacing.s3),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text('صندوق المراجعة الذكي',
-                              style: AppTypography.bodyStrong(c.textPrimary)),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(Icons.auto_awesome_rounded,
-                            color: c.cta, size: 16),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'لدينا ${data.pendingReviewCount} عمليات تحتاج لمراجعتك. تأكد من التصنيفات والمبالغ.',
-                      style: AppTypography.caption(c.textMuted),
-                    ),
+                    Text('مرحباً 👋',
+                        style: AppTypography.footnote(
+                            Colors.white.withValues(alpha: 0.75))),
+                    const SizedBox(height: 2),
+                    Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.cardTitle(Colors.white)),
                   ],
                 ),
               ),
+              const _AddButton(),
             ],
           ),
-          if (pending.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.s4),
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (var i = 0; i < pending.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 10),
-                    Expanded(
-                      child: _miniPendingCard(context, data, pending[i],
-                          privacyMode: privacyMode),
-                    ),
-                  ],
-                  if (pending.length == 1) const Expanded(child: SizedBox()),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: AppSpacing.s4),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: FilledButton(
-              onPressed: openReview,
-              style: FilledButton.styleFrom(
-                backgroundColor: c.cta,
-                foregroundColor: c.onCta,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('مراجعة الآن', style: AppTypography.bodyStrong(c.onCta)),
-                  const SizedBox(width: 6),
-                  Icon(
-                    Directionality.of(context) == TextDirection.rtl
-                        ? Icons.arrow_back_rounded
-                        : Icons.arrow_forward_rounded,
-                    size: 18,
-                    color: c.onCta,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _miniPendingCard(
-    BuildContext context,
-    DashboardData data,
-    TransactionEntity tx, {
-    required bool privacyMode,
-  }) {
-    final c = context.colors;
-    final cat = data.catalog.byId(tx.categoryId);
-    final accent = cat?.color ?? c.cta;
-    final name = tx.rawMerchant ?? cat?.nameAr ?? 'عملية';
-    final isDebit = transactionIsDebit(tx);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: c.surfaceMuted,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: c.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
+          const SizedBox(height: 18),
           Row(
             children: [
-              Expanded(
-                child: Text(name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.caption(c.textPrimary)
-                        .copyWith(fontWeight: FontWeight.w800)),
+              Text('إجمالي المصروفات',
+                  style: AppTypography.caption(
+                      Colors.white.withValues(alpha: 0.78))),
+              const SizedBox(width: 6),
+              _eye(context, ref),
+              const Spacer(),
+              if (trendText != null)
+                Text(trendText,
+                    style: AppTypography.caption(
+                        Colors.white.withValues(alpha: 0.70))),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Flexible(
+                child: Text(
+                  privacyMode ? '••••••' : Formatters.amount(heroValue),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.amountHero(Colors.white)
+                      .copyWith(fontSize: 38, height: 1.0),
+                ),
               ),
               const SizedBox(width: 6),
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(cat?.icon ?? AppLucideIcons.receipt,
-                    color: accent, size: 16),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(currencyLabel,
+                    style: AppTypography.subhead(
+                        Colors.white.withValues(alpha: 0.82))),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            privacyMode
-                ? '••••'
-                : '${isDebit ? '−' : '+'} ${_money(tx.amount, tx.currency)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.subhead(isDebit ? c.expense : c.success)
-                .copyWith(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 2),
-          Text(cat?.nameAr ?? '—',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTypography.caption(c.textMuted)),
-        ],
-      ),
-    );
-  }
-
-  Widget _snapshotMetric(
-    BuildContext context, {
-    required String title,
-    required String value,
-    required Color tone,
-    bool darkBg = false,
-  }) {
-    final c = context.colors;
-    final bg = darkBg
-        ? Colors.white.withValues(alpha: 0.08)
-        : tone.withValues(alpha: 0.08);
-    final border = darkBg
-        ? Colors.white.withValues(alpha: 0.15)
-        : tone.withValues(alpha: 0.18);
-
-    // Use brighter colors on dark background for contrast
-    Color displayTone = tone;
-    if (darkBg) {
-      if (tone == c.success) {
-        displayTone = const Color(0xFF34D399); // bright emerald
-      } else if (tone == c.danger || tone == c.expense) {
-        displayTone = const Color(0xFFFCA5A5); // bright soft red
-      } else if (tone == c.accent) {
-        displayTone = const Color(0xFFF472B6); // bright pink
-      } else {
-        displayTone = Colors.white;
-      }
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s2, vertical: AppSpacing.s2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.caption(
-                darkBg ? Colors.white.withValues(alpha: 0.70) : c.textLight),
-          ),
-          const SizedBox(height: 2),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: AlignmentDirectional.centerStart,
-            child: Text(
-              value,
-              maxLines: 1,
-              style: AppTypography.subhead(displayTone)
-                  .copyWith(fontWeight: FontWeight.w800),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Row(
+              children: [
+                _pulseCell(
+                    'دخل اليوم',
+                    privacyMode
+                        ? '••••'
+                        : '+${Formatters.amount(data.todayIncome)}',
+                    _income),
+                _pulseDivider(),
+                _pulseCell(
+                    'مصروف اليوم',
+                    privacyMode
+                        ? '••••'
+                        : '−${Formatters.amount(data.todaySpend)}',
+                    Colors.white),
+                _pulseDivider(),
+                _pulseCell('الصافي', privacyMode ? '••••' : signed(todayNet),
+                    todayNet >= 0 ? _income : _expenseNet),
+              ],
             ),
           ),
         ],
@@ -796,50 +651,374 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _emptyState(BuildContext context) {
-    return AppEmptyState(
-      icon: AppLucideIcons.receipt,
-      title: 'لا توجد عمليات مضافة',
-      subtitle:
-          'ألصق رسالة الخصم أو الإيداع التي تصلك من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائياً على جهازك.',
-      primaryLabel: 'ألصق رسالة بنك',
-      onPrimary: () => showCaptureEntrySheet(context),
+  Widget _pulseCell(String label, String value, Color color) => Expanded(
+        child: Column(
+          children: [
+            Text(value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.subhead(color)),
+            const SizedBox(height: 2),
+            Text(label,
+                style:
+                    AppTypography.micro(Colors.white.withValues(alpha: 0.70))),
+          ],
+        ),
+      );
+
+  Widget _pulseDivider() => Container(
+        width: 1,
+        height: 26,
+        color: Colors.white.withValues(alpha: 0.18),
+      );
+
+  Widget _eye(BuildContext context, WidgetRef ref) => InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        onTap: () async {
+          HapticFeedback.selectionClick();
+          final settings = ref.read(userSettingsProvider).valueOrNull;
+          if (settings == null) return;
+          await ref.read(userSettingsRepositoryProvider).saveSettings(
+              settings.copyWith(privacyModeEnabled: !privacyMode));
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Icon(
+            privacyMode
+                ? Icons.visibility_off_rounded
+                : Icons.visibility_rounded,
+            size: 16,
+            color: Colors.white.withValues(alpha: 0.8),
+          ),
+        ),
+      );
+}
+
+/// White add button in the blue zone — opens the add-transaction flow.
+class _AddButton extends StatelessWidget {
+  const _AddButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        showCaptureEntrySheet(context);
+      },
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: 0.16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+        ),
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
+      ),
     );
   }
 }
 
-// ─── Operational Home Sections ───────────────────────────────────────────────
+/// The content sheet: rounded top, mode-aware surface, sliding up over the
+/// blue zone's bottom edge. Holds all the scrollable Home sections.
+class _Sheet extends StatelessWidget {
+  const _Sheet({required this.child});
 
-class _DailyExpensesSection extends ConsumerWidget {
-  const _DailyExpensesSection();
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sheetBg = isDark ? const Color(0xFF08090C) : const Color(0xFFF5F7FB);
+    return Transform.translate(
+      offset: const Offset(0, -18),
+      child: Container(
+        decoration: BoxDecoration(
+          color: sheetBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter, 20, AppSpacing.gutter, 120),
+        child: child,
+      ),
+    );
+  }
+}
+
+// ─── Recent transactions timeline ─────────────────────────────────────────────
+
+class _RecentSection extends ConsumerWidget {
+  const _RecentSection({required this.data, required this.privacyMode});
+  final DashboardData data;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(todayExpensesProvider);
-    final budgetsAsync = ref.watch(budgetsViewProvider);
+    final recent = data.recent.take(8).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: SectionHeader(
+            title: 'آخر العمليات',
+            trailing: 'الكل',
+            onTrailingTap: () =>
+                ref.read(shellIndexProvider.notifier).state = 1,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        MaliCard(
+          style: MaliSurfaceStyle.floating,
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+          child: recent.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                  child: Text('لا توجد عمليات بعد',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.caption(
+                          MaliTokens.of(context).textOnCanvasMuted)),
+                )
+              : Column(
+                  children: [
+                    for (final tx in recent)
+                      _TxRow(
+                        tx: tx,
+                        category: data.catalog.byId(tx.categoryId),
+                        privacyMode: privacyMode,
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TxRow extends StatelessWidget {
+  const _TxRow({
+    required this.tx,
+    required this.category,
+    required this.privacyMode,
+  });
+
+  final TransactionEntity tx;
+  final CategoryView? category;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final t = MaliTokens.of(context);
+    final merchant = tx.rawMerchant?.trim();
+    final title = (merchant != null && merchant.isNotEmpty)
+        ? merchant
+        : category?.nameAr ?? 'عملية';
+    final isDebit = transactionIsDebit(tx);
+    final amountColor = isDebit ? t.textOnCanvasPrimary : c.income;
+    final amount = privacyMode
+        ? '••••'
+        : '${isDebit ? '−' : '+'}${Formatters.amount(tx.amount)}';
+    final catColor = category?.tileColor ?? c.cta;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
+            children: [
+              (merchant != null && BrandMark.hasBrand(merchant))
+                  ? BrandMark(name: merchant, size: 42)
+                  : Container(
+                      width: 42,
+                      height: 42,
+                      alignment: Alignment.center,
+                      decoration: ShapeDecoration(
+                        color: catColor,
+                        shape: RoundedSuperellipseBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                      child: CategoryGlyph(
+                        name: category?.iconName ?? 'receipt-text',
+                        size: 20,
+                        color: Colors.white,
+                      ),
+                    ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${category?.nameAr ?? 'غير مصنّفة'} · ${Formatters.time(tx.occurredAt)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption(t.textOnCanvasMuted),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(amount, style: AppTypography.amountSmall(amountColor)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Budgets ──────────────────────────────────────────────────────────────────
+
+class _BudgetSection extends ConsumerWidget {
+  const _BudgetSection({required this.data});
+  final DashboardData data;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final entries = data.budgetProgress.take(3).toList();
+    Color toneOf(double ratio) =>
+        ratio >= 1.0 ? c.danger : (ratio >= 0.8 ? c.warning : c.income);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: SectionHeader(
+            title: 'الميزانية',
+            trailing: 'إدارة',
+            onTrailingTap: () => context.push('/budgets'),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.push('/budgets'),
+          child: entries.length == 1
+              ? _BudgetWideCard(
+                  entry: entries.first, tone: toneOf(entries.first.ratio))
+              : BudgetRingRail(
+                  rings: [
+                    for (final b in entries)
+                      BudgetRing(
+                        value: b.limit > 0 ? (b.ratio).clamp(0.0, 1.0) : null,
+                        name: b.label,
+                        sub:
+                            '${Formatters.amount(b.spent)} / ${Formatters.amount(b.limit)}',
+                        color: toneOf(b.ratio),
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Full-width budget card used when there's only one budget — a ring + label +
+/// spent/limit, instead of a single ring floating in an empty rings row.
+class _BudgetWideCard extends StatelessWidget {
+  const _BudgetWideCard({required this.entry, required this.tone});
+  final DashboardBudgetEntry entry;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = MaliTokens.of(context);
+    final ratio = entry.limit > 0 ? entry.ratio.clamp(0.0, 1.0) : null;
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
+      child: Row(
+        children: [
+          RingProgress(
+            value: ratio,
+            size: 84,
+            strokeWidth: 8,
+            color: tone,
+            child: Text(ratio == null ? '—' : '${(ratio * 100).round()}%',
+                style: AppTypography.subhead(t.textOnCanvasPrimary)),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(entry.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
+                const SizedBox(height: 6),
+                Text(
+                  '${Formatters.amount(entry.spent)} / ${Formatters.amount(entry.limit)}',
+                  style: AppTypography.caption(t.textOnCanvasSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Subscriptions ────────────────────────────────────────────────────────────
+
+class _SubscriptionSection extends ConsumerWidget {
+  const _SubscriptionSection({required this.privacyMode});
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(homeSubscriptionsProvider);
     return async.when(
       skipLoadingOnReload: true,
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const _SectionErrorCard(title: 'مصروفات اليوم'),
-      data: (transactions) {
-        return _HomeSectionCard(
-          title: 'مصروفات اليوم',
-          subtitle: 'آخر العمليات اللي حصلت النهارده',
-          actionLabel: 'عرض الكل',
-          onAction: () => ref.read(shellIndexProvider.notifier).state = 1,
-          emptyTitle: 'لا توجد مصروفات اليوم',
-          emptyBody: 'أول عملية هتظهر هنا فور تسجيلها',
-          isEmpty: transactions.isEmpty,
+      error: (_, __) => const SizedBox.shrink(),
+      data: (subs) {
+        if (subs.isEmpty) return const SizedBox.shrink();
+        final items = subs.take(6).toList();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final tx in transactions.take(3))
-              _DailyExpenseTile(
-                transaction: tx,
-                budget: budgetsAsync.valueOrNull == null
-                    ? null
-                    : matchBudgetForCategory(
-                        budgetsAsync.valueOrNull!.snapshot,
-                        tx.categoryId,
-                      ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: SectionHeader(
+                title: 'الاشتراكات',
+                trailing: 'الكل',
+                onTrailingTap: () => context.push('/subscriptions'),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            if (items.length == 1)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => context.push('/subscriptions'),
+                child:
+                    _SubWideCard(bill: items.first, privacyMode: privacyMode),
+              )
+            else
+              SizedBox(
+                height: 156,
+                child: ListView.separated(
+                  clipBehavior: Clip.none,
+                  scrollDirection: Axis.horizontal,
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, i) => GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => context.push('/subscriptions'),
+                    child: _SubCard(bill: items[i], privacyMode: privacyMode),
+                  ),
+                ),
               ),
           ],
         );
@@ -848,803 +1027,228 @@ class _DailyExpensesSection extends ConsumerWidget {
   }
 }
 
-class _DailyExpenseTile extends ConsumerWidget {
-  const _DailyExpenseTile({required this.transaction, required this.budget});
-
-  final TransactionEntity transaction;
-  final BudgetProgressEntry? budget;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
-    final category = catalog?.byId(transaction.categoryId);
-    final c = context.colors;
-    final title = transaction.rawMerchant?.trim().isNotEmpty == true
-        ? transaction.rawMerchant!.trim()
-        : category?.nameAr ?? 'مصروف';
-
-    final merchantName = transaction.rawMerchant;
-
-    final bool isOverBudget = budget != null && budget!.remaining < 0;
-    final String? budgetText = budget == null
-        ? null
-        : (isOverBudget
-            ? 'تجاوزت بـ ${_plainMoney(budget!.remaining.abs(), transaction.currency)}'
-            : 'متبقي ${_plainMoney(budget!.remaining, transaction.currency)}');
-
-    // Compact 2-line row (~60-72px): line 1 is merchant + amount, line 2 is
-    // category/time + remaining budget — everything the spec asks for
-    // without a per-row progress bar or a 3-line leading text stack.
-    return Column(
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () =>
-                TransactionDetailsScreen.showSheet(context, transaction.id),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  vertical: AppSpacing.s2, horizontal: AppSpacing.s1),
-              child: Row(
-                children: [
-                  merchantName != null && BrandMark.hasBrand(merchantName)
-                      ? BrandMark(name: merchantName, size: 36)
-                      : CategoryAvatar(
-                          merchantName: merchantName,
-                          category: category,
-                          size: 36,
-                        ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTypography.bodyStrong(c.textMain),
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.s2),
-                            _SignedAmount(
-                              amount: transaction.amount,
-                              currency: transaction.currency,
-                              color: c.expense,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${category?.nameAr ?? 'غير مصنفة'} • ${Formatters.time(transaction.occurredAt)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTypography.caption(c.textMuted),
-                              ),
-                            ),
-                            if (budgetText != null) ...[
-                              const SizedBox(width: AppSpacing.s2),
-                              Text(
-                                budgetText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTypography.caption(
-                                  isOverBudget ? c.danger : c.success,
-                                ).copyWith(fontWeight: FontWeight.w700),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Divider(color: c.border.withValues(alpha: 0.5), height: 1),
-      ],
-    );
-  }
-}
-
-class _MonthlyExpensesSection extends ConsumerWidget {
-  const _MonthlyExpensesSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(monthlyExpenseGroupsProvider);
-    return async.when(
-      skipLoadingOnReload: true,
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const _SectionErrorCard(title: 'مصروفات الشهر'),
-      data: (groups) => _HomeSectionCard(
-        title: 'مصروفات الشهر',
-        subtitle: 'مجمعة حسب التصنيف، بدون رسوم بيانية',
-        actionLabel: 'عرض الكل',
-        onAction: () => ref.read(shellIndexProvider.notifier).state = 1,
-        emptyTitle: 'لا توجد مصروفات مسجلة هذا الشهر',
-        isEmpty: groups.isEmpty,
-        children: [
-          for (final group in groups.take(4))
-            _MonthlyCategoryTile(group: group),
-        ],
-      ),
-    );
-  }
-}
-
-/// Category row for the Monthly Expenses accordion — collapsed by default
-/// (icon, category, total, remaining budget in one ~60px row); the
-/// transaction preview only renders once tapped open, which is what keeps
-/// this section from dominating the whole Home scroll.
-class _MonthlyCategoryTile extends ConsumerStatefulWidget {
-  const _MonthlyCategoryTile({required this.group});
-
-  final MonthlyCategoryGroup group;
-
-  @override
-  ConsumerState<_MonthlyCategoryTile> createState() =>
-      _MonthlyCategoryTileState();
-}
-
-class _MonthlyCategoryTileState extends ConsumerState<_MonthlyCategoryTile> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final group = widget.group;
-    final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
-    final category = catalog?.byId(group.categoryId);
-    final txPreview = group.transactions.take(3).toList(growable: false);
-    final currency = txPreview.isEmpty ? 'SAR' : txPreview.first.currency;
-    final c = context.colors;
-    final isOverBudget = group.budget != null && group.budget!.remaining < 0;
-    final subtitle = group.budget != null
-        ? budgetContextText(group.budget,
-            categoryName: category?.nameAr, currency: currency)
-        : 'إجمالي هذا الشهر';
-
-    return Column(
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  vertical: AppSpacing.s2, horizontal: AppSpacing.s1),
-              child: Row(
-                children: [
-                  CategoryAvatar(category: category, size: 36),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(category?.nameAr ?? 'غير مصنفة',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppTypography.bodyStrong(c.textMain)),
-                            ),
-                            const SizedBox(width: AppSpacing.s2),
-                            Text(_plainMoney(group.total, currency),
-                                style: AppTypography.bodyStrong(c.textMain)
-                                    .copyWith(fontWeight: FontWeight.w800)),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.caption(
-                            group.budget != null
-                                ? (isOverBudget ? c.danger : c.success)
-                                : c.textMuted,
-                          ).copyWith(
-                              fontWeight: group.budget != null
-                                  ? FontWeight.w700
-                                  : FontWeight.w400),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s2),
-                  AnimatedRotation(
-                    turns: _expanded ? 0.5 : 0,
-                    duration: const Duration(milliseconds: 180),
-                    child: Icon(Icons.keyboard_arrow_down_rounded,
-                        size: 20, color: c.textMuted),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        if (_expanded)
-          Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(
-                51, 0, AppSpacing.s1, AppSpacing.s2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final tx in txPreview)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            tx.rawMerchant ?? 'عملية',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.caption(c.textMain),
-                          ),
-                        ),
-                        Text(_plainMoney(tx.amount, tx.currency),
-                            style: AppTypography.caption(c.textSecondary)
-                                .copyWith(fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                  ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  onPressed: () =>
-                      ref.read(shellIndexProvider.notifier).state = 1,
-                  child: Text('عرض كل عمليات الفئة',
-                      style: AppTypography.caption(c.cta)
-                          .copyWith(fontWeight: FontWeight.w700)),
-                ),
-              ],
-            ),
-          ),
-        Divider(color: c.border.withValues(alpha: 0.5), height: 1),
-      ],
-    );
-  }
-}
-
-class _SubscriptionsSection extends ConsumerWidget {
-  const _SubscriptionsSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(homeSubscriptionsProvider);
-    return async.when(
-      skipLoadingOnReload: true,
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const _SectionErrorCard(title: 'الاشتراكات'),
-      data: (subscriptions) => _HomeSectionCard(
-        title: 'الاشتراكات',
-        subtitle: 'أقرب مدفوعات جاية',
-        actionLabel: 'عرض الكل',
-        onAction: () => context.push('/subscriptions'),
-        emptyTitle: 'لا توجد اشتراكات مضافة',
-        isEmpty: subscriptions.isEmpty,
-        noCard: true,
-        children: [
-          if (subscriptions.isNotEmpty)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.pagePadding, vertical: 4),
-              child: Row(
-                children: [
-                  for (int i = 0; i < subscriptions.take(3).length; i++) ...[
-                    if (i > 0) const SizedBox(width: AppSpacing.s3),
-                    SizedBox(
-                      width: 155,
-                      child: _SubscriptionCard(bill: subscriptions[i]),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SubscriptionCard extends StatelessWidget {
-  const _SubscriptionCard({required this.bill});
-
+class _SubCard extends StatelessWidget {
+  const _SubCard({required this.bill, required this.privacyMode});
   final BillEntity bill;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
+    final t = MaliTokens.of(context);
+    final today = DateTime.now();
     final days = bill.nextDueDate
-        .difference(DateTime(
-            DateTime.now().year, DateTime.now().month, DateTime.now().day))
+        .difference(DateTime(today.year, today.month, today.day))
         .inDays;
     final due = days < 0
         ? 'متأخر ${days.abs()} يوم'
         : days == 0
             ? 'مستحق اليوم'
-            : 'متبقي $days يوم';
-    final warningColor = days <= 2 ? c.warning : c.success;
-
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.s3),
-      color: c.surfaceCard,
-      border: Border.all(color: c.border.withValues(alpha: 0.15)),
-      onTap: () => context.push('/subscriptions'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              BrandMark(name: bill.name, size: 32),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      bill.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.bodyStrong(c.textMain),
+            : 'بعد $days يوم';
+    final initial = bill.name.trim().isEmpty ? '?' : bill.name.characters.first;
+    return SizedBox(
+      width: 160,
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            (bill.name.isNotEmpty && BrandMark.hasBrand(bill.name))
+                ? BrandMark(name: bill.name, size: 40)
+                : Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: MaliTokens.accentStart.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    Text(
-                      '${Formatters.amount(bill.amount)} ${bill.currency}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(c.textSecondary)
-                          .copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  Formatters.dateGroupLabel(bill.nextDueDate, context),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.caption(c.textMuted),
-                ),
-              ),
-              Text(
-                due,
+                    child: Text(initial,
+                        style: AppTypography.subhead(MaliTokens.accentStart)),
+                  ),
+            const Spacer(),
+            Text(bill.name,
                 maxLines: 1,
-                style: AppTypography.caption(warningColor)
-                    .copyWith(fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GoalsSection extends ConsumerWidget {
-  const _GoalsSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(homeGoalsProvider);
-    return async.when(
-      skipLoadingOnReload: true,
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const _SectionErrorCard(title: 'الأهداف'),
-      data: (goals) => _HomeSectionCard(
-        title: 'الأهداف',
-        subtitle: 'أقرب أهداف محتاجة متابعة',
-        actionLabel: 'عرض كل الأهداف',
-        onAction: () => context.push('/goals'),
-        emptyTitle: 'ابدأ أول هدف مالي ليك',
-        isEmpty: goals.isEmpty,
-        noCard: true,
-        children: [
-          if (goals.isNotEmpty)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.pagePadding, vertical: 4),
-              child: Row(
-                children: [
-                  for (int i = 0; i < goals.take(3).length; i++) ...[
-                    if (i > 0) const SizedBox(width: AppSpacing.s3),
-                    SizedBox(
-                      width: 170,
-                      child: _GoalTile(goal: goals[i]),
-                    ),
-                  ],
-                ],
-              ),
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            const SizedBox(height: 4),
+            Text(due,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.caption(t.textOnCanvasMuted)),
+            const SizedBox(height: 6),
+            Text(
+              privacyMode
+                  ? '••••'
+                  : '${Formatters.amount(bill.amount)} ${Currency.arabicLabel(bill.currency.toUpperCase())}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.bodyStrong(t.textOnCanvasPrimary),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _GoalTile extends StatelessWidget {
-  const _GoalTile({required this.goal});
-
-  final GoalEntity goal;
+/// Full-width subscription card used when there's only one — avoids the empty
+/// gap a single narrow rail card leaves.
+class _SubWideCard extends StatelessWidget {
+  const _SubWideCard({required this.bill, required this.privacyMode});
+  final BillEntity bill;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    final ratio = goal.targetAmount <= 0
-        ? 0.0
-        : (goal.savedAmount / goal.targetAmount).clamp(0.0, 1.0);
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.s3),
-      color: c.surfaceCard,
-      border: Border.all(color: c.border.withValues(alpha: 0.15)),
-      onTap: () => context.push('/goals/${goal.id}'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(goal.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.bodyStrong(c.textMain)),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Text('${(ratio * 100).round()}%',
-                  style: AppTypography.caption(c.accent)
-                      .copyWith(fontWeight: FontWeight.w900)),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 6,
-              backgroundColor: c.surface2,
-              valueColor: AlwaysStoppedAnimation(c.accent),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            '${_plainMoney(goal.savedAmount, '')} / ${_plainMoney(goal.targetAmount, '')}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.caption(c.textMuted),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlansSection extends ConsumerWidget {
-  const _PlansSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(homePlansProvider);
-    return async.when(
-      skipLoadingOnReload: true,
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const _SectionErrorCard(title: 'الخطط'),
-      data: (plans) => _HomeSectionCard(
-        title: 'الخطط',
-        subtitle: 'ميزانيات السفر والمناسبات النشطة',
-        actionLabel: 'عرض كل الخطط',
-        onAction: () => PlansScreen.open(context),
-        emptyTitle: 'لا توجد خطط مالية نشطة',
-        isEmpty: plans.isEmpty,
-        noCard: true,
-        children: [
-          if (plans.isNotEmpty)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.pagePadding, vertical: 4),
-              child: Row(
-                children: [
-                  for (int i = 0; i < plans.take(3).length; i++) ...[
-                    if (i > 0) const SizedBox(width: AppSpacing.s3),
-                    SizedBox(
-                      width: 175,
-                      child: _PlanCard(progress: plans[i]),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlanCard extends StatelessWidget {
-  const _PlanCard({required this.progress});
-
-  final PlanProgress progress;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final plan = progress.plan;
-    final ratio = progress.ratio.clamp(0.0, 1.0);
-    final isOver = progress.isOver;
-    final tone = isOver ? c.danger : c.primary;
-
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.s3),
-      color: c.surfaceCard,
-      border: Border.all(color: c.border.withValues(alpha: 0.15)),
-      onTap: () => PlansScreen.open(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  plan.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.bodyStrong(c.textMain),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Text('${(progress.ratio * 100).round()}%',
-                  style: AppTypography.caption(tone)
-                      .copyWith(fontWeight: FontWeight.w900)),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            plan.status == PlanStatus.active ? 'نشطة' : 'مغلقة',
-            style: AppTypography.caption(
-              plan.status == PlanStatus.active ? c.success : c.textMuted,
-            ).copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 6,
-              backgroundColor: c.surface2,
-              valueColor: AlwaysStoppedAnimation(tone),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            'ينتهي ${Formatters.dateGroupLabel(plan.endDate, context)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.caption(c.textMuted),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HomeSectionCard extends StatelessWidget {
-  const _HomeSectionCard({
-    required this.title,
-    required this.subtitle,
-    required this.actionLabel,
-    required this.onAction,
-    required this.emptyTitle,
-    required this.isEmpty,
-    required this.children,
-    this.emptyBody,
-    this.noCard = false,
-  });
-
-  final String title;
-  final String subtitle;
-  final String actionLabel;
-  final VoidCallback onAction;
-  final String emptyTitle;
-  final String? emptyBody;
-  final bool isEmpty;
-  final List<Widget> children;
-  final bool noCard;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    // A slimmer, single-row header than the shared [SectionHeader] — that
-    // widget bakes in its own AppSpacing.gutter horizontal padding, which
-    // double-counted against this wrapper's own padding and made every
-    // section header taller and more indented than the content below it.
-    final horizontalPad = noCard ? AppSpacing.pagePadding : 0.0;
-    final header = Padding(
-      padding: EdgeInsets.symmetric(horizontal: horizontalPad),
+    final t = MaliTokens.of(context);
+    final today = DateTime.now();
+    final days = bill.nextDueDate
+        .difference(DateTime(today.year, today.month, today.day))
+        .inDays;
+    final due = days < 0
+        ? 'متأخر ${days.abs()} يوم'
+        : days == 0
+            ? 'مستحق اليوم'
+            : 'بعد $days يوم';
+    final initial = bill.name.trim().isEmpty ? '?' : bill.name.characters.first;
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          (bill.name.isNotEmpty && BrandMark.hasBrand(bill.name))
+              ? BrandMark(name: bill.name, size: 44)
+              : Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: MaliTokens.accentStart.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Text(initial,
+                      style: AppTypography.subhead(MaliTokens.accentStart)),
+                ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.headline(c.textPrimary)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 1),
-                  Text(
-                    subtitle,
+                Text(bill.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTypography.caption(c.textMuted),
-                  ),
-                ],
+                    style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
+                const SizedBox(height: 3),
+                Text(due, style: AppTypography.caption(t.textOnCanvasMuted)),
               ],
             ),
           ),
-          const SizedBox(width: AppSpacing.s2),
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
-            ),
-            onPressed: onAction,
-            child: Text(
-              actionLabel,
-              style: AppTypography.caption(c.cta)
-                  .copyWith(fontWeight: FontWeight.w900),
-            ),
+          const SizedBox(width: 10),
+          Text(
+            privacyMode
+                ? '••••'
+                : '${Formatters.amount(bill.amount)} ${Currency.arabicLabel(bill.currency.toUpperCase())}',
+            style: AppTypography.bodyStrong(t.textOnCanvasPrimary),
           ),
         ],
       ),
     );
+  }
+}
 
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+// ─── Goal ─────────────────────────────────────────────────────────────────────
+
+class _GoalSection extends StatelessWidget {
+  const _GoalSection({required this.goal, required this.privacyMode});
+  final GoalEntity goal;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final t = MaliTokens.of(context);
+    final ratio = goal.targetAmount > 0
+        ? (goal.savedAmount / goal.targetAmount).clamp(0.0, 1.0)
+        : 0.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        header,
-        const SizedBox(height: AppSpacing.s2),
-        if (isEmpty)
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: horizontalPad),
-            child: SizedBox(
-              width: double.infinity,
-              child: AppEmptyState(
-                icon: AppLucideIcons.receipt,
-                title: emptyTitle,
-                subtitle: emptyBody ?? '',
-              ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: SectionHeader(
+            title: 'الأهداف',
+            trailing: 'الكل',
+            onTrailingTap: () => context.push('/goals'),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.push('/goals'),
+          child: MaliCard(
+            style: MaliSurfaceStyle.floating,
+            child: Row(
+              children: [
+                RingProgress(
+                  value: ratio,
+                  size: 72,
+                  strokeWidth: 8,
+                  color: c.income,
+                  child: Text('${(ratio * 100).round()}%',
+                      style: AppTypography.subhead(t.textOnCanvasPrimary)),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(goal.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              AppTypography.bodyStrong(t.textOnCanvasPrimary)),
+                      const SizedBox(height: 6),
+                      Text(
+                        privacyMode
+                            ? '•••• / ••••'
+                            : 'تم توفير ${Formatters.amount(goal.savedAmount)} من ${Formatters.amount(goal.targetAmount)}',
+                        style: AppTypography.caption(t.textOnCanvasSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          )
-        else
-          ...children,
+          ),
+        ),
       ],
-    );
-
-    if (noCard) {
-      return content;
-    }
-
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: content,
     );
   }
 }
 
-class _SectionErrorCard extends StatelessWidget {
-  const _SectionErrorCard({required this.title});
+// ─── Setup nudge ──────────────────────────────────────────────────────────────
 
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => AppCard(
-        child: AppErrorState(
-          title: 'تعذر تحميل $title',
-          description: 'سيتم المحاولة مرة أخرى مع التحديث التالي.',
-        ),
-      );
-}
-
-class _SignedAmount extends StatelessWidget {
-  const _SignedAmount({
-    required this.amount,
-    required this.currency,
-    required this.color,
-  });
-
-  final double amount;
-  final String currency;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Text(
-        '-${_plainMoney(amount, currency)}',
-        textDirection: TextDirection.ltr,
-        style: AppTypography.bodyStrong(color)
-            .copyWith(fontWeight: FontWeight.w900),
-      );
-}
-
-String _plainMoney(double amount, String currency) {
-  final suffix = currency.trim().isEmpty
-      ? ''
-      : ' ${Currency.arabicLabel(currency.toUpperCase())}';
-  return '${Formatters.amount(amount)}$suffix';
-}
-
-// ─── Setup Nudge ─────────────────────────────────────────────────────────────
-
-/// إخفاء بطاقة "كمّل إعدادك". عند الضغط على X تُؤجَّل لمدة [_setupNudgeSnooze]
-/// حتى لا تضايق المستخدم، وتختفي نهائياً بمجرد إتمام الخطوتين.
 const Duration _setupNudgeSnooze = Duration(days: 30);
 const String _setupNudgeSnoozedUntilKey = 'setup_nudge_snoozed_until';
-
-/// إخفاء فوري لهذه الجلسة بعد الضغط على X (قبل أن يُعاد قراءة التخزين).
 final _setupNudgeDismissedProvider = StateProvider<bool>((_) => false);
-
-/// وقت انتهاء التأجيل المخزَّن — البطاقة مخفية طالما لم يحن بعد.
 final _setupNudgeSnoozedProvider = FutureProvider<bool>((_) async {
   const storage = FlutterSecureStorage();
   final raw = await storage.read(key: _setupNudgeSnoozedUntilKey);
   final until = raw == null ? null : DateTime.tryParse(raw);
   return until != null && DateTime.now().toUtc().isBefore(until);
 });
-
 Future<void> _snoozeSetupNudge(WidgetRef ref) async {
   const storage = FlutterSecureStorage();
   final until = DateTime.now().toUtc().add(_setupNudgeSnooze);
   await storage.write(
-    key: _setupNudgeSnoozedUntilKey,
-    value: until.toIso8601String(),
-  );
+      key: _setupNudgeSnoozedUntilKey, value: until.toIso8601String());
   ref.read(_setupNudgeDismissedProvider.notifier).state = true;
   ref.invalidate(_setupNudgeSnoozedProvider);
 }
 
-final _appLockEnabledProvider = FutureProvider<bool>(
-  (_) => AppLockService.instance.isEnabled(),
-);
+final _appLockEnabledProvider =
+    FutureProvider<bool>((_) => AppLockService.instance.isEnabled());
 
-/// الخطوات المؤجَّلة من الـ onboarding (قفل البصمة + أول هدف ادخار).
 class _SetupNudgeCard extends ConsumerWidget {
   const _SetupNudgeCard();
 
@@ -1653,22 +1257,18 @@ class _SetupNudgeCard extends ConsumerWidget {
     if (ref.watch(_setupNudgeDismissedProvider)) {
       return const SizedBox.shrink();
     }
-    // مخفية أثناء فترة التأجيل بعد الإغلاق. أثناء تحميل التخزين نخفيها مبدئياً
-    // حتى لا تومض ثم تختفي.
     if (ref.watch(_setupNudgeSnoozedProvider).valueOrNull ?? true) {
       return const SizedBox.shrink();
     }
     final hasGoals =
         ref.watch(goalsListProvider).valueOrNull?.isNotEmpty ?? true;
     final lockEnabled = ref.watch(_appLockEnabledProvider).valueOrNull ?? true;
-    if (hasGoals && lockEnabled) {
-      return const SizedBox.shrink();
-    }
-    final c = context.colors;
-
+    if (hasGoals && lockEnabled) return const SizedBox.shrink();
+    final t = MaliTokens.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.s4),
-      child: AppCard(
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1676,13 +1276,13 @@ class _SetupNudgeCard extends ConsumerWidget {
               children: [
                 Expanded(
                   child: Text('كمّل إعداد قرش ✨',
-                      style: AppTypography.bodyStrong(c.textPrimary)),
+                      style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
                 ),
                 InkWell(
                   onTap: () => _snoozeSetupNudge(ref),
                   borderRadius: BorderRadius.circular(12),
                   child: Icon(Icons.close_rounded,
-                      size: 18, color: c.textSecondary),
+                      size: 18, color: t.textOnCanvasMuted),
                 ),
               ],
             ),
@@ -1715,12 +1315,8 @@ class _SetupNudgeCard extends ConsumerWidget {
 }
 
 class _SetupNudgeChip extends StatelessWidget {
-  const _SetupNudgeChip({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
+  const _SetupNudgeChip(
+      {required this.icon, required this.label, required this.onTap});
   final IconData icon;
   final String label;
   final VoidCallback onTap;
@@ -1734,18 +1330,16 @@ class _SetupNudgeChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: c.accent.withValues(alpha: 0.1),
+          color: c.cta.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: c.accent.withValues(alpha: 0.35)),
+          border: Border.all(color: c.cta.withValues(alpha: 0.30)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: c.accent),
+            Icon(icon, size: 16, color: c.cta),
             const SizedBox(width: 6),
-            Text(label,
-                style: AppTypography.footnote(c.accent)
-                    .copyWith(fontWeight: FontWeight.w700)),
+            Text(label, style: AppTypography.footnote(c.cta)),
           ],
         ),
       ),
@@ -1753,410 +1347,152 @@ class _SetupNudgeChip extends StatelessWidget {
   }
 }
 
-// ─── Account Switcher ────────────────────────────────────────────────────────
+// ─── Plans ────────────────────────────────────────────────────────────────────
 
-/// مبدّل الحساب أعلى الـ Dashboard — الحساب النشط يحدد عملة العرض في التطبيق.
-class _AccountSwitcher extends ConsumerWidget {
-  const _AccountSwitcher();
+class _PlansSection extends ConsumerWidget {
+  const _PlansSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accountsAsync = ref.watch(accountsProvider);
-    final selectedId = ref.watch(dashboardAccountProvider);
-    return accountsAsync.maybeWhen(
-      data: (accounts) {
-        // اعرض المبدّل بمجرد وجود حساب واحد ليبقى مدخل «إدارة الحسابات» متاحاً.
-        if (accounts.isEmpty) return const SizedBox.shrink();
-        final container = ProviderScope.containerOf(context, listen: false);
-        final defaultAccount = accounts.firstWhere(
-          (account) => account.isDefault,
-          orElse: () => accounts.first,
-        );
-        final activeId = accounts.any((account) => account.id == selectedId)
-            ? selectedId
-            : defaultAccount.id;
-        return SizedBox(
-          height: 42,
-          child: Row(
-            children: [
-              Expanded(
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
+    final async = ref.watch(homePlansProvider);
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (plans) {
+        final t = MaliTokens.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: SectionHeader(
+                title: 'الخطط',
+                trailing: 'الكل',
+                onTrailingTap: () => PlansScreen.open(context),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            if (plans.isEmpty)
+              MaliCard(
+                style: MaliSurfaceStyle.floating,
+                child: Row(
                   children: [
-                    for (final account in accounts)
-                      _AccountChip(
-                        label:
-                            '${account.name} · ${Currency.arabicLabel(account.currency)}',
-                        accountName: account.name,
-                        accountType: account.type,
-                        selected: activeId == account.id,
-                        onTap: () async {
-                          container
-                              .read(dashboardAccountProvider.notifier)
-                              .state = account.id;
-                          await container
-                              .read(accountRepositoryProvider)
-                              .setDefault(account.id);
-                          container.invalidate(accountsProvider);
-                          container.invalidate(baseCurrencyProvider);
-                          container.invalidate(dashboardDataProvider);
-                        },
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('لا توجد خطط نشطة',
+                              style: AppTypography.bodyStrong(
+                                  t.textOnCanvasPrimary)),
+                          const SizedBox(height: 2),
+                          Text('أنشئ خطة ميزانية للسفر أو المناسبات',
+                              style:
+                                  AppTypography.caption(t.textOnCanvasMuted)),
+                        ],
                       ),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton(
+                      onPressed: () => PlanFormSheet.show(context),
+                      style: FilledButton.styleFrom(
+                        minimumSize: Size.zero,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                      ),
+                      child: const Text('خطة جديدة'),
+                    ),
                   ],
                 ),
+              )
+            else
+              Column(
+                children: [
+                  for (var i = 0; i < plans.take(3).length; i++) ...[
+                    if (i > 0) const SizedBox(height: AppSpacing.s3),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => PlansScreen.open(context),
+                      child: _PlanCard(progress: plans[i]),
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(width: 8),
-              Tooltip(
-                message: 'بطاقاتي',
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    MyCardsScreen.open(context);
-                  },
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: context.colors.surfaceCard,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: context.colors.border),
-                    ),
-                    child: Icon(
-                      Icons.credit_card,
-                      color: context.colors.cta,
-                      size: 18,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Tooltip(
-                message: 'إدارة الحسابات',
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    context.push('/accounts');
-                  },
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: context.colors.surfaceCard,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: context.colors.border),
-                    ),
-                    child: Icon(
-                      AppLucideIcons.walletCards,
-                      color: context.colors.cta,
-                      size: 19,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          ],
         );
       },
-      orElse: () => const SizedBox.shrink(),
     );
   }
 }
 
-class _AccountChip extends StatelessWidget {
-  const _AccountChip({
-    required this.label,
-    required this.accountName,
-    required this.accountType,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final String accountName;
-  final AccountType accountType;
-  final bool selected;
-  final VoidCallback onTap;
+class _PlanCard extends StatelessWidget {
+  const _PlanCard({required this.progress});
+  final PlanProgress progress;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final bankColor = bankColorFor(accountName);
-    final hasBankLogo = bankShortCodeFor(accountName) != null;
-    return Padding(
-      padding: const EdgeInsets.only(left: 8),
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onTap();
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.only(left: 8, right: 14, top: 5, bottom: 5),
-          decoration: BoxDecoration(
-            color: selected ? c.cta : c.surfaceCard,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(color: selected ? c.cta : c.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (hasBankLogo) ...[
-                BankMark(
-                  accountName: accountName,
-                  accountType: accountType,
-                  size: 22,
-                ),
-                const SizedBox(width: 6),
-              ] else ...[
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? Colors.white.withValues(alpha: 0.7)
-                        : bankColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                label,
-                style: AppTypography.caption(
-                  selected ? c.onCta : c.textSecondary,
-                ).copyWith(fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Dashboard Header ────────────────────────────────────────────────────────
-
-class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader({
-    required this.data,
-    this.displayName,
-    this.avatarPath,
-    required this.onAdd,
-    required this.onRangeTap,
-  });
-
-  final DashboardData data;
-  final String? displayName;
-  final String? avatarPath;
-  final VoidCallback onAdd;
-  final VoidCallback onRangeTap;
-
-  String _displayName() {
-    final profileName = displayName?.trim();
-    if (profileName != null && profileName.isNotEmpty) {
-      return profileName;
-    }
-    final email = AppSession.instance.email;
-    if (email == null || email.trim().isEmpty) return 'صديق مالي';
-    final local = email.split('@').first.trim();
-    if (local.isEmpty || local.toLowerCase() == 'user') return 'صديق مالي';
-    return local
-        .replaceAll('.', ' ')
-        .replaceAll('_', ' ')
-        .split(' ')
-        .where((part) => part.isNotEmpty)
-        .map((part) => part[0].toUpperCase() + part.substring(1))
-        .join(' ');
-  }
-
-  String _initials(String name) {
-    final parts =
-        name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return 'م';
-    if (parts.length == 1) return parts.first.substring(0, 1);
-    return '${parts.first.substring(0, 1)}${parts[1].substring(0, 1)}';
-  }
-
-  String _todayLabel() {
-    const weekdays = [
-      'الإثنين',
-      'الثلاثاء',
-      'الأربعاء',
-      'الخميس',
-      'الجمعة',
-      'السبت',
-      'الأحد',
-    ];
-    const months = [
-      'يناير',
-      'فبراير',
-      'مارس',
-      'أبريل',
-      'مايو',
-      'يونيو',
-      'يوليو',
-      'أغسطس',
-      'سبتمبر',
-      'أكتوبر',
-      'نوفمبر',
-      'ديسمبر',
-    ];
-    final d = DateTime.now();
-    return '${weekdays[d.weekday - 1]}، ${d.day} ${months[d.month - 1]}';
-  }
-
-  Widget _avatar(BuildContext context, String name) {
-    final c = context.colors;
-    final path = avatarPath?.trim();
-    final file = path == null || path.isEmpty ? null : File(path);
-    final hasImage = file != null && file.existsSync();
-    return Container(
-      width: 44,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        gradient: hasImage ? null : c.primaryGradient,
-        shape: BoxShape.circle,
-        color: hasImage ? c.surface2 : null,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: hasImage
-          ? Image.file(file, fit: BoxFit.cover)
-          : Text(
-              _initials(name),
-              style: AppTypography.subhead(Colors.white)
-                  .copyWith(fontWeight: FontWeight.w900),
-            ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final name = _displayName();
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
+    final t = MaliTokens.of(context);
+    final plan = progress.plan;
+    final ratio = progress.ratio.clamp(0.0, 1.0);
+    final tone = progress.isOver ? c.danger : c.cta;
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
+      padding: const EdgeInsets.all(AppSpacing.s4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Greeting row + add button
           Row(
             children: [
-              _avatar(context, name),
-              const SizedBox(width: 10),
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(AppLucideIcons.plane, color: tone, size: 18),
+              ),
+              const SizedBox(width: 11),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'مرحباً، $name',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.title1(c.textMain)
-                          .copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _todayLabel(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(c.textMuted),
-                    ),
-                  ],
-                ),
+                child: Text(plan.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
               ),
-              const SizedBox(width: 10),
-              Tooltip(
-                message: 'إضافة عملية',
-                child: GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    onAdd();
-                  },
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: c.surfaceCard,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: c.border),
-                    ),
-                    child: Icon(AppLucideIcons.plus, color: c.cta, size: 21),
-                  ),
-                ),
-              ),
+              Text('${(progress.ratio * 100).round()}%',
+                  style: AppTypography.subhead(tone)),
             ],
           ),
           const SizedBox(height: AppSpacing.s3),
-          // Range picker button
-          Align(
-            alignment: Alignment.center,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  onRangeTap();
-                },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: c.surfaceCard,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(color: c.border),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.calendar_month_rounded,
-                          color: c.cta, size: 16),
-                      const SizedBox(width: 8),
-                      Text(
-                        data.range.label,
-                        style: AppTypography.subhead(c.textPrimary)
-                            .copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(Icons.keyboard_arrow_down_rounded,
-                          color: c.textMuted, size: 18),
-                    ],
-                  ),
-                ),
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 7,
+              backgroundColor: t.ringTrackNeutral,
+              valueColor: AlwaysStoppedAnimation(tone),
             ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('المصروف: ${Formatters.amount(progress.spent)}',
+                  style: AppTypography.caption(t.textOnCanvasSecondary)),
+              Text('تنتهي: ${Formatters.dateGroupLabel(plan.endDate, context)}',
+                  style: AppTypography.caption(t.textOnCanvasMuted)),
+            ],
           ),
         ],
       ),
     );
   }
 }
+
+// ─── Coupons ──────────────────────────────────────────────────────────────────
 
 class _DashboardCouponsRail extends ConsumerWidget {
   const _DashboardCouponsRail();
@@ -2169,73 +1505,31 @@ class _DashboardCouponsRail extends ConsumerWidget {
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (offers) {
-        final c = context.colors;
+        if (offers.isEmpty) return const SizedBox.shrink();
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.pagePadding),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('كوبونات توفر عليك',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.headline(c.textPrimary)
-                                .copyWith(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 1),
-                        Text('عروض شركاء مناسبة لمصروفاتك',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.caption(c.textMuted)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s2),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    onPressed: () => context.push('/coupons'),
-                    child: Text(
-                      'عرض الكل',
-                      style: AppTypography.caption(c.cta)
-                          .copyWith(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                ],
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: SectionHeader(
+                title: 'كوبونات توفر عليك',
+                trailing: 'الكل',
+                onTrailingTap: () => context.push('/coupons'),
               ),
             ),
-            const SizedBox(height: AppSpacing.s2),
-            if (offers.isEmpty)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                child: Text('لا توجد كوبونات متاحة حاليًا',
-                    style: AppTypography.caption(c.textMuted)),
-              )
+            const SizedBox(height: AppSpacing.s3),
+            if (offers.length == 1)
+              _HomeCouponCard(offer: offers.first, width: null)
             else
               SizedBox(
-                height: 112,
+                height: 132,
                 child: ListView.separated(
                   clipBehavior: Clip.none,
                   scrollDirection: Axis.horizontal,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
                   itemCount: offers.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(width: AppSpacing.s3),
-                  itemBuilder: (context, index) =>
-                      _HomeCouponCard(offer: offers[index]),
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, i) =>
+                      _HomeCouponCard(offer: offers[i]),
                 ),
               ),
           ],
@@ -2245,86 +1539,75 @@ class _DashboardCouponsRail extends ConsumerWidget {
   }
 }
 
-/// Compact coupon card for the Home carousel — brand + title + code/expiry
-/// only, ~100-120px tall. The full [CouponCard] (used on the dedicated
-/// Coupons screen) shows a description and is intentionally taller.
 class _HomeCouponCard extends StatelessWidget {
-  const _HomeCouponCard({required this.offer});
-
+  const _HomeCouponCard({required this.offer, this.width = 230});
   final CouponOffer offer;
+
+  /// null → fill the parent width (used when there's a single coupon).
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => showCouponDetailsSheet(context, offer),
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        child: Container(
-          width: 220,
-          padding: const EdgeInsets.all(AppSpacing.s3),
-          decoration: BoxDecoration(
-            color: c.surfaceCard,
-            borderRadius: BorderRadius.circular(AppRadius.card),
-            border: Border.all(color: c.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+    final t = MaliTokens.of(context);
+    final card = MaliCard(
+      style: MaliSurfaceStyle.floating,
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  BrandMark(name: offer.partnerName, size: 36),
-                  const SizedBox(width: AppSpacing.s2),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(offer.partnerName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.caption(c.textMuted)
-                                .copyWith(fontWeight: FontWeight.w700)),
-                        Text(offer.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.bodyStrong(c.textPrimary)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.s2, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: c.ctaSoft,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                    child: Text(offer.code,
-                        style: AppTypography.caption(c.cta)
-                            .copyWith(fontWeight: FontWeight.w800)),
-                  ),
-                  const Spacer(),
-                  Flexible(
-                    child: Text(
-                      Formatters.dateGroupLabel(offer.validUntil, context),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(c.textMuted),
-                    ),
-                  ),
-                ],
+              BrandMark(name: offer.partnerName, size: 36),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(offer.partnerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption(t.textOnCanvasMuted)),
+                    Text(offer.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
+                  ],
+                ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.s3),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: c.cta.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+                child: Text(offer.code, style: AppTypography.caption(c.cta)),
+              ),
+              const Spacer(),
+              Flexible(
+                child: Text(
+                    Formatters.dateGroupLabel(offer.validUntil, context),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption(t.textOnCanvasMuted)),
+              ),
+            ],
+          ),
+        ],
       ),
+    );
+    final sized = width == null ? card : SizedBox(width: width, child: card);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showCouponDetailsSheet(context, offer),
+      child: sized,
     );
   }
 }

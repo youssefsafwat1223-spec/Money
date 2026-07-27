@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/category_emoji.dart';
+import '../../core/utils/category_palette.dart';
 import '../../core/utils/lucide_icon_map.dart';
 import '../../domain/entities/category_entity.dart';
 
@@ -16,6 +18,15 @@ class CategoryView {
   String get key => entity.key;
   String get nameAr => entity.nameAr;
   IconData get icon => lucideByName(entity.icon);
+
+  /// المفتاح النصّي للأيقونة (نفس مفاتيح Lucide المخزَّنة في الـ DB).
+  String get iconName => entity.icon;
+
+  /// إيموجي التصنيف المقابل للمفتاح — يُرسَم عبر [CategoryGlyph].
+  String get emoji => categoryEmoji(entity.icon);
+
+  /// لون خلفية التايل الثابت (عميق ومكتوم) — بدل لون الـ DB المتغيّر.
+  Color get tileColor => categoryTileColor(entity.icon);
   Color get color => Formatters.colorFromHex(entity.color);
 }
 
@@ -45,7 +56,11 @@ class CategoryCatalog {
   final Map<String, CategoryView> _byId = {};
   final Map<String, CategoryView> _byKey = {};
 
-  CategoryView? byId(String? id) => id == null ? null : _byId[id];
+  CategoryView? byId(String? id) {
+    if (id == null) return null;
+    return _byId[id] ?? _byKey[id];
+  }
+
   CategoryView? byKey(String? key) => key == null ? null : _byKey[key];
 }
 

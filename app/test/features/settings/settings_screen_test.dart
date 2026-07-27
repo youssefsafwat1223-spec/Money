@@ -17,9 +17,11 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
   });
 
-  testWidgets('settings groups general, notification, and data views',
+  testWidgets('settings shows all groups in one scroll (no tabs)',
       (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
+    // Tall viewport so the whole single-scroll list builds (no tabs to reveal
+    // lower groups any more).
+    tester.view.physicalSize = const Size(390, 4200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -64,23 +66,23 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // No back button on the root tab, and no tab switcher any more.
     expect(find.byTooltip('رجوع'), findsNothing);
-    expect(find.text('إدارة أموالك'), findsOneWidget);
-    expect(find.text('رصد العمليات'), findsNothing);
-
-    await tester.tap(
+    expect(
       find.byKey(const ValueKey('settings-tab-notifications')),
+      findsNothing,
     );
-    await tester.pumpAndSettle();
 
-    expect(find.text('رصد العمليات'), findsOneWidget);
-    expect(find.text('تنبيهاتك'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('settings-tab-data')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('نقل البيانات'), findsOneWidget);
-    expect(find.text('الأمان والخصوصية'), findsOneWidget);
+    // Every group renders together in one scroll (general + notifications +
+    // data), instead of being hidden behind tabs.
+    for (final label in const [
+      'إدارة أموالك',
+      'رصد العمليات',
+      'تنبيهاتك',
+      'نقل البيانات',
+    ]) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
     expect(tester.takeException(), isNull);
   });
 

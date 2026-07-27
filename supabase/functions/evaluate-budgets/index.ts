@@ -2,7 +2,10 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
 
-const ALL_EXPENSES_CATEGORY_ID = '__all_expenses__';
+// The client maps BudgetEntity.allExpensesCategoryId ('__all_expenses__') to
+// this key when syncing budgets to user_budgets — see
+// supabase_planning_support.dart serverCategoryKey().
+const ALL_EXPENSES_CATEGORY_ID = 'all_expenses';
 
 serve(async (req) => {
   const payload = await req.json();

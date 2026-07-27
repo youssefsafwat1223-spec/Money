@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/repositories/drift_smart_inbox_repository.dart';
 import 'package:money_companion/features/capture/services/smart_inbox_sync_service.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -19,10 +20,13 @@ class _FakeRemoteSource implements SmartInboxRemoteSource {
   _FakeRemoteSource({
     this.activeRows = const [],
     this.tombstoneRows = const [],
+    this.throwOnPush = false,
   });
 
   final List<Map<String, dynamic>> activeRows;
   final List<Map<String, dynamic>> tombstoneRows;
+  final bool throwOnPush;
+  final List<(String, String)> pushed = [];
 
   @override
   Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async =>
@@ -31,6 +35,12 @@ class _FakeRemoteSource implements SmartInboxRemoteSource {
   @override
   Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async =>
       tombstoneRows;
+
+  @override
+  Future<void> pushStatus(String serverId, String status) async {
+    if (throwOnPush) throw Exception('offline');
+    pushed.add((serverId, status));
+  }
 }
 
 Map<String, dynamic> _serverRow({
@@ -248,5 +258,66 @@ void main() {
         as Map<String, dynamic>;
     expect(decoded['budget_id'], 'bgt-001');
     expect(decoded['overage'], 50.0);
+  });
+
+  // ── S3 gap#1: dismiss/resolve push (server-authored, specialized) ──────────
+
+  test('offline dismiss queues pending_sync then pushes and clears the flag',
+      () async {
+    final fake = _FakeRemoteSource(activeRows: [_serverRow(id: 'srv-1')]);
+    final svc = SmartInboxSyncService(
+      db: db,
+      isPullEnabled: () => true,
+      getAuthUserId: () async => 'user-123',
+      remoteSource: fake,
+    );
+    await svc.pull(); // seed one open item locally
+
+    // Offline user action → status + pending_sync=1, no network.
+    await DriftSmartInboxRepository(db).dismiss('srv-1');
+    var rows = await _allLocalRows(db);
+    expect(rows.single['status'], 'dismissed');
+    expect(rows.single['pending_sync'], 1);
+
+    // Next sync cycle pushes it and clears the flag.
+    final pushed = await svc.push();
+    expect(pushed, 1);
+    expect(fake.pushed, contains(('srv-1', 'dismissed')));
+    rows = await _allLocalRows(db);
+    expect(rows.single['pending_sync'], 0);
+  });
+
+  test('resolve pushes as resolved status', () async {
+    final fake = _FakeRemoteSource(activeRows: [_serverRow(id: 'srv-9')]);
+    final svc = SmartInboxSyncService(
+      db: db,
+      isPullEnabled: () => true,
+      getAuthUserId: () async => 'user-123',
+      remoteSource: fake,
+    );
+    await svc.pull();
+    await DriftSmartInboxRepository(db).resolve('srv-9');
+    await svc.push();
+    expect(fake.pushed, contains(('srv-9', 'resolved')));
+  });
+
+  test('push offline is a no-op that keeps pending_sync for retry', () async {
+    final fake = _FakeRemoteSource(
+      activeRows: [_serverRow(id: 'srv-2')],
+      throwOnPush: true,
+    );
+    final svc = SmartInboxSyncService(
+      db: db,
+      isPullEnabled: () => true,
+      getAuthUserId: () async => 'user-123',
+      remoteSource: fake,
+    );
+    await svc.pull();
+    await DriftSmartInboxRepository(db).dismiss('srv-2');
+
+    final pushed = await svc.push(); // pushStatus throws → offline
+    expect(pushed, 0);
+    final rows = await _allLocalRows(db);
+    expect(rows.single['pending_sync'], 1); // preserved for the next cycle
   });
 }

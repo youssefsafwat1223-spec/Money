@@ -2,7 +2,11 @@ import 'package:flutter/widgets.dart';
 
 import 'app_lucide_icons.dart';
 
-/// يحوّل اسم أيقونة Lucide (نصّي، كما يُخزَّن في DB) إلى [IconData].
+/// يحوّل اسم أيقونة التصنيف (نصّي، كما يُخزَّن في DB) إلى [IconData].
+///
+/// يرجّع أيقونات **Lucide** (خطوط نظيفة حديثة) عبر [AppLucideIcons] — نفس
+/// الطابع الأنيق في الموك‑أب، أوضح وأنعم من أيقونات Material المصمتة على
+/// أفاتار التدرّج. الأسماء النصّية هي مفاتيح Lucide المخزَّنة في الـ DB.
 IconData lucideByName(String name) {
   switch (name) {
     case 'utensils-crossed':

@@ -95,6 +95,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
 
     return txAsync.when(
+      skipLoadingOnReload: true,
       loading: () => _buildScaffold(
           context, c, const Center(child: CircularProgressIndicator())),
       error: (e, _) =>
@@ -170,8 +171,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                                 merchantTitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: AppTypography.headline(c.textPrimary)
-                                    .copyWith(fontWeight: FontWeight.w800),
+                                style: AppTypography.cardTitle(c.textPrimary),
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -194,7 +194,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                           child: Text(
                             statusLabel,
                             style: AppTypography.caption(statusColor)
-                                .copyWith(fontWeight: FontWeight.w800),
+                                .copyWith(fontWeight: FontWeight.w700),
                           ),
                         ),
                       ],
@@ -231,7 +231,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: AppSpacing.s6),
+              const SizedBox(height: AppSpacing.s5),
 
               // Details Card
               AppCard(

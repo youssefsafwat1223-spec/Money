@@ -39,12 +39,18 @@ class AnnouncementsScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('مركز رسائل قرش',
-                      style: AppTypography.headline(c.textPrimary)),
+                  Text(
+                    'مركز رسائل قرش',
+                    // Mockup `.tophead .h1`: 24px w600, tight tracking.
+                    style: AppTypography.calmTitle(c.textPrimary)
+                        .copyWith(fontSize: 24, letterSpacing: -0.5),
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     'تاريخ إشعارات قرش، الحملات، والإعلانات في مكان واحد.',
-                    style: AppTypography.footnote(c.textSecondary),
+                    // Mockup `.hsub`: 13px secondary.
+                    style: AppTypography.caption(c.textSecondary)
+                        .copyWith(fontSize: 13, fontWeight: FontWeight.w400),
                   ),
                 ],
               ),
@@ -57,6 +63,7 @@ class AnnouncementsScreen extends ConsumerWidget {
         ),
       ),
       body: prefsAsync.when(
+        skipLoadingOnReload: true,
         loading: () => const AppLoadingState(label: 'تحميل مركز الرسائل...'),
         error: (_, __) => AppErrorState(
           title: 'تعذر تحميل الرسائل',

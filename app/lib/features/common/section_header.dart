@@ -36,9 +36,8 @@ class SectionHeader extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTypography.headline(c.textPrimary).copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  // Compact UI system: section titles use the 19px role token.
+                  style: AppTypography.sectionTitle(c.textPrimary),
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),

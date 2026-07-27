@@ -1,33 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
-import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/widgets/navy_sheet_theme.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/mali_card.dart';
 import '../../core/utils/currency.dart';
-import '../../core/utils/id_generator.dart';
+import '../../core/utils/formatters.dart';
 import '../../domain/entities/account_entity.dart';
-import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/entities/card_summary.dart';
 import '../cards/bank_mark.dart';
-import '../cards/my_cards_screen.dart';
-import '../dashboard/dashboard_providers.dart';
-import '../../core/theme/widgets/app_toast.dart';
-
-String _accountTypeLabel(AccountType type) => switch (type) {
-      AccountType.cash => 'نقدي',
-      AccountType.bank => 'بنك',
-      AccountType.wallet => 'محفظة',
-      AccountType.card => 'بطاقة',
-    };
-
-IconData _accountTypeIcon(AccountType type) => switch (type) {
-      AccountType.cash => Icons.payments_outlined,
-      AccountType.bank => Icons.account_balance_outlined,
-      AccountType.wallet => Icons.account_balance_wallet_outlined,
-      AccountType.card => Icons.credit_card_outlined,
-    };
+import '../cards/card_network_badge.dart';
+import '../cards/cards_providers.dart';
+import 'account_form_sheet.dart';
+import '../../core/di/app_providers.dart';
 
 class AccountsScreen extends ConsumerWidget {
   const AccountsScreen({super.key});
@@ -36,6 +24,9 @@ class AccountsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final accountsAsync = ref.watch(accountsProvider);
+    final unassigned =
+        ref.watch(accountCardGroupsProvider).valueOrNull?.unassigned ??
+            const <CardSummary>[];
     return Scaffold(
       backgroundColor: c.bg,
       body: Column(
@@ -60,14 +51,19 @@ class AccountsScreen extends ConsumerWidget {
                   ],
                   const SizedBox(height: AppSpacing.s3),
                   OutlinedButton.icon(
-                    onPressed: () => _showAccountForm(context, ref),
+                    onPressed: () => showAccountForm(context, ref),
                     icon: const Icon(Icons.add),
                     label: const Text('إضافة حساب'),
                     style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
+                      minimumSize:
+                          const Size.fromHeight(AppSpacing.buttonHeight),
                       side: BorderSide(color: c.primary.withValues(alpha: 0.4)),
                     ),
                   ),
+                  if (unassigned.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.s5),
+                    _UnassignedCardsSection(cards: unassigned),
+                  ],
                 ],
               ),
             ),
@@ -83,50 +79,12 @@ class _AccountsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s5,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  'الحسابات والمحافظ',
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.',
-            style: AppTypography.caption(c.textMuted),
-          ),
-        ],
-      ),
+    return CalmPageHeader(
+      title: 'الحسابات والمحافظ',
+      subtitle: 'كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.',
+      leading: Navigator.of(context).canPop()
+          ? const BackButton(color: Colors.white)
+          : null,
     );
   }
 }
@@ -139,28 +97,12 @@ class _AccountCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.card),
-      onTap: () => _showAccountForm(context, ref, account: account),
-      child: Container(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => context.push('/account/${account.id}'),
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
         padding: const EdgeInsets.all(AppSpacing.s4),
-        decoration: BoxDecoration(
-          color: c.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: account.isDefault
-              ? Border.all(
-                  color: c.primary.withValues(alpha: 0.4),
-                  width: 1.5,
-                )
-              : null,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
         child: Row(
           children: [
             BankMark(
@@ -194,36 +136,17 @@ class _AccountCard extends ConsumerWidget {
                           ),
                           child: Text('افتراضي',
                               style: AppTypography.caption(c.primary)
-                                  .copyWith(fontWeight: FontWeight.w800)),
+                                  .copyWith(fontWeight: FontWeight.w700)),
                         ),
                       ],
                     ],
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_accountTypeLabel(account.type)} · ${Currency.arabicLabel(account.currency)} (${account.currency})',
+                    '${accountTypeLabel(account.type)} · ${Currency.arabicLabel(account.currency)} (${account.currency})',
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],
-              ),
-            ),
-            Tooltip(
-              message: 'بطاقاتي',
-              child: GestureDetector(
-                onTap: () => MyCardsScreen.open(context),
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  width: 40,
-                  height: 28,
-                  margin: const EdgeInsetsDirectional.only(end: 4),
-                  decoration: BoxDecoration(
-                    gradient: c.primaryGradient,
-                    borderRadius: BorderRadius.circular(7),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(Icons.contactless,
-                      color: Colors.white.withValues(alpha: 0.9), size: 14),
-                ),
               ),
             ),
             Icon(Icons.chevron_left, color: c.textLight, size: 20),
@@ -234,282 +157,72 @@ class _AccountCard extends ConsumerWidget {
   }
 }
 
-Future<void> _showAccountForm(
-  BuildContext context,
-  WidgetRef ref, {
-  AccountEntity? account,
-}) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) => navySheetTheme(Directionality(
-      textDirection: TextDirection.rtl,
-      child: Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: _AccountForm(account: account),
-      ),
-    )),
-  );
-}
+/// بطاقات ظهرت في الرسائل لكن بلا حساب موثوق — متوقّع في تطبيق SMS-first.
+class _UnassignedCardsSection extends StatelessWidget {
+  const _UnassignedCardsSection({required this.cards});
 
-class _AccountForm extends ConsumerStatefulWidget {
-  const _AccountForm({this.account});
-
-  final AccountEntity? account;
-
-  @override
-  ConsumerState<_AccountForm> createState() => _AccountFormState();
-}
-
-class _AccountFormState extends ConsumerState<_AccountForm> {
-  late final TextEditingController _name;
-  late AccountType _type;
-  late String _currency;
-  late bool _isDefault;
-  late final String _creationId;
-  bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final a = widget.account;
-    _name = TextEditingController(text: a?.name ?? '');
-    _type = a?.type ?? AccountType.bank;
-    _currency = a?.currency ?? 'SAR';
-    _isDefault = a?.isDefault ?? false;
-    _creationId = a?.id ?? IdGenerator.next();
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (_busy) return;
-    final name = _name.text.trim();
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('الرجاء إدخال اسم الحساب')),
-      );
-      return;
-    }
-    final repo = ref.read(accountRepositoryProvider);
-    final now = DateTime.now().toUtc();
-    setState(() => _busy = true);
-    var saved = false;
-    try {
-      if (widget.account == null) {
-        await repo.create(AccountEntity(
-          id: _creationId,
-          name: name,
-          currency: _currency,
-          type: _type,
-          isDefault: _isDefault,
-          sortOrder: 0,
-          createdAt: now,
-          updatedAt: now,
-        ));
-      } else {
-        await repo.update(widget.account!.copyWith(
-          name: name,
-          currency: _currency,
-          type: _type,
-        ));
-        if (_isDefault && !widget.account!.isDefault) {
-          await repo.setDefault(widget.account!.id);
-        }
-      }
-      saved = true;
-    } on RepoException catch (e) {
-      if (!mounted) return;
-      AppToast.show(context, repoExceptionMessage(e));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('حدث خطأ غير متوقع — بياناتك محفوظة، حاول مجددًا.'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-    if (!saved) return;
-    ref.invalidate(accountsProvider);
-    ref.invalidate(dashboardDataProvider);
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  Future<void> _delete() async {
-    if (_busy) return;
-    final repo = ref.read(accountRepositoryProvider);
-    setState(() => _busy = true);
-    var deleted = false;
-    try {
-      await repo.delete(widget.account!.id);
-      deleted = true;
-    } on StateError {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا يمكن حذف آخر حساب.')),
-      );
-    } on RepoException catch (e) {
-      if (!mounted) return;
-      AppToast.show(
-        context,
-        e is ValidationRepoException && e.message.contains('last_account')
-            ? 'لا يمكن حذف آخر حساب.'
-            : repoExceptionMessage(e),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر حذف الحساب — حاول مجددًا.')),
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-    if (!deleted) return;
-    ref.invalidate(accountsProvider);
-    ref.read(dashboardAccountProvider.notifier).state = null;
-    ref.invalidate(dashboardDataProvider);
-    if (mounted) Navigator.of(context).pop();
-  }
+  final List<CardSummary> cards;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final editing = widget.account != null;
-    final currencyCodes = ref
-            .watch(activeCurrenciesProvider)
-            .valueOrNull
-            ?.map((currency) => currency.code)
-            .toList(growable: false) ??
-        const ['SAR', 'AED', 'EGP', 'USD', 'EUR', 'GBP'];
-    final currencies = {
-      _currency,
-      ...currencyCodes,
-    }.toList(growable: false);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s2,
-        AppSpacing.gutter,
-        AppSpacing.s6,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(editing ? 'تعديل حساب' : 'حساب جديد',
-              style: AppTypography.title2(c.textMain)),
-          const SizedBox(height: AppSpacing.s4),
-          TextField(
-            key: const ValueKey('account-name-field'),
-            controller: _name,
-            enabled: !_busy,
-            style: AppTypography.body(c.textMain),
-            decoration: InputDecoration(
-              labelText: 'اسم الحساب',
-              hintText: 'مثال: كاش مصر، بنك الراجحي، محفظة USD',
-              filled: true,
-              fillColor: c.surface2.withValues(alpha: 0.45),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: c.border),
-              ),
-            ),
-          ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('بطاقات غير مخصّصة',
+            style: AppTypography.sectionTitle(c.textMain)),
+        const SizedBox(height: 2),
+        Text(
+          'بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد.',
+          style: AppTypography.caption(c.textLight),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        for (final card in cards) ...[
+          _UnassignedCardTile(card: card),
           const SizedBox(height: AppSpacing.s3),
-          Text('النوع', style: AppTypography.caption(c.textLight)),
-          const SizedBox(height: AppSpacing.s2),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final type in AccountType.values)
-                ChoiceChip(
-                  label: Text(_accountTypeLabel(type)),
-                  avatar: Icon(_accountTypeIcon(type), size: 16),
-                  selected: _type == type,
-                  selectedColor: c.primary.withValues(alpha: 0.16),
-                  onSelected:
-                      _busy ? null : (_) => setState(() => _type = type),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          Text('العملة', style: AppTypography.caption(c.textLight)),
-          const SizedBox(height: AppSpacing.s2),
-          DropdownButtonFormField<String>(
-            value: _currency,
-            isExpanded: true,
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: c.surface2.withValues(alpha: 0.45),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: c.border),
-              ),
-            ),
-            items: [
-              for (final code in currencies)
-                DropdownMenuItem(
-                  value: code,
-                  child: Text('$code — ${Currency.arabicLabel(code)}'),
-                ),
-            ],
-            onChanged: _busy
-                ? null
-                : (value) {
-                    if (value != null) setState(() => _currency = value);
-                  },
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _isDefault,
-            onChanged: _busy || widget.account?.isDefault == true
-                ? null
-                : (value) => setState(() => _isDefault = value),
-            title:
-                Text('الحساب الافتراضي', style: AppTypography.body(c.textMain)),
-            subtitle: Text('يُربط به الالتقاط التلقائي والإدخال السريع',
-                style: AppTypography.caption(c.textLight)),
-            activeColor: c.primary,
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          FilledButton(
-            key: const ValueKey('account-save-button'),
-            onPressed: _busy ? null : _save,
-            style: FilledButton.styleFrom(
-              backgroundColor: c.primary,
-              minimumSize: const Size.fromHeight(52),
-            ),
-            child: _busy
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
-                    ),
-                  )
-                : Text(editing ? 'حفظ' : 'إضافة',
-                    style: AppTypography.bodyStrong(Colors.white)),
-          ),
-          if (editing && !widget.account!.isDefault) ...[
-            const SizedBox(height: AppSpacing.s2),
-            TextButton.icon(
-              onPressed: _busy ? null : _delete,
-              icon: Icon(Icons.delete_outline, color: c.danger),
-              label: Text('حذف الحساب', style: AppTypography.body(c.danger)),
-            ),
-          ],
         ],
+      ],
+    );
+  }
+}
+
+class _UnassignedCardTile extends StatelessWidget {
+  const _UnassignedCardTile({required this.card});
+
+  final CardSummary card;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final net = card.totalIn - card.totalOut;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => context.push('/card/${card.last4}'),
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        child: Row(
+          children: [
+            Icon(Icons.credit_card, color: c.textLight, size: 22),
+            const SizedBox(width: AppSpacing.s3),
+            Expanded(
+              child: Row(
+                textDirection: TextDirection.ltr,
+                children: [
+                  Text('•••• ${card.last4}',
+                      style: AppTypography.bodyStrong(c.textMain)
+                          .copyWith(letterSpacing: 1.5)),
+                  const SizedBox(width: 8),
+                  CardNetworkBadge(network: card.network, height: 18),
+                ],
+              ),
+            ),
+            Text(Formatters.amount(net),
+                style: AppTypography.caption(c.textLight)),
+            const SizedBox(width: 6),
+            Icon(Icons.chevron_left, color: c.textLight, size: 20),
+          ],
+        ),
       ),
     );
   }

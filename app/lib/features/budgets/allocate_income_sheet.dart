@@ -5,6 +5,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/category_glyph.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -250,11 +251,14 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: category.color.withValues(alpha: 0.14),
+                        color: category.tileColor,
                         borderRadius: BorderRadius.circular(11),
                       ),
-                      child:
-                          Icon(category.icon, color: category.color, size: 18),
+                      child: CategoryGlyph(
+                        name: category.iconName,
+                        size: 18,
+                        color: Colors.white,
+                      ),
                     ),
                     const SizedBox(width: AppSpacing.s3),
                     Expanded(

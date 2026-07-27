@@ -1,0 +1,154 @@
+import 'package:flutter/material.dart';
+
+/// MaliTokens — the flagship "Calm Capital" canvas + accent system
+/// (docs/MALI_DESIGN_SYSTEM.md).
+///
+/// Mode-aware: [MaliTokens.of] resolves a [light] or [dark] instance from the
+/// ambient [Theme.of] brightness, so the flagship primitives ([MaliScreen],
+/// [MaliCard], rings, glass) render correctly under both wired themes
+/// (`AppTheme.light` / `AppTheme.dark`). The dark set is the original true-black
+/// identity; the light set is the calm off-white companion.
+///
+/// Depth on the dark canvas is expressed as surface *lightness* (white over
+/// black); on the light canvas it is expressed as a soft shadow + hairline
+/// [cardBorder]. The accent gradient is mode-invariant — see the `static const`
+/// block below.
+///
+/// [AppColors] semantics (income/expense/warning/danger) are reused as-is for
+/// semantic tints on the canvas — not duplicated here.
+@immutable
+class MaliTokens {
+  const MaliTokens({
+    required this.canvas,
+    required this.canvasGlowTop,
+    required this.canvasGlowSecondary,
+    required this.surfaceRaised,
+    required this.surfaceFloating,
+    required this.surfaceGlassFill,
+    required this.surfaceGlassStroke,
+    required this.strokeSoft,
+    required this.cardBorder,
+    required this.textOnCanvasPrimary,
+    required this.textOnCanvasSecondary,
+    required this.textOnCanvasMuted,
+    required this.ringTrackNeutral,
+    required this.ringIndeterminate,
+    required this.floatShadow,
+    required this.auroraTop,
+    required this.auroraA,
+    required this.auroraB,
+    required this.grainOpacity,
+  });
+
+  // ===== Canvas =====
+  final Color canvas;
+  final Color canvasGlowTop;
+  final Color canvasGlowSecondary;
+
+  // ===== Surface hierarchy =====
+  final Color surfaceRaised;
+  final Color surfaceFloating;
+  final Color surfaceGlassFill;
+  final Color surfaceGlassStroke;
+  final Color strokeSoft;
+
+  /// Hairline edge for a floating card. Barely-there on dark (elevation via
+  /// surface lightness carries depth there); a real hairline on light (where
+  /// the soft shadow needs an edge to sit against).
+  final Color cardBorder;
+
+  // ===== Text on canvas =====
+  final Color textOnCanvasPrimary;
+  final Color textOnCanvasSecondary;
+  final Color textOnCanvasMuted;
+
+  // ===== Neutral ring track =====
+  final Color ringTrackNeutral;
+  final Color ringIndeterminate;
+
+  /// Drop shadow for a floating card, matching the HTML mockup's `--float-shadow`.
+  /// Dark = deep black key + wide ambient; light = soft navy-tinted. Mode-aware
+  /// (unlike the `static const` [AppShadows]).
+  final List<BoxShadow> floatShadow;
+
+  /// Combined canvas background ("aurora"): a top accent glow ([auroraTop]) +
+  /// two soft aurora blobs ([auroraA]/[auroraB]) + a faint [grainOpacity] grain.
+  /// Painted by [CalmCanvas]; tune here to change the background app-wide.
+  final Color auroraTop;
+  final Color auroraA;
+  final Color auroraB;
+  final double grainOpacity;
+
+  // ===== Accent (mode-invariant — see design doc §0.2) =====
+  // Reserved for AI insight, selected states, subtle glows, and a small number
+  // of flagship moments. The hero balance stays directly on canvas — never
+  // wrapped in this gradient. Same blue→indigo in light and dark, so these stay
+  // `static const` (usable as const default parameter values).
+  static const Color accentStart = Color(0xFF2E6BFF);
+  static const Color accentEnd = Color(0xFF5B4FE0);
+
+  static const LinearGradient accentGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [accentStart, accentEnd],
+  );
+
+  /// The true-black flagship identity.
+  static const MaliTokens dark = MaliTokens(
+    canvas: Color(0xFF000000),
+    canvasGlowTop: Color(0x1A2E6BFF),
+    canvasGlowSecondary: Color(0x0FFFFFFF),
+    surfaceRaised: Color(0x0AFFFFFF), // white @ ~4%
+    surfaceFloating: Color(0x12FFFFFF), // white @ ~7%
+    surfaceGlassFill: Color(0x14FFFFFF), // white @ ~8%
+    surfaceGlassStroke: Color(0x24FFFFFF), // white @ ~14%
+    strokeSoft: Color(0x1AFFFFFF), // white @ ~10%
+    cardBorder: Color(0x0FFFFFFF), // white @ ~6%
+    textOnCanvasPrimary: Color(0xFFFFFFFF),
+    textOnCanvasSecondary: Color(0xA3FFFFFF), // ~64%
+    textOnCanvasMuted: Color(0x6BFFFFFF), // ~42%
+    ringTrackNeutral: Color(0x1FFFFFFF),
+    ringIndeterminate: Color(0x40FFFFFF),
+    // --float-shadow (dark): 0 8/28 @ .45 + 0 20/48 @ .30
+    floatShadow: [
+      BoxShadow(color: Color(0x73000000), blurRadius: 28, offset: Offset(0, 8)),
+      BoxShadow(color: Color(0x4D000000), blurRadius: 48, offset: Offset(0, 20)),
+    ],
+    auroraTop: Color(0x3D2E6BFF), // accent @ ~24% — top glow
+    auroraA: Color(0x2E2E6BFF), // accent @ ~18%
+    auroraB: Color(0x297C6BF0), // indigo @ ~16%
+    grainOpacity: 0.05,
+  );
+
+  /// The calm off-white companion. Matches `AppColors.light.bg` so the canvas
+  /// is seamless with the ambient scaffold.
+  static const MaliTokens light = MaliTokens(
+    canvas: Color(0xFFF4F6FB),
+    canvasGlowTop: Color(0x122E6BFF), // blue @ ~7%
+    canvasGlowSecondary: Color(0x0D5B4FE0), // indigo @ ~5%
+    surfaceRaised: Color(0xFFEEF1F7),
+    surfaceFloating: Color(0xFFFFFFFF),
+    surfaceGlassFill: Color(0xB8FFFFFF), // white @ ~72%
+    surfaceGlassStroke: Color(0x0F0F172A), // ink @ ~6%
+    strokeSoft: Color(0xFFEAF0F7),
+    cardBorder: Color(0xFFEDF1F7),
+    textOnCanvasPrimary: Color(0xFF0F172A),
+    textOnCanvasSecondary: Color(0xFF64748B),
+    textOnCanvasMuted: Color(0xFF94A3B8),
+    ringTrackNeutral: Color(0xFFE7ECF5),
+    ringIndeterminate: Color(0x330F172A), // ink @ ~20%
+    // --float-shadow (light): navy 0 12/40 @ .08 + 0 2/8 @ .05
+    floatShadow: [
+      BoxShadow(color: Color(0x140D1E4B), blurRadius: 40, offset: Offset(0, 12)),
+      BoxShadow(color: Color(0x0D0D1E4B), blurRadius: 8, offset: Offset(0, 2)),
+    ],
+    auroraTop: Color(0x1A2E6BFF), // accent @ ~10% (subtler in light)
+    auroraA: Color(0x142E6BFF), // accent @ ~8%
+    auroraB: Color(0x125B4FE0), // indigo @ ~7%
+    grainOpacity: 0.035,
+  );
+
+  /// Resolve the set for the ambient theme brightness.
+  static MaliTokens of(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark ? dark : light;
+}

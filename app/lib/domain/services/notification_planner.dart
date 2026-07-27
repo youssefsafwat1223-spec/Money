@@ -24,9 +24,10 @@ int _deterministicNotificationId(String stableId, int base) {
 int billReminderNotificationId(String billId) =>
     _deterministicNotificationId(billId, 92000);
 
-/// معرّف إشعار بلوغ مرحلة هدف، داخل نطاق [93000, 993000) كما كان سابقاً.
+/// معرّف إشعار بلوغ مرحلة هدف، داخل نطاق [1000000, 1900000) — منفصل تمامًا عن
+/// نطاق تذكيرات الفواتير [92000, 992000) حتى لا يتصادم المعرّفان.
 int goalMilestoneNotificationId(String goalId) =>
-    _deterministicNotificationId(goalId, 93000);
+    _deterministicNotificationId(goalId, 1000000);
 
 enum PlannedNotificationKind {
   weeklyReport,
@@ -127,20 +128,29 @@ class NotificationPlanner {
     final planned = <PlannedLocalNotification>[];
     for (final bill in bills) {
       if (!bill.reminderOn) continue;
-      var scheduled = DateTime(
-        bill.nextDueDate.year,
-        bill.nextDueDate.month,
-        bill.nextDueDate.day,
-        10,
-      ).subtract(const Duration(days: 1));
-      if (!scheduled.isAfter(nowRiyadh)) continue;
+      final due = bill.nextDueDate;
+      var scheduled = DateTime(due.year, due.month, due.day, 10)
+          .subtract(const Duration(days: 1));
+      var dueToday = false;
+      if (!scheduled.isAfter(nowRiyadh)) {
+        // The day-before-at-10 slot already passed. Dropping the bill here
+        // (the old behavior) meant a subscription due tomorrow got NO
+        // reminder at all if the app scheduled after 10:00 — catch up with a
+        // near-term reminder instead, as long as the due day isn't over.
+        final dueDayEnd = DateTime(due.year, due.month, due.day, 23, 59);
+        if (!dueDayEnd.isAfter(nowRiyadh)) continue; // already past due
+        scheduled = nowRiyadh.add(const Duration(minutes: 30));
+        dueToday = scheduled.year == due.year &&
+            scheduled.month == due.month &&
+            scheduled.day == due.day;
+      }
       scheduled = nextAllowedRiyadh(scheduled, preferences);
       final label = bill.type == BillType.installment ? 'قسط' : 'اشتراك';
       planned.add(
         PlannedLocalNotification(
           id: billReminderNotificationId(bill.id),
           kind: PlannedNotificationKind.subscriptionReminder,
-          title: '$label ${bill.name} هيتجدد بكرة',
+          title: '$label ${bill.name} ${dueToday ? 'هيتجدد اليوم' : 'هيتجدد بكرة'}',
           body: '${bill.amount.toStringAsFixed(0)} ${bill.currency}',
           scheduledAtRiyadh: scheduled,
           payload: 'bills',

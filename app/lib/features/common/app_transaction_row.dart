@@ -5,7 +5,6 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../cards/brand_mark.dart';
-import 'app_status_pill.dart';
 import 'category_avatar.dart';
 
 /// صف معاملة قياسي — UI فقط، لا يستورد طبقة البيانات.
@@ -23,6 +22,7 @@ class AppTransactionRow extends StatelessWidget {
     required this.currency,
     this.subtitle,
     this.categoryIcon,
+    this.categoryIconName,
     this.categoryColor,
     this.brandLogoUrl,
     this.isPending = false,
@@ -34,6 +34,7 @@ class AppTransactionRow extends StatelessWidget {
     this.privacyMode = false,
     this.isDebit = true,
     this.semanticsLabel,
+    this.horizontalPadding = AppSpacing.gutter,
   });
 
   final String title;
@@ -41,6 +42,7 @@ class AppTransactionRow extends StatelessWidget {
   final String currency;
   final String? subtitle;
   final IconData? categoryIcon;
+  final String? categoryIconName;
   final Color? categoryColor;
 
   /// Admin-managed brand logo URL (resolved by the caller). When set, shows the
@@ -56,12 +58,17 @@ class AppTransactionRow extends StatelessWidget {
   final bool isDebit;
   final String? semanticsLabel;
 
+  /// Horizontal inset. Full [AppSpacing.gutter] on a bare list; smaller when
+  /// the row sits inside a day card.
+  final double horizontalPadding;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final formattedAmount =
         privacyMode ? '••••' : '${Formatters.amount(amount)} $currency';
-    final amountColor = isDebit ? c.danger : c.success;
+    // Calm Capital ledger: expense stays neutral (primary text), income green.
+    final amountColor = isDebit ? c.textPrimary : c.success;
     final amountPrefix = isDebit ? '−' : '+';
 
     final semantics = semanticsLabel ??
@@ -78,15 +85,19 @@ class AppTransactionRow extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 44),
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.gutter,
-              vertical: AppSpacing.s3,
+            padding: EdgeInsets.symmetric(
+              horizontal: horizontalPadding,
+              vertical: AppSpacing.s2,
             ),
             child: Row(
               children: [
                 (brandLogoUrl != null || BrandMark.hasBrand(title))
                     ? BrandMark(name: title, size: 44, logoUrl: brandLogoUrl)
-                    : CategoryAvatar(icon: categoryIcon, color: categoryColor),
+                    : CategoryAvatar(
+                        icon: categoryIcon,
+                        iconName: categoryIconName,
+                        color: categoryColor,
+                      ),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -95,35 +106,17 @@ class AppTransactionRow extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Expanded(
+                          Flexible(
                             child: Text(
                               title,
-                              style: AppTypography.subhead(c.textPrimary),
+                              style: AppTypography.bodyStrong(c.textPrimary),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (isPending)
-                            const AppStatusPill(
-                              label: 'معلق',
-                              tone: AppStatusTone.pending,
-                              compact: true,
-                            )
-                          else if (isConfirmed)
-                            const AppStatusPill(
-                              label: 'مؤكد',
-                              tone: AppStatusTone.confirmed,
-                              compact: true,
-                            ),
-                          if (isAi)
-                            const Padding(
-                              padding: EdgeInsetsDirectional.only(start: 4),
-                              child: AppStatusPill(
-                                label: 'ذكي',
-                                tone: AppStatusTone.info,
-                                compact: true,
-                              ),
-                            ),
+                            _RowBadge(label: 'قيد المراجعة', color: c.warning),
+                          if (isAi) _RowBadge(label: 'ذكاء', color: c.cta),
                         ],
                       ),
                       if (subtitle != null) ...[
@@ -141,13 +134,43 @@ class AppTransactionRow extends StatelessWidget {
                 const SizedBox(width: AppSpacing.s3),
                 trailing ??
                     Text(
-                      privacyMode ? '••••' : '$amountPrefix$formattedAmount',
+                      privacyMode
+                          ? '••••'
+                          : '$amountPrefix${Formatters.amount(amount)}',
                       style: AppTypography.bodyStrong(
                           privacyMode ? c.textMuted : amountColor),
                     ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact tinted pill for a ledger row (قيد المراجعة / ذكاء) — matches the
+/// Calm Capital mockup: colored text on a soft same-color tint.
+class _RowBadge extends StatelessWidget {
+  const _RowBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          style:
+              AppTypography.micro(color).copyWith(fontWeight: FontWeight.w700),
         ),
       ),
     );

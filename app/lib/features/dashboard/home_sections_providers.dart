@@ -61,11 +61,20 @@ String _plainMoney(double amount, String currency) {
   return '${Formatters.amount(amount)}$suffix';
 }
 
-/// Today's confirmed expense transactions (local device time), newest
-/// first — income and transfers are excluded, matching the same
-/// expense/income/transfer classification `TransactionsView` already uses.
-final todayExpensesProvider =
-    FutureProvider<List<TransactionEntity>>((ref) async {
+class RecentExpensesState {
+  const RecentExpensesState({
+    required this.hasExpensesToday,
+    required this.transactions,
+  });
+
+  final bool hasExpensesToday;
+  final List<TransactionEntity> transactions;
+}
+
+/// Recent expense transactions for the Home section, newest first.
+/// Indicates whether there are any expenses recorded today.
+final recentExpensesSectionProvider =
+    FutureProvider<RecentExpensesState>((ref) async {
   ref.watch(dbRevisionProvider);
   final txRepo = ref.watch(transactionRepositoryProvider);
   final accountRepo = ref.watch(accountRepositoryProvider);
@@ -77,23 +86,35 @@ final todayExpensesProvider =
   final accountId = (selectedAccount ?? defaultAccount)?.id;
 
   final now = DateTime.now();
-  final start = RiyadhTime.startOfDay(now);
-  final end = RiyadhTime.endOfDay(now);
+  final startToday = RiyadhTime.startOfDay(now);
+  final endToday = RiyadhTime.endOfDay(now);
 
   final all = await txRepo.getAll();
-  final today = all.where((tx) {
+  final validExpenses = all.where((tx) {
     if (tx.status == TransactionStatus.ignored) return false;
     final isExpense = tx.type == TransactionTypeEntity.payment ||
         tx.type == TransactionTypeEntity.withdrawal;
     if (!isExpense) return false;
-    if (tx.occurredAt.isBefore(start) || tx.occurredAt.isAfter(end)) {
-      return false;
-    }
     if (accountId != null && tx.accountId != accountId) return false;
     return true;
   }).toList();
-  today.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
-  return today;
+  validExpenses.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+
+  final todayExpenses = validExpenses.where((tx) {
+    final occurredAt = tx.occurredAt.toLocal();
+    return !occurredAt.isBefore(startToday) && occurredAt.isBefore(endToday);
+  }).toList();
+
+  return RecentExpensesState(
+    hasExpensesToday: todayExpenses.isNotEmpty,
+    transactions: todayExpenses,
+  );
+});
+
+final todayExpensesProvider =
+    FutureProvider<List<TransactionEntity>>((ref) async {
+  final state = await ref.watch(recentExpensesSectionProvider.future);
+  return state.transactions;
 });
 
 /// One category's monthly spending group for the Home "Monthly Expenses"

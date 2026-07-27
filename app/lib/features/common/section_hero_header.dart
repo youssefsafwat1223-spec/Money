@@ -47,7 +47,7 @@ class SectionHeroHeader extends StatelessWidget {
                   child: Text(
                     title,
                     style: AppTypography.title2(c.textPrimary)
-                        .copyWith(fontWeight: FontWeight.w800),
+                        .copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
               ],

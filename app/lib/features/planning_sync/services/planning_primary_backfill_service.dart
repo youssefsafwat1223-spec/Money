@@ -109,8 +109,10 @@ class PlanningPrimaryBackfillService {
           'period': row.read<String>('period'),
           'start_date': row.read<String>('start_date'),
           'is_active': row.read<int>('is_active') == 1,
-          'last_notified_spent_amount': row.read<double>('last_notified_spent_amount'),
-          'last_notified_period_start': row.read<String>('last_notified_period_start'),
+          'last_notified_spent_amount':
+              row.read<double>('last_notified_spent_amount'),
+          'last_notified_period_start':
+              row.read<String>('last_notified_period_start'),
           'show_on_header': row.read<int>('show_on_header') == 1,
           'server_account_id': account.$1,
           'deleted_at': row.readNullable<String>('deleted_at'),

@@ -6,6 +6,7 @@ import '../../domain/entities/category_spend.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
+import '../../domain/services/card_account_grouper.dart';
 import '../../domain/services/duplicate_transaction_detector.dart';
 import '../../engine/parser/card_network.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
@@ -399,6 +400,21 @@ class DriftTransactionRepository implements TransactionRepository {
       ? const []
       : [Variable.withString(accountId), Variable.withString(accountId)];
 
+  // عند التجميع عبر كل الحسابات (accountId == null) نستبعد الحسابات المُعلَّمة
+  // «استبعاد من الإجماليات» من المجاميع والأرصدة فقط — لا تتأثر قوائم العمليات،
+  // فيبقى كل حساب ظاهرًا بعملياته كاملة. لا يحتاج متغيّرات (الاستعلام مكتفٍ ذاتيًا).
+  static String _excludeFlaggedTotalsClause(
+    String? accountId, {
+    String tableAlias = '',
+  }) {
+    if (accountId != null) return '';
+    final prefix = tableAlias.isEmpty ? '' : '$tableAlias.';
+    return ''' AND (${prefix}account_id IS NULL
+      OR ${prefix}account_id NOT IN (
+        SELECT id FROM accounts WHERE exclude_from_totals = 1
+      ))''';
+  }
+
   @override
   Future<List<TransactionEntity>> getRecent({
     int limit = 5,
@@ -450,7 +466,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE type IN ('payment', 'withdrawal')
           AND status = 'confirmed'
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}${_excludeFlaggedTotalsClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
@@ -473,7 +489,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE type = 'income'
           AND status = 'confirmed'
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}${_excludeFlaggedTotalsClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
@@ -491,7 +507,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT CAST(balance_after AS REAL) AS balance
         FROM transactions
         WHERE status = 'confirmed'
-          AND balance_after IS NOT NULL${_accountClause(accountId)}
+          AND balance_after IS NOT NULL${_accountClause(accountId)}${_excludeFlaggedTotalsClause(accountId)}
         ORDER BY occurred_at DESC
         LIMIT 1;
       ''',
@@ -512,7 +528,7 @@ class DriftTransactionRepository implements TransactionRepository {
           CAST(COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS REAL) AS income
         FROM transactions
         WHERE status = 'confirmed'
-          AND occurred_at BETWEEN ? AND ?
+          AND occurred_at BETWEEN ? AND ?${_excludeFlaggedTotalsClause(null)}
         GROUP BY currency
         ORDER BY expense DESC;
       ''',
@@ -676,7 +692,15 @@ class DriftTransactionRepository implements TransactionRepository {
                CAST(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END) AS REAL) AS out_total,
                CAST(SUM(CASE WHEN type IN ('income','refund') THEN amount ELSE 0 END) AS REAL) AS in_total,
                COUNT(*) AS cnt,
-               MAX(raw_message) AS sample
+               MAX(raw_message) AS sample,
+               (SELECT color_theme FROM cards
+                  WHERE cards.last4 = transactions.card_last4
+                    AND cards.deleted_at IS NULL
+                  ORDER BY cards.updated_at DESC LIMIT 1) AS color_theme,
+               (SELECT accent_hex FROM cards
+                  WHERE cards.last4 = transactions.card_last4
+                    AND cards.deleted_at IS NULL
+                  ORDER BY cards.updated_at DESC LIMIT 1) AS accent_hex
         FROM transactions
         WHERE card_last4 IS NOT NULL AND status = 'confirmed'
         GROUP BY card_last4
@@ -691,6 +715,47 @@ class DriftTransactionRepository implements TransactionRepository {
               totalOut: r.read<double>('out_total'),
               totalIn: r.read<double>('in_total'),
               count: r.read<int>('cnt'),
+              colorTheme: r.readNullable<String>('color_theme'),
+              accentHex: r.readNullable<String>('accent_hex'),
+            ))
+        .toList();
+  }
+
+  @override
+  Future<List<CardAccountBreakdownRow>> getCardAccountBreakdown() async {
+    final rows = await _db.customSelect(
+      '''
+        SELECT card_last4 AS last4,
+               account_id AS account_id,
+               CAST(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END) AS REAL) AS out_total,
+               CAST(SUM(CASE WHEN type IN ('income','refund') THEN amount ELSE 0 END) AS REAL) AS in_total,
+               COUNT(*) AS cnt,
+               MAX(raw_message) AS sample,
+               (SELECT color_theme FROM cards
+                  WHERE cards.last4 = transactions.card_last4
+                    AND cards.account_id IS transactions.account_id
+                    AND cards.deleted_at IS NULL
+                  ORDER BY cards.updated_at DESC LIMIT 1) AS color_theme,
+               (SELECT accent_hex FROM cards
+                  WHERE cards.last4 = transactions.card_last4
+                    AND cards.account_id IS transactions.account_id
+                    AND cards.deleted_at IS NULL
+                  ORDER BY cards.updated_at DESC LIMIT 1) AS accent_hex
+        FROM transactions
+        WHERE card_last4 IS NOT NULL AND status = 'confirmed'
+        GROUP BY card_last4, account_id;
+      ''',
+    ).get();
+    return rows
+        .map((r) => CardAccountBreakdownRow(
+              last4: r.read<String>('last4'),
+              accountId: r.readNullable<String>('account_id'),
+              totalOut: r.read<double>('out_total'),
+              totalIn: r.read<double>('in_total'),
+              count: r.read<int>('cnt'),
+              sample: r.readNullable<String>('sample') ?? '',
+              colorTheme: r.readNullable<String>('color_theme'),
+              accentHex: r.readNullable<String>('accent_hex'),
             ))
         .toList();
   }

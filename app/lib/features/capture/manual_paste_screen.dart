@@ -850,7 +850,7 @@ class _BatchResultTile extends StatelessWidget {
             child: Text(
               '${index + 1}',
               style: AppTypography.caption(statusColor)
-                  .copyWith(fontWeight: FontWeight.w900),
+                  .copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(width: AppSpacing.s3),

@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,104 +5,32 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/card_summary.dart';
+import '../common/app_header.dart';
 import '../common/category_catalog.dart';
 import '../common/widgets.dart';
 import '../../engine/parser/card_network.dart';
 import 'card_network_badge.dart';
+import 'card_theme.dart';
 import 'cards_providers.dart';
 
+/// شاشة تفاصيل البطاقة (بآخر 4 أرقام): بطاقة مُشتقّة من العمليات، تُفتح عبر
+/// المسار `/card/:last4`. كانت سابقًا bottom sheet زجاجية بارتفاع 86% —
+/// حُوِّلت لشاشة مسارية كاملة لاتّساق التنقّل ورجوع صحيح.
 class CardDetailsScreen extends ConsumerWidget {
   const CardDetailsScreen({super.key, required this.last4});
 
   final String last4;
 
-  static Future<void> showSheet(BuildContext context, String last4) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => navySheetTheme(_CardDetailsSheet(last4: last4)),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      appBar: AppBar(title: Text('بطاقة •••• $last4')),
-      body: _CardDetailsContent(last4: last4),
-    );
-  }
-}
-
-class _CardDetailsSheet extends StatelessWidget {
-  const _CardDetailsSheet({required this.last4});
-
-  final String last4;
-
-  @override
-  Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            height: MediaQuery.of(context).size.height * 0.86,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.9)
-                  : Colors.white.withValues(alpha: 0.92),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
-            child: Column(
-              children: [
-                const SizedBox(height: AppSpacing.s3),
-                Container(
-                  width: 44,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: c.textLight.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.gutter,
-                    AppSpacing.s4,
-                    AppSpacing.gutter,
-                    AppSpacing.s2,
-                  ),
-                  child: Row(
-                    children: [
-                      Text('بطاقة •••• $last4',
-                          style: AppTypography.title2(c.textMain)),
-                      const Spacer(),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(child: _CardDetailsContent(last4: last4)),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return Scaffold(
+      backgroundColor: c.bg,
+      appBar: AppHeader(title: 'بطاقة •••• $last4'),
+      body: _CardDetailsContent(last4: last4),
     );
   }
 }
@@ -134,17 +61,21 @@ class _CardDetailsContent extends ConsumerWidget {
           network: summary?.network ?? CardNetwork.unknown,
           totalIn: summary?.totalIn ?? 0,
           totalOut: summary?.totalOut ?? 0,
+          colorTheme: summary?.colorTheme,
+          accentHex: summary?.accentHex,
           currency: (txAsync.valueOrNull?.isNotEmpty ?? false)
               ? txAsync.valueOrNull!.first.currency
               : (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR'),
         ),
-        const SizedBox(height: AppSpacing.s5),
-        Text('عمليات هذه البطاقة', style: AppTypography.title2(c.textMain)),
+        const SizedBox(height: AppSpacing.s4),
+        Text('عمليات هذه البطاقة',
+            style: AppTypography.sectionTitle(c.textMain)),
         const SizedBox(height: AppSpacing.s2),
         txAsync.when(
+          skipLoadingOnReload: true,
           loading: () => const Center(
               child: Padding(
-                  padding: EdgeInsets.all(24),
+                  padding: EdgeInsets.all(AppSpacing.cardPadding),
                   child: CircularProgressIndicator())),
           error: (e, _) => const Text('حدث خطأ'),
           data: (txns) {
@@ -175,6 +106,8 @@ class _CardHeader extends StatelessWidget {
     required this.totalIn,
     required this.totalOut,
     required this.currency,
+    this.colorTheme,
+    this.accentHex,
   });
 
   final String last4;
@@ -182,6 +115,8 @@ class _CardHeader extends StatelessWidget {
   final double totalIn;
   final double totalOut;
   final String currency;
+  final String? colorTheme;
+  final String? accentHex;
 
   @override
   Widget build(BuildContext context) {
@@ -189,11 +124,12 @@ class _CardHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s5),
       decoration: BoxDecoration(
-        gradient: c.primaryGradient,
+        gradient:
+            cardGradient(context, themeKey: colorTheme, accentHex: accentHex),
         borderRadius: BorderRadius.circular(AppRadius.card),
         boxShadow: [
           BoxShadow(
-            color: c.primary.withValues(alpha: 0.3),
+            color: Colors.black.withValues(alpha: 0.22),
             blurRadius: 22,
             offset: const Offset(0, 12),
           ),
@@ -242,7 +178,7 @@ class _CardHeader extends StatelessWidget {
         const SizedBox(height: 2),
         Text('${Formatters.amount(value)} ${Currency.arabicLabel(currency)}',
             style: TextStyle(
-                color: color, fontSize: 17, fontWeight: FontWeight.w800)),
+                color: color, fontSize: 17, fontWeight: FontWeight.w700)),
       ],
     );
   }

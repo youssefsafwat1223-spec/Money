@@ -221,8 +221,11 @@ BudgetEntity budgetFromRow(QueryRow row) {
     period: budgetPeriodFromSql(period),
     startDate: dateTimeFromSql(startDate),
     isActive: sqlToBool(row.read<int>('is_active')),
-    lastNotifiedSpentAmount: row.readNullable<double>('last_notified_spent_amount') ?? 0,
-    lastNotifiedPeriodStart: dateTimeFromSql(row.readNullable<String>('last_notified_period_start') ?? '2000-01-01T00:00:00Z'),
+    lastNotifiedSpentAmount:
+        row.readNullable<double>('last_notified_spent_amount') ?? 0,
+    lastNotifiedPeriodStart: dateTimeFromSql(
+        row.readNullable<String>('last_notified_period_start') ??
+            '2000-01-01T00:00:00Z'),
     showOnHeader: sqlToBool(row.readNullable<int>('show_on_header') ?? 0),
     accountId: row.readNullable<String>('account_id'),
   );
@@ -237,7 +240,8 @@ GoalEntity goalFromRow(QueryRow row) {
     accountId: row.readNullable<String>('account_id'),
     targetAmount: row.read<double>('target_amount'),
     savedAmount: row.read<double>('saved_amount'),
-    lastNotifiedSavedAmount: row.readNullable<double>('last_notified_saved_amount') ?? 0.0,
+    lastNotifiedSavedAmount:
+        row.readNullable<double>('last_notified_saved_amount') ?? 0.0,
     deadline: deadlineValue == null ? null : dateTimeFromSql(deadlineValue),
     vaultSkin: row.read<String>('vault_skin'),
     status: row.read<String>('status'),

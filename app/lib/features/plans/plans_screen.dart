@@ -48,6 +48,7 @@ class PlansScreen extends ConsumerWidget {
         ),
       ),
       body: async.when(
+        skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => const Center(child: Text('تعذّر التحميل')),
         data: (plans) {
@@ -143,8 +144,8 @@ class _PlanCard extends ConsumerWidget {
             children: [
               Text(
                 '${Formatters.amount(progress.spent)} $currency',
-                style: AppTypography.title2(c.textMain)
-                    .copyWith(fontWeight: FontWeight.w900),
+                style: AppTypography.bodyStrong(c.textMain)
+                    .copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(width: 6),
               Text('من ${Formatters.amount(plan.budgetAmount)} $currency',
@@ -251,6 +252,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
     final txAsync = ref.watch(planTransactionsProvider(planId));
     final c = context.colors;
     return progressAsync.when(
+      skipLoadingOnReload: true,
       loading: () => const AppSheetScaffold(
         title: 'تفاصيل الخطة',
         body: Center(child: CircularProgressIndicator()),
@@ -308,7 +310,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
                     Text(
                       '${Formatters.amount(progress.spent)} $currency',
                       style: AppTypography.title1(c.textMain)
-                          .copyWith(fontWeight: FontWeight.w900),
+                          .copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -328,9 +330,10 @@ class _PlanDetailsSheet extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.s4),
-              Text('سجل الخطة', style: AppTypography.title2(c.textMain)),
+              Text('سجل الخطة', style: AppTypography.sectionTitle(c.textMain)),
               const SizedBox(height: AppSpacing.s2),
               txAsync.when(
+                skipLoadingOnReload: true,
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => const Text('تعذّر تحميل العمليات'),
                 data: (transactions) {

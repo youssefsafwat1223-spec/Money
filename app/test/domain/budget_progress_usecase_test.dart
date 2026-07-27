@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/card_summary.dart';
+import 'package:money_companion/domain/services/card_account_grouper.dart';
 import 'package:money_companion/domain/entities/category_spend.dart';
 import 'package:money_companion/domain/entities/report_models.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
@@ -248,6 +249,11 @@ class _FakeTransactionRepository implements TransactionRepository {
 
   @override
   Future<List<CardSummary>> getCardSummaries() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<CardAccountBreakdownRow>> getCardAccountBreakdown() {
     throw UnimplementedError();
   }
 

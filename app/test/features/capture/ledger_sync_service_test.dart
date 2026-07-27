@@ -43,10 +43,15 @@ Map<String, dynamic> _serverRow({
 }) =>
     {
       'id': id,
-      'payload_id': payloadId,
+      'source_payload_id': payloadId,
       'amount': amount,
       'currency': currency,
-      'type': type,
+      'direction': type == 'credit' ? 'credit' : 'debit',
+      'transaction_type': switch (type) {
+        'credit' => 'income',
+        'transfer' => 'transfer',
+        _ => 'expense',
+      },
       'source': source,
       'merchant': merchant,
       'occurred_at': '2026-01-01T10:00:00.000Z',
@@ -117,7 +122,7 @@ void main() {
     expect(rows.first.readNullable<String>('sync_status'), 'synced');
   });
 
-  test('second pull with same server_id updates metadata, does not duplicate',
+  test('second pull of an unchanged row is a no-op and does not duplicate',
       () async {
     remote.activeRows = [_serverRow()];
     await _makeSvc(db, remote).pull();
@@ -125,11 +130,13 @@ void main() {
     final result2 = await _makeSvc(db, remote).pull();
 
     expect(result2.imported, 0);
-    expect(result2.updated, 1);
+    // Unchanged server row → no re-write (prevents the dbRevision churn that
+    // flickered the UI every sync cycle).
+    expect(result2.updated, 0);
     expect(await db.count('transactions'), 1);
   });
 
-  test('local transaction matched by payload_id gets server_id attached',
+  test('local transaction matched by source_payload_id gets server_id attached',
       () async {
     const payloadId = 'payload-abc-123';
     final svc = _makeSvc(db, remote);
@@ -195,7 +202,8 @@ void main() {
 
     // Move to tombstone.
     remote.activeRows = [];
-    remote.tombstones = [_serverRow()];
+    final tombstone = _serverRow()..remove('source_payload_id');
+    remote.tombstones = [tombstone];
     final result = await _makeSvc(db, remote).pull();
 
     expect(result.tombstoned, 1);
@@ -222,5 +230,120 @@ void main() {
     final rows =
         await db.customSelect('SELECT amount FROM transactions;').get();
     expect(rows.first.read<double>('amount'), 999.0);
+  });
+
+  test('re-pulling an unchanged row is a no-op (no flicker churn)', () async {
+    remote.activeRows = [
+      _serverRow(id: 'srv-1', updatedAt: '2026-01-01T10:00:00.000Z'),
+    ];
+    final first = await _makeSvc(db, remote).pull();
+    expect(first.imported, 1);
+
+    final syncedAtBefore = (await db
+            .customSelect('SELECT synced_at FROM transactions LIMIT 1;')
+            .getSingle())
+        .readNullable<String>('synced_at');
+
+    // Second pull, identical server state → must NOT re-write the row.
+    final second = await _makeSvc(db, remote).pull();
+    expect(second.imported, 0);
+    expect(second.updated, 0, reason: 'unchanged row must not be re-written');
+
+    final syncedAtAfter = (await db
+            .customSelect('SELECT synced_at FROM transactions LIMIT 1;')
+            .getSingle())
+        .readNullable<String>('synced_at');
+    expect(syncedAtAfter, syncedAtBefore,
+        reason: 'synced_at must not move when nothing changed');
+  });
+
+  test('import resolves the account via server_account_id, not the stale '
+      'local_account_id from another install', () async {
+    // The seeded sentinel default account, as the accounts pull leaves it:
+    // attached server_id.
+    await db.customStatement(
+      "UPDATE accounts SET server_id = 'SRV-ACC-1' "
+      "WHERE id = 'default_account';",
+    );
+    final row = _serverRow(id: 'srv-1');
+    row['server_account_id'] = 'SRV-ACC-1';
+    row['local_account_id'] = 'hBNX-stale-old-install'; // dead local id
+    remote.activeRows = [row];
+
+    final result = await _makeSvc(db, remote).pull();
+    expect(result.imported, 1);
+
+    final imported = await db
+        .customSelect("SELECT account_id FROM transactions LIMIT 1;")
+        .getSingle();
+    expect(imported.readNullable<String>('account_id'), 'default_account',
+        reason: 'must link via server_account_id → accounts.server_id');
+  });
+
+  test('import with an unresolvable account falls back to the default '
+      'account, never a dead dangling id', () async {
+    final row = _serverRow(id: 'srv-1');
+    row['local_account_id'] = 'dead-local-id'; // from a wiped install
+    remote.activeRows = [row];
+
+    await _makeSvc(db, remote).pull();
+
+    final imported = await db
+        .customSelect("SELECT account_id FROM transactions LIMIT 1;")
+        .getSingle();
+    // The resolver returns null for a dead id; saveTransaction then applies
+    // its default-account policy — the row stays VISIBLE. What must never
+    // happen is importing the dead id verbatim (hidden from every screen).
+    expect(imported.readNullable<String>('account_id'), isNot('dead-local-id'));
+    expect(imported.readNullable<String>('account_id'), 'default_account');
+  });
+
+  test('re-pull repairs an already-imported row whose account id no longer '
+      'exists (post sign-out wipe)', () async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await db.customStatement(
+      "UPDATE accounts SET server_id = 'SRV-ACC-1' "
+      "WHERE id = 'default_account';",
+    );
+    // Orphaned import from before the fix: synced, matching server metadata
+    // (so the no-op guard would normally skip it), but pointing at a dead id.
+    await db.customStatement(
+      "INSERT INTO transactions(id, amount, currency, type, source, "
+      "occurred_at, raw_message, parse_confidence, status, created_at, "
+      "updated_at, server_id, sync_status, server_updated_at, account_id) "
+      "VALUES ('local-1', 100.0, 'SAR', 'payment', 'bank', "
+      "'2026-01-01T10:00:00.000Z', '', 0.9, 'confirmed', '$now', '$now', "
+      "'srv-1', 'synced', '2026-01-01T10:00:00.000Z', 'hBNX-dead-id');",
+    );
+    final row = _serverRow(id: 'srv-1', updatedAt: '2026-01-01T10:00:00.000Z');
+    row['server_account_id'] = 'SRV-ACC-1';
+    remote.activeRows = [row];
+
+    final result = await _makeSvc(db, remote).pull();
+    expect(result.updated, 1,
+        reason: 'account repair must override the unchanged-row skip');
+
+    final repaired = await db
+        .customSelect(
+            "SELECT account_id FROM transactions WHERE id = 'local-1';")
+        .getSingle();
+    expect(repaired.readNullable<String>('account_id'), 'default_account');
+  });
+
+  test('re-pulling a row with a newer updated_at does update', () async {
+    remote.activeRows = [
+      _serverRow(id: 'srv-1', updatedAt: '2026-01-01T10:00:00.000Z'),
+    ];
+    await _makeSvc(db, remote).pull();
+
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-1',
+        updatedAt: '2026-01-02T10:00:00.000Z',
+        merchant: 'CHANGED',
+      ),
+    ];
+    final result = await _makeSvc(db, remote).pull();
+    expect(result.updated, 1);
   });
 }

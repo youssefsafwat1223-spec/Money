@@ -94,8 +94,19 @@ class TransactionsBackfillService {
       );
     }
 
-    final localRows =
-        await _db.customSelect('SELECT * FROM transactions;').get();
+    // Only rows that never reached the server (server_id IS NULL). A pulled/
+    // pushed row already exists server-side; re-pushing it here would mint a
+    // DUPLICATE, because pull-imports regenerate the local id on every
+    // sign-in cycle so 'backfill_transaction_<localId>' never matches the
+    // existing server row (observed in production: one extra server copy of
+    // every transaction per reconcile run — 6 → 12 rows).
+    // Rows already queued on the ledger outbox are likewise the outbox push's
+    // responsibility — it keys server rows on client_request_id = local_id.
+    final localRows = await _db
+        .customSelect('SELECT * FROM transactions t '
+            'WHERE t.server_id IS NULL '
+            'AND t.id NOT IN (SELECT transaction_id FROM ledger_sync_outbox);')
+        .get();
 
     var created = 0;
     var matched = 0;

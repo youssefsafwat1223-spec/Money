@@ -7,6 +7,7 @@ import '../auth/account_deletion_service.dart';
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
+import '../sync/sync_wakeup.dart';
 import '../session/app_session.dart';
 import '../data_portability/app_data_portability_service.dart';
 import '../data_portability/data_portability_models.dart';
@@ -21,6 +22,7 @@ import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../../data/repositories/drift_account_repository.dart';
+import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/financial_cache_repair_service.dart';
 import '../../data/repositories/routed_account_repository.dart';
 import '../../data/repositories/routed_category_repository.dart';
@@ -31,7 +33,6 @@ import '../../data/repositories/routed_plan_repository.dart';
 import '../../data/repositories/routed_smart_inbox_repository.dart';
 import '../../data/repositories/routed_transaction_repository.dart';
 import '../../data/repositories/supabase_account_repository.dart';
-import '../../data/repositories/supabase_category_repository.dart';
 import '../../data/repositories/supabase_bill_repository.dart';
 import '../../data/repositories/supabase_budget_repository.dart';
 import '../../data/repositories/supabase_financial_summary_service.dart';
@@ -57,6 +58,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
 import '../../domain/entities/smart_inbox_item_entity.dart';
 import '../../domain/repositories/account_repository.dart';
+import '../../domain/repositories/card_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
 import '../../domain/repositories/bill_repository.dart';
 import '../../domain/repositories/plan_repository.dart';
@@ -97,14 +99,24 @@ import '../../features/capture/services/smart_inbox_sync_service.dart';
 import '../../features/planning_sync/services/accounts_pull_service.dart';
 import '../../features/planning_sync/services/accounts_push_service.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
+import '../../features/planning_sync/services/planning_child_sync_service.dart';
 import '../../features/planning_sync/services/planning_pull_service.dart';
 import '../../features/planning_sync/services/planning_push_service.dart';
+import '../../features/planning_sync/services/planning_startup_registration_service.dart';
 import '../../features/planning_sync/services/planning_sync_engine.dart';
+import '../../features/planning_sync/services/startup_sync_reconcile_service.dart';
 import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   throw UnimplementedError('AppDatabase must be provided from main().');
 });
+
+/// Whether any local data existed at the moment bootstrap finished.
+/// Overridden from main(). Home uses it to show the full-page skeleton only
+/// on the very first, truly-empty launch — never on a normal cold start
+/// where real data is about to appear. Defaults to `true` (no skeleton) so
+/// an unwired test scope can never regress into skeleton-on-every-open.
+final startupHasLocalDataProvider = Provider<bool>((ref) => true);
 
 /// A monotonically-increasing counter that ticks on **every** database write
 /// (any table). Read-providers `ref.watch` this so the whole app reflects new
@@ -114,13 +126,33 @@ final dbRevisionProvider = StreamProvider<int>((ref) {
   final db = ref.watch(appDatabaseProvider);
   var revision = 0;
   final controller = StreamController<int>();
-  void tick() {
+  // Writes arrive in bursts (startup seeding, sync bookkeeping, notification
+  // logs). Emitting per-write invalidated slow watchers like
+  // dashboardDataProvider faster than they could complete — the Home screen
+  // sat in loading forever. Coalesce: one tick after a short quiet gap, with
+  // a max wait so a long steady burst still surfaces data periodically.
+  Timer? quiet;
+  Timer? maxWait;
+  void emit() {
+    quiet?.cancel();
+    quiet = null;
+    maxWait?.cancel();
+    maxWait = null;
     if (!controller.isClosed) controller.add(++revision);
+  }
+
+  void tick() {
+    if (controller.isClosed) return;
+    quiet?.cancel();
+    quiet = Timer(const Duration(milliseconds: 300), emit);
+    maxWait ??= Timer(const Duration(seconds: 2), emit);
   }
 
   final tableSub = db.tableUpdates().listen((_) => tick());
   final manualSub = db.manualRevisionStream.listen((_) => tick());
   ref.onDispose(() async {
+    quiet?.cancel();
+    maxWait?.cancel();
     await tableSub.cancel();
     await manualSub.cancel();
     await controller.close();
@@ -198,26 +230,12 @@ FeatureFlagService get featureFlags {
 /// Summary RPCs use Supabase account UUIDs, so they are safe only after both
 /// account and transaction primary repositories have been enabled for the
 /// same QA user. Every flag remains false by default.
-bool supabaseDashboardSummaryEnabled() {
-  try {
-    return featureFlags.getBool('dashboard_supabase_summary') &&
-        featureFlags.getBool('accounts_supabase_primary') &&
-        featureFlags.getBool('transactions_supabase_primary');
-  } catch (_) {
-    return false;
-  }
-}
+// S0: ملخّصات الداشبورد/التقارير كانت تُقرأ مباشرة من Supabase عبر RPC (مسار
+// UI → Supabase). أُوقِف هذا المسار — الواجهة تحسب من Drift (الكاش المحلي) عبر
+// txRepo الذي صار Drift دائمًا. يُعاد التفعيل كمزامنة خلفية فقط لو لزم لاحقًا.
+bool supabaseDashboardSummaryEnabled() => false;
 
-bool supabaseBudgetProgressSummaryEnabled() {
-  try {
-    return featureFlags.getBool('budget_progress_supabase_rpc') &&
-        featureFlags.getBool('budgets_supabase_primary') &&
-        featureFlags.getBool('accounts_supabase_primary') &&
-        featureFlags.getBool('transactions_supabase_primary');
-  } catch (_) {
-    return false;
-  }
-}
+bool supabaseBudgetProgressSummaryEnabled() => false;
 
 final accountDeletionServiceProvider = Provider<AccountDeletionService>((ref) {
   return AccountDeletionService();
@@ -303,13 +321,8 @@ final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return LedgerOutboxQueue(
     db: db,
-    isPushEnabled: () {
-      try {
-        return featureFlags.getBool('ledger_push_sync');
-      } catch (_) {
-        return false;
-      }
-    },
+    isPushEnabled: () => true,
+    onQueued: SyncWakeup.notify,
     getAuthUserId: () async {
       if (!SupabaseConfig.isConfigured) return null;
       try {
@@ -321,41 +334,24 @@ final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
   );
 });
 
-bool _planningAccountsSyncEnabled() {
-  try {
-    return featureFlags.getBool('planning_accounts_sync') &&
-        !featureFlags.getBool('accounts_supabase_primary');
-  } catch (_) {
-    return false;
-  }
-}
+// S5: sync is a signed-in capability, not a UI routing experiment. Auth gates
+// inside the queue/services keep guests local-only.
+bool _planningAccountsSyncEnabled() => true;
 
 bool _planningEntitySyncEnabled(String entityType) {
-  final key = switch (entityType) {
-    PlanningOutboxQueue.accountsEntityType => 'planning_accounts_sync',
-    PlanningOutboxQueue.budgetsEntityType => 'planning_budgets_sync',
-    PlanningOutboxQueue.subscriptionsEntityType =>
-      'planning_subscriptions_sync',
-    PlanningOutboxQueue.goalsEntityType => 'planning_goals_sync',
-    PlanningOutboxQueue.plansEntityType => 'planning_plans_sync',
-    _ => '',
-  };
-  if (key.isEmpty) return false;
-  try {
-    final primaryKey = switch (entityType) {
-      PlanningOutboxQueue.accountsEntityType => 'accounts_supabase_primary',
-      PlanningOutboxQueue.budgetsEntityType => 'budgets_supabase_primary',
-      PlanningOutboxQueue.subscriptionsEntityType =>
-        'subscriptions_supabase_primary',
-      PlanningOutboxQueue.goalsEntityType => 'goals_supabase_primary',
-      PlanningOutboxQueue.plansEntityType => 'plans_supabase_primary',
-      _ => '',
-    };
-    return featureFlags.getBool(key) &&
-        (primaryKey.isEmpty || !featureFlags.getBool(primaryKey));
-  } catch (_) {
-    return false;
-  }
+  return const {
+    PlanningOutboxQueue.accountsEntityType,
+    PlanningOutboxQueue.budgetsEntityType,
+    PlanningOutboxQueue.subscriptionsEntityType,
+    PlanningOutboxQueue.goalsEntityType,
+    PlanningOutboxQueue.plansEntityType,
+    PlanningOutboxQueue.cardsEntityType,
+    PlanningOutboxQueue.settingsEntityType,
+    PlanningOutboxQueue.categoriesEntityType,
+    PlanningOutboxQueue.billPaymentsEntityType,
+    PlanningOutboxQueue.goalContributionsEntityType,
+    PlanningOutboxQueue.planLinksEntityType,
+  }.contains(entityType);
 }
 
 Future<String?> _currentSupabaseUserId() async {
@@ -373,6 +369,7 @@ final planningOutboxQueueProvider = Provider<PlanningOutboxQueue>((ref) {
     db: db,
     isSyncEnabled: _planningEntitySyncEnabled,
     getAuthUserId: _currentSupabaseUserId,
+    onQueued: SyncWakeup.notify,
   );
 });
 
@@ -407,12 +404,33 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
   );
 });
 
+final planningChildSyncServiceProvider =
+    Provider<PlanningChildSyncService>((ref) {
+  return PlanningChildSyncService(
+    db: ref.watch(appDatabaseProvider),
+    queue: ref.watch(planningOutboxQueueProvider),
+    isEnabled: _planningEntitySyncEnabled,
+  );
+});
+
+final planningStartupRegistrationServiceProvider =
+    Provider<PlanningStartupRegistrationService>((ref) {
+  return PlanningStartupRegistrationService(
+    db: ref.watch(appDatabaseProvider),
+    queue: ref.watch(planningOutboxQueueProvider),
+    isEnabled: _planningEntitySyncEnabled,
+  );
+});
+
 final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
   return PlanningSyncEngine(
     accountsPushService: ref.watch(accountsPushServiceProvider),
     accountsPullService: ref.watch(accountsPullServiceProvider),
     planningPushService: ref.watch(planningPushServiceProvider),
     planningPullService: ref.watch(planningPullServiceProvider),
+    planningChildSyncService: ref.watch(planningChildSyncServiceProvider),
+    startupRegistrationService:
+        ref.watch(planningStartupRegistrationServiceProvider),
   );
 });
 
@@ -421,14 +439,7 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
   return LedgerPushService(
     db: db,
     queue: ref.watch(ledgerOutboxQueueProvider),
-    isPushEnabled: () {
-      try {
-        return featureFlags.getBool('ledger_push_sync') &&
-            !featureFlags.getBool('transactions_supabase_primary');
-      } catch (_) {
-        return false;
-      }
-    },
+    isPushEnabled: () => true,
   );
 });
 
@@ -437,13 +448,10 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return RoutedTransactionRepository(
-    db: db,
     drift: DriftTransactionRepository(
       db,
       outboxQueue: ref.watch(ledgerOutboxQueueProvider),
     ),
-    supabase: SupabaseTransactionRepository(db: db),
-    flags: () => featureFlags,
   );
 });
 
@@ -461,10 +469,7 @@ final suspectedDuplicatesProvider =
 final smartInboxRepositoryProvider = Provider<SmartInboxRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return RoutedSmartInboxRepository(
-    db: db,
     drift: DriftSmartInboxRepository(db),
-    supabase: SupabaseSmartInboxRepository(db: db),
-    flags: () => featureFlags,
   );
 });
 
@@ -475,18 +480,23 @@ final smartInboxItemsProvider =
   return ref.watch(smartInboxRepositoryProvider).getOpen();
 });
 
-/// المرحلة 2: يوجّه القراءة/الكتابة إلى Supabase مباشرة عندما تكون علامة
-/// accounts_supabase_primary مفعّلة لهذا المستخدم، وإلا فـ Drift كالمعتاد.
+/// S5: الواجهة تقرأ/تكتب من Drift دائمًا؛ المزامنة خلفية عبر outbox/push/pull.
 final accountRepositoryProvider = Provider<AccountRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return RoutedAccountRepository(
-    db: db,
     drift: DriftAccountRepository(
       db,
       outboxQueue: ref.watch(planningOutboxQueueProvider),
     ),
-    supabase: SupabaseAccountRepository(db: db),
-    flags: () => featureFlags,
+  );
+});
+
+/// مستودع البطاقات الحقيقية (محلي في A1؛ مزامنة Supabase تُضاف في A1b).
+final cardRepositoryProvider = Provider<CardRepository>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return DriftCardRepository(
+    db,
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
@@ -554,26 +564,20 @@ final merchantLogosProvider = FutureProvider<Map<String, String>>((ref) async {
 final billRepositoryProvider = Provider<BillRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return RoutedBillRepository(
-    db: db,
     drift: DriftBillRepository(
       db,
       outboxQueue: ref.watch(planningOutboxQueueProvider),
     ),
-    supabase: SupabaseBillRepository(db: db),
-    flags: () => featureFlags,
   );
 });
 
 final planRepositoryProvider = Provider<PlanRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return RoutedPlanRepository(
-    db: db,
     drift: DriftPlanRepository(
       db,
       outboxQueue: ref.watch(planningOutboxQueueProvider),
     ),
-    supabase: SupabasePlanRepository(db: db),
-    flags: () => featureFlags,
   );
 });
 
@@ -585,26 +589,20 @@ final merchantCategoryRepositoryProvider =
 final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return RoutedBudgetRepository(
-    db: db,
     drift: DriftBudgetRepository(
       db,
       outboxQueue: ref.watch(planningOutboxQueueProvider),
     ),
-    supabase: SupabaseBudgetRepository(db: db),
-    flags: () => featureFlags,
   );
 });
 
 final goalRepositoryProvider = Provider<GoalRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return RoutedGoalRepository(
-    db: db,
     drift: DriftGoalRepository(
       db,
       outboxQueue: ref.watch(planningOutboxQueueProvider),
     ),
-    supabase: SupabaseGoalRepository(db: db),
-    flags: () => featureFlags,
   );
 });
 
@@ -613,15 +611,20 @@ final gamificationRepositoryProvider = Provider<GamificationRepository>((ref) {
 });
 
 final userSettingsRepositoryProvider = Provider<UserSettingsRepository>((ref) {
-  return DriftUserSettingsRepository(ref.watch(appDatabaseProvider));
+  return DriftUserSettingsRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
 });
 
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
+  // S0: القراءة من Drift دائمًا. S3: الكتابات تُدرَج في الـ outbox وتُزامَن خلفيًا.
   return RoutedCategoryRepository(
-    drift: DriftCategoryRepository(db),
-    supabase: SupabaseCategoryRepository(db: db),
-    flags: () => featureFlags,
+    drift: DriftCategoryRepository(
+      db,
+      outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ),
   );
 });
 
@@ -733,23 +736,21 @@ final notificationLogSyncServiceProvider =
 
 final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  final directTransactions = SupabaseTransactionRepository(db: db);
   return CaptureSyncService(
     settingsRepository: DriftUserSettingsRepository(db),
-    transactionRepository: DriftTransactionRepository(db),
+    // Relay captures land in Drift AND enqueue on the ledger outbox, so the
+    // background push publishes them to Supabase exactly like a manual add.
+    transactionRepository: DriftTransactionRepository(
+      db,
+      outboxQueue: ref.watch(ledgerOutboxQueueProvider),
+    ),
     dedupStore: DriftDedupStore(db),
     suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
     accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
-    directTransactionRepository: directTransactions,
-    isSupabasePrimaryEnabled: () {
-      try {
-        return featureFlags.getBool('transactions_supabase_primary');
-      } catch (_) {
-        return false;
-      }
-    },
+    // Pattern-A is retired in production.
+    isSupabasePrimaryEnabled: () => false,
   );
 });
 
@@ -759,14 +760,7 @@ final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
     db: db,
     transactionRepository: DriftTransactionRepository(db),
     dedupStore: DriftDedupStore(db),
-    isPullEnabled: () {
-      try {
-        return featureFlags.getBool('ledger_pull_sync') &&
-            !featureFlags.getBool('transactions_supabase_primary');
-      } catch (_) {
-        return false;
-      }
-    },
+    isPullEnabled: () => true,
   );
 });
 
@@ -781,15 +775,17 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return SmartInboxSyncService(
     db: db,
-    isPullEnabled: () {
-      try {
-        return featureFlags.getBool('smart_inbox_pull_sync') &&
-            !featureFlags.getBool('smart_inbox_supabase_primary');
-      } catch (_) {
-        return false;
-      }
-    },
+    isPullEnabled: () => true,
   );
+});
+
+/// One idempotent reconcile of local accounts/transactions that never reached
+/// Supabase (pre-outbox data, the migration-seeded default account, or a
+/// background capture that had no session at write time). See
+/// [StartupSyncReconcileService].
+final startupSyncReconcileServiceProvider =
+    Provider<StartupSyncReconcileService>((ref) {
+  return StartupSyncReconcileService(db: ref.watch(appDatabaseProvider));
 });
 
 final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {

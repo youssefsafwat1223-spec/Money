@@ -10,6 +10,11 @@ class AppTheme {
 
   static ThemeData light = _build(AppColors.light, Brightness.light);
 
+  /// True-black "Calm Capital" dark theme. Every screen that reads
+  /// `context.colors` picks this up automatically; the flagship primitives
+  /// ([MaliScreen] etc.) resolve their own dark tokens via [MaliTokens.of].
+  static ThemeData dark = _build(AppColors.dark, Brightness.dark);
+
   /// Shared navy palette for every modal sheet and the database recovery UI.
   static const AppColors sheetColors = AppColors(
     bg: Color(0xFF021B79),
@@ -52,7 +57,16 @@ class AppTheme {
   );
   static final ThemeData sheet = _build(sheetColors, Brightness.dark);
 
+  /// Bottom-sheet surface per the design mockups: charcoal in dark, white in
+  /// light (mali_pages.html `--sheet-bg`). Shared by [_build]'s
+  /// [BottomSheetThemeData] and [AppSheetScaffold] so every sheet matches.
+  static const Color sheetSurfaceDark = Color(0xFF14161C);
+  static const Color sheetSurfaceLight = Color(0xFFFFFFFF);
+  static Color sheetSurfaceFor(Brightness b) =>
+      b == Brightness.dark ? sheetSurfaceDark : sheetSurfaceLight;
+
   static ThemeData _build(AppColors c, Brightness brightness) {
+    final sheetSurface = sheetSurfaceFor(brightness);
     // Seed the Material colour scheme from the CTA colour (interactive blue),
     // not from c.primary (navy/white brand text). This keeps Material widgets
     // (chips, switches, progress indicators) in the blue family rather than
@@ -92,11 +106,11 @@ class AppTheme {
         space: 1,
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: sheetColors.surfaceElevated,
-        modalBackgroundColor: sheetColors.surfaceElevated,
+        backgroundColor: sheetSurface,
+        modalBackgroundColor: sheetSurface,
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
-        dragHandleColor: sheetColors.textSecondary,
+        dragHandleColor: c.textSecondary,
         clipBehavior: Clip.antiAlias,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
@@ -190,7 +204,7 @@ class AppTheme {
         prefixIconColor: c.textMuted,
         suffixIconColor: c.textMuted,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.md),
           borderSide: BorderSide(color: c.border),

@@ -45,6 +45,83 @@ void main() {
     expect(planned.first.scheduledAtRiyadh, DateTime(2026, 6, 19, 10));
   });
 
+  test(
+      'missed day-before slot falls back to a near-term catch-up reminder '
+      'instead of dropping the bill (due tomorrow, app opened after 10:00)',
+      () {
+    final bill = BillEntity(
+      id: 'netflix',
+      name: 'Netflix',
+      amount: 45,
+      currency: 'SAR',
+      type: BillType.subscription,
+      frequency: BillFrequency.monthly,
+      nextDueDate: DateTime(2026, 6, 20),
+      reminderOn: true,
+      isConfirmed: true,
+      createdAt: DateTime(2026, 6, 1),
+    );
+
+    // Day-before slot was 2026-06-19 10:00 — now is 19th 14:00 (missed it).
+    final planned = planner.planBillReminders(
+      preferences: const NotificationPreferences(),
+      bills: [bill],
+      nowRiyadh: DateTime(2026, 6, 19, 14),
+    );
+
+    expect(planned, hasLength(1),
+        reason: 'the old behavior dropped the bill entirely — no reminder');
+    expect(planned.first.scheduledAtRiyadh, DateTime(2026, 6, 19, 14, 30));
+    expect(planned.first.title, 'اشتراك Netflix هيتجدد بكرة');
+  });
+
+  test('catch-up on the due day itself says "اليوم" and still fires', () {
+    final bill = BillEntity(
+      id: 'netflix',
+      name: 'Netflix',
+      amount: 45,
+      currency: 'SAR',
+      type: BillType.subscription,
+      frequency: BillFrequency.monthly,
+      nextDueDate: DateTime(2026, 6, 20),
+      reminderOn: true,
+      isConfirmed: true,
+      createdAt: DateTime(2026, 6, 1),
+    );
+
+    final planned = planner.planBillReminders(
+      preferences: const NotificationPreferences(),
+      bills: [bill],
+      nowRiyadh: DateTime(2026, 6, 20, 12), // due day, midday
+    );
+
+    expect(planned, hasLength(1));
+    expect(planned.first.title, 'اشتراك Netflix هيتجدد اليوم');
+  });
+
+  test('a bill already past its due day is not reminded', () {
+    final bill = BillEntity(
+      id: 'netflix',
+      name: 'Netflix',
+      amount: 45,
+      currency: 'SAR',
+      type: BillType.subscription,
+      frequency: BillFrequency.monthly,
+      nextDueDate: DateTime(2026, 6, 20),
+      reminderOn: true,
+      isConfirmed: true,
+      createdAt: DateTime(2026, 6, 1),
+    );
+
+    final planned = planner.planBillReminders(
+      preferences: const NotificationPreferences(),
+      bills: [bill],
+      nowRiyadh: DateTime(2026, 6, 21, 9), // day after due
+    );
+
+    expect(planned, isEmpty);
+  });
+
   test('quiet hours move scheduled notifications to allowed morning time', () {
     const preferences = NotificationPreferences(
       quietHoursEnabled: true,
@@ -205,11 +282,14 @@ void main() {
     expect(ids, hasLength(500));
   });
 
-  test('always falls within the previously-reserved [93000, 993000) range', () {
+  test('falls within [1000000, 1900000), disjoint from bill reminders', () {
     for (var i = 0; i < 200; i++) {
       final id = goalMilestoneNotificationId('goal-range-check-$i');
-      expect(id, greaterThanOrEqualTo(93000));
-      expect(id, lessThan(993000));
+      expect(id, greaterThanOrEqualTo(1000000));
+      expect(id, lessThan(1900000));
+      // Must never land in the bill-reminder range [92000, 992000) — the two
+      // ranges overlapped before, letting a bill and a goal share an id.
+      expect(id, isNot(inInclusiveRange(92000, 991999)));
     }
   });
 }

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session.dart';
+import 'modal_route_observer.dart';
+import '../../features/accounts/account_detail_screen.dart';
 import '../../features/accounts/accounts_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
 import '../../features/announcements/announcements_screen.dart';
@@ -18,9 +20,11 @@ import '../../features/subscriptions/subscriptions_screen.dart';
 import '../../features/budgets/budget_form_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
 import '../../features/cards/card_details_screen.dart';
+import '../../features/cards/my_cards_screen.dart';
 import '../../features/capture/manual_paste_screen.dart';
 import '../../features/capture/sms_permission_screen.dart';
 import '../../features/coupons/coupons_screen.dart';
+import '../../features/design_gallery/design_gallery_screen.dart';
 import '../../features/goals/goal_details_screen.dart';
 import '../../features/goals/goal_form_screen.dart';
 import '../../features/goals/goals_screen.dart';
@@ -37,6 +41,9 @@ String onboardingEntryPathForSession(AppSession session) {
 final appRouter = GoRouter(
   initialLocation: '/',
   refreshListenable: AppSession.instance,
+  // Hides the native glass tab bar while a bottom sheet/dialog is open (it is
+  // a platform view that Flutter modals can't cover). See ModalRouteObserver.
+  observers: [modalRouteObserver],
   redirect: (context, state) {
     final session = AppSession.instance;
     final status = session.status;
@@ -140,6 +147,12 @@ final appRouter = GoRouter(
       builder: (context, state) => const AccountsScreen(),
     ),
     GoRoute(
+      path: '/account/:id',
+      name: 'account',
+      builder: (context, state) =>
+          AccountDetailScreen(accountId: state.pathParameters['id']!),
+    ),
+    GoRoute(
       path: '/announcements',
       name: 'announcements',
       builder: (context, state) => const AnnouncementsScreen(),
@@ -169,6 +182,11 @@ final appRouter = GoRouter(
       name: 'transaction',
       builder: (context, state) =>
           TransactionDetailsScreen(transactionId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/cards',
+      name: 'cards',
+      builder: (context, state) => const MyCardsScreen(),
     ),
     GoRoute(
       path: '/card/:last4',
@@ -229,5 +247,13 @@ final appRouter = GoRouter(
         showBackButton: context.canPop(),
       ),
     ),
+    // Mali flagship design system review surface — debug builds only, never
+    // reachable in release. See docs/MALI_DESIGN_SYSTEM.md.
+    if (kDebugMode)
+      GoRoute(
+        path: '/design',
+        name: 'design-gallery',
+        builder: (context, state) => const DesignGalleryScreen(),
+      ),
   ],
 );

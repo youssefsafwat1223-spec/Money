@@ -247,7 +247,7 @@ class _CapsuleBar extends StatelessWidget {
                   privacyMode ? '••••' : Formatters.amount(day.total),
                   textAlign: TextAlign.center,
                   style: AppTypography.caption(c.textSecondary)
-                      .copyWith(fontWeight: FontWeight.w800),
+                      .copyWith(fontWeight: FontWeight.w700),
                 ),
                 if (showCurrencyLabel)
                   Text(

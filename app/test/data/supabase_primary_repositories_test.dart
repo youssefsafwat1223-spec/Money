@@ -5,14 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
-import 'package:money_companion/data/catalog/catalog_daos.dart';
-import 'package:money_companion/data/catalog/feature_flag_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/financial_cache_health.dart';
-import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
-import 'package:money_companion/data/repositories/routed_transaction_repository.dart';
 import 'package:money_companion/data/repositories/supabase_account_repository.dart';
 import 'package:money_companion/data/repositories/supabase_financial_summary_service.dart';
 import 'package:money_companion/data/repositories/supabase_transaction_repository.dart';
@@ -771,58 +767,8 @@ void main() {
       await db.close();
     });
 
-    test('dirty cache blocks Drift fallback until repair clears it', () async {
-      var driftCalled = false;
-      await markFinancialCacheDirty(db, accountsCacheEntityType, 'mirror');
-
-      await expectLater(
-        routeFinancialOperation<int>(
-          db: db,
-          entityType: accountsCacheEntityType,
-          useSupabase: false,
-          supabase: () async => 1,
-          drift: () async {
-            driftCalled = true;
-            return 2;
-          },
-        ),
-        throwsA(
-          isA<ServerRepoException>().having(
-            (error) => error.message,
-            'message',
-            'financial_cache_dirty',
-          ),
-        ),
-      );
-      expect(driftCalled, isFalse);
-
-      await clearFinancialCacheDirty(db, accountsCacheEntityType);
-      expect(
-        await routeFinancialOperation<int>(
-          db: db,
-          entityType: accountsCacheEntityType,
-          useSupabase: false,
-          supabase: () async => 1,
-          drift: () async => 2,
-        ),
-        2,
-      );
-    });
-
-    test('authoritative Supabase path bypasses dirty rollback cache', () async {
-      await markFinancialCacheDirty(db, accountsCacheEntityType, 'mirror');
-
-      expect(
-        await routeFinancialOperation<int>(
-          db: db,
-          entityType: accountsCacheEntityType,
-          useSupabase: true,
-          supabase: () async => 1,
-          drift: () async => 2,
-        ),
-        1,
-      );
-    });
+    // S5: routeFinancialOperation was deleted — the UI→Drift guarantee is now
+    // structural (providers use Drift repos directly; see s0_offline_first_reads).
 
     test('a later successful mirror does not clear an older dirty marker',
         () async {
@@ -836,44 +782,6 @@ void main() {
       expect(
         await isFinancialCacheDirty(db, accountsCacheEntityType),
         isTrue,
-      );
-    });
-
-    test('transaction primary never falls back when account primary is off',
-        () async {
-      final now = DateTime.utc(2026, 7, 13);
-      await RemoteFeatureFlagsDao(db).replaceAll([
-        RemoteFeatureFlag(
-          key: 'transactions_supabase_primary',
-          valueType: 'boolean',
-          value: 'true',
-          rolloutPercent: 100,
-          targetCountries: const [],
-          isActive: true,
-          syncedAt: now,
-        ),
-      ]);
-      final flags = FeatureFlagService(
-        dao: RemoteFeatureFlagsDao(db),
-        installId: 'test-install',
-      );
-      await flags.init();
-      final repository = RoutedTransactionRepository(
-        db: db,
-        drift: DriftTransactionRepository(db),
-        supabase: SupabaseTransactionRepository(db: db),
-        flags: () => flags,
-      );
-
-      await expectLater(
-        repository.getAll(),
-        throwsA(
-          isA<ServerRepoException>().having(
-            (error) => error.message,
-            'message',
-            'accounts_primary_required',
-          ),
-        ),
       );
     });
   });

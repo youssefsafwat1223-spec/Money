@@ -24,9 +24,17 @@ void main() {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: const Directionality(
-            textDirection: TextDirection.rtl,
-            child: OnboardingStoryScreen(),
+          // Render with reduced motion (as the rest of the onboarding tests
+          // do) so the looping background animations settle — this is a
+          // render/unmount smoke test, not an animation test.
+          home: Builder(
+            builder: (context) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(disableAnimations: true),
+              child: const Directionality(
+                textDirection: TextDirection.rtl,
+                child: OnboardingStoryScreen(),
+              ),
+            ),
           ),
         ),
       ),

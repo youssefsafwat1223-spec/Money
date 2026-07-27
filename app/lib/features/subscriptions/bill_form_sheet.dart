@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/async_reload_safe.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -431,7 +432,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               },
             ),
             const SizedBox(height: AppSpacing.s3),
-            ref.watch(accountsProvider).maybeWhen(
+            ref.watch(accountsProvider).dataOrWhen(
                   data: (accounts) {
                     if (accounts.isEmpty) {
                       return TextFormField(
@@ -859,7 +860,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
             'الأكثر استخدامًا',
             style: AppTypography.caption(c.textLight).copyWith(
               letterSpacing: 1.6,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -941,7 +942,7 @@ class _Segmented<T> extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: AppTypography.caption(
                       item == value ? Colors.white : c.textLight,
-                    ).copyWith(fontWeight: FontWeight.w800),
+                    ).copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
               ),

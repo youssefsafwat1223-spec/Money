@@ -36,7 +36,7 @@ void main() {
 
   test('schema creates sender_bank_mappings table', () async {
     expect(await db.count('sender_bank_mappings'), 0);
-    expect(db.schemaVersion, 23);
+    expect(db.schemaVersion, 27);
   });
 
   test('saveSuggestion stores pending mapping by normalized sender', () async {

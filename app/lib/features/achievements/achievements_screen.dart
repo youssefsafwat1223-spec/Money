@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
 import '../common/premium_loading.dart';
 import 'achievements_providers.dart';
 
@@ -15,7 +16,8 @@ class AchievementsScreen extends ConsumerWidget {
     final async = ref.watch(achievementsViewProvider);
     return Scaffold(
       body: async.when(
-        loading: () => const PremiumSkeletonPage(cardCount: 5),
+        skipLoadingOnReload: true,
+        loading: () => const FirstLoadPlaceholder(cardCount: 5),
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (data) {
           final c = context.colors;
@@ -217,157 +219,18 @@ class _AchievementsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  'الإنجازات',
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'شارات ومستويات تشجعك تكمل عادة المتابعة.',
-            style: AppTypography.caption(c.textMuted),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: c.cta.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        Icons.emoji_events_outlined,
-                        color: c.cta,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'المستوى الحالي',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '$level',
-                            style: AppTypography.title2(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
-                  child: Divider(color: c.border, height: 1),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$xp',
-                            style:
-                                AppTypography.bodyStrong(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'إجمالي الـ XP',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 32,
-                      color: c.divider,
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$streak يوم',
-                            style:
-                                AppTypography.bodyStrong(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'سلسلة المتابعة',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return CalmPageHeader(
+      title: 'الإنجازات',
+      subtitle: 'شارات ومستويات تشجعك تكمل عادة المتابعة.',
+      leading: Navigator.of(context).canPop()
+          ? const BackButton(color: Colors.white)
+          : null,
+      amount: '$level',
+      currency: 'المستوى',
+      metrics: [
+        CalmMetric(label: 'إجمالي الـ XP', value: '$xp'),
+        CalmMetric(label: 'سلسلة المتابعة', value: '$streak يوم'),
+      ],
     );
   }
 }

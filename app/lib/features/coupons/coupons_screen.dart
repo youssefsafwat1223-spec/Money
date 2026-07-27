@@ -29,12 +29,18 @@ class CouponsScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('الكوبونات',
-                      style: AppTypography.display(c.textPrimary)),
+                  Text(
+                    'الكوبونات',
+                    // Mockup `.tophead .h1`: 24px w600, tight tracking.
+                    style: AppTypography.calmTitle(c.textPrimary)
+                        .copyWith(fontSize: 24, letterSpacing: -0.5),
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     'عروض شركاء تساعدك توفر في مصروفاتك اليومية.',
-                    style: AppTypography.callout(c.textSecondary),
+                    // Mockup `.hsub`: 13px secondary.
+                    style: AppTypography.caption(c.textSecondary)
+                        .copyWith(fontSize: 13, fontWeight: FontWeight.w400),
                   ),
                 ],
               ),
@@ -47,6 +53,7 @@ class CouponsScreen extends ConsumerWidget {
         ),
       ),
       body: coupons.when(
+        skipLoadingOnReload: true,
         loading: () => const AppLoadingState(label: 'تحميل العروض...'),
         error: (_, __) => AppErrorState(
           title: 'تعذر تحميل الكوبونات',

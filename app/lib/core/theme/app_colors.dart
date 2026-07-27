@@ -132,7 +132,7 @@ class AppColors extends ThemeExtension<AppColors> {
 
   // ===== Light Mode =====
   static const AppColors light = AppColors(
-    bg: Color(0xFFF6F7FB),
+    bg: Color(0xFFF4F6FB),
     surface: Color(0xFFFFFFFF),
     surfaceElevated: Color(0xFFF1F3F8),
     surfaceCard: Color(0xFFFFFFFF),
@@ -169,6 +169,50 @@ class AppColors extends ThemeExtension<AppColors> {
     onInfo: Color(0xFFFFFFFF),
     gradA: Color(0xFF55ABFF),
     gradB: Color(0xFF021B79),
+  );
+
+  // ===== Dark Mode (true-black "Calm Capital" identity) =====
+  // Canvas is true black to match MaliTokens.dark.canvas / MaliScreen, so the
+  // flagship screens and the ambient scaffold are seamless. Semantics use the
+  // brighter dark-on-black variants (income/expense/warning) that read on black.
+  static const AppColors dark = AppColors(
+    bg: Color(0xFF000000),
+    surface: Color(0xFF121317),
+    surfaceElevated: Color(0xFF181A20),
+    surfaceCard: Color(0xFF121317),
+    surfaceMuted: Color(0xFF0C0D11),
+    primary: Color(0xFF9DB9FF),
+    onPrimary: Color(0xFF00123A),
+    cta: Color(0xFF2E6BFF),
+    onCta: Color(0xFFFFFFFF),
+    ctaSoft: Color(0xFF15233F),
+    accent: Color(0xFFFBC926),
+    income: Color(0xFF22C55E),
+    expense: Color(0xFFEF4444),
+    success: Color(0xFF22C55E),
+    warning: Color(0xFFF59E0B),
+    danger: Color(0xFFEF4444),
+    info: Color(0xFF3B82F6),
+    neutral: Color(0xFF9AA3B2),
+    disabled: Color(0xFF262A32),
+    disabledFg: Color(0xFF6B7280),
+    border: Color(0xFF23262E),
+    divider: Color(0xFF1A1D23),
+    textPrimary: Color(0xFFFFFFFF),
+    textSecondary: Color(0xFFA8AEBA),
+    textMuted: Color(0xFF6E7683),
+    onSurface: Color(0xFFFFFFFF),
+    onSurfaceMuted: Color(0xFFA8AEBA),
+    successBg: Color(0xFF0E2A18),
+    dangerBg: Color(0xFF2A1113),
+    warningBg: Color(0xFF2A1F0A),
+    infoBg: Color(0xFF0E1D33),
+    onSuccess: Color(0xFFFFFFFF),
+    onDanger: Color(0xFFFFFFFF),
+    onWarning: Color(0xFF111827),
+    onInfo: Color(0xFFFFFFFF),
+    gradA: Color(0xFF2E6BFF),
+    gradB: Color(0xFF5B4FE0),
   );
 
   @override

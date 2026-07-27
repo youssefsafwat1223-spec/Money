@@ -217,7 +217,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               labelText: 'المبلغ المستهدف',
               labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
               suffixText: cur,
-              suffixStyle: _alex(14, FontWeight.w800, 1.2, c.textMain),
+              suffixStyle: _alex(14, FontWeight.w700, 1.2, c.textMain),
               filled: true,
               fillColor: c.surface.withValues(alpha: 0.15),
               contentPadding:
@@ -322,7 +322,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                         children: [
                           Text('ادخار تلقائي',
                               style:
-                                  _alex(14, FontWeight.w800, 1.2, c.textMain)),
+                                  _alex(14, FontWeight.w700, 1.2, c.textMain)),
                           const SizedBox(height: 2),
                           Text('قرش يضيف المبلغ للهدف كل فترة تلقائياً',
                               style:
@@ -419,7 +419,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                       )
                     : Text(
                         widget.goal == null ? 'أنشئ الهدف' : 'حفظ التعديل',
-                        style: _alex(15, FontWeight.w800, 1.2, Colors.white),
+                        style: _alex(15, FontWeight.w700, 1.2, Colors.white),
                       ),
               ),
             ),

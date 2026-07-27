@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/utils/async_reload_safe.dart';
 
 import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
@@ -323,7 +324,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             ),
           ),
 
-          ref.watch(accountsProvider).maybeWhen(
+          ref.watch(accountsProvider).dataOrWhen(
                 data: (accounts) {
                   if (accounts.length < 2) return const SizedBox.shrink();
                   final value = accounts.any((a) => a.id == tx.accountId)
@@ -423,7 +424,8 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                       AppToast.show(context, repoExceptionMessage(e));
                     } catch (_) {
                       if (!context.mounted) return;
-                      AppToast.show(context, 'تعذّر تأكيد العملية. حاول مرة أخرى.');
+                      AppToast.show(
+                          context, 'تعذّر تأكيد العملية. حاول مرة أخرى.');
                     } finally {
                       if (mounted) setState(() => _confirming = false);
                     }

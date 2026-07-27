@@ -44,6 +44,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   StreamSubscription<supabase.AuthState>? _supabaseAuthSubscription;
   Future<void> Function()? _unlinkCaptureDevice;
   Future<void> Function()? _wipeLocalFinancialData;
+  Future<void> Function()? _flushPendingSync;
 
   SessionStatus get status => value;
 
@@ -56,6 +57,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// بعده على نفس الجهاز. انظر `signOut` لسبب الفشل المتحكَّم به بدل الصمت.
   void configureLocalDataWipe(Future<void> Function()? wipe) {
     _wipeLocalFinancialData = wipe;
+  }
+
+  /// دفعة أخيرة للـ outbox قبل مسح تسجيل الخروج — التغييرات الأخيرة (مثلاً
+  /// تغيير الدولة قبل الخروج بثوانٍ) كانت تُمسح من الطابور قبل رفعها فتضيع
+  /// نهائياً. best-effort: فشلها (أوفلاين) لا يمنع تسجيل الخروج.
+  void configureSignOutFlush(Future<void> Function()? flush) {
+    _flushPendingSync = flush;
   }
 
   /// آخر هوية Supabase مُؤكَّدة أنها "تملك" البيانات المالية المحلية الحالية
@@ -240,6 +248,18 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// to call repeatedly: an already-signed-out state and an already-wiped DB
   /// are both no-ops for every step below.
   Future<void> signOut() async {
+    // Best-effort final push BEFORE the wipe: the wipe deletes the sync
+    // outboxes, so any change made in the last seconds (e.g. a country
+    // change right before signing out) would otherwise be destroyed
+    // un-uploaded. Offline sign-out still proceeds.
+    final flush = _flushPendingSync;
+    if (flush != null) {
+      try {
+        await flush().timeout(const Duration(seconds: 6));
+      } catch (_) {
+        // Offline/slow network — sign-out must not be blocked by sync.
+      }
+    }
     final wipe = _wipeLocalFinancialData;
     if (wipe != null) {
       await wipe();

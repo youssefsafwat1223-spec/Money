@@ -1,22 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/async_reload_safe.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/mali_card.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/report_models.dart';
 import '../cards/brand_mark.dart';
-import '../common/account_range_controls.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
 import '../common/premium_loading.dart';
 import '../common/widgets.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
 import '../settings/settings_providers.dart';
+import '../reporting/ui/report_config_sheet.dart';
 import 'reports_providers.dart';
 
 class ReportsScreen extends ConsumerWidget {
@@ -25,7 +28,7 @@ class ReportsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(reportsProvider);
-    final privacyMode = ref.watch(userSettingsProvider).maybeWhen(
+    final privacyMode = ref.watch(userSettingsProvider).dataOrWhen(
           data: (settings) => settings.privacyModeEnabled,
           orElse: () => false,
         );
@@ -37,91 +40,97 @@ class ReportsScreen extends ConsumerWidget {
       length: 3,
       child: Scaffold(
         body: async.when(
-          loading: () => const PremiumSkeletonPage(cardCount: 4),
+          skipLoadingOnReload: true,
+          loading: () => const FirstLoadPlaceholder(cardCount: 4),
           error: (e, _) => const Center(child: Text('حدث خطأ')),
           data: (bundle) {
             final section = bundle.monthly;
-            return NestedScrollView(
-              headerSliverBuilder: (context, innerBoxIsScrolled) {
-                return [
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        _ReportsHeader(
-                          section: section,
-                          currencyLabel: currencyLabel,
-                          privacyMode: privacyMode,
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: AppSpacing.gutter,
-                            vertical: AppSpacing.s2,
-                          ),
-                          child: AccountRangeControls(),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _TabBarDelegate(
-                      child: Container(
-                        height: 64.0,
-                        color: c.bg,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.gutter,
-                        ),
-                        alignment: Alignment.center,
-                        child: Container(
-                          height: 48,
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: c.surface2,
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                          ),
-                          child: TabBar(
-                            indicatorSize: TabBarIndicatorSize.tab,
-                            dividerColor: Colors.transparent,
-                            labelColor: Colors.white,
-                            unselectedLabelColor: c.textLight,
-                            indicator: BoxDecoration(
-                              color: c.primary,
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.pill),
+            return SafeArea(
+                top: false,
+                bottom: false,
+                child: NestedScrollView(
+                  headerSliverBuilder: (context, innerBoxIsScrolled) {
+                    return [
+                      SliverToBoxAdapter(
+                        child: Column(
+                          children: [
+                            _ReportsHeader(
+                              section: section,
+                              currencyLabel: currencyLabel,
+                              privacyMode: privacyMode,
+                              onReport: () async {
+                                final request =
+                                    await showReportConfigSheet(context);
+                                if (request != null && context.mounted) {
+                                  await runReportGeneration(
+                                      context, ref, request);
+                                }
+                              },
                             ),
-                            tabs: const [
-                              Tab(text: 'نظرة عامة'),
-                              Tab(text: 'الاتجاهات'),
-                              Tab(text: 'التفاصيل'),
-                            ],
+                          ],
+                        ),
+                      ),
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _TabBarDelegate(
+                          child: Container(
+                            height: 64.0,
+                            color: c.bg,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.gutter,
+                            ),
+                            alignment: Alignment.center,
+                            child: Container(
+                              height: 48,
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: c.surface2,
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.pill),
+                              ),
+                              child: TabBar(
+                                indicatorSize: TabBarIndicatorSize.tab,
+                                dividerColor: Colors.transparent,
+                                labelColor: Colors.white,
+                                unselectedLabelColor: c.textLight,
+                                indicator: BoxDecoration(
+                                  color: c.primary,
+                                  borderRadius:
+                                      BorderRadius.circular(AppRadius.pill),
+                                ),
+                                tabs: const [
+                                  Tab(text: 'نظرة عامة'),
+                                  Tab(text: 'الاتجاهات'),
+                                  Tab(text: 'التفاصيل'),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ];
+                  },
+                  body: TabBarView(
+                    children: [
+                      _OverviewTab(
+                        section: section,
+                        weekly: bundle.weekly,
+                        currencyLabel: currencyLabel,
+                        privacyMode: privacyMode,
+                      ),
+                      _TrendsTab(
+                        section: section,
+                        currencyLabel: currencyLabel,
+                        privacyMode: privacyMode,
+                      ),
+                      _DetailsTab(
+                        section: section,
+                        currencyLabel: currencyLabel,
+                        privacyMode: privacyMode,
+                      ),
+                    ],
                   ),
-                ];
-              },
-              body: TabBarView(
-                children: [
-                  _OverviewTab(
-                    section: section,
-                    weekly: bundle.weekly,
-                    currencyLabel: currencyLabel,
-                    privacyMode: privacyMode,
-                  ),
-                  _TrendsTab(
-                    section: section,
-                    currencyLabel: currencyLabel,
-                    privacyMode: privacyMode,
-                  ),
-                  _DetailsTab(
-                    section: section,
-                    currencyLabel: currencyLabel,
-                    privacyMode: privacyMode,
-                  ),
-                ],
-              ),
-            );
+                ));
           },
         ),
       ),
@@ -331,19 +340,9 @@ class _PeriodCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
       padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -374,20 +373,9 @@ class _WeeklySpendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
       padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -450,7 +438,6 @@ class _CategoryDistributionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     final slices = [
       for (final slice in section.topCategories)
         SpendingChartSlice(
@@ -460,19 +447,9 @@ class _CategoryDistributionCard extends StatelessWidget {
           count: slice.count,
         ),
     ];
-    return Container(
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
       padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -539,19 +516,9 @@ class _MerchantRankingCard extends StatelessWidget {
       1,
       (max, merchant) => merchant.total > max ? merchant.total : max,
     );
-    return Container(
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
       padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -625,7 +592,7 @@ class _VisualSectionTitle extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: AppTypography.headline(c.textMain)),
+              Text(title, style: AppTypography.cardTitle(c.textMain)),
               const SizedBox(height: 2),
               Text(
                 subtitle,
@@ -724,7 +691,7 @@ class _MerchantBarRow extends StatelessWidget {
                     _money(merchant.total,
                         currencyLabel: currencyLabel, privacyMode: privacyMode),
                     style: AppTypography.caption(c.textSecondary)
-                        .copyWith(fontWeight: FontWeight.w800),
+                        .copyWith(fontWeight: FontWeight.w700),
                   ),
                 ],
               ),
@@ -767,19 +734,9 @@ class _InsightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
       padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Row(
         children: [
           Container(
@@ -808,142 +765,68 @@ class _InsightCard extends StatelessWidget {
   }
 }
 
+/// Raised-disc action button (matches the transactions "+" style) that opens
+/// the PDF report flow from the reports header.
+class _ReportButton extends StatelessWidget {
+  const _ReportButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: 0.16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+        ),
+        child: const Icon(Icons.picture_as_pdf_outlined,
+            color: Colors.white, size: 22),
+      ),
+    );
+  }
+}
+
 class _ReportsHeader extends StatelessWidget {
   const _ReportsHeader({
     required this.section,
     required this.currencyLabel,
     required this.privacyMode,
+    required this.onReport,
   });
 
   final ReportSection section;
   final String currencyLabel;
   final bool privacyMode;
+  final VoidCallback onReport;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+    return CalmPageHeader(
+      title: 'الرؤى والتقارير',
+      subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
+      leading: Navigator.of(context).canPop()
+          ? const BackButton(color: Colors.white)
+          : null,
+      trailing: _ReportButton(onTap: onReport),
+      amount: privacyMode ? '••••' : Formatters.amount(section.total),
+      currency: privacyMode ? '' : currencyLabel,
+      metrics: [
+        CalmMetric(
+          label: 'متوسط يومي',
+          value: _money(section.averageDaily,
+              currencyLabel: currencyLabel, privacyMode: privacyMode),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  'الرؤى والتقارير',
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
-            style: AppTypography.caption(c.textMuted),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: c.cta.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        Icons.insights_rounded,
-                        color: c.cta,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'مصروف الفترة',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _money(section.total,
-                                currencyLabel: currencyLabel,
-                                privacyMode: privacyMode),
-                            style: AppTypography.title2(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
-                  child: Divider(color: c.border, height: 1),
-                ),
-                Row(
-                  children: [
-                    _HeaderMetric(
-                      label: 'متوسط يومي',
-                      value: _money(section.averageDaily,
-                          currencyLabel: currencyLabel,
-                          privacyMode: privacyMode),
-                    ),
-                    const _HeaderDivider(),
-                    _HeaderMetric(
-                      label: 'أعلى يوم',
-                      value: _money(section.highestDaily,
-                          currencyLabel: currencyLabel,
-                          privacyMode: privacyMode),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        CalmMetric(
+          label: 'أعلى يوم',
+          value: _money(section.highestDaily,
+              currencyLabel: currencyLabel, privacyMode: privacyMode),
+        ),
+      ],
     );
   }
 }
@@ -1051,43 +934,5 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(covariant _TabBarDelegate oldDelegate) {
     return oldDelegate.child != child;
-  }
-}
-
-class _HeaderDivider extends StatelessWidget {
-  const _HeaderDivider();
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 32,
-        color: context.colors.divider,
-      );
-}
-
-class _HeaderMetric extends StatelessWidget {
-  const _HeaderMetric({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: AppTypography.bodyStrong(c.textMain)
-                .copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: AppTypography.caption(c.textSecondary),
-          ),
-        ],
-      ),
-    );
   }
 }

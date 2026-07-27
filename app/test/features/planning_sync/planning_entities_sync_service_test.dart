@@ -246,7 +246,9 @@ void main() {
         'remote-budget': {
           'id': 'server-budget',
           'local_id': 'remote-budget',
-          'category_id': BudgetEntity.allExpensesCategoryId,
+          // The server stores the portable key, while Drift uses a synthetic
+          // local FK id for the all-expenses budget.
+          'category_id': BudgetEntity.allExpensesCategoryKey,
           'amount': 750,
           'period': 'monthly',
           'start_date': DateTime.utc(2026, 7, 1).toIso8601String(),
@@ -276,6 +278,15 @@ void main() {
           )
           .getSingle();
       expect(count.read<int>('total'), 1);
+      final importedCategory = await db
+          .customSelect(
+            "SELECT category_id FROM budgets WHERE id = 'remote-budget';",
+          )
+          .getSingle();
+      expect(
+        importedCategory.read<String>('category_id'),
+        BudgetEntity.allExpensesCategoryId,
+      );
 
       remote.tombstones['user_budgets'] = [
         {

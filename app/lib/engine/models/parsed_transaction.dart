@@ -13,6 +13,7 @@ class ParsedTransaction {
     required this.source,
     this.rawMerchant,
     this.cardLast4,
+    this.accountNumber,
     this.balanceAfter,
     this.occurredAt,
     this.foreignAmount,
@@ -27,6 +28,11 @@ class ParsedTransaction {
   final TransactionSource source;
   final String? rawMerchant;
   final String? cardLast4;
+
+  /// رقم/جزء رقم الحساب البنكي المستخرج من الرسالة (لو ذُكر صراحةً بجوار كلمة
+  /// «حساب/account»). أرقام فقط؛ قد يكون آخر بضع خانات. يُستخدم لتحسين إسناد
+  /// الحساب — أنظر AddTransactionUseCase.
+  final String? accountNumber;
   final double? balanceAfter;
   final DateTime? occurredAt;
   final double? foreignAmount;
@@ -41,6 +47,7 @@ class ParsedTransaction {
     TransactionSource? source,
     String? rawMerchant,
     String? cardLast4,
+    String? accountNumber,
     double? balanceAfter,
     DateTime? occurredAt,
     double? foreignAmount,
@@ -55,6 +62,7 @@ class ParsedTransaction {
       source: source ?? this.source,
       rawMerchant: rawMerchant ?? this.rawMerchant,
       cardLast4: cardLast4 ?? this.cardLast4,
+      accountNumber: accountNumber ?? this.accountNumber,
       balanceAfter: balanceAfter ?? this.balanceAfter,
       occurredAt: occurredAt ?? this.occurredAt,
       foreignAmount: foreignAmount ?? this.foreignAmount,

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart' show Variable;
 import 'package:postgrest/postgrest.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -121,6 +123,7 @@ class SupabaseAccountRepository implements AccountRepository {
             'current_balance': account.currentBalance,
             'is_default': false,
             'sort_order': account.sortOrder,
+            ..._extendedFields(account),
           })
           .select()
           .single();
@@ -174,6 +177,7 @@ class SupabaseAccountRepository implements AccountRepository {
             'initial_balance': account.initialBalance,
             'current_balance': account.currentBalance,
             'sort_order': account.sortOrder,
+            ..._extendedFields(account),
           })
           .eq('user_id', uid)
           .eq('id', account.id)
@@ -271,6 +275,18 @@ class SupabaseAccountRepository implements AccountRepository {
 
   // ── مرآة الكاش المحلي (Drift) — بعد النجاح فقط، لسلامة التراجع المؤقتة ──
 
+  /// الحقول الممتدة للإرسال إلى Supabase (insert/update). metadata كـ jsonb
+  /// (Map)، والباقي أعمدة قياسية. آمنة رجعيًا: قيم null/false للحسابات القديمة.
+  Map<String, dynamic> _extendedFields(AccountEntity account) => {
+        'bank_account_number': account.bankAccountNumber,
+        'credit_limit': account.creditLimit,
+        'available_credit': account.availableCredit,
+        'payment_due_day': account.paymentDueDay,
+        'wallet_provider': account.walletProvider,
+        'exclude_from_totals': account.excludeFromTotals,
+        'metadata': account.metadata,
+      };
+
   AccountEntity _fromServerRow(Map<String, dynamic> row) {
     return AccountEntity(
       id: row['id'] as String,
@@ -279,6 +295,15 @@ class SupabaseAccountRepository implements AccountRepository {
       type: accountTypeFromKey(row['type'] as String),
       initialBalance: (row['initial_balance'] as num?)?.toDouble(),
       currentBalance: (row['current_balance'] as num?)?.toDouble(),
+      bankAccountNumber: row['bank_account_number'] as String?,
+      creditLimit: (row['credit_limit'] as num?)?.toDouble(),
+      availableCredit: (row['available_credit'] as num?)?.toDouble(),
+      paymentDueDay: (row['payment_due_day'] as num?)?.toInt(),
+      walletProvider: row['wallet_provider'] as String?,
+      excludeFromTotals: row['exclude_from_totals'] as bool? ?? false,
+      metadata: row['metadata'] is Map<String, dynamic>
+          ? row['metadata'] as Map<String, dynamic>
+          : null,
       isDefault: row['is_default'] as bool? ?? false,
       sortOrder: row['sort_order'] as int? ?? 0,
       createdAt: DateTime.parse(row['created_at'] as String).toUtc(),
@@ -308,19 +333,29 @@ class SupabaseAccountRepository implements AccountRepository {
       final resolvedLocalId =
           localId ?? await _localIdForServerId(serverId) ?? IdGenerator.next();
       final now = dateTimeToSql(DateTime.now().toUtc());
+      final metadata = row['metadata'];
       await _db.customStatement(
         '''
           INSERT INTO accounts(
             id, name, currency, type, initial_balance, current_balance,
+            bank_account_number, credit_limit, available_credit,
+            payment_due_day, wallet_provider, exclude_from_totals, metadata,
             is_default, sort_order, created_at, updated_at,
             server_id, synced_at, server_updated_at, sync_status, deleted_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             currency = excluded.currency,
             type = excluded.type,
             initial_balance = excluded.initial_balance,
             current_balance = excluded.current_balance,
+            bank_account_number = excluded.bank_account_number,
+            credit_limit = excluded.credit_limit,
+            available_credit = excluded.available_credit,
+            payment_due_day = excluded.payment_due_day,
+            wallet_provider = excluded.wallet_provider,
+            exclude_from_totals = excluded.exclude_from_totals,
+            metadata = excluded.metadata,
             is_default = excluded.is_default,
             sort_order = excluded.sort_order,
             updated_at = excluded.updated_at,
@@ -337,6 +372,13 @@ class SupabaseAccountRepository implements AccountRepository {
           row['type'] as String,
           (row['initial_balance'] as num?)?.toDouble(),
           (row['current_balance'] as num?)?.toDouble(),
+          row['bank_account_number'] as String?,
+          (row['credit_limit'] as num?)?.toDouble(),
+          (row['available_credit'] as num?)?.toDouble(),
+          (row['payment_due_day'] as num?)?.toInt(),
+          row['wallet_provider'] as String?,
+          boolToSql(row['exclude_from_totals'] as bool? ?? false),
+          metadata == null ? null : jsonEncode(metadata),
           boolToSql(row['is_default'] as bool? ?? false),
           row['sort_order'] as int? ?? 0,
           row['created_at'] as String,

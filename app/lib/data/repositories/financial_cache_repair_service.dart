@@ -44,27 +44,39 @@ class FinancialCacheRepairService {
     await smartInboxRepo.repairLocalCache();
   }
 
-  Future<void> repairDirty() async {
+  /// Returns true if at least one entity type was actually dirty and got
+  /// repaired — callers use this to skip a broad UI refresh when there was
+  /// nothing to reconcile.
+  Future<bool> repairDirty() async {
+    var repairedAny = false;
     if (await isFinancialCacheDirty(db, accountsCacheEntityType)) {
       await accountsRepo.repairLocalCache();
+      repairedAny = true;
     }
     if (await isFinancialCacheDirty(db, transactionsCacheEntityType)) {
       await transactionsRepo.repairLocalCache();
+      repairedAny = true;
     }
     if (await isFinancialCacheDirty(db, budgetsCacheEntityType)) {
       await budgetsRepo.repairLocalCache();
+      repairedAny = true;
     }
     if (await isFinancialCacheDirty(db, goalsCacheEntityType)) {
       await goalsRepo.repairLocalCache();
+      repairedAny = true;
     }
     if (await isFinancialCacheDirty(db, subscriptionsCacheEntityType)) {
       await billsRepo.repairLocalCache();
+      repairedAny = true;
     }
     if (await isFinancialCacheDirty(db, plansCacheEntityType)) {
       await plansRepo.repairLocalCache();
+      repairedAny = true;
     }
     if (await isFinancialCacheDirty(db, smartInboxCacheEntityType)) {
       await smartInboxRepo.repairLocalCache();
+      repairedAny = true;
     }
+    return repairedAny;
   }
 }

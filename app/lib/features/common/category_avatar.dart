@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/category_glyph.dart';
+import '../../core/utils/category_palette.dart';
 import 'category_catalog.dart';
 
 class CategoryAvatar extends StatelessWidget {
@@ -11,6 +12,7 @@ class CategoryAvatar extends StatelessWidget {
     this.merchantName,
     this.category,
     this.icon,
+    this.iconName,
     this.color,
     this.label,
     this.size = 44,
@@ -19,6 +21,7 @@ class CategoryAvatar extends StatelessWidget {
   final String? merchantName;
   final CategoryView? category;
   final IconData? icon;
+  final String? iconName;
   final Color? color;
   final String? label;
   final double size;
@@ -26,39 +29,46 @@ class CategoryAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final resolvedColor = color ?? category?.color ?? c.primary;
     final initial = _initial(merchantName ?? label);
+    final resolvedIconName = iconName ?? category?.iconName;
+    // Fixed, deep per-category tile background (navy/brown palette) whenever we
+    // know the category; otherwise fall back to a passed colour / primary.
+    final resolvedColor = resolvedIconName != null
+        ? categoryTileColor(resolvedIconName)
+        : (color ?? category?.color ?? c.primary);
 
+    // Solid tile — the fixed category colour as a single flat fill with a
+    // white glyph, on the true Apple superellipse (RoundedSuperellipseBorder).
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: initial != null
-            ? c.surfaceMuted.withValues(alpha: 0.72)
-            : resolvedColor.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(size * 0.35),
-        border: Border.all(
-          color: initial != null
-              ? c.border
-              : resolvedColor.withValues(alpha: 0.24),
-          width: 1,
+      alignment: Alignment.center,
+      decoration: ShapeDecoration(
+        color: resolvedColor,
+        shape: RoundedSuperellipseBorder(
+          borderRadius: BorderRadius.circular(size * 0.3),
         ),
       ),
-      alignment: Alignment.center,
       child: initial != null
           ? Text(
               initial,
               textDirection: TextDirection.ltr,
-              style: AppTypography.title2(c.textPrimary).copyWith(
-                fontSize: size * 0.42,
-                fontWeight: FontWeight.w800,
+              style: AppTypography.title2(Colors.white).copyWith(
+                fontSize: size * 0.40,
+                fontWeight: FontWeight.w700,
               ),
             )
-          : Icon(
-              icon ?? category?.icon ?? AppLucideIcons.shapes,
-              color: resolvedColor,
-              size: size * 0.46,
-            ),
+          : resolvedIconName != null
+              ? CategoryGlyph(
+                  name: resolvedIconName,
+                  size: size * 0.46,
+                  color: Colors.white,
+                )
+              : Icon(
+                  icon ?? Icons.category,
+                  color: Colors.white,
+                  size: size * 0.46,
+                ),
     );
   }
 

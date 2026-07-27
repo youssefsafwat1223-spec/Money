@@ -1,6 +1,5 @@
 import 'package:drift/drift.dart';
 
-import '../../domain/errors/repo_exceptions.dart';
 import 'app_database.dart';
 import 'sql_value_codec.dart';
 
@@ -100,16 +99,3 @@ Future<bool> isFinancialCacheDirty(AppDatabase db, String entityType) async {
 /// authoritative. A disabled flag may use Drift only after its cache slice is
 /// known to be safe; otherwise the caller receives a typed server error and
 /// can repair before retrying the rollback.
-Future<T> routeFinancialOperation<T>({
-  required AppDatabase db,
-  required String entityType,
-  required bool useSupabase,
-  required Future<T> Function() supabase,
-  required Future<T> Function() drift,
-}) async {
-  if (useSupabase) return supabase();
-  if (await isFinancialCacheDirty(db, entityType)) {
-    throw const ServerRepoException('financial_cache_dirty');
-  }
-  return drift();
-}

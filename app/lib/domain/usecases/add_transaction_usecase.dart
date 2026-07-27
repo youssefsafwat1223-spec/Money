@@ -183,6 +183,32 @@ Future<AccountEntity?> _accountForCurrency(
   );
 }
 
+/// يطابق رقم الحساب المُستخرَج من الرسالة مع bank_account_number لحساب موجود.
+/// أولوية أعلى من مطابقة العملة، لكن لا يُنشئ حسابًا أبدًا (يعيد null لو لا مطابقة).
+/// المطابقة: تطابق تام، أو تطابق لاحقة (لأرقام مُقنّعة/جزئية) بطول 4+ خانات.
+Future<AccountEntity?> _accountByNumber(
+  AccountRepository? repository,
+  String? parsedAccountNumber, {
+  List<AccountEntity>? accounts,
+}) async {
+  if (repository == null) return null;
+  final needle = parsedAccountNumber?.replaceAll(RegExp(r'[^0-9]'), '');
+  if (needle == null || needle.length < 4) return null;
+  final list = accounts ?? await repository.getAll();
+  AccountEntity? suffixMatch;
+  for (final account in list) {
+    final stored = account.bankAccountNumber?.replaceAll(RegExp(r'[^0-9]'), '');
+    if (stored == null || stored.length < 4) continue;
+    if (stored == needle) return account; // تطابق تام له الأولوية.
+    final shorter = stored.length <= needle.length ? stored : needle;
+    final longer = stored.length <= needle.length ? needle : stored;
+    if (shorter.length >= 4 && longer.endsWith(shorter)) {
+      suffixMatch ??= account;
+    }
+  }
+  return suffixMatch;
+}
+
 class AddTransactionUseCase {
   AddTransactionUseCase({
     required TransactionRepository transactionRepository,
@@ -558,13 +584,22 @@ class AddTransactionUseCase {
         hasHomeCurrencyFee &&
         await _existingAccountForCurrency(txCurrency) == null;
 
+    // أولوية الإسناد: (1) رقم الحساب المطابق لـ bank_account_number إن وُجد،
+    // ثم (2) مطابقة العملة، ثم (3) الحساب الافتراضي. لا يمسّ ربط البطاقة (A2).
+    final byAccountNumber = foreignUnpriced
+        ? null
+        : await _accountByNumber(
+            _accountRepository,
+            effectiveParsed.accountNumber,
+          );
     final effectiveAccount = foreignUnpriced
         ? defaultAccount
-        : await _accountForCurrency(
-            _accountRepository,
-            effectiveParsed.currency,
-            fallback: defaultAccount,
-          );
+        : (byAccountNumber ??
+            await _accountForCurrency(
+              _accountRepository,
+              effectiveParsed.currency,
+              fallback: defaultAccount,
+            ));
 
     final transaction = TransactionEntity(
       id: IdGenerator.next(),

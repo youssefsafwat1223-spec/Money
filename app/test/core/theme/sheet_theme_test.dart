@@ -5,7 +5,7 @@ import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/core/theme/widgets/navy_sheet_theme.dart';
 
 void main() {
-  testWidgets('modal sheet wrapper applies navy theme with light text',
+  testWidgets('sheet wrapper follows the ambient theme — light app → light sheet',
       (tester) async {
     const sheetKey = ValueKey('sheet-content');
 
@@ -17,7 +17,7 @@ void main() {
             Builder(
               builder: (context) => ColoredBox(
                 key: sheetKey,
-                color: context.colors.surfaceElevated,
+                color: context.colors.surface,
                 child: Text(
                   'الحسابات والمحافظ',
                   style: TextStyle(color: context.colors.textPrimary),
@@ -30,32 +30,66 @@ void main() {
     );
 
     final context = tester.element(find.byKey(sheetKey));
-    expect(Theme.of(context).brightness, Brightness.dark);
-    expect(context.colors, AppTheme.sheetColors);
+    expect(Theme.of(context).brightness, Brightness.light);
+    expect(context.colors, AppColors.light);
     expect(
       tester.widget<Text>(find.text('الحسابات والمحافظ')).style?.color,
-      AppTheme.sheetColors.textPrimary,
+      AppColors.light.textPrimary,
     );
   });
 
-  test('light app theme keeps the complete modal surface navy', () {
-    final sheetTheme = AppTheme.light.bottomSheetTheme;
+  testWidgets('sheet wrapper follows the ambient theme — dark app → dark sheet',
+      (tester) async {
+    const sheetKey = ValueKey('sheet-content');
 
-    expect(
-      sheetTheme.modalBackgroundColor,
-      AppTheme.sheetColors.surfaceElevated,
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark,
+        home: Scaffold(
+          body: navySheetTheme(
+            Builder(
+              builder: (context) => ColoredBox(
+                key: sheetKey,
+                color: context.colors.surface,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
-    expect(sheetTheme.backgroundColor, AppTheme.sheetColors.surfaceElevated);
-    expect(sheetTheme.dragHandleColor, AppTheme.sheetColors.textSecondary);
-    expect(sheetTheme.clipBehavior, Clip.antiAlias);
+
+    final context = tester.element(find.byKey(sheetKey));
+    expect(Theme.of(context).brightness, Brightness.dark);
+    expect(context.colors, AppColors.dark);
   });
 
-  test('sheet wrapper does not add a second painted surface', () {
-    final wrapped = navySheetTheme(
-      const SizedBox(key: ValueKey('content')),
+  test('bottom sheet surface matches the mockups (charcoal dark / white light)',
+      () {
+    final light = AppTheme.light.bottomSheetTheme;
+    expect(light.backgroundColor, AppTheme.sheetSurfaceLight);
+    expect(light.modalBackgroundColor, AppTheme.sheetSurfaceLight);
+    expect(light.dragHandleColor, AppColors.light.textSecondary);
+    expect(light.clipBehavior, Clip.antiAlias);
+
+    final dark = AppTheme.dark.bottomSheetTheme;
+    expect(dark.backgroundColor, AppTheme.sheetSurfaceDark);
+    expect(dark.modalBackgroundColor, AppTheme.sheetSurfaceDark);
+    expect(dark.dragHandleColor, AppColors.dark.textSecondary);
+  });
+
+  testWidgets('sheet wrapper only applies a Theme, no extra painted surface',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark,
+        home: Scaffold(
+          body: navySheetTheme(const SizedBox(key: ValueKey('content'))),
+        ),
+      ),
     );
 
-    expect(wrapped, isA<Theme>());
-    expect((wrapped as Theme).child, isA<SizedBox>());
+    expect(find.byKey(const ValueKey('content')), findsOneWidget);
+    final ctx = tester.element(find.byKey(const ValueKey('content')));
+    expect(Theme.of(ctx).brightness, Brightness.dark);
   });
 }

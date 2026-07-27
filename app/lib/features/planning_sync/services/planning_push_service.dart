@@ -98,6 +98,9 @@ class PlanningPushService {
     PlanningOutboxQueue.subscriptionsEntityType: 'user_subscriptions',
     PlanningOutboxQueue.goalsEntityType: 'user_goals',
     PlanningOutboxQueue.plansEntityType: 'user_plans',
+    PlanningOutboxQueue.cardsEntityType: 'user_cards',
+    PlanningOutboxQueue.categoriesEntityType: 'user_categories',
+    PlanningOutboxQueue.settingsEntityType: 'user_settings',
   };
 
   static const _localTable = {
@@ -105,6 +108,9 @@ class PlanningPushService {
     PlanningOutboxQueue.subscriptionsEntityType: 'subscriptions',
     PlanningOutboxQueue.goalsEntityType: 'goals',
     PlanningOutboxQueue.plansEntityType: 'plans',
+    PlanningOutboxQueue.cardsEntityType: 'cards',
+    PlanningOutboxQueue.categoriesEntityType: 'categories',
+    PlanningOutboxQueue.settingsEntityType: 'user_settings',
   };
 
   static Future<String?> _defaultGetAuthUserId() async {
@@ -129,11 +135,6 @@ class PlanningPushService {
       if (!_isEnabled(entityType)) continue;
       final items = await _queue.pendingItems(entityType: entityType);
       for (final item in items) {
-        if (item.attemptCount >= 5) {
-          abandoned++;
-          await _queue.markSuccess(item.id);
-          continue;
-        }
         try {
           final outcome = await _process(item, userId);
           switch (outcome) {
@@ -356,6 +357,47 @@ class PlanningPushService {
           'status': payload['status'],
           'icon': payload['icon'],
           'created_at': payload['created_at'],
+        },
+      PlanningOutboxQueue.cardsEntityType => {
+          'user_id': userId,
+          'local_id': payload['local_id'],
+          'local_account_id': payload['local_account_id'],
+          'nickname': payload['nickname'],
+          'last4': payload['last4'],
+          'network': payload['network'],
+          'source': payload['source'],
+          // حقول التصميم لا تُرسَل حتى نشر ترقية 0064 (العمودان غير موجودين
+          // على الخادم بعد) — انظر kUserCardsCloudV2.
+          if (kUserCardsCloudV2) 'color_theme': payload['color_theme'],
+          if (kUserCardsCloudV2) 'accent_hex': payload['accent_hex'],
+          'created_at': payload['created_at'],
+        },
+      PlanningOutboxQueue.categoriesEntityType => {
+          'user_id': userId,
+          'local_id': payload['local_id'],
+          'key': payload['key'],
+          'name_ar': payload['name_ar'],
+          'icon': payload['icon'],
+          'color': payload['color'],
+          'is_income': payload['is_income'] == true,
+        },
+      // تفضيلات المستخدم — أعمدة سحابية فقط (لا مفتاح تشفير/أفاتار/ملف شخصي).
+      PlanningOutboxQueue.settingsEntityType => {
+          'user_id': userId,
+          'local_id': payload['local_id'],
+          'display_name': payload['display_name'],
+          'phone_number': payload['phone_number'],
+          'date_of_birth': payload['date_of_birth'],
+          'theme': payload['theme'],
+          'currency': payload['currency'],
+          'language': payload['language'],
+          'country': payload['country'],
+          'input_method': payload['input_method'],
+          'notifications_json': payload['notifications_json'],
+          'privacy_mode_enabled': payload['privacy_mode_enabled'] == true,
+          'ai_consent_granted': payload['ai_consent_granted'] == true,
+          'cloud_processing_enabled':
+              payload['cloud_processing_enabled'] == true,
         },
       _ => throw ArgumentError('Unsupported planning entity: $entityType'),
     };

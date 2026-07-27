@@ -9,8 +9,9 @@ class AppTypography {
 
   static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];
 
-  /// Canonical app text style. IBM Plex Sans Arabic supplies the Arabic
-  /// glyphs; IBM Plex Sans is the matching Latin companion for mixed strings.
+  /// Canonical app text style. Alexandria supplies both the Arabic and Latin
+  /// glyphs (a modern geometric Arabic-first family); IBM Plex Sans is kept as
+  /// a Latin fallback safety net for any glyph Alexandria lacks.
   static TextStyle custom({
     required double size,
     required FontWeight weight,
@@ -20,7 +21,7 @@ class AppTypography {
     Color? color,
     List<Shadow>? shadows,
   }) {
-    return GoogleFonts.ibmPlexSansArabic(
+    return GoogleFonts.alexandria(
       fontSize: size,
       fontWeight: weight,
       height: height,
@@ -38,7 +39,7 @@ class AppTypography {
   // ===== Premium Named Styles =====
 
   static TextStyle amountHero(Color c) => custom(
-      size: 40, weight: FontWeight.w800, height: 1.10, tabular: true, color: c);
+      size: 40, weight: FontWeight.w700, height: 1.10, tabular: true, color: c);
 
   static TextStyle amountMedium(Color c) => custom(
       size: 24, weight: FontWeight.w700, height: 1.20, tabular: true, color: c);
@@ -47,7 +48,7 @@ class AppTypography {
       size: 18, weight: FontWeight.w600, height: 1.25, tabular: true, color: c);
 
   static TextStyle display(Color c) =>
-      custom(size: 32, weight: FontWeight.w800, height: 1.06, color: c);
+      custom(size: 32, weight: FontWeight.w700, height: 1.06, color: c);
 
   static TextStyle title1(Color c) =>
       custom(size: 24, weight: FontWeight.w700, height: 1.18, color: c);
@@ -84,6 +85,49 @@ class AppTypography {
 
   static TextStyle micro(Color c) =>
       custom(size: 11, weight: FontWeight.w500, height: 1.30, color: c);
+
+  // ===== Mali flagship "calm" scale (docs/MALI_DESIGN_SYSTEM.md) =====
+  // Additive only. The existing amountHero/display/w800 styles above are
+  // untouched and remain in active use across the app — do not remove them.
+  // These calm tokens cap weight at w600/w700 and tighten tracking on large
+  // numbers, per the flagship spec. Adopted intentionally, screen by screen.
+
+  /// The Home balance statement — large, calm, tight tracking, tabular.
+  static TextStyle balanceHero(Color c) => custom(
+      size: 52,
+      weight: FontWeight.w600,
+      height: 1.05,
+      letterSpacing: -1.4,
+      tabular: true,
+      color: c);
+
+  /// Calmer alternative to [display] — same role, capped at w600.
+  static TextStyle calmDisplay(Color c) => custom(
+      size: 32,
+      weight: FontWeight.w600,
+      height: 1.15,
+      letterSpacing: -0.4,
+      color: c);
+
+  /// Calmer alternative to [title1]/section titles — capped at w600.
+  static TextStyle calmTitle(Color c) =>
+      custom(size: 22, weight: FontWeight.w600, height: 1.20, color: c);
+
+  /// Compact section heading (docs/MALI_COMPACT_UI_SYSTEM_PLAN.md) — replaces
+  /// oversized `headline`(18)/`title2`(20) misuse on section titles.
+  static TextStyle sectionTitle(Color c) =>
+      custom(size: 19, weight: FontWeight.w600, height: 1.25, color: c);
+
+  /// Compact card / list-group title (also empty/error headings and default
+  /// amount text). One step below a section title.
+  static TextStyle cardTitle(Color c) =>
+      custom(size: 16, weight: FontWeight.w600, height: 1.30, color: c);
+
+  /// Plain-language verdict line for a RingProgress (e.g. "وضعك مستقر").
+  /// Deliberately body-weight, not a headline — the ring carries the visual
+  /// weight, the sentence explains it.
+  static TextStyle verdict(Color c) =>
+      custom(size: 17, weight: FontWeight.w500, height: 1.40, color: c);
 
   /// يبني [TextTheme] كامل بلون النص الأساسي.
   static TextTheme textTheme(Color main) => TextTheme(

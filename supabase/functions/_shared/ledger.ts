@@ -112,6 +112,12 @@ export async function upsertLedgerTransaction(
   const values = {
     user_id: userId,
     source_payload_id: payload.payloadId,
+    // Dedup alignment with the app's outbox push: the app imports this relay
+    // capture with LOCAL id == payloadId and pushes it with
+    // client_request_id == payloadId. Setting the same key here makes that
+    // push hit the (user_id, client_request_id) unique index and UPDATE this
+    // row instead of inserting a duplicate.
+    client_request_id: payload.payloadId,
     amount: payload.amount,
     currency: payload.currency,
     direction: mapDirection(payload.direction, payload.type),

@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/glass_selector.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
@@ -31,14 +32,15 @@ class AccountRangeControls extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!showAccount && !showRange) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // The mockup `.selectors` row: two glass selectors side by side, gap 10.
+    return Row(
       children: [
         if (showAccount) ...[
-          _AccountPicker(onChanged: onAccountChanged),
-          if (showRange) const SizedBox(height: AppSpacing.s3),
+          Expanded(child: _AccountPicker(onChanged: onAccountChanged)),
+          if (showRange) const SizedBox(width: 10),
         ],
-        if (showRange) _DateRangeChips(onChanged: onRangeChanged),
+        if (showRange)
+          Expanded(child: _DateRangeChips(onChanged: onRangeChanged)),
       ],
     );
   }
@@ -51,59 +53,24 @@ class _AccountPicker extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accountsAsync = ref.watch(accountsProvider);
+    // valueOrNull (not maybeWhen/when) so the chip keeps showing the current
+    // account while accountsProvider is reloading — otherwise a reload collapses
+    // it to SizedBox.shrink() and back, which is the account-switch flicker.
+    final accounts = ref.watch(accountsProvider).valueOrNull;
     final selectedId = ref.watch(activeAccountIdProvider);
-    return accountsAsync.maybeWhen(
-      data: (accounts) {
-        if (accounts.isEmpty) return const SizedBox.shrink();
-        final defaultAccount = accounts.firstWhere(
-          (account) => account.isDefault,
-          orElse: () => accounts.first,
-        );
-        final account = accounts.firstWhere(
-          (item) => item.id == selectedId,
-          orElse: () => defaultAccount,
-        );
-        final c = context.colors;
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              onTap: () => _showAccountSheet(context, ref, account.id),
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 280),
-                padding: const EdgeInsetsDirectional.fromSTEB(14, 8, 12, 8),
-                decoration: BoxDecoration(
-                  color: c.surfaceCard,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(color: c.border),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(AppLucideIcons.walletCards, size: 16, color: c.cta),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        '${account.name} · ${Currency.arabicLabel(account.currency)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption(c.textPrimary)
-                            .copyWith(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(Icons.keyboard_arrow_down_rounded,
-                        size: 18, color: c.textMuted),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-      orElse: () => const SizedBox.shrink(),
+    if (accounts == null || accounts.isEmpty) return const SizedBox.shrink();
+    final defaultAccount = accounts.firstWhere(
+      (account) => account.isDefault,
+      orElse: () => accounts.first,
+    );
+    final account = accounts.firstWhere(
+      (item) => item.id == selectedId,
+      orElse: () => defaultAccount,
+    );
+    return GlassSelector(
+      icon: AppLucideIcons.walletCards,
+      label: '${account.name} · ${Currency.arabicLabel(account.currency)}',
+      onTap: () => _showAccountSheet(context, ref, account.id),
     );
   }
 
@@ -160,8 +127,9 @@ class _AccountPicker extends ConsumerWidget {
                     await container
                         .read(accountRepositoryProvider)
                         .setDefault(account.id);
-                    container.invalidate(accountsProvider);
-                    container.invalidate(baseCurrencyProvider);
+                    // No explicit invalidate: setDefault ticks dbRevision and
+                    // the active-account change already rebuilds accounts/
+                    // baseCurrency, and invalidating would blank them (flicker).
                     onChanged?.call();
                   },
                 ),
@@ -181,50 +149,14 @@ class _DateRangeChips extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final range = ref.watch(transactionsDateRangeProvider);
-    final c = context.colors;
 
-    return Align(
-      alignment: Alignment.center,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            _showRangeSheet(context, ref, range);
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.calendar_month_rounded, color: c.cta, size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  range.label,
-                  style: AppTypography.subhead(c.textPrimary)
-                      .copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 6),
-                Icon(Icons.keyboard_arrow_down_rounded,
-                    color: c.textMuted, size: 18),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return GlassSelector(
+      icon: Icons.calendar_month_rounded,
+      label: range.label,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        _showRangeSheet(context, ref, range);
+      },
     );
   }
 

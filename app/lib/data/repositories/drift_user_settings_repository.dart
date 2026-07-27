@@ -2,13 +2,17 @@ import 'package:drift/drift.dart';
 
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/repositories/user_settings_repository.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
+import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
 class DriftUserSettingsRepository implements UserSettingsRepository {
-  DriftUserSettingsRepository(this._db);
+  DriftUserSettingsRepository(this._db, {PlanningOutboxQueue? outboxQueue})
+      : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+  final PlanningOutboxQueue? _outboxQueue;
 
   @override
   Future<UserSettingsEntity> getSettings() async {
@@ -34,7 +38,8 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
             country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
             notifications_json = ?, db_encryption_key_ref = ?,
             privacy_mode_enabled = ?, ai_consent_granted = ?,
-            cloud_processing_enabled = ?
+            cloud_processing_enabled = ?,
+            updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
         WHERE id = ?;
       ''',
       variables: [
@@ -63,6 +68,11 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
         Variable.withInt(1),
         Variable.withString(requiredSettings.id),
       ],
+    );
+    // S2: أدرج التفضيلات السحابية للمزامنة في الخلفية (الأعمدة السحابية فقط).
+    await _outboxQueue?.enqueueSettings(
+      PlanningSyncOperation.update,
+      requiredSettings,
     );
     return requiredSettings;
   }

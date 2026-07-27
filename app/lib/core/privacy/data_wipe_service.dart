@@ -21,6 +21,7 @@ class DataWipeService {
   static const List<String> _tables = [
     'transactions',
     'accounts',
+    'cards',
     'goal_contributions',
     'goals',
     'budgets',
@@ -48,6 +49,14 @@ class DataWipeService {
     for (final table in _tables) {
       await _db.customStatement('DELETE FROM $table;');
     }
+    // Built-in categories are catalog data and remain available. Custom rows
+    // belong to the signed-out user and must not leak into the next session.
+    await _db.customStatement('''
+      DELETE FROM categories
+      WHERE key LIKE 'custom_%'
+         OR server_id IS NOT NULL
+         OR sync_status IS NOT NULL;
+    ''');
     await _db.reseedDefaultsAfterWipe();
   }
 }

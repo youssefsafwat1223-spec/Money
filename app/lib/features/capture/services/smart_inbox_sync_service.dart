@@ -25,10 +25,20 @@ class SmartInboxSyncResult {
 abstract class SmartInboxRemoteSource {
   Future<List<Map<String, dynamic>>> fetchActiveRows({int limit});
   Future<List<Map<String, dynamic>>> fetchTombstones({int limit});
+
+  /// يدفع تغيير الحالة (رفض/معالجة) لصف الخادم المطابق للـ serverId.
+  Future<void> pushStatus(String serverId, String status);
 }
 
 class SupabaseSmartInboxRemoteSource implements SmartInboxRemoteSource {
   const SupabaseSmartInboxRemoteSource();
+
+  @override
+  Future<void> pushStatus(String serverId, String status) async {
+    await Supabase.instance.client
+        .from('user_smart_inbox')
+        .update({'status': status}).eq('id', serverId);
+  }
 
   @override
   Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async {
@@ -87,6 +97,41 @@ class SmartInboxSyncService {
   final bool Function() _isPullEnabled;
   final SmartInboxRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
+
+  /// S3 gap#1: يدفع تغييرات الحالة المحلية (رفض/معالجة) إلى الخادم.
+  /// specialized لصندوق الوارد (server-authored): لا outbox عام ولا محرك ثانٍ —
+  /// يستنزف العلم pending_sync ويمسحه بعد النجاح. offline يبقيه للمحاولة التالية.
+  Future<int> push() async {
+    if (!_isPullEnabled()) return 0;
+    final userId = await _getAuthUserId();
+    if (userId == null) return 0;
+
+    final pending = await _db
+        .customSelect(
+          'SELECT server_id, status FROM smart_inbox_items '
+          'WHERE pending_sync = 1;',
+        )
+        .get();
+    var pushed = 0;
+    for (final row in pending) {
+      final serverId = row.read<String>('server_id');
+      final status = row.read<String>('status');
+      try {
+        await _remoteSource.pushStatus(serverId, status);
+        await _db.customStatement(
+          'UPDATE smart_inbox_items SET pending_sync = 0, synced_at = '
+          "${sqlString(dateTimeToSql(DateTime.now().toUtc()))} "
+          'WHERE server_id = ${sqlString(serverId)};',
+        );
+        pushed++;
+      } catch (e) {
+        // offline / خطأ مؤقت — يبقى pending_sync=1 للمحاولة في الدورة التالية.
+        if (kDebugMode) debugPrint('[SmartInboxSync] push item skipped: $e');
+      }
+    }
+    if (kDebugMode) debugPrint('[SmartInboxSync] push done: pushed=$pushed');
+    return pushed;
+  }
 
   Future<SmartInboxSyncResult> pull() async {
     if (!_isPullEnabled()) return const SmartInboxSyncResult();

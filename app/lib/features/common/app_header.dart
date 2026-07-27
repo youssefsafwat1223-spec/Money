@@ -43,10 +43,12 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: (compact
-                    ? AppTypography.headline(c.textPrimary)
-                    : AppTypography.title2(c.textPrimary))
-                .copyWith(fontWeight: FontWeight.w800),
+            // Mockup `.tophead .h1`: 24px w600, tight tracking.
+            style: compact
+                ? AppTypography.headline(c.textPrimary)
+                    .copyWith(fontWeight: FontWeight.w600)
+                : AppTypography.calmTitle(c.textPrimary)
+                    .copyWith(fontSize: 24, letterSpacing: -0.5),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 2),
@@ -54,7 +56,9 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
               subtitle!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: AppTypography.caption(c.textMuted),
+              // Mockup `.hsub`: 13px secondary.
+              style: AppTypography.caption(c.textSecondary)
+                  .copyWith(fontSize: 13, fontWeight: FontWeight.w400),
             ),
           ],
         ],

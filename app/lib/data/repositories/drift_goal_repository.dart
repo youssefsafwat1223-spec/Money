@@ -40,13 +40,13 @@ class DriftGoalRepository implements GoalRepository {
         Variable.withString(contribution.goalId),
       ],
     );
-    final updated = await getById(contribution.goalId);
-    if (updated != null) {
-      await _outboxQueue?.enqueueGoal(
-        PlanningSyncOperation.update,
-        updated,
-      );
-    }
+    // The server RPC atomically inserts the contribution and updates the goal
+    // total. Queue the child itself; queuing a parent update here would race the
+    // RPC and can double-count across devices.
+    await _outboxQueue?.enqueueGoalContribution(
+      PlanningSyncOperation.create,
+      contribution,
+    );
     return contribution;
   }
 

@@ -172,7 +172,7 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
                               widget.campaign.titleAr,
                               textAlign: TextAlign.right,
                               style: AppTypography.title(Colors.white).copyWith(
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                                 height: 1.22,
                               ),
                               maxLines: 3,
@@ -219,7 +219,7 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
                             child: Text(
                               actionLabel,
                               style: AppTypography.caption(Colors.white)
-                                  .copyWith(fontWeight: FontWeight.w900),
+                                  .copyWith(fontWeight: FontWeight.w700),
                             ),
                           ),
                         ),
@@ -356,7 +356,7 @@ class _BannerTile extends ConsumerWidget {
                               announcement.titleAr,
                               textAlign: TextAlign.right,
                               style: AppTypography.title(colors.fg).copyWith(
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                                 height: 1.22,
                               ),
                               maxLines: 3,
@@ -401,7 +401,7 @@ class _BannerTile extends ConsumerWidget {
                             child: Text(
                               actionLabel,
                               style: AppTypography.caption(colors.fg)
-                                  .copyWith(fontWeight: FontWeight.w900),
+                                  .copyWith(fontWeight: FontWeight.w700),
                             ),
                           ),
                         ),

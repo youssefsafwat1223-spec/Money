@@ -5,10 +5,12 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/mali_card.dart';
+import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/goal_entity.dart';
-import '../common/account_range_controls.dart';
 import '../common/premium_loading.dart';
 import 'goal_details_screen.dart';
 import 'goal_form_screen.dart';
@@ -27,7 +29,7 @@ class GoalsScreen extends ConsumerWidget {
       backgroundColor: context.colors.bg,
       body: async.when(
         skipLoadingOnReload: true,
-        loading: () => const PremiumSkeletonPage(cardCount: 4),
+        loading: () => const FirstLoadPlaceholder(cardCount: 4),
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (goals) {
           final saved =
@@ -44,15 +46,6 @@ class GoalsScreen extends ConsumerWidget {
                   target: 0,
                   currencyLabel: currencyLabel,
                   onAdd: () => GoalFormScreen.showSheet(context),
-                ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    AppSpacing.gutter,
-                    AppSpacing.gutter,
-                    AppSpacing.gutter,
-                    0,
-                  ),
-                  child: AccountRangeControls(showRange: false),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.gutter),
@@ -79,8 +72,6 @@ class GoalsScreen extends ConsumerWidget {
                   padding: const EdgeInsets.all(AppSpacing.gutter),
                   child: Column(
                     children: [
-                      const AccountRangeControls(showRange: false),
-                      const SizedBox(height: AppSpacing.s4),
                       for (final goal in goals) ...[
                         _GoalCard(
                           goal: goal,
@@ -148,23 +139,16 @@ class _GoalCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  width: 52,
-                  height: 52,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        c.primary.withValues(alpha: 0.22),
-                        c.gradB.withValues(alpha: 0.14),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    border: Border.all(
-                      color: c.primary.withValues(alpha: 0.18),
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.savings_outlined,
                     color: c.primary,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: const CategoryGlyph(
+                    name: 'piggy-bank',
+                    size: 24,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.s3),
@@ -173,7 +157,7 @@ class _GoalCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(goal.name,
-                          style: AppTypography.headline(c.textMain)),
+                          style: AppTypography.cardTitle(c.textMain)),
                       const SizedBox(height: AppSpacing.s1),
                       Text(
                         remaining == 0
@@ -303,171 +287,33 @@ class _GoalsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     final ratio = target == 0 ? 0 : (saved / target * 100).round();
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+    return CalmPageHeader(
+      title: 'الأهداف',
+      subtitle: 'إجمالي المدخر لكل أحلامك',
+      leading: Navigator.of(context).canPop()
+          ? const BackButton(color: Colors.white)
+          : null,
+      trailing: GestureDetector(
+        onTap: onAdd,
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withValues(alpha: 0.16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+          ),
+          child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  'الأهداف',
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-              GestureDetector(
-                onTap: onAdd,
-                child: Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: c.surfaceCard,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: c.border),
-                  ),
-                  child: Icon(Icons.add, color: c.cta, size: 22),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'خزنة صغيرة لكل حلم، ومساهمات واضحة خطوة بخطوة.',
-            style: AppTypography.caption(c.textMuted),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              color: c.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: c.cta.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        Icons.savings_outlined,
-                        color: c.cta,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'إجمالي المدخر',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${Formatters.amount(saved)} $currencyLabel',
-                            style: AppTypography.title2(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
-                  child: Divider(color: c.border, height: 1),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$count',
-                            style:
-                                AppTypography.bodyStrong(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'أهداف نشطة',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 32,
-                      color: c.divider,
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$ratio%',
-                            style:
-                                AppTypography.bodyStrong(c.textMain).copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'نسبة التقدم',
-                            style: AppTypography.caption(c.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      amount: Formatters.amount(saved),
+      currency: currencyLabel,
+      metrics: [
+        CalmMetric(label: 'أهداف نشطة', value: '$count'),
+        CalmMetric(label: 'نسبة التقدم', value: '$ratio%'),
+        CalmMetric(label: 'المستهدف', value: Formatters.amount(target)),
+      ],
     );
   }
 }
@@ -480,32 +326,24 @@ class _EmptyGoalsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.s6),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Text('أضف هدفك الأول وابدأ تعبئة الخزنة.',
-              textAlign: TextAlign.center,
-              style: AppTypography.callout(c.textLight)),
-          const SizedBox(height: AppSpacing.s4),
-          FilledButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.add),
-            label: const Text('إضافة هدف'),
-          ),
-        ],
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        padding: const EdgeInsets.all(AppSpacing.s6),
+        child: Column(
+          children: [
+            Text('أضف هدفك الأول وابدأ تعبئة الخزنة.',
+                textAlign: TextAlign.center,
+                style: AppTypography.callout(c.textLight)),
+            const SizedBox(height: AppSpacing.s4),
+            FilledButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('إضافة هدف'),
+            ),
+          ],
+        ),
       ),
     );
   }

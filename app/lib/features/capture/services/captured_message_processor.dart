@@ -7,6 +7,7 @@ import '../../../core/utils/install_id.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/repositories/drift_budget_repository.dart';
+import '../../../data/repositories/drift_card_repository.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_account_repository.dart';
 import '../../../data/repositories/drift_gamification_repository.dart';
@@ -15,10 +16,14 @@ import '../../../data/repositories/drift_sender_bank_mapping_repository.dart';
 import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
+import '../../planning_sync/services/outbox_queue_factory.dart';
 import 'package:drift/drift.dart' show Variable;
 
 import '../../../domain/entities/captured_message.dart';
+import '../../../domain/entities/card_entity.dart';
 import '../../../domain/entities/engagement_entities.dart';
+import '../../../domain/entities/transaction_entity.dart';
+import '../../../engine/parser/card_network.dart';
 import '../../../domain/services/bank_discovery_service.dart';
 import '../../../domain/services/budget_alert_planner.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
@@ -63,6 +68,10 @@ class CapturedMessageProcessor {
     final shouldCloseDatabase = database == null;
     try {
       final settingsRepository = DriftUserSettingsRepository(db);
+      // Background/native captures must enter the sync pipeline like every
+      // other write. The queues are auth-gated internally (guest → local-only).
+      final ledgerOutbox = buildLedgerOutboxQueue(db);
+      final planningOutbox = buildPlanningOutboxQueue(db);
       final engagementUseCase = RecordEngagementUseCase(
         gamificationRepository: DriftGamificationRepository(db),
         transactionRepository: DriftTransactionRepository(db),
@@ -101,7 +110,8 @@ class CapturedMessageProcessor {
           : null;
       final ingestUseCase = IngestCapturedMessageUseCase(
         AddTransactionUseCase(
-          transactionRepository: DriftTransactionRepository(db),
+          transactionRepository:
+              DriftTransactionRepository(db, outboxQueue: ledgerOutbox),
           merchantCategoryRepository: DriftMerchantCategoryRepository(db),
           recordEngagementUseCase: engagementUseCase,
           loadBankProfiles: RulesClient(database: db).localBankProfiles,
@@ -140,7 +150,8 @@ class CapturedMessageProcessor {
           loadAiConsent: () async =>
               (await settingsRepository.getSettings()).aiConsentGranted,
           loadInstallId: InstallId.get,
-          accountRepository: DriftAccountRepository(db),
+          accountRepository:
+              DriftAccountRepository(db, outboxQueue: planningOutbox),
           dedupStore: DriftDedupStore(db),
           suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
           resolveBankForSenderUseCase: ResolveBankForSenderUseCase(
@@ -160,6 +171,10 @@ class CapturedMessageProcessor {
 
       final result = await ingestUseCase.fromCapturedMessage(message);
 
+      if (result.addTransactionResult.outcome == AddTransactionOutcome.added) {
+        await _autoDetectCard(db, result.addTransactionResult.transaction);
+      }
+
       if (showNotifications &&
           result.addTransactionResult.outcome == AddTransactionOutcome.added) {
         await checkBudgetAlert(db, notificationPreferences);
@@ -177,6 +192,7 @@ class CapturedMessageProcessor {
               title: content.title,
               body: content.body,
               preferences: notificationPreferences,
+              stableId: result.addTransactionResult.transaction?.id,
             );
           case CapturedMessageDisposition.requestConfirmation:
             final transaction = result.addTransactionResult.transaction;
@@ -198,6 +214,7 @@ class CapturedMessageProcessor {
               title: content.title,
               body: content.body,
               preferences: notificationPreferences,
+              stableId: result.addTransactionResult.transaction?.id,
             );
           case CapturedMessageDisposition.unprocessable:
             await LocalNotificationService.instance
@@ -222,6 +239,38 @@ class CapturedMessageProcessor {
   /// thresholds. Public so both the capture pipeline (below) and manual
   /// transaction entry (manual_transaction_sheet.dart) can call it after
   /// adding a transaction — a budget can be blown by either path.
+  /// يربط عملية مُلتقَطة ببطاقة حقيقية: لو الحساب معروف وفيه آخر 4 أرقام ولا
+  /// توجد بطاقة مطابقة، يُنشئ بطاقة تلقائية (source=auto). لو الحساب غير معروف
+  /// أو لا يوجد رقم بطاقة، تُترك للتجميع المُشتَقّ («غير مخصّصة»). أفضل جهد —
+  /// لا يكسر خط الالتقاط.
+  static Future<void> _autoDetectCard(
+    AppDatabase db,
+    TransactionEntity? transaction,
+  ) async {
+    if (transaction == null) return;
+    final accountId = transaction.accountId;
+    final last4 = normalizeLast4(transaction.cardLast4);
+    if (accountId == null || last4 == null) return;
+    try {
+      final cardRepo =
+          DriftCardRepository(db, outboxQueue: buildPlanningOutboxQueue(db));
+      if (await cardRepo.findByAccountAndLast4(accountId, last4) != null) {
+        return;
+      }
+      await cardRepo.create(CardEntity(
+        id: '',
+        accountId: accountId,
+        last4: last4,
+        network: CardNetworkDetector.detect(transaction.rawMessage),
+        source: CardSource.auto,
+        createdAt: DateTime.now().toUtc(),
+        updatedAt: DateTime.now().toUtc(),
+      ));
+    } catch (_) {
+      // فشل ربط البطاقة يجب ألا يوقف الالتقاط.
+    }
+  }
+
   static Future<void> checkBudgetAlert(
     AppDatabase db,
     NotificationPreferences prefs,

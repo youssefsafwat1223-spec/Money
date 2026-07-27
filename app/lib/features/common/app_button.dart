@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_motion.dart';
-import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
@@ -15,7 +14,7 @@ class AppPrimaryButton extends StatelessWidget {
     this.icon,
     this.loading = false,
     this.disabled = false,
-    this.height = 56,
+    this.height = AppSpacing.buttonHeight,
     this.semanticsLabel,
   });
 
@@ -44,7 +43,7 @@ class AppPrimaryButton extends StatelessWidget {
       disabledFg: c.disabledFg,
       side: null,
       gradient: c.primaryGradient,
-      shadow: AppShadows.ctaGlow,
+      shadow: null,
     );
   }
 }
@@ -58,7 +57,7 @@ class AppSecondaryButton extends StatelessWidget {
     this.icon,
     this.loading = false,
     this.disabled = false,
-    this.height = 56,
+    this.height = AppSpacing.buttonHeight,
     this.semanticsLabel,
   });
 
@@ -101,7 +100,7 @@ class AppGhostButton extends StatelessWidget {
     this.icon,
     this.loading = false,
     this.disabled = false,
-    this.height = 56,
+    this.height = AppSpacing.buttonHeight,
     this.semanticsLabel,
   });
 
@@ -144,7 +143,7 @@ class AppDangerButton extends StatelessWidget {
     this.icon,
     this.loading = false,
     this.disabled = false,
-    this.height = 56,
+    this.height = AppSpacing.buttonHeight,
     this.semanticsLabel,
     this.filled = true,
   });
@@ -319,7 +318,7 @@ class AppButton extends StatelessWidget {
     this.isDanger = false,
     this.loading = false,
     this.disabled = false,
-    this.height = 56,
+    this.height = AppSpacing.buttonHeight,
     this.icon,
   });
 

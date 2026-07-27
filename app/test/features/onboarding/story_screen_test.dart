@@ -78,7 +78,8 @@ void main() {
     await tester.drag(find.byType(PageView), const Offset(500, 0));
     await tester.pumpAndSettle();
 
-    expect(find.text('المصروفات الصغيرة بتفرق', findRichText: true), findsOneWidget);
+    expect(find.text('المصروفات الصغيرة بتفرق', findRichText: true),
+        findsOneWidget);
     expect(find.text('ابدأ مع قِرش'), findsOneWidget);
     expect(find.text('متحمّسين\nنبدأ معك'), findsNothing);
 
