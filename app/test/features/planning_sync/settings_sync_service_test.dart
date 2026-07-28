@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
@@ -18,18 +19,16 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
   final rows = <String, Map<String, Map<String, dynamic>>>{};
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows(String table,
-      {int limit = 200}) async {
+  Future<List<Map<String, dynamic>>> fetchRows(
+    String table, {
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
     return (rows[table]?.values ?? const <Map<String, dynamic>>[])
-        .where((r) => r['deleted_at'] == null)
+        .take(limit)
         .map(Map<String, dynamic>.from)
         .toList();
   }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones(String table,
-          {int limit = 200}) async =>
-      const [];
 
   @override
   Future<Map<String, dynamic>?> findByLocalId(
@@ -108,7 +107,8 @@ void main() {
   Future<void> bind() => db.customStatement(
       "UPDATE user_settings SET server_id = 'server-user_settings';");
 
-  test('changing a cloud setting pushes cloud + profile columns, never '
+  test(
+      'changing a cloud setting pushes cloud + profile columns, never '
       'device-local/security ones', () async {
     await bind();
     final s = await settings.getSettings();
@@ -225,7 +225,8 @@ void main() {
     expect(await _col(db, 'theme'), 'dark'); // local edit preserved
   });
 
-  test('unbound singleton (post-wipe defaults) is NEVER pushed as an update — '
+  test(
+      'unbound singleton (post-wipe defaults) is NEVER pushed as an update — '
       'cloud settings cannot be clobbered before the first pull', () async {
     // No bind(): server_id is NULL, as right after a sign-out wipe. Automatic
     // writers (notification history) save settings within seconds of sign-in.

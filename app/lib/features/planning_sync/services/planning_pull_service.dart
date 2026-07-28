@@ -5,6 +5,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/budget_entity.dart';
 import 'planning_outbox_queue.dart';
 
@@ -23,13 +24,9 @@ class PlanningPullResult {
 }
 
 abstract class PlanningRemoteSource {
-  Future<List<Map<String, dynamic>>> fetchActiveRows(
+  Future<List<Map<String, dynamic>>> fetchRows(
     String table, {
-    int limit,
-  });
-
-  Future<List<Map<String, dynamic>>> fetchTombstones(
-    String table, {
+    required SyncCursor after,
     int limit,
   });
 }
@@ -40,35 +37,23 @@ class SupabasePlanningRemoteSource implements PlanningRemoteSource {
   SupabaseClient get _client => Supabase.instance.client;
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows(
+  Future<List<Map<String, dynamic>>> fetchRows(
     String table, {
+    required SyncCursor after,
     int limit = 200,
   }) async {
-    final response = await _client
-        .from(table)
-        .select()
-        .order('updated_at', ascending: false)
+    final query = _client.from(table).select();
+    final filtered = after.id.isEmpty
+        ? query
+        : query.or(
+            'updated_at.gt.${after.updatedAt},'
+            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
+          );
+    final response = await filtered
+        .order('updated_at', ascending: true)
+        .order('id', ascending: true)
         .limit(limit);
-    return (response as List)
-        .cast<Map<String, dynamic>>()
-        .where((row) => row['deleted_at'] == null)
-        .toList();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones(
-    String table, {
-    int limit = 200,
-  }) async {
-    final response = await _client
-        .from(table)
-        .select('id, local_id, deleted_at, updated_at')
-        .order('updated_at', ascending: false)
-        .limit(limit);
-    return (response as List)
-        .cast<Map<String, dynamic>>()
-        .where((row) => row['deleted_at'] != null)
-        .toList();
+    return (response as List).cast<Map<String, dynamic>>();
   }
 }
 
@@ -78,15 +63,19 @@ class PlanningPullService {
     required bool Function(String entityType) isEnabled,
     Future<String?> Function()? getAuthUserId,
     PlanningRemoteSource? remoteSource,
-  })  : _db = db,
+    int pageSize = 200,
+  })  : assert(pageSize > 0),
+        _db = db,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
+        _pageSize = pageSize,
         _remoteSource = remoteSource ?? const SupabasePlanningRemoteSource();
 
   final AppDatabase _db;
   final bool Function(String entityType) _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final PlanningRemoteSource _remoteSource;
+  final int _pageSize;
 
   static const _entityTable = {
     PlanningOutboxQueue.budgetsEntityType: 'user_budgets',
@@ -132,33 +121,58 @@ class PlanningPullService {
       if (!_isEnabled(entityType)) continue;
 
       try {
-        final rows = await _remoteSource.fetchActiveRows(remoteTable);
-        for (final row in rows) {
-          final outcome = await _processRow(entityType, row);
-          switch (outcome) {
-            case _PlanningPullOutcome.imported:
-              imported++;
-            case _PlanningPullOutcome.updated:
-              updated++;
-            case _PlanningPullOutcome.conflict:
-              conflicts++;
-            case _PlanningPullOutcome.skipped:
-              break;
-          }
-        }
-      } catch (e) {
-        if (kDebugMode) debugPrint('[PlanningPull] $entityType fetch: $e');
-      }
+        final cursorKey = 'planning_$entityType';
+        var cursor = await readSyncCursor(_db, cursorKey);
+        while (true) {
+          final rows = await _remoteSource.fetchRows(
+            remoteTable,
+            after: cursor,
+            limit: _pageSize,
+          );
+          if (rows.isEmpty) break;
 
-      try {
-        final rows = await _remoteSource.fetchTombstones(remoteTable);
-        for (final row in rows) {
-          if (await _processTombstone(entityType, row)) tombstoned++;
+          final nextCursor = SyncCursor.fromServerRow(rows.last);
+          final pageResult = await _db.transaction(() async {
+            var pageImported = 0;
+            var pageUpdated = 0;
+            var pageConflicts = 0;
+            var pageTombstoned = 0;
+            for (final row in rows) {
+              if (row['deleted_at'] != null) {
+                if (await _processTombstone(entityType, row)) {
+                  pageTombstoned++;
+                }
+                continue;
+              }
+              final outcome = await _processRow(entityType, row);
+              switch (outcome) {
+                case _PlanningPullOutcome.imported:
+                  pageImported++;
+                case _PlanningPullOutcome.updated:
+                  pageUpdated++;
+                case _PlanningPullOutcome.conflict:
+                  pageConflicts++;
+                case _PlanningPullOutcome.skipped:
+                  break;
+              }
+            }
+            await writeSyncCursor(_db, cursorKey, nextCursor);
+            return (
+              imported: pageImported,
+              updated: pageUpdated,
+              conflicts: pageConflicts,
+              tombstoned: pageTombstoned,
+            );
+          });
+          imported += pageResult.imported;
+          updated += pageResult.updated;
+          conflicts += pageResult.conflicts;
+          tombstoned += pageResult.tombstoned;
+          cursor = nextCursor;
+          if (rows.length < _pageSize) break;
         }
       } catch (e) {
-        if (kDebugMode) {
-          debugPrint('[PlanningPull] $entityType tombstones: $e');
-        }
+        if (kDebugMode) debugPrint('[PlanningPull] $entityType pull: $e');
       }
     }
 

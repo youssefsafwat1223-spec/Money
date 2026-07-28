@@ -6,6 +6,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/capture/services/ledger_sync_service.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -21,14 +22,28 @@ class _MockRemoteSource implements LedgerRemoteSource {
   List<Map<String, dynamic>> tombstones = [];
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async =>
-      activeRows;
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones({
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
     int limit = 200,
-  }) async =>
-      tombstones;
+  }) async {
+    final rows = [...activeRows, ...tombstones]..sort((left, right) {
+        final timestamp = normalizeCursorTimestamp(left['updated_at'])
+            .compareTo(normalizeCursorTimestamp(right['updated_at']));
+        if (timestamp != 0) return timestamp;
+        return (left['id'] as String).compareTo(right['id'] as String);
+      });
+    return rows
+        .where((row) {
+          if (after.id.isEmpty) return true;
+          final timestamp = normalizeCursorTimestamp(row['updated_at']);
+          final comparison = timestamp.compareTo(after.updatedAt);
+          return comparison > 0 ||
+              (comparison == 0 &&
+                  (row['id'] as String).compareTo(after.id) > 0);
+        })
+        .take(limit)
+        .toList();
+  }
 }
 
 Map<String, dynamic> _serverRow({
@@ -64,6 +79,7 @@ LedgerSyncService _makeSvc(
   _MockRemoteSource remote, {
   bool flagOn = true,
   bool signedIn = true,
+  int pageSize = 200,
 }) =>
     LedgerSyncService(
       db: db,
@@ -72,6 +88,7 @@ LedgerSyncService _makeSvc(
       isPullEnabled: () => flagOn,
       remoteSource: remote,
       getAuthUserId: () async => signedIn ? 'test-user-id' : null,
+      pageSize: pageSize,
     );
 
 void main() {
@@ -120,6 +137,23 @@ void main() {
         .get();
     expect(rows.first.readNullable<String>('server_id'), 'test-server-uuid');
     expect(rows.first.readNullable<String>('sync_status'), 'synced');
+  });
+
+  test('keyset pagination imports rows sharing a page-boundary timestamp',
+      () async {
+    remote.activeRows = List.generate(
+      3,
+      (index) => _serverRow(
+        id: 'server-$index',
+        updatedAt: '2026-01-01T10:00:00.000Z',
+      ),
+    );
+
+    final result = await _makeSvc(db, remote, pageSize: 2).pull();
+
+    expect(result.imported, 3);
+    expect(await db.count('transactions'), 3);
+    expect((await readSyncCursor(db, 'ledger_transactions')).id, 'server-2');
   });
 
   test('second pull of an unchanged row is a no-op and does not duplicate',
@@ -202,7 +236,11 @@ void main() {
 
     // Move to tombstone.
     remote.activeRows = [];
-    final tombstone = _serverRow()..remove('source_payload_id');
+    final tombstone = _serverRow(
+      updatedAt: '2026-01-01T11:00:00.000Z',
+    )
+      ..remove('source_payload_id')
+      ..['deleted_at'] = '2026-01-01T11:00:00.000Z';
     remote.tombstones = [tombstone];
     final result = await _makeSvc(db, remote).pull();
 
@@ -221,6 +259,9 @@ void main() {
     await db.customStatement(
       "UPDATE transactions SET sync_status = 'conflict', amount = 999.0;",
     );
+    remote.activeRows = [
+      _serverRow(updatedAt: '2026-01-01T11:00:00.000Z'),
+    ];
 
     final result = await _makeSvc(db, remote).pull();
 
@@ -257,7 +298,8 @@ void main() {
         reason: 'synced_at must not move when nothing changed');
   });
 
-  test('import resolves the account via server_account_id, not the stale '
+  test(
+      'import resolves the account via server_account_id, not the stale '
       'local_account_id from another install', () async {
     // The seeded sentinel default account, as the accounts pull leaves it:
     // attached server_id.
@@ -280,7 +322,8 @@ void main() {
         reason: 'must link via server_account_id → accounts.server_id');
   });
 
-  test('import with an unresolvable account falls back to the default '
+  test(
+      'import with an unresolvable account falls back to the default '
       'account, never a dead dangling id', () async {
     final row = _serverRow(id: 'srv-1');
     row['local_account_id'] = 'dead-local-id'; // from a wiped install
@@ -298,7 +341,8 @@ void main() {
     expect(imported.readNullable<String>('account_id'), 'default_account');
   });
 
-  test('re-pull repairs an already-imported row whose account id no longer '
+  test(
+      're-pull repairs an already-imported row whose account id no longer '
       'exists (post sign-out wipe)', () async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await db.customStatement(

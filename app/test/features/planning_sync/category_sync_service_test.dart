@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_category_repository.dart';
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/category_entity.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_pull_service.dart';
@@ -20,20 +21,15 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
   final tombstones = <String, List<Map<String, dynamic>>>{};
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows(String table,
-      {int limit = 200}) async {
-    return (rows[table]?.values ?? const <Map<String, dynamic>>[])
-        .where((r) => r['deleted_at'] == null)
-        .map(Map<String, dynamic>.from)
-        .toList();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones(String table,
-      {int limit = 200}) async {
-    return (tombstones[table] ?? const <Map<String, dynamic>>[])
-        .map(Map<String, dynamic>.from)
-        .toList();
+  Future<List<Map<String, dynamic>>> fetchRows(
+    String table, {
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    return <Map<String, dynamic>>[
+      ...?rows[table]?.values,
+      ...?tombstones[table],
+    ].take(limit).map(Map<String, dynamic>.from).toList();
   }
 
   @override

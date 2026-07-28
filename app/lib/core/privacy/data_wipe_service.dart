@@ -37,6 +37,7 @@ class DataWipeService {
     'dedup_hashes',
     'ledger_sync_outbox',
     'planning_sync_outbox',
+    'sync_cursors',
     'pending_merchant_feedback',
     'financial_cache_health',
     'achievements',

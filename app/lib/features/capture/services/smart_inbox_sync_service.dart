@@ -7,6 +7,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/sync_cursor.dart';
 
 class SmartInboxSyncResult {
   const SmartInboxSyncResult({
@@ -23,8 +24,10 @@ class SmartInboxSyncResult {
 /// Injectable remote source — real impl calls Supabase; test impl returns
 /// fixture rows without network access.
 abstract class SmartInboxRemoteSource {
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit});
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit});
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit,
+  });
 
   /// يدفع تغيير الحالة (رفض/معالجة) لصف الخادم المطابق للـ serverId.
   Future<void> pushStatus(String serverId, String status);
@@ -41,23 +44,20 @@ class SupabaseSmartInboxRemoteSource implements SmartInboxRemoteSource {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async {
-    final response = await Supabase.instance.client
-        .from('user_smart_inbox')
-        .select()
-        .isFilter('deleted_at', null)
-        .order('created_at', ascending: false)
-        .limit(limit);
-    return (response as List).cast<Map<String, dynamic>>();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async {
-    final response = await Supabase.instance.client
-        .from('user_smart_inbox')
-        .select('id, deleted_at')
-        .not('deleted_at', 'is', null)
-        .order('updated_at', ascending: false)
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    final query = Supabase.instance.client.from('user_smart_inbox').select();
+    final filtered = after.id.isEmpty
+        ? query
+        : query.or(
+            'updated_at.gt.${after.updatedAt},'
+            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
+          );
+    final response = await filtered
+        .order('updated_at', ascending: true)
+        .order('id', ascending: true)
         .limit(limit);
     return (response as List).cast<Map<String, dynamic>>();
   }
@@ -79,9 +79,12 @@ class SmartInboxSyncService {
     required bool Function() isPullEnabled,
     SmartInboxRemoteSource? remoteSource,
     Future<String?> Function()? getAuthUserId,
-  })  : _db = db,
+    int pageSize = 200,
+  })  : assert(pageSize > 0),
+        _db = db,
         _isPullEnabled = isPullEnabled,
         _remoteSource = remoteSource ?? const SupabaseSmartInboxRemoteSource(),
+        _pageSize = pageSize,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
 
   static Future<String?> _defaultGetAuthUserId() async {
@@ -97,6 +100,9 @@ class SmartInboxSyncService {
   final bool Function() _isPullEnabled;
   final SmartInboxRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
+  final int _pageSize;
+
+  static const _cursorKey = 'smart_inbox';
 
   /// S3 gap#1: يدفع تغييرات الحالة المحلية (رفض/معالجة) إلى الخادم.
   /// specialized لصندوق الوارد (server-authored): لا outbox عام ولا محرك ثانٍ —
@@ -144,37 +150,49 @@ class SmartInboxSyncService {
     int tombstoned = 0;
 
     try {
-      final rows = await _remoteSource.fetchActiveRows();
-      for (final row in rows) {
-        try {
-          final outcome = await _processRow(row);
-          switch (outcome) {
-            case _RowOutcome.imported:
-              imported++;
-            case _RowOutcome.updated:
-              updated++;
-            case _RowOutcome.skipped:
-              break;
-          }
-        } catch (e) {
-          if (kDebugMode) debugPrint('[SmartInboxSync] row error: $e');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[SmartInboxSync] fetch error: $e');
-    }
+      var cursor = await readSyncCursor(_db, _cursorKey);
+      while (true) {
+        final rows = await _remoteSource.fetchRows(
+          after: cursor,
+          limit: _pageSize,
+        );
+        if (rows.isEmpty) break;
 
-    try {
-      final tombstoneRows = await _remoteSource.fetchTombstones();
-      for (final row in tombstoneRows) {
-        try {
-          if (await _processTombstone(row)) tombstoned++;
-        } catch (e) {
-          if (kDebugMode) debugPrint('[SmartInboxSync] tombstone error: $e');
-        }
+        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        final pageResult = await _db.transaction(() async {
+          var pageImported = 0;
+          var pageUpdated = 0;
+          var pageTombstoned = 0;
+          for (final row in rows) {
+            if (row['deleted_at'] != null) {
+              if (await _processTombstone(row)) pageTombstoned++;
+              continue;
+            }
+            final outcome = await _processRow(row);
+            switch (outcome) {
+              case _RowOutcome.imported:
+                pageImported++;
+              case _RowOutcome.updated:
+                pageUpdated++;
+              case _RowOutcome.skipped:
+                break;
+            }
+          }
+          await writeSyncCursor(_db, _cursorKey, nextCursor);
+          return (
+            imported: pageImported,
+            updated: pageUpdated,
+            tombstoned: pageTombstoned,
+          );
+        });
+        imported += pageResult.imported;
+        updated += pageResult.updated;
+        tombstoned += pageResult.tombstoned;
+        cursor = nextCursor;
+        if (rows.length < _pageSize) break;
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('[SmartInboxSync] tombstone fetch error: $e');
+      if (kDebugMode) debugPrint('[SmartInboxSync] pull error: $e');
     }
 
     if (kDebugMode) {

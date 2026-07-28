@@ -9,6 +9,7 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
+import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/transaction_entity.dart';
 
 class LedgerSyncResult {
@@ -28,37 +29,32 @@ class LedgerSyncResult {
 /// Injectable remote source — real impl calls Supabase; test impl returns
 /// fixture rows without network access.
 abstract class LedgerRemoteSource {
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit});
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit});
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit,
+  });
 }
 
 class SupabaseLedgerRemoteSource implements LedgerRemoteSource {
   const SupabaseLedgerRemoteSource();
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async {
-    final response = await Supabase.instance.client
-        .from('user_transactions')
-        .select()
-        .order('occurred_at', ascending: false)
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    final query = Supabase.instance.client.from('user_transactions').select();
+    final filtered = after.id.isEmpty
+        ? query
+        : query.or(
+            'updated_at.gt.${after.updatedAt},'
+            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
+          );
+    final response = await filtered
+        .order('updated_at', ascending: true)
+        .order('id', ascending: true)
         .limit(limit);
-    return (response as List)
-        .cast<Map<String, dynamic>>()
-        .where((r) => r['deleted_at'] == null)
-        .toList();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async {
-    final response = await Supabase.instance.client
-        .from('user_transactions')
-        .select('id, deleted_at, updated_at')
-        .order('updated_at', ascending: false)
-        .limit(limit);
-    return (response as List)
-        .cast<Map<String, dynamic>>()
-        .where((r) => r['deleted_at'] != null)
-        .toList();
+    return (response as List).cast<Map<String, dynamic>>();
   }
 }
 
@@ -70,11 +66,14 @@ class LedgerSyncService implements LedgerPullAdapter {
     required bool Function() isPullEnabled,
     LedgerRemoteSource? remoteSource,
     Future<String?> Function()? getAuthUserId,
-  })  : _db = db,
+    int pageSize = 200,
+  })  : assert(pageSize > 0),
+        _db = db,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
         _isPullEnabled = isPullEnabled,
         _remoteSource = remoteSource ?? const SupabaseLedgerRemoteSource(),
+        _pageSize = pageSize,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
 
   static final _payloadMarkerTime =
@@ -97,6 +96,9 @@ class LedgerSyncService implements LedgerPullAdapter {
   final bool Function() _isPullEnabled;
   final LedgerRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
+  final int _pageSize;
+
+  static const _cursorKey = 'ledger_transactions';
 
   @override
   Future<LedgerSyncResult> pull() async {
@@ -111,39 +113,54 @@ class LedgerSyncService implements LedgerPullAdapter {
     int tombstoned = 0;
 
     try {
-      final rows = await _remoteSource.fetchActiveRows();
-      for (final row in rows) {
-        try {
-          final outcome = await _processRow(row);
-          switch (outcome) {
-            case _RowOutcome.imported:
-              imported++;
-            case _RowOutcome.updated:
-              updated++;
-            case _RowOutcome.conflict:
-              conflicts++;
-            case _RowOutcome.skipped:
-              break;
-          }
-        } catch (e) {
-          if (kDebugMode) debugPrint('[LedgerSync] row error: $e');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[LedgerSync] fetch error: $e');
-    }
+      var cursor = await readSyncCursor(_db, _cursorKey);
+      while (true) {
+        final rows = await _remoteSource.fetchRows(
+          after: cursor,
+          limit: _pageSize,
+        );
+        if (rows.isEmpty) break;
 
-    try {
-      final deletedRows = await _remoteSource.fetchTombstones();
-      for (final row in deletedRows) {
-        try {
-          if (await _processTombstone(row)) tombstoned++;
-        } catch (e) {
-          if (kDebugMode) debugPrint('[LedgerSync] tombstone error: $e');
-        }
+        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        final pageResult = await _db.transaction(() async {
+          var pageImported = 0;
+          var pageUpdated = 0;
+          var pageConflicts = 0;
+          var pageTombstoned = 0;
+          for (final row in rows) {
+            if (row['deleted_at'] != null) {
+              if (await _processTombstone(row)) pageTombstoned++;
+              continue;
+            }
+            final outcome = await _processRow(row);
+            switch (outcome) {
+              case _RowOutcome.imported:
+                pageImported++;
+              case _RowOutcome.updated:
+                pageUpdated++;
+              case _RowOutcome.conflict:
+                pageConflicts++;
+              case _RowOutcome.skipped:
+                break;
+            }
+          }
+          await writeSyncCursor(_db, _cursorKey, nextCursor);
+          return (
+            imported: pageImported,
+            updated: pageUpdated,
+            conflicts: pageConflicts,
+            tombstoned: pageTombstoned,
+          );
+        });
+        imported += pageResult.imported;
+        updated += pageResult.updated;
+        conflicts += pageResult.conflicts;
+        tombstoned += pageResult.tombstoned;
+        cursor = nextCursor;
+        if (rows.length < _pageSize) break;
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('[LedgerSync] tombstone fetch error: $e');
+      if (kDebugMode) debugPrint('[LedgerSync] pull error: $e');
     }
 
     if (kDebugMode) {
@@ -227,16 +244,12 @@ class LedgerSyncService implements LedgerPullAdapter {
     );
     if (entity == null) return _RowOutcome.skipped;
 
-    try {
-      await _transactionRepository.saveTransaction(
-        transaction: entity,
-        // Server stores the stable category KEY; saveTransaction resolves it
-        // back to the local category id, so a pulled row keeps its category.
-        categoryKey: row['category_id'] as String?,
-      );
-    } catch (_) {
-      return _RowOutcome.skipped;
-    }
+    await _transactionRepository.saveTransaction(
+      transaction: entity,
+      // Server stores the stable category KEY; saveTransaction resolves it
+      // back to the local category id, so a pulled row keeps its category.
+      categoryKey: row['category_id'] as String?,
+    );
 
     await _db.customStatement('''
       UPDATE transactions

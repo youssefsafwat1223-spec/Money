@@ -6,6 +6,7 @@ import 'package:money_companion/data/repositories/drift_bill_repository.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/data/repositories/drift_plan_repository.dart';
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
@@ -29,25 +30,35 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
   int deletes = 0;
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows(
+  Future<List<Map<String, dynamic>>> fetchRows(
     String table, {
+    required SyncCursor after,
     int limit = 200,
   }) async {
-    return (rows[table]?.values ?? const <Map<String, dynamic>>[])
-        .where((row) => row['deleted_at'] == null)
+    final byId = <String, Map<String, dynamic>>{};
+    for (final row in <Map<String, dynamic>>[
+      ...?rows[table]?.values,
+      ...?tombstones[table],
+    ]) {
+      byId[row['id'] as String] = row;
+    }
+    final ordered = byId.values.map(Map<String, dynamic>.from).toList()
+      ..sort((left, right) {
+        final timestamp = normalizeCursorTimestamp(left['updated_at'])
+            .compareTo(normalizeCursorTimestamp(right['updated_at']));
+        if (timestamp != 0) return timestamp;
+        return (left['id'] as String).compareTo(right['id'] as String);
+      });
+    return ordered
+        .where((row) {
+          if (after.id.isEmpty) return true;
+          final timestamp = normalizeCursorTimestamp(row['updated_at']);
+          final comparison = timestamp.compareTo(after.updatedAt);
+          return comparison > 0 ||
+              (comparison == 0 &&
+                  (row['id'] as String).compareTo(after.id) > 0);
+        })
         .take(limit)
-        .map(Map<String, dynamic>.from)
-        .toList();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones(
-    String table, {
-    int limit = 200,
-  }) async {
-    return (tombstones[table] ?? const <Map<String, dynamic>>[])
-        .take(limit)
-        .map(Map<String, dynamic>.from)
         .toList();
   }
 
@@ -307,6 +318,40 @@ void main() {
           )
           .getSingle();
       expect(deleted.readNullable<String>('deleted_at'), isNotNull);
+    });
+
+    test('parent pull paginates each planning entity with its own cursor',
+        () async {
+      final remote = _FakePlanningRemote();
+      remote.rows['user_budgets'] = {
+        for (var index = 0; index < 3; index++)
+          'budget-$index': {
+            'id': 'server-budget-$index',
+            'local_id': 'budget-$index',
+            'category_id': BudgetEntity.allExpensesCategoryKey,
+            'amount': 100 + index,
+            'period': 'monthly',
+            'start_date': '2026-07-01T00:00:00.000Z',
+            'is_active': true,
+            'updated_at': '2026-07-10T00:00:00.000Z',
+            'deleted_at': null,
+          },
+      };
+
+      final result = await PlanningPullService(
+        db: db,
+        isEnabled: (entity) => entity == PlanningOutboxQueue.budgetsEntityType,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        pageSize: 2,
+      ).pull();
+
+      expect(result.imported, 3);
+      expect(await db.count('budgets'), 3);
+      expect(
+        (await readSyncCursor(db, 'planning_budget')).id,
+        'server-budget-2',
+      );
     });
 
     test('pull marks pending local planning row as conflict', () async {

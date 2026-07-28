@@ -7,6 +7,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/routed_account_repository.dart';
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
@@ -36,16 +37,15 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async {
-    return rowsByLocalId.values
-        .where((row) => row['deleted_at'] == null)
-        .take(limit)
-        .toList();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async {
-    return tombstones.take(limit).toList();
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    final byId = <String, Map<String, dynamic>>{};
+    for (final row in [...rowsByLocalId.values, ...tombstones]) {
+      byId[row['id'] as String] = row;
+    }
+    return byId.values.take(limit).toList();
   }
 
   @override
@@ -78,6 +78,60 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
     rowsByLocalId[localId] = saved;
     return {'id': saved['id'], 'updated_at': saved['updated_at']};
   }
+}
+
+class _KeysetAccountsRemote implements AccountsRemoteSource {
+  _KeysetAccountsRemote(this.rows);
+
+  final List<Map<String, dynamic>> rows;
+  final List<SyncCursor> requestedAfter = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    requestedAfter.add(after);
+    final ordered = rows.map(Map<String, dynamic>.from).toList()
+      ..sort((left, right) {
+        final timestamp = normalizeCursorTimestamp(left['updated_at'])
+            .compareTo(normalizeCursorTimestamp(right['updated_at']));
+        if (timestamp != 0) return timestamp;
+        return (left['id'] as String).compareTo(right['id'] as String);
+      });
+    return ordered
+        .where((row) {
+          if (after.id.isEmpty) return true;
+          final timestamp = normalizeCursorTimestamp(row['updated_at']);
+          final comparison = timestamp.compareTo(after.updatedAt);
+          return comparison > 0 ||
+              (comparison == 0 &&
+                  (row['id'] as String).compareTo(after.id) > 0);
+        })
+        .take(limit)
+        .toList();
+  }
+}
+
+Map<String, dynamic> _remoteAccountRow(
+  int index, {
+  String updatedAt = '2026-07-10T00:00:00.000Z',
+}) {
+  final suffix = index.toString().padLeft(3, '0');
+  return {
+    'id': 'server-$suffix',
+    'local_id': 'account-$suffix',
+    'name': 'Remote $suffix',
+    'currency': 'SAR',
+    'type': 'bank',
+    'initial_balance': index,
+    'current_balance': index,
+    'is_default': false,
+    'sort_order': index,
+    'created_at': '2026-07-01T00:00:00.000Z',
+    'updated_at': updatedAt,
+    'deleted_at': null,
+  };
 }
 
 Future<AppDatabase> _openDb() {
@@ -332,6 +386,123 @@ void main() {
       expect(await _accountSyncStatus(db, 'conflict-account'), 'conflict');
       expect((await repo.getById('conflict-account'))?.name,
           'Main conflict-account');
+    });
+
+    test('fresh pull paginates 201 equal-timestamp rows and persists last key',
+        () async {
+      final remote = _KeysetAccountsRemote(
+        List.generate(201, _remoteAccountRow),
+      );
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        pageSize: 200,
+      );
+
+      final result = await pull.pull();
+
+      expect(result.imported, 201);
+      expect(remote.requestedAfter, hasLength(2));
+      expect(remote.requestedAfter.first.id, isEmpty,
+          reason: 'a fresh device starts without a durable cursor');
+      expect(
+        await db
+            .customSelect(
+              "SELECT COUNT(*) AS n FROM accounts WHERE id LIKE 'account-%';",
+            )
+            .getSingle()
+            .then((row) => row.read<int>('n')),
+        201,
+      );
+      final cursor = await readSyncCursor(db, 'accounts');
+      expect(cursor.updatedAt, '2026-07-10T00:00:00.000Z');
+      expect(cursor.id, 'server-200');
+    });
+
+    test('an older tombstone is applied before more than one page of actives',
+        () async {
+      await DriftAccountRepository(db).create(_account('victim'));
+      final remote = _KeysetAccountsRemote([
+        {
+          'id': 'server-victim',
+          'local_id': 'victim',
+          'updated_at': '2026-07-11T00:00:00.000Z',
+          'deleted_at': '2026-07-11T00:00:00.000Z',
+        },
+        ...List.generate(
+          5,
+          (index) => _remoteAccountRow(
+            index,
+            updatedAt: '2026-07-12T00:00:00.000Z',
+          ),
+        ),
+      ]);
+      final result = await AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        pageSize: 2,
+      ).pull();
+
+      expect(result.tombstoned, 1);
+      expect(remote.requestedAfter.length, 4,
+          reason: 'an exact final page is followed by one empty page');
+      final victim = await db
+          .customSelect("SELECT deleted_at FROM accounts WHERE id = 'victim';")
+          .getSingle();
+      expect(victim.readNullable<String>('deleted_at'), isNotNull);
+    });
+
+    test('failed page rolls back row writes and cursor, then retries cleanly',
+        () async {
+      final first = _remoteAccountRow(0);
+      final broken = _remoteAccountRow(1)..['initial_balance'] = 'not-a-number';
+      final remote = _KeysetAccountsRemote([first, broken]);
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        pageSize: 2,
+      );
+
+      await pull.pull();
+
+      expect(
+        await db
+            .customSelect(
+              "SELECT COUNT(*) AS n FROM accounts WHERE id IN ('account-000', 'account-001');",
+            )
+            .getSingle()
+            .then((row) => row.read<int>('n')),
+        0,
+      );
+      expect(
+        await db
+            .customSelect(
+              "SELECT entity FROM sync_cursors WHERE entity = 'accounts';",
+            )
+            .getSingleOrNull(),
+        isNull,
+      );
+
+      broken['initial_balance'] = 1;
+      final retried = await pull.pull();
+
+      expect(retried.imported, 2);
+      expect(
+        await db
+            .customSelect(
+              "SELECT COUNT(*) AS n FROM accounts WHERE id IN ('account-000', 'account-001');",
+            )
+            .getSingle()
+            .then((row) => row.read<int>('n')),
+        2,
+      );
+      expect((await readSyncCursor(db, 'accounts')).id, 'server-001');
     });
 
     // Phase 2: accountRepositoryProvider now returns a RoutedAccountRepository

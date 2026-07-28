@@ -521,6 +521,16 @@ class AppDatabase extends GeneratedDatabase {
       );
     ''');
 
+    // مؤشر دائم لكل تدفق pull. يُنشأ في كل initialize() بنفس نمط الجداول
+    // الإضافية اليدوية، لذلك لا يحتاج bump منفصلًا لـ user_version.
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sync_cursors(
+        entity TEXT PRIMARY KEY,
+        last_updated_at TEXT NOT NULL,
+        last_id TEXT NOT NULL
+      );
+    ''');
+
     await _createDedupHashesTable();
     await _createRemoteMerchantKeywordsTable();
     await _createPendingMerchantFeedbackTable();

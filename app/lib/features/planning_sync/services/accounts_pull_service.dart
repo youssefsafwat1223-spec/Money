@@ -7,6 +7,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/sync_cursor.dart';
 
 class AccountsPullResult {
   const AccountsPullResult({
@@ -23,8 +24,10 @@ class AccountsPullResult {
 }
 
 abstract class AccountsRemoteSource {
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit});
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit});
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit,
+  });
 }
 
 class SupabaseAccountsRemoteSource implements AccountsRemoteSource {
@@ -33,29 +36,22 @@ class SupabaseAccountsRemoteSource implements AccountsRemoteSource {
   SupabaseClient get _client => Supabase.instance.client;
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async {
-    final response = await _client
-        .from('user_accounts')
-        .select()
-        .order('sort_order', ascending: true)
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    final query = _client.from('user_accounts').select();
+    final filtered = after.id.isEmpty
+        ? query
+        : query.or(
+            'updated_at.gt.${after.updatedAt},'
+            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
+          );
+    final response = await filtered
+        .order('updated_at', ascending: true)
+        .order('id', ascending: true)
         .limit(limit);
-    return (response as List)
-        .cast<Map<String, dynamic>>()
-        .where((row) => row['deleted_at'] == null)
-        .toList();
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async {
-    final response = await _client
-        .from('user_accounts')
-        .select('id, local_id, deleted_at, updated_at')
-        .order('updated_at', ascending: false)
-        .limit(limit);
-    return (response as List)
-        .cast<Map<String, dynamic>>()
-        .where((row) => row['deleted_at'] != null)
-        .toList();
+    return (response as List).cast<Map<String, dynamic>>();
   }
 }
 
@@ -65,15 +61,21 @@ class AccountsPullService {
     required bool Function() isEnabled,
     Future<String?> Function()? getAuthUserId,
     AccountsRemoteSource? remoteSource,
-  })  : _db = db,
+    int pageSize = 200,
+  })  : assert(pageSize > 0),
+        _db = db,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
+        _pageSize = pageSize,
         _remoteSource = remoteSource ?? const SupabaseAccountsRemoteSource();
 
   final AppDatabase _db;
   final bool Function() _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final AccountsRemoteSource _remoteSource;
+  final int _pageSize;
+
+  static const _cursorKey = 'accounts';
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -95,39 +97,54 @@ class AccountsPullService {
     int tombstoned = 0;
 
     try {
-      final rows = await _remoteSource.fetchActiveRows();
-      for (final row in rows) {
-        try {
-          final outcome = await _processRow(row);
-          switch (outcome) {
-            case _AccountPullOutcome.imported:
-              imported++;
-            case _AccountPullOutcome.updated:
-              updated++;
-            case _AccountPullOutcome.conflict:
-              conflicts++;
-            case _AccountPullOutcome.skipped:
-              break;
-          }
-        } catch (e) {
-          if (kDebugMode) debugPrint('[AccountsPull] row error: $e');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[AccountsPull] fetch error: $e');
-    }
+      var cursor = await readSyncCursor(_db, _cursorKey);
+      while (true) {
+        final rows = await _remoteSource.fetchRows(
+          after: cursor,
+          limit: _pageSize,
+        );
+        if (rows.isEmpty) break;
 
-    try {
-      final rows = await _remoteSource.fetchTombstones();
-      for (final row in rows) {
-        try {
-          if (await _processTombstone(row)) tombstoned++;
-        } catch (e) {
-          if (kDebugMode) debugPrint('[AccountsPull] tombstone error: $e');
-        }
+        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        final pageResult = await _db.transaction(() async {
+          var pageImported = 0;
+          var pageUpdated = 0;
+          var pageConflicts = 0;
+          var pageTombstoned = 0;
+          for (final row in rows) {
+            if (row['deleted_at'] != null) {
+              if (await _processTombstone(row)) pageTombstoned++;
+              continue;
+            }
+            final outcome = await _processRow(row);
+            switch (outcome) {
+              case _AccountPullOutcome.imported:
+                pageImported++;
+              case _AccountPullOutcome.updated:
+                pageUpdated++;
+              case _AccountPullOutcome.conflict:
+                pageConflicts++;
+              case _AccountPullOutcome.skipped:
+                break;
+            }
+          }
+          await writeSyncCursor(_db, _cursorKey, nextCursor);
+          return (
+            imported: pageImported,
+            updated: pageUpdated,
+            conflicts: pageConflicts,
+            tombstoned: pageTombstoned,
+          );
+        });
+        imported += pageResult.imported;
+        updated += pageResult.updated;
+        conflicts += pageResult.conflicts;
+        tombstoned += pageResult.tombstoned;
+        cursor = nextCursor;
+        if (rows.length < _pageSize) break;
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('[AccountsPull] tombstone fetch error: $e');
+      if (kDebugMode) debugPrint('[AccountsPull] pull error: $e');
     }
 
     if (kDebugMode) {

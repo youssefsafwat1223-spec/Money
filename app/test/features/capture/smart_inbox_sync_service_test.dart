@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_smart_inbox_repository.dart';
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/capture/services/smart_inbox_sync_service.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -29,12 +30,28 @@ class _FakeRemoteSource implements SmartInboxRemoteSource {
   final List<(String, String)> pushed = [];
 
   @override
-  Future<List<Map<String, dynamic>>> fetchActiveRows({int limit = 200}) async =>
-      activeRows;
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchTombstones({int limit = 200}) async =>
-      tombstoneRows;
+  Future<List<Map<String, dynamic>>> fetchRows({
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    final rows = [...activeRows, ...tombstoneRows]..sort((left, right) {
+        final timestamp = normalizeCursorTimestamp(left['updated_at'])
+            .compareTo(normalizeCursorTimestamp(right['updated_at']));
+        if (timestamp != 0) return timestamp;
+        return (left['id'] as String).compareTo(right['id'] as String);
+      });
+    return rows
+        .where((row) {
+          if (after.id.isEmpty) return true;
+          final timestamp = normalizeCursorTimestamp(row['updated_at']);
+          final comparison = timestamp.compareTo(after.updatedAt);
+          return comparison > 0 ||
+              (comparison == 0 &&
+                  (row['id'] as String).compareTo(after.id) > 0);
+        })
+        .take(limit)
+        .toList();
+  }
 
   @override
   Future<void> pushStatus(String serverId, String status) async {
@@ -75,6 +92,7 @@ SmartInboxSyncService _svc(
   bool signedIn = true,
   List<Map<String, dynamic>> activeRows = const [],
   List<Map<String, dynamic>> tombstoneRows = const [],
+  int pageSize = 200,
 }) =>
     SmartInboxSyncService(
       db: db,
@@ -84,6 +102,7 @@ SmartInboxSyncService _svc(
         activeRows: activeRows,
         tombstoneRows: tombstoneRows,
       ),
+      pageSize: pageSize,
     );
 
 Future<List<Map<String, dynamic>>> _allLocalRows(AppDatabase db) async {
@@ -144,6 +163,21 @@ void main() {
     expect(rows.first['status'], 'open');
   });
 
+  test('pull paginates equal-timestamp rows with the id tiebreaker', () async {
+    final result = await _svc(
+      db,
+      pageSize: 2,
+      activeRows: List.generate(
+        3,
+        (index) => _serverRow(id: 'srv-page-$index'),
+      ),
+    ).pull();
+
+    expect(result.imported, 3);
+    expect((await _allLocalRows(db)), hasLength(3));
+    expect((await readSyncCursor(db, 'smart_inbox')).id, 'srv-page-2');
+  });
+
   test('pulling same server_id twice does not create a duplicate', () async {
     final row = _serverRow(id: 'srv-dupe');
     final svc = _svc(db, activeRows: [row]);
@@ -164,7 +198,11 @@ void main() {
       db,
       activeRows: [],
       tombstoneRows: [
-        {'id': 'srv-tbs', 'deleted_at': '2026-07-03T01:00:00.000Z'}
+        {
+          'id': 'srv-tbs',
+          'updated_at': '2026-07-03T01:00:00.000Z',
+          'deleted_at': '2026-07-03T01:00:00.000Z',
+        }
       ],
     ).pull();
     expect(result.tombstoned, 1);

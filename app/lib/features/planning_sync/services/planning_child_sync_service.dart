@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/sync_cursor.dart';
 import 'planning_outbox_queue.dart';
 
 abstract interface class PlanningChildRemote {
@@ -24,7 +25,11 @@ abstract interface class PlanningChildRemote {
 
   Future<void> tombstonePlanLink(String serverId);
 
-  Future<List<Map<String, dynamic>>> fetchRows(String table);
+  Future<List<Map<String, dynamic>>> fetchRows(
+    String table, {
+    required SyncCursor after,
+    int limit,
+  });
 }
 
 class SupabasePlanningChildRemote implements PlanningChildRemote {
@@ -42,12 +47,22 @@ class SupabasePlanningChildRemote implements PlanningChildRemote {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> fetchRows(String table) async {
-    final response = await _client
-        .from(table)
-        .select()
-        .order('updated_at', ascending: false)
-        .limit(500);
+  Future<List<Map<String, dynamic>>> fetchRows(
+    String table, {
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    final query = _client.from(table).select();
+    final filtered = after.id.isEmpty
+        ? query
+        : query.or(
+            'updated_at.gt.${after.updatedAt},'
+            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
+          );
+    final response = await filtered
+        .order('updated_at', ascending: true)
+        .order('id', ascending: true)
+        .limit(limit);
     return (response as List)
         .map((row) => Map<String, dynamic>.from(row as Map))
         .toList(growable: false);
@@ -117,10 +132,13 @@ class PlanningChildSyncService {
     required bool Function(String entityType) isEnabled,
     Future<String?> Function()? getAuthUserId,
     PlanningChildRemote? remote,
-  })  : _db = db,
+    int pageSize = 200,
+  })  : assert(pageSize > 0),
+        _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultUserId,
+        _pageSize = pageSize,
         _remote = remote ?? const SupabasePlanningChildRemote();
 
   final AppDatabase _db;
@@ -128,6 +146,7 @@ class PlanningChildSyncService {
   final bool Function(String entityType) _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final PlanningChildRemote _remote;
+  final int _pageSize;
 
   static Future<String?> _defaultUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -318,8 +337,25 @@ class PlanningChildSyncService {
     Future<void> Function(Map<String, dynamic>) apply,
   ) async {
     try {
-      for (final row in await _remote.fetchRows(table)) {
-        await apply(row);
+      final cursorKey = 'planning_child_${table.substring(5)}';
+      var cursor = await readSyncCursor(_db, cursorKey);
+      while (true) {
+        final rows = await _remote.fetchRows(
+          table,
+          after: cursor,
+          limit: _pageSize,
+        );
+        if (rows.isEmpty) break;
+
+        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        await _db.transaction(() async {
+          for (final row in rows) {
+            await apply(row);
+          }
+          await writeSyncCursor(_db, cursorKey, nextCursor);
+        });
+        cursor = nextCursor;
+        if (rows.length < _pageSize) break;
       }
     } catch (error) {
       if (kDebugMode) debugPrint('[PlanningChildSync] pull $table: $error');

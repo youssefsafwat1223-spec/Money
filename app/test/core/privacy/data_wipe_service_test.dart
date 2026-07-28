@@ -65,6 +65,10 @@ void main() {
       "VALUES ('o1', 't1', 'create', '{}', '$now', '$now');",
     );
     await db.customStatement(
+      "INSERT INTO sync_cursors(entity, last_updated_at, last_id) "
+      "VALUES ('ledger_transactions', '$now', 'server-t1');",
+    );
+    await db.customStatement(
       "INSERT INTO pending_merchant_feedback(normalized_keyword, last_seen_at) "
       "VALUES ('MERCHANT X', '$now');",
     );
@@ -91,6 +95,7 @@ void main() {
       'sender_bank_mappings',
       'dedup_hashes',
       'ledger_sync_outbox',
+      'sync_cursors',
       'pending_merchant_feedback',
       'cards',
     ]) {
@@ -161,7 +166,8 @@ void main() {
     addTearDown(db.close);
 
     Future<String> defaultId() async => (await db
-            .customSelect('SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;')
+            .customSelect(
+                'SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;')
             .getSingle())
         .read<String>('id');
 

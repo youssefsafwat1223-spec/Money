@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
@@ -76,8 +77,31 @@ class _FakeChildRemote implements PlanningChildRemote {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> fetchRows(String table) async =>
-      (rows[table] ?? const []).map(Map<String, dynamic>.from).toList();
+  Future<List<Map<String, dynamic>>> fetchRows(
+    String table, {
+    required SyncCursor after,
+    int limit = 200,
+  }) async {
+    final ordered =
+        (rows[table] ?? const []).map(Map<String, dynamic>.from).toList()
+          ..sort((left, right) {
+            final timestamp = normalizeCursorTimestamp(left['updated_at'])
+                .compareTo(normalizeCursorTimestamp(right['updated_at']));
+            if (timestamp != 0) return timestamp;
+            return (left['id'] as String).compareTo(right['id'] as String);
+          });
+    return ordered
+        .where((row) {
+          if (after.id.isEmpty) return true;
+          final timestamp = normalizeCursorTimestamp(row['updated_at']);
+          final comparison = timestamp.compareTo(after.updatedAt);
+          return comparison > 0 ||
+              (comparison == 0 &&
+                  (row['id'] as String).compareTo(after.id) > 0);
+        })
+        .take(limit)
+        .toList();
+  }
 
   @override
   Future<Map<String, dynamic>?> findPlanLink({
@@ -134,16 +158,15 @@ PlanningOutboxQueue _queue(AppDatabase db) => PlanningOutboxQueue(
     );
 
 PlanningChildSyncService _service(
-  AppDatabase db,
-  PlanningOutboxQueue queue,
-  _FakeChildRemote remote,
-) =>
+        AppDatabase db, PlanningOutboxQueue queue, _FakeChildRemote remote,
+        {int pageSize = 200}) =>
     PlanningChildSyncService(
       db: db,
       queue: queue,
       isEnabled: (_) => true,
       getAuthUserId: () async => 'user-1',
       remote: remote,
+      pageSize: pageSize,
     );
 
 Future<void> _seedParents(AppDatabase db) async {
@@ -307,5 +330,34 @@ void main() {
           .getSingle();
       expect(count.read<int>('n'), 1, reason: table);
     }
+  });
+
+  test('child pull keyset-paginates equal-timestamp contribution rows',
+      () async {
+    final remote = _FakeChildRemote()
+      ..rows['user_goal_contributions'] = List.generate(
+        3,
+        (index) => {
+          'id': 'server-gc-$index',
+          'local_id': 'gc-$index',
+          'goal_id': 'server-goal-1',
+          'amount': 10 + index,
+          'created_at': '2026-07-23T09:00:00.000Z',
+          'updated_at': '2026-07-23T10:00:00.000Z',
+          'deleted_at': null,
+          'note': null,
+        },
+      );
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _seedParents(db);
+
+    await _service(db, _queue(db), remote, pageSize: 2).sync();
+
+    expect(await db.count('goal_contributions'), 3);
+    expect(
+      (await readSyncCursor(db, 'planning_child_goal_contributions')).id,
+      'server-gc-2',
+    );
   });
 }
