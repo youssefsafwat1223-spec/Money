@@ -81,6 +81,17 @@ void main() {
       "INSERT INTO categories(id, key, name_ar, icon, color, is_income, sort_order, sync_status) "
       "VALUES ('cat-user-a', 'custom_user_a', 'خاصة', 'tag', '#000000', 0, 999, 'pending');",
     );
+    // MALI-011: these user-scoped operational tables used to survive the wipe
+    // and leak to the next user on the same device.
+    await db.customStatement(
+      "INSERT INTO financial_import_runs(package_id, format, mode, result_json, completed_at) "
+      "VALUES ('pkg1', 'csv', 'append', '{\"imported\":42}', '$now');",
+    );
+    await db.customStatement(
+      "INSERT INTO notification_log_events(id, notification_log_id, event_type, channel, "
+      "notification_type, payload_json, occurred_at, created_at) "
+      "VALUES ('n1', 'log1', 'sent', 'push', 'budget_alert', '{}', '$now', '$now');",
+    );
 
     final accountsBefore = await _count(db, 'accounts');
     expect(accountsBefore, greaterThan(0),
@@ -98,6 +109,8 @@ void main() {
       'sync_cursors',
       'pending_merchant_feedback',
       'cards',
+      'financial_import_runs',
+      'notification_log_events',
     ]) {
       expect(await _count(db, table), 0, reason: '$table must be wiped');
     }
@@ -193,5 +206,50 @@ void main() {
 
     expect(await _count(db, 'accounts'), 1);
     expect(await _count(db, 'user_settings'), 1);
+  });
+
+  // MALI-011 regression guard: every persistent table must be a CONSCIOUS
+  // choice — wiped (user data) or preserved (reference/catalog). A new table
+  // added to the schema without classifying it here fails this test, so it can
+  // never silently join the "leaks to the next user" list the way
+  // financial_import_runs / notification_log_events did.
+  test('every schema table is classified as wiped or intentionally preserved',
+      () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+
+    // Reference/catalog data (re-synced from the server) and single-row tables
+    // reseeded to defaults by wipeAll — deliberately NOT emptied per user.
+    // `categories` is special-cased (custom rows wiped, built-ins kept).
+    const preserved = <String>{
+      'catalog_metadata',
+      'parsing_rules',
+      'remote_announcements',
+      'remote_banks',
+      'remote_categories',
+      'remote_countries',
+      'remote_currencies',
+      'remote_feature_flags',
+      'remote_growth_campaigns',
+      'remote_merchant_keywords',
+      'remote_parsers',
+      'categories',
+    };
+
+    final rows = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type = 'table' "
+          "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%';",
+        )
+        .get();
+    final allTables = rows.map((row) => row.read<String>('name')).toSet();
+
+    for (final table in allTables) {
+      if (preserved.contains(table)) continue;
+      if (table.endsWith('_new')) continue; // transient migration temps
+      expect(DataWipeService.wipedTables.contains(table), isTrue,
+          reason: 'schema table "$table" is neither preserved nor in the '
+              'DataWipeService wipe list — classify it (MALI-011).');
+    }
   });
 }

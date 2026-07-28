@@ -18,7 +18,10 @@ class DataWipeService {
 
   final AppDatabase _db;
 
-  static const List<String> _tables = [
+  /// Every table `wipeAll` empties outright. Exposed so a test can assert the
+  /// schema has no unclassified table silently escaping the wipe (MALI-011).
+  /// `categories` is not here — it is special-cased below (custom rows only).
+  static const List<String> wipedTables = [
     'transactions',
     'accounts',
     'cards',
@@ -40,6 +43,12 @@ class DataWipeService {
     'sync_cursors',
     'pending_merchant_feedback',
     'financial_cache_health',
+    // User-scoped operational rows that used to survive sign-out and leak into
+    // the next user's session on this device (the SQLCipher key and DB file are
+    // reused across users, so an unwiped table is readable as-is): the previous
+    // user's statement/CSV import outcomes and their notification history.
+    'financial_import_runs',
+    'notification_log_events',
     'achievements',
     'streaks',
     'xp_levels',
@@ -47,7 +56,7 @@ class DataWipeService {
   ];
 
   Future<void> wipeAll() async {
-    for (final table in _tables) {
+    for (final table in wipedTables) {
       await _db.customStatement('DELETE FROM $table;');
     }
     // Built-in categories are catalog data and remain available. Custom rows

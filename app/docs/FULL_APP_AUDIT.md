@@ -593,6 +593,34 @@ Do not distribute production iOS or Android artifacts and do not deploy the enga
 
 ## G. Remediation plan
 
+### Remediation status log
+
+Living record of remediation against the findings above. Updated after every completed
+finding. "Done" = code landed on `feat/accounts-multicurrency`, project gates re-run green
+(`flutter analyze` 0 issues + relevant suites), and committed.
+
+| Finding | Status | Commit(s) | Notes |
+|---|---|---|---|
+| MALI-006 (Android INTERNET) | ✅ Done | (P0-QW1) | INTERNET restored in main manifest. |
+| MALI-003 (fail-closed release config / no stub auth) | ✅ Done | (P0-QW2) | Release throws on missing/staging Supabase config; CI asserts config. |
+| MALI-005 (account-deletion purge saga) | ✅ Done | (P0-QW3) | Migrations 0065/0066 + durable purge worker. **Deploy note:** set `PURGE_WORKER_SECRET` + vault secret; deploy 0065/0066. |
+| MALI-004 (secure engagement Edge Functions + cron RPC) | ✅ Done | (P0-4) | `timingSafeEqual` service-role guard on all engagement fns; cron RPC revoked. |
+| MALI-002 (local DB owner gate) | ✅ Done | `348f9a5a` | Owner gate before session admission + deferred bootstrap resolve. |
+| MALI-001 (truthful revocable consent) | ✅ Done | `2c1d6637` | Consent persisted (no forced true); Privacy screen switches. |
+| MALI-007 (atomic write + outbox) | ✅ Done | `24cd94b3` | Aggregate writes + outbox wrapped in one Drift transaction. |
+| MALI-008 (keyset pagination + tombstone filters) | ✅ Done | `4e4c7d04` | Durable `sync_cursors`; keyset pagination in every puller. |
+| MALI-009 / MALI-010 (ledger merge + canonical type/status) | ✅ Done | `b0b93256` | Field merge, conflict token, refund/status round-trip. |
+| MALI-012 (per-item capture ack + atomic import) | ✅ Done | `a8f4eef9` | Lease/peek/ack drain; atomic import via `runAtomically`. |
+| MALI-021 (export/clipboard privacy) | ✅ Done | `cfeb30f1` | Temp CSV deleted in `finally`; clipboard fallback asks first. |
+| MALI-020 (iOS privacy manifests) | ✅ Done | `cfeb30f1` | Honest data-type + UserDefaults (CA92.1) declarations across targets. |
+| MALI-015 (default-account sync via RPC) | ✅ Done | `3104e6c7` | `set_default_account` RPC path; successor enqueued on delete. |
+| MALI-019 (server notification-preference authority) | ✅ Done | `8c20f8a9` | Edge fns honor `notifications_json` + quiet hours before push. |
+| MALI-011 (sign-out flush/wipe completeness) | ⏳ Awaiting commit | — | Adds `financial_import_runs` + `notification_log_events` to wipe; coverage-guard test. Residual: best-effort flush still drops offline-only pending writes (documented tradeoff). |
+| MALI-018 (canonical total filters) | ⏳ In progress | — | Delegated to Codex; under review. |
+| MALI-014 (complete backup snapshot) | ⛔ Blocked | — | Gated behind MALI-018 finalize + full suite + MALI-011 commit; plan-first. |
+
+Remaining Phase-0 items (see list below) and Phases 1–4 not yet started.
+
 ### Phase 0 — release blockers
 
 1. Fail production builds closed on Supabase/environment configuration; remove stub auth from release.
