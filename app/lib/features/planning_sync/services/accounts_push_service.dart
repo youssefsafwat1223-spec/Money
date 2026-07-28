@@ -24,6 +24,12 @@ abstract class AccountsRemoteSink {
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row);
   Future<Map<String, dynamic>?> findAccountByLocalId(String userId, String id);
   Future<void> tombstoneAccount(String serverId);
+
+  /// Atomically makes [serverAccountId] the user's only default via the
+  /// `set_default_account` RPC (MALI-015) — the server demotes the previous
+  /// default in the same transaction, so outbox ordering can never trip the
+  /// one-active-default unique index.
+  Future<void> setDefaultAccount(String serverAccountId);
 }
 
 class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
@@ -58,6 +64,14 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
         .upsert(row, onConflict: 'user_id,local_id')
         .select('id, updated_at')
         .single();
+  }
+
+  @override
+  Future<void> setDefaultAccount(String serverAccountId) async {
+    await _client.rpc<void>(
+      'set_default_account',
+      params: {'p_account_id': serverAccountId},
+    );
   }
 }
 
@@ -156,9 +170,19 @@ class AccountsPushService {
     try {
       final row = _toServerRow(item.payloadJson, userId);
       final response = await _remoteSink.upsertAccount(row);
+      final serverId = response['id'] as String;
+      // Default flag travels via the atomic RPC, never the upsert (MALI-015):
+      // pushing the NEW default's row before the old default's demotion used
+      // to violate the one-active-default unique index and drop the switch as
+      // a "conflict". The RPC demotes and promotes in one server transaction,
+      // so item ordering no longer matters. RPC failure rethrows → the outbox
+      // item stays and the whole (idempotent) step retries.
+      if (item.payloadJson['is_default'] == true) {
+        await _remoteSink.setDefaultAccount(serverId);
+      }
       await _attachServerId(
         item.entityId,
-        response['id'] as String,
+        serverId,
         response['updated_at'] as String?,
       );
       await _queue.markSuccess(item.id);
@@ -253,7 +277,10 @@ class AccountsPushService {
       // Older outbox rows may predate the local metadata default. The server
       // column is NOT NULL, so normalize them at send time as well.
       'metadata': payload['metadata'] ?? const <String, dynamic>{},
-      'is_default': payload['is_default'] == true,
+      // is_default is deliberately NOT part of the upsert row (MALI-015) —
+      // it is applied through the atomic set_default_account RPC after the
+      // upsert, so the partial unique index can never reject a row because a
+      // stale default still exists server-side.
       'sort_order': payload['sort_order'] ?? 0,
       'created_at': payload['created_at'],
     };

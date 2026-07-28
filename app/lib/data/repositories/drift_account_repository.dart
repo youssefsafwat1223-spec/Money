@@ -222,6 +222,15 @@ class DriftAccountRepository implements AccountRepository {
           '(SELECT id FROM accounts WHERE deleted_at IS NULL '
           'ORDER BY sort_order ASC LIMIT 1);',
         );
+        // The promoted successor must reach the server too (MALI-015):
+        // without this enqueue a fresh device pulled no default at all.
+        final successor = await getDefault();
+        if (successor != null) {
+          await _outboxQueue?.enqueueAccount(
+            PlanningSyncOperation.update,
+            successor,
+          );
+        }
       }
       await _outboxQueue?.enqueueAccount(PlanningSyncOperation.delete, account);
     });

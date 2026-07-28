@@ -67,6 +67,7 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row) async {
     if (throwConflict) throw StateError('409 conflict');
     upserts++;
+    upsertedRows.add(Map<String, dynamic>.from(row));
     final localId = row['local_id'] as String;
     final now = DateTime.now().toUtc().toIso8601String();
     final saved = {
@@ -77,6 +78,18 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
     };
     rowsByLocalId[localId] = saved;
     return {'id': saved['id'], 'updated_at': saved['updated_at']};
+  }
+
+  final upsertedRows = <Map<String, dynamic>>[];
+  final defaultRpcCalls = <String>[];
+
+  @override
+  Future<void> setDefaultAccount(String serverAccountId) async {
+    // Mirrors the atomic server RPC: demote everyone, promote the target.
+    defaultRpcCalls.add(serverAccountId);
+    for (final row in rowsByLocalId.values) {
+      row['is_default'] = row['id'] == serverAccountId;
+    }
   }
 }
 
@@ -284,6 +297,81 @@ void main() {
         isA<Map<String, dynamic>>().having((value) => value, 'value', isEmpty),
       );
       expect(remote.deletes, 1);
+    });
+
+    test(
+        'default switch travels via the atomic RPC, never the upsert row '
+        '(MALI-015)', () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      final repo = DriftAccountRepository(db, outboxQueue: queue);
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      );
+
+      await repo.create(_account('acc-a'));
+      await repo.create(_account('acc-b'));
+      await repo.setDefault('acc-b');
+
+      final result = await push.push();
+      expect(result.failed, 0);
+
+      // No upsert row may carry is_default — the partial unique index race
+      // is structurally impossible.
+      for (final row in remote.upsertedRows) {
+        expect(row.containsKey('is_default'), isFalse,
+            reason: 'is_default must never ride the upsert');
+      }
+      // The RPC was invoked and the fake's atomic swap made acc-b the only
+      // default server-side.
+      expect(remote.defaultRpcCalls, isNotEmpty);
+      expect(remote.rowsByLocalId['acc-b']?['is_default'], isTrue);
+      final defaults = remote.rowsByLocalId.values
+          .where((row) => row['is_default'] == true)
+          .length;
+      expect(defaults, 1);
+    });
+
+    test(
+        'deleting the default enqueues the promoted successor '
+        '(fresh devices must not pull a default-less account set)', () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      final repo = DriftAccountRepository(db, outboxQueue: queue);
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      );
+
+      await repo.create(_account('def-a'));
+      await repo.create(_account('def-b'));
+      await repo.setDefault('def-a');
+      await push.push();
+
+      await repo.delete('def-a');
+      final result = await push.push();
+      expect(result.failed, 0);
+      expect(remote.deletes, 1,
+          reason: 'the default-account delete must reach the server');
+
+      // def-a is tombstoned server-side, and the promoted successor's
+      // default flag reached the server via the RPC — exactly one active
+      // default remains. (The DB also seeds its own initial account, so we
+      // assert on the invariant, not a specific account count.)
+      expect(remote.rowsByLocalId['def-a']?['deleted_at'], isNotNull);
+      final activeDefaults = remote.rowsByLocalId.values
+          .where(
+              (row) => row['deleted_at'] == null && row['is_default'] == true)
+          .toList();
+      expect(activeDefaults, hasLength(1),
+          reason: 'fresh devices must pull exactly one default');
     });
 
     test('pull imports one account and duplicate pull does not duplicate',
