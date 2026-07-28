@@ -298,7 +298,7 @@ abstract class AppL10n {
   /// No description provided for @authTrustOnDevice.
   ///
   /// In ar, this message translates to:
-  /// **'بياناتك على جهازك'**
+  /// **'مشفّرة على جهازك، ومتزامنة بأمان'**
   String get authTrustOnDevice;
 
   /// No description provided for @authTermsNotice.

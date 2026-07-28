@@ -29,9 +29,10 @@ const _setupAccent = Color(0xFF8DBBFF);
 ///   1. Notifications        → OS permission prompt
 ///   2. Shortcut install     → instructions carousel, self-declared
 ///
-/// Cloud and AI processing are required capabilities enabled during database
-/// initialization and synced to iOS on app startup, so they are not presented
-/// as optional onboarding controls.
+/// Cloud and AI processing default to enabled for new installs and are synced
+/// to iOS on app startup, but they are the USER's revocable choice (MALI-001):
+/// the toggles live in الإعدادات ← الأمان والخصوصية and every capture/sync/AI
+/// path honors the stored value.
 ///
 /// Completing a step auto-advances to the next one. The final "ابدأ" finishes
 /// onboarding and enters the app once all three are done.

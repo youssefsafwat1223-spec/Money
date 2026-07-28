@@ -99,7 +99,9 @@ class AppDatabase extends GeneratedDatabase {
     await _createSchema();
     await _runCompatibilityMigrations();
     await _seedIfNeeded();
-    await _enforceRequiredProcessingSettings();
+    // Cloud/AI processing consent is the USER's choice (MALI-001): the seed
+    // defaults new installs to enabled, but a persisted "disabled" is never
+    // coerced back on — the capture/sync/backup gates honor the stored value.
     await _dedupeCategoryRows();
     await _backfillSystemTransactionCategories();
     await _backfillTransactionDirections();
@@ -1530,7 +1532,7 @@ class AppDatabase extends GeneratedDatabase {
   /// يُستدعى بعد استعادة نسخة احتياطية لضمان وجود حساب افتراضي وربط
   /// أي سجلات يتيمة (account_id = NULL) به.
   Future<void> runPostRestoreSetup() async {
-    await _enforceRequiredProcessingSettings();
+    // A restored backup keeps its owner's stored consent choice (MALI-001).
     await _ensureDefaultAccount();
   }
 
@@ -1539,20 +1541,6 @@ class AppDatabase extends GeneratedDatabase {
   /// إعادة تشغيل التطبيق. يضمن وجود صف user_settings/حساب افتراضي فوراً.
   Future<void> reseedDefaultsAfterWipe() async {
     await _seedIfNeeded();
-    await _enforceRequiredProcessingSettings();
-  }
-
-  /// Cloud and AI processing are required Qirsh capabilities. This also
-  /// upgrades existing devices and restored backups that persisted the former
-  /// opt-in values as disabled.
-  Future<void> _enforceRequiredProcessingSettings() async {
-    await customUpdate('''
-      UPDATE user_settings
-      SET ai_consent_granted = 1,
-          cloud_processing_enabled = 1
-      WHERE ai_consent_granted != 1
-         OR cloud_processing_enabled != 1;
-    ''');
   }
 
   /// ينشئ حساباً افتراضياً واحداً من عملة المستخدم الحالية، ويربط كل العمليات

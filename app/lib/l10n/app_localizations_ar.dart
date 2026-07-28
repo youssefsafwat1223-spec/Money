@@ -118,7 +118,7 @@ class AppL10nAr extends AppL10n {
   String get authTrustLocalEncryption => 'تشفير محلي';
 
   @override
-  String get authTrustOnDevice => 'بياناتك على جهازك';
+  String get authTrustOnDevice => 'مشفّرة على جهازك، ومتزامنة بأمان';
 
   @override
   String get authTermsNotice =>

@@ -27,10 +27,9 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
   @override
   Future<UserSettingsEntity> saveSettings(UserSettingsEntity settings) async {
     return _db.transaction(() async {
-      final requiredSettings = settings.copyWith(
-        aiConsentGranted: true,
-        cloudProcessingEnabled: true,
-      );
+      // Cloud/AI consent persists exactly as the user chose (MALI-001) — the
+      // former forced-true clamp made the privacy toggles meaningless.
+      final requiredSettings = settings;
       await _db.customUpdate(
         '''
         UPDATE user_settings
@@ -65,8 +64,8 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
           Variable.withString(requiredSettings.notificationsJson),
           Variable.withString(requiredSettings.dbEncryptionKeyRef),
           Variable.withInt(requiredSettings.privacyModeEnabled ? 1 : 0),
-          Variable.withInt(1),
-          Variable.withInt(1),
+          Variable.withInt(requiredSettings.aiConsentGranted ? 1 : 0),
+          Variable.withInt(requiredSettings.cloudProcessingEnabled ? 1 : 0),
           Variable.withString(requiredSettings.id),
         ],
       );

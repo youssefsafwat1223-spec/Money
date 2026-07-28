@@ -122,7 +122,7 @@ class AppL10nEn extends AppL10n {
   String get authTrustLocalEncryption => 'Local encryption';
 
   @override
-  String get authTrustOnDevice => 'Your data stays on your device';
+  String get authTrustOnDevice => 'Encrypted on your device, synced securely';
 
   @override
   String get authTermsNotice =>

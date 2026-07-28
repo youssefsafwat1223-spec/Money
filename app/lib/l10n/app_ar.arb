@@ -44,7 +44,7 @@
   "authTitle": "رحلتك المالية محفوظة",
   "authSubtitle": "سجّل دخولك لحماية بياناتك واستعادتها على أجهزتك.",
   "authTrustLocalEncryption": "تشفير محلي",
-  "authTrustOnDevice": "بياناتك على جهازك",
+  "authTrustOnDevice": "مشفّرة على جهازك، ومتزامنة بأمان",
   "authTermsNotice": "بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية.",
   "authAppleCta": "المتابعة بحساب Apple",
   "authGoogleCta": "المتابعة بحساب Google",
