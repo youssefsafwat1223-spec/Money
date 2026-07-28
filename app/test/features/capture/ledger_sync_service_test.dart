@@ -390,4 +390,119 @@ void main() {
     final result = await _makeSvc(db, remote).pull();
     expect(result.updated, 1);
   });
+
+  // ── MALI-009: remote field merge + pending-edit protection ────────────────
+
+  Future<Map<String, dynamic>> localRow(String serverId) async {
+    final row = await db
+        .customSelect(
+          'SELECT amount, raw_merchant, sync_status, server_updated_at '
+          'FROM transactions '
+          "WHERE server_id = ${sqlString(serverId)} LIMIT 1;",
+        )
+        .getSingle();
+    return {
+      'amount': row.read<double>('amount'),
+      'raw_merchant': row.readNullable<String>('raw_merchant'),
+      'sync_status': row.readNullable<String>('sync_status'),
+      'server_updated_at': row.readNullable<String>('server_updated_at'),
+    };
+  }
+
+  test('remote edit applies financial fields to an existing synced row',
+      () async {
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-merge',
+        amount: 100.0,
+        merchant: 'OLD',
+        updatedAt: '2026-01-01T10:00:00.000Z',
+      ),
+    ];
+    await _makeSvc(db, remote).pull();
+
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-merge',
+        amount: 250.0,
+        merchant: 'NEW MERCHANT',
+        updatedAt: '2026-01-02T10:00:00.000Z',
+      ),
+    ];
+    await _makeSvc(db, remote).pull();
+
+    final row = await localRow('srv-merge');
+    expect(row['amount'], 250.0, reason: 'remote amount must land locally');
+    expect(row['raw_merchant'], 'NEW MERCHANT');
+    expect(row['sync_status'], 'synced');
+    // One row, not a duplicate import.
+    final count = await db
+        .customSelect('SELECT COUNT(*) AS c FROM transactions;')
+        .getSingle();
+    expect(count.read<int>('c'), 1);
+  });
+
+  test('pending local edit is untouched when remote is at our base version',
+      () async {
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-pend',
+        amount: 100.0,
+        updatedAt: '2026-01-01T10:00:00.000Z',
+      ),
+    ];
+    await _makeSvc(db, remote).pull();
+
+    // Simulate a local edit awaiting push: fields changed, status pending,
+    // base token = the version we pulled.
+    await db.customStatement('''
+      UPDATE transactions
+      SET amount = 999.0, sync_status = 'pending'
+      WHERE server_id = 'srv-pend';
+    ''');
+
+    // Remote unchanged (same updated_at) — pull must leave the row alone.
+    final result = await _makeSvc(db, remote).pull();
+    expect(result.conflicts, 0);
+
+    final row = await localRow('srv-pend');
+    expect(row['amount'], 999.0, reason: 'local pending edit must survive');
+    expect(row['sync_status'], 'pending');
+  });
+
+  test('pending local edit + remote moved past base → conflict, fields kept',
+      () async {
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-conf',
+        amount: 100.0,
+        updatedAt: '2026-01-01T10:00:00.000Z',
+      ),
+    ];
+    await _makeSvc(db, remote).pull();
+
+    await db.customStatement('''
+      UPDATE transactions
+      SET amount = 999.0, sync_status = 'pending'
+      WHERE server_id = 'srv-conf';
+    ''');
+
+    // Remote edited concurrently on another device.
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-conf',
+        amount: 300.0,
+        updatedAt: '2026-01-03T10:00:00.000Z',
+      ),
+    ];
+    final result = await _makeSvc(db, remote).pull();
+    expect(result.conflicts, 1);
+
+    final row = await localRow('srv-conf');
+    expect(row['amount'], 999.0,
+        reason: 'conflict must not silently pick the remote side');
+    expect(row['sync_status'], 'conflict');
+    expect(row['server_updated_at'], '2026-01-01T10:00:00.000Z',
+        reason: 'base token must not be overwritten by the newer remote');
+  });
 }

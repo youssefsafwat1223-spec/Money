@@ -130,7 +130,11 @@ class LedgerPushService implements LedgerPushAdapter {
           .single();
 
       final serverId = response['id'] as String;
-      await _attachServerId(item.transactionId, serverId);
+      await _attachServerId(
+        item.transactionId,
+        serverId,
+        serverUpdatedAt: response['updated_at'] as String?,
+      );
       await _queue.markSuccess(item.id);
       return _PushOutcome.pushed;
     } catch (e) {
@@ -190,12 +194,20 @@ class LedgerPushService implements LedgerPushAdapter {
         }
       }
 
-      await _getClient()
+      final updated = await _getClient()
           .from('user_transactions')
           .update(serverRow)
-          .eq('id', serverId);
+          .eq('id', serverId)
+          .select('updated_at')
+          .maybeSingle();
 
-      await _attachServerId(item.transactionId, serverId);
+      await _attachServerId(
+        item.transactionId,
+        serverId,
+        // Store the version our update produced — the next edit's outbox
+        // payload carries it as the base token (MALI-009).
+        serverUpdatedAt: updated?['updated_at'] as String?,
+      );
       await _queue.markSuccess(item.id);
       return _PushOutcome.pushed;
     } catch (e) {
@@ -248,12 +260,17 @@ class LedgerPushService implements LedgerPushAdapter {
     }
   }
 
-  Future<void> _attachServerId(String transactionId, String serverId) async {
+  Future<void> _attachServerId(
+    String transactionId,
+    String serverId, {
+    String? serverUpdatedAt,
+  }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       UPDATE transactions
       SET server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
+          ${serverUpdatedAt != null ? 'server_updated_at = ${sqlString(serverUpdatedAt)},' : ''}
           sync_status = 'synced'
       WHERE id = ${sqlString(transactionId)};
     ''');
@@ -285,12 +302,16 @@ class LedgerPushService implements LedgerPushAdapter {
       'currency': payload['currency'],
       'direction': switch (legacyType) {
         'credit' => 'credit',
+        // A refund is money coming back — its direction is credit even
+        // though it is not income (MALI-010).
+        'refund' => 'credit',
         'debit' => 'debit',
         _ => 'unknown',
       },
       'transaction_type': switch (legacyType) {
         'credit' => 'income',
         'transfer' => 'transfer',
+        'refund' => 'refund',
         'debit' => 'expense',
         _ => 'unknown',
       },
@@ -304,6 +325,12 @@ class LedgerPushService implements LedgerPushAdapter {
     };
     if (payload['merchant'] != null) row['merchant'] = payload['merchant'];
     if (payload['note'] != null) row['description'] = payload['note'];
+    // Round-trip the confirmation state (MALI-010). Server check constraint
+    // accepts confirmed/pending/ignored (migration 0029).
+    final status = payload['status'] as String?;
+    if (status == 'confirmed' || status == 'pending' || status == 'ignored') {
+      row['status'] = status;
+    }
     final localAccountId = payload['account_id'] as String?;
     if (localAccountId != null) {
       row['local_account_id'] = localAccountId;
@@ -347,7 +374,9 @@ class LedgerPushService implements LedgerPushAdapter {
     // in metadata). Only written when non-empty so an update never blanks
     // server metadata it has nothing to say about.
     final metadata = <String, dynamic>{};
-    if (payload['card_last4'] != null) metadata['last4'] = payload['card_last4'];
+    if (payload['card_last4'] != null) {
+      metadata['last4'] = payload['card_last4'];
+    }
     if (payload['source'] != null) {
       metadata['transaction_source'] = payload['source'];
     }

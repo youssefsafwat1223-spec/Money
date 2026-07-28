@@ -201,6 +201,25 @@ class LedgerSyncService implements LedgerPullAdapter {
         return _RowOutcome.conflict;
       }
 
+      // A local edit is awaiting push (MALI-009). If the server row moved past
+      // the base version the edit was made against, that's a genuine
+      // concurrent edit — surface a conflict WITHOUT touching the fields or
+      // the base token (overwriting server_updated_at here would disarm the
+      // push's optimistic check and silently pick a winner). If the server row
+      // is still at our base, leave the row alone and let the push proceed.
+      if (syncStatus == 'pending') {
+        final baseToken = meta.readNullable<String>('server_updated_at');
+        if (serverUpdatedAt != baseToken) {
+          await _db.customStatement('''
+            UPDATE transactions
+            SET sync_status = 'conflict'
+            WHERE id = ${sqlString(localId)};
+          ''');
+          return _RowOutcome.conflict;
+        }
+        return _RowOutcome.skipped;
+      }
+
       // Account repair: a sign-out wipe regenerates local account ids, so a
       // previously-imported transaction can point at an account id that no
       // longer exists — invisible in every account-scoped screen. Resolve the
@@ -225,12 +244,43 @@ class LedgerSyncService implements LedgerPullAdapter {
           meta.readNullable<String>('server_updated_at') == serverUpdatedAt;
       if (alreadySynced && !accountNeedsRepair) return _RowOutcome.skipped;
 
+      // The server row changed since we last saw it and there is no pending
+      // local edit — apply the REMOTE FINANCIAL FIELDS, not just sync
+      // metadata (MALI-009). Before this, an edit made on another device
+      // never landed here, while the new server_updated_at was still
+      // recorded — making the staleness permanent.
+      final amount = (row['amount'] as num?)?.toDouble();
+      final currency = row['currency'] as String?;
+      final occurredAt = row['occurred_at'] as String?;
+      final localCategoryId =
+          await _localCategoryIdForKey(row['category_id'] as String?);
+      final mappedType =
+          _mapType(row['transaction_type'] as String? ?? 'unknown');
+      final serverStatus = row['status'] as String?;
+      final mappedStatus = switch (serverStatus) {
+        'pending' => 'pending',
+        'ignored' => 'ignored',
+        _ => 'confirmed',
+      };
       await _db.customStatement('''
         UPDATE transactions
-        SET server_id = ${sqlString(serverId)},
+        SET ${amount != null ? 'amount = $amount,' : ''}
+            ${currency != null ? 'currency = ${sqlString(currency)},' : ''}
+            raw_merchant = ${sqlNullableString(row['merchant'] as String?)},
+            note = ${sqlNullableString(row['description'] as String?)},
+            type = ${sqlString(mappedType.name)},
+            status = ${sqlString(mappedStatus)},
+            ${occurredAt != null ? 'occurred_at = ${sqlString(dateTimeToSql(DateTime.tryParse(occurredAt)?.toUtc() ?? DateTime.now().toUtc()))},' : ''}
+            category_id = ${sqlNullableString(localCategoryId)},
+            card_last4 = ${sqlNullableString(_last4FromMetadata(row['metadata']))},
+            balance_after = ${sqlNullableNum((row['balance_after'] as num?)?.toDouble())},
+            foreign_amount = ${sqlNullableNum((row['foreign_amount'] as num?)?.toDouble())},
+            foreign_currency = ${sqlNullableString(row['foreign_currency'] as String?)},
+            account_id = ${sqlNullableString(resolvedAccountId)},
+            updated_at = ${sqlString(now)},
+            server_id = ${sqlString(serverId)},
             synced_at = ${sqlString(now)},
             server_updated_at = ${sqlNullableString(serverUpdatedAt)},
-            ${accountNeedsRepair ? 'account_id = ${sqlNullableString(resolvedAccountId)},' : ''}
             sync_status = 'synced'
         WHERE id = ${sqlString(localId)};
       ''');
@@ -336,6 +386,7 @@ class LedgerSyncService implements LedgerPullAdapter {
       amount: amount,
       currency: currency,
       rawMerchant: row['merchant'] as String?,
+      note: row['description'] as String?,
       type: _mapType(row['transaction_type'] as String? ?? 'unknown'),
       source: _mapSource(row['source'] as String? ?? 'unknown'),
       accountId: accountId,
@@ -381,6 +432,18 @@ class LedgerSyncService implements LedgerPullAdapter {
       return localAccountId;
     }
     return null;
+  }
+
+  /// Resolves the server's stable category KEY to the local category id
+  /// (categories are keyed by stable strings across devices).
+  Future<String?> _localCategoryIdForKey(String? key) async {
+    if (key == null || key.isEmpty) return null;
+    final row = await _db
+        .customSelect(
+          'SELECT id FROM categories WHERE key = ${sqlString(key)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    return row?.read<String>('id');
   }
 
   Future<bool> _localAccountExists(String id) async {

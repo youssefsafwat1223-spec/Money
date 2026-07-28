@@ -178,6 +178,14 @@ class LedgerOutboxQueue {
       'balance_after': tx.balanceAfter,
       'foreign_amount': tx.foreignAmount,
       'foreign_currency': tx.foreignCurrency,
+      // Confirmation state must round-trip (MALI-010): without it a locally
+      // confirmed relay capture stays 'pending' on the server and re-imports
+      // as pending on every other device.
+      'status': tx.status.name,
+      // Optimistic-concurrency base token (MALI-009): the server version this
+      // change was made against. The push conflict check compares it with the
+      // live row before updating — omitted, the check could never fire.
+      'server_updated_at': tx.serverUpdatedAt?.toUtc().toIso8601String(),
     };
 
     // Include source only for create operations.
@@ -193,6 +201,11 @@ class LedgerOutboxQueue {
   static String _mapType(TransactionTypeEntity type) => switch (type) {
         TransactionTypeEntity.income => 'credit',
         TransactionTypeEntity.transfer => 'transfer',
+        // Refund must survive the round-trip (MALI-010): collapsing it to
+        // 'debit' made the server store it as an EXPENSE, flipping its
+        // meaning on every other device. The server accepts 'refund'
+        // (migration 0022's transaction_type check).
+        TransactionTypeEntity.refund => 'refund',
         _ => 'debit',
       };
 
