@@ -16,25 +16,27 @@ class DriftBillRepository implements BillRepository {
 
   @override
   Future<void> delete(String id) async {
-    final existing = await getById(id);
-    final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customUpdate(
-      '''
+    await _db.transaction(() async {
+      final existing = await getById(id);
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await _db.customUpdate(
+        '''
       UPDATE subscriptions
       SET deleted_at = ?, status = 'cancelled'
       WHERE id = ?;
       ''',
-      variables: [
-        Variable.withString(now),
-        Variable.withString(id),
-      ],
-    );
-    if (existing != null) {
-      await _outboxQueue?.enqueueSubscription(
-        PlanningSyncOperation.delete,
-        existing,
+        variables: [
+          Variable.withString(now),
+          Variable.withString(id),
+        ],
       );
-    }
+      if (existing != null) {
+        await _outboxQueue?.enqueueSubscription(
+          PlanningSyncOperation.delete,
+          existing,
+        );
+      }
+    });
   }
 
   @override
@@ -92,11 +94,12 @@ class DriftBillRepository implements BillRepository {
 
   @override
   Future<BillEntity> save(BillEntity bill) async {
-    final existing = await getById(bill.id);
-    final merchantId = bill.merchantId ?? await _merchantIdForName(bill.name);
-    if (existing == null) {
-      await _db.customInsert(
-        '''
+    return _db.transaction(() async {
+      final existing = await getById(bill.id);
+      final merchantId = bill.merchantId ?? await _merchantIdForName(bill.name);
+      if (existing == null) {
+        await _db.customInsert(
+          '''
           INSERT INTO subscriptions(
             id, merchant_id, name, amount, currency, period, frequency, type,
             next_due_date, is_confirmed, reminder_on, custom_interval_days,
@@ -107,59 +110,59 @@ class DriftBillRepository implements BillRepository {
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
-        variables: [
-          Variable.withString(bill.id),
-          Variable.withString(merchantId),
-          Variable.withString(bill.name),
-          Variable.withReal(bill.amount),
-          Variable.withString(bill.currency),
-          Variable.withString(bill.frequency.name),
-          Variable.withString(bill.frequency.name),
-          Variable.withString(bill.type.name),
-          Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
-          Variable.withInt(boolToSql(bill.isConfirmed)),
-          Variable.withInt(boolToSql(bill.reminderOn)),
-          bill.customIntervalDays == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.customIntervalDays!),
-          bill.note == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.note!),
-          Variable.withString(dateTimeToSql(bill.createdAt.toUtc())),
-          Variable.withString(bill.status.name),
-          bill.accountId == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.accountId!),
-          bill.totalInstallments == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.totalInstallments!),
-          bill.paidCount == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.paidCount!),
-          bill.manualPaidAmount == null
-              ? const Variable<double>(null)
-              : Variable.withReal(bill.manualPaidAmount!),
-          bill.totalPurchaseAmount == null
-              ? const Variable<double>(null)
-              : Variable.withReal(bill.totalPurchaseAmount!),
-          bill.lenderName == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.lenderName!),
-          bill.interestRate == null
-              ? const Variable<double>(null)
-              : Variable.withReal(bill.interestRate!),
-        ],
-      );
-      final saved = await getById(bill.id);
-      if (saved != null) {
-        await _outboxQueue?.enqueueSubscription(
-          PlanningSyncOperation.create,
-          saved,
+          variables: [
+            Variable.withString(bill.id),
+            Variable.withString(merchantId),
+            Variable.withString(bill.name),
+            Variable.withReal(bill.amount),
+            Variable.withString(bill.currency),
+            Variable.withString(bill.frequency.name),
+            Variable.withString(bill.frequency.name),
+            Variable.withString(bill.type.name),
+            Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
+            Variable.withInt(boolToSql(bill.isConfirmed)),
+            Variable.withInt(boolToSql(bill.reminderOn)),
+            bill.customIntervalDays == null
+                ? const Variable<int>(null)
+                : Variable.withInt(bill.customIntervalDays!),
+            bill.note == null
+                ? const Variable<String>(null)
+                : Variable.withString(bill.note!),
+            Variable.withString(dateTimeToSql(bill.createdAt.toUtc())),
+            Variable.withString(bill.status.name),
+            bill.accountId == null
+                ? const Variable<String>(null)
+                : Variable.withString(bill.accountId!),
+            bill.totalInstallments == null
+                ? const Variable<int>(null)
+                : Variable.withInt(bill.totalInstallments!),
+            bill.paidCount == null
+                ? const Variable<int>(null)
+                : Variable.withInt(bill.paidCount!),
+            bill.manualPaidAmount == null
+                ? const Variable<double>(null)
+                : Variable.withReal(bill.manualPaidAmount!),
+            bill.totalPurchaseAmount == null
+                ? const Variable<double>(null)
+                : Variable.withReal(bill.totalPurchaseAmount!),
+            bill.lenderName == null
+                ? const Variable<String>(null)
+                : Variable.withString(bill.lenderName!),
+            bill.interestRate == null
+                ? const Variable<double>(null)
+                : Variable.withReal(bill.interestRate!),
+          ],
         );
-      }
-    } else {
-      await _db.customUpdate(
-        '''
+        final saved = await getById(bill.id);
+        if (saved != null) {
+          await _outboxQueue?.enqueueSubscription(
+            PlanningSyncOperation.create,
+            saved,
+          );
+        }
+      } else {
+        await _db.customUpdate(
+          '''
           UPDATE subscriptions
           SET merchant_id = ?, name = ?, amount = ?, currency = ?,
               period = ?, frequency = ?, type = ?, next_due_date = ?,
@@ -170,61 +173,62 @@ class DriftBillRepository implements BillRepository {
               lender_name = ?, interest_rate = ?
           WHERE id = ?;
         ''',
-        variables: [
-          Variable.withString(merchantId),
-          Variable.withString(bill.name),
-          Variable.withReal(bill.amount),
-          Variable.withString(bill.currency),
-          Variable.withString(bill.frequency.name),
-          Variable.withString(bill.frequency.name),
-          Variable.withString(bill.type.name),
-          Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
-          Variable.withInt(boolToSql(bill.isConfirmed)),
-          Variable.withInt(boolToSql(bill.reminderOn)),
-          bill.customIntervalDays == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.customIntervalDays!),
-          bill.note == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.note!),
-          Variable.withString(bill.status.name),
-          bill.accountId == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.accountId!),
-          bill.totalInstallments == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.totalInstallments!),
-          bill.paidCount == null
-              ? const Variable<int>(null)
-              : Variable.withInt(bill.paidCount!),
-          bill.manualPaidAmount == null
-              ? const Variable<double>(null)
-              : Variable.withReal(bill.manualPaidAmount!),
-          bill.totalPurchaseAmount == null
-              ? const Variable<double>(null)
-              : Variable.withReal(bill.totalPurchaseAmount!),
-          bill.lenderName == null
-              ? const Variable<String>(null)
-              : Variable.withString(bill.lenderName!),
-          bill.interestRate == null
-              ? const Variable<double>(null)
-              : Variable.withReal(bill.interestRate!),
-          Variable.withString(bill.id),
-        ],
-      );
-      final saved = await getById(bill.id);
-      if (saved != null) {
-        await _outboxQueue?.enqueueSubscription(
-          PlanningSyncOperation.update,
-          saved,
+          variables: [
+            Variable.withString(merchantId),
+            Variable.withString(bill.name),
+            Variable.withReal(bill.amount),
+            Variable.withString(bill.currency),
+            Variable.withString(bill.frequency.name),
+            Variable.withString(bill.frequency.name),
+            Variable.withString(bill.type.name),
+            Variable.withString(dateTimeToSql(bill.nextDueDate.toUtc())),
+            Variable.withInt(boolToSql(bill.isConfirmed)),
+            Variable.withInt(boolToSql(bill.reminderOn)),
+            bill.customIntervalDays == null
+                ? const Variable<int>(null)
+                : Variable.withInt(bill.customIntervalDays!),
+            bill.note == null
+                ? const Variable<String>(null)
+                : Variable.withString(bill.note!),
+            Variable.withString(bill.status.name),
+            bill.accountId == null
+                ? const Variable<String>(null)
+                : Variable.withString(bill.accountId!),
+            bill.totalInstallments == null
+                ? const Variable<int>(null)
+                : Variable.withInt(bill.totalInstallments!),
+            bill.paidCount == null
+                ? const Variable<int>(null)
+                : Variable.withInt(bill.paidCount!),
+            bill.manualPaidAmount == null
+                ? const Variable<double>(null)
+                : Variable.withReal(bill.manualPaidAmount!),
+            bill.totalPurchaseAmount == null
+                ? const Variable<double>(null)
+                : Variable.withReal(bill.totalPurchaseAmount!),
+            bill.lenderName == null
+                ? const Variable<String>(null)
+                : Variable.withString(bill.lenderName!),
+            bill.interestRate == null
+                ? const Variable<double>(null)
+                : Variable.withReal(bill.interestRate!),
+            Variable.withString(bill.id),
+          ],
         );
+        final saved = await getById(bill.id);
+        if (saved != null) {
+          await _outboxQueue?.enqueueSubscription(
+            PlanningSyncOperation.update,
+            saved,
+          );
+        }
       }
-    }
-    final saved = await getById(bill.id);
-    if (saved == null) {
-      throw StateError('Failed to save bill: ${bill.id}');
-    }
-    return saved;
+      final saved = await getById(bill.id);
+      if (saved == null) {
+        throw StateError('Failed to save bill: ${bill.id}');
+      }
+      return saved;
+    });
   }
 
   @override
@@ -242,62 +246,65 @@ class DriftBillRepository implements BillRepository {
 
   @override
   Future<BillPaymentEntity> recordPayment(BillPaymentEntity payment) async {
-    await _db.customInsert(
-      '''
+    return _db.transaction(() async {
+      await _db.customInsert(
+        '''
         INSERT INTO bill_payments(
           id, bill_id, amount, currency, period_start, period_end, paid_at,
           installment_index, transaction_id, note
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
-      variables: [
-        Variable.withString(payment.id),
-        Variable.withString(payment.billId),
-        Variable.withReal(payment.amount),
-        Variable.withString(payment.currency),
-        Variable.withString(dateTimeToSql(payment.periodStart.toUtc())),
-        Variable.withString(dateTimeToSql(payment.periodEnd.toUtc())),
-        Variable.withString(dateTimeToSql(payment.paidAt.toUtc())),
-        payment.installmentIndex == null
-            ? const Variable<int>(null)
-            : Variable.withInt(payment.installmentIndex!),
-        payment.transactionId == null
-            ? const Variable<String>(null)
-            : Variable.withString(payment.transactionId!),
-        payment.note == null
-            ? const Variable<String>(null)
-            : Variable.withString(payment.note!),
-      ],
-    );
+        variables: [
+          Variable.withString(payment.id),
+          Variable.withString(payment.billId),
+          Variable.withReal(payment.amount),
+          Variable.withString(payment.currency),
+          Variable.withString(dateTimeToSql(payment.periodStart.toUtc())),
+          Variable.withString(dateTimeToSql(payment.periodEnd.toUtc())),
+          Variable.withString(dateTimeToSql(payment.paidAt.toUtc())),
+          payment.installmentIndex == null
+              ? const Variable<int>(null)
+              : Variable.withInt(payment.installmentIndex!),
+          payment.transactionId == null
+              ? const Variable<String>(null)
+              : Variable.withString(payment.transactionId!),
+          payment.note == null
+              ? const Variable<String>(null)
+              : Variable.withString(payment.note!),
+        ],
+      );
 
-    final bill = await getById(payment.billId);
-    if (bill?.type == BillType.installment) {
-      final currentPaid = bill!.paidCount ?? 0;
-      final requestedPaid = payment.installmentIndex ?? currentPaid + 1;
-      final cappedPaid = bill.totalInstallments == null
-          ? requestedPaid
-          : requestedPaid.clamp(0, bill.totalInstallments!).toInt();
-      final nextPaidCount = cappedPaid < currentPaid ? currentPaid : cappedPaid;
-      await _db.customUpdate(
-        '''
+      final bill = await getById(payment.billId);
+      if (bill?.type == BillType.installment) {
+        final currentPaid = bill!.paidCount ?? 0;
+        final requestedPaid = payment.installmentIndex ?? currentPaid + 1;
+        final cappedPaid = bill.totalInstallments == null
+            ? requestedPaid
+            : requestedPaid.clamp(0, bill.totalInstallments!).toInt();
+        final nextPaidCount =
+            cappedPaid < currentPaid ? currentPaid : cappedPaid;
+        await _db.customUpdate(
+          '''
           UPDATE subscriptions
           SET paid_count = ?
           WHERE id = ?;
         ''',
-        variables: [
-          Variable.withInt(nextPaidCount),
-          Variable.withString(payment.billId),
-        ],
-      );
-    }
+          variables: [
+            Variable.withInt(nextPaidCount),
+            Variable.withString(payment.billId),
+          ],
+        );
+      }
 
-    final rows = await getPayments(payment.billId);
-    final saved = rows.firstWhere((item) => item.id == payment.id);
-    await _outboxQueue?.enqueueBillPayment(
-      PlanningSyncOperation.create,
-      saved,
-    );
-    return saved;
+      final rows = await getPayments(payment.billId);
+      final saved = rows.firstWhere((item) => item.id == payment.id);
+      await _outboxQueue?.enqueueBillPayment(
+        PlanningSyncOperation.create,
+        saved,
+      );
+      return saved;
+    });
   }
 
   @override
@@ -305,38 +312,41 @@ class DriftBillRepository implements BillRepository {
     required BillEntity bill,
     required BillPaymentEntity payment,
   }) async {
-    final saved = await save(bill);
-    return recordPayment(
-      BillPaymentEntity(
-        id: payment.id,
-        billId: saved.id,
-        amount: payment.amount,
-        currency: payment.currency,
-        periodStart: payment.periodStart,
-        periodEnd: payment.periodEnd,
-        paidAt: payment.paidAt,
-        installmentIndex: payment.installmentIndex,
-        transactionId: payment.transactionId,
-        note: payment.note,
-      ),
-    );
+    return _db.transaction(() async {
+      final saved = await save(bill);
+      return recordPayment(
+        BillPaymentEntity(
+          id: payment.id,
+          billId: saved.id,
+          amount: payment.amount,
+          currency: payment.currency,
+          periodStart: payment.periodStart,
+          periodEnd: payment.periodEnd,
+          paidAt: payment.paidAt,
+          installmentIndex: payment.installmentIndex,
+          transactionId: payment.transactionId,
+          note: payment.note,
+        ),
+      );
+    });
   }
 
   @override
   Future<List<String>> deletePaymentForTransaction(String transactionId) async {
-    var rows = await _db.customSelect(
-      '''
+    return _db.transaction(() async {
+      var rows = await _db.customSelect(
+        '''
         SELECT *
         FROM bill_payments
         WHERE transaction_id = ?
           AND deleted_at IS NULL;
       ''',
-      variables: [Variable.withString(transactionId)],
-    ).get();
+        variables: [Variable.withString(transactionId)],
+      ).get();
 
-    if (rows.isEmpty) {
-      rows = await _db.customSelect(
-        '''
+      if (rows.isEmpty) {
+        rows = await _db.customSelect(
+          '''
           SELECT bp.*
           FROM bill_payments bp
           JOIN subscriptions s ON s.id = bp.bill_id
@@ -351,17 +361,71 @@ class DriftBillRepository implements BillRepository {
               t.note LIKE '%' || s.name || '%'
             );
         ''',
-        variables: [Variable.withString(transactionId)],
-      ).get();
-    }
+          variables: [Variable.withString(transactionId)],
+        ).get();
+      }
 
-    final billIds =
-        rows.map((row) => row.read<String>('bill_id')).toList(growable: false);
-    if (billIds.isEmpty) return const [];
-    final payments = rows.map(_paymentFromRow).toList(growable: false);
-    final paymentIds = payments.map((item) => item.id).toList(growable: false);
+      final billIds = rows
+          .map((row) => row.read<String>('bill_id'))
+          .toList(growable: false);
+      if (billIds.isEmpty) return const [];
+      final payments = rows.map(_paymentFromRow).toList(growable: false);
+      final paymentIds =
+          payments.map((item) => item.id).toList(growable: false);
 
-    for (final paymentId in paymentIds) {
+      for (final paymentId in paymentIds) {
+        await _db.customUpdate(
+          'UPDATE bill_payments SET deleted_at = ? WHERE id = ?;',
+          variables: [
+            Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+            Variable.withString(paymentId),
+          ],
+        );
+      }
+
+      for (final payment in payments) {
+        await _outboxQueue?.enqueueBillPayment(
+          PlanningSyncOperation.delete,
+          payment,
+        );
+      }
+
+      for (final billId in billIds) {
+        final paidRow = await _db.customSelect(
+          '''
+          SELECT MAX(installment_index) AS paid_count
+          FROM bill_payments
+          WHERE bill_id = ?
+            AND deleted_at IS NULL;
+        ''',
+          variables: [Variable.withString(billId)],
+        ).getSingle();
+        final paidCount = paidRow.readNullable<int>('paid_count') ?? 0;
+        await _db.customUpdate(
+          '''
+          UPDATE subscriptions
+          SET paid_count = ?
+          WHERE id = ? AND type = 'installment';
+        ''',
+          variables: [
+            Variable.withInt(paidCount),
+            Variable.withString(billId),
+          ],
+        );
+      }
+
+      return billIds;
+    });
+  }
+
+  @override
+  Future<void> deletePayment(String paymentId) async {
+    await _db.transaction(() async {
+      final row = await _db.customSelect(
+        'SELECT * FROM bill_payments WHERE id = ? LIMIT 1;',
+        variables: [Variable.withString(paymentId)],
+      ).getSingleOrNull();
+      final payment = row == null ? null : _paymentFromRow(row);
       await _db.customUpdate(
         'UPDATE bill_payments SET deleted_at = ? WHERE id = ?;',
         variables: [
@@ -369,62 +433,34 @@ class DriftBillRepository implements BillRepository {
           Variable.withString(paymentId),
         ],
       );
-    }
-
-    for (final payment in payments) {
-      await _outboxQueue?.enqueueBillPayment(
-        PlanningSyncOperation.delete,
-        payment,
-      );
-    }
-
-    for (final billId in billIds) {
-      final paidRow = await _db.customSelect(
-        '''
+      if (payment != null) {
+        await _outboxQueue?.enqueueBillPayment(
+          PlanningSyncOperation.delete,
+          payment,
+        );
+        final paidRow = await _db.customSelect(
+          '''
           SELECT MAX(installment_index) AS paid_count
           FROM bill_payments
           WHERE bill_id = ?
             AND deleted_at IS NULL;
         ''',
-        variables: [Variable.withString(billId)],
-      ).getSingle();
-      final paidCount = paidRow.readNullable<int>('paid_count') ?? 0;
-      await _db.customUpdate(
-        '''
+          variables: [Variable.withString(payment.billId)],
+        ).getSingle();
+        final paidCount = paidRow.readNullable<int>('paid_count') ?? 0;
+        await _db.customUpdate(
+          '''
           UPDATE subscriptions
           SET paid_count = ?
           WHERE id = ? AND type = 'installment';
         ''',
-        variables: [
-          Variable.withInt(paidCount),
-          Variable.withString(billId),
-        ],
-      );
-    }
-
-    return billIds;
-  }
-
-  @override
-  Future<void> deletePayment(String paymentId) async {
-    final row = await _db.customSelect(
-      'SELECT * FROM bill_payments WHERE id = ? LIMIT 1;',
-      variables: [Variable.withString(paymentId)],
-    ).getSingleOrNull();
-    final payment = row == null ? null : _paymentFromRow(row);
-    await _db.customUpdate(
-      'UPDATE bill_payments SET deleted_at = ? WHERE id = ?;',
-      variables: [
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(paymentId),
-      ],
-    );
-    if (payment != null) {
-      await _outboxQueue?.enqueueBillPayment(
-        PlanningSyncOperation.delete,
-        payment,
-      );
-    }
+          variables: [
+            Variable.withInt(paidCount),
+            Variable.withString(payment.billId),
+          ],
+        );
+      }
+    });
   }
 
   BillEntity _fromRow(QueryRow row) {

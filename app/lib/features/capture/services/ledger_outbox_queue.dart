@@ -56,20 +56,27 @@ class LedgerOutboxQueue {
     final payload = _buildPayload(op, tx);
     final id = IdGenerator.next();
 
-    await _db.customStatement('''
-      INSERT INTO ledger_sync_outbox(
-        id, transaction_id, operation, payload_json,
-        attempt_count, created_at, updated_at
-      ) VALUES (
-        ${sqlString(id)},
-        ${sqlString(tx.id)},
-        ${sqlString(op.name)},
-        ${sqlString(jsonEncode(payload))},
-        0,
-        ${sqlString(now)},
-        ${sqlString(now)}
-      );
-    ''');
+    await _db.transaction(() async {
+      await _db.customStatement('''
+        INSERT INTO ledger_sync_outbox(
+          id, transaction_id, operation, payload_json,
+          attempt_count, created_at, updated_at
+        ) VALUES (
+          ${sqlString(id)},
+          ${sqlString(tx.id)},
+          ${sqlString(op.name)},
+          ${sqlString(jsonEncode(payload))},
+          0,
+          ${sqlString(now)},
+          ${sqlString(now)}
+        );
+      ''');
+      await _db.customStatement('''
+        UPDATE transactions
+        SET sync_status = 'pending'
+        WHERE id = ${sqlString(tx.id)};
+      ''');
+    });
     _onQueued?.call();
   }
 

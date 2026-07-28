@@ -44,88 +44,97 @@ class DriftCategoryRepository implements CategoryRepository {
     required String color,
     required bool isIncome,
   }) async {
-    final id = IdGenerator.next();
-    final key = await _uniqueKey(_slugify(nameAr));
-    final sort = await _nextSort();
-    await _db.customInsert(
-      '''
+    return _db.transaction(() async {
+      final id = IdGenerator.next();
+      final key = await _uniqueKey(_slugify(nameAr));
+      final sort = await _nextSort();
+      await _db.customInsert(
+        '''
         INSERT INTO categories(id, key, name_ar, icon, color, is_income, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?);
       ''',
-      variables: [
-        Variable.withString(id),
-        Variable.withString(key),
-        Variable.withString(nameAr.trim()),
-        Variable.withString(icon),
-        Variable.withString(color),
-        Variable.withInt(boolToSql(isIncome)),
-        Variable.withInt(sort),
-      ],
-    );
-    final saved = await _getById(id);
-    await _outboxQueue?.enqueueCategory(PlanningSyncOperation.create, saved);
-    return saved;
+        variables: [
+          Variable.withString(id),
+          Variable.withString(key),
+          Variable.withString(nameAr.trim()),
+          Variable.withString(icon),
+          Variable.withString(color),
+          Variable.withInt(boolToSql(isIncome)),
+          Variable.withInt(sort),
+        ],
+      );
+      final saved = await _getById(id);
+      await _outboxQueue?.enqueueCategory(PlanningSyncOperation.create, saved);
+      return saved;
+    });
   }
 
   @override
   Future<CategoryEntity> updateCategory(CategoryEntity category) async {
-    if (category.sort < 0) {
-      throw StateError('Internal category cannot be edited.');
-    }
-    await _db.customUpdate(
-      '''
+    return _db.transaction(() async {
+      if (category.sort < 0) {
+        throw StateError('Internal category cannot be edited.');
+      }
+      await _db.customUpdate(
+        '''
         UPDATE categories
         SET name_ar = ?, icon = ?, color = ?, is_income = ?, sort_order = ?
         WHERE id = ?;
       ''',
-      variables: [
-        Variable.withString(category.nameAr.trim()),
-        Variable.withString(category.icon),
-        Variable.withString(category.color),
-        Variable.withInt(boolToSql(category.isIncome)),
-        Variable.withInt(category.sort),
-        Variable.withString(category.id),
-      ],
-    );
-    final saved = await _getById(category.id);
-    await _outboxQueue?.enqueueCategory(PlanningSyncOperation.update, saved);
-    return saved;
+        variables: [
+          Variable.withString(category.nameAr.trim()),
+          Variable.withString(category.icon),
+          Variable.withString(category.color),
+          Variable.withInt(boolToSql(category.isIncome)),
+          Variable.withInt(category.sort),
+          Variable.withString(category.id),
+        ],
+      );
+      final saved = await _getById(category.id);
+      await _outboxQueue?.enqueueCategory(PlanningSyncOperation.update, saved);
+      return saved;
+    });
   }
 
   @override
   Future<void> deleteCategory(String id) async {
-    final category = await _getById(id);
-    if (category.sort < 0) {
-      throw StateError('Internal category cannot be deleted.');
-    }
-    final fallbackKey = category.isIncome ? 'income' : 'other';
-    final fallback = await _categoryIdByKey(fallbackKey);
-    if (fallback == null || fallback == id) {
-      throw StateError('Fallback category is missing.');
-    }
-    await _db.customUpdate(
-      'UPDATE transactions SET category_id = ? WHERE category_id = ?;',
-      variables: [
-        Variable.withString(fallback),
-        Variable.withString(id),
-      ],
-    );
-    await _db.customUpdate(
-      'DELETE FROM merchant_category_map WHERE category_id = ?;',
-      variables: [Variable.withString(id)],
-    );
-    await _db.customUpdate(
-      'UPDATE budgets SET category_id = ? WHERE category_id = ?;',
-      variables: [Variable.withString(fallback), Variable.withString(id)],
-    );
-    await _db.customUpdate(
-      'UPDATE categories SET deleted_at = ? WHERE id = ?;',
-      variables: [
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(id),
-      ],
-    );
-    await _outboxQueue?.enqueueCategory(PlanningSyncOperation.delete, category);
+    await _db.transaction(() async {
+      final category = await _getById(id);
+      if (category.sort < 0) {
+        throw StateError('Internal category cannot be deleted.');
+      }
+      final fallbackKey = category.isIncome ? 'income' : 'other';
+      final fallback = await _categoryIdByKey(fallbackKey);
+      if (fallback == null || fallback == id) {
+        throw StateError('Fallback category is missing.');
+      }
+      await _db.customUpdate(
+        'UPDATE transactions SET category_id = ? WHERE category_id = ?;',
+        variables: [
+          Variable.withString(fallback),
+          Variable.withString(id),
+        ],
+      );
+      await _db.customUpdate(
+        'DELETE FROM merchant_category_map WHERE category_id = ?;',
+        variables: [Variable.withString(id)],
+      );
+      await _db.customUpdate(
+        'UPDATE budgets SET category_id = ? WHERE category_id = ?;',
+        variables: [Variable.withString(fallback), Variable.withString(id)],
+      );
+      await _db.customUpdate(
+        'UPDATE categories SET deleted_at = ? WHERE id = ?;',
+        variables: [
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(id),
+        ],
+      );
+      await _outboxQueue?.enqueueCategory(
+        PlanningSyncOperation.delete,
+        category,
+      );
+    });
   }
 
   Future<CategoryEntity> _getById(String id) async {

@@ -563,12 +563,16 @@ class _BillPaymentRow extends ConsumerWidget {
     );
     if (confirmed != true) return;
     try {
-      if (payment.transactionId != null) {
-        await ref
-            .read(transactionRepositoryProvider)
-            .deleteTransaction(payment.transactionId!);
-      }
-      await ref.read(billRepositoryProvider).deletePayment(payment.id);
+      final transactionRepository = ref.read(transactionRepositoryProvider);
+      final billRepository = ref.read(billRepositoryProvider);
+      await ref.read(appDatabaseProvider).transaction(() async {
+        if (payment.transactionId != null) {
+          await transactionRepository.deleteTransaction(
+            payment.transactionId!,
+          );
+        }
+        await billRepository.deletePayment(payment.id);
+      });
     } on RepoException catch (error) {
       if (!context.mounted) return;
       AppToast.showError(context, repoExceptionMessage(error));

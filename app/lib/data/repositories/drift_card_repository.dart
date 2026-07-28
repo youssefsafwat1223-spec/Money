@@ -84,95 +84,100 @@ class DriftCardRepository implements CardRepository {
 
   @override
   Future<CardEntity> create(CardEntity card) async {
-    final normalized = normalizeLast4(card.last4);
-    if (normalized == null) {
-      throw const ValidationRepoException('invalid_last4');
-    }
-    // فحص التكرار داخل الحساب فقط عند وجود حساب مرتبط؛ البطاقات غير المخصّصة
-    // (account_id = NULL) لا تخضع لقيد فريد على (account_id, last4).
-    if (card.accountId != null &&
-        await findByAccountAndLast4(card.accountId!, normalized) != null) {
-      throw const ValidationRepoException('duplicate_card');
-    }
-    final id = card.id.isEmpty ? IdGenerator.next() : card.id;
-    final now = DateTime.now().toUtc();
-    await _db.customInsert(
-      '''
+    return _db.transaction(() async {
+      final normalized = normalizeLast4(card.last4);
+      if (normalized == null) {
+        throw const ValidationRepoException('invalid_last4');
+      }
+      // فحص التكرار داخل الحساب فقط عند وجود حساب مرتبط؛ البطاقات غير المخصّصة
+      // (account_id = NULL) لا تخضع لقيد فريد على (account_id, last4).
+      if (card.accountId != null &&
+          await findByAccountAndLast4(card.accountId!, normalized) != null) {
+        throw const ValidationRepoException('duplicate_card');
+      }
+      final id = card.id.isEmpty ? IdGenerator.next() : card.id;
+      final now = DateTime.now().toUtc();
+      await _db.customInsert(
+        '''
         INSERT INTO cards(
           id, account_id, nickname, last4, network, source,
           created_at, updated_at, color_theme, accent_hex
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
-      variables: [
-        Variable.withString(id),
-        card.accountId == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.accountId!),
-        card.nickname == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.nickname!),
-        Variable.withString(normalized),
-        Variable.withString(card.network.name),
-        Variable.withString(card.source.name),
-        Variable.withString(dateTimeToSql(now)),
-        Variable.withString(dateTimeToSql(now)),
-        card.colorTheme == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.colorTheme!),
-        card.accentHex == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.accentHex!),
-      ],
-    );
-    final saved = (await getById(id))!;
-    await _outboxQueue?.enqueueCard(PlanningSyncOperation.create, saved);
-    return saved;
+        variables: [
+          Variable.withString(id),
+          card.accountId == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.accountId!),
+          card.nickname == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.nickname!),
+          Variable.withString(normalized),
+          Variable.withString(card.network.name),
+          Variable.withString(card.source.name),
+          Variable.withString(dateTimeToSql(now)),
+          Variable.withString(dateTimeToSql(now)),
+          card.colorTheme == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.colorTheme!),
+          card.accentHex == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.accentHex!),
+        ],
+      );
+      final saved = (await getById(id))!;
+      await _outboxQueue?.enqueueCard(PlanningSyncOperation.create, saved);
+      return saved;
+    });
   }
 
   @override
   Future<CardEntity> update(CardEntity card) async {
-    final normalized = normalizeLast4(card.last4);
-    if (normalized == null) {
-      throw const ValidationRepoException('invalid_last4');
-    }
-    // منع تعارض (account, last4) مع بطاقة أخرى نشطة — فقط عند وجود حساب مرتبط.
-    if (card.accountId != null) {
-      final existing = await findByAccountAndLast4(card.accountId!, normalized);
-      if (existing != null && existing.id != card.id) {
-        throw const ValidationRepoException('duplicate_card');
+    return _db.transaction(() async {
+      final normalized = normalizeLast4(card.last4);
+      if (normalized == null) {
+        throw const ValidationRepoException('invalid_last4');
       }
-    }
-    await _db.customUpdate(
-      '''
+      // منع تعارض (account, last4) مع بطاقة أخرى نشطة — فقط عند وجود حساب مرتبط.
+      if (card.accountId != null) {
+        final existing =
+            await findByAccountAndLast4(card.accountId!, normalized);
+        if (existing != null && existing.id != card.id) {
+          throw const ValidationRepoException('duplicate_card');
+        }
+      }
+      await _db.customUpdate(
+        '''
         UPDATE cards
         SET account_id = ?, nickname = ?, last4 = ?, network = ?, source = ?,
             color_theme = ?, accent_hex = ?, updated_at = ?
         WHERE id = ? AND deleted_at IS NULL;
       ''',
-      variables: [
-        card.accountId == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.accountId!),
-        card.nickname == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.nickname!),
-        Variable.withString(normalized),
-        Variable.withString(card.network.name),
-        Variable.withString(card.source.name),
-        card.colorTheme == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.colorTheme!),
-        card.accentHex == null
-            ? const Variable<String>(null)
-            : Variable.withString(card.accentHex!),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(card.id),
-      ],
-    );
-    final saved = await getById(card.id);
-    if (saved == null) throw StateError('Card not found: ${card.id}');
-    await _outboxQueue?.enqueueCard(PlanningSyncOperation.update, saved);
-    return saved;
+        variables: [
+          card.accountId == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.accountId!),
+          card.nickname == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.nickname!),
+          Variable.withString(normalized),
+          Variable.withString(card.network.name),
+          Variable.withString(card.source.name),
+          card.colorTheme == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.colorTheme!),
+          card.accentHex == null
+              ? const Variable<String>(null)
+              : Variable.withString(card.accentHex!),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(card.id),
+        ],
+      );
+      final saved = await getById(card.id);
+      if (saved == null) throw StateError('Card not found: ${card.id}');
+      await _outboxQueue?.enqueueCard(PlanningSyncOperation.update, saved);
+      return saved;
+    });
   }
 
   @override
@@ -180,37 +185,41 @@ class DriftCardRepository implements CardRepository {
     required String cardId,
     required String newAccountId,
   }) async {
-    final card = await getById(cardId);
-    if (card == null) throw StateError('Card not found: $cardId');
-    // منع التعارض في الحساب الهدف.
-    final clash = await findByAccountAndLast4(newAccountId, card.last4);
-    if (clash != null && clash.id != cardId) {
-      throw const ValidationRepoException('duplicate_card');
-    }
-    await _db.customUpdate(
-      'UPDATE cards SET account_id = ?, updated_at = ? '
-      'WHERE id = ? AND deleted_at IS NULL;',
-      variables: [
-        Variable.withString(newAccountId),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(cardId),
-      ],
-    );
-    final saved = (await getById(cardId))!;
-    await _outboxQueue?.enqueueCard(PlanningSyncOperation.update, saved);
-    return saved;
+    return _db.transaction(() async {
+      final card = await getById(cardId);
+      if (card == null) throw StateError('Card not found: $cardId');
+      // منع التعارض في الحساب الهدف.
+      final clash = await findByAccountAndLast4(newAccountId, card.last4);
+      if (clash != null && clash.id != cardId) {
+        throw const ValidationRepoException('duplicate_card');
+      }
+      await _db.customUpdate(
+        'UPDATE cards SET account_id = ?, updated_at = ? '
+        'WHERE id = ? AND deleted_at IS NULL;',
+        variables: [
+          Variable.withString(newAccountId),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(cardId),
+        ],
+      );
+      final saved = (await getById(cardId))!;
+      await _outboxQueue?.enqueueCard(PlanningSyncOperation.update, saved);
+      return saved;
+    });
   }
 
   @override
   Future<void> delete(String id) async {
-    final card = await getById(id);
-    if (card == null) return;
-    // حذف ناعم فقط — العمليات تحتفظ بـ card_last4 (لا تُمسّ).
-    await _db.customStatement(
-      'UPDATE cards SET deleted_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))} '
-      'WHERE id = ${sqlString(id)};',
-    );
-    await _outboxQueue?.enqueueCard(PlanningSyncOperation.delete, card);
+    await _db.transaction(() async {
+      final card = await getById(id);
+      if (card == null) return;
+      // حذف ناعم فقط — العمليات تحتفظ بـ card_last4 (لا تُمسّ).
+      await _db.customStatement(
+        'UPDATE cards SET deleted_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))} '
+        'WHERE id = ${sqlString(id)};',
+      );
+      await _outboxQueue?.enqueueCard(PlanningSyncOperation.delete, card);
+    });
   }
 
   @override

@@ -18,7 +18,8 @@ class DriftGoalRepository implements GoalRepository {
   Future<GoalContributionEntity> addContribution(
     GoalContributionEntity contribution,
   ) async {
-    await _db.customStatement('''
+    return _db.transaction(() async {
+      await _db.customStatement('''
       INSERT INTO goal_contributions(id, goal_id, amount, created_at, note)
       VALUES (
         ${sqlString(contribution.id)},
@@ -29,48 +30,51 @@ class DriftGoalRepository implements GoalRepository {
       );
     ''');
 
-    await _db.customUpdate(
-      '''
+      await _db.customUpdate(
+        '''
         UPDATE goals
         SET saved_amount = saved_amount + ?
         WHERE id = ?;
       ''',
-      variables: [
-        Variable.withReal(contribution.amount),
-        Variable.withString(contribution.goalId),
-      ],
-    );
-    // The server RPC atomically inserts the contribution and updates the goal
-    // total. Queue the child itself; queuing a parent update here would race the
-    // RPC and can double-count across devices.
-    await _outboxQueue?.enqueueGoalContribution(
-      PlanningSyncOperation.create,
-      contribution,
-    );
-    return contribution;
+        variables: [
+          Variable.withReal(contribution.amount),
+          Variable.withString(contribution.goalId),
+        ],
+      );
+      // The server RPC atomically inserts the contribution and updates the goal
+      // total. Queue the child itself; queuing a parent update here would race the
+      // RPC and can double-count across devices.
+      await _outboxQueue?.enqueueGoalContribution(
+        PlanningSyncOperation.create,
+        contribution,
+      );
+      return contribution;
+    });
   }
 
   @override
   Future<void> delete(String id) async {
-    final existing = await getById(id);
-    final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customUpdate(
-      '''
+    await _db.transaction(() async {
+      final existing = await getById(id);
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await _db.customUpdate(
+        '''
       UPDATE goals
       SET deleted_at = ?, status = 'archived'
       WHERE id = ?;
       ''',
-      variables: [
-        Variable.withString(now),
-        Variable.withString(id),
-      ],
-    );
-    if (existing != null) {
-      await _outboxQueue?.enqueueGoal(
-        PlanningSyncOperation.delete,
-        existing,
+        variables: [
+          Variable.withString(now),
+          Variable.withString(id),
+        ],
       );
-    }
+      if (existing != null) {
+        await _outboxQueue?.enqueueGoal(
+          PlanningSyncOperation.delete,
+          existing,
+        );
+      }
+    });
   }
 
   @override
@@ -117,15 +121,16 @@ class DriftGoalRepository implements GoalRepository {
 
   @override
   Future<GoalEntity> save(GoalEntity goal) async {
-    final existing = await getById(goal.id);
-    final autoAmount =
-        goal.autoSaveAmount == null ? 'NULL' : '${goal.autoSaveAmount}';
-    final autoPeriod = sqlNullableString(goal.autoSavePeriod);
-    final autoLastRun = sqlNullableString(goal.autoSaveLastRun == null
-        ? null
-        : dateTimeToSql(goal.autoSaveLastRun!));
-    if (existing == null) {
-      await _db.customStatement('''
+    return _db.transaction(() async {
+      final existing = await getById(goal.id);
+      final autoAmount =
+          goal.autoSaveAmount == null ? 'NULL' : '${goal.autoSaveAmount}';
+      final autoPeriod = sqlNullableString(goal.autoSavePeriod);
+      final autoLastRun = sqlNullableString(goal.autoSaveLastRun == null
+          ? null
+          : dateTimeToSql(goal.autoSaveLastRun!));
+      if (existing == null) {
+        await _db.customStatement('''
         INSERT INTO goals(
           id, name, account_id, target_amount, saved_amount, deadline, vault_skin, status, created_at,
           last_notified_saved_amount,
@@ -144,12 +149,12 @@ class DriftGoalRepository implements GoalRepository {
           $autoAmount, $autoPeriod, $autoLastRun
         );
       ''');
-      await _outboxQueue?.enqueueGoal(
-        PlanningSyncOperation.create,
-        goal,
-      );
-    } else {
-      await _db.customStatement('''
+        await _outboxQueue?.enqueueGoal(
+          PlanningSyncOperation.create,
+          goal,
+        );
+      } else {
+        await _db.customStatement('''
         UPDATE goals
         SET name = ${sqlString(goal.name)},
             account_id = ${sqlNullableString(goal.accountId)},
@@ -165,11 +170,12 @@ class DriftGoalRepository implements GoalRepository {
             auto_save_last_run = $autoLastRun
         WHERE id = ${sqlString(goal.id)};
       ''');
-      await _outboxQueue?.enqueueGoal(
-        PlanningSyncOperation.update,
-        goal,
-      );
-    }
-    return goal;
+        await _outboxQueue?.enqueueGoal(
+          PlanningSyncOperation.update,
+          goal,
+        );
+      }
+      return goal;
+    });
   }
 }

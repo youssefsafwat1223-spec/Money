@@ -16,25 +16,27 @@ class DriftBudgetRepository implements BudgetRepository {
 
   @override
   Future<void> delete(String id) async {
-    final existing = await getById(id);
-    final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customUpdate(
-      '''
+    await _db.transaction(() async {
+      final existing = await getById(id);
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await _db.customUpdate(
+        '''
       UPDATE budgets
       SET deleted_at = ?, is_active = 0
       WHERE id = ?;
       ''',
-      variables: [
-        Variable.withString(now),
-        Variable.withString(id),
-      ],
-    );
-    if (existing != null) {
-      await _outboxQueue?.enqueueBudget(
-        PlanningSyncOperation.delete,
-        existing,
+        variables: [
+          Variable.withString(now),
+          Variable.withString(id),
+        ],
       );
-    }
+      if (existing != null) {
+        await _outboxQueue?.enqueueBudget(
+          PlanningSyncOperation.delete,
+          existing,
+        );
+      }
+    });
   }
 
   @override
@@ -68,61 +70,63 @@ class DriftBudgetRepository implements BudgetRepository {
 
   @override
   Future<BudgetEntity> save(BudgetEntity budget) async {
-    final existing = await getById(budget.id);
-    if (existing == null) {
-      await _db.customInsert(
-        '''
+    return _db.transaction(() async {
+      final existing = await getById(budget.id);
+      if (existing == null) {
+        await _db.customInsert(
+          '''
           INSERT INTO budgets(
             id, category_id, amount, period, start_date, is_active, last_notified_spent_amount, last_notified_period_start, show_on_header, account_id
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
-        variables: [
-          Variable.withString(budget.id),
-          Variable.withString(budget.categoryId),
-          Variable.withReal(budget.amount),
-          Variable.withString(budgetPeriodToSql(budget.period)),
-          Variable.withString(dateTimeToSql(budget.startDate)),
-          Variable.withInt(boolToSql(budget.isActive)),
-          Variable.withReal(budget.lastNotifiedSpentAmount),
-          Variable.withString(dateTimeToSql(budget.lastNotifiedPeriodStart)),
-          Variable.withInt(boolToSql(budget.showOnHeader)),
-          budget.accountId == null
-              ? const Variable<String>(null)
-              : Variable.withString(budget.accountId!),
-        ],
-      );
-      await _outboxQueue?.enqueueBudget(
-        PlanningSyncOperation.create,
-        budget,
-      );
-    } else {
-      await _db.customUpdate(
-        '''
+          variables: [
+            Variable.withString(budget.id),
+            Variable.withString(budget.categoryId),
+            Variable.withReal(budget.amount),
+            Variable.withString(budgetPeriodToSql(budget.period)),
+            Variable.withString(dateTimeToSql(budget.startDate)),
+            Variable.withInt(boolToSql(budget.isActive)),
+            Variable.withReal(budget.lastNotifiedSpentAmount),
+            Variable.withString(dateTimeToSql(budget.lastNotifiedPeriodStart)),
+            Variable.withInt(boolToSql(budget.showOnHeader)),
+            budget.accountId == null
+                ? const Variable<String>(null)
+                : Variable.withString(budget.accountId!),
+          ],
+        );
+        await _outboxQueue?.enqueueBudget(
+          PlanningSyncOperation.create,
+          budget,
+        );
+      } else {
+        await _db.customUpdate(
+          '''
           UPDATE budgets
           SET category_id = ?, amount = ?, period = ?, start_date = ?, is_active = ?,
               last_notified_spent_amount = ?, last_notified_period_start = ?, show_on_header = ?, account_id = ?
           WHERE id = ?;
         ''',
-        variables: [
-          Variable.withString(budget.categoryId),
-          Variable.withReal(budget.amount),
-          Variable.withString(budgetPeriodToSql(budget.period)),
-          Variable.withString(dateTimeToSql(budget.startDate)),
-          Variable.withInt(boolToSql(budget.isActive)),
-          Variable.withReal(budget.lastNotifiedSpentAmount),
-          Variable.withString(dateTimeToSql(budget.lastNotifiedPeriodStart)),
-          Variable.withInt(boolToSql(budget.showOnHeader)),
-          budget.accountId == null
-              ? const Variable<String>(null)
-              : Variable.withString(budget.accountId!),
-          Variable.withString(budget.id),
-        ],
-      );
-      await _outboxQueue?.enqueueBudget(
-        PlanningSyncOperation.update,
-        budget,
-      );
-    }
-    return budget;
+          variables: [
+            Variable.withString(budget.categoryId),
+            Variable.withReal(budget.amount),
+            Variable.withString(budgetPeriodToSql(budget.period)),
+            Variable.withString(dateTimeToSql(budget.startDate)),
+            Variable.withInt(boolToSql(budget.isActive)),
+            Variable.withReal(budget.lastNotifiedSpentAmount),
+            Variable.withString(dateTimeToSql(budget.lastNotifiedPeriodStart)),
+            Variable.withInt(boolToSql(budget.showOnHeader)),
+            budget.accountId == null
+                ? const Variable<String>(null)
+                : Variable.withString(budget.accountId!),
+            Variable.withString(budget.id),
+          ],
+        );
+        await _outboxQueue?.enqueueBudget(
+          PlanningSyncOperation.update,
+          budget,
+        );
+      }
+      return budget;
+    });
   }
 }

@@ -398,15 +398,21 @@ class _TransactionDetailsContent extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
+    late final List<String> affectedBillIds;
     try {
-      await ref.read(transactionRepositoryProvider).deleteTransaction(id);
+      final transactionRepository = ref.read(transactionRepositoryProvider);
+      final billRepository = ref.read(billRepositoryProvider);
+      affectedBillIds = await ref.read(appDatabaseProvider).transaction(
+        () async {
+          await transactionRepository.deleteTransaction(id);
+          return billRepository.deletePaymentForTransaction(id);
+        },
+      );
     } on RepoException catch (e) {
       if (!context.mounted) return;
       AppToast.show(context, repoExceptionMessage(e));
       return;
     }
-    final affectedBillIds =
-        await ref.read(billRepositoryProvider).deletePaymentForTransaction(id);
     for (final billId in affectedBillIds) {
       ref.invalidate(billPaymentsProvider(billId));
     }

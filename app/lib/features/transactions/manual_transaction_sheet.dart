@@ -232,10 +232,14 @@ class _ManualTransactionSheetState
     if (confirmed != true) return;
     setState(() => _busy = true);
     try {
-      await ref.read(transactionRepositoryProvider).deleteTransaction(tx.id);
-      final affectedBillIds = await ref
-          .read(billRepositoryProvider)
-          .deletePaymentForTransaction(tx.id);
+      final transactionRepository = ref.read(transactionRepositoryProvider);
+      final billRepository = ref.read(billRepositoryProvider);
+      final affectedBillIds = await ref.read(appDatabaseProvider).transaction(
+        () async {
+          await transactionRepository.deleteTransaction(tx.id);
+          return billRepository.deletePaymentForTransaction(tx.id);
+        },
+      );
       if (!mounted) return;
       for (final billId in affectedBillIds) {
         ref.invalidate(billPaymentsProvider(billId));

@@ -36,77 +36,81 @@ class DriftPlanRepository implements PlanRepository {
 
   @override
   Future<PlanEntity> save(PlanEntity plan) async {
-    final existing = await getById(plan.id);
-    final vars = [
-      Variable.withString(plan.name),
-      Variable.withReal(plan.budgetAmount),
-      Variable.withString(plan.currency),
-      Variable.withString(dateTimeToSql(plan.startDate.toUtc())),
-      Variable.withString(dateTimeToSql(plan.endDate.toUtc())),
-      Variable.withString(plan.accountIds.join(',')),
-      Variable.withString(plan.cardLast4s.join(',')),
-      Variable.withString(plan.status.name),
-      plan.icon == null
-          ? const Variable<String>(null)
-          : Variable.withString(plan.icon!),
-    ];
-    if (existing == null) {
-      await _db.customInsert(
-        '''
+    return _db.transaction(() async {
+      final existing = await getById(plan.id);
+      final vars = [
+        Variable.withString(plan.name),
+        Variable.withReal(plan.budgetAmount),
+        Variable.withString(plan.currency),
+        Variable.withString(dateTimeToSql(plan.startDate.toUtc())),
+        Variable.withString(dateTimeToSql(plan.endDate.toUtc())),
+        Variable.withString(plan.accountIds.join(',')),
+        Variable.withString(plan.cardLast4s.join(',')),
+        Variable.withString(plan.status.name),
+        plan.icon == null
+            ? const Variable<String>(null)
+            : Variable.withString(plan.icon!),
+      ];
+      if (existing == null) {
+        await _db.customInsert(
+          '''
           INSERT INTO plans(
             name, budget_amount, currency, start_date, end_date,
             account_ids, card_last4s, status, icon, created_at, id
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
-        variables: [
-          ...vars,
-          Variable.withString(dateTimeToSql(plan.createdAt.toUtc())),
-          Variable.withString(plan.id),
-        ],
-      );
-      await _outboxQueue?.enqueuePlan(
-        PlanningSyncOperation.create,
-        plan,
-      );
-    } else {
-      await _db.customUpdate(
-        '''
+          variables: [
+            ...vars,
+            Variable.withString(dateTimeToSql(plan.createdAt.toUtc())),
+            Variable.withString(plan.id),
+          ],
+        );
+        await _outboxQueue?.enqueuePlan(
+          PlanningSyncOperation.create,
+          plan,
+        );
+      } else {
+        await _db.customUpdate(
+          '''
           UPDATE plans SET
             name = ?, budget_amount = ?, currency = ?, start_date = ?,
             end_date = ?, account_ids = ?, card_last4s = ?, status = ?, icon = ?
           WHERE id = ?;
         ''',
-        variables: [...vars, Variable.withString(plan.id)],
-      );
-      await _outboxQueue?.enqueuePlan(
-        PlanningSyncOperation.update,
-        plan,
-      );
-    }
-    return plan;
+          variables: [...vars, Variable.withString(plan.id)],
+        );
+        await _outboxQueue?.enqueuePlan(
+          PlanningSyncOperation.update,
+          plan,
+        );
+      }
+      return plan;
+    });
   }
 
   @override
   Future<void> delete(String id) async {
-    final existing = await getById(id);
-    final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customUpdate(
-      '''
+    await _db.transaction(() async {
+      final existing = await getById(id);
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await _db.customUpdate(
+        '''
       UPDATE plans
       SET deleted_at = ?, status = 'closed'
       WHERE id = ?;
       ''',
-      variables: [
-        Variable.withString(now),
-        Variable.withString(id),
-      ],
-    );
-    if (existing != null) {
-      await _outboxQueue?.enqueuePlan(
-        PlanningSyncOperation.delete,
-        existing,
+        variables: [
+          Variable.withString(now),
+          Variable.withString(id),
+        ],
       );
-    }
+      if (existing != null) {
+        await _outboxQueue?.enqueuePlan(
+          PlanningSyncOperation.delete,
+          existing,
+        );
+      }
+    });
   }
 
   @override
@@ -156,24 +160,26 @@ class DriftPlanRepository implements PlanRepository {
     required String planId,
     required String transactionId,
   }) async {
-    await _db.customInsert(
-      '''
+    await _db.transaction(() async {
+      await _db.customInsert(
+        '''
         INSERT INTO plan_transaction_links(plan_id, transaction_id, created_at, deleted_at)
         VALUES (?, ?, ?, NULL)
         ON CONFLICT(plan_id, transaction_id) DO UPDATE SET deleted_at = NULL;
       ''',
-      variables: [
-        Variable.withString(planId),
-        Variable.withString(transactionId),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-      ],
-    );
-    await _outboxQueue?.enqueuePlanLink(
-      PlanningSyncOperation.create,
-      planId: planId,
-      transactionId: transactionId,
-      createdAt: DateTime.now().toUtc(),
-    );
+        variables: [
+          Variable.withString(planId),
+          Variable.withString(transactionId),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+        ],
+      );
+      await _outboxQueue?.enqueuePlanLink(
+        PlanningSyncOperation.create,
+        planId: planId,
+        transactionId: transactionId,
+        createdAt: DateTime.now().toUtc(),
+      );
+    });
   }
 
   @override
@@ -181,22 +187,24 @@ class DriftPlanRepository implements PlanRepository {
     required String planId,
     required String transactionId,
   }) async {
-    final now = DateTime.now().toUtc();
-    await _db.customUpdate(
-      'UPDATE plan_transaction_links SET deleted_at = ? '
-      'WHERE plan_id = ? AND transaction_id = ?;',
-      variables: [
-        Variable.withString(dateTimeToSql(now)),
-        Variable.withString(planId),
-        Variable.withString(transactionId),
-      ],
-    );
-    await _outboxQueue?.enqueuePlanLink(
-      PlanningSyncOperation.delete,
-      planId: planId,
-      transactionId: transactionId,
-      createdAt: now,
-    );
+    await _db.transaction(() async {
+      final now = DateTime.now().toUtc();
+      await _db.customUpdate(
+        'UPDATE plan_transaction_links SET deleted_at = ? '
+        'WHERE plan_id = ? AND transaction_id = ?;',
+        variables: [
+          Variable.withString(dateTimeToSql(now)),
+          Variable.withString(planId),
+          Variable.withString(transactionId),
+        ],
+      );
+      await _outboxQueue?.enqueuePlanLink(
+        PlanningSyncOperation.delete,
+        planId: planId,
+        transactionId: transactionId,
+        createdAt: now,
+      );
+    });
   }
 
   _PlanMembershipSql _membershipSql(PlanEntity plan) {

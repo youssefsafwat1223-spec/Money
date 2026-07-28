@@ -105,19 +105,20 @@ class DriftAccountRepository implements AccountRepository {
 
   @override
   Future<AccountEntity> create(AccountEntity account) async {
-    final id = account.id.isEmpty ? IdGenerator.next() : account.id;
-    final now = DateTime.now().toUtc();
-    final isFirst = (await _activeAccountCount()) == 0;
-    final makeDefault = account.isDefault || isFirst;
-    final previousDefaults =
-        makeDefault ? await _defaultAccounts() : <AccountEntity>[];
-    if (makeDefault) {
-      await _db.customStatement(
-        'UPDATE accounts SET is_default = 0 WHERE deleted_at IS NULL;',
-      );
-    }
-    await _db.customInsert(
-      '''
+    return _db.transaction(() async {
+      final id = account.id.isEmpty ? IdGenerator.next() : account.id;
+      final now = DateTime.now().toUtc();
+      final isFirst = (await _activeAccountCount()) == 0;
+      final makeDefault = account.isDefault || isFirst;
+      final previousDefaults =
+          makeDefault ? await _defaultAccounts() : <AccountEntity>[];
+      if (makeDefault) {
+        await _db.customStatement(
+          'UPDATE accounts SET is_default = 0 WHERE deleted_at IS NULL;',
+        );
+      }
+      await _db.customInsert(
+        '''
         INSERT INTO accounts(
           id, name, currency, type, initial_balance, current_balance,
           bank_account_number, credit_limit, available_credit,
@@ -126,44 +127,46 @@ class DriftAccountRepository implements AccountRepository {
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
-      variables: [
-        Variable.withString(id),
-        Variable.withString(account.name),
-        Variable.withString(account.currency),
-        Variable.withString(account.type.name),
-        account.initialBalance == null
-            ? const Variable<double>(null)
-            : Variable.withReal(account.initialBalance!),
-        account.currentBalance == null
-            ? const Variable<double>(null)
-            : Variable.withReal(account.currentBalance!),
-        ..._accountFieldVars(account),
-        Variable.withInt(boolToSql(makeDefault)),
-        Variable.withInt(account.sortOrder),
-        Variable.withString(dateTimeToSql(now)),
-        Variable.withString(dateTimeToSql(now)),
-      ],
-    );
-    final saved = await getById(id);
-    for (final previous in previousDefaults) {
-      final updated = await getById(previous.id);
-      if (updated != null) {
-        await _outboxQueue?.enqueueAccount(
-          PlanningSyncOperation.update,
-          updated,
-        );
+        variables: [
+          Variable.withString(id),
+          Variable.withString(account.name),
+          Variable.withString(account.currency),
+          Variable.withString(account.type.name),
+          account.initialBalance == null
+              ? const Variable<double>(null)
+              : Variable.withReal(account.initialBalance!),
+          account.currentBalance == null
+              ? const Variable<double>(null)
+              : Variable.withReal(account.currentBalance!),
+          ..._accountFieldVars(account),
+          Variable.withInt(boolToSql(makeDefault)),
+          Variable.withInt(account.sortOrder),
+          Variable.withString(dateTimeToSql(now)),
+          Variable.withString(dateTimeToSql(now)),
+        ],
+      );
+      final saved = await getById(id);
+      for (final previous in previousDefaults) {
+        final updated = await getById(previous.id);
+        if (updated != null) {
+          await _outboxQueue?.enqueueAccount(
+            PlanningSyncOperation.update,
+            updated,
+          );
+        }
       }
-    }
-    if (saved != null) {
-      await _outboxQueue?.enqueueAccount(PlanningSyncOperation.create, saved);
-    }
-    return saved!;
+      if (saved != null) {
+        await _outboxQueue?.enqueueAccount(PlanningSyncOperation.create, saved);
+      }
+      return saved!;
+    });
   }
 
   @override
   Future<AccountEntity> update(AccountEntity account) async {
-    await _db.customUpdate(
-      '''
+    return _db.transaction(() async {
+      await _db.customUpdate(
+        '''
         UPDATE accounts
         SET name = ?, currency = ?, type = ?, initial_balance = ?,
             current_balance = ?, bank_account_number = ?, credit_limit = ?,
@@ -171,71 +174,76 @@ class DriftAccountRepository implements AccountRepository {
             exclude_from_totals = ?, metadata = ?, sort_order = ?, updated_at = ?
         WHERE id = ?;
       ''',
-      variables: [
-        Variable.withString(account.name),
-        Variable.withString(account.currency),
-        Variable.withString(account.type.name),
-        account.initialBalance == null
-            ? const Variable<double>(null)
-            : Variable.withReal(account.initialBalance!),
-        account.currentBalance == null
-            ? const Variable<double>(null)
-            : Variable.withReal(account.currentBalance!),
-        ..._accountFieldVars(account),
-        Variable.withInt(account.sortOrder),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(account.id),
-      ],
-    );
-    final saved = await getById(account.id);
-    if (saved == null) {
-      throw StateError('Account not found: ${account.id}');
-    }
-    await _outboxQueue?.enqueueAccount(PlanningSyncOperation.update, saved);
-    return saved;
+        variables: [
+          Variable.withString(account.name),
+          Variable.withString(account.currency),
+          Variable.withString(account.type.name),
+          account.initialBalance == null
+              ? const Variable<double>(null)
+              : Variable.withReal(account.initialBalance!),
+          account.currentBalance == null
+              ? const Variable<double>(null)
+              : Variable.withReal(account.currentBalance!),
+          ..._accountFieldVars(account),
+          Variable.withInt(account.sortOrder),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(account.id),
+        ],
+      );
+      final saved = await getById(account.id);
+      if (saved == null) {
+        throw StateError('Account not found: ${account.id}');
+      }
+      await _outboxQueue?.enqueueAccount(PlanningSyncOperation.update, saved);
+      return saved;
+    });
   }
 
   @override
   Future<void> delete(String id) async {
-    final account = await getById(id);
-    if (account == null) return;
-    // لا نحذف آخر حساب.
-    if ((await _activeAccountCount()) <= 1) {
-      throw StateError('Cannot delete the last account.');
-    }
-    // فُكّ ربط عملياته (تبقى محفوظة بلا حساب).
-    await _db.customStatement(
-      'UPDATE transactions SET account_id = NULL WHERE account_id = ${sqlString(id)};',
-    );
-    await _db.customStatement(
-      'UPDATE accounts SET deleted_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}, '
-      'is_default = 0 WHERE id = ${sqlString(id)};',
-    );
-    if (account.isDefault) {
+    await _db.transaction(() async {
+      final account = await getById(id);
+      if (account == null) return;
+      // لا نحذف آخر حساب.
+      if ((await _activeAccountCount()) <= 1) {
+        throw StateError('Cannot delete the last account.');
+      }
+      // فُكّ ربط عملياته (تبقى محفوظة بلا حساب).
       await _db.customStatement(
-        'UPDATE accounts SET is_default = 1 WHERE id = '
-        '(SELECT id FROM accounts WHERE deleted_at IS NULL '
-        'ORDER BY sort_order ASC LIMIT 1);',
+        'UPDATE transactions SET account_id = NULL WHERE account_id = ${sqlString(id)};',
       );
-    }
-    await _outboxQueue?.enqueueAccount(PlanningSyncOperation.delete, account);
+      await _db.customStatement(
+        'UPDATE accounts SET deleted_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}, '
+        'is_default = 0 WHERE id = ${sqlString(id)};',
+      );
+      if (account.isDefault) {
+        await _db.customStatement(
+          'UPDATE accounts SET is_default = 1 WHERE id = '
+          '(SELECT id FROM accounts WHERE deleted_at IS NULL '
+          'ORDER BY sort_order ASC LIMIT 1);',
+        );
+      }
+      await _outboxQueue?.enqueueAccount(PlanningSyncOperation.delete, account);
+    });
   }
 
   @override
   Future<void> setDefault(String id) async {
-    await _db.customStatement(
-      'UPDATE accounts SET is_default = 0 WHERE deleted_at IS NULL;',
-    );
-    await _db.customUpdate(
-      'UPDATE accounts SET is_default = 1 WHERE id = ? AND deleted_at IS NULL;',
-      variables: [Variable.withString(id)],
-    );
-    for (final account in await getAll()) {
-      await _outboxQueue?.enqueueAccount(
-        PlanningSyncOperation.update,
-        account,
+    await _db.transaction(() async {
+      await _db.customStatement(
+        'UPDATE accounts SET is_default = 0 WHERE deleted_at IS NULL;',
       );
-    }
+      await _db.customUpdate(
+        'UPDATE accounts SET is_default = 1 WHERE id = ? AND deleted_at IS NULL;',
+        variables: [Variable.withString(id)],
+      );
+      for (final account in await getAll()) {
+        await _outboxQueue?.enqueueAccount(
+          PlanningSyncOperation.update,
+          account,
+        );
+      }
+    });
   }
 
   Future<int> _activeAccountCount() async {

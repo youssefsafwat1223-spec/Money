@@ -24,33 +24,35 @@ class DriftTransactionRepository implements TransactionRepository {
 
   @override
   Future<TransactionEntity> confirm(String id) async {
-    // A confirmed transaction must land in a totals bucket. 'unknown' matches
-    // neither the expense filter (payment/withdrawal) nor income, so it would
-    // stay confirmed-but-uncounted forever — ground it by direction here.
-    await _db.customUpdate(
-      '''
-        UPDATE transactions
-        SET status = 'confirmed',
-            type = CASE
-              WHEN type = 'unknown' AND direction = 'credit' THEN 'income'
-              WHEN type = 'unknown' THEN 'payment'
-              ELSE type
-            END,
-            updated_at = ?
-        WHERE id = ?;
-      ''',
-      variables: [
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(id),
-      ],
-    );
+    return _db.transaction(() async {
+      // A confirmed transaction must land in a totals bucket. 'unknown' matches
+      // neither the expense filter (payment/withdrawal) nor income, so it would
+      // stay confirmed-but-uncounted forever — ground it by direction here.
+      await _db.customUpdate(
+        '''
+          UPDATE transactions
+          SET status = 'confirmed',
+              type = CASE
+                WHEN type = 'unknown' AND direction = 'credit' THEN 'income'
+                WHEN type = 'unknown' THEN 'payment'
+                ELSE type
+              END,
+              updated_at = ?
+          WHERE id = ?;
+        ''',
+        variables: [
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(id),
+        ],
+      );
 
-    final updated = await getById(id);
-    if (updated == null) {
-      throw StateError('Transaction not found: $id');
-    }
-    await _outboxQueue?.enqueue(OutboxOperation.update, updated);
-    return updated;
+      final updated = await getById(id);
+      if (updated == null) {
+        throw StateError('Transaction not found: $id');
+      }
+      await _outboxQueue?.enqueue(OutboxOperation.update, updated);
+      return updated;
+    });
   }
 
   @override
@@ -146,67 +148,70 @@ class DriftTransactionRepository implements TransactionRepository {
     required TransactionEntity transaction,
     required String? categoryKey,
   }) async {
-    final normalizedCategoryKey =
-        _categoryKeyForType(transaction.type, categoryKey);
-    final normalizedMerchant =
-        transaction.type == TransactionTypeEntity.transfer ||
-                transaction.type == TransactionTypeEntity.income
-            ? null
-            : transaction.rawMerchant?.trim();
-    final merchantId = normalizedMerchant == null || normalizedMerchant.isEmpty
-        ? null
-        : await _resolveOrCreateMerchantId(normalizedMerchant);
-    final categoryId = normalizedCategoryKey == null
-        ? null
-        : await _categoryIdByKey(normalizedCategoryKey);
-    final accountId = transaction.accountId ?? await _defaultAccountId();
+    return _db.transaction(() async {
+      final normalizedCategoryKey =
+          _categoryKeyForType(transaction.type, categoryKey);
+      final normalizedMerchant =
+          transaction.type == TransactionTypeEntity.transfer ||
+                  transaction.type == TransactionTypeEntity.income
+              ? null
+              : transaction.rawMerchant?.trim();
+      final merchantId =
+          normalizedMerchant == null || normalizedMerchant.isEmpty
+              ? null
+              : await _resolveOrCreateMerchantId(normalizedMerchant);
+      final categoryId = normalizedCategoryKey == null
+          ? null
+          : await _categoryIdByKey(normalizedCategoryKey);
+      final accountId = transaction.accountId ?? await _defaultAccountId();
 
-    await _db.customStatement('''
-      INSERT INTO transactions(
-        id, amount, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
-        card_last4, balance_after, note, occurred_at, raw_message, parse_confidence, status,
-        created_at, updated_at, foreign_amount, foreign_currency, direction,
-        transaction_time_from_sms, sms_received_at, comparison_timestamp,
-        comparison_timestamp_source, duplicate_status,
-        possible_duplicate_of_transaction_id, duplicate_reason
-      ) VALUES (
-        ${sqlString(transaction.id)},
-        ${transaction.amount},
-        ${sqlString(transaction.currency)},
-        ${sqlNullableString(accountId)},
-        ${sqlNullableString(merchantId)},
-        ${sqlNullableString(normalizedMerchant)},
-        ${sqlNullableString(categoryId)},
-        ${sqlString(transaction.type.name)},
-        ${sqlString(transaction.source.name)},
-        ${sqlNullableString(transaction.cardLast4)},
-        ${sqlNullableNum(transaction.balanceAfter)},
-        ${sqlNullableString(transaction.note)},
-        ${sqlString(dateTimeToSql(transaction.occurredAt))},
-        ${sqlString(transaction.rawMessage)},
-        ${transaction.parseConfidence},
-        ${sqlString(transaction.status.name)},
-        ${sqlString(dateTimeToSql(transaction.createdAt))},
-        ${sqlString(dateTimeToSql(transaction.updatedAt))},
-        ${sqlNullableNum(transaction.foreignAmount)},
-        ${sqlNullableString(transaction.foreignCurrency)},
-        ${sqlNullableString(transactionDirectionToSql(transaction.direction))},
-        ${sqlNullableString(transaction.transactionTimeFromSms == null ? null : dateTimeToSql(transaction.transactionTimeFromSms!))},
-        ${sqlNullableString(transaction.smsReceivedAt == null ? null : dateTimeToSql(transaction.smsReceivedAt!))},
-        ${sqlNullableString(transaction.comparisonTimestamp == null ? null : dateTimeToSql(transaction.comparisonTimestamp!))},
-        ${sqlString(comparisonTimestampSourceToSql(transaction.comparisonTimestampSource))},
-        ${sqlString(duplicateStatusToSql(transaction.duplicateStatus))},
-        ${sqlNullableString(transaction.possibleDuplicateOfTransactionId)},
-        ${sqlNullableString(transaction.duplicateReason)}
-      );
-    ''');
+      await _db.customStatement('''
+        INSERT INTO transactions(
+          id, amount, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
+          card_last4, balance_after, note, occurred_at, raw_message, parse_confidence, status,
+          created_at, updated_at, foreign_amount, foreign_currency, direction,
+          transaction_time_from_sms, sms_received_at, comparison_timestamp,
+          comparison_timestamp_source, duplicate_status,
+          possible_duplicate_of_transaction_id, duplicate_reason
+        ) VALUES (
+          ${sqlString(transaction.id)},
+          ${transaction.amount},
+          ${sqlString(transaction.currency)},
+          ${sqlNullableString(accountId)},
+          ${sqlNullableString(merchantId)},
+          ${sqlNullableString(normalizedMerchant)},
+          ${sqlNullableString(categoryId)},
+          ${sqlString(transaction.type.name)},
+          ${sqlString(transaction.source.name)},
+          ${sqlNullableString(transaction.cardLast4)},
+          ${sqlNullableNum(transaction.balanceAfter)},
+          ${sqlNullableString(transaction.note)},
+          ${sqlString(dateTimeToSql(transaction.occurredAt))},
+          ${sqlString(transaction.rawMessage)},
+          ${transaction.parseConfidence},
+          ${sqlString(transaction.status.name)},
+          ${sqlString(dateTimeToSql(transaction.createdAt))},
+          ${sqlString(dateTimeToSql(transaction.updatedAt))},
+          ${sqlNullableNum(transaction.foreignAmount)},
+          ${sqlNullableString(transaction.foreignCurrency)},
+          ${sqlNullableString(transactionDirectionToSql(transaction.direction))},
+          ${sqlNullableString(transaction.transactionTimeFromSms == null ? null : dateTimeToSql(transaction.transactionTimeFromSms!))},
+          ${sqlNullableString(transaction.smsReceivedAt == null ? null : dateTimeToSql(transaction.smsReceivedAt!))},
+          ${sqlNullableString(transaction.comparisonTimestamp == null ? null : dateTimeToSql(transaction.comparisonTimestamp!))},
+          ${sqlString(comparisonTimestampSourceToSql(transaction.comparisonTimestampSource))},
+          ${sqlString(duplicateStatusToSql(transaction.duplicateStatus))},
+          ${sqlNullableString(transaction.possibleDuplicateOfTransactionId)},
+          ${sqlNullableString(transaction.duplicateReason)}
+        );
+      ''');
 
-    final saved = await getById(transaction.id);
-    if (saved == null) {
-      throw StateError('Failed to load saved transaction: ${transaction.id}');
-    }
-    await _outboxQueue?.enqueue(OutboxOperation.create, saved);
-    return saved;
+      final saved = await getById(transaction.id);
+      if (saved == null) {
+        throw StateError('Failed to load saved transaction: ${transaction.id}');
+      }
+      await _outboxQueue?.enqueue(OutboxOperation.create, saved);
+      return saved;
+    });
   }
 
   @override
@@ -214,33 +219,35 @@ class DriftTransactionRepository implements TransactionRepository {
     required String transactionId,
     required String categoryKey,
   }) async {
-    final existing = await getById(transactionId);
-    final normalizedCategoryKey =
-        _categoryKeyForType(existing?.type, categoryKey) ?? categoryKey;
-    final categoryId = await _categoryIdByKey(normalizedCategoryKey);
-    if (categoryId == null) {
-      throw StateError('Unknown category key: $categoryKey');
-    }
+    return _db.transaction(() async {
+      final existing = await getById(transactionId);
+      final normalizedCategoryKey =
+          _categoryKeyForType(existing?.type, categoryKey) ?? categoryKey;
+      final categoryId = await _categoryIdByKey(normalizedCategoryKey);
+      if (categoryId == null) {
+        throw StateError('Unknown category key: $categoryKey');
+      }
 
-    await _db.customUpdate(
-      '''
-        UPDATE transactions
-        SET category_id = ?, status = 'confirmed', updated_at = ?
-        WHERE id = ?;
-      ''',
-      variables: [
-        Variable.withString(categoryId),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(transactionId),
-      ],
-    );
+      await _db.customUpdate(
+        '''
+          UPDATE transactions
+          SET category_id = ?, status = 'confirmed', updated_at = ?
+          WHERE id = ?;
+        ''',
+        variables: [
+          Variable.withString(categoryId),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(transactionId),
+        ],
+      );
 
-    final updated = await getById(transactionId);
-    if (updated == null) {
-      throw StateError('Transaction not found: $transactionId');
-    }
-    await _outboxQueue?.enqueue(OutboxOperation.update, updated);
-    return updated;
+      final updated = await getById(transactionId);
+      if (updated == null) {
+        throw StateError('Transaction not found: $transactionId');
+      }
+      await _outboxQueue?.enqueue(OutboxOperation.update, updated);
+      return updated;
+    });
   }
 
   @override
@@ -255,55 +262,57 @@ class DriftTransactionRepository implements TransactionRepository {
     required String? note,
     String? accountId,
   }) async {
-    final normalizedCategoryId = categoryId ?? await _categoryIdForType(type);
-    final trimmedMerchant = type == TransactionTypeEntity.transfer ||
-            type == TransactionTypeEntity.income
-        ? null
-        : rawMerchant?.trim();
-    final merchantId = trimmedMerchant == null || trimmedMerchant.isEmpty
-        ? null
-        : await _resolveOrCreateMerchantId(trimmedMerchant);
-    final normalizedNote = note?.trim();
-    final accountClause = accountId == null ? '' : 'account_id = ?, ';
-    await _db.customUpdate(
-      '''
-        UPDATE transactions
-        SET ${accountClause}amount = ?, currency = ?, type = ?, occurred_at = ?,
-            comparison_timestamp = ?, merchant_id = ?, raw_merchant = ?,
-            category_id = ?, note = ?,
-            status = 'confirmed', updated_at = ?
-        WHERE id = ?;
-      ''',
-      variables: [
-        if (accountId != null) Variable.withString(accountId),
-        Variable.withReal(amount),
-        Variable.withString(currency),
-        Variable.withString(type.name),
-        Variable.withString(dateTimeToSql(occurredAt.toUtc())),
-        Variable.withString(dateTimeToSql(occurredAt.toUtc())),
-        merchantId == null
-            ? const Variable<String>(null)
-            : Variable.withString(merchantId),
-        trimmedMerchant == null || trimmedMerchant.isEmpty
-            ? const Variable<String>(null)
-            : Variable.withString(trimmedMerchant),
-        normalizedCategoryId == null || normalizedCategoryId.isEmpty
-            ? const Variable<String>(null)
-            : Variable.withString(normalizedCategoryId),
-        normalizedNote == null || normalizedNote.isEmpty
-            ? const Variable<String>(null)
-            : Variable.withString(normalizedNote),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(transactionId),
-      ],
-    );
+    return _db.transaction(() async {
+      final normalizedCategoryId = categoryId ?? await _categoryIdForType(type);
+      final trimmedMerchant = type == TransactionTypeEntity.transfer ||
+              type == TransactionTypeEntity.income
+          ? null
+          : rawMerchant?.trim();
+      final merchantId = trimmedMerchant == null || trimmedMerchant.isEmpty
+          ? null
+          : await _resolveOrCreateMerchantId(trimmedMerchant);
+      final normalizedNote = note?.trim();
+      final accountClause = accountId == null ? '' : 'account_id = ?, ';
+      await _db.customUpdate(
+        '''
+          UPDATE transactions
+          SET ${accountClause}amount = ?, currency = ?, type = ?, occurred_at = ?,
+              comparison_timestamp = ?, merchant_id = ?, raw_merchant = ?,
+              category_id = ?, note = ?,
+              status = 'confirmed', updated_at = ?
+          WHERE id = ?;
+        ''',
+        variables: [
+          if (accountId != null) Variable.withString(accountId),
+          Variable.withReal(amount),
+          Variable.withString(currency),
+          Variable.withString(type.name),
+          Variable.withString(dateTimeToSql(occurredAt.toUtc())),
+          Variable.withString(dateTimeToSql(occurredAt.toUtc())),
+          merchantId == null
+              ? const Variable<String>(null)
+              : Variable.withString(merchantId),
+          trimmedMerchant == null || trimmedMerchant.isEmpty
+              ? const Variable<String>(null)
+              : Variable.withString(trimmedMerchant),
+          normalizedCategoryId == null || normalizedCategoryId.isEmpty
+              ? const Variable<String>(null)
+              : Variable.withString(normalizedCategoryId),
+          normalizedNote == null || normalizedNote.isEmpty
+              ? const Variable<String>(null)
+              : Variable.withString(normalizedNote),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(transactionId),
+        ],
+      );
 
-    final updated = await getById(transactionId);
-    if (updated == null) {
-      throw StateError('Transaction not found: $transactionId');
-    }
-    await _outboxQueue?.enqueue(OutboxOperation.update, updated);
-    return updated;
+      final updated = await getById(transactionId);
+      if (updated == null) {
+        throw StateError('Transaction not found: $transactionId');
+      }
+      await _outboxQueue?.enqueue(OutboxOperation.update, updated);
+      return updated;
+    });
   }
 
   @override
@@ -311,18 +320,20 @@ class DriftTransactionRepository implements TransactionRepository {
     required String transactionId,
     required String accountId,
   }) async {
-    await _db.customUpdate(
-      'UPDATE transactions SET account_id = ?, updated_at = ? WHERE id = ?;',
-      variables: [
-        Variable.withString(accountId),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(transactionId),
-      ],
-    );
-    if (_outboxQueue != null) {
-      final tx = await getById(transactionId);
-      if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
-    }
+    await _db.transaction(() async {
+      await _db.customUpdate(
+        'UPDATE transactions SET account_id = ?, updated_at = ? WHERE id = ?;',
+        variables: [
+          Variable.withString(accountId),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(transactionId),
+        ],
+      );
+      if (_outboxQueue != null) {
+        final tx = await getById(transactionId);
+        if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
+      }
+    });
   }
 
   @override
@@ -330,20 +341,22 @@ class DriftTransactionRepository implements TransactionRepository {
     required String transactionId,
     required String? cardLast4,
   }) async {
-    await _db.customUpdate(
-      'UPDATE transactions SET card_last4 = ?, updated_at = ? WHERE id = ?;',
-      variables: [
-        cardLast4 == null
-            ? const Variable<String>(null)
-            : Variable.withString(cardLast4),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(transactionId),
-      ],
-    );
-    if (_outboxQueue != null) {
-      final tx = await getById(transactionId);
-      if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
-    }
+    await _db.transaction(() async {
+      await _db.customUpdate(
+        'UPDATE transactions SET card_last4 = ?, updated_at = ? WHERE id = ?;',
+        variables: [
+          cardLast4 == null
+              ? const Variable<String>(null)
+              : Variable.withString(cardLast4),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(transactionId),
+        ],
+      );
+      if (_outboxQueue != null) {
+        final tx = await getById(transactionId);
+        if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
+      }
+    });
   }
 
   @override
@@ -351,36 +364,40 @@ class DriftTransactionRepository implements TransactionRepository {
     required String transactionId,
     required double amount,
   }) async {
-    await _db.customUpdate(
-      'UPDATE transactions SET amount = ?, updated_at = ? WHERE id = ?;',
-      variables: [
-        Variable.withReal(amount),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(transactionId),
-      ],
-    );
-    if (_outboxQueue != null) {
-      final tx = await getById(transactionId);
-      if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
-    }
+    await _db.transaction(() async {
+      await _db.customUpdate(
+        'UPDATE transactions SET amount = ?, updated_at = ? WHERE id = ?;',
+        variables: [
+          Variable.withReal(amount),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(transactionId),
+        ],
+      );
+      if (_outboxQueue != null) {
+        final tx = await getById(transactionId);
+        if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
+      }
+    });
   }
 
   @override
   Future<void> deleteTransaction(String id) async {
-    // Fetch before the soft-delete so we have the full entity for the outbox payload.
-    final tx = _outboxQueue != null ? await getById(id) : null;
-    await _db.customUpdate(
-      '''
-        UPDATE transactions
-        SET status = 'ignored', updated_at = ?
-        WHERE id = ?;
-      ''',
-      variables: [
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(id),
-      ],
-    );
-    if (tx != null) await _outboxQueue!.enqueue(OutboxOperation.delete, tx);
+    await _db.transaction(() async {
+      // Fetch before the soft-delete so we have the full entity for the outbox payload.
+      final tx = _outboxQueue != null ? await getById(id) : null;
+      await _db.customUpdate(
+        '''
+          UPDATE transactions
+          SET status = 'ignored', updated_at = ?
+          WHERE id = ?;
+        ''',
+        variables: [
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
+          Variable.withString(id),
+        ],
+      );
+      if (tx != null) await _outboxQueue!.enqueue(OutboxOperation.delete, tx);
+    });
   }
 
   // بند تصفية الحساب: يضم العمليات القديمة التي لا تحمل account_id إذا كانت

@@ -26,12 +26,13 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
 
   @override
   Future<UserSettingsEntity> saveSettings(UserSettingsEntity settings) async {
-    final requiredSettings = settings.copyWith(
-      aiConsentGranted: true,
-      cloudProcessingEnabled: true,
-    );
-    await _db.customUpdate(
-      '''
+    return _db.transaction(() async {
+      final requiredSettings = settings.copyWith(
+        aiConsentGranted: true,
+        cloudProcessingEnabled: true,
+      );
+      await _db.customUpdate(
+        '''
         UPDATE user_settings
         SET display_name = ?, phone_number = ?, avatar_path = ?,
             date_of_birth = ?,
@@ -42,38 +43,39 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
             updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
         WHERE id = ?;
       ''',
-      variables: [
-        requiredSettings.displayName == null
-            ? const Variable<String>(null)
-            : Variable.withString(requiredSettings.displayName!),
-        requiredSettings.phoneNumber == null
-            ? const Variable<String>(null)
-            : Variable.withString(requiredSettings.phoneNumber!),
-        requiredSettings.avatarPath == null
-            ? const Variable<String>(null)
-            : Variable.withString(requiredSettings.avatarPath!),
-        requiredSettings.dateOfBirth == null
-            ? const Variable<String>(null)
-            : Variable.withString(
-                requiredSettings.dateOfBirth!.toUtc().toIso8601String()),
-        Variable.withString(requiredSettings.country),
-        Variable.withString(requiredSettings.currency),
-        Variable.withString(requiredSettings.language),
-        Variable.withString(requiredSettings.theme),
-        Variable.withString(requiredSettings.inputMethod),
-        Variable.withString(requiredSettings.notificationsJson),
-        Variable.withString(requiredSettings.dbEncryptionKeyRef),
-        Variable.withInt(requiredSettings.privacyModeEnabled ? 1 : 0),
-        Variable.withInt(1),
-        Variable.withInt(1),
-        Variable.withString(requiredSettings.id),
-      ],
-    );
-    // S2: أدرج التفضيلات السحابية للمزامنة في الخلفية (الأعمدة السحابية فقط).
-    await _outboxQueue?.enqueueSettings(
-      PlanningSyncOperation.update,
-      requiredSettings,
-    );
-    return requiredSettings;
+        variables: [
+          requiredSettings.displayName == null
+              ? const Variable<String>(null)
+              : Variable.withString(requiredSettings.displayName!),
+          requiredSettings.phoneNumber == null
+              ? const Variable<String>(null)
+              : Variable.withString(requiredSettings.phoneNumber!),
+          requiredSettings.avatarPath == null
+              ? const Variable<String>(null)
+              : Variable.withString(requiredSettings.avatarPath!),
+          requiredSettings.dateOfBirth == null
+              ? const Variable<String>(null)
+              : Variable.withString(
+                  requiredSettings.dateOfBirth!.toUtc().toIso8601String()),
+          Variable.withString(requiredSettings.country),
+          Variable.withString(requiredSettings.currency),
+          Variable.withString(requiredSettings.language),
+          Variable.withString(requiredSettings.theme),
+          Variable.withString(requiredSettings.inputMethod),
+          Variable.withString(requiredSettings.notificationsJson),
+          Variable.withString(requiredSettings.dbEncryptionKeyRef),
+          Variable.withInt(requiredSettings.privacyModeEnabled ? 1 : 0),
+          Variable.withInt(1),
+          Variable.withInt(1),
+          Variable.withString(requiredSettings.id),
+        ],
+      );
+      // S2: أدرج التفضيلات السحابية للمزامنة في الخلفية (الأعمدة السحابية فقط).
+      await _outboxQueue?.enqueueSettings(
+        PlanningSyncOperation.update,
+        requiredSettings,
+      );
+      return requiredSettings;
+    });
   }
 }

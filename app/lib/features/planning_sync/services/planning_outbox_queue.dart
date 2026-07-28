@@ -90,27 +90,29 @@ class PlanningOutboxQueue {
     final payload = _buildAccountPayload(op, account);
     final id = IdGenerator.next();
 
-    await _db.customStatement('''
-      INSERT INTO planning_sync_outbox(
-        id, entity_type, entity_id, operation, payload_json,
-        attempt_count, created_at, updated_at
-      ) VALUES (
-        ${sqlString(id)},
-        ${sqlString(accountsEntityType)},
-        ${sqlString(account.id)},
-        ${sqlString(op.name)},
-        ${sqlString(jsonEncode(payload))},
-        0,
-        ${sqlString(now)},
-        ${sqlString(now)}
-      );
-    ''');
+    await _db.transaction(() async {
+      await _db.customStatement('''
+        INSERT INTO planning_sync_outbox(
+          id, entity_type, entity_id, operation, payload_json,
+          attempt_count, created_at, updated_at
+        ) VALUES (
+          ${sqlString(id)},
+          ${sqlString(accountsEntityType)},
+          ${sqlString(account.id)},
+          ${sqlString(op.name)},
+          ${sqlString(jsonEncode(payload))},
+          0,
+          ${sqlString(now)},
+          ${sqlString(now)}
+        );
+      ''');
 
-    await _db.customStatement('''
-      UPDATE accounts
-      SET sync_status = 'pending'
-      WHERE id = ${sqlString(account.id)};
-    ''');
+      await _db.customStatement('''
+        UPDATE accounts
+        SET sync_status = 'pending'
+        WHERE id = ${sqlString(account.id)};
+      ''');
+    });
     _onQueued?.call();
     return true;
   }
@@ -225,21 +227,23 @@ class PlanningOutboxQueue {
       'local_transaction_id': transactionId,
       'created_at': createdAt.toUtc().toIso8601String(),
     });
-    await _db.customStatement('''
-      INSERT INTO planning_sync_outbox(
-        id, entity_type, entity_id, operation, payload_json,
-        attempt_count, created_at, updated_at
-      ) VALUES (
-        ${sqlString(IdGenerator.next())}, ${sqlString(planLinksEntityType)},
-        ${sqlString(entityId)}, ${sqlString(op.name)},
-        ${sqlString(jsonEncode(payload))}, 0, ${sqlString(now)}, ${sqlString(now)}
-      );
-    ''');
-    await _db.customStatement('''
-      UPDATE plan_transaction_links SET sync_status = 'pending'
-      WHERE plan_id = ${sqlString(planId)}
-        AND transaction_id = ${sqlString(transactionId)};
-    ''');
+    await _db.transaction(() async {
+      await _db.customStatement('''
+        INSERT INTO planning_sync_outbox(
+          id, entity_type, entity_id, operation, payload_json,
+          attempt_count, created_at, updated_at
+        ) VALUES (
+          ${sqlString(IdGenerator.next())}, ${sqlString(planLinksEntityType)},
+          ${sqlString(entityId)}, ${sqlString(op.name)},
+          ${sqlString(jsonEncode(payload))}, 0, ${sqlString(now)}, ${sqlString(now)}
+        );
+      ''');
+      await _db.customStatement('''
+        UPDATE plan_transaction_links SET sync_status = 'pending'
+        WHERE plan_id = ${sqlString(planId)}
+          AND transaction_id = ${sqlString(transactionId)};
+      ''');
+    });
     _onQueued?.call();
     return true;
   }
@@ -251,7 +255,9 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     CardEntity card,
   ) {
-    if (!kUserCardsCloudV2 && card.accountId == null) return Future.value(false);
+    if (!kUserCardsCloudV2 && card.accountId == null) {
+      return Future.value(false);
+    }
     return _enqueue(
       entityType: cardsEntityType,
       entityId: card.id,
@@ -326,27 +332,29 @@ class PlanningOutboxQueue {
     final now = dateTimeToSql(DateTime.now().toUtc());
     final id = IdGenerator.next();
 
-    await _db.customStatement('''
-      INSERT INTO planning_sync_outbox(
-        id, entity_type, entity_id, operation, payload_json,
-        attempt_count, created_at, updated_at
-      ) VALUES (
-        ${sqlString(id)},
-        ${sqlString(entityType)},
-        ${sqlString(entityId)},
-        ${sqlString(op.name)},
-        ${sqlString(jsonEncode(payload))},
-        0,
-        ${sqlString(now)},
-        ${sqlString(now)}
-      );
-    ''');
+    await _db.transaction(() async {
+      await _db.customStatement('''
+        INSERT INTO planning_sync_outbox(
+          id, entity_type, entity_id, operation, payload_json,
+          attempt_count, created_at, updated_at
+        ) VALUES (
+          ${sqlString(id)},
+          ${sqlString(entityType)},
+          ${sqlString(entityId)},
+          ${sqlString(op.name)},
+          ${sqlString(jsonEncode(payload))},
+          0,
+          ${sqlString(now)},
+          ${sqlString(now)}
+        );
+      ''');
 
-    await _db.customStatement('''
-      UPDATE $table
-      SET sync_status = 'pending'
-      WHERE id = ${sqlString(entityId)};
-    ''');
+      await _db.customStatement('''
+        UPDATE $table
+        SET sync_status = 'pending'
+        WHERE id = ${sqlString(entityId)};
+      ''');
+    });
     _onQueued?.call();
     return true;
   }
