@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { timingSafeEqual } from '../_shared/capture_auth.ts';
+import { isPushAllowed, loadNotificationPolicy } from '../_shared/notification_policy.ts';
 
 // The client maps BudgetEntity.allExpensesCategoryId ('__all_expenses__') to
 // this key when syncing budgets to user_budgets — see
@@ -48,6 +49,10 @@ serve(async (req) => {
     .select('apns_token, apns_environment, install_id_hash')
     .eq('user_id', userId)
     .not('apns_token', 'is', null);
+
+  // Server-side honoring of the user's notification preferences (MALI-019):
+  // one load per request (userId is fixed here).
+  const policy = await loadNotificationPolicy(supabase, userId);
 
   for (const budget of budgets) {
     if (!budget.amount || budget.amount <= 0) continue;
@@ -103,6 +108,13 @@ serve(async (req) => {
       title = 'وصلت ٧٥٪ من ميزانيتك';
       body = `صرفت ${currentSpend.toFixed(0)} من ${budget.amount.toFixed(0)}.`;
     }
+
+    // Respect the per-type toggle + quiet hours before touching state or
+    // sending (MALI-019). Over-100% = budget_over, otherwise budget_warning.
+    // We skip the last_notified bump too, so re-enabling the toggle later
+    // still surfaces the tier the user is currently in.
+    const budgetType = bucket === 3 ? 'budget_over' : 'budget_warning';
+    if (!isPushAllowed(policy, budgetType)) continue;
 
     await supabase
       .from('user_budgets')

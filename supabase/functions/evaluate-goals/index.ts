@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { timingSafeEqual } from '../_shared/capture_auth.ts';
+import { isPushAllowed, loadNotificationPolicy } from '../_shared/notification_policy.ts';
 
 serve(async (req) => {
   // Service-only endpoint (MALI-004): only the DB webhook's service-role
@@ -44,6 +45,13 @@ serve(async (req) => {
   }
 
   if (crossedMilestone) {
+    // Respect the goal-milestone toggle + quiet hours (MALI-019). Skip the
+    // last_notified bump when suppressed so re-enabling still surfaces it.
+    const policy = await loadNotificationPolicy(supabase, goal.user_id);
+    if (!isPushAllowed(policy, 'goal_milestone')) {
+      return new Response('OK', { headers: { 'Content-Type': 'application/json' } });
+    }
+
     await supabase
       .from('user_goals')
       .update({ last_notified_saved_amount: totalSaved })

@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { timingSafeEqual } from '../_shared/capture_auth.ts';
+import { isPushAllowed, loadNotificationPolicy } from '../_shared/notification_policy.ts';
 
 serve(async (req) => {
   // Service-only endpoint (MALI-004): only the pg_cron dispatcher
@@ -29,12 +30,17 @@ serve(async (req) => {
 
   if (streaks && streaks.length > 0) {
     for (const streak of streaks) {
+      // Per-user preference + quiet-hours gate (MALI-019) — a cron sweep
+      // touches many users, so load the policy for each.
+      const policy = await loadNotificationPolicy(supabase, streak.user_id);
+      if (!isPushAllowed(policy, 'streak_reminder')) continue;
+
       const { data: devices } = await supabase
         .from('capture_devices')
         .select('apns_token, apns_environment')
         .eq('user_id', streak.user_id)
         .not('apns_token', 'is', null);
-      
+
       if (devices) {
         for (const device of devices) {
           await sendCapturePush({
@@ -63,6 +69,10 @@ serve(async (req) => {
 
   if (subscriptions && subscriptions.length > 0) {
     for (const sub of subscriptions) {
+      // Per-user preference + quiet-hours gate (MALI-019).
+      const policy = await loadNotificationPolicy(supabase, sub.user_id);
+      if (!isPushAllowed(policy, 'bill_reminder')) continue;
+
       const { data: devices } = await supabase
         .from('capture_devices')
         .select('apns_token, apns_environment')
