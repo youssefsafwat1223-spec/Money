@@ -79,7 +79,7 @@ abstract class TransactionRepository {
   Future<List<TransactionEntity>> getPage(
       {required int offset, int limit = 500});
 
-  /// إجمالي المصروفات (payment + withdrawal) خلال فترة — لحساب «وفّرت».
+  /// صافي المصروفات (payment + withdrawal - refund) خلال فترة — لحساب «وفّرت».
   Future<double> expenseTotalBetween({
     required DateTime from,
     required DateTime to,

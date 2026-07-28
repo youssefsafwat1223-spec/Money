@@ -83,7 +83,8 @@ class ReportSnapshotBuilder {
         from: fromU, to: toU, limit: _merchantLimit, accountId: accountId);
     final latestBalance =
         await _transactions.latestBalanceAfter(accountId: accountId);
-    final largest = await _largestTransactions(range, accountId);
+    final largest =
+        await _largestTransactions(range, accountId, accountsInScope);
     final budgets = await _budgetsFor(now);
     final bills = await _billsFor();
     final goals = await _goalsFor();
@@ -213,7 +214,9 @@ class ReportSnapshotBuilder {
     final scope = request.scope;
     if (scope is SingleAccountScope) {
       final account = await _accounts.getById(scope.accountId);
-      if (account == null) return const <ReportAccountRef>[ReportAccountRef.unavailable];
+      if (account == null) {
+        return const <ReportAccountRef>[ReportAccountRef.unavailable];
+      }
       return <ReportAccountRef>[ReportAccountRef.fromEntity(account)];
     }
     final all = await _accounts.getAll();
@@ -243,18 +246,45 @@ class ReportSnapshotBuilder {
   }
 
   Future<List<TransactionEntity>> _largestTransactions(
-      DateRange range, String? accountId) async {
+    DateRange range,
+    String? accountId,
+    List<ReportAccountRef> accountsInScope,
+  ) async {
     final fromU = range.from.toUtc();
     final toU = range.to.toUtc();
+    // Exclude flagged accounts only in the combined (all-accounts) view. A
+    // single-account report still lists that account's own largest rows even
+    // if it is flagged exclude_from_totals — matching the repository totals.
+    final excludedAccountIds = <String>{
+      if (accountId == null)
+        for (final account in accountsInScope)
+          if (account.excludeFromTotals && account.id != null) account.id!,
+    };
+    String? selectedCurrency;
+    if (accountId != null) {
+      for (final account in accountsInScope) {
+        if (account.id == accountId && account.isAvailable) {
+          selectedCurrency = account.currency;
+          break;
+        }
+      }
+    }
     final all = await _transactions.getAll();
     final filtered = all
         .where((t) =>
             t.status == TransactionStatus.confirmed &&
             (t.type == TransactionTypeEntity.payment ||
                 t.type == TransactionTypeEntity.withdrawal) &&
+            (t.accountId == null ||
+                !excludedAccountIds.contains(t.accountId)) &&
             !t.occurredAt.toUtc().isBefore(fromU) &&
             t.occurredAt.toUtc().isBefore(toU) &&
-            (accountId == null || t.accountId == accountId))
+            (accountId == null ||
+                t.accountId == accountId ||
+                (t.accountId == null &&
+                    selectedCurrency != null &&
+                    t.currency.toUpperCase() ==
+                        selectedCurrency.toUpperCase())))
         .toList()
       ..sort((a, b) => b.amount.compareTo(a.amount));
     return filtered.take(_largestLimit).toList();

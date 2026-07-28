@@ -15,6 +15,8 @@ import '../db/database_seed.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
+enum _FinancialAggregateFlow { expense, income, expenseAndIncome }
+
 class DriftTransactionRepository implements TransactionRepository {
   DriftTransactionRepository(this._db, {LedgerOutboxQueue? outboxQueue})
       : _outboxQueue = outboxQueue;
@@ -417,19 +419,53 @@ class DriftTransactionRepository implements TransactionRepository {
       ? const []
       : [Variable.withString(accountId), Variable.withString(accountId)];
 
-  // عند التجميع عبر كل الحسابات (accountId == null) نستبعد الحسابات المُعلَّمة
-  // «استبعاد من الإجماليات» من المجاميع والأرصدة فقط — لا تتأثر قوائم العمليات،
-  // فيبقى كل حساب ظاهرًا بعملياته كاملة. لا يحتاج متغيّرات (الاستعلام مكتفٍ ذاتيًا).
-  static String _excludeFlaggedTotalsClause(
-    String? accountId, {
-    String tableAlias = '',
-  }) {
-    if (accountId != null) return '';
+  static String _includedTotalsAccountClause({String tableAlias = ''}) {
     final prefix = tableAlias.isEmpty ? '' : '$tableAlias.';
-    return ''' AND (${prefix}account_id IS NULL
-      OR ${prefix}account_id NOT IN (
-        SELECT id FROM accounts WHERE exclude_from_totals = 1
-      ))''';
+    return ''' AND (${prefix}account_id IS NULL OR NOT EXISTS (
+      SELECT 1
+      FROM accounts aggregate_account
+      WHERE aggregate_account.id = ${prefix}account_id
+        AND aggregate_account.exclude_from_totals = 1
+    ))''';
+  }
+
+  /// سياسة المجاميع المالية الموحّدة: تقبل المؤكّد فقط، وتحصر الدخل في
+  /// `income` والمصروف في `payment|withdrawal|refund` مع توقيع الاسترداد
+  /// بالسالب، وتستبعد التحويلات و`unknown` والمعلّقة/المتجاهلة من كل إجمالي.
+  ///
+  /// استبعاد الحسابات المُعلَّمة `exclude_from_totals` يسري فقط عند التجميع عبر
+  /// كل الحسابات (`accountId == null`) مع إبقاء `account_id IS NULL` داخل
+  /// النطاق. عند فتح حساب بعينه (`accountId != null`) يظهر الحساب بمجاميعه
+  /// كاملةً حتى لو كان مستبعَدًا من الإجماليات — فالعَلَم يمنع دخوله في المجموع
+  /// المشترك، لا في عرض تفاصيله الخاصة.
+  static ({String where, String signedAmount}) _financialAggregateSql(
+    _FinancialAggregateFlow flow, {
+    String tableAlias = '',
+    String? accountId,
+  }) {
+    final prefix = tableAlias.isEmpty ? '' : '$tableAlias.';
+    final typeFilter = switch (flow) {
+      _FinancialAggregateFlow.expense =>
+        "${prefix}type IN ('payment', 'withdrawal', 'refund')",
+      _FinancialAggregateFlow.income => "${prefix}type = 'income'",
+      _FinancialAggregateFlow.expenseAndIncome =>
+        "${prefix}type IN ('payment', 'withdrawal', 'refund', 'income')",
+    };
+    final signedAmount = flow == _FinancialAggregateFlow.income
+        ? '${prefix}amount'
+        : "CASE WHEN ${prefix}type = 'refund' "
+            "THEN -${prefix}amount "
+            "WHEN ${prefix}type IN ('payment', 'withdrawal') "
+            "THEN ${prefix}amount ELSE 0 END";
+    final accountExclusion = accountId == null
+        ? _includedTotalsAccountClause(tableAlias: tableAlias)
+        : '';
+    return (
+      where: "${prefix}status = 'confirmed' "
+          'AND $typeFilter'
+          '$accountExclusion',
+      signedAmount: signedAmount,
+    );
   }
 
   @override
@@ -477,13 +513,16 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime to,
     String? accountId,
   }) async {
+    final aggregate = _financialAggregateSql(
+      _FinancialAggregateFlow.expense,
+      accountId: accountId,
+    );
     final row = await _db.customSelect(
       '''
-        SELECT CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
+        SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
         FROM transactions
-        WHERE type IN ('payment', 'withdrawal')
-          AND status = 'confirmed'
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}${_excludeFlaggedTotalsClause(accountId)};
+        WHERE ${aggregate.where}
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
@@ -500,13 +539,16 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime to,
     String? accountId,
   }) async {
+    final aggregate = _financialAggregateSql(
+      _FinancialAggregateFlow.income,
+      accountId: accountId,
+    );
     final row = await _db.customSelect(
       '''
-        SELECT CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
+        SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
         FROM transactions
-        WHERE type = 'income'
-          AND status = 'confirmed'
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}${_excludeFlaggedTotalsClause(accountId)};
+        WHERE ${aggregate.where}
+          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
@@ -524,7 +566,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT CAST(balance_after AS REAL) AS balance
         FROM transactions
         WHERE status = 'confirmed'
-          AND balance_after IS NOT NULL${_accountClause(accountId)}${_excludeFlaggedTotalsClause(accountId)}
+          AND balance_after IS NOT NULL${_accountClause(accountId)}${accountId == null ? _includedTotalsAccountClause() : ''}
         ORDER BY occurred_at DESC
         LIMIT 1;
       ''',
@@ -538,14 +580,16 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime from,
     required DateTime to,
   }) async {
+    final aggregate =
+        _financialAggregateSql(_FinancialAggregateFlow.expenseAndIncome);
     final rows = await _db.customSelect(
       '''
         SELECT currency,
-          CAST(COALESCE(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END), 0) AS REAL) AS expense,
+          CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS expense,
           CAST(COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS REAL) AS income
         FROM transactions
-        WHERE status = 'confirmed'
-          AND occurred_at BETWEEN ? AND ?${_excludeFlaggedTotalsClause(null)}
+        WHERE ${aggregate.where}
+          AND occurred_at BETWEEN ? AND ?
         GROUP BY currency
         ORDER BY expense DESC;
       ''',
@@ -569,13 +613,16 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime to,
     String? accountId,
   }) async {
+    final aggregate = _financialAggregateSql(
+      _FinancialAggregateFlow.expense,
+      accountId: accountId,
+    );
     final rows = await _db.customSelect(
       '''
         SELECT date(occurred_at, 'localtime') AS day,
-               CAST(COALESCE(SUM(amount), 0) AS REAL) AS total
+               CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
         FROM transactions
-        WHERE type IN ('payment', 'withdrawal')
-          AND status = 'confirmed'
+        WHERE ${aggregate.where}
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
         GROUP BY date(occurred_at, 'localtime')
         ORDER BY day ASC;
@@ -602,14 +649,17 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime to,
     String? accountId,
   }) async {
+    final aggregate = _financialAggregateSql(
+      _FinancialAggregateFlow.expense,
+      accountId: accountId,
+    );
     final rows = await _db.customSelect(
       '''
         SELECT category_id AS cid,
-               CAST(SUM(amount) AS REAL) AS total,
+               CAST(SUM(${aggregate.signedAmount}) AS REAL) AS total,
                COUNT(*) AS tx_count
         FROM transactions
-        WHERE type IN ('payment', 'withdrawal')
-          AND status = 'confirmed'
+        WHERE ${aggregate.where}
           AND category_id IS NOT NULL
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
         GROUP BY category_id
@@ -639,18 +689,16 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime to,
     String? accountId,
   }) async {
+    final aggregate = _financialAggregateSql(
+      _FinancialAggregateFlow.expense,
+      accountId: accountId,
+    );
     final row = await _db.customSelect(
       '''
-        SELECT CAST(COALESCE(SUM(
-          CASE
-            WHEN type = 'refund' THEN -amount
-            ELSE amount
-          END
-        ), 0) AS REAL) AS total
+        SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
         FROM transactions
-        WHERE status = 'confirmed'
+        WHERE ${aggregate.where}
           AND category_id = ?
-          AND type IN ('payment', 'withdrawal', 'refund')
           AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
       ''',
       variables: [
@@ -671,15 +719,19 @@ class DriftTransactionRepository implements TransactionRepository {
     String? accountId,
   }) async {
     final accountClause = _accountClause(accountId, tableAlias: 't');
+    final aggregate = _financialAggregateSql(
+      _FinancialAggregateFlow.expense,
+      tableAlias: 't',
+      accountId: accountId,
+    );
     final rows = await _db.customSelect(
       '''
         SELECT m.raw_name AS name,
-               CAST(SUM(t.amount) AS REAL) AS total,
+               CAST(SUM(${aggregate.signedAmount}) AS REAL) AS total,
                COUNT(*) AS tx_count
         FROM transactions t
         INNER JOIN merchants m ON m.id = t.merchant_id
-        WHERE t.type IN ('payment', 'withdrawal')
-          AND t.status = 'confirmed'
+        WHERE ${aggregate.where}
           AND t.occurred_at BETWEEN ? AND ?$accountClause
         GROUP BY t.merchant_id
         ORDER BY total DESC

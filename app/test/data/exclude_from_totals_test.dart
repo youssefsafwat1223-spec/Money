@@ -91,7 +91,9 @@ void main() {
     expect(await txRepo.expenseTotalBetween(from: from, to: to), 100);
     expect(await txRepo.incomeTotalBetween(from: from, to: to), 500);
 
-    // Per-account totals are unaffected — flagged account still reports its own.
+    // Per-account totals are unaffected — drilling into the flagged account
+    // still reports its own numbers (the flag keeps it out of combined totals,
+    // not out of its own detail view).
     expect(
         await txRepo.expenseTotalBetween(
             from: from, to: to, accountId: excluded.id),
