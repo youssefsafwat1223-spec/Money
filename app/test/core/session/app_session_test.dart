@@ -626,4 +626,78 @@ void main() {
           reason: 'must stay uid-a until an explicit wipe clears it');
     });
   });
+
+  group('owner gate — MALI-002 (user B must never see user A\'s local data)',
+      () {
+    test(
+        'conflicting owner + registered wipe hook: reconcile wipes, '
+        'then claims for the new UID', () async {
+      // User A owned the device, session expired without a sign-out wipe.
+      await AppSession.instance.completeOnboarding(
+        method: 'google',
+        email: 'a@example.com',
+        userId: 'uid-a',
+      );
+      expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a');
+
+      var wiped = false;
+      AppSession.instance.configureLocalDataWipe(() async => wiped = true);
+
+      // User B's session reconciles on the same device.
+      final clientB = _client();
+      await _recoverValidSession(clientB,
+          userId: 'uid-b', email: 'b@example.com');
+      await AppSession.instance.bindSupabaseAuth(clientB);
+
+      expect(wiped, isTrue,
+          reason: 'A\'s financial rows must be wiped before B is admitted');
+      expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-b');
+    });
+
+    test(
+        'conflicting owner + NO wipe hook (pre-database bootstrap): admission '
+        'deferred, then resolvePendingLocalDataOwnerConflict completes it',
+        () async {
+      await AppSession.instance.completeOnboarding(
+        method: 'google',
+        email: 'a@example.com',
+        userId: 'uid-a',
+      );
+      AppSession.instance.configureLocalDataWipe(null);
+
+      final clientB = _client();
+      await _recoverValidSession(clientB,
+          userId: 'uid-b', email: 'b@example.com');
+      await AppSession.instance.bindSupabaseAuth(clientB);
+
+      // Deferred: ownership untouched, nothing claimed for B yet.
+      expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a');
+
+      // Bootstrap registers the wipe hook (DB open) and resolves.
+      var wiped = false;
+      AppSession.instance.configureLocalDataWipe(() async => wiped = true);
+      await AppSession.instance.resolvePendingLocalDataOwnerConflict(clientB);
+
+      expect(wiped, isTrue);
+      expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-b');
+    });
+
+    test('same owner: reconcile never wipes', () async {
+      await AppSession.instance.completeOnboarding(
+        method: 'google',
+        email: 'a@example.com',
+        userId: 'uid-a',
+      );
+      var wiped = false;
+      AppSession.instance.configureLocalDataWipe(() async => wiped = true);
+
+      final clientA = _client();
+      await _recoverValidSession(clientA,
+          userId: 'uid-a', email: 'a@example.com');
+      await AppSession.instance.bindSupabaseAuth(clientA);
+
+      expect(wiped, isFalse);
+      expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a');
+    });
+  });
 }

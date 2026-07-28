@@ -150,6 +150,15 @@ class BootstrapRunner {
       AppSession.instance.configureLocalDataWipe(
         DataWipeService(database).wipeAll,
       );
+      // Owner gate (MALI-002): the first session reconcile ran before the DB
+      // (and therefore the wipe hook) existed. If it deferred an owner
+      // conflict — the DB still holds a DIFFERENT account's data — resolve it
+      // now: wipe, claim, and re-admit against a clean DB, before any later
+      // step (goal autosaves, card backfill, sync) touches the stale rows.
+      if (SupabaseConfig.isConfigured) {
+        await AppSession.instance
+            .resolvePendingLocalDataOwnerConflict(Supabase.instance.client);
+      }
       unawaited(
         captureRegistration.syncNativeState().catchError((_) {
           // Capture backend registration is optional; local fallback remains active.

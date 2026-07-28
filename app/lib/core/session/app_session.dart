@@ -46,6 +46,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> Function()? _wipeLocalFinancialData;
   Future<void> Function()? _flushPendingSync;
 
+  /// UID whose admission is deferred because the local DB is still owned by a
+  /// DIFFERENT account and the wipe hook wasn't registered yet (the first
+  /// session reconcile runs before `database_open`). Bootstrap resolves it via
+  /// [resolvePendingLocalDataOwnerConflict] right after registering the wipe.
+  String? _pendingOwnerConflictUid;
+
   SessionStatus get status => value;
 
   void configureCaptureDeviceUnlink(Future<void> Function()? unlink) {
@@ -93,6 +99,49 @@ class AppSession extends ValueNotifier<SessionStatus> {
         }
       }
     }
+  }
+
+  /// Ensures the shared local DB belongs to [uid] BEFORE the session is
+  /// admitted (MALI-002). A stored owner with a different UID means the
+  /// previous user's session ended without the sign-out wipe (expiry,
+  /// revocation, crash) — their financial data must never become visible to
+  /// the new identity. If the wipe hook is registered, wipe + re-claim here;
+  /// if not (first reconcile runs before `database_open`), defer: record the
+  /// conflict and return false so the caller withholds admission until
+  /// [resolvePendingLocalDataOwnerConflict] runs.
+  Future<bool> _ensureLocalDataOwnedBy(String uid) async {
+    final existing = await _storage.read(key: _kLocalDataOwnerUid);
+    if (existing == null || existing == uid) {
+      _pendingOwnerConflictUid = null;
+      await _claimLocalDataOwnerIfUnclaimed(uid);
+      return true;
+    }
+    final wipe = _wipeLocalFinancialData;
+    if (wipe == null) {
+      _pendingOwnerConflictUid = uid;
+      return false;
+    }
+    await wipe();
+    await _storage.delete(key: _kLocalDataOwnerUid);
+    _pendingOwnerConflictUid = null;
+    await _claimLocalDataOwnerIfUnclaimed(uid);
+    return true;
+  }
+
+  /// Completes an owner conflict deferred by [_ensureLocalDataOwnedBy] once
+  /// the wipe hook exists (bootstrap calls this right after registering it,
+  /// with the DB open). Wipes the previous account's rows, claims ownership
+  /// for the pending UID, then re-runs the session reconcile so the gated
+  /// identity is finally admitted against a clean DB.
+  Future<void> resolvePendingLocalDataOwnerConflict(
+    supabase.SupabaseClient client,
+  ) async {
+    if (_pendingOwnerConflictUid == null) return;
+    if (_wipeLocalFinancialData == null) return;
+    final uid = _pendingOwnerConflictUid!;
+    final owned = await _ensureLocalDataOwnedBy(uid);
+    if (!owned) return;
+    await _reconcileSupabaseSession(client.auth.currentSession);
   }
 
   bool get isGuest => authMethod == 'guest';
@@ -148,6 +197,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
     String? email,
     String? userId,
   }) async {
+    // Owner gate (MALI-002): interactive sign-in happens long after bootstrap,
+    // so a conflicting previous owner is wiped inline here before the new
+    // identity is stored — user B must start from a clean local DB, never
+    // on top of user A's rows.
+    if (userId != null && userId.isNotEmpty) {
+      await _ensureLocalDataOwnedBy(userId);
+    }
     await _storage.write(key: _kMethod, value: method);
     if (email != null && email.trim().isNotEmpty) {
       await _storage.write(key: _kEmail, value: email);
@@ -374,7 +430,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
       if (_onboardingDone) markSessionInvalid();
       return;
     }
-    await _claimLocalDataOwnerIfUnclaimed(session.user.id);
+    // Owner gate (MALI-002): never admit a UID while the local DB still holds
+    // a different account's data. When the wipe hook isn't registered yet
+    // (first reconcile runs before database_open), leave the coarse status
+    // untouched — the boot loader is showing — and let bootstrap resolve the
+    // conflict via resolvePendingLocalDataOwnerConflict, which re-enters here.
+    final owned = await _ensureLocalDataOwnedBy(session.user.id);
+    if (!owned) return;
     final remoteEmail = session.user.email;
     final previousEmail = email;
     final accountKey = _accountKey(
