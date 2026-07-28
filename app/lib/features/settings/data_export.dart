@@ -15,13 +15,14 @@ Future<void> exportTransactionsCsv(
   WidgetRef ref,
 ) async {
   final export = await _buildTransactionsCsv(ref);
+  File? file;
   try {
     final directory = await getTemporaryDirectory();
     final timestamp = DateTime.now()
         .toUtc()
         .toIso8601String()
         .replaceAll(RegExp(r'[:.]'), '-');
-    final file = File('${directory.path}/mali-transactions-$timestamp.csv');
+    file = File('${directory.path}/mali-transactions-$timestamp.csv');
     await file.writeAsString(export.csv, flush: true);
     await Share.shareXFiles(
       [
@@ -37,9 +38,42 @@ Future<void> exportTransactionsCsv(
     if (!context.mounted) return;
     AppToast.show(context, _successMessage(export.count, shared: true));
   } catch (_) {
-    await Clipboard.setData(ClipboardData(text: export.csv));
+    // MALI-021: never silently copy the entire ledger to the system
+    // clipboard — other apps can read it. Ask first.
     if (!context.mounted) return;
-    AppToast.show(context, _successMessage(export.count, shared: false));
+    final copyInstead = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعذّرت المشاركة'),
+        content: const Text(
+          'هل تريد نسخ بيانات العمليات إلى الحافظة بدلاً من ذلك؟ '
+          'انتبه: التطبيقات الأخرى يمكنها قراءة الحافظة.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('نسخ إلى الحافظة'),
+          ),
+        ],
+      ),
+    );
+    if (copyInstead == true) {
+      await Clipboard.setData(ClipboardData(text: export.csv));
+      if (!context.mounted) return;
+      AppToast.show(context, _successMessage(export.count, shared: false));
+    }
+  } finally {
+    // MALI-021: the plaintext CSV must not linger in temp storage after the
+    // share sheet closes (share targets copy the file; ours can go).
+    try {
+      await file?.delete();
+    } catch (_) {
+      // Best-effort — the OS temp sweep is the backstop.
+    }
   }
 }
 
