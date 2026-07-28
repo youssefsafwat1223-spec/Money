@@ -729,7 +729,9 @@ class _Sheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final sheetBg = isDark ? const Color(0xFF08090C) : const Color(0xFFF5F7FB);
+    // Dark sheet = the app's true-black canvas (matches every other page),
+    // not the near-black #08090C from the mockup.
+    final sheetBg = isDark ? context.colors.bg : const Color(0xFFF5F7FB);
     return Transform.translate(
       offset: const Offset(0, -18),
       child: Container(
