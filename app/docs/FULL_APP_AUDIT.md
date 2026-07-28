@@ -615,11 +615,13 @@ finding. "Done" = code landed on `feat/accounts-multicurrency`, project gates re
 | MALI-020 (iOS privacy manifests) | ✅ Done | `cfeb30f1` | Honest data-type + UserDefaults (CA92.1) declarations across targets. |
 | MALI-015 (default-account sync via RPC) | ✅ Done | `3104e6c7` | `set_default_account` RPC path; successor enqueued on delete. |
 | MALI-019 (server notification-preference authority) | ✅ Done | `8c20f8a9` | Edge fns honor `notifications_json` + quiet hours before push. |
-| MALI-011 (sign-out flush/wipe completeness) | ⏳ Awaiting commit | — | Adds `financial_import_runs` + `notification_log_events` to wipe; coverage-guard test. Residual: best-effort flush still drops offline-only pending writes (documented tradeoff). |
-| MALI-018 (canonical total filters) | ⏳ In progress | — | Delegated to Codex; under review. |
-| MALI-014 (complete backup snapshot) | ⛔ Blocked | — | Gated behind MALI-018 finalize + full suite + MALI-011 commit; plan-first. |
+| MALI-011 (sign-out flush/wipe completeness) | ✅ Done | `f878c2e0` | Adds `financial_import_runs` + `notification_log_events` to wipe; coverage-guard test. Residual: best-effort flush still drops offline-only pending writes (documented tradeoff). Full-suite confirmation folded into the post-MALI-018 run. |
+| MALI-018 (canonical total filters) | ✅ Done | `193e590b` | Single `_financialAggregateSql` (refund-signed, confirmed-only, excluded-account) reused by every aggregate; cross-view invariant test. Codex-implemented, reviewed; corrected an over-broad single-account exclusion. Full suite 931 green. |
+| MALI-014 (complete backup snapshot) | ⏳ Next (unblocked) | — | All three gates now satisfied (MALI-018 finalized + full suite 931 green + MALI-011 committed). Plan-first before any code. |
 
 Remaining Phase-0 items (see list below) and Phases 1–4 not yet started.
+
+**Phase-0 status:** all release-blocker findings addressed except MALI-014 (backup completeness), now unblocked and next. MALI-013/016/017/022 (High, non-release-blocker sync/integrity items) tracked for Phase 1.
 
 ### Phase 0 — release blockers
 
