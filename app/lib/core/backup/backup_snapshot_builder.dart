@@ -4,7 +4,10 @@ class BackupSnapshotBuilder {
   const BackupSnapshotBuilder(this._db);
 
   final AppDatabase _db;
-  static const currentSchemaVersion = 2;
+  // v3 (MALI-014): adds cards, categories (full-fidelity incl. soft-deleted),
+  // user-learned sender_bank_mappings, and the previously-omitted account
+  // columns. Reads run in one snapshot transaction. v2 backups still restore.
+  static const currentSchemaVersion = 3;
 
   static const _tables = <String, List<String>>{
     'accounts': [
@@ -14,6 +17,13 @@ class BackupSnapshotBuilder {
       'type',
       'initial_balance',
       'current_balance',
+      'bank_account_number',
+      'credit_limit',
+      'available_credit',
+      'payment_due_day',
+      'wallet_provider',
+      'exclude_from_totals',
+      'metadata',
       'is_default',
       'sort_order',
       'created_at',
@@ -182,6 +192,55 @@ class BackupSnapshotBuilder {
       'transaction_id',
       'created_at',
     ],
+    // Backed up in FULL — soft-deleted rows included (deleted_at preserved) —
+    // because historical transactions and merchant_category_map may still
+    // reference a soft-deleted category, and a card's archived state is
+    // meaningful user data. Device-local sync columns are intentionally
+    // dropped so a restored device re-syncs fresh.
+    'cards': [
+      'id',
+      'account_id',
+      'nickname',
+      'last4',
+      'network',
+      'source',
+      'color_theme',
+      'accent_hex',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+    'categories': [
+      'id',
+      'key',
+      'name_ar',
+      'icon',
+      'color',
+      'is_income',
+      'sort_order',
+      'deleted_at',
+    ],
+    // Only user-learned/user-adjusted mappings (see _customWhere) — server
+    // catalog ('remote') and untouched pending suggestions are reproducible.
+    'sender_bank_mappings': [
+      'id',
+      'sender_id',
+      'normalized_sender_id',
+      'bank_key',
+      'suggested_bank_name',
+      'suggested_country',
+      'confidence',
+      'reason',
+      'status',
+      'source',
+      'first_seen_at',
+      'last_seen_at',
+      'confirmed_at',
+      'rejected_at',
+      'rejection_expires_at',
+      'created_at',
+      'updated_at',
+    ],
   };
 
   static const _activeOnlyTables = {
@@ -195,23 +254,74 @@ class BackupSnapshotBuilder {
     'plan_transaction_links',
   };
 
+  /// Per-table filter for rows that are user-authored vs server/seeded. Keeps
+  /// the backup limited to data the user actually created or decided on.
+  ///
+  /// sender_bank_mappings: `remote` rows are reproducible server-owned data and
+  /// are ALWAYS excluded — `confirm`/`reject` never rewrite `source`, and the
+  /// sync-down path can deliver a server row already `confirmed`/`rejected`, so
+  /// status alone can't prove local provenance. We therefore keep only
+  /// non-remote rows that the user created (`user_manual`) or decided on
+  /// (`confirmed`/`rejected`). A remote row the user confirmed locally is
+  /// dropped by design — it re-syncs from the user's own server table, and no
+  /// durable "user-touched" marker exists in the backup columns to keep it.
+  static const _customWhere = <String, String>{
+    'sender_bank_mappings': "source != 'remote' "
+        "AND (source = 'user_manual' OR status IN ('confirmed', 'rejected'))",
+  };
+
+  /// Persistent tables deliberately NOT in a portable backup, with rationale:
+  /// device-local sync state (outboxes, cursors, dedup), transient caches, and
+  /// server-synced catalog (remote_*) — all rebuilt or re-synced, never
+  /// user-authored financial data. Kept in sync with the schema by a coverage
+  /// test so a new table can't silently escape both sets.
+  static const intentionallyExcluded = <String>{
+    'ledger_sync_outbox',
+    'planning_sync_outbox',
+    'sync_cursors',
+    'dedup_hashes',
+    'smart_inbox_items',
+    'suspected_duplicates',
+    'pending_merchant_feedback',
+    'financial_cache_health',
+    'financial_import_runs',
+    'notification_log_events',
+    'catalog_metadata',
+    'parsing_rules',
+    'xp_levels',
+    'remote_announcements',
+    'remote_banks',
+    'remote_categories',
+    'remote_countries',
+    'remote_currencies',
+    'remote_feature_flags',
+    'remote_growth_campaigns',
+    'remote_merchant_keywords',
+    'remote_parsers',
+  };
+
+  /// Tables captured by the backup — exposed for the coverage-guard test.
+  static Set<String> get backedUpTables => _tables.keys.toSet();
+
   Future<Map<String, dynamic>> build() async {
     final tables = <String, List<Map<String, Object?>>>{};
-    for (final entry in _tables.entries) {
-      final columns = entry.value.join(', ');
-      final where = _activeOnlyTables.contains(entry.key)
-          ? ' WHERE deleted_at IS NULL'
-          : '';
-      final rows = await _db
-          .customSelect(
-            'SELECT $columns FROM ${entry.key}$where;',
-          )
-          .get();
-      tables[entry.key] =
-          rows.map((row) => Map<String, Object?>.from(row.data)).toList();
-    }
+    // Read every table inside ONE transaction so the snapshot is a single
+    // consistent point-in-time view even if writes land mid-build.
+    await _db.transaction(() async {
+      for (final entry in _tables.entries) {
+        final columns = entry.value.join(', ');
+        final where = _whereFor(entry.key);
+        final rows = await _db
+            .customSelect(
+              'SELECT $columns FROM ${entry.key}$where;',
+            )
+            .get();
+        tables[entry.key] =
+            rows.map((row) => Map<String, Object?>.from(row.data)).toList();
+      }
+    });
     return {
-      'version': 2,
+      'version': currentSchemaVersion,
       'schemaVersion': currentSchemaVersion,
       'createdAt': DateTime.now().toUtc().toIso8601String(),
       'privacy': {
@@ -220,5 +330,12 @@ class BackupSnapshotBuilder {
       },
       'tables': tables,
     };
+  }
+
+  static String _whereFor(String table) {
+    if (_activeOnlyTables.contains(table)) return ' WHERE deleted_at IS NULL';
+    final custom = _customWhere[table];
+    if (custom != null) return ' WHERE $custom';
+    return '';
   }
 }

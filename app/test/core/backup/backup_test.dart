@@ -154,7 +154,7 @@ void main() {
 
     test('snapshot has required top-level keys', () async {
       final snapshot = await BackupSnapshotBuilder(db).build();
-      expect(snapshot['version'], 2);
+      expect(snapshot['version'], 3);
       expect(snapshot['schemaVersion'],
           BackupSnapshotBuilder.currentSchemaVersion);
       expect(snapshot.containsKey('createdAt'), isTrue);
@@ -368,11 +368,13 @@ void main() {
     });
 
     test('schema version equal to current is accepted', () async {
-      final snapshot = {
-        ...emptySnapshot(),
-        'schemaVersion': RestoreBackupUseCase.currentSchemaVersion,
-      };
-
+      // A real current-version snapshot carries the required tables (seeded
+      // catalog, default account, user_settings); the preflight rejects only a
+      // NEWER format, not the current one. (An empty v3 snapshot is correctly
+      // rejected — see the completeness suite's truncation tests.)
+      final snapshot = await BackupSnapshotBuilder(db).build();
+      expect(
+          snapshot['schemaVersion'], RestoreBackupUseCase.currentSchemaVersion);
       await expectLater(RestoreBackupUseCase(db)(snapshot), completes);
     });
 

@@ -7,11 +7,15 @@ class RestoreBackupUseCase {
   const RestoreBackupUseCase(this._db);
 
   final AppDatabase _db;
-  static const currentSchemaVersion = 2;
+  static const currentSchemaVersion = 3;
 
-  // accounts must come before tables that FK into it.
+  // accounts must come before tables that FK into it; categories before the
+  // rows that reference category_id (merchant_category_map, transactions,
+  // budgets). sender_bank_mappings is independent.
   static const _restoreOrder = [
     'accounts',
+    'categories',
+    'cards',
     'merchants',
     'merchant_category_map',
     'transactions',
@@ -25,10 +29,12 @@ class RestoreBackupUseCase {
     'bill_payments',
     'plans',
     'plan_transaction_links',
+    'sender_bank_mappings',
   ];
 
   // Delete in reverse FK order — children before parents.
   static const _deleteOrder = [
+    'sender_bank_mappings',
     'plan_transaction_links',
     'plans',
     'bill_payments',
@@ -38,10 +44,12 @@ class RestoreBackupUseCase {
     'budgets',
     'transactions',
     'merchant_category_map',
+    'cards',
     'merchants',
     'achievements',
     'streaks',
     'user_settings',
+    'categories',
     'accounts',
   ];
 
@@ -58,7 +66,12 @@ class RestoreBackupUseCase {
         'أعد المحاولة.',
       );
     }
-    final tables = snapshot['tables'] as Map<String, dynamic>;
+    // Validate the WHOLE payload BEFORE any destructive DELETE runs, so a
+    // malformed or truncated backup fails safely instead of half-wiping the
+    // DB. A v3 backup with a missing/empty categories payload must be rejected
+    // here — otherwise conditional-delete would wipe the catalog and restore
+    // nothing.
+    final tables = _validateSnapshot(snapshot, schemaVersion);
     await _db.transaction(() async {
       await _db.customStatement('PRAGMA foreign_keys = OFF;');
       // `PRAGMA foreign_keys` is connection-scoped, not part of the SQL
@@ -68,6 +81,10 @@ class RestoreBackupUseCase {
       // lifetime unless restored in `finally`.
       try {
         for (final table in _deleteOrder) {
+          // Conditional delete: only empty a table the backup actually carries
+          // (back-compat). A v2 backup has no cards/categories/sender_mappings
+          // keys, so its restore must NOT wipe the fresh DB's seeded catalog.
+          if (!tables.containsKey(table)) continue;
           await _db.customStatement('DELETE FROM $table;');
         }
         for (final table in _restoreOrder) {
@@ -93,6 +110,68 @@ class RestoreBackupUseCase {
     if (value is int && value > 0) return value;
     return 1;
   }
+
+  /// Structural preflight — runs before any DELETE. Rejects malformed/truncated
+  /// backups so a bad file can never leave the DB half-restored, and refuses a
+  /// v3 backup whose categories payload is missing/empty (which would let the
+  /// conditional delete wipe the catalog with nothing to restore).
+  Map<String, dynamic> _validateSnapshot(
+    Map<String, dynamic> snapshot,
+    int schemaVersion,
+  ) {
+    final rawTables = snapshot['tables'];
+    if (rawTables is! Map<String, dynamic>) {
+      throw const BackupException(
+        'النسخة الاحتياطية تالفة أو غير مكتملة. تعذّرت الاستعادة.',
+      );
+    }
+    // Every present table must be a list of row-maps.
+    for (final entry in rawTables.entries) {
+      final value = entry.value;
+      if (value is! List) {
+        throw BackupException(
+          'النسخة الاحتياطية تالفة عند الجدول "${entry.key}". تعذّرت الاستعادة.',
+        );
+      }
+      for (final row in value) {
+        if (row is! Map<String, dynamic>) {
+          throw BackupException(
+            'النسخة الاحتياطية تالفة عند الجدول "${entry.key}". '
+            'تعذّرت الاستعادة.',
+          );
+        }
+      }
+    }
+    // v3+ must carry every REQUIRED table as a non-empty list. These three
+    // always exist in a healthy DB (seeded catalog, ≥1 default account, the
+    // single user_settings row), so their absence/emptiness signals a
+    // truncated or corrupt backup — reject BEFORE any delete. (categories is
+    // additionally load-bearing: the conditional delete would otherwise wipe
+    // the catalog with nothing to restore.)
+    if (schemaVersion >= 3) {
+      for (final table in _requiredV3Tables) {
+        final value = rawTables[table];
+        if (value is! List || value.isEmpty) {
+          throw BackupException(
+            'النسخة الاحتياطية تالفة أو غير مكتملة (جدول "$table" مفقود). '
+            'تعذّرت الاستعادة.',
+          );
+        }
+      }
+    }
+    return rawTables;
+  }
+
+  /// Tables that a healthy v3 snapshot must always carry (non-empty). A
+  /// truncated/corrupt backup missing any of these is rejected before the
+  /// restore transaction. Everything else in the backup is optional (may be
+  /// present but empty); tables outside the backup are intentionally excluded
+  /// (see BackupSnapshotBuilder.intentionallyExcluded).
+  static const _requiredV3Tables = {
+    'categories',
+    'accounts',
+    'user_settings',
+  };
 
   Future<void> _insertRow(String table, Map<String, dynamic> row) async {
     final data = Map<String, dynamic>.from(row);
