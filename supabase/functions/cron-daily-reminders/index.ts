@@ -1,8 +1,19 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
+import { timingSafeEqual } from '../_shared/capture_auth.ts';
 
-serve(async () => {
+serve(async (req) => {
+  // Service-only endpoint (MALI-004): only the pg_cron dispatcher
+  // (run_cron_daily_reminders, sending the Vault service-role key) may
+  // trigger a reminder sweep — otherwise anyone could spam every device.
+  const authHeader = req.headers.get('authorization') ?? '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);

@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
+import { timingSafeEqual } from '../_shared/capture_auth.ts';
 
 // The client maps BudgetEntity.allExpensesCategoryId ('__all_expenses__') to
 // this key when syncing budgets to user_budgets — see
@@ -8,6 +9,17 @@ import { sendCapturePush } from '../_shared/apns.ts';
 const ALL_EXPENSES_CATEGORY_ID = 'all_expenses';
 
 serve(async (req) => {
+  // Service-only endpoint (MALI-004): the DB webhook (migration 0057) sends
+  // the service-role key from Vault as its Bearer token. Anything else —
+  // including a perfectly valid ordinary user JWT — must be rejected, because
+  // the body's record.user_id is trusted blindly below.
+  const authHeader = req.headers.get('authorization') ?? '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
   const payload = await req.json();
   const transaction = payload.record;
   if (!transaction || !transaction.user_id) {

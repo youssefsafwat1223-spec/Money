@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required in the MAIN manifest (not only debug/profile) — release builds
+         need it for auth, Supabase sync, Edge calls, Sentry, and fonts.
+         Without it every production network call fails while debug works. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Exact scheduling for streak/weekly/bill reminders (zonedSchedule uses

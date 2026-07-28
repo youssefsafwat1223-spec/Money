@@ -85,9 +85,10 @@ class BootstrapRunner {
   }
 
   Future<AppDatabase> _runSteps() async {
-    if (kDebugMode) {
-      _reportRuntimeMisconfig();
-    }
+    // Runs in EVERY build mode. In release a missing/non-production Supabase
+    // configuration throws (fail closed → startup error screen) instead of
+    // silently proceeding into stub auth / no cloud (MALI-003).
+    _assertRuntimeConfig();
 
     if (SupabaseConfig.isConfigured && !_supabaseInitialized) {
       await _step('supabase_init', () async {
@@ -211,21 +212,27 @@ class BootstrapRunner {
     return database;
   }
 
-  void _reportRuntimeMisconfig() {
-    debugPrint(
-      '[SupabaseConfig] env=${SupabaseConfig.environment.name}'
-      ' configured=${SupabaseConfig.isConfigured}',
-    );
-    if (kReleaseMode &&
-        SupabaseConfig.isConfigured &&
-        SupabaseConfig.environment != SupabaseEnvironment.production) {
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: StateError(
-          'Non-production SUPABASE_ENV '
-          '"${SupabaseConfig.environment.name}" in release build',
-        ),
-        library: 'SupabaseConfig',
-      ));
+  void _assertRuntimeConfig() {
+    if (kDebugMode) {
+      debugPrint(
+        '[SupabaseConfig] env=${SupabaseConfig.environment.name}'
+        ' configured=${SupabaseConfig.isConfigured}',
+      );
+    }
+    if (!kReleaseMode) return;
+    // Release builds fail closed: a production binary must never run with
+    // fake/local auth or a non-production backend.
+    if (!SupabaseConfig.isConfigured) {
+      throw StateError(
+        'Release build launched without SUPABASE_URL/SUPABASE_ANON_KEY — '
+        'refusing to start with stub auth.',
+      );
+    }
+    if (SupabaseConfig.environment != SupabaseEnvironment.production) {
+      throw StateError(
+        'Non-production SUPABASE_ENV '
+        '"${SupabaseConfig.environment.name}" in release build.',
+      );
     }
   }
 

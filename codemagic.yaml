@@ -10,10 +10,11 @@
 #                                (needs an Apple Developer Program account).
 #
 # Supabase: SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_ENV are injected as --dart-define.
-# If they are empty/unset, SupabaseConfig.isConfigured == false and the app
-# runs in fallback STUB mode (see lib/core/backend/supabase_config.dart).
-# These workflows are production workflows; staging must use a separate workflow
-# and pass --dart-define=SUPABASE_ENV=staging explicitly.
+# These are PRODUCTION workflows: both assert the Supabase values are non-empty
+# before building, and the app itself fails closed at startup in release mode
+# if they are missing (bootstrap_runner._assertRuntimeConfig) — release builds
+# must never fall back to stub auth. Staging must use a separate workflow and
+# pass --dart-define=SUPABASE_ENV=staging explicitly.
 
 workflows:
   # ---------------------------------------------------------------------------
@@ -50,10 +51,19 @@ workflows:
           security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
           flutter test
 
+      - name: Assert production Supabase config
+        script: |
+          set -e
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "ERROR: SUPABASE_URL / SUPABASE_ANON_KEY are empty — a production"
+            echo "build must never ship without a real backend (stub-auth risk)."
+            exit 1
+          fi
+
       - name: Build unsigned iOS (.app)
         working_directory: app
         script: |
-          # SUPABASE_* come from the "supabase" group; default to "" => stub mode.
+          # SUPABASE_* come from the "supabase" group; asserted non-empty above.
           flutter build ios --release --no-codesign \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
@@ -121,6 +131,15 @@ workflows:
           flutter analyze
           security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
           flutter test
+
+      - name: Assert production Supabase config
+        script: |
+          set -e
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "ERROR: SUPABASE_URL / SUPABASE_ANON_KEY are empty — a production"
+            echo "build must never ship without a real backend (stub-auth risk)."
+            exit 1
+          fi
 
       - name: Build signed IPA
         working_directory: app

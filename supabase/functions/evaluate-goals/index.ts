@@ -1,8 +1,18 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
+import { timingSafeEqual } from '../_shared/capture_auth.ts';
 
 serve(async (req) => {
+  // Service-only endpoint (MALI-004): only the DB webhook's service-role
+  // Bearer may drive goal notifications — record fields are trusted below.
+  const authHeader = req.headers.get('authorization') ?? '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
   const payload = await req.json();
   // Trigger fires AFTER UPDATE ON user_goals, so `record` is the goal row
   // itself (with its already-current saved_amount) — not a contribution row.

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../backend/supabase_config.dart';
@@ -70,5 +71,13 @@ class StubAuthService implements AuthService {
 
 final authServiceProvider = Provider<AuthService>((ref) {
   if (SupabaseConfig.isConfigured) return SupabaseAuthService();
+  // Stub auth (fixed OTP) is a development convenience ONLY. A release build
+  // without Supabase config must fail closed, never authenticate for real
+  // (MALI-003). Bootstrap already throws earlier; this is defense in depth.
+  if (kReleaseMode) {
+    throw StateError(
+      'Auth requested in a release build without Supabase configuration.',
+    );
+  }
   return StubAuthService();
 });
