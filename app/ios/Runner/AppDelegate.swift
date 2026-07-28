@@ -58,6 +58,18 @@ import UserNotifications
         result(SharedCaptureStore.consumePendingText())
       case "consumePendingSharedMessages":
         result(SharedCaptureStore.consumePendingPayloadsJSON())
+      case "peekPendingSharedMessages":
+        // Per-item lease (MALI-012): returns the queue without deleting it;
+        // Dart acks each payload after its import commits.
+        result(SharedCaptureStore.peekPendingPayloadsJSON())
+      case "acknowledgeSharedMessage":
+        let payloadId =
+          (call.arguments as? [String: Any])?["payloadId"] as? String
+        if let payloadId = payloadId {
+          result(SharedCaptureStore.remove(payloadID: payloadId))
+        } else {
+          result(false)
+        }
       case "hasPendingSharedMessages":
         result(SharedCaptureStore.hasPendingMessages())
       case "setCaptureBackendConfig":

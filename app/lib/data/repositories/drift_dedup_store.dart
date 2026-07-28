@@ -8,6 +8,13 @@ class DriftDedupStore implements DedupStore {
 
   final AppDatabase _db;
 
+  /// Runs [action] inside ONE transaction on the same database the dedup
+  /// markers live in — used to commit an imported transaction together with
+  /// its payload marker atomically (MALI-012): a kill between the two can
+  /// no longer leave an imported row whose payload re-imports as a duplicate.
+  Future<T> runAtomically<T>(Future<T> Function() action) =>
+      _db.transaction(action);
+
   /// Joins `transactions` and skips deleted ones (status 'ignored'): once the
   /// user deletes a transaction, re-adding the same SMS must be allowed again,
   /// otherwise the stale hash would keep reporting "already recorded".

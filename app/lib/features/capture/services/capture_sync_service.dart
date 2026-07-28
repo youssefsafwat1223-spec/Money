@@ -355,20 +355,37 @@ class CaptureSyncService {
           _string(parsed['possibleDuplicateOfTransactionId']),
       duplicateReason: _string(parsed['duplicateReason']),
     );
-    final saved = supabasePrimaryMode && _directTransactionRepository != null
-        ? await _directTransactionRepository.saveCapturedTransaction(
-            transaction: transaction,
-            categoryKey: _string(parsed['category']),
-            payloadId: capture.payloadId,
-          )
-        : await _transactionRepository.saveTransaction(
-            transaction: transaction,
-            categoryKey: _string(parsed['category']),
-          );
-    await markPayloadImported(
-      payloadId: capture.payloadId,
-      transactionId: saved.id,
-    );
+    final TransactionEntity saved;
+    if (supabasePrimaryMode && _directTransactionRepository != null) {
+      // Legacy direct-Supabase branch: the remote write cannot share a local
+      // transaction; marker ordering stays as before.
+      saved = await _directTransactionRepository.saveCapturedTransaction(
+        transaction: transaction,
+        categoryKey: _string(parsed['category']),
+        payloadId: capture.payloadId,
+      );
+      await markPayloadImported(
+        payloadId: capture.payloadId,
+        transactionId: saved.id,
+      );
+    } else {
+      // Atomic import (MALI-012): transaction row (+outbox, via the repo's
+      // own transaction → savepoint) and the payload dedup marker commit or
+      // roll back together — a kill between them can no longer leave an
+      // imported row whose payload re-imports as a duplicate, nor a marked
+      // payload whose transaction never landed.
+      saved = await _dedupStore.runAtomically(() async {
+        final inserted = await _transactionRepository.saveTransaction(
+          transaction: transaction,
+          categoryKey: _string(parsed['category']),
+        );
+        await markPayloadImported(
+          payloadId: capture.payloadId,
+          transactionId: inserted.id,
+        );
+        return inserted;
+      });
+    }
     return capture.status == 'needs_review' || capture.status == 'duplicate'
         ? saved.id
         : null;

@@ -578,7 +578,11 @@ class _AppShellState extends ConsumerState<AppShell> {
           debugPrint('[Capture] backend sync skipped: $error');
         }
       }
-      final messages = await NativeCaptureBridge.consumePendingSharedMessages();
+      // Per-item lease (MALI-012): peek does NOT delete the native queue.
+      // Each message is acknowledged (removed) individually only after its
+      // local import committed — a kill anywhere in this loop re-delivers
+      // exactly the unprocessed remainder on the next drain.
+      final messages = await NativeCaptureBridge.peekPendingSharedMessages();
       if (kDebugMode) {
         debugPrint('[Capture] consumeSharedInput: ${messages.length} messages');
       }
@@ -596,10 +600,19 @@ class _AppShellState extends ConsumerState<AppShell> {
       String? pendingSecondaryNotice;
       SenderBankMappingEntity? pendingBankDiscovery;
 
+      // Positive per-item acknowledgement: removes the leased message from
+      // the native queue only after it was fully handled locally.
+      Future<void> ackMessage(SharedCapturedMessage message) async {
+        final id = message.id;
+        if (id == null || id.isEmpty) return;
+        await NativeCaptureBridge.acknowledgeSharedMessage(id);
+      }
+
       for (final message in messages) {
-        // كل رسالة في try مستقلة: السحب من الطابور الأصلي مدمِّر، وفشل رسالة
-        // واحدة كان يُسقط بقية الرسائل المسحوبة بلا رجعة. الفاشلة تُعاد
-        // للطابور الأصلي (بدون إيقاظ فوري) وتُعاد محاولتها في السحب التالي.
+        // كل رسالة في try مستقلة، والطابور الأصلي لا يُمسح دفعة واحدة بعد
+        // الآن (MALI-012): الرسالة تُحذف من الطابور فقط بعد اكتمال معالجتها
+        // (ack)، والفاشلة تبقى في الطابور كما هي وتُعاد محاولتها في السحب
+        // التالي — لا فقدان للدفعة عند انهيار/انتهاء جلسة في المنتصف.
         try {
           if (message.status == 'pendingSend') {
             final captureSync = ref.read(captureSyncServiceProvider);
@@ -609,6 +622,7 @@ class _AppShellState extends ConsumerState<AppShell> {
               if (message.id != null &&
                   (backendSync.importedPayloadIds.contains(message.id) ||
                       await captureSync.isPayloadImported(message.id!))) {
+                await ackMessage(message);
                 continue;
               }
               throw StateError('backend_capture_not_observable');
@@ -625,6 +639,7 @@ class _AppShellState extends ConsumerState<AppShell> {
               if (kDebugMode) {
                 debugPrint('[Capture] skip already imported backend payload');
               }
+              await ackMessage(message);
               continue;
             }
           }
@@ -673,21 +688,20 @@ class _AppShellState extends ConsumerState<AppShell> {
           pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
             message.sender,
           );
+          // Fully handled — release the lease.
+          await ackMessage(message);
         } on AuthRepoException {
           // Every remaining message would fail identically until re-auth —
-          // stop draining, requeue this one, and let the centralized
-          // recovery redirect to sign-in instead of looping through failures.
-          await NativeCaptureBridge.reEnqueueSharedMessage(message);
+          // stop draining. Nothing was deleted from the native queue (peek,
+          // not consume), so this message AND the whole remainder stay leased
+          // and are retried after the centralized recovery re-auths.
           await _handleAuthRequiredFailure();
           break;
         } catch (error) {
-          final requeued =
-              await NativeCaptureBridge.reEnqueueSharedMessage(message);
+          // Not acked — the message stays in the native queue and is retried
+          // on the next drain.
           if (kDebugMode) {
-            debugPrint(
-              '[Capture] message processing failed '
-              '($error); requeued=$requeued',
-            );
+            debugPrint('[Capture] message processing failed ($error)');
           }
         }
       }

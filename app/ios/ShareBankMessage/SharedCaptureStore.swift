@@ -247,6 +247,60 @@ enum SharedCaptureStore {
         .isEmpty) == false)
   }
 
+  /// Returns the queue as JSON WITHOUT deleting anything (per-item lease,
+  /// MALI-012). Dart acknowledges each payload individually via
+  /// `remove(payloadID:)` only after its import committed — a kill between
+  /// drain and import re-delivers exactly the unacknowledged remainder
+  /// instead of losing the whole batch.
+  ///
+  /// Any legacy single-text value is first folded into the durable queue (so
+  /// it gains a stable payload id and the same per-item lifecycle) before the
+  /// legacy key is cleared.
+  static func peekPendingPayloadsJSON() -> String? {
+    withQueueLock {
+      var queue = loadQueue()
+      if let legacy = defaults?.string(forKey: legacyKey),
+         !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let receivedAt = isoFormatter.string(from: Date())
+        queue.append(Payload(
+          id: makePayloadID(
+            text: legacy,
+            sender: nil,
+            senderName: nil,
+            senderID: nil,
+            source: "legacy",
+            receivedAt: receivedAt
+          ),
+          text: legacy,
+          sender: nil,
+          senderName: nil,
+          senderId: nil,
+          source: "legacy",
+          receivedAt: receivedAt,
+          locale: Locale.autoupdatingCurrent.identifier,
+          status: CaptureStatus.pending.rawValue,
+          failureReason: nil,
+          sentAt: nil,
+          createdAt: receivedAt
+        ))
+        // Persist the fold first; only then clear the legacy key so the text
+        // is never in neither place.
+        guard saveQueue(queue, notifyHost: false) else { return nil }
+        defaults?.removeObject(forKey: legacyKey)
+        defaults?.synchronize()
+      }
+      guard !queue.isEmpty else {
+        updatePendingMetadata([])
+        return nil
+      }
+      guard let data = try? JSONEncoder().encode(queue),
+            let json = String(data: data, encoding: .utf8) else {
+        return nil
+      }
+      return json
+    }
+  }
+
   /// Drains the whole queue plus any legacy value and returns a JSON array.
   ///
   /// The queue is removed only after JSON encoding succeeds so messages are not

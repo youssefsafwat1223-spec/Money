@@ -275,16 +275,56 @@ class NativeCaptureBridge {
 
   /// Drains the full FIFO queue of bank messages captured by native sharing
   /// surfaces: iOS Share Extension/App Intent and Android ACTION_SEND.
+  ///
+  /// DESTRUCTIVE — prefer [peekPendingSharedMessages] +
+  /// [acknowledgeSharedMessage] (per-item lease, MALI-012); this remains for
+  /// compatibility with older native layers that lack the peek handler.
   static Future<List<SharedCapturedMessage>>
       consumePendingSharedMessages() async {
+    return _fetchSharedMessages('consumePendingSharedMessages');
+  }
+
+  /// Returns the native capture queue WITHOUT deleting it (per-item lease,
+  /// MALI-012). Call [acknowledgeSharedMessage] for each message only after
+  /// its local import committed — a kill mid-drain re-delivers exactly the
+  /// unacknowledged remainder instead of losing the whole batch.
+  static Future<List<SharedCapturedMessage>> peekPendingSharedMessages() async {
+    return _fetchSharedMessages('peekPendingSharedMessages');
+  }
+
+  /// Positively acknowledges (removes) one leased message from the native
+  /// queue after its import committed. Returns false when the native layer
+  /// doesn't support acks or the id was already gone.
+  static Future<bool> acknowledgeSharedMessage(String payloadId) async {
+    if (!Platform.isIOS && !Platform.isAndroid) return false;
+    try {
+      final removed = await _channel.invokeMethod<bool>(
+        'acknowledgeSharedMessage',
+        {'payloadId': payloadId},
+      );
+      return removed ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  static Future<List<SharedCapturedMessage>> _fetchSharedMessages(
+    String method,
+  ) async {
     if (!Platform.isIOS && !Platform.isAndroid) {
       return const [];
     }
     final String? json;
     try {
-      json =
-          await _channel.invokeMethod<String>('consumePendingSharedMessages');
+      json = await _channel.invokeMethod<String>(method);
     } on MissingPluginException {
+      return const [];
+    } on PlatformException {
+      // An older native layer without the peek/ack handlers reports
+      // notImplemented as a PlatformException — treat as empty; the caller
+      // falls back to the destructive consume path.
       return const [];
     }
     if (json == null || json.trim().isEmpty) {

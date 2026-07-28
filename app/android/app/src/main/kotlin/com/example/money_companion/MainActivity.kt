@@ -16,8 +16,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : FlutterFragmentActivity() {
+    private data class SharedMessage(
+        val id: String,
+        val text: String,
+        val sender: String?,
+    )
+
     companion object {
-        private val pendingSharedMessages = mutableListOf<Pair<String, String?>>()
+        private val pendingSharedMessages = mutableListOf<SharedMessage>()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +62,22 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(drainSharedMessagesJson())
                 }
 
+                // Per-item lease (MALI-012): peek returns the queue without
+                // clearing it; Dart acknowledges each message by id after its
+                // import commits, so a crash mid-import re-delivers only the
+                // unacknowledged remainder.
+                "peekPendingSharedMessages" -> {
+                    result.success(peekSharedMessagesJson())
+                }
+
+                "acknowledgeSharedMessage" -> {
+                    val payloadId = call.argument<String>("payloadId")
+                    result.success(
+                        payloadId != null &&
+                            pendingSharedMessages.removeAll { it.id == payloadId },
+                    )
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -90,7 +112,13 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val sender = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.trim()
-        pendingSharedMessages.add(text to sender?.takeIf { it.isNotEmpty() })
+        pendingSharedMessages.add(
+            SharedMessage(
+                id = java.util.UUID.randomUUID().toString(),
+                text = text,
+                sender = sender?.takeIf { it.isNotEmpty() },
+            ),
+        )
         intent.removeExtra(Intent.EXTRA_TEXT)
         intent.removeExtra(Intent.EXTRA_SUBJECT)
     }
@@ -101,12 +129,24 @@ class MainActivity : FlutterFragmentActivity() {
         }
         val messages = pendingSharedMessages.toList()
         pendingSharedMessages.clear()
+        return toJson(messages)
+    }
+
+    private fun peekSharedMessagesJson(): String? {
+        if (pendingSharedMessages.isEmpty()) {
+            return null
+        }
+        return toJson(pendingSharedMessages.toList())
+    }
+
+    private fun toJson(messages: List<SharedMessage>): String {
         val array = JSONArray()
-        messages.forEach { (text, sender) ->
+        messages.forEach { message ->
             val item = JSONObject()
-            item.put("text", text)
-            if (sender != null) {
-                item.put("sender", sender)
+            item.put("id", message.id)
+            item.put("text", message.text)
+            if (message.sender != null) {
+                item.put("sender", message.sender)
             }
             array.put(item)
         }
