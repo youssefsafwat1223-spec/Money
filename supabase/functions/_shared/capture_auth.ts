@@ -59,6 +59,22 @@ export function timingSafeEqual(a: unknown, b: unknown): boolean {
   return diff === 0;
 }
 
+/// Authorizes a service-only worker request that presents its shared secret as
+/// `Authorization: Bearer <secret>`. Fails closed when the configured secret is
+/// empty (misconfiguration must never authorize), tolerates a missing header,
+/// and compares in constant time. Pure and value-free so it can be unit-tested
+/// without a live server or exposing the secret. Used by the account-purge
+/// worker (PURGE_WORKER_SECRET, MALI-005).
+export function bearerSecretAuthorized(
+  authHeader: string | null | undefined,
+  configuredSecret: string,
+): boolean {
+  if (!configuredSecret) return false;
+  const header = authHeader ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  return timingSafeEqual(token, configuredSecret);
+}
+
 export async function verifyDevice(
   supabase: ReturnType<typeof serviceClient>,
   installId: string,

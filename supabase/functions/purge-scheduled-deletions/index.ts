@@ -1,4 +1,4 @@
-import { corsHeaders, json, serviceClient, timingSafeEqual } from '../_shared/capture_auth.ts';
+import { bearerSecretAuthorized, corsHeaders, json, serviceClient } from '../_shared/capture_auth.ts';
 
 // Scheduled worker for the approved 30-day account deletion policy.
 //
@@ -41,10 +41,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
-  const authHeader = req.headers.get('authorization') ?? '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   const workerSecret = Deno.env.get('PURGE_WORKER_SECRET') ?? '';
-  if (!workerSecret || !timingSafeEqual(token, workerSecret)) {
+  if (!bearerSecretAuthorized(req.headers.get('authorization'), workerSecret)) {
     return json({ error: 'forbidden' }, 403);
   }
 
