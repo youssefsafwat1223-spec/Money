@@ -15,6 +15,29 @@
          flutter_local_notifications boot receiver needs this permission). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         MALI-013 — OPTIONAL automatic bank-SMS capture.
+
+         RECEIVE_SMS is a Google Play RESTRICTED permission. This build is
+         Play-safe by DEFAULT: the permission and the SmsCaptureReceiver below
+         are COMMENTED OUT, so the shipping manifest declares no SMS access and
+         capture works entirely through "Share to Mali" (durable, no permission).
+
+         Automatic capture is fully implemented (SmsCaptureReceiver +
+         DurableCaptureQueue + CaptureSettings, opt-in and OFF by default). To
+         ship it you MUST, at the BUILD/MANIFEST level (not a runtime flag):
+           1. Obtain a Google Play Console Permissions Declaration approval for
+              "SMS-based money management" AND add the required prominent
+              in-app disclosure before the runtime permission request.
+           2. Uncomment the RECEIVE_SMS permission and the receiver block below
+              (or move them into a dedicated `smsCapture` product flavor so the
+              default/Play-safe build never declares them).
+         Do NOT uncomment without (1) — a declared RECEIVE_SMS without approval
+         gets the app rejected/removed.
+
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+         ═══════════════════════════════════════════════════════════════════════ -->
+
     <application
         android:label="قرش"
         android:name="${applicationName}"
@@ -72,6 +95,19 @@
         <receiver
             android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
+
+        <!-- MALI-013 automatic-SMS receiver — enable ONLY with Play approval
+             (see the RECEIVE_SMS note above). Commented out for the Play-safe
+             default build; the implementation (SmsCaptureReceiver) is ready.
+        <receiver
+            android:name=".SmsCaptureReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+        -->
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

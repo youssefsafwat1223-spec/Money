@@ -104,6 +104,54 @@ class NativeNotificationLogEvent {
   final DateTime? occurredAt;
 }
 
+/// MALI-013 — honest capture capabilities for Android (share always; SMS is
+/// opt-in and two-key: declared in the build AND granted AND enabled). The old
+/// `hasSmsPermission()` conflated notification and SMS permission; these fields
+/// keep them strictly separate.
+class CaptureCapabilities {
+  const CaptureCapabilities({
+    this.supportsShareCapture = true,
+    this.receiveSmsDeclared = false,
+    this.hasReceiveSmsPermission = false,
+    this.canUseAutomaticSmsCapture = false,
+    this.isAutomaticSmsCaptureEnabled = false,
+    this.hasNotificationPermission = false,
+  });
+
+  /// "Share to Mali" — always available, needs no permission.
+  final bool supportsShareCapture;
+
+  /// Whether RECEIVE_SMS is declared in this build's manifest at all
+  /// (false in a Play-safe, share-only build → automatic capture "not
+  /// included in this build").
+  final bool receiveSmsDeclared;
+  final bool hasReceiveSmsPermission;
+
+  /// The build declares + the OS grants RECEIVE_SMS (auto capture is possible).
+  final bool canUseAutomaticSmsCapture;
+
+  /// The user has turned automatic capture on AND it is permitted.
+  final bool isAutomaticSmsCaptureEnabled;
+
+  /// Notification permission — NEVER conflated with SMS.
+  final bool hasNotificationPermission;
+
+  factory CaptureCapabilities.fromJson(Map<String, dynamic> json) {
+    return CaptureCapabilities(
+      supportsShareCapture: json['supportsShareCapture'] as bool? ?? true,
+      receiveSmsDeclared: json['receiveSmsDeclared'] as bool? ?? false,
+      hasReceiveSmsPermission:
+          json['hasReceiveSmsPermission'] as bool? ?? false,
+      canUseAutomaticSmsCapture:
+          json['canUseAutomaticSmsCapture'] as bool? ?? false,
+      isAutomaticSmsCaptureEnabled:
+          json['isAutomaticSmsCaptureEnabled'] as bool? ?? false,
+      hasNotificationPermission:
+          json['hasNotificationPermission'] as bool? ?? false,
+    );
+  }
+}
+
 class NativeCaptureBridge {
   NativeCaptureBridge._();
 
@@ -178,11 +226,35 @@ class NativeCaptureBridge {
     });
   }
 
-  static Future<bool> hasSmsPermission() async {
+  /// MALI-013 — honest Android capture capabilities. Replaces the old
+  /// `hasSmsPermission()` which mislabelled the NOTIFICATION permission as SMS.
+  /// On non-Android platforms only share capture applies.
+  static Future<CaptureCapabilities> captureCapabilities() async {
     if (!Platform.isAndroid) {
-      return false;
+      return const CaptureCapabilities(supportsShareCapture: true);
     }
-    return await _channel.invokeMethod<bool>('hasSmsPermission') ?? false;
+    try {
+      final raw = await _channel.invokeMethod<String>('captureCapabilities');
+      if (raw == null) {
+        return const CaptureCapabilities(supportsShareCapture: true);
+      }
+      return CaptureCapabilities.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return const CaptureCapabilities(supportsShareCapture: true);
+    }
+  }
+
+  /// Turn automatic SMS capture on/off (persisted natively). Returns the
+  /// effective state — false unless RECEIVE_SMS is granted, whatever was asked.
+  static Future<bool> setAutomaticSmsCaptureEnabled(bool enabled) async {
+    if (!Platform.isAndroid) return false;
+    return await _channel.invokeMethod<bool>(
+          'setAutomaticSmsCaptureEnabled',
+          {'enabled': enabled},
+        ) ??
+        false;
   }
 
   static Future<void> openAppSettings() async {
