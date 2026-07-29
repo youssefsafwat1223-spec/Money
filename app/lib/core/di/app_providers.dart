@@ -21,6 +21,7 @@ import '../../data/catalog/growth_campaign_service.dart';
 import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
+import '../../data/repositories/account_deletion_service.dart';
 import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/financial_cache_repair_service.dart';
@@ -603,6 +604,21 @@ final goalRepositoryProvider = Provider<GoalRepository>((ref) {
       db,
       outboxQueue: ref.watch(planningOutboxQueueProvider),
     ),
+  );
+});
+
+/// MALI-016 — the authoritative, dependency-aware account-deletion path
+/// (detach transactions; archive cards/budgets; reassign-or-archive goals &
+/// subscriptions with currency checks; atomic; structured result).
+final financialAccountDeletionServiceProvider =
+    Provider<FinancialAccountDeletionService>((ref) {
+  return FinancialAccountDeletionService(
+    db: ref.watch(appDatabaseProvider),
+    accounts: ref.watch(accountRepositoryProvider),
+    cards: ref.watch(cardRepositoryProvider),
+    budgets: ref.watch(budgetRepositoryProvider),
+    goals: ref.watch(goalRepositoryProvider),
+    bills: ref.watch(billRepositoryProvider),
   );
 });
 

@@ -12,6 +12,8 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/usecases/account_deletion.dart';
+import 'account_deletion_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
 
 String accountTypeLabel(AccountType type) => switch (type) {
@@ -204,30 +206,92 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
 
   Future<void> _delete() async {
     if (_busy) return;
-    final repo = ref.read(accountRepositoryProvider);
+    // MALI-016: dependency-aware deletion. Show the impact first; force an
+    // explicit reassign-or-archive decision for goals/subscriptions before
+    // anything is touched, then execute atomically.
+    final service = ref.read(financialAccountDeletionServiceProvider);
+    final accountId = widget.account!.id;
     setState(() => _busy = true);
+
+    AccountDeletionRequest? request;
+    try {
+      final impact = await service.plan(accountId);
+      if (!mounted) return;
+      if (impact.requiresDecision) {
+        request = await AccountDeletionSheet.show(context, impact);
+      } else {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('حذف الحساب'),
+            content: Text(_impactSummary(impact)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('حذف'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          request = AccountDeletionRequest(accountId: accountId);
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذّر تحضير الحذف — حاول مجددًا.')),
+        );
+      }
+    }
+
+    if (request == null) {
+      if (mounted) setState(() => _busy = false);
+      return; // cancelled, or plan failed
+    }
+
     var deleted = false;
     try {
-      await repo.delete(widget.account!.id);
+      final result = await service.execute(request);
       deleted = true;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_resultSummary(result))),
+        );
+      }
     } on StateError {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا يمكن حذف آخر حساب.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لا يمكن حذف آخر حساب.')),
+        );
+      }
+    } on AccountDeletionBlocked {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تعذّر الحذف — بعض العناصر تحتاج قرارًا صريحًا.'),
+          ),
+        );
+      }
     } on RepoException catch (e) {
-      if (!mounted) return;
-      AppToast.show(
-        context,
-        e is ValidationRepoException && e.message.contains('last_account')
-            ? 'لا يمكن حذف آخر حساب.'
-            : repoExceptionMessage(e),
-      );
+      if (mounted) {
+        AppToast.show(
+          context,
+          e is ValidationRepoException && e.message.contains('last_account')
+              ? 'لا يمكن حذف آخر حساب.'
+              : repoExceptionMessage(e),
+        );
+      }
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر حذف الحساب — حاول مجددًا.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذّر حذف الحساب — حاول مجددًا.')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -236,6 +300,29 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     ref.read(dashboardAccountProvider.notifier).state = null;
     ref.invalidate(dashboardDataProvider);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  String _impactSummary(AccountDeletionImpact i) {
+    final parts = <String>['ستُفصل ${i.transactionsToDetach} عملية'];
+    if (i.cardsToArchive > 0) parts.add('تُؤرشف ${i.cardsToArchive} بطاقة');
+    if (i.budgetsToArchive > 0) {
+      parts.add('تُؤرشف ${i.budgetsToArchive} ميزانية');
+    }
+    return '${parts.join('، ')}.';
+  }
+
+  String _resultSummary(AccountDeletionResult r) {
+    final parts = <String>['فُصلت ${r.transactionsDetached} عملية'];
+    if (r.cardsArchived > 0) parts.add('${r.cardsArchived} بطاقة مؤرشفة');
+    if (r.goalsReassigned > 0) parts.add('${r.goalsReassigned} هدف مُنقول');
+    if (r.goalsArchived > 0) parts.add('${r.goalsArchived} هدف مؤرشف');
+    if (r.subscriptionsReassigned > 0) {
+      parts.add('${r.subscriptionsReassigned} اشتراك مُنقول');
+    }
+    if (r.subscriptionsArchived > 0) {
+      parts.add('${r.subscriptionsArchived} اشتراك مؤرشف');
+    }
+    return 'تم حذف الحساب — ${parts.join('، ')}.';
   }
 
   @override
