@@ -1,13 +1,19 @@
 # Codemagic CI/CD — Mali (money_companion)
 #
-# The Flutter project lives in ./app, so every workflow sets
-# `working_directory: app`. Two workflows are provided:
+# The Flutter project lives in ./app, so every app workflow sets
+# `working_directory: app`. Four workflows are provided:
 #
 #   1. ios-unsigned-sideload  -> builds an UNSIGNED .ipa for Sideloadly / iLoader.
 #                                No Apple Developer account needed at build time;
 #                                Sideloadly re-signs with your free Apple ID.
 #   2. ios-signed-release     -> builds a SIGNED .ipa via Codemagic code signing
 #                                (needs an Apple Developer Program account).
+#   3. android-release        -> builds a release .aab; mirrors the production
+#                                config assertions (MALI-036).
+#   4. backend-and-quality-gates -> SQL/migration lint, Edge-function Deno tests,
+#                                admin panel lint/build, flutter analyze/test —
+#                                the backend/SQL/RLS/Edge/admin gates the CI was
+#                                missing (MALI-036). No device build.
 #
 # Supabase: SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_ENV are injected as --dart-define.
 # These are PRODUCTION workflows: both assert the Supabase values are non-empty
@@ -157,6 +163,108 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
+      email:
+        recipients:
+          - youssefsafwat1223@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ---------------------------------------------------------------------------
+  # 3) ANDROID release App Bundle. Mirrors the iOS production config assertions
+  #    so a broken Android/backend combination can't ship green (MALI-036).
+  # ---------------------------------------------------------------------------
+  android-release:
+    name: Android Release (App Bundle)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      groups:
+        - supabase
+        - google_play          # Android keystore (CM_KEYSTORE*) — set in Codemagic
+      flutter: 3.44.2
+      vars:
+        PACKAGE_NAME: "com.youssefsafwat.mali"
+    scripts:
+      - name: Flutter pub get
+        working_directory: app
+        script: flutter pub get
+
+      - name: Regenerate localizations
+        working_directory: app
+        script: flutter gen-l10n
+
+      - name: Flutter analyze & test
+        working_directory: app
+        script: |
+          flutter analyze
+          flutter test
+
+      - name: Assert production Supabase config
+        script: |
+          set -e
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "ERROR: SUPABASE_URL / SUPABASE_ANON_KEY are empty — a production"
+            echo "build must never ship without a real backend (stub-auth risk)."
+            exit 1
+          fi
+
+      - name: Build release App Bundle
+        working_directory: app
+        script: |
+          flutter build appbundle --release \
+            --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
+            --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
+            --dart-define=SUPABASE_ENV=production \
+            --dart-define=SENTRY_DSN="${SENTRY_DSN:-}"
+    artifacts:
+      - app/build/**/outputs/bundle/**/*.aab
+      - app/build/**/outputs/**/mapping.txt
+    publishing:
+      email:
+        recipients:
+          - youssefsafwat1223@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ---------------------------------------------------------------------------
+  # 4) BACKEND + QUALITY GATES (no device build). Closes the CI gaps flagged by
+  #    MALI-036: SQL/migration safety, Edge-function tests, and admin panel.
+  # ---------------------------------------------------------------------------
+  backend-and-quality-gates:
+    name: Backend & Quality Gates
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      flutter: 3.44.2
+    scripts:
+      - name: Migration lint (numbering + SECURITY DEFINER lockdown)
+        script: bash supabase/tools/check_migrations.sh
+
+      - name: Deno Edge-function tests
+        script: |
+          set -e
+          if ! command -v deno >/dev/null 2>&1; then
+            curl -fsSL https://deno.land/install.sh | sh
+            export PATH="$HOME/.deno/bin:$PATH"
+          fi
+          cd supabase/functions && deno test --allow-all _shared/
+
+      - name: Admin panel lint & build
+        working_directory: admin
+        script: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Flutter analyze & test
+        working_directory: app
+        script: |
+          flutter pub get
+          flutter analyze
+          flutter test
+    publishing:
       email:
         recipients:
           - youssefsafwat1223@gmail.com
