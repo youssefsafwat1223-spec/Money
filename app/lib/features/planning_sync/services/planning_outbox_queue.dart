@@ -332,6 +332,22 @@ class PlanningOutboxQueue {
     final now = dateTimeToSql(DateTime.now().toUtc());
     final id = IdGenerator.next();
 
+    // MALI-022: snapshot the last-known server version as an optimistic base
+    // token, so the push can detect a concurrent remote edit and conflict
+    // instead of blindly overwriting it (mirrors the ledger's server_updated_at
+    // token, MALI-009). Null for a never-synced row → the push does a create.
+    final baseRow = await _db
+        .customSelect(
+          'SELECT server_updated_at FROM $table '
+          'WHERE id = ${sqlString(entityId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    final baseToken = baseRow?.readNullable<String>('server_updated_at');
+    final enriched = <String, dynamic>{
+      ...payload,
+      if (baseToken != null) 'server_updated_at': baseToken,
+    };
+
     await _db.transaction(() async {
       await _db.customStatement('''
         INSERT INTO planning_sync_outbox(
@@ -342,7 +358,7 @@ class PlanningOutboxQueue {
           ${sqlString(entityType)},
           ${sqlString(entityId)},
           ${sqlString(op.name)},
-          ${sqlString(jsonEncode(payload))},
+          ${sqlString(jsonEncode(enriched))},
           0,
           ${sqlString(now)},
           ${sqlString(now)}

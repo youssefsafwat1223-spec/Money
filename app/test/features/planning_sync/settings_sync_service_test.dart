@@ -52,6 +52,19 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
     rows.putIfAbsent(table, () => {})[localId] = saved;
     return {'id': saved['id'], 'updated_at': now};
   }
+
+  @override
+  Future<String?> fetchServerUpdatedAt(String table, String serverId) async {
+    for (final r in rows[table]?.values ?? const <Map<String, dynamic>>[]) {
+      if (r['id'] == serverId) return r['updated_at'] as String?;
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateByServerId(
+          String table, String serverId, Map<String, dynamic> row) =>
+      upsert(table, row);
 }
 
 Future<AppDatabase> _openDb() => AppDatabase.open(

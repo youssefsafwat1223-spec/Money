@@ -33,6 +33,18 @@ abstract class PlanningRemoteSink {
   );
 
   Future<void> tombstone(String table, String serverId);
+
+  /// MALI-022 — the current server `updated_at` for a known server row, used as
+  /// the optimistic-concurrency compare on update. Null if the row is gone.
+  Future<String?> fetchServerUpdatedAt(String table, String serverId);
+
+  /// MALI-022 — targeted update of a known server row (used only after the
+  /// base-token guard passes), returning the new id + updated_at.
+  Future<Map<String, dynamic>> updateByServerId(
+    String table,
+    String serverId,
+    Map<String, dynamic> row,
+  );
 }
 
 class SupabasePlanningRemoteSink implements PlanningRemoteSink {
@@ -69,6 +81,30 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
     return await _client
         .from(table)
         .upsert(row, onConflict: 'user_id,local_id')
+        .select('id, updated_at')
+        .single();
+  }
+
+  @override
+  Future<String?> fetchServerUpdatedAt(String table, String serverId) async {
+    final row = await _client
+        .from(table)
+        .select('updated_at')
+        .eq('id', serverId)
+        .maybeSingle();
+    return row?['updated_at'] as String?;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateByServerId(
+    String table,
+    String serverId,
+    Map<String, dynamic> row,
+  ) async {
+    return await _client
+        .from(table)
+        .update(row)
+        .eq('id', serverId)
         .select('id, updated_at')
         .single();
   }
@@ -193,17 +229,37 @@ class PlanningPushService {
     String remoteTable,
     String localTable,
   ) async {
+    final row = _toServerRow(item.entityType, item.payloadJson, userId);
     try {
-      final response = await _remoteSink.upsert(
-        remoteTable,
-        _toServerRow(item.entityType, item.payloadJson, userId),
-      );
-      await _attachServerId(
-        localTable,
-        item.entityId,
-        response['id'] as String,
-        response['updated_at'] as String?,
-      );
+      final serverId = await _serverIdForLocal(localTable, item.entityId);
+
+      // CREATE (never synced): upsert to establish the server row.
+      if (serverId == null) {
+        final response = await _remoteSink.upsert(remoteTable, row);
+        await _attachServerId(localTable, item.entityId,
+            response['id'] as String, response['updated_at'] as String?);
+        await _queue.markSuccess(item.id);
+        return _PlanningPushOutcome.pushed;
+      }
+
+      // UPDATE: optimistic-concurrency guard (MALI-022). Only overwrite the
+      // remote row if it hasn't moved since the base version this edit was made
+      // against — otherwise flag a conflict WITHOUT clobbering the remote edit
+      // and WITHOUT discarding the local edit (mirrors the ledger, MALI-009).
+      final base = item.payloadJson['server_updated_at'] as String?;
+      if (base != null) {
+        final current =
+            await _remoteSink.fetchServerUpdatedAt(remoteTable, serverId);
+        if (current != null && current != base) {
+          await _markConflict(localTable, item.entityId);
+          await _queue.markSuccess(item.id);
+          return _PlanningPushOutcome.conflict;
+        }
+      }
+      final response =
+          await _remoteSink.updateByServerId(remoteTable, serverId, row);
+      await _attachServerId(localTable, item.entityId, response['id'] as String,
+          response['updated_at'] as String?);
       await _queue.markSuccess(item.id);
       return _PlanningPushOutcome.pushed;
     } catch (e) {

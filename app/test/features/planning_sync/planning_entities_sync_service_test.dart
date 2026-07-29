@@ -102,6 +102,24 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
     rows.putIfAbsent(table, () => {})[localId] = saved;
     return {'id': saved['id'], 'updated_at': now};
   }
+
+  @override
+  Future<String?> fetchServerUpdatedAt(String table, String serverId) async {
+    for (final row in rows[table]?.values ?? const <Map<String, dynamic>>[]) {
+      if (row['id'] == serverId) return row['updated_at'] as String?;
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateByServerId(
+    String table,
+    String serverId,
+    Map<String, dynamic> row,
+  ) {
+    // Keyed by (user_id, local_id) in the fake store — upsert is equivalent.
+    return upsert(table, row);
+  }
 }
 
 Future<AppDatabase> _openDb() {
@@ -392,6 +410,120 @@ void main() {
           .getSingle();
       expect(row.read<String>('name'), 'Travel');
       expect(row.readNullable<String>('sync_status'), 'conflict');
+    });
+
+    test(
+        'push conflicts WITHOUT clobbering when the server moved past the base '
+        '(MALI-022)', () async {
+      final remote = _FakePlanningRemote();
+      final queue = _queue(db, enabled: true);
+      final push = PlanningPushService(
+        db: db,
+        queue: queue,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      );
+      final budgets = DriftBudgetRepository(db, outboxQueue: queue);
+
+      // Create + push → synced; base token captured.
+      await budgets.save(_budget('b1'));
+      await push.push();
+
+      // Another device moves the server row past our base.
+      remote.rows['user_budgets']!['b1']!['updated_at'] =
+          DateTime.utc(2030, 1, 1).toIso8601String();
+      remote.rows['user_budgets']!['b1']!['amount'] = 999;
+
+      // Local edit against the OLD base, then push.
+      await budgets.save(_budget('b1').copyWith(amount: 123));
+      final result = await push.push();
+
+      expect(result.conflicts, 1);
+      expect(result.pushed, 0);
+      // Remote edit NOT clobbered.
+      expect(remote.rows['user_budgets']!['b1']!['amount'], 999);
+      // Local edit preserved and flagged for resolution.
+      final local = await db
+          .customSelect(
+              "SELECT amount, sync_status FROM budgets WHERE id='b1';")
+          .getSingle();
+      expect(local.read<double>('amount'), 123);
+      expect(local.readNullable<String>('sync_status'), 'conflict');
+    });
+
+    test(
+        'pull does NOT conflict a pending edit when the server is unchanged '
+        '(MALI-022 false-positive fix)', () async {
+      final remote = _FakePlanningRemote();
+      final queue = _queue(db, enabled: true);
+      final push = PlanningPushService(
+        db: db,
+        queue: queue,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      );
+      final goals = DriftGoalRepository(db, outboxQueue: queue);
+      await goals.save(_goal('g1'));
+      await push.push(); // synced; base == server updated_at
+
+      // Local edit → pending; the server row is NOT touched.
+      await goals.save(_goal('g1').copyWith(savedAmount: 777));
+
+      final pull = PlanningPullService(
+        db: db,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      );
+      final result = await pull.pull();
+
+      expect(result.conflicts, 0);
+      final row = await db
+          .customSelect(
+              "SELECT sync_status, saved_amount FROM goals WHERE id='g1';")
+          .getSingle();
+      expect(row.readNullable<String>('sync_status'), 'pending');
+      expect(row.read<double>('saved_amount'), 777);
+    });
+
+    test(
+        'pull conflicts a pending edit only when the server actually moved '
+        '(MALI-022)', () async {
+      final remote = _FakePlanningRemote();
+      final queue = _queue(db, enabled: true);
+      final push = PlanningPushService(
+        db: db,
+        queue: queue,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      );
+      final goals = DriftGoalRepository(db, outboxQueue: queue);
+      await goals.save(_goal('g1'));
+      await push.push();
+
+      await goals.save(_goal('g1').copyWith(savedAmount: 777));
+      // Server moves past our base.
+      remote.rows['user_goals']!['g1']!['updated_at'] =
+          DateTime.utc(2030, 1, 1).toIso8601String();
+
+      final pull = PlanningPullService(
+        db: db,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      );
+      final result = await pull.pull();
+
+      expect(result.conflicts, 1);
+      final row = await db
+          .customSelect(
+              "SELECT sync_status, saved_amount FROM goals WHERE id='g1';")
+          .getSingle();
+      expect(row.readNullable<String>('sync_status'), 'conflict');
+      expect(row.read<double>('saved_amount'), 777); // local edit not clobbered
     });
   });
 }

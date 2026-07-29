@@ -220,8 +220,18 @@ class PlanningPullService {
       final status = meta.readNullable<String>('sync_status');
       if (status == 'conflict') return _PlanningPullOutcome.conflict;
       if (status == 'pending') {
-        await _markConflict(localTable, localId);
-        return _PlanningPullOutcome.conflict;
+        // MALI-022: a pending local edit is a real conflict ONLY if the server
+        // row moved since our base version. If the server is unchanged, this
+        // local edit is the only edit and will push cleanly — don't false-flag
+        // it (the old code conflicted every pending row unconditionally). Never
+        // clobber the base token on a pending row.
+        final base = meta.readNullable<String>('server_updated_at');
+        final serverMoved = base != _dateString(row['updated_at']);
+        if (serverMoved) {
+          await _markConflict(localTable, localId);
+          return _PlanningPullOutcome.conflict;
+        }
+        return _PlanningPullOutcome.skipped;
       }
       // No-op when unchanged since the last sync — stops the pull re-writing
       // every planning row each cycle (which ticks dbRevisionProvider and
