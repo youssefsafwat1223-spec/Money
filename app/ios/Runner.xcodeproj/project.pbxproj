@@ -19,16 +19,13 @@
 		A00100000000000000000001 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000001 /* SharedCaptureStore.swift */; };
 		A00100000000000000000002 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000002 /* ShareViewController.swift */; };
 		A00100000000000000000003 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000003 /* SharedCaptureStore.swift */; };
-		A00100000000000000000004 /* BankMessageShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000004 /* BankMessageShortcuts.swift */; };
-		A00100000000000000000005 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000005 /* SharedCaptureStore.swift */; };
 		A00100000000000000000006 /* ShareBankMessage.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A00200000000000000000006 /* ShareBankMessage.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A00100000000000000000009 /* BankMessageShortcuts.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A00200000000000000000007 /* BankMessageShortcuts.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A0010000000000000000000B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000014 /* PrivacyInfo.xcprivacy */; };
 		A00100000000000000000011 /* BankMessageShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000004 /* BankMessageShortcuts.swift */; };
-		A0010000000000000000000A /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000013 /* Localizable.xcstrings */; };
+		B2F24F7B102009F45327B664 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BF70EC64C1E41D7A9833DBF7 /* PrivacyInfo.xcprivacy */; };
 		B93C0F4478A971B2F42F8A21 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A86EAB171C9E468DE1E69B55 /* Pods_RunnerTests.framework */; };
 		D3F871868209BDF8B16B99EC /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4554B0DB3E19B2588962545 /* Pods_Runner.framework */; };
 		E82FB3FD2FE22DA000B7CE38 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = E82FB3FC2FE22DA000B7CE38 /* GoogleService-Info.plist */; };
-		B2F24F7B102009F45327B664 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BF70EC64C1E41D7A9833DBF7 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,23 +86,19 @@
 		A00200000000000000000001 /* SharedCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedCaptureStore.swift; sourceTree = "<group>"; };
 		A00200000000000000000002 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		A00200000000000000000003 /* SharedCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedCaptureStore.swift; sourceTree = "<group>"; };
-		A00200000000000000000004 /* BankMessageShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankMessageShortcuts.swift; sourceTree = "<group>"; };
-		A00200000000000000000005 /* SharedCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedCaptureStore.swift; sourceTree = "<group>"; };
+		A00200000000000000000004 /* BankMessageShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BankMessageShortcuts.swift; path = BankMessageShortcuts/BankMessageShortcuts.swift; sourceTree = SOURCE_ROOT; };
 		A00200000000000000000006 /* ShareBankMessage.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareBankMessage.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		A00200000000000000000007 /* BankMessageShortcuts.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BankMessageShortcuts.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00200000000000000000008 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		A00200000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A00200000000000000000010 /* ShareBankMessage.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareBankMessage.entitlements; sourceTree = "<group>"; };
-		A00200000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A00200000000000000000012 /* BankMessageShortcuts.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BankMessageShortcuts.entitlements; sourceTree = "<group>"; };
-		A00200000000000000000013 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		A00200000000000000000014 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A46BE0489592D35F3CF70C3A /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		A86EAB171C9E468DE1E69B55 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		ADB8B5B92B837F679EEC90BF /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		B4554B0DB3E19B2588962545 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		BF70EC64C1E41D7A9833DBF7 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DBD1F54E6EDCDD0B53136143 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		E82FB3FC2FE22DA000B7CE38 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
-		BF70EC64C1E41D7A9833DBF7 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,13 +112,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A00600000000000000000001 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		A00600000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -192,7 +178,6 @@
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
 				A00800000000000000000001 /* ShareBankMessage */,
-				A00800000000000000000002 /* BankMessageShortcuts */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				3C74AB7437FF2ED925944056 /* Pods */,
@@ -206,7 +191,6 @@
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 				A00200000000000000000006 /* ShareBankMessage.appex */,
-				A00200000000000000000007 /* BankMessageShortcuts.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -226,6 +210,7 @@
 				A00200000000000000000001 /* SharedCaptureStore.swift */,
 				A00200000000000000000008 /* Runner.entitlements */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
+				A00200000000000000000004 /* BankMessageShortcuts.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -237,20 +222,9 @@
 				A00200000000000000000003 /* SharedCaptureStore.swift */,
 				A00200000000000000000009 /* Info.plist */,
 				A00200000000000000000010 /* ShareBankMessage.entitlements */,
+				A00200000000000000000014 /* PrivacyInfo.xcprivacy */,
 			);
 			path = ShareBankMessage;
-			sourceTree = "<group>";
-		};
-		A00800000000000000000002 /* BankMessageShortcuts */ = {
-			isa = PBXGroup;
-			children = (
-				A00200000000000000000004 /* BankMessageShortcuts.swift */,
-				A00200000000000000000005 /* SharedCaptureStore.swift */,
-				A00200000000000000000013 /* Localizable.xcstrings */,
-				A00200000000000000000011 /* Info.plist */,
-				A00200000000000000000012 /* BankMessageShortcuts.entitlements */,
-			);
-			path = BankMessageShortcuts;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -319,23 +293,6 @@
 			productReference = A00200000000000000000006 /* ShareBankMessage.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		A00300000000000000000002 /* BankMessageShortcuts */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A00700000000000000000002 /* Build configuration list for PBXNativeTarget "BankMessageShortcuts" */;
-			buildPhases = (
-				A01000000000000000000002 /* Sources */,
-				A00600000000000000000002 /* Frameworks */,
-				A01100000000000000000002 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = BankMessageShortcuts;
-			productName = BankMessageShortcuts;
-			productReference = A00200000000000000000007 /* BankMessageShortcuts.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -392,7 +349,6 @@
 				97C146ED1CF9000F007C117D /* Runner */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
 				A00300000000000000000001 /* ShareBankMessage */,
-				A00300000000000000000002 /* BankMessageShortcuts */,
 			);
 		};
 /* End PBXProject section */
@@ -422,14 +378,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		A01100000000000000000002 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A0010000000000000000000A /* Localizable.xcstrings in Resources */,
+				A0010000000000000000000B /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -577,15 +526,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A01000000000000000000002 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A00100000000000000000004 /* BankMessageShortcuts.swift in Sources */,
-				A00100000000000000000005 /* SharedCaptureStore.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -675,8 +615,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				APS_ENVIRONMENT = production;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -875,8 +815,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				APS_ENVIRONMENT = development;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -903,8 +843,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				APS_ENVIRONMENT = production;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -926,10 +866,10 @@
 			};
 			name = Release;
 		};
-			A01200000000000000000001 /* Debug */ = {
-				isa = XCBuildConfiguration;
-				baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-				buildSettings = {
+		A01200000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = ShareBankMessage/ShareBankMessage.entitlements;
@@ -955,10 +895,10 @@
 			};
 			name = Debug;
 		};
-			A01200000000000000000002 /* Release */ = {
-				isa = XCBuildConfiguration;
-				baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-				buildSettings = {
+		A01200000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = ShareBankMessage/ShareBankMessage.entitlements;
@@ -982,10 +922,10 @@
 			};
 			name = Release;
 		};
-			A01200000000000000000003 /* Profile */ = {
-				isa = XCBuildConfiguration;
-				baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-				buildSettings = {
+		A01200000000000000000003 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = ShareBankMessage/ShareBankMessage.entitlements;
@@ -1002,89 +942,6 @@
 				);
 				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.youssefsafwat.mali.ShareBankMessage;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Profile;
-		};
-			A01200000000000000000004 /* Debug */ = {
-				isa = XCBuildConfiguration;
-				baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-				buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = BankMessageShortcuts/BankMessageShortcuts.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5TWARK8A23;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BankMessageShortcuts/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.youssefsafwat.mali.BankMessageShortcuts;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-			A01200000000000000000005 /* Release */ = {
-				isa = XCBuildConfiguration;
-				baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-				buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = BankMessageShortcuts/BankMessageShortcuts.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5TWARK8A23;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BankMessageShortcuts/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.youssefsafwat.mali.BankMessageShortcuts;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-			A01200000000000000000006 /* Profile */ = {
-				isa = XCBuildConfiguration;
-				baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-				buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = BankMessageShortcuts/BankMessageShortcuts.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5TWARK8A23;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BankMessageShortcuts/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.youssefsafwat.mali.BankMessageShortcuts;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
@@ -1131,16 +988,6 @@
 				A01200000000000000000001 /* Debug */,
 				A01200000000000000000002 /* Release */,
 				A01200000000000000000003 /* Profile */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		A00700000000000000000002 /* Build configuration list for PBXNativeTarget "BankMessageShortcuts" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A01200000000000000000004 /* Debug */,
-				A01200000000000000000005 /* Release */,
-				A01200000000000000000006 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
