@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -12,6 +13,67 @@ import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
 const int _targetSchemaVersion = 27;
+
+/// MALI-027 — the on-disk database was created by a NEWER build than this one
+/// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
+/// closed BEFORE any read/write so a stale binary never operates on a schema it
+/// does not understand. Deliberately distinct from [MigrationIntegrityException]
+/// and generic errors so the caller can prompt the user to update the app
+/// (a recoverable, non-destructive condition) rather than treat it as corruption.
+class UnsupportedDatabaseVersionException implements Exception {
+  const UnsupportedDatabaseVersionException({
+    required this.databaseVersion,
+    required this.supportedVersion,
+  });
+
+  /// The `PRAGMA user_version` found on disk.
+  final int databaseVersion;
+
+  /// The newest version this build knows how to run ([_targetSchemaVersion]).
+  final int supportedVersion;
+
+  @override
+  String toString() =>
+      'UnsupportedDatabaseVersionException: database schema v$databaseVersion '
+      'is newer than this build supports (v$supportedVersion) — update the app.';
+}
+
+/// MALI-027 — a post-migration integrity check failed: a required table is
+/// missing, foreign-key enforcement could not be enabled, or `foreign_key_check`
+/// reported dangling references. Carries ONLY non-sensitive structural
+/// diagnostics (table / constraint identity) — never financial row contents.
+/// Distinct from [UnsupportedDatabaseVersionException] so the caller can tell
+/// "this build cannot run this schema" apart from "the migration produced an
+/// inconsistent schema".
+class MigrationIntegrityException implements Exception {
+  const MigrationIntegrityException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'MigrationIntegrityException: $message';
+}
+
+/// MALI-027 — a discrete, version-keyed schema migration (the forward contract
+/// for new schema changes). Applied inside the atomic migration transaction:
+/// [apply] performs the change; [postcondition] (optional) returns false to
+/// abort (and roll back) if the change didn't take.
+class _SchemaMigration {
+  const _SchemaMigration({
+    required this.from,
+    required this.to,
+    required this.apply,
+    // Forward-contract API: no registered migration supplies it YET (the
+    // registry is empty until the first versioned schema change lands).
+    // ignore: unused_element_parameter
+    this.postcondition,
+  });
+
+  final int from;
+  final int to;
+  final Future<void> Function(AppDatabase db) apply;
+  final Future<bool> Function(AppDatabase db)? postcondition;
+}
 
 /// Stable local id for the auto-seeded default account ("الحساب الرئيسي").
 /// It must NOT be random: sign-out wipes the accounts table and reseeds this
@@ -80,6 +142,20 @@ class AppDatabase extends GeneratedDatabase {
     return db;
   }
 
+  /// TEST-ONLY: build an UN-initialized instance so a test can drive the real
+  /// [initialize] pipeline itself (memoization, retry, first-run concurrency).
+  /// Production always goes through [open], which initializes before returning.
+  @visibleForTesting
+  static AppDatabase createForTesting({
+    required QueryExecutor executor,
+    required DatabaseKeyStore keyStore,
+  }) {
+    final connection = executor is DatabaseConnection
+        ? executor
+        : DatabaseConnection(executor);
+    return AppDatabase._(connection, keyStore: keyStore, isEncrypted: false);
+  }
+
   /// Deletes the on-disk encrypted database (and its WAL/SHM sidecars). Used by
   /// the recovery screen when the file can't be decrypted/opened — the data is
   /// unrecoverable without the key, so a clean recreate is the only way forward.
@@ -94,19 +170,186 @@ class AppDatabase extends GeneratedDatabase {
     }
   }
 
-  Future<void> initialize() async {
+  // MALI-027: memoize the in-flight init so concurrent/repeated initialize()
+  // calls on the same instance never run migrations twice (guarantee: idempotent
+  // + no double-migration). A fresh AppDatabase (a reopen) gets a fresh future.
+  Future<void>? _initFuture;
+
+  /// TEST-ONLY deterministic failure injection (MALI-027). When set, it is
+  /// awaited at each named migration phase so a test can throw exactly there and
+  /// assert the whole migration rolls back. Null (unset) in production; in-memory
+  /// only (never persisted or runtime-configurable).
+  @visibleForTesting
+  Future<void> Function(String phase)? debugFailAtPhase;
+
+  Future<void> _phase(String phase) async => debugFailAtPhase?.call(phase);
+
+  /// Runs the initialization pipeline at most once per instance. Concurrent and
+  /// repeated callers share the single in-flight (or completed-successful)
+  /// future. A FAILED init is NOT retained: [_runGuardedInitialize] clears the
+  /// memo on error so an explicit later [initialize] in the same process can
+  /// retry (e.g. after a transient failure clears). There is no automatic retry
+  /// loop — one attempt per call.
+  Future<void> initialize() => _initFuture ??= _runGuardedInitialize();
+
+  Future<void> _runGuardedInitialize() async {
+    try {
+      await _runInitialize();
+    } catch (_) {
+      // Clear the memo so the failure is not cached. Only this instance runs
+      // init and nothing re-enters it mid-run, so _initFuture is still THIS
+      // future here; dropping it lets the next explicit initialize() re-attempt.
+      _initFuture = null;
+      rethrow;
+    }
+  }
+
+  /// TEST-ONLY: re-run the pipeline bypassing the once-guard, to exercise
+  /// upgrade/rollback paths on an already-open DB. NOT a production recovery
+  /// mechanism — production recovers via [deleteDatabaseFile] + reopen.
+  @visibleForTesting
+  Future<void> debugReinitialize() => _runInitialize();
+
+  /// Failure-atomic, version-aware initialization pipeline (MALI-027).
+  ///
+  /// Rollback guarantee (accurate wording): on any failure inside the migration
+  /// transaction, SQLite rolls the transaction back — schema and user data are
+  /// left logically/value-equivalent to before the attempt, no migration change
+  /// is visible, `user_version` is unchanged, and no partial schema objects
+  /// remain. (This is a transactional/logical guarantee; it does NOT assert the
+  /// on-disk file/WAL/journal bytes are identical.) `PRAGMA user_version` is the
+  /// LAST write inside the transaction, so schema changes, backfills, seed and
+  /// the version bump commit or roll back together; reopening after a failed
+  /// migration re-runs cleanly; re-running on an up-to-date DB is idempotent.
+  ///
+  /// SQLite / Drift atomicity notes (verified for this codebase):
+  ///  • CREATE/ALTER TABLE, CREATE INDEX, INSERT/UPDATE and `PRAGMA user_version`
+  ///    are all transactional in SQLite and roll back together.
+  ///  • `PRAGMA foreign_keys` is NOT transactional (a no-op inside a txn), so it
+  ///    is set ONCE before the transaction; no in-scope migration toggles it.
+  ///  • No init step uses a non-transactional statement (no VACUUM/ATTACH).
+  ///  • The one legacy table rebuild (_relaxCardsAccountNullable) runs as a
+  ///    nested savepoint and is FK-safe only because nothing references `cards`.
+  ///    Rebuilding a *referenced* table (as MALI-026 may need) would require
+  ///    foreign_keys=OFF outside the txn — a documented limitation, out of scope.
+  Future<void> _runInitialize() async {
+    // Phase 1 — connection-level FK enforcement (non-transactional; set first).
+    // Then VERIFY it actually took: if enforcement is not active we cannot make
+    // the integrity guarantees below, so fail closed (unconditional, runs in
+    // release too — not an assert).
     await customStatement('PRAGMA foreign_keys = ON;');
-    await _createSchema();
-    await _runCompatibilityMigrations();
-    await _seedIfNeeded();
-    // Cloud/AI processing consent is the USER's choice (MALI-001): the seed
-    // defaults new installs to enabled, but a persisted "disabled" is never
-    // coerced back on — the capture/sync/backup gates honor the stored value.
-    await _dedupeCategoryRows();
-    await _backfillSystemTransactionCategories();
-    await _backfillTransactionDirections();
-    await _repairBankCaptureTimestampDrift();
-    await customStatement('PRAGMA user_version = $_targetSchemaVersion;');
+    final fkEnabled = (await customSelect('PRAGMA foreign_keys;').getSingle())
+        .read<int>('foreign_keys');
+    if (fkEnabled != 1) {
+      throw MigrationIntegrityException(
+        'foreign key enforcement is not active (PRAGMA foreign_keys=$fkEnabled)',
+      );
+    }
+
+    // Phase 2 — current-version discovery.
+    final fromVersion = await _currentUserVersion();
+
+    // Phase 3 — downgrade guard, FAIL CLOSED. A newer-than-app schema is left
+    // untouched (no reads, no writes, user_version unchanged), but we do NOT let
+    // the app continue on a schema this build may not understand: throw a
+    // dedicated, distinguishable exception so the caller can surface an
+    // update/recovery message instead of risking corruption.
+    if (fromVersion > _targetSchemaVersion) {
+      throw UnsupportedDatabaseVersionException(
+        databaseVersion: fromVersion,
+        supportedVersion: _targetSchemaVersion,
+      );
+    }
+
+    // Phases 4-8 — schema, versioned migrations, compatibility repairs, seed,
+    // backfills, postflight integrity, and the user_version bump ALL run inside
+    // one transaction, so any failure rolls the whole upgrade back atomically.
+    await transaction(() async {
+      await _phase('preSchema'); // before the first migration write
+      await _createSchema(); // CREATE ... IF NOT EXISTS (fresh + idempotent)
+      await _applyVersionedMigrations(fromVersion); // forward contract
+      await _runCompatibilityMigrations(); // idempotent historical repairs
+      await _phase('postAlter'); // after schema/ALTER work
+      await _seedIfNeeded();
+      // Cloud/AI processing consent is the USER's choice (MALI-001): the seed
+      // defaults new installs to enabled, but a persisted "disabled" is never
+      // coerced back on — the capture/sync/backup gates honor the stored value.
+      await _phase('postSeed'); // during/after seed work
+      await _dedupeCategoryRows();
+      await _backfillSystemTransactionCategories();
+      await _backfillTransactionDirections();
+      await _repairBankCaptureTimestampDrift();
+      await _phase('postBackfill'); // after backfills
+      await _verifyMigrationIntegrity(); // postflight (throws → rolls back)
+      await _phase('preVersion'); // immediately before the version bump
+      // user_version LAST, inside the txn — commits only if all the above did.
+      await customStatement('PRAGMA user_version = $_targetSchemaVersion;');
+    });
+  }
+
+  /// Discrete, version-keyed migrations — the forward contract for NEW schema
+  /// changes (from → to, apply, optional postcondition), applied in order inside
+  /// the migration transaction. Empty today: the historical manual schema
+  /// predates versioned snapshots, so past upgrades stay covered by the
+  /// idempotent [_runCompatibilityMigrations] repairs (retrofitting 27 discrete
+  /// snapshots would be riskier than the proven idempotent repairs). New schema
+  /// work must register a step here instead of extending the flat repair list.
+  static const List<_SchemaMigration> _versionedMigrations = [];
+
+  Future<void> _applyVersionedMigrations(int fromVersion) async {
+    for (final migration in _versionedMigrations) {
+      if (migration.from < fromVersion) continue; // already applied
+      if (migration.to > _targetSchemaVersion) continue; // beyond this build
+      await migration.apply(this);
+      final ok = await migration.postcondition?.call(this) ?? true;
+      if (!ok) {
+        throw StateError(
+          'migration ${migration.from}->${migration.to} postcondition failed',
+        );
+      }
+    }
+  }
+
+  /// Postflight integrity check (runs inside the migration txn, before the
+  /// user_version bump). UNCONDITIONAL runtime validation — active in release,
+  /// profile and debug (NOT an assert), because this is part of a financial
+  /// database's integrity contract. Any failure throws
+  /// [MigrationIntegrityException], which rolls the whole migration back.
+  Future<void> _verifyMigrationIntegrity() async {
+    const requiredTables = [
+      'accounts',
+      'transactions',
+      'categories',
+      'user_settings',
+    ];
+    for (final table in requiredTables) {
+      final present = (await customSelect(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?;",
+        variables: [Variable.withString(table)],
+      ).get())
+          .isNotEmpty;
+      if (!present) {
+        throw MigrationIntegrityException(
+          'post-migration schema check failed: missing table "$table"',
+        );
+      }
+    }
+    final violations = await customSelect('PRAGMA foreign_key_check;').get();
+    if (violations.isNotEmpty) {
+      // `foreign_key_check` columns: table, rowid, parent, fkid. We surface ONLY
+      // structural identity (child table → parent table, constraint index) and
+      // deliberately omit rowid and every data column — no financial row
+      // contents are read or logged.
+      final diagnostics = violations
+          .take(20)
+          .map((row) => '${row.data['table']}→${row.data['parent']}'
+              '#${row.data['fkid']}')
+          .join(', ');
+      throw MigrationIntegrityException(
+        'post-migration foreign_key_check found ${violations.length} '
+        'violation(s): $diagnostics',
+      );
+    }
   }
 
   @override
@@ -279,10 +522,13 @@ class AppDatabase extends GeneratedDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_transactions_merchant_amount ON transactions(merchant_id, amount);',
     );
-    await customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_transactions_duplicate_exact '
-      'ON transactions(amount, currency, comparison_timestamp);',
-    );
+    // MALI-027: idx_transactions_duplicate_exact indexes `comparison_timestamp`,
+    // which a legacy `transactions` table does NOT have yet (it is added later by
+    // _runCompatibilityMigrations via ADD COLUMN). Creating it here would fail on
+    // a real historical upgrade because `CREATE TABLE IF NOT EXISTS` is a no-op
+    // for the existing legacy table, so the column is still absent at this point.
+    // The index is (re)created in _runCompatibilityMigrations AFTER the column is
+    // ensured, so all paths — fresh and legacy — still end up with it.
 
     await customStatement('''
       CREATE TABLE IF NOT EXISTS budgets(

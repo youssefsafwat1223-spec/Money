@@ -139,7 +139,10 @@ void main() {
       ],
     );
 
-    await db.initialize();
+    // MALI-027: initialize() is memoized per instance (no double-migration), so
+    // re-running the idempotent startup repairs on freshly-inserted stale data
+    // uses the explicit re-run seam.
+    await db.debugReinitialize();
 
     final rows = await db.customSelect(
       '''
@@ -401,7 +404,8 @@ void main() {
       ],
     );
 
-    await db.initialize();
+    // MALI-027: re-run seam (initialize() is memoized; see note above).
+    await db.debugReinitialize();
 
     final categoryLookup = await db.customSelect(
       '''
@@ -447,7 +451,8 @@ void main() {
       ],
     );
 
-    await db.initialize();
+    // MALI-027: re-run seam (initialize() is memoized; see note above).
+    await db.debugReinitialize();
 
     final row = await db.customSelect(
       'SELECT direction FROM transactions WHERE id = ? LIMIT 1;',
