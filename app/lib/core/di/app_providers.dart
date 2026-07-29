@@ -101,6 +101,7 @@ import '../../features/planning_sync/services/accounts_pull_service.dart';
 import '../../features/planning_sync/services/accounts_push_service.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../../features/planning_sync/services/planning_child_sync_service.dart';
+import '../../features/planning_sync/services/planning_conflict_resolver.dart';
 import '../../features/planning_sync/services/planning_pull_service.dart';
 import '../../features/planning_sync/services/planning_push_service.dart';
 import '../../features/planning_sync/services/planning_startup_registration_service.dart';
@@ -605,6 +606,25 @@ final goalRepositoryProvider = Provider<GoalRepository>((ref) {
       outboxQueue: ref.watch(planningOutboxQueueProvider),
     ),
   );
+});
+
+/// MALI-022 — visible planning conflict resolution.
+final planningConflictResolverProvider =
+    Provider<PlanningConflictResolver>((ref) {
+  return PlanningConflictResolver(
+    db: ref.watch(appDatabaseProvider),
+    queue: ref.watch(planningOutboxQueueProvider),
+    budgets: ref.watch(budgetRepositoryProvider),
+    goals: ref.watch(goalRepositoryProvider),
+    bills: ref.watch(billRepositoryProvider),
+    plans: ref.watch(planRepositoryProvider),
+  );
+});
+
+/// The current unresolved planning conflicts (drives the resolution UI + badge).
+final planningConflictsProvider = FutureProvider<List<PlanningConflict>>((ref) {
+  ref.watch(dbRevisionProvider); // refresh when any DB write lands
+  return ref.watch(planningConflictResolverProvider).listConflicts();
 });
 
 /// MALI-016 — the authoritative, dependency-aware account-deletion path

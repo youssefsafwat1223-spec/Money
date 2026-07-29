@@ -15,6 +15,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/backend/supabase_config.dart';
 import '../../core/privacy/data_wipe_service.dart';
 import '../../core/di/app_providers.dart';
+import '../planning_sync/planning_conflicts_sheet.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../core/security/app_lock_service.dart';
@@ -326,6 +327,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               title: 'إدارة أموالك',
               description: 'كل الأدوات المالية في مكان واحد',
               children: [
+                // MALI-022: surface unresolved multi-device conflicts so they
+                // are no longer stuck/invisible. Shown only when some exist.
+                if ((ref.watch(planningConflictsProvider).valueOrNull ??
+                        const [])
+                    .isNotEmpty)
+                  _NavTile(
+                    icon: Icons.sync_problem_outlined,
+                    title: 'تعارضات المزامنة',
+                    subtitle: 'عناصر عُدّلت على أكثر من جهاز — بحاجة لقرارك',
+                    onTap: () => PlanningConflictsSheet.show(context),
+                  ),
                 _NavTile(
                   icon: Icons.account_balance_wallet_outlined,
                   title: 'الحسابات والمحافظ',
