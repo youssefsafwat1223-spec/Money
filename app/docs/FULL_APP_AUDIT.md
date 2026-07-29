@@ -619,7 +619,13 @@ finding. "Done" = code landed on `feat/accounts-multicurrency`, project gates re
 | MALI-018 (canonical total filters) | ✅ Done | `193e590b` | Single `_financialAggregateSql` (refund-signed, confirmed-only, excluded-account) reused by every aggregate; cross-view invariant test. Codex-implemented, reviewed; corrected an over-broad single-account exclusion. Full suite 931 green. |
 | MALI-014 (complete backup snapshot) | ✅ Done | `6f47d3b2` | v3 backup: +cards/categories (full-fidelity)/7 account cols/user-authored sender mappings; one-transaction snapshot isolation; preflight validation before any DELETE; conditional-delete keeps v2 restores safe; coverage-guard test. Format bump only — no DB migration. Full suite 942 green. |
 
-**Phase-0 status: code-complete.** All 23 release-blocker findings are remediated and committed (each gate-verified: analyze clean + full suite 942 green). Operational closure is tracked separately below — Phase 0 is **not** operationally closed until the deployment/native gates are verified or accepted as external prerequisites. Remaining audit work is Phase 1–4; High non-blockers MALI-013/016/017/022/024 tracked into Phase 1.
+| MALI-013 (Android capture is a no-op) | ❌ Open (blocker) | — | No SMS permission/receiver/listener; shared text process-memory-only; `hasSmsPermission` checks the wrong permission. Android-native; full verification needs the Android SDK. |
+| MALI-016 (account-deletion referential integrity) | ❌ Open (blocker) | — | Local delete nulls only transaction refs; cards/budgets/goals/subscriptions keep the deleted account id; no FKs. Pure Dart/Drift — fully doable + testable here. |
+| MALI-017 (card sync rollout / data loss) | ❌ Open (blocker) | — | `kUserCardsCloudV2=false` drops unassigned cards + design fields on sign-out/reinstall. Client guard doable; full round-trip needs the deployed 0064 server schema. |
+| MALI-022 (multi-device planning conflict) | ❌ Open (blocker) | — | Blind LWW overwrite; conflicts left unresolved; no resolution UI. Needs server revision/conditional update + UI. |
+| MALI-036 (CI/release gates) | ❌ Open (blocker) | — | CI builds iOS only; no Android/staging/migration/RLS/Edge gates; allows empty prod config. Priority 2500. |
+
+**Phase-0 status: 18 of 23 release blockers done; 5 still OPEN** (MALI-013, 016, 017, 022, 036 — see rows above). A prior status note incorrectly said "all 23" — it conflated the audit's condensed 15-item remediation list with the 23 individual blockers; corrected here. Phase 0 is **not** code-complete until these five are closed, and not operationally closed until the deployment/native gates below are met. The 18 done items are each gate-verified (analyze clean + full suite 942 green).
 
 ### Phase-0 release-closure verification
 
