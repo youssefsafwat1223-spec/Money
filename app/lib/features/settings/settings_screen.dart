@@ -735,6 +735,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// خادم Supabase — بهذا الترتيب فقط: فشل المسح المحلي لا يترك الجهاز بلا
   /// جلسة بعيدة بينما تبقى بياناته المالية قابلة للقراءة لمن يسجّل دخوله بعده.
   Future<void> _signOut(BuildContext context, WidgetRef ref) async {
+    // MALI-017: sign-out wipes local data. Cards the cloud can't hold yet
+    // (account-less or designed, while card cloud-sync is disabled) are
+    // local-only and would be lost silently. Warn first and point to backup
+    // instead of destroying them without the user knowing.
+    try {
+      final atRisk = await ref
+          .read(cardRepositoryProvider)
+          .countCapabilityGatedUnsyncedCards();
+      if (atRisk > 0 && context.mounted) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('بيانات بطاقات غير محفوظة سحابيًا'),
+            content: Text(
+              'لديك $atRisk بطاقة محفوظة على هذا الجهاز فقط ولم تُرفع للسحابة. '
+              'تسجيل الخروج سيزيلها. خُذ نسخة احتياطية أولًا حتى لا تفقدها.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('إلغاء'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('تسجيل الخروج على أي حال'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+    } catch (_) {
+      // A detection failure must never trap the user in the app — fall through
+      // to the normal sign-out below.
+    }
     try {
       await AppSession.instance.signOut();
     } catch (_) {

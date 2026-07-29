@@ -250,4 +250,25 @@ class DriftCardRepository implements CardRepository {
     }
     return created;
   }
+
+  @override
+  Future<int> countCapabilityGatedUnsyncedCards() async {
+    // When the cloud supports every card field, nothing is at risk.
+    if (kUserCardsCloudV2) return 0;
+    // Active, never-synced cards the current server schema can't hold:
+    // account-less cards (dropped by enqueueCard) or cards carrying design
+    // fields (stripped on push). These are local-only and vanish on a
+    // sign-out wipe / reinstall unless the user backs up first.
+    final row = await _db.customSelect(
+      '''
+        SELECT COUNT(*) AS n FROM cards
+        WHERE deleted_at IS NULL
+          AND server_id IS NULL
+          AND (account_id IS NULL
+               OR color_theme IS NOT NULL
+               OR accent_hex IS NOT NULL);
+      ''',
+    ).getSingle();
+    return row.read<int>('n');
+  }
 }
