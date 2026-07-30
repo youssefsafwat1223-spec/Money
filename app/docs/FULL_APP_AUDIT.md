@@ -1,10 +1,150 @@
 # Mali full application adversarial engineering audit
 
-**Audit date:** 2026-07-28  
-**Repository:** `Money`, branch `feat/accounts-multicurrency`, HEAD `88475da80b37c720c6e033ea3e5d5c21ce0fb88b`  
-**Primary target:** `app/`; supporting targets: `supabase/`, `admin/`, `codemagic.yaml`  
-**Mode:** read/inspect and report only; no fixes and no commit  
-**Release verdict:** **Not safe**
+- **Audit date (original):** 2026-07-28 · **Closed:** 2026-07-30
+- **Repository (original audit):** `Money`, branch `feat/accounts-multicurrency`, HEAD `88475da80b37c720c6e033ea3e5d5c21ce0fb88b` *(historical — the state audited)*
+- **Repository (at closure):** branch `feat/phase1-data-integrity`, HEAD `a4e6f82b` (MALI-027 docs) **+ the closure-doc commit that adds this section**
+- **Primary target:** `app/`; supporting targets: `supabase/`, `admin/`, `codemagic.yaml`
+- **Mode (original):** read/inspect and report only. **Mode (now):** remediation complete + formal audit closure.
+- **Release verdict (original, historical):** **Not safe** — see the current verdict in the closure dashboard below.
+
+---
+
+## Audit closure dashboard (2026-07-30)
+
+> This audit is **formally closed**. Every original finding (MALI-001…MALI-044) was reconciled against the current HEAD with commit evidence. The original report below is preserved verbatim as the historical record; this dashboard, the master classification table, the reconciled external-gate checklist, the post-release backlog, and the chronological remediation ledger are the current authority.
+
+| Metric | Value |
+|---|---|
+| Original findings | **44** (5 Critical · 17 High · 15 Medium · 7 Low) |
+| Original release blockers | **23** |
+| **Closed — locally verified** | **17** |
+| **Implemented — external verification pending** | **7** |
+| **Deferred — post-release backlog** | **20** |
+| **Superseded** | **0** |
+| **Still open — release blocker (code missing)** | **0** |
+| Blockers: locally closed / ext-pending / still-open | **16 / 7 / 0** |
+| Flutter tests | **993 passed, 0 failed** (was 908 at audit time) |
+| `flutter analyze` | **0 issues** |
+| Deno Edge tests | **54 passed, 0 failed** (was 31 + 1 blocked) |
+| Migration lint (`check_migrations.sh`) | **PASS** — 67 migrations, 13 SECURITY DEFINER functions locked down |
+| iOS packaging guard (`verify_ios_packaging.sh`) | authored; asserts built-`Runner.app` manifests + embedded extensions (needs an iOS build to run) |
+| Targeted migration suite | **19/19** |
+| Open external release gates | **12** (see reconciled checklist) |
+| **Current release-readiness verdict** | **`Ready for release validation`** |
+
+**Verdict rationale.** All 23 release blockers are **code-complete**: 16 are locally verified (logic + tests + full suite green), and 7 require verification in an environment unavailable on this workstation (live Supabase, Android SDK, Google Play review, physical iOS device). **Zero blockers remain with missing code.** This is not "production-ready" — code-complete with unresolved deployment/device gates is not the same as shipped-and-verified. It **is** ready to enter release validation: deploy to a disposable/staging backend and signed artifacts, then execute the 12 external gates. The verdict advances to production-ready only when those gates pass with real evidence.
+
+### Master finding classification (all 44)
+
+Legend — **CL** Closed·locally-verified · **EP** Implemented·external-verification-pending · **DF** Deferred·post-release-backlog · **SU** Superseded · **OP** Still-open·release-blocker.
+
+| ID | Sev | Blocker? | Class | Commit(s) / evidence | One-line current status |
+|---|---|---|---|---|---|
+| MALI-001 | Crit | Yes | CL | `2c1d6637` | Consent is persisted, granular, revocable; forced-true removed; disclosures reconciled; consent-matrix tests. |
+| MALI-002 | Crit | Yes | CL | `348f9a5a` | Local data-owner gate enforced before session admission; owner-mismatch blocks/wipes; unit-tested. On-device 2-user smoke = gate 6. |
+| MALI-003 | Crit | Yes | CL | `273e5980` | Release fails closed on missing/staging Supabase config; stub-auth removed from release graph; CI config assertion. Signed-artifact smoke = gate 3/10. |
+| MALI-004 | Crit | Yes | EP | `273e5980` (+ Deno tests) | Service-role secret/timing-safe guard on all engagement fns + cron-RPC revoke authored & Deno-tested; **live** Edge deploy + adversarial anon/user/forged-B test pending = gate 12. |
+| MALI-005 | Crit | Yes | EP | `273e5980`, `64835a3e` | Durable purge saga (0065/0066) + idempotent worker + auth Deno tests; **live** deploy + time-travel/per-step-failure test pending = gates 1/2. |
+| MALI-006 | High | Yes | EP | (P0-QW1) | INTERNET restored in main manifest; **merged-release-manifest + network smoke need Android SDK** = gate 3. |
+| MALI-007 | High | Yes | CL | `24cd94b3` | Aggregate write + outbox/counter/tombstone in one Drift transaction; boundary-failure tests. |
+| MALI-008 | High | Yes | CL | `4e4c7d04` | Keyset `(updated_at,id)` pagination + durable `sync_cursors` + server-side tombstone filters in every puller; unit-tested. Live large-dataset = missing-test matrix. |
+| MALI-009 | High | Yes | CL | `b0b93256` | All server fields merged, pending edits retained, conflict token armed; round-trip tests. Live 2-device = gate 12. |
+| MALI-010 | High | Yes | CL | `b0b93256` | Canonical type/direction/status/source mapping; queued-row payload versioned; round-trip fixtures. |
+| MALI-011 | High | Yes | CL | `f878c2e0` | Wipe covers `financial_import_runs` + `notification_log_events` + pending-action file; coverage-guard test. Documented tradeoff: best-effort flush may drop offline-only pending writes. |
+| MALI-012 | High | Yes | CL | `a8f4eef9` | Per-item lease/peek/ack drain + atomic import marker (`runAtomically`); kill-phase tests. On-device kill/reboot = gate 6/9. |
+| MALI-013 | High | Yes | EP | `e9c9ec57` | Durable native queue + opt-in SMS (Play-safe default) + honest capabilities; Dart tests green. **Android build/device + Play declaration** pending = gates 9/10/11. |
+| MALI-014 | High | Yes | CL | `6f47d3b2` | v3 backup: full-fidelity cards/categories/account cols/user-authored mappings; one-transaction snapshot; preflight before DELETE; conditional-delete keeps v2 safe; coverage test. |
+| MALI-015 | High | Yes | CL | `3104e6c7` | Default switch is one outbox command → `set_default_account` RPC; successor enqueued on delete; tests. |
+| MALI-016 | High | Yes | CL | `3cf40368` | Atomic per-relation deletion policy (detach/archive/reassign) + dependency-summary UI + structured result; 11 tests. |
+| MALI-017 | High | Yes | EP | `7a89867d` | Client no-silent-loss guard + honest sync_status + pre-sign-out warning done. **Backend** 0064 deploy + capability flip + 2-device round-trip pending = gate 7. |
+| MALI-018 | High | Yes | CL | `193e590b` | One canonical `_financialAggregateSql` (refund-signed, confirmed-only, excluded-account) across every aggregate; cross-view invariant test. |
+| MALI-019 | High | Yes | CL | `8c20f8a9` | Edge fns enforce `notifications_json` + quiet hours server-side before push; one authority per type. Live multi-device/DST = gate 12. |
+| MALI-020 | High | Yes | CL | `cfeb30f1`, `188bff5d` | Target-accurate privacy manifests verified in the **built** `Runner.app`/`.appex` + packaging guard. App Store archive privacy report = gate 5. |
+| MALI-021 | High | Yes | CL | `cfeb30f1` | Temp CSV/PDF deleted in `finally`; clipboard fallback asks first; startup sweep; tests. |
+| MALI-022 | High | Yes | EP | `1956b216`, `2e9271a3` | Optimistic base-token conflict detection + visible keep-mine/keep-theirs resolution UI; tests. **Live 2-device timing + server-atomic conditional update** pending = gate 11. |
+| MALI-023 | Med | No | DF | — | Retry/poison-queue dead-lettering — reliability backlog. |
+| MALI-024 | Med | No | DF | — | Gamification dual-authority/idempotent events — reliability backlog. |
+| MALI-025 | Med | No | DF | — | iOS 64-notification cap / exact-alarm / edit-reschedule — notifications backlog. |
+| MALI-026 | Med | No | DF | — | Fixed-precision money + FKs — **separate financial-storage project**; depends on MALI-027 (now unblocked). |
+| MALI-027 | Med | No | CL | `a33da826`, `a4e6f82b` | Failure-atomic, version-aware migrations; release FK validation; fail-closed downgrade; retry semantics; 19 tests. |
+| MALI-028 | Med | No | DF | — | Half-open UTC interval / timezone contract — financial-correctness backlog. |
+| MALI-029 | Med | No | DF | — | Table-scoped invalidation + keyset deltas + batched SQL — performance backlog. |
+| MALI-030 | Med | No | DF | — | Streamed/paged reports + memory limits — performance backlog. |
+| MALI-031 | Med | No | DF | — | App Group encryption + shared-Keychain secret + rotation — security backlog. |
+| MALI-032 | Med | No | DF | — | Full Sentry event-surface scrub/allowlist — security backlog. |
+| MALI-033 | Med | No | DF | — | Android backup rules for encrypted DB/key — reliability backlog. |
+| MALI-034 | Med | No | DF | — | Import cycle + retire legacy Supabase-primary repair — reliability/architecture backlog. |
+| MALI-035 | Med | No | DF | — | Documentation drift (CLAUDE.md schema v4 vs v27) — docs backlog (this audit doc now reconciled; other docs pending). |
+| MALI-036 | Med | Yes | EP | `19832d6a` | CI gates + migration lint authored (lint dogfooded a real fix → 0067). **Hosted Codemagic run + live SQL/RLS + old/new-client matrix** pending = gates 8/12. |
+| MALI-037 | Med | No | DF | — | Dependency CVE/license/outdated gate — dependencies backlog. |
+| MALI-038 | Low | No | DF | — | Bundle/declare exact fonts + compress assets — performance/UI backlog. |
+| MALI-039 | Low | No | DF | — | Redact/opt-in debug diagnostics + parameterize SQL — security backlog (debug-only). |
+| MALI-040 | Low | No | DF | — | Test-isolation flake (one DB owner per executor) — testing/tooling backlog. |
+| MALI-041 | Low | No | DF | — | AST/behavioral admin auth test — testing/tooling backlog. |
+| MALI-042 | Low | No | DF | — | Side-effect-free Edge unit module — testing/tooling backlog (now runs under `deno --allow-all`). |
+| MALI-043 | Low | No | DF | — | Mali/Qirsh branding + remove unused location string — branding backlog. |
+| MALI-044 | Low | No | DF | — | Rate-limit/owner-bind metrics ingest — security/backend backlog. |
+
+### Reconciled external release gates (all 12 OPEN — no live evidence yet)
+
+The canonical gate table with acceptance/failure/rollback detail is **section G → "External release prerequisites"** (rows 1–12), unchanged and still authoritative. Summary of ownership and current status:
+
+| Gate | Finding(s) | Environment needed | Status |
+|---|---|---|---|
+| 1 Apply 0065/0066/0067 + verify RLS/cron/grants | MALI-005/036 | staging/live Supabase | **OPEN** |
+| 2 `PURGE_WORKER_SECRET` ↔ Vault match | MALI-005 | Supabase secrets/Vault | **OPEN** |
+| 3 Android release build + merged-manifest INTERNET | MALI-006 | Android SDK | **OPEN** |
+| 4 APNs token + push routing | MALI-019 | physical iPhone + paid Apple acct | **OPEN** |
+| 5 App Store archive privacy report | MALI-020 | signed Release archive | **OPEN** |
+| 6 On-device smoke (capture/sign-out wipe/backup) | MALI-002/011/012 | device + backend | **OPEN** |
+| 7 Card cloud rollout round-trip | MALI-017 | live Supabase + 2 devices | **OPEN** |
+| 8 Hosted CI green + old/new-client compat | MALI-036 | Codemagic + staging | **OPEN** |
+| 9 Android durable capture on device | MALI-013 | Android SDK + device | **OPEN** |
+| 10 Android auto-SMS Play declaration | MALI-013 | Google Play review | **OPEN** |
+| 11 Live 2-device conflict + server-atomic update | MALI-022 | 2 devices + live Supabase | **OPEN** |
+| 12 Live Supabase RLS/Edge/cron/migration validation | MALI-004/005/019/036 | live/staging Supabase | **OPEN** |
+
+### Post-release backlog (deferred — not release blockers, not started)
+
+Grouped by domain, ordered by dependency/risk within each group. None is a release blocker; each is scheduled quality/hardening work.
+
+- **Financial / data correctness:** **MALI-026** (fixed-precision money + FKs — its own migration project, unblocked by MALI-027; highest-value backlog item) → **MALI-028** (timezone/interval contract).
+- **Security / privacy:** MALI-031 (App Group encryption + Keychain) → MALI-032 (telemetry scrub) → MALI-044 (metrics abuse) → MALI-039 (debug diagnostics, debug-only).
+- **Reliability / sync:** MALI-023 (poison queue) → MALI-024 (gamification authority) → MALI-034 (retire legacy repair + import cycle) → MALI-033 (Android backup rules).
+- **Notifications / platform:** MALI-025 (platform limits/exact-alarm/reschedule).
+- **Performance:** MALI-029 (invalidation + deltas) → MALI-030 (streamed reports) → MALI-038 (assets/fonts).
+- **Testing / tooling:** MALI-040 (test isolation) → MALI-041 (admin auth test) → MALI-042 (Edge unit isolation).
+- **Documentation / dependencies / branding:** MALI-035 (doc drift) → MALI-037 (dependency CVE gate) → MALI-043 (branding).
+
+**MALI-026 is explicitly deferred as a separate financial-storage migration project. It is NOT unfinished MALI-027 work** — MALI-027 (transactional migration framework) is complete and closed; MALI-026 (money-column conversion) is the downstream project that framework now safely enables.
+
+### Chronological remediation ledger
+
+| # | Finding(s) | Remediation summary | Commit(s) | Verification | Status |
+|---|---|---|---|---|---|
+| 1 | MALI-003/004/005/006 | Release fail-closed, Android INTERNET, purge saga, Edge authz (P0 quick wins) | `273e5980` | analyze + suite green | CL(003) / EP(004,005,006) |
+| 2 | MALI-002 | Local data-owner gate before session admission | `348f9a5a` | unit tests | CL |
+| 3 | MALI-001 | Truthful, revocable cloud/AI consent | `2c1d6637` | consent-matrix tests | CL |
+| 4 | MALI-007 | Atomic financial write + outbox enqueue | `24cd94b3` | boundary-failure tests | CL |
+| 5 | MALI-008 | Durable keyset pagination + tombstone filters | `4e4c7d04` | pagination tests | CL |
+| 6 | MALI-009/010 | Ledger field merge + conflict token + canonical semantics | `b0b93256` | round-trip fixtures | CL |
+| 7 | MALI-012 | Per-item lease/ack capture drain + atomic import | `a8f4eef9` | kill-phase tests | CL |
+| 8 | MALI-020/021 | Honest iOS privacy manifests + safe CSV export lifecycle | `cfeb30f1` | (later built-product verified) | CL |
+| 9 | MALI-015 | Default-account switch via atomic RPC + successor enqueue | `3104e6c7` | tests | CL |
+| 10 | MALI-019 | Server-side notification-preference enforcement | `8c20f8a9` | Deno + planner tests | CL |
+| 11 | MALI-011 | Sign-out wipe completeness (+ import runs / log events) | `f878c2e0` | coverage-guard test | CL |
+| 12 | MALI-018 | One canonical refund/excluded-account aggregate | `193e590b` | cross-view invariant test; suite 931 | CL |
+| 13 | MALI-014 | Complete snapshot-isolated, preflight-validated v3 backup | `6f47d3b2` | coverage test; suite 942 | CL |
+| 14 | MALI-005 (closure) | End-to-end purge-worker authorization guard | `64835a3e` | 6 Deno auth tests | EP |
+| 15 | MALI-020 (closure) | Ship App Intent from Runner, drop obsolete extension, target-accurate manifests | `188bff5d` | built-product + packaging guard | CL |
+| 16 | MALI-016 | Dependency-aware atomic account deletion | `3cf40368` | 11 tests; suite 953 | CL |
+| 17 | MALI-017 | Pre-sign-out card data-loss guard | `7a89867d` | 6 tests | EP |
+| 18 | MALI-036 | Android + backend/SQL/migration CI gates + local runner (→ fix 0067) | `19832d6a` | migration lint dogfooded | EP |
+| 19 | MALI-013 | Android durable capture queue + opt-in SMS + honest caps | `e9c9ec57` | 6 Dart tests | EP |
+| 20 | MALI-022 | Optimistic planning conflict detection + resolution UI | `1956b216`, `2e9271a3` | 12 tests; suite 974 | EP |
+| 21 | MALI-027 | Failure-atomic, version-aware local migrations | `a33da826`, `a4e6f82b` | 19 migration tests; suite 993 | CL |
+
+---
 
 ## Executive assessment
 
@@ -16,7 +156,9 @@ This report records **44 findings: 5 Critical, 17 High, 15 Medium, and 7 Low**. 
 
 ### Quality-gate result
 
-| Gate | Result |
+> **Historical — captured at the original 2026-07-28 audit run.** Current closure-time gate results are in the closure dashboard above (analyze 0 issues; **993** Flutter tests; **54** Deno tests; migration lint PASS).
+
+| Gate | Result (2026-07-28, historical) |
 |---|---|
 | `cd app && flutter analyze` | **PASS — 0 issues.** Terminal: `No issues found! (ran in 12.0s)` |
 | `cd app && flutter test` | **PASS — 908 passed, 0 failed, 0 environment-blocked.** Terminal: `05:42 +908: All tests passed!` |
@@ -587,9 +729,11 @@ Passing unit tests currently overrepresent implementation/source-text contracts 
 
 ## F. Release verdict
 
-**Not safe.**
+> **Historical (2026-07-28): "Not safe."** Superseded by the closure dashboard at the top of this document. **Current verdict (2026-07-30): `Ready for release validation`** — all 23 blockers are code-complete (16 locally verified, 7 pending external verification), 0 blockers have missing code, 12 external release gates remain open. See the closure dashboard for the full breakdown and rationale.
 
-Do not distribute production iOS or Android artifacts and do not deploy the engagement/account-deletion backend as currently represented. Phase 0 below must be completed and verified against a disposable Supabase project and signed platform artifacts before reconsidering release. A clean analyzer and 908 passing Flutter tests do not mitigate the cross-account, authorization, erasure, consent, and durable-data defects.
+**Original text (historical):** Not safe. Do not distribute production iOS or Android artifacts and do not deploy the engagement/account-deletion backend as currently represented. Phase 0 below must be completed and verified against a disposable Supabase project and signed platform artifacts before reconsidering release. A clean analyzer and 908 passing Flutter tests do not mitigate the cross-account, authorization, erasure, consent, and durable-data defects.
+
+*(As of closure, Phase 0's blocker code is complete and the local gates that can run on this workstation are green; the remaining requirement is executing the 12 external gates against a disposable Supabase project + signed artifacts — exactly the "release validation" this verdict now authorizes.)*
 
 ## G. Remediation plan
 
@@ -624,11 +768,11 @@ finding. "Done" = code landed on `feat/accounts-multicurrency`, project gates re
 | MALI-017 (card sync rollout / data loss) | ◑ Client guard done | `7a89867d` | Client no-silent-loss guard shipped: `countCapabilityGatedUnsyncedCards()` + a pre-sign-out warning (backup v3 from MALI-014 can preserve the data); honest sync_status (local-only cards not marked synced); 6 tests. **External to fully close** (needs backend): deploy/verify migration 0064, server-advertise the capability, flip `kUserCardsCloudV2`, and confirm unassigned+design fields round-trip. |
 | MALI-022 (multi-device planning conflict) | ◑ Done (client) | `1956b216`, `2e9271a3` | Optimistic base-token conflict detection (mirrors ledger MALI-009): push conditional-update never clobbers a moved remote row; pull no longer false-flags every pending edit. Visible resolution: `PlanningConflictResolver` (keep-mine re-pushes / keep-theirs re-pulls) + conflicts sheet + settings entry. 6 sync + 3 resolver + 3 widget tests; full suite 974 green. **External:** live two-device timing + server-atomic conditional update (version column / WHERE-guarded RPC) beyond the client-side TOCTOU. |
 
-**Phase 1 — data integrity & security (non-blocker) — in progress (branch `feat/phase1-data-integrity`, uncommitted):**
+**Phase 1 — data integrity & security (non-blocker) — branch `feat/phase1-data-integrity`:**
 
 | Finding | Status | Notes |
 |---|---|---|
-| MALI-027 (transactional migrations) | ◑ Implemented · locally verified (uncommitted) | `initialize()` reworked into a failure-atomic, version-aware pipeline: discovery → downgrade-guard → one transaction wrapping schema/versioned-migrations/compat-repairs/seed/backfills/postflight, with `user_version` bumped LAST inside the txn; memoized once-guard against double-run. **Refinements (post-review):** (1) **FK validation runs in release** — postflight `_verifyMigrationIntegrity` is unconditional (not an `assert`): missing core table, `PRAGMA foreign_keys` not returning 1, or any `PRAGMA foreign_key_check` violation throws `MigrationIntegrityException` (structural diagnostics only — child→parent table + constraint index, never row/financial contents). (2) **Downgrade fails closed** — a newer-than-app `user_version` throws `UnsupportedDatabaseVersionException` (distinct type, no reads/writes, version untouched) so the caller can prompt an app update vs. corruption. (3) **Failed-init retry** — the memoized future is cleared on failure (`_runGuardedInitialize`), so a later explicit `initialize()` retries; success stays memoized (single run); concurrent callers share one execution; no auto-retry loop. (4) **Test-only seams** hardened: `debugFailAtPhase`/`debugReinitialize`/`createForTesting` are `@visibleForTesting`, in-memory only, never a production recovery path. (5) **Rollback wording corrected**: transactional/logical equivalence (no visible change, version unchanged, no partial objects) — NOT a byte-identical file/WAL claim. (6) Removed a premature `idx_transactions_duplicate_exact` index from `_createSchema` that referenced `comparison_timestamp` before the compat repair adds it — it broke genuine legacy upgrades and is already (re)created after the column exists. Verified SQLite/Drift constraints: all init DDL/DML + `PRAGMA user_version` are transactional; `PRAGMA foreign_keys` is not (set + verified once before the txn); no VACUUM/ATTACH. **Historical-support policy:** the migration model is *shape-based idempotent repair* (`CREATE … IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`; `_createSchema` creates every table unconditionally so the `version < N` blocks are redundant), NOT per-version snapshots — the meaningful variable is *which tables/columns are absent*, and Drift stamps `user_version = schemaVersion` on open so the on-disk integer is not authoritative. Oldest supported shape = empty/v1. **Fixture matrix (19 tests, deterministic injection):** A empty (`user_version` 0) builds forward; B faithful legacy pre-accounts v1 (minimal old-shape tables, columns/tables genuinely absent) upgrades and backfills the row onto the default account; C faithful pre-v27 `cards` (`account_id NOT NULL`, no color/accent) rebuilt NULLable with the row preserved (exercises the one non-additive branch); D current-schema idempotent no-op + stale-version-on-current-schema; plus per-phase rollback (×5), missing-core-table, FK-check-violation, downgrade-fail-closed, memoization, concurrent-failure-shares-one-execution, and explicit-retry-after-failure. Intermediate versions (v2–v26) are covered by the same idempotent repairs — B (nothing present) is the superset stress case; the FK-referenced-table rebuild that MALI-026 may need still requires `foreign_keys=OFF` outside the txn (documented limitation). Scope guard honored: no money-column/FK/calc/provider/sync changes. |
+| MALI-027 (transactional migrations) | ✅ Done · locally verified | Commits `a33da826` (pipeline + 19 tests) + `a4e6f82b` (docs); full suite 993 green. `initialize()` reworked into a failure-atomic, version-aware pipeline: discovery → downgrade-guard → one transaction wrapping schema/versioned-migrations/compat-repairs/seed/backfills/postflight, with `user_version` bumped LAST inside the txn; memoized once-guard against double-run. **Refinements (post-review):** (1) **FK validation runs in release** — postflight `_verifyMigrationIntegrity` is unconditional (not an `assert`): missing core table, `PRAGMA foreign_keys` not returning 1, or any `PRAGMA foreign_key_check` violation throws `MigrationIntegrityException` (structural diagnostics only — child→parent table + constraint index, never row/financial contents). (2) **Downgrade fails closed** — a newer-than-app `user_version` throws `UnsupportedDatabaseVersionException` (distinct type, no reads/writes, version untouched) so the caller can prompt an app update vs. corruption. (3) **Failed-init retry** — the memoized future is cleared on failure (`_runGuardedInitialize`), so a later explicit `initialize()` retries; success stays memoized (single run); concurrent callers share one execution; no auto-retry loop. (4) **Test-only seams** hardened: `debugFailAtPhase`/`debugReinitialize`/`createForTesting` are `@visibleForTesting`, in-memory only, never a production recovery path. (5) **Rollback wording corrected**: transactional/logical equivalence (no visible change, version unchanged, no partial objects) — NOT a byte-identical file/WAL claim. (6) Removed a premature `idx_transactions_duplicate_exact` index from `_createSchema` that referenced `comparison_timestamp` before the compat repair adds it — it broke genuine legacy upgrades and is already (re)created after the column exists. Verified SQLite/Drift constraints: all init DDL/DML + `PRAGMA user_version` are transactional; `PRAGMA foreign_keys` is not (set + verified once before the txn); no VACUUM/ATTACH. **Historical-support policy:** the migration model is *shape-based idempotent repair* (`CREATE … IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`; `_createSchema` creates every table unconditionally so the `version < N` blocks are redundant), NOT per-version snapshots — the meaningful variable is *which tables/columns are absent*, and Drift stamps `user_version = schemaVersion` on open so the on-disk integer is not authoritative. Oldest supported shape = empty/v1. **Fixture matrix (19 tests, deterministic injection):** A empty (`user_version` 0) builds forward; B faithful legacy pre-accounts v1 (minimal old-shape tables, columns/tables genuinely absent) upgrades and backfills the row onto the default account; C faithful pre-v27 `cards` (`account_id NOT NULL`, no color/accent) rebuilt NULLable with the row preserved (exercises the one non-additive branch); D current-schema idempotent no-op + stale-version-on-current-schema; plus per-phase rollback (×5), missing-core-table, FK-check-violation, downgrade-fail-closed, memoization, concurrent-failure-shares-one-execution, and explicit-retry-after-failure. Intermediate versions (v2–v26) are covered by the same idempotent repairs — B (nothing present) is the superset stress case; the FK-referenced-table rebuild that MALI-026 may need still requires `foreign_keys=OFF` outside the txn (documented limitation). Scope guard honored: no money-column/FK/calc/provider/sync changes. |
 | MALI-036 (CI/release gates) | ◑ Gates authored | `19832d6a` | Added `android-release` + `backend-and-quality-gates` codemagic workflows (config assertions, Deno Edge tests, admin lint/build, migration lint, flutter analyze/test); `supabase/tools/check_migrations.sh` (numbering + SECURITY-DEFINER-lockdown lint — dogfooded, caught & fixed a real unlocked definer fn via migration 0067); `tools/ci_gates.sh` local runner. **External to fully close:** actually running these on Codemagic, live SQL/RLS apply on staging, and an old-client-vs-new-schema compatibility gate (need live infra). |
 
 **Phase-0 status: all 23 release blockers now addressed in code** — the 18 originally committed plus the 5 that had slipped (MALI-013, 016, 017, 022, 036), closed during Phase 1. MALI-016 is fully done; MALI-013/017/022/036 have their client/offline code committed and gate-verified (analyze clean + full suite 974 green), with the parts that genuinely need a device, live backend, Android SDK, or Google Play approval recorded as external release prerequisites (checklist rows 1–12) — **not** falsely marked closed. Operational closure still requires those external gates.
