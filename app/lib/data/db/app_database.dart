@@ -424,6 +424,15 @@ class AppDatabase extends GeneratedDatabase {
     final file = File(p.join(directory.path, 'money_companion.sqlite'));
     return NativeDatabase.createBackgroundConnection(
       file,
+      // MALI-046n: the migration pipeline (_runInitialize) is the SOLE owner of
+      // `PRAGMA user_version`. With Drift migrations enabled, Drift's version
+      // delegate stamps `user_version = schemaVersion` at open — BEFORE the
+      // pipeline's discovery phase reads it — which makes the downgrade guard,
+      // the versioned-migration registry and the version-gated compatibility
+      // repairs inert. Disabling migrations installs a NoVersionDelegate: Drift
+      // runs no migrator and never writes `user_version`, so the pipeline
+      // observes the real on-disk version and remains the only writer.
+      enableMigrations: false,
       setup: (database) {
         database.execute("PRAGMA cipher = 'sqlcipher';");
         final cipher = database.select('PRAGMA cipher;');

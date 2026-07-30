@@ -72,14 +72,21 @@ class RestoreBackupUseCase {
     // here — otherwise conditional-delete would wipe the catalog and restore
     // nothing.
     final tables = _validateSnapshot(snapshot, schemaVersion);
-    await _db.transaction(() async {
-      await _db.customStatement('PRAGMA foreign_keys = OFF;');
-      // `PRAGMA foreign_keys` is connection-scoped, not part of the SQL
-      // transaction — a thrown exception here still rolls back the row
-      // changes (Drift's transaction()), but would otherwise leave FK
-      // enforcement silently OFF for the rest of this DB connection's
-      // lifetime unless restored in `finally`.
-      try {
+
+    // MALI-045n: `PRAGMA foreign_keys` is connection-scoped and a documented
+    // NO-OP while a transaction is pending, so it MUST be toggled OUTSIDE
+    // _db.transaction() to genuinely suspend enforcement for the bulk restore.
+    // (A self-consistent v3 snapshot — parents backed up FULL — would restore
+    // fine with enforcement ON via the parent-before-child ordering; suspension
+    // is retained only so legacy/cross-catalog backups restore gracefully
+    // instead of failing on the first dangling reference.) After the inserts we
+    // sanitize dangling references to satisfy the declared FK semantics, then
+    // run `PRAGMA foreign_key_check` INSIDE the txn: any residual violation
+    // throws and rolls the WHOLE restore back, leaving the original database
+    // unchanged. `finally` re-enables enforcement no matter what.
+    await _db.customStatement('PRAGMA foreign_keys = OFF;');
+    try {
+      await _db.transaction(() async {
         for (final table in _deleteOrder) {
           // Conditional delete: only empty a table the backup actually carries
           // (back-compat). A v2 backup has no cards/categories/sender_mappings
@@ -93,16 +100,88 @@ class RestoreBackupUseCase {
             await _insertRow(table, row);
           }
         }
-      } finally {
-        await _db.customStatement('PRAGMA foreign_keys = ON;');
-      }
-    });
+        // Idempotent no-op for a self-consistent v3 snapshot; heals legacy /
+        // cross-catalog dangling references so the committed DB is FK-clean.
+        await _sanitizeDanglingReferences();
+        // Postflight INSIDE the txn — a residual violation aborts + rolls back.
+        final violations =
+            await _db.customSelect('PRAGMA foreign_key_check;').get();
+        if (violations.isNotEmpty) {
+          throw const BackupException(
+            'تعذّرت الاستعادة: النسخة الاحتياطية تنتهك سلامة العلاقات بين '
+            'البيانات.',
+          );
+        }
+      });
+    } finally {
+      await _db.customStatement('PRAGMA foreign_keys = ON;');
+    }
+    // Enforcement MUST be back on for the rest of this connection's lifetime.
+    final fkEnabled = (await _db.customSelect('PRAGMA foreign_keys;').getSingle())
+        .read<int>('foreign_keys');
+    if (fkEnabled != 1) {
+      throw const BackupException(
+        'تعذّر إعادة تفعيل قيود العلاقات بعد الاستعادة.',
+      );
+    }
 
     for (final step in _postRestoreMigrations) {
       if (step.appliesTo(schemaVersion)) {
         await step.run(_db);
       }
     }
+  }
+
+  /// FK-safe repair applied inside the restore transaction (with enforcement
+  /// suspended). For a self-consistent v3 snapshot every statement matches zero
+  /// rows. It heals legacy/cross-catalog inconsistencies (e.g. a v2 backup whose
+  /// category ids don't exist on this install) so the committed database
+  /// satisfies every declared foreign key: `SET NULL` references are nulled
+  /// (matching ON DELETE SET NULL), and NOT-NULL child rows whose parent is
+  /// genuinely absent are dropped in cascade-safe order (matching ON DELETE
+  /// CASCADE) — orphan parents are removed before their own orphan children so
+  /// no new dangling row is left behind.
+  Future<void> _sanitizeDanglingReferences() async {
+    // transactions.{category_id,merchant_id} — ON DELETE SET NULL.
+    await _db.customStatement(
+      'UPDATE transactions SET category_id = NULL '
+      'WHERE category_id IS NOT NULL '
+      'AND category_id NOT IN (SELECT id FROM categories);',
+    );
+    await _db.customStatement(
+      'UPDATE transactions SET merchant_id = NULL '
+      'WHERE merchant_id IS NOT NULL '
+      'AND merchant_id NOT IN (SELECT id FROM merchants);',
+    );
+    // NOT-NULL children invalid without their parent — drop (ON DELETE CASCADE).
+    await _db.customStatement(
+      'DELETE FROM merchant_category_map '
+      'WHERE merchant_id NOT IN (SELECT id FROM merchants) '
+      'OR category_id NOT IN (SELECT id FROM categories);',
+    );
+    await _db.customStatement(
+      'DELETE FROM budgets '
+      'WHERE category_id NOT IN (SELECT id FROM categories);',
+    );
+    await _db.customStatement(
+      'DELETE FROM goal_contributions '
+      'WHERE goal_id NOT IN (SELECT id FROM goals);',
+    );
+    // subscriptions.merchant_id is NOT NULL → drop an orphan subscription BEFORE
+    // its bill_payments so the payment orphan check below then also fires.
+    await _db.customStatement(
+      'DELETE FROM subscriptions '
+      'WHERE merchant_id NOT IN (SELECT id FROM merchants);',
+    );
+    await _db.customStatement(
+      'DELETE FROM bill_payments '
+      'WHERE bill_id NOT IN (SELECT id FROM subscriptions);',
+    );
+    await _db.customStatement(
+      'DELETE FROM plan_transaction_links '
+      'WHERE plan_id NOT IN (SELECT id FROM plans) '
+      'OR transaction_id NOT IN (SELECT id FROM transactions);',
+    );
   }
 
   int _schemaVersion(Map<String, dynamic> snapshot) {

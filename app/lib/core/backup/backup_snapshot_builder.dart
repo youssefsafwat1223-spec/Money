@@ -84,6 +84,7 @@ class BackupSnapshotBuilder {
       'auto_save_period',
       'auto_save_last_run',
       'last_notified_saved_amount',
+      'deleted_at',
     ],
     'goal_contributions': [
       'id',
@@ -161,6 +162,7 @@ class BackupSnapshotBuilder {
       'total_purchase_amount',
       'lender_name',
       'interest_rate',
+      'deleted_at',
     ],
     'bill_payments': [
       'id',
@@ -186,6 +188,7 @@ class BackupSnapshotBuilder {
       'status',
       'icon',
       'created_at',
+      'deleted_at',
     ],
     'plan_transaction_links': [
       'plan_id',
@@ -243,14 +246,18 @@ class BackupSnapshotBuilder {
     ],
   };
 
+  // MALI-045n: parent tables that have FK children (subscriptions→bill_payments,
+  // goals→goal_contributions, plans→plan_transaction_links) are backed up FULL
+  // (soft-deleted rows included, deleted_at preserved) so a RETAINED (active)
+  // child is never orphaned by a soft-deleted parent being filtered out — which
+  // otherwise makes the snapshot FK-inconsistent and the restore fail. The
+  // childless active-only tables below have no incoming FK, so filtering them to
+  // active rows cannot orphan anything.
   static const _activeOnlyTables = {
     'accounts',
     'budgets',
-    'goals',
     'goal_contributions',
-    'subscriptions',
     'bill_payments',
-    'plans',
     'plan_transaction_links',
   };
 
