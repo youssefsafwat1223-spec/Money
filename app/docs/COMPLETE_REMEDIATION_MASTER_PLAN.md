@@ -143,6 +143,13 @@ gates, report, and STOP for approval.
 
 ## PHASE 2 — Cross-user lifecycle, sign-out, consent
 
+**STATUS: Code complete · Locally verified** (commits `374560ff` lifecycle, `89db9f09`
+consent; full suite 1015, analyze 0, Deno 54, migration lint + iOS packaging PASS).
+Native device execution (residue purge on device, 2-user smoke) remains external
+(gates 6/9). **Bug found & fixed during implementation** (not a new finding):
+`userSettingsFromRow` hard-coded consent to `true`, making revocation a no-op —
+fixed under MALI-001. Approved MALI-059n decision implemented in full.
+
 - **MALI-054n (High):** native App Group / SharedPreferences capture queue survives
   sign-out → A's captures import under B. *Remediation:* add `purgeAll()` to the
   native capture bridge (iOS `SharedCaptureStore` + Android `DurableCaptureQueue`);
