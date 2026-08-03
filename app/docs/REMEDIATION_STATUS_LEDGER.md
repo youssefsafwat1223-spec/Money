@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 3 IN PROGRESS — batches 1–2 of 6 complete & committed — 2026-07-30
+- **Last updated:** Phase 3 IN PROGRESS — batches 1–4 of 6 complete & committed — 2026-08-03
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -50,8 +50,8 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-006 | High | X | P9 | Code complete (device pending) | merged-manifest+smoke = gate 3 |
 | MALI-007 | High | — | — | Closed | atomic write+outbox re-verified |
 | MALI-008 | High | C | P3 | Not started (core Closed) | periphery = MALI-072n |
-| MALI-009 | High | C | P3 | Not started | subsumed by MALI-056n |
-| MALI-010 | High | C | P3 | Not started | subsumed by MALI-056n |
+| MALI-009 | High | C | P3 | Code complete · Locally verified | versioned canonical payload preserves type/direction/status/source; base-token round-trip; `124fd83b` (batch 4); live 2-device = external |
+| MALI-010 | High | C | P3 | Code complete · Locally verified | withdrawal/refund/unknown/source round-trip via canonical metadata (no lossy debit/credit collapse); `124fd83b` (batch 4) |
 | MALI-011 | High | C | P2 | Code complete · Locally verified | atomic wipe + unsynced inventory (flush→re-check→discard); `374560ff` |
 | MALI-012 | High | X | P9 | Locally verified | on-device kill = gate 6/9 |
 | MALI-013 | High | C+X | P5/P9 | Code complete (device pending) | apply()-in-receiver = MALI-068n; gates 9/10/11 |
@@ -63,7 +63,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-019 | High | C | P5 | Not started | subsumed by MALI-061n |
 | MALI-020 | High | X | P9 | Locally verified | archive privacy report = gate 5 |
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
-| MALI-022 | High | C | P3 | Not started | resolver 4-of-12; server conditional update needed |
+| MALI-022 | High | C | P3 | Code complete · Locally verified · **live CAS external-pending** | server revision CAS migration 0068 `4a2da692` + universal resolver all 12 `de672bc0` + client CAS plumbing gated OFF `0e52da68` (batch 3); activation blocked on 0068 staging verification |
 | MALI-023 | Med | C | P3 | Code complete · Locally verified | typed failure classes + dead-letter + bounded backoff + re-arm; `d6820285` (batch 2) |
 | MALI-024 | Med | C | P3 | Not started | XP dual-authority/replay |
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
@@ -93,12 +93,12 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-049n | High | C | P4 | Not started | dashboard budget ring period |
 | MALI-050n | High | C | P4 | Not started | Home category totals vs chip |
 | MALI-051n | High | C | P3 | Code complete · Locally verified | durable parked_child_rows + drain; cursor never skips; `acf9ca99` (batch 1) |
-| MALI-052n | High | C | P3 | Partial (coalescing done) | outbox coalescing/re-basing done `d6820285` (batch 2); universal conflict contract (resolver for all entities) = batch 3 (pending) |
+| MALI-052n | High | C | P3 | Code complete · Locally verified | outbox coalescing/re-basing `d6820285` (batch 2) + universal conflict policy/resolver for all 12 entities `de672bc0` (batch 3); live 2-device = external |
 | MALI-053n | High | C | P2 | Code complete · Locally verified | flush now covers child + smart-inbox + notif-log + sender-mapping outboxes; `374560ff` |
 | MALI-054n | High | C | P2 | Code complete · Locally verified | native+file residue purge on every destructive path; fail-closed admission; `374560ff`. Device execution = gate 6/9 (external) |
-| MALI-055n | Med | C | P3 | Not started | accounts no conflict detection; setDefault mass-rollback |
-| MALI-056n | Med | C | P3 | Not started | withdrawal round-trip, null-base overwrite, payload version |
-| MALI-057n | Med | C | P3 | Not started | pull conflict without base compare (folds into 052n) |
+| MALI-055n | Med | C | P3 | Code complete · Locally verified | dedicated default-account command (no broad rewrite; stale device can't roll back fields) + guarded accounts update (base token now carried); `58614ad4` (batch 4) |
+| MALI-056n | Med | C | P3 | Code complete · Locally verified | versioned canonical payload (v2) + documented compatibility + future-version dead-letter; `124fd83b` (batch 4) |
+| MALI-057n | Med | C | P3 | Code complete · Locally verified · **live CAS external-pending** | pull/push base compare + universal per-entity policy; `de672bc0`/`0e52da68` (batch 3) |
 | MALI-058n | Med | C | P6 | Not started | SQLCipher key in DB + backup |
 | MALI-059n | Med | P+C | P2 | Code complete · Locally verified | decision implemented (default OFF, separate opt-ins, migrate-to-OFF, versioned state, device-local, restore resets); `89db9f09` |
 | MALI-060n | Med | C | P5 | Not started | anon-key AI unmetered |
@@ -126,7 +126,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 |---|---|---|
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
-| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **IN PROGRESS** — batch 1 (051n) + batch 2 (052n-coalescing, 023) done & committed (acf9ca99, d6820285); batches 3–6 pending: universal conflict contract + atomic server revision (057n/022), accounts/ledger parity (055n/056n/009/010), sender-mappings/gamification (072n/008/024), docs |
+| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **IN PROGRESS** — batches 1–4 of 6 done & committed: B1 051n (acf9ca99), B2 052n-coalescing/023 (d6820285), B3 022/057n/052n revision-CAS+universal-resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 accounts+ledger parity (58614ad4/124fd83b); batches 5–6 pending: 072n/008/024, docs |
 | P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | Not started |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
@@ -136,3 +136,67 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 
 Decision-required (await explicit product approval): **MALI-059n** (consent default),
 **MALI-043** (canonical brand name). These are surfaced, never silently decided.
+
+## Batch 4 delivered contracts (MALI-055n / 056n / 009 / 010)
+
+### Account default-command contract (MALI-055n)
+- Changing the default is ONE dedicated command — `account_default_command`
+  (outbox entity type), payload `{target_local_id, operation_id}`, NO account
+  field payload — resolved on push to the atomic `set_default_account` RPC
+  (demote old + promote new in one server transaction).
+- A default switch queues **zero** account field rows, so a stale device can
+  never roll back an unrelated remote rename/type/currency edit.
+- Successive switches coalesce to one command (singleton key `__current__`);
+  latest target wins. Create-as-default and delete-successor route through the
+  same command. Create/update no longer apply the default via `is_default`.
+- Delete additionally queues a **guarded** update of the successor only (so it
+  exists server-side for the command to resolve); guarded (Batch 3C) → conflicts
+  instead of clobbering.
+- Push order: field syncs before commands (target established first); an unsynced
+  target defers (`missingDependency`). RPC is idempotent → replay/crash-after-
+  acceptance safe; concurrent switches = deterministic last-RPC-wins; exactly one
+  active default after every path; capability OFF and ON both resolve via the RPC.
+
+### Versioned canonical ledger payload (MALI-056n / 009 / 010)
+- `payload_version = 2` (`lib/features/capture/services/ledger_payload.dart`).
+- Outbox payload carries `payload_version` + `canonical_type/source/direction`
+  (legacy `type` retained for downgrade safety).
+- Push writes the coarse server columns AND round-trips the exact client
+  type/source/direction through the server `metadata` JSONB.
+- Pull recovers the exact meaning from canonical metadata (authoritative);
+  older rows use the documented compatibility rule below.
+
+**Enum mapping table**
+
+| client type | server transaction_type | server direction (derived) | pull recovery (v2 canonical / v1 coarse) |
+|---|---|---|---|
+| payment    | expense  | debit   | canonical→payment / expense→payment |
+| withdrawal | expense  | debit   | canonical→withdrawal / (v1 indistinguishable → payment) |
+| income     | income   | credit  | income→income |
+| refund     | refund   | credit  | refund→refund |
+| transfer   | transfer | unknown | transfer→transfer |
+| unknown    | unknown  | unknown | canonical→unknown / adjustment·unknown·future→unknown (**never payment**) |
+
+- **Historical compatibility:** a payload with no `payload_version` is treated as
+  v1 and pushes via the legacy `type` mapping. A pulled server row without
+  canonical metadata uses the coarse rule above — legacy `expense`→payment, and
+  any unmapped/future category → `unknown`, never silently payment/expense.
+- **Future safety:** a payload written by a newer app (`payload_version` beyond
+  this build) dead-letters as `unsupportedSchema` (re-armable after upgrade); an
+  unrecognised canonical enum NAME falls back to the coarse column, never trusted
+  verbatim.
+
+### Local verification (Batch 4)
+`flutter analyze` clean; new tests: account_default_command_test (10),
+ledger_payload_test (21), ledger_roundtrip_test (18). Full suite green (see
+Batch-4 report). No schema/backend change in Batch 4; capability `kServerRevisionCas`
+stays **false**.
+
+### External / two-device acceptance criteria (still pending)
+- Live `set_default_account` RPC round-trip on a real backend; two-device
+  concurrent default switch converges to one default with no field rollback.
+- Two-device ledger round-trip on a real backend confirming withdrawal/refund/
+  unknown/source/status survive without conversion.
+- Live revision-CAS activation (MALI-022) remains blocked on migration 0068
+  staging apply + real Postgres concurrency tests before `kServerRevisionCas` may
+  be flipped.

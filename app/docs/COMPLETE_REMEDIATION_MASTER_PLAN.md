@@ -174,6 +174,18 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 3 — Sync & multi-device correctness (one shared sync-semantics contract)
 
+> **Status (2026-08-03): batches 1–4 of 6 delivered.** B1 durable child parking
+> (051n, `acf9ca99`); B2 outbox coalescing + typed dead-letter/retry (052n/023,
+> `d6820285`); B3 server revision CAS migration 0068 + universal conflict
+> policy/resolver (all 12 entities) + dormant client CAS plumbing gated OFF
+> (022/057n/052n, `4a2da692`/`de672bc0`/`0e52da68` — **live CAS activation is
+> external-pending; `kServerRevisionCas` stays false**); B4 dedicated
+> default-account command + versioned canonical ledger payload
+> (055n/056n/009/010, `58614ad4`/`124fd83b`). See the delivered-contracts section
+> at the end of `REMEDIATION_STATUS_LEDGER.md` for the default-command contract,
+> ledger payload version, enum mapping table, and compatibility rules. Batches
+> 5–6 (072n/008/024; docs) remain.
+
 - **MALI-052n (High):** no outbox re-base/coalescing → consecutive offline edits
   self-conflict; conflict resolution covers 4 of ~12 entities → terminal freezes.
   *Remediation:* after a successful push, re-base the queued follow-up items to the
