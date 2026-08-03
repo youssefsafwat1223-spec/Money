@@ -58,6 +58,15 @@ class TransactionsScreen extends ConsumerWidget {
     final pendingOnly = ref.watch(transactionsPendingFilterProvider);
     final currencyLabel = Currency.arabicLabel(
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    // MALI-047n: canonical period expense over the full dataset (not a fold of
+    // loaded pages), single-currency for the active-account scope.
+    final periodTotal = ref.watch(transactionsPeriodTotalProvider).valueOrNull;
+    final periodExpense = periodTotal?.netExpense ?? 0;
+    final txHeaderCurrencyLabel = Currency.arabicLabel(
+        (periodTotal?.currency ??
+                ref.watch(baseCurrencyProvider).valueOrNull ??
+                'SAR')
+            .toUpperCase());
     final logos = ref.watch(merchantLogosProvider).valueOrNull ??
         const <String, String>{};
 
@@ -118,13 +127,14 @@ class TransactionsScreen extends ConsumerWidget {
                         children: [
                           _TransactionsHeader(
                             tab: tab,
-                            expenseTotal: view.expenseTotal,
+                            expenseTotal: periodExpense,
                             transactionsCount: view.transactions.length,
                             pendingCount: view.pendingCount,
                             subsCount: subs.length,
                             instsCount: insts.length,
                             monthlyTotal: monthlyTotal,
-                            currencyLabel: currencyLabel,
+                            currencyLabel:
+                                tab == 0 ? txHeaderCurrencyLabel : currencyLabel,
                             onAdd: () {
                               if (tab == 0) {
                                 showCaptureEntrySheet(context);

@@ -9,6 +9,7 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/financial_period.dart';
 import '../budgets/budgets_providers.dart';
 import '../goals/goals_providers.dart';
 import '../plans/plans_providers.dart';
@@ -118,26 +119,36 @@ final todayExpensesProvider =
 });
 
 /// One category's monthly spending group for the Home "Monthly Expenses"
-/// section — a total plus a handful of recent transactions, not a chart.
+/// section. [total] is the canonical net expense for the category (MALI-050n),
+/// so it agrees with the budget chip beside it; [count] is the number of
+/// contributing confirmed rows.
 class MonthlyCategoryGroup {
   const MonthlyCategoryGroup({
     required this.categoryId,
     required this.total,
-    required this.transactions,
+    required this.count,
     this.budget,
   });
 
   final String? categoryId;
   final double total;
-  final List<TransactionEntity> transactions;
+  final int count;
   final BudgetProgressEntry? budget;
 }
 
-/// Current calendar month's confirmed expenses (local device time), grouped
-/// by category and ordered by highest spend first — the same convention
-/// `topCategories`/Reports already use for category rankings elsewhere in
-/// the app, so Home stays consistent with Reports rather than introducing a
-/// second ordering convention.
+/// Current calendar month's category spending for the Home "Monthly Expenses"
+/// section, highest net spend first.
+///
+/// MALI-050n — the totals come from the ONE canonical aggregate
+/// ([TransactionRepository.categoryBreakdown]) rather than a bespoke Dart fold,
+/// so refund netting, the confirmed-only status contract, the excluded-account
+/// policy, the half-open month window and the account/currency scope all match
+/// the budget chip attached to each group (via [matchBudgetForCategory], which
+/// reuses the same canonical budget math). A category amount and its adjacent
+/// budget metric therefore cannot disagree for the same scope. Uncategorized
+/// rows carry no category identity to rank or budget and — consistent with the
+/// Reports category ranking, which uses the same aggregate — are not shown as a
+/// group. The calculation is set-based Drift/local-first and works offline.
 final monthlyExpenseGroupsProvider =
     FutureProvider<List<MonthlyCategoryGroup>>((ref) async {
   ref.watch(dbRevisionProvider);
@@ -150,44 +161,29 @@ final monthlyExpenseGroupsProvider =
   final defaultAccount = await accountRepo.getDefault();
   final accountId = (selectedAccount ?? defaultAccount)?.id;
 
-  final now = DateTime.now();
-  final start = DateTime(now.year, now.month, 1);
-  final end = DateTime(now.year, now.month + 1, 1)
-      .subtract(const Duration(milliseconds: 1));
+  // Canonical half-open month [startOfMonth, startOfNextMonth) — one definition
+  // shared across the app (MALI-028/062n), Saturday-week irrelevant here.
+  final period = FinancialPeriod.month(DateTime.now());
 
-  final all = await txRepo.getAll();
-  final monthly = all.where((tx) {
-    if (tx.status != TransactionStatus.confirmed) return false;
-    final isExpense = tx.type == TransactionTypeEntity.payment ||
-        tx.type == TransactionTypeEntity.withdrawal;
-    if (!isExpense) return false;
-    if (tx.occurredAt.isBefore(start) || tx.occurredAt.isAfter(end)) {
-      return false;
-    }
-    if (accountId != null && tx.accountId != accountId) return false;
-    return true;
-  }).toList();
-
-  final byCategory = <String?, List<TransactionEntity>>{};
-  for (final tx in monthly) {
-    byCategory.putIfAbsent(tx.categoryId, () => []).add(tx);
-  }
+  final breakdown = await txRepo.categoryBreakdown(
+    from: period.from,
+    to: period.to,
+    accountId: accountId,
+  );
 
   final budgetsView = await ref.watch(budgetsViewProvider.future);
-  final groups = byCategory.entries.map((entry) {
-    final transactions = entry.value
-      ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
-    final total = transactions.fold<double>(0, (sum, tx) => sum + tx.amount);
-    return MonthlyCategoryGroup(
-      categoryId: entry.key,
-      total: total,
-      transactions: transactions,
-      budget: matchBudgetForCategory(budgetsView.snapshot, entry.key),
-    );
-  }).toList();
-
-  groups.sort((a, b) => b.total.compareTo(a.total));
-  return groups;
+  // categoryBreakdown already orders by net total descending — keep that
+  // ranking (matches Reports/dashboard donut).
+  return breakdown
+      .map(
+        (row) => MonthlyCategoryGroup(
+          categoryId: row.categoryId,
+          total: row.total,
+          count: row.count,
+          budget: matchBudgetForCategory(budgetsView.snapshot, row.categoryId),
+        ),
+      )
+      .toList();
 });
 
 /// Active subscriptions only, ordered by nearest upcoming charge — the

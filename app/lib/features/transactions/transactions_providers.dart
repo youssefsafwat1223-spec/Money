@@ -20,24 +20,13 @@ class TransactionsView {
   final bool hasMore;
   final bool isLoadingMore;
 
+  /// Count of pending rows in the currently-loaded/visible list — a UX
+  /// affordance for the "قيد المراجعة" chip and the confirm-all action, which
+  /// both operate on the visible list. The financial period expense total is
+  /// NOT derived here (it was the non-canonical fold behind MALI-047n); it now
+  /// comes from [transactionsPeriodTotalProvider] over the complete dataset.
   int get pendingCount =>
       transactions.where((tx) => tx.status == TransactionStatus.pending).length;
-
-  double get expenseTotal => transactions
-      .where((tx) =>
-          tx.type == TransactionTypeEntity.payment ||
-          tx.type == TransactionTypeEntity.withdrawal)
-      .fold<double>(0, (sum, tx) => sum + tx.amount);
-
-  double get incomeTotal => transactions
-      .where((tx) =>
-          tx.type == TransactionTypeEntity.income ||
-          tx.type == TransactionTypeEntity.refund)
-      .fold<double>(0, (sum, tx) => sum + tx.amount);
-
-  double get transferTotal => transactions
-      .where((tx) => tx.type == TransactionTypeEntity.transfer)
-      .fold<double>(0, (sum, tx) => sum + tx.amount);
 }
 
 const transactionsPageSize = 500;
@@ -320,6 +309,78 @@ class TransactionsListNotifier
     );
   }
 }
+
+/// The canonical Transactions-header total (MALI-047n).
+///
+/// Metric contract — the header's "إجمالي مصروفات الفترة" is the **canonical
+/// net expense** (payment + withdrawal − refund) over the COMPLETE matching
+/// dataset for the visible **period × active-account** scope, confirmed-only:
+///   - pagination cannot change it (it is a set-based Drift aggregate, never a
+///     fold over loaded pages);
+///   - pending / ignored / deleted rows never count (canonical status contract);
+///   - a refund reduces expense and is never counted as income;
+///   - withdrawal follows the expense contract; transfer/unknown are excluded;
+///   - the excluded-from-totals account policy applies only in the all-accounts
+///     (no active account) case, matching the repository aggregate;
+///   - it is single-currency: the active account fixes the currency, so mixed
+///     currencies are never summed under one label. With no active account the
+///     base currency's own total is shown via [currencyTotalsBetween] (grouped
+///     by currency — never a cross-currency sum);
+///   - free-text search and the kind/category list filters do NOT change it —
+///     the header explicitly claims the *period* expense, not the filtered
+///     subset (the list below reflects those filters).
+/// Computed from Drift, so it is always available offline.
+class TransactionsPeriodTotal {
+  const TransactionsPeriodTotal({
+    required this.netExpense,
+    required this.currency,
+  });
+
+  final double netExpense;
+  final String currency;
+}
+
+final transactionsPeriodTotalProvider =
+    FutureProvider<TransactionsPeriodTotal>((ref) async {
+  ref.watch(dbRevisionProvider);
+  final range =
+      effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
+  final txRepo = ref.watch(transactionRepositoryProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
+  final selectedAccountId = ref.watch(activeAccountIdProvider);
+  final selectedAccount = selectedAccountId == null
+      ? null
+      : await accountRepo.getById(selectedAccountId);
+  final defaultAccount = await accountRepo.getDefault();
+  final activeAccount = selectedAccount ?? defaultAccount;
+
+  // Half-open [from, to): the account fixes a single currency, so this is a
+  // clean single-currency total.
+  if (activeAccount != null) {
+    final netExpense = await txRepo.expenseTotalBetween(
+      from: range.from,
+      to: range.to,
+      accountId: activeAccount.id,
+    );
+    return TransactionsPeriodTotal(
+      netExpense: netExpense,
+      currency: activeAccount.currency,
+    );
+  }
+
+  // No active account (no accounts yet / all-currencies): never sum across
+  // currencies — group by currency and surface only the base currency's total.
+  final base = await ref.watch(baseCurrencyProvider.future);
+  final perCurrency =
+      await txRepo.currencyTotalsBetween(from: range.from, to: range.to);
+  final match = perCurrency
+      .where((c) => c.currency.toUpperCase() == base.toUpperCase())
+      .toList(growable: false);
+  return TransactionsPeriodTotal(
+    netExpense: match.isEmpty ? 0 : match.first.expense,
+    currency: base,
+  );
+});
 
 final billsViewProvider = FutureProvider<BillsView>((ref) async {
   ref.watch(dbRevisionProvider);
