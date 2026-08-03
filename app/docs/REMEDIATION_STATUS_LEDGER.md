@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 3 LOCALLY COMPLETE — all 6 batches committed; live/2-device verification pending — 2026-08-04. Full reconciliation + entity matrix + external checklist: `PHASE_3_SYNC_CLOSURE.md`.
+- **Last updated:** Phase 4 Batch 2 (Transactions header + Home category) Code complete · Locally verified — 2026-08-04. Batch 1 (semantics/period/currency contract) `71dc2534`; Batch 2 `c4b6df97` (canonical half-open aggregates) + `2052687d` (provider rewiring + tests). Batches 3–5 (plan/dashboard/bill/PDF surfaces) not started. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -59,7 +59,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-015 | High | — | — | Closed | RPC path re-verified (client+server) |
 | MALI-016 | High | — | — | Closed | atomic per-relation deletion re-verified |
 | MALI-017 | High | C | P2 | Code complete · Locally verified | local-only cards in the inventory guard (interactive path); delete/reset gate behind explicit confirmation; remote/cross-UID wipe for isolation; `374560ff` |
-| MALI-018 | High | C+T | P4 | Not started | canonical repo predicate Closed; provider tier open |
+| MALI-018 | High | C+T | P4 | In progress | canonical repo predicate Closed; provider tier: transactions header + Home category routed through the canonical aggregate with a cross-surface invariant test (Batch 2, `2052687d`); plan/dashboard-ring/bill/subscription folds remain (Batches 3–4) |
 | MALI-019 | High | C | P5 | Not started | subsumed by MALI-061n |
 | MALI-020 | High | X | P9 | Locally verified | archive privacy report = gate 5 |
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
@@ -69,7 +69,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
 | MALI-027 | Med | C | **P1** | Code complete · Locally verified | closed by MALI-046n fix |
-| MALI-028 | Med | C | P4 | Not started | half-open interval + week anchor (MALI-062n) |
+| MALI-028 | Med | C | P4 | In progress | half-open `[from, to)` now the contract for the canonical repo aggregates (all 7 methods, Batch 2 `c4b6df97`); boundary-safe for existing callers; week anchor fixed in Batch 1 (MALI-062n). Budget-period + report-boundary standardization for other surfaces remains |
 | MALI-029 | Med | C | P7 | Not started | global invalidation breadth |
 | MALI-030 | Med | C | P7 | Not started | streamed reports/memory |
 | MALI-031 | Med | C | P5 | Not started | App Group encryption/Keychain |
@@ -88,10 +88,10 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-044 | Low | C | P5 | Not started | metrics WITH CHECK(true) |
 | MALI-045n | High | C | **P1** | Code complete · Locally verified | FK-safe restore (full parents + suspend-correctly + sanitize + verify); 5 regression tests; on-device round-trip = gate 6 |
 | MALI-046n | High | C | **P1** | Closed · locally verified | `enableMigrations:false` → pipeline owns user_version; 5 regression tests; on-device path = gate 6 |
-| MALI-047n | High | C | P4 | Not started | transactions-screen non-canonical total |
+| MALI-047n | High | C | P4 | Code complete · Locally verified | header total now canonical net expense over the complete dataset (`transactionsPeriodTotalProvider`), pagination-independent, confirmed-only, refund-netted, single-currency; bespoke `TransactionsView` folds removed; `2052687d` (Batch 2). Device UI spot-check external |
 | MALI-048n | High | C | P4 | Not started | plan spend currency/refund/scope |
 | MALI-049n | High | C | P4 | Not started | dashboard budget ring period |
-| MALI-050n | High | C | P4 | Not started | Home category totals vs chip |
+| MALI-050n | High | C | P4 | Code complete · Locally verified | Home category totals sourced from canonical `categoryBreakdown` (refund netting, status, excluded-account, half-open month); cannot disagree with the adjacent budget chip for the same scope; bespoke `getAll()` fold removed; `2052687d` (Batch 2). Provider is not currently UI-wired (dropped by the Calm-Capital redesign) — closed at the provider tier to hold the invariant. Device UI spot-check external |
 | MALI-051n | High | C | P3 | Code complete · Locally verified | durable parked_child_rows + drain; cursor never skips; `acf9ca99` (batch 1) |
 | MALI-052n | High | C | P3 | Code complete · Locally verified | outbox coalescing/re-basing `d6820285` (batch 2) + universal conflict policy/resolver for all 12 entities `de672bc0` (batch 3); live 2-device = external |
 | MALI-053n | High | C | P2 | Code complete · Locally verified | flush now covers child + smart-inbox + notif-log + sender-mapping outboxes; `374560ff` |
@@ -127,7 +127,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
 | P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **LOCALLY COMPLETE** (live/2-device pending) — all 6 batches committed: B1 051n (acf9ca99), B2 052n/023 (d6820285), B3 022/057n/052n revision-CAS+resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 (58614ad4/124fd83b), B5 072n/008 + 024 (96993c5e/74a77398), B6 closure docs. MALI-023 Closed-LV; all others CC-LV (external tail). Gamification single-authority overlap proof: no overlap (Edge active, RPC dormant) — see `PHASE_3_SYNC_CLOSURE.md` §2. |
-| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | Not started |
+| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — Batch 1 (semantics/period/currency contract, `71dc2534`); Batch 2 (047n/050n + provider-tier 018 + boundary-tier 028, `c4b6df97`/`2052687d`). Batches 3–5 (048n plan spend, 049n dashboard rings, 064n bills, 063n PDF, 074n card) not started. Full suite 1131; analyze 0 |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
 | P7 CI/test/arch/docs | 066n,067n,029,030,034,035,037,038,040,041,042,043,077n,036-limits,021-deadfile | Not started |
@@ -251,3 +251,75 @@ skip / 0 fail. Full suite green.
 - Live revision-CAS activation (MALI-022) remains blocked on migration 0068
   staging apply + real Postgres concurrency tests before `kServerRevisionCas` may
   be flipped.
+
+## Phase 4 Batch 2 delivered contracts (MALI-047n / 050n / 018-provider / 028-boundary)
+
+### Canonical aggregate APIs
+- No new repository methods or signatures. The two surfaces route through the
+  existing canonical aggregates (`expenseTotalBetween`, `incomeTotalBetween`,
+  `categoryBreakdown`, `currencyTotalsBetween`) — production UI always reads the
+  Drift-routed repository.
+- **Date boundary (MALI-028):** all seven canonical aggregate methods now use
+  half-open `[from, to)` (`occurred_at >= from AND occurred_at < to`) instead of
+  inclusive `BETWEEN`, applied once in the shared aggregate SQL. The boundary
+  instant belongs to the next window, never both. Boundary-safe for every
+  existing caller (dashboard/reports/budgets pass an inclusive last-instant `to`
+  — `now`, `end − 1ms/1s/1μs` — where no real row sits, so no live number
+  changes); the fix only bites for callers passing a clean period boundary. The
+  dormant Supabase summary tier keeps inclusive `BETWEEN` (flag-off, tracked
+  under MALI-063n) and is out of Batch-2 scope.
+- **Currency scope:** expressed through account scope (each account carries one
+  currency). The all-accounts case uses per-currency `currencyTotalsBetween` and
+  is never a cross-currency sum.
+
+### Transactions-header metric contract (MALI-047n)
+- `transactionsPeriodTotalProvider` → canonical **net expense**
+  (payment + withdrawal − refund), **confirmed-only**, over the COMPLETE dataset
+  for the visible **period × active-account** scope. Pagination-independent
+  (set-based Drift, not a page fold). Transfer/unknown excluded; refund never
+  counted as income; excluded-account policy applies only in the all-accounts
+  case. Single-currency (the active account fixes the currency); no active
+  account → base currency's own total via per-currency grouping. Free-text
+  search and the list kind/category filters do **not** change it — the header
+  claims the *period* expense, not the filtered subset. The amount is labelled
+  with the scope's own currency.
+- Not covered by this contract (unchanged, visible-list affordances, documented):
+  `pendingCount` and `transactionsCount` reflect the loaded/visible list, and the
+  confirm-all action operates on that list.
+
+### Home-category metric contract (MALI-050n)
+- `monthlyExpenseGroupsProvider` group totals come from canonical
+  `categoryBreakdown` over the half-open current month — same refund netting,
+  status contract, excluded-account policy and account/currency scope as the
+  budget chip beside them (which reuses the same canonical budget math), so a
+  category amount and its adjacent budget metric cannot disagree for the same
+  scope. Uncategorized rows are not shown as a group (consistent with the
+  Reports category ranking, which uses the same aggregate). `MonthlyCategoryGroup`
+  drops the unused per-group transactions list and carries the canonical `count`.
+- **UI-wiring status:** the provider is not currently rendered by any screen
+  (the Calm-Capital redesign, `88475da8`, dropped its consumer). It is closed at
+  the provider tier to hold the cross-surface invariant; re-wiring it to a Home
+  section is a UI decision outside Batch-2 scope.
+
+### Currency behaviour
+- Grouped by currency (via account scope or `currencyTotalsBetween`); a single
+  currency label is never attached to a multi-currency sum. No exchange-rate
+  conversion in this batch. Batch-1 `formatMoneyAmount` remains available for
+  exponent-correct display (the two headers still use `Formatters.amount`; the
+  scope currency is single so this is presentation-consistent).
+
+### Local verification (Batch 2)
+- `flutter analyze` clean (0 issues); full Flutter suite **1131** (baseline 1121
+  + 10 new). New tests: `financial_aggregate_boundary_test` (3 — half-open at
+  exact from/before-to/exactly-to, category half-open, currency isolation);
+  `financial_cross_surface_invariant_test` (7 — one-fixture agreement across
+  repo/header/breakdown/Home/budget; excluded account; multi-currency isolation;
+  501-row completeness; type matrix; empty; alias→stable key). Existing
+  `home_sections_providers_test`/`financial_totals_invariant_test`/
+  `exclude_from_totals_test`/`repository_test` remain green.
+- No schema, migration, backend, or capability change; `kServerRevisionCas`
+  stays **false**; migrations 0068–0070 remain undeployed.
+
+### Batch 2 external / device acceptance (still pending)
+- On-device spot-check that the Transactions header and (once/if re-wired) the
+  Home category groups render the canonical values with the scope currency.
