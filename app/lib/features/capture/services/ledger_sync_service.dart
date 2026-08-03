@@ -183,6 +183,10 @@ class LedgerSyncService implements LedgerPullAdapter {
 
     final payloadId = row['source_payload_id'] as String?;
     final serverUpdatedAt = row['updated_at'] as String?;
+    // MALI-022 / 0068 — the server revision (CAS base). Null when the server
+    // predates 0068 (the column is simply absent from the pulled row); stored as
+    // NULL locally, which the push treats as fail-safe (guarded, not blind).
+    final serverRevision = (row['revision'] as num?)?.toInt();
     final now = dateTimeToSql(DateTime.now().toUtc());
 
     final localId = await _findLocalId(serverId, payloadId);
@@ -281,6 +285,7 @@ class LedgerSyncService implements LedgerPullAdapter {
             server_id = ${sqlString(serverId)},
             synced_at = ${sqlString(now)},
             server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+            server_revision = ${sqlNullableNum(serverRevision)},
             sync_status = 'synced'
         WHERE id = ${sqlString(localId)};
       ''');
@@ -306,6 +311,7 @@ class LedgerSyncService implements LedgerPullAdapter {
       SET server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
           server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+          server_revision = ${sqlNullableNum(serverRevision)},
           sync_status = 'synced'
       WHERE id = ${sqlString(entity.id)};
     ''');

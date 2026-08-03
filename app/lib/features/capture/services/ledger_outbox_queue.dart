@@ -56,6 +56,21 @@ class LedgerOutboxQueue {
     final now = dateTimeToSql(DateTime.now().toUtc());
     final payload = _buildPayload(op, tx);
 
+    // MALI-022 / 0068 — attach the locally-cached server revision as the CAS
+    // base token (updates only; a delete tombstone applies unconditionally).
+    // Null (unknown revision) is left absent → the push uses the guarded
+    // server_updated_at compare, never a blind overwrite.
+    if (op != OutboxOperation.delete) {
+      final revRow = await _db
+          .customSelect(
+            'SELECT server_revision FROM transactions '
+            'WHERE id = ${sqlString(tx.id)} LIMIT 1;',
+          )
+          .getSingleOrNull();
+      final baseRevision = revRow?.readNullable<int>('server_revision');
+      if (baseRevision != null) payload['server_revision'] = baseRevision;
+    }
+
     await _db.transaction(() async {
       // MALI-052n: coalesce into any existing PENDING row for this transaction.
       final existing = await _db.customSelect(

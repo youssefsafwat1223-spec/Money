@@ -243,11 +243,30 @@ class PlanningPullService {
         return _PlanningPullOutcome.skipped;
       }
       await _updateLocal(entityType, localTable, localId, row);
+      await _applyServerRevision(localTable, serverId, row);
       return _PlanningPullOutcome.updated;
     }
 
     await _insertLocal(entityType, row);
+    await _applyServerRevision(localTable, serverId, row);
     return _PlanningPullOutcome.imported;
+  }
+
+  /// MALI-022 / 0068 — persist the pulled server revision (the CAS base) on the
+  /// just-written row. Centralised so every entity's insert/update path is
+  /// covered in one place. A null revision (server predates 0068) is left as-is,
+  /// so no extra write happens in the OFF/shipping state.
+  Future<void> _applyServerRevision(
+    String localTable,
+    String serverId,
+    Map<String, dynamic> row,
+  ) async {
+    final revision = (row['revision'] as num?)?.toInt();
+    if (revision == null) return;
+    await _db.customStatement(
+      'UPDATE $localTable SET server_revision = $revision '
+      'WHERE server_id = ${sqlString(serverId)};',
+    );
   }
 
   Future<bool> _processTombstone(
@@ -282,6 +301,7 @@ class PlanningPullService {
           sync_status = 'synced'
       WHERE id = ${sqlString(localId)};
     ''');
+    await _applyServerRevision(localTable, serverId, row);
     return true;
   }
 
@@ -477,6 +497,7 @@ class PlanningPullService {
       return _PlanningPullOutcome.conflict;
     }
     await _updateSettings(id, serverId, row);
+    await _applyServerRevision('user_settings', serverId, row);
     return _PlanningPullOutcome.updated;
   }
 

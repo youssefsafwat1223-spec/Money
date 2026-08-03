@@ -84,6 +84,42 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
   final defaultRpcCalls = <String>[];
 
   @override
+  Future<String?> fetchAccountUpdatedAt(String serverId) async {
+    for (final row in rowsByLocalId.values) {
+      if (row['id'] == serverId) return row['updated_at'] as String?;
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateAccountByServerId(
+    String serverId,
+    Map<String, dynamic> row,
+  ) async {
+    if (throwConflict) throw StateError('409 conflict');
+    upsertedRows.add(Map<String, dynamic>.from(row));
+    final entry = rowsByLocalId.entries
+        .firstWhere((item) => item.value['id'] == serverId);
+    final now = DateTime.now().toUtc().toIso8601String();
+    rowsByLocalId[entry.key] = {
+      ...entry.value,
+      ...row,
+      'id': serverId,
+      'updated_at': now,
+    };
+    return {'id': serverId, 'updated_at': now};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> casUpdateAccount(
+    String serverId,
+    int expectedRevision,
+    Map<String, dynamic> row,
+  ) async {
+    throw UnimplementedError('CAS is exercised by the dedicated CAS test');
+  }
+
+  @override
   Future<void> setDefaultAccount(String serverAccountId) async {
     // Mirrors the atomic server RPC: demote everyone, promote the target.
     defaultRpcCalls.add(serverAccountId);

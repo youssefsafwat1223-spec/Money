@@ -77,7 +77,8 @@ void main() {
           for (final p in interactiveConflictPolicies)
             p.entityType: (id) async => reEnqueued.add('${p.entityType}/$id'),
         },
-        baseFetcher: (table, serverId) async => 'current-server-ts',
+        baseFetcher: (table, serverId) async =>
+            const ConflictBase(updatedAt: 'current-server-ts', revision: 7),
       );
     });
     tearDown(() => db.close());

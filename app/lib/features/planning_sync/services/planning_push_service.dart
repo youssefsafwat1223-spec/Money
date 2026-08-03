@@ -3,9 +3,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
+import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import 'planning_outbox_queue.dart';
+
+/// Acknowledgement columns a guarded write reads back — includes the server
+/// `revision` only when the CAS capability (and thus 0068) is present.
+const String _ackCols =
+    kServerRevisionCas ? 'id, updated_at, revision' : 'id, updated_at';
 
 class PlanningPushResult {
   const PlanningPushResult({
@@ -46,6 +52,16 @@ abstract class PlanningRemoteSink {
     String serverId,
     Map<String, dynamic> row,
   );
+
+  /// MALI-022 / 0068 — atomic compare-and-set update. Updates the row only if
+  /// its server `revision` still equals [expectedRevision]; returns the new
+  /// id/updated_at/revision, or null when no row matched (a genuine conflict).
+  Future<Map<String, dynamic>?> casUpdateByServerId(
+    String table,
+    String serverId,
+    int expectedRevision,
+    Map<String, dynamic> row,
+  );
 }
 
 class SupabasePlanningRemoteSink implements PlanningRemoteSink {
@@ -82,8 +98,24 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
     return await _client
         .from(table)
         .upsert(row, onConflict: 'user_id,local_id')
-        .select('id, updated_at')
+        .select(_ackCols)
         .single();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> casUpdateByServerId(
+    String table,
+    String serverId,
+    int expectedRevision,
+    Map<String, dynamic> row,
+  ) async {
+    return await _client
+        .from(table)
+        .update(row)
+        .eq('id', serverId)
+        .eq('revision', expectedRevision)
+        .select(_ackCols)
+        .maybeSingle();
   }
 
   @override
@@ -106,7 +138,7 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
         .from(table)
         .update(row)
         .eq('id', serverId)
-        .select('id, updated_at')
+        .select(_ackCols)
         .single();
   }
 }
@@ -118,17 +150,24 @@ class PlanningPushService {
     required bool Function(String entityType) isEnabled,
     Future<String?> Function()? getAuthUserId,
     PlanningRemoteSink? remoteSink,
+    bool revisionCasEnabled = kServerRevisionCas,
   })  : _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
-        _remoteSink = remoteSink ?? const SupabasePlanningRemoteSink();
+        _remoteSink = remoteSink ?? const SupabasePlanningRemoteSink(),
+        _revisionCasEnabled = revisionCasEnabled;
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
   final bool Function(String entityType) _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final PlanningRemoteSink _remoteSink;
+
+  /// MALI-022 / 0068 — whether to use the atomic revision CAS. Defaults to the
+  /// [kServerRevisionCas] capability const (OFF until 0068 verified on staging);
+  /// injectable so the ON path is testable.
+  final bool _revisionCasEnabled;
 
   static const _entityTable = {
     PlanningOutboxQueue.budgetsEntityType: 'user_budgets',
@@ -238,15 +277,36 @@ class PlanningPushService {
       if (serverId == null) {
         final response = await _remoteSink.upsert(remoteTable, row);
         await _attachServerId(localTable, item.entityId,
-            response['id'] as String, response['updated_at'] as String?);
+            response['id'] as String, response['updated_at'] as String?,
+            serverRevision: response['revision'] as int?);
         await _queue.markSuccess(item.id);
         return _PlanningPushOutcome.pushed;
       }
 
-      // UPDATE: optimistic-concurrency guard (MALI-022). Only overwrite the
-      // remote row if it hasn't moved since the base version this edit was made
-      // against — otherwise flag a conflict WITHOUT clobbering the remote edit
-      // and WITHOUT discarding the local edit (mirrors the ledger, MALI-009).
+      // UPDATE. MALI-022 / 0068 — atomic compare-and-set when the capability is
+      // on AND a base revision is known: the server updates only if `revision`
+      // still matches; a zero-row result is a genuine conflict.
+      final expectedRevision = item.payloadJson['server_revision'] as int?;
+      if (_revisionCasEnabled && expectedRevision != null) {
+        final response = await _remoteSink.casUpdateByServerId(
+            remoteTable, serverId, expectedRevision, row);
+        if (response == null) {
+          await _markConflict(localTable, item.entityId);
+          await _queue.markSuccess(item.id);
+          return _PlanningPushOutcome.conflict;
+        }
+        await _attachServerId(localTable, item.entityId,
+            response['id'] as String, response['updated_at'] as String?,
+            serverRevision: response['revision'] as int?);
+        await _queue.markSuccess(item.id);
+        return _PlanningPushOutcome.pushed;
+      }
+
+      // Fail-safe guarded path (capability OFF, or revision unknown). Only
+      // overwrite the remote row if it hasn't moved since the base version this
+      // edit was made against — otherwise flag a conflict WITHOUT clobbering the
+      // remote edit and WITHOUT discarding the local edit (MALI-009). Never a
+      // blind overwrite.
       final base = item.payloadJson['server_updated_at'] as String?;
       if (base != null) {
         final current =
@@ -260,7 +320,8 @@ class PlanningPushService {
       final response =
           await _remoteSink.updateByServerId(remoteTable, serverId, row);
       await _attachServerId(localTable, item.entityId, response['id'] as String,
-          response['updated_at'] as String?);
+          response['updated_at'] as String?,
+          serverRevision: response['revision'] as int?);
       await _queue.markSuccess(item.id);
       return _PlanningPushOutcome.pushed;
     } catch (e) {
@@ -306,14 +367,16 @@ class PlanningPushService {
     String table,
     String localId,
     String serverId,
-    String? serverUpdatedAt,
-  ) async {
+    String? serverUpdatedAt, {
+    int? serverRevision,
+  }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       UPDATE $table
       SET server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
           server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+          ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
           sync_status = 'synced'
       WHERE id = ${sqlString(localId)};
     ''');

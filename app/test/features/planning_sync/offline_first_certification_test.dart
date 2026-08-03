@@ -64,6 +64,11 @@ class _FakeRemote implements PlanningRemoteSink {
   Future<Map<String, dynamic>> updateByServerId(
           String table, String serverId, Map<String, dynamic> row) =>
       upsert(table, row);
+
+  @override
+  Future<Map<String, dynamic>?> casUpdateByServerId(String table,
+          String serverId, int expectedRevision, Map<String, dynamic> row) =>
+      throw UnimplementedError('CAS is exercised by the dedicated CAS test');
 }
 
 Future<AppDatabase> _openDb() => AppDatabase.open(

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../core/sync/conflict_policy.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
@@ -82,20 +83,18 @@ class PlanningOutboxQueue {
   Future<bool> enqueueAccount(
     PlanningSyncOperation op,
     AccountEntity account,
-  ) async {
-    if (!_isSyncEnabled(accountsEntityType)) return false;
-    final userId = await _getAuthUserId();
-    if (userId == null) return false;
-
-    await _writeOutbox(
+  ) {
+    // Route through _enqueue (like every other parent entity) so the payload
+    // carries the server_updated_at + server_revision base tokens (MALI-022 /
+    // 0068). Previously accounts wrote the outbox directly with NO base token,
+    // so the push could only blindly overwrite the remote row.
+    return _enqueue(
       entityType: accountsEntityType,
       entityId: account.id,
-      opName: op.name,
+      op: op,
+      table: 'accounts',
       payload: _buildAccountPayload(op, account),
-      localUpdateSql: "UPDATE accounts SET sync_status = 'pending' "
-          'WHERE id = ${sqlString(account.id)};',
     );
-    return true;
   }
 
   Future<bool> enqueueBudget(
@@ -304,16 +303,28 @@ class PlanningOutboxQueue {
     // token, so the push can detect a concurrent remote edit and conflict
     // instead of blindly overwriting it (mirrors the ledger's server_updated_at
     // token, MALI-009). Null for a never-synced row → the push does a create.
+    // MALI-022 / 0068 — snapshot the CAS base revision alongside the timestamp
+    // token, so the push can do an atomic compare-and-set when the capability is
+    // on. Only revision-CAS entities have a `server_revision` column — append-
+    // only children (bill_payment/goal_contribution) do not, so we must not
+    // SELECT it for them. A null revision is carried as absent → the push falls
+    // back to the guarded timestamp compare, never a blind overwrite.
+    final readsRevision = kConflictPolicies[entityType]?.mechanism ==
+        ConflictMechanism.revisionCas;
+    final cols =
+        readsRevision ? 'server_updated_at, server_revision' : 'server_updated_at';
     final baseRow = await _db
         .customSelect(
-          'SELECT server_updated_at FROM $table '
-          'WHERE id = ${sqlString(entityId)} LIMIT 1;',
+          'SELECT $cols FROM $table WHERE id = ${sqlString(entityId)} LIMIT 1;',
         )
         .getSingleOrNull();
     final baseToken = baseRow?.readNullable<String>('server_updated_at');
+    final baseRevision =
+        readsRevision ? baseRow?.readNullable<int>('server_revision') : null;
     final enriched = <String, dynamic>{
       ...payload,
       if (baseToken != null) 'server_updated_at': baseToken,
+      if (baseRevision != null) 'server_revision': baseRevision,
     };
 
     await _writeOutbox(

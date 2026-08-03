@@ -9,6 +9,7 @@ import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
 import '../sync/conflict_policy.dart';
 import '../sync/conflict_resolver.dart';
+import '../sync/sync_capabilities.dart';
 import '../sync/sync_wakeup.dart';
 import '../session/app_session.dart';
 import '../session/unsynced_inventory.dart';
@@ -677,12 +678,20 @@ final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
     baseFetcher: SupabaseConfig.isConfigured
         ? (remoteTable, serverId) async {
             try {
+              // Read `revision` only when the CAS capability is on — the column
+              // exists on the server exactly when 0068 is deployed (same gate).
+              const cols =
+                  kServerRevisionCas ? 'updated_at, revision' : 'updated_at';
               final row = await supabase.Supabase.instance.client
                   .from(remoteTable)
-                  .select('updated_at')
+                  .select(cols)
                   .eq('id', serverId)
                   .maybeSingle();
-              return row?['updated_at'] as String?;
+              if (row == null) return null;
+              return ConflictBase(
+                updatedAt: row['updated_at'] as String?,
+                revision: (row['revision'] as num?)?.toInt(),
+              );
             } catch (_) {
               return null;
             }

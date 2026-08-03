@@ -3,10 +3,23 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
+import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import 'ledger_outbox_queue.dart';
 import 'ledger_sync_engine.dart';
+
+/// The acknowledgement columns a NON-CAS write (create/guarded update) reads
+/// back. Includes the server `revision` only when the capability const is on —
+/// the column exists on the server exactly when 0068 is deployed (same gate) —
+/// so an OFF build never selects a column that isn't there.
+const String _ackCols =
+    kServerRevisionCas ? 'id, updated_at, revision' : 'id, updated_at';
+
+/// The acknowledgement columns for the CAS branch. That branch runs only when
+/// the capability is enabled (⇒ 0068 is deployed ⇒ `revision` exists), so it
+/// always reads the revision back.
+const String _casAckCols = 'id, updated_at, revision';
 
 class LedgerPushResult {
   const LedgerPushResult({
@@ -29,11 +42,13 @@ class LedgerPushService implements LedgerPushAdapter {
     required bool Function() isPushEnabled,
     Future<String?> Function()? getAuthUserId,
     SupabaseClient Function()? getClient,
+    bool revisionCasEnabled = kServerRevisionCas,
   })  : _db = db,
         _queue = queue,
         _isPushEnabled = isPushEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
-        _getClient = getClient ?? _defaultGetClient;
+        _getClient = getClient ?? _defaultGetClient,
+        _revisionCasEnabled = revisionCasEnabled;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -51,6 +66,11 @@ class LedgerPushService implements LedgerPushAdapter {
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
   final SupabaseClient Function() _getClient;
+
+  /// MALI-022 / 0068 — whether to use the atomic revision CAS. Defaults to the
+  /// [kServerRevisionCas] capability const (OFF in production until 0068 is
+  /// verified on staging); injectable so the ON path is testable.
+  final bool _revisionCasEnabled;
 
   @override
   Future<LedgerPushResult> push() async {
@@ -127,7 +147,7 @@ class LedgerPushService implements LedgerPushAdapter {
             {...serverRow, 'client_request_id': localId},
             onConflict: 'user_id,client_request_id',
           )
-          .select('id, updated_at')
+          .select(_ackCols)
           .single();
 
       final serverId = response['id'] as String;
@@ -135,6 +155,7 @@ class LedgerPushService implements LedgerPushAdapter {
         item.transactionId,
         serverId,
         serverUpdatedAt: response['updated_at'] as String?,
+        serverRevision: response['revision'] as int?,
       );
       await _queue.markSuccess(item.id);
       return _PushOutcome.pushed;
@@ -172,8 +193,37 @@ class LedgerPushService implements LedgerPushAdapter {
     // never as creates, so their server source must be preserved.
     serverRow.remove('source');
 
-    // Conflict check: compare server updated_at with our last-known server_updated_at.
+    final expectedRevision = payload['server_revision'] as int?;
     try {
+      // MALI-022 / 0068 — atomic compare-and-set when the capability is on AND
+      // we have a base revision. The server updates only if `revision` still
+      // matches; a zero-row result is a genuine conflict, not a lost update.
+      if (_revisionCasEnabled && expectedRevision != null) {
+        final updated = await _getClient()
+            .from('user_transactions')
+            .update(serverRow)
+            .eq('id', serverId)
+            .eq('revision', expectedRevision)
+            .select(_casAckCols)
+            .maybeSingle();
+        if (updated == null) {
+          // 0 rows matched → the server moved past our base revision.
+          await _markConflict(item.transactionId);
+          await _queue.markSuccess(item.id);
+          return _PushOutcome.conflict;
+        }
+        await _attachServerId(
+          item.transactionId,
+          serverId,
+          serverUpdatedAt: updated['updated_at'] as String?,
+          serverRevision: updated['revision'] as int?,
+        );
+        await _queue.markSuccess(item.id);
+        return _PushOutcome.pushed;
+      }
+
+      // Fail-safe guarded path (capability OFF, or revision unknown): compare
+      // server updated_at with our last-known base. NEVER a blind overwrite.
       final existing = await _getClient()
           .from('user_transactions')
           .select('updated_at')
@@ -265,6 +315,7 @@ class LedgerPushService implements LedgerPushAdapter {
     String transactionId,
     String serverId, {
     String? serverUpdatedAt,
+    int? serverRevision,
   }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
@@ -272,6 +323,7 @@ class LedgerPushService implements LedgerPushAdapter {
       SET server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
           ${serverUpdatedAt != null ? 'server_updated_at = ${sqlString(serverUpdatedAt)},' : ''}
+          ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
           sync_status = 'synced'
       WHERE id = ${sqlString(transactionId)};
     ''');

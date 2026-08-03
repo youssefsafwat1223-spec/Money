@@ -167,6 +167,8 @@ class AccountsPullService {
 
     final localId = await _findLocalId(serverId, row['local_id'] as String?);
     final serverUpdatedAt = row['updated_at'] as String?;
+    // MALI-022 / 0068 — server revision (CAS base); null when 0068 is absent.
+    final serverRevision = (row['revision'] as num?)?.toInt();
     final now = dateTimeToSql(DateTime.now().toUtc());
 
     if (localId != null) {
@@ -214,6 +216,7 @@ class AccountsPullService {
             server_id = ${sqlString(serverId)},
             synced_at = ${sqlString(now)},
             server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+            server_revision = ${sqlNullableNum(serverRevision)},
             sync_status = 'synced',
             deleted_at = NULL
         WHERE id = ${sqlString(localId)};
@@ -228,7 +231,8 @@ class AccountsPullService {
         bank_account_number, credit_limit, available_credit,
         payment_due_day, wallet_provider, exclude_from_totals, metadata,
         is_default, sort_order, created_at, updated_at,
-        server_id, synced_at, server_updated_at, sync_status, deleted_at
+        server_id, synced_at, server_updated_at, server_revision, sync_status,
+        deleted_at
       ) VALUES (
         ${sqlString(importedId)},
         ${sqlString(row['name'] as String? ?? 'Account')},
@@ -250,6 +254,7 @@ class AccountsPullService {
         ${sqlString(serverId)},
         ${sqlString(now)},
         ${sqlNullableString(serverUpdatedAt)},
+        ${sqlNullableNum(serverRevision)},
         'synced',
         NULL
       );
@@ -283,6 +288,7 @@ class AccountsPullService {
       SET deleted_at = ${sqlString(deletedAt)},
           server_id = ${sqlString(serverId)},
           server_updated_at = ${sqlNullableString(row['updated_at'] as String?)},
+          server_revision = ${sqlNullableNum((row['revision'] as num?)?.toInt())},
           synced_at = ${sqlString(now)},
           sync_status = 'synced',
           is_default = 0

@@ -21,10 +21,18 @@ class SyncConflict {
 /// the typed repository + queue), so it is injected per entity by DI.
 typedef ConflictReEnqueue = Future<void> Function(String localId);
 
-/// Fetches the current server base token (`updated_at`) for a known server row,
-/// used to rebase a kept-local edit. Injected so the resolver stays free of any
-/// direct network dependency (and is trivially fakeable in tests).
-typedef ConflictBaseFetcher = Future<String?> Function(
+/// The current server base for a row: the `updated_at` token and, when the CAS
+/// capability is active (0068 present), the server `revision`. Used to rebase a
+/// kept-local edit so its next push cleanly wins.
+class ConflictBase {
+  const ConflictBase({this.updatedAt, this.revision});
+  final String? updatedAt;
+  final int? revision;
+}
+
+/// Fetches the current [ConflictBase] for a known server row. Injected so the
+/// resolver stays free of any direct network dependency (and is fakeable).
+typedef ConflictBaseFetcher = Future<ConflictBase?> Function(
   String remoteTable,
   String serverId,
 );
@@ -95,11 +103,21 @@ class UniversalConflictResolver {
     if (serverId != null && _baseFetcher != null) {
       final current = await _baseFetcher(policy.remoteTable, serverId);
       if (current != null) {
-        await _db.customStatement(
-          'UPDATE ${policy.localTable} '
-          'SET server_updated_at = ${sqlString(current)} '
-          'WHERE id = ${sqlString(localId)};',
-        );
+        final sets = <String>[];
+        if (current.updatedAt != null) {
+          sets.add('server_updated_at = ${sqlString(current.updatedAt!)}');
+        }
+        // Rebase the CAS base revision too (MALI-022 / 0068) so the re-enqueued
+        // update's compare-and-set matches the current server row.
+        if (current.revision != null) {
+          sets.add('server_revision = ${current.revision}');
+        }
+        if (sets.isNotEmpty) {
+          await _db.customStatement(
+            'UPDATE ${policy.localTable} SET ${sets.join(', ')} '
+            'WHERE id = ${sqlString(localId)};',
+          );
+        }
       }
     }
 

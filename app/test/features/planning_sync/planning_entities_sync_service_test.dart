@@ -120,6 +120,16 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
     // Keyed by (user_id, local_id) in the fake store — upsert is equivalent.
     return upsert(table, row);
   }
+
+  @override
+  Future<Map<String, dynamic>?> casUpdateByServerId(
+    String table,
+    String serverId,
+    int expectedRevision,
+    Map<String, dynamic> row,
+  ) {
+    throw UnimplementedError('CAS is exercised by the dedicated CAS test');
+  }
 }
 
 Future<AppDatabase> _openDb() {

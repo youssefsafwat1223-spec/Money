@@ -1097,6 +1097,25 @@ class AppDatabase extends GeneratedDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_transactions_sync_status ON transactions(sync_status);',
     );
+    // MALI-022 / 0068 — the locally-cached server `revision` (the CAS base
+    // token). Additive + nullable: NULL means "revision unknown for this row"
+    // (never synced, or synced before the server had 0068), which the push
+    // treats as fail-safe — it uses the guarded server_updated_at compare rather
+    // than a blind overwrite. Populated by pull + push acknowledgements once the
+    // server reports a revision. Dormant until kServerRevisionCas is enabled.
+    for (final table in const [
+      'transactions',
+      'accounts',
+      'budgets',
+      'subscriptions',
+      'goals',
+      'plans',
+      'cards',
+      'categories',
+      'user_settings',
+    ]) {
+      await _ensureColumn(table, 'server_revision', 'INTEGER NULL');
+    }
     // v16: Phase D — local outbox for push sync.
     await customStatement('''
       CREATE TABLE IF NOT EXISTS ledger_sync_outbox (

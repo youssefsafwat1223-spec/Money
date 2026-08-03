@@ -3,9 +3,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
+import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import 'planning_outbox_queue.dart';
+
+/// Acknowledgement columns a non-CAS account write reads back — includes the
+/// server `revision` only when the CAS capability const (and thus 0068) is on.
+const String _ackCols =
+    kServerRevisionCas ? 'id, updated_at, revision' : 'id, updated_at';
+
+/// CAS-branch acknowledgement columns — that branch runs only when the
+/// capability is enabled (⇒ 0068 deployed ⇒ `revision` exists).
+const String _casAckCols = 'id, updated_at, revision';
 
 class AccountsPushResult {
   const AccountsPushResult({
@@ -25,6 +35,26 @@ abstract class AccountsRemoteSink {
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row);
   Future<Map<String, dynamic>?> findAccountByLocalId(String userId, String id);
   Future<void> tombstoneAccount(String serverId);
+
+  /// MALI-022 — the current server `updated_at` for a known account, used as the
+  /// optimistic-concurrency compare on a guarded update. Null if the row is gone.
+  Future<String?> fetchAccountUpdatedAt(String serverId);
+
+  /// MALI-022 — targeted update of a known account (used only after the base
+  /// guard passes), returning the new id/updated_at(/revision).
+  Future<Map<String, dynamic>> updateAccountByServerId(
+    String serverId,
+    Map<String, dynamic> row,
+  );
+
+  /// MALI-022 / 0068 — atomic compare-and-set update. Updates only if the
+  /// account's server `revision` still equals [expectedRevision]; returns the
+  /// new id/updated_at/revision, or null when no row matched (a conflict).
+  Future<Map<String, dynamic>?> casUpdateAccount(
+    String serverId,
+    int expectedRevision,
+    Map<String, dynamic> row,
+  );
 
   /// Atomically makes [serverAccountId] the user's only default via the
   /// `set_default_account` RPC (MALI-015) — the server demotes the previous
@@ -63,8 +93,46 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
     return await _client
         .from('user_accounts')
         .upsert(row, onConflict: 'user_id,local_id')
-        .select('id, updated_at')
+        .select(_ackCols)
         .single();
+  }
+
+  @override
+  Future<String?> fetchAccountUpdatedAt(String serverId) async {
+    final row = await _client
+        .from('user_accounts')
+        .select('updated_at')
+        .eq('id', serverId)
+        .maybeSingle();
+    return row?['updated_at'] as String?;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateAccountByServerId(
+    String serverId,
+    Map<String, dynamic> row,
+  ) async {
+    return await _client
+        .from('user_accounts')
+        .update(row)
+        .eq('id', serverId)
+        .select(_ackCols)
+        .single();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> casUpdateAccount(
+    String serverId,
+    int expectedRevision,
+    Map<String, dynamic> row,
+  ) async {
+    return await _client
+        .from('user_accounts')
+        .update(row)
+        .eq('id', serverId)
+        .eq('revision', expectedRevision)
+        .select(_casAckCols)
+        .maybeSingle();
   }
 
   @override
@@ -83,17 +151,24 @@ class AccountsPushService {
     required bool Function() isEnabled,
     Future<String?> Function()? getAuthUserId,
     AccountsRemoteSink? remoteSink,
+    bool revisionCasEnabled = kServerRevisionCas,
   })  : _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
-        _remoteSink = remoteSink ?? const SupabaseAccountsRemoteSink();
+        _remoteSink = remoteSink ?? const SupabaseAccountsRemoteSink(),
+        _revisionCasEnabled = revisionCasEnabled;
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
   final bool Function() _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final AccountsRemoteSink _remoteSink;
+
+  /// MALI-022 / 0068 — whether to use the atomic revision CAS. Defaults to the
+  /// [kServerRevisionCas] capability const (OFF until 0068 verified on staging);
+  /// injectable so the ON path is testable.
+  final bool _revisionCasEnabled;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -170,22 +245,58 @@ class AccountsPushService {
   ) async {
     try {
       final row = _toServerRow(item.payloadJson, userId);
-      final response = await _remoteSink.upsertAccount(row);
-      final serverId = response['id'] as String;
-      // Default flag travels via the atomic RPC, never the upsert (MALI-015):
-      // pushing the NEW default's row before the old default's demotion used
-      // to violate the one-active-default unique index and drop the switch as
-      // a "conflict". The RPC demotes and promotes in one server transaction,
-      // so item ordering no longer matters. RPC failure rethrows → the outbox
-      // item stays and the whole (idempotent) step retries.
+      final existingServerId = await _serverIdForLocalAccount(item.entityId);
+
+      // CREATE (never synced): upsert to establish the server row.
+      if (existingServerId == null) {
+        final response = await _remoteSink.upsertAccount(row);
+        final serverId = response['id'] as String;
+        if (item.payloadJson['is_default'] == true) {
+          await _remoteSink.setDefaultAccount(serverId);
+        }
+        await _attachServerId(item.entityId, serverId,
+            response['updated_at'] as String?,
+            serverRevision: response['revision'] as int?);
+        await _queue.markSuccess(item.id);
+        return _AccountsPushOutcome.pushed;
+      }
+
+      // UPDATE — guarded, NEVER a blind upsert (the previous code upserted
+      // unconditionally, silently clobbering a concurrent remote edit).
+      final serverId = existingServerId;
+      Map<String, dynamic>? response;
+      final expectedRevision = item.payloadJson['server_revision'] as int?;
+      if (_revisionCasEnabled && expectedRevision != null) {
+        // MALI-022 / 0068 — atomic compare-and-set; 0 rows → genuine conflict.
+        response =
+            await _remoteSink.casUpdateAccount(serverId, expectedRevision, row);
+        if (response == null) {
+          await _markConflict(item.entityId);
+          await _queue.markSuccess(item.id);
+          return _AccountsPushOutcome.conflict;
+        }
+      } else {
+        // Fail-safe guarded path (capability OFF, or revision unknown): compare
+        // the server's updated_at against our base before writing.
+        final base = item.payloadJson['server_updated_at'] as String?;
+        if (base != null) {
+          final current = await _remoteSink.fetchAccountUpdatedAt(serverId);
+          if (current != null && current != base) {
+            await _markConflict(item.entityId);
+            await _queue.markSuccess(item.id);
+            return _AccountsPushOutcome.conflict;
+          }
+        }
+        response = await _remoteSink.updateAccountByServerId(serverId, row);
+      }
+
+      // Default flag travels via the atomic RPC, never the write row (MALI-015).
       if (item.payloadJson['is_default'] == true) {
         await _remoteSink.setDefaultAccount(serverId);
       }
-      await _attachServerId(
-        item.entityId,
-        serverId,
-        response['updated_at'] as String?,
-      );
+      await _attachServerId(item.entityId, serverId,
+          response['updated_at'] as String?,
+          serverRevision: response['revision'] as int?);
       await _queue.markSuccess(item.id);
       return _AccountsPushOutcome.pushed;
     } catch (e) {
@@ -225,14 +336,16 @@ class AccountsPushService {
   Future<void> _attachServerId(
     String localId,
     String serverId,
-    String? serverUpdatedAt,
-  ) async {
+    String? serverUpdatedAt, {
+    int? serverRevision,
+  }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       UPDATE accounts
       SET server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
           server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+          ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
           sync_status = 'synced'
       WHERE id = ${sqlString(localId)};
     ''');
