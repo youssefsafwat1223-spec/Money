@@ -6,6 +6,7 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/supabase_transaction_repository.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import 'ledger_payload.dart';
 
 enum OutboxOperation { create, update, delete }
 
@@ -270,6 +271,16 @@ class LedgerOutboxQueue {
       // change was made against. The push conflict check compares it with the
       // live row before updating — omitted, the check could never fire.
       'server_updated_at': tx.serverUpdatedAt?.toUtc().toIso8601String(),
+      // MALI-056n — the explicit, versioned canonical payload. These preserve
+      // the EXACT type/source/direction through the server round-trip (the
+      // coarse server columns cannot). The legacy 'type' above is kept for
+      // downgrade safety (an older build ignores these and reads 'type').
+      'payload_version': kLedgerPayloadVersion,
+      'canonical_type': tx.type.name,
+      'canonical_source': tx.source.name,
+      // Null direction is carried as absent → the pull derives it from the
+      // canonical type (lossless for income/refund/payment/withdrawal).
+      'canonical_direction': tx.direction?.name,
     };
 
     // Include source only for create operations.

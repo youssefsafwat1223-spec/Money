@@ -11,6 +11,7 @@ import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import 'ledger_payload.dart';
 
 class LedgerSyncResult {
   const LedgerSyncResult({
@@ -258,8 +259,21 @@ class LedgerSyncService implements LedgerPullAdapter {
       final occurredAt = row['occurred_at'] as String?;
       final localCategoryId =
           await _localCategoryIdForKey(row['category_id'] as String?);
-      final mappedType =
-          _mapType(row['transaction_type'] as String? ?? 'unknown');
+      // MALI-056n — converge to the remote canonical type/source/direction, not
+      // a coarse approximation (symmetric with the push).
+      final metadata = row['metadata'];
+      final mappedType = LedgerPayloadCodec.typeFromPull(
+        canonicalType: _canonicalMeta(metadata, 'canonical_type'),
+        serverTransactionType: row['transaction_type'] as String? ?? 'unknown',
+      );
+      final mappedSource = LedgerPayloadCodec.sourceFromPull(
+        canonicalSource: _canonicalMeta(metadata, 'canonical_source'),
+        serverSource: row['source'] as String? ?? 'unknown',
+      );
+      final mappedDirection = LedgerPayloadCodec.directionFromPull(
+        canonicalDirection: _canonicalMeta(metadata, 'canonical_direction'),
+        type: mappedType,
+      );
       final serverStatus = row['status'] as String?;
       final mappedStatus = switch (serverStatus) {
         'pending' => 'pending',
@@ -273,6 +287,8 @@ class LedgerSyncService implements LedgerPullAdapter {
             raw_merchant = ${sqlNullableString(row['merchant'] as String?)},
             note = ${sqlNullableString(row['description'] as String?)},
             type = ${sqlString(mappedType.name)},
+            source = ${sqlString(mappedSource.name)},
+            direction = ${sqlString(mappedDirection.name)},
             status = ${sqlString(mappedStatus)},
             ${occurredAt != null ? 'occurred_at = ${sqlString(dateTimeToSql(DateTime.tryParse(occurredAt)?.toUtc() ?? DateTime.now().toUtc()))},' : ''}
             category_id = ${sqlNullableString(localCategoryId)},
@@ -387,14 +403,30 @@ class LedgerSyncService implements LedgerPullAdapter {
     if (amount == null || currency == null || occurredAt == null) return null;
 
     final now = DateTime.now().toUtc();
+    // MALI-056n — recover the EXACT client type/source/direction from the
+    // canonical metadata (authoritative); fall back to the documented coarse
+    // rule for older rows. Never silently turns an unknown/future type into
+    // payment.
+    final metadata = row['metadata'];
+    final canonicalType = LedgerPayloadCodec.typeFromPull(
+      canonicalType: _canonicalMeta(metadata, 'canonical_type'),
+      serverTransactionType: row['transaction_type'] as String? ?? 'unknown',
+    );
     return TransactionEntity(
       id: IdGenerator.next(),
       amount: amount,
       currency: currency,
       rawMerchant: row['merchant'] as String?,
       note: row['description'] as String?,
-      type: _mapType(row['transaction_type'] as String? ?? 'unknown'),
-      source: _mapSource(row['source'] as String? ?? 'unknown'),
+      type: canonicalType,
+      source: LedgerPayloadCodec.sourceFromPull(
+        canonicalSource: _canonicalMeta(metadata, 'canonical_source'),
+        serverSource: row['source'] as String? ?? 'unknown',
+      ),
+      direction: LedgerPayloadCodec.directionFromPull(
+        canonicalDirection: _canonicalMeta(metadata, 'canonical_direction'),
+        type: canonicalType,
+      ),
       accountId: accountId,
       // Card linkage lives in metadata.last4 on the server (no dedicated
       // column); restore it so pulled transactions stay linked to their card.
@@ -471,22 +503,9 @@ class LedgerSyncService implements LedgerPullAdapter {
     return null;
   }
 
-  TransactionTypeEntity _mapType(String serverType) => switch (serverType) {
-        'income' => TransactionTypeEntity.income,
-        'expense' => TransactionTypeEntity.payment,
-        'transfer' => TransactionTypeEntity.transfer,
-        'refund' => TransactionTypeEntity.refund,
-        _ => TransactionTypeEntity.unknown,
-      };
-
-  TransactionSourceEntity _mapSource(String serverSource) =>
-      switch (serverSource) {
-        'ios_shortcut' ||
-        'android_sms' ||
-        'share_extension' =>
-          TransactionSourceEntity.bank,
-        _ => TransactionSourceEntity.unknown,
-      };
+  /// MALI-056n — read a canonical string from the server `metadata` JSONB.
+  String? _canonicalMeta(dynamic metadata, String key) =>
+      metadata is Map ? metadata[key] as String? : null;
 }
 
 enum _RowOutcome { imported, updated, conflict, skipped }

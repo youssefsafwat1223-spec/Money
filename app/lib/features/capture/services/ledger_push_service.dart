@@ -7,6 +7,7 @@ import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import 'ledger_outbox_queue.dart';
+import 'ledger_payload.dart';
 import 'ledger_sync_engine.dart';
 
 /// The acknowledgement columns a NON-CAS write (create/guarded update) reads
@@ -121,6 +122,19 @@ class LedgerPushService implements LedgerPushAdapter {
 
   Future<_PushOutcome> _processItem(OutboxItem item, String userId) async {
     final payload = item.payloadJson;
+
+    // MALI-056n — a payload written by a NEWER app version (after a downgrade)
+    // must not be reinterpreted by this build; dead-letter it as an unsupported
+    // schema so a later compatible upgrade can re-arm and apply it correctly.
+    final version = (payload['payload_version'] as num?)?.toInt() ?? 1;
+    if (version > kLedgerPayloadVersion) {
+      await _queue.markFailed(
+        item.id,
+        'unsupported ledger payload version $version',
+        OutboxFailureClass.unsupportedSchema,
+      );
+      return _PushOutcome.abandoned;
+    }
 
     switch (item.operation) {
       case OutboxOperation.create:
@@ -349,25 +363,37 @@ class LedgerPushService implements LedgerPushAdapter {
     String userId,
   ) async {
     final legacyType = payload['type'] as String? ?? 'debit';
+    // MALI-056n — prefer the versioned canonical type/direction when present, so
+    // withdrawal/payment/unknown are mapped explicitly (not collapsed via the
+    // lossy legacy debit/credit token). Old queued rows without a version fall
+    // back to the legacy mapping below.
+    final version = (payload['payload_version'] as num?)?.toInt() ?? 1;
+    final canonicalType = payload['canonical_type'] as String?;
+    final useCanonical = version >= 2 && canonicalType != null;
     final row = <String, dynamic>{
       'user_id': userId,
       'amount': payload['amount'],
       'currency': payload['currency'],
-      'direction': switch (legacyType) {
-        'credit' => 'credit',
-        // A refund is money coming back — its direction is credit even
-        // though it is not income (MALI-010).
-        'refund' => 'credit',
-        'debit' => 'debit',
-        _ => 'unknown',
-      },
-      'transaction_type': switch (legacyType) {
-        'credit' => 'income',
-        'transfer' => 'transfer',
-        'refund' => 'refund',
-        'debit' => 'expense',
-        _ => 'unknown',
-      },
+      'direction': useCanonical
+          ? LedgerPayloadCodec.serverDirectionFor(
+              canonicalType, payload['canonical_direction'] as String?)
+          : switch (legacyType) {
+              'credit' => 'credit',
+              // A refund is money coming back — its direction is credit even
+              // though it is not income (MALI-010).
+              'refund' => 'credit',
+              'debit' => 'debit',
+              _ => 'unknown',
+            },
+      'transaction_type': useCanonical
+          ? LedgerPayloadCodec.serverTransactionTypeFor(canonicalType)
+          : switch (legacyType) {
+              'credit' => 'income',
+              'transfer' => 'transfer',
+              'refund' => 'refund',
+              'debit' => 'expense',
+              _ => 'unknown',
+            },
       // source is present for create operations; absent for update operations.
       // The fallback 'manual' is only reached when an update is redirected to
       // a create (_pushUpdate → _pushCreate) because the row is not on the
@@ -432,6 +458,15 @@ class LedgerPushService implements LedgerPushAdapter {
     }
     if (payload['source'] != null) {
       metadata['transaction_source'] = payload['source'];
+    }
+    // MALI-056n — round-trip the EXACT client type/source/direction through
+    // metadata (the coarse server columns cannot represent them), so a second
+    // device recovers the precise meaning instead of a collapsed approximation.
+    if (useCanonical) {
+      metadata['payload_version'] = version;
+      metadata['canonical_type'] = canonicalType;
+      metadata['canonical_source'] = payload['canonical_source'];
+      metadata['canonical_direction'] = payload['canonical_direction'];
     }
     if (metadata.isNotEmpty) row['metadata'] = metadata;
     return row;
