@@ -71,6 +71,13 @@ class PlanningOutboxQueue {
   static const String goalContributionsEntityType = 'goal_contribution';
   static const String planLinksEntityType = 'plan_transaction_link';
 
+  /// MALI-055n — a dedicated default-account command (NOT an account field
+  /// mutation). It carries only the target account + an operation id, so a
+  /// default switch never rewrites unrelated account fields. Written under a
+  /// singleton entity id so successive switches coalesce to the latest target.
+  static const String accountDefaultCommandType = 'account_default_command';
+  static const String _accountDefaultCommandKey = '__current__';
+
   /// معرّف محلي ثابت للإعدادات (singleton) — نفسه على كل الأجهزة، فيُصبح صف
   /// user_settings واحدًا لكل مستخدم على الخادم (يلتقي عبر الأجهزة).
   static const String settingsLocalId = 'user_settings';
@@ -95,6 +102,32 @@ class PlanningOutboxQueue {
       table: 'accounts',
       payload: _buildAccountPayload(op, account),
     );
+  }
+
+  /// MALI-055n — queue the single default-account command. It rewrites NO
+  /// account fields; the push resolves it to the atomic `set_default_account`
+  /// server RPC (which demotes the old default + promotes the target in one
+  /// transaction). [operationId] gives the command a stable identity for
+  /// idempotent replay. Written under a singleton key so switching A→B→C
+  /// coalesces to a single command for the latest target.
+  Future<bool> enqueueAccountDefault(
+    String targetLocalId,
+    String operationId,
+  ) async {
+    if (!_isSyncEnabled(accountsEntityType)) return false;
+    if (await _getAuthUserId() == null) return false;
+    await _writeOutbox(
+      entityType: accountDefaultCommandType,
+      entityId: _accountDefaultCommandKey,
+      opName: PlanningSyncOperation.update.name,
+      payload: {
+        'target_local_id': targetLocalId,
+        'operation_id': operationId,
+      },
+      // No local row to flag — the caller has already set is_default locally.
+      localUpdateSql: 'UPDATE accounts SET id = id WHERE 1 = 0;',
+    );
+    return true;
   }
 
   Future<bool> enqueueBudget(

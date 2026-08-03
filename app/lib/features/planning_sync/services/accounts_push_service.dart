@@ -184,16 +184,16 @@ class AccountsPushService {
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPushResult();
 
-    final items = await _queue.pendingItems(
-      entityType: PlanningOutboxQueue.accountsEntityType,
-    );
-    if (items.isEmpty) return const AccountsPushResult();
-
     int pushed = 0;
     int conflicts = 0;
     int failed = 0;
     int abandoned = 0;
 
+    // Field syncs FIRST, so a default command can resolve its target's server id
+    // (a freshly-created default account is established before the command runs).
+    final items = await _queue.pendingItems(
+      entityType: PlanningOutboxQueue.accountsEntityType,
+    );
     for (final item in items) {
       try {
         final outcome = await _processItem(item, userId);
@@ -209,6 +209,34 @@ class AccountsPushService {
         failed++;
         await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
         if (kDebugMode) debugPrint('[AccountsPush] item error: $e');
+      }
+    }
+
+    // MALI-055n — dedicated default-account commands. Each resolves to the atomic
+    // set_default_account RPC; it rewrites no account fields. Idempotent on
+    // retry. A target not yet synced defers (missingDependency) for a later pass.
+    final commands = await _queue.pendingItems(
+      entityType: PlanningOutboxQueue.accountDefaultCommandType,
+    );
+    for (final item in commands) {
+      try {
+        final targetLocalId = item.payloadJson['target_local_id'] as String?;
+        final serverId = targetLocalId == null
+            ? null
+            : await _serverIdForLocalAccount(targetLocalId);
+        if (serverId == null) {
+          await _queue.markFailed(item.id, 'default target not yet synced',
+              OutboxFailureClass.missingDependency);
+          failed++;
+          continue;
+        }
+        await _remoteSink.setDefaultAccount(serverId);
+        await _queue.markSuccess(item.id);
+        pushed++;
+      } catch (e) {
+        failed++;
+        await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
+        if (kDebugMode) debugPrint('[AccountsPush] default command error: $e');
       }
     }
 
@@ -247,13 +275,12 @@ class AccountsPushService {
       final row = _toServerRow(item.payloadJson, userId);
       final existingServerId = await _serverIdForLocalAccount(item.entityId);
 
-      // CREATE (never synced): upsert to establish the server row.
+      // CREATE (never synced): upsert to establish the server row. The default
+      // flag is NOT applied here (MALI-055n) — it travels via the dedicated
+      // default command, which create() enqueues alongside this row.
       if (existingServerId == null) {
         final response = await _remoteSink.upsertAccount(row);
         final serverId = response['id'] as String;
-        if (item.payloadJson['is_default'] == true) {
-          await _remoteSink.setDefaultAccount(serverId);
-        }
         await _attachServerId(item.entityId, serverId,
             response['updated_at'] as String?,
             serverRevision: response['revision'] as int?);
@@ -290,10 +317,8 @@ class AccountsPushService {
         response = await _remoteSink.updateAccountByServerId(serverId, row);
       }
 
-      // Default flag travels via the atomic RPC, never the write row (MALI-015).
-      if (item.payloadJson['is_default'] == true) {
-        await _remoteSink.setDefaultAccount(serverId);
-      }
+      // The default flag is NOT applied on a field update (MALI-055n) — default
+      // changes go exclusively through the dedicated default command.
       await _attachServerId(item.entityId, serverId,
           response['updated_at'] as String?,
           serverRevision: response['revision'] as int?);

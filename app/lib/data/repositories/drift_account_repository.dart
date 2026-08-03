@@ -110,8 +110,6 @@ class DriftAccountRepository implements AccountRepository {
       final now = DateTime.now().toUtc();
       final isFirst = (await _activeAccountCount()) == 0;
       final makeDefault = account.isDefault || isFirst;
-      final previousDefaults =
-          makeDefault ? await _defaultAccounts() : <AccountEntity>[];
       if (makeDefault) {
         await _db.customStatement(
           'UPDATE accounts SET is_default = 0 WHERE deleted_at IS NULL;',
@@ -146,17 +144,14 @@ class DriftAccountRepository implements AccountRepository {
         ],
       );
       final saved = await getById(id);
-      for (final previous in previousDefaults) {
-        final updated = await getById(previous.id);
-        if (updated != null) {
-          await _outboxQueue?.enqueueAccount(
-            PlanningSyncOperation.update,
-            updated,
-          );
-        }
-      }
       if (saved != null) {
         await _outboxQueue?.enqueueAccount(PlanningSyncOperation.create, saved);
+        // MALI-055n — the default travels via the dedicated command (which the
+        // push resolves to the atomic RPC that demotes the previous default),
+        // NOT by rewriting every previously-default account.
+        if (makeDefault) {
+          await _outboxQueue?.enqueueAccountDefault(id, IdGenerator.next());
+        }
       }
       return saved!;
     });
@@ -222,14 +217,17 @@ class DriftAccountRepository implements AccountRepository {
           '(SELECT id FROM accounts WHERE deleted_at IS NULL '
           'ORDER BY sort_order ASC LIMIT 1);',
         );
-        // The promoted successor must reach the server too (MALI-015):
-        // without this enqueue a fresh device pulled no default at all.
+        // MALI-055n — promote the successor server-side via the dedicated
+        // command (atomic RPC). A guarded update of the SUCCESSOR ONLY (not
+        // every account) guarantees it exists server-side so the command can
+        // resolve its id; it is a normal guarded write (Batch 3C), so it flags a
+        // conflict rather than clobbering a concurrent remote edit.
         final successor = await getDefault();
         if (successor != null) {
           await _outboxQueue?.enqueueAccount(
-            PlanningSyncOperation.update,
-            successor,
-          );
+              PlanningSyncOperation.update, successor);
+          await _outboxQueue?.enqueueAccountDefault(
+              successor.id, IdGenerator.next());
         }
       }
       await _outboxQueue?.enqueueAccount(PlanningSyncOperation.delete, account);
@@ -246,12 +244,11 @@ class DriftAccountRepository implements AccountRepository {
         'UPDATE accounts SET is_default = 1 WHERE id = ? AND deleted_at IS NULL;',
         variables: [Variable.withString(id)],
       );
-      for (final account in await getAll()) {
-        await _outboxQueue?.enqueueAccount(
-          PlanningSyncOperation.update,
-          account,
-        );
-      }
+      // MALI-055n — one dedicated command, NOT a rewrite of every account. The
+      // server RPC demotes the old default + promotes the target atomically, so
+      // a stale device can never roll back unrelated fields (name/type/currency)
+      // of the accounts it did not touch.
+      await _outboxQueue?.enqueueAccountDefault(id, IdGenerator.next());
     });
   }
 
@@ -262,14 +259,5 @@ class DriftAccountRepository implements AccountRepository {
         )
         .getSingle();
     return row.read<int>('total');
-  }
-
-  Future<List<AccountEntity>> _defaultAccounts() async {
-    final rows = await _db
-        .customSelect(
-          'SELECT * FROM accounts WHERE deleted_at IS NULL AND is_default = 1;',
-        )
-        .get();
-    return rows.map(accountFromRow).toList();
   }
 }
