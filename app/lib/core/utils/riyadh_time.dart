@@ -31,9 +31,13 @@ class RiyadhTime {
     return startOfDay(dateTime).add(const Duration(days: 1));
   }
 
+  /// MALI-062n — the canonical week starts on **Saturday** (the Gulf/Arabic
+  /// convention this app targets; the previous `weekday % 7` was a misnamed
+  /// Sunday-start that mislabelled every weekly total). Dart weekday: Mon=1…Sun=7;
+  /// `(weekday + 1) % 7` maps Sat→0, Sun→1, …, Fri→6 = days since the week start.
   static DateTime startOfWeek(DateTime dateTime) {
     final local = dateTime.toLocal();
-    final daysSinceSaturday = local.weekday % 7;
+    final daysSinceSaturday = (local.weekday + 1) % 7;
     return DateTime(local.year, local.month, local.day)
         .subtract(Duration(days: daysSinceSaturday));
   }
