@@ -174,7 +174,13 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 3 — Sync & multi-device correctness (one shared sync-semantics contract)
 
-> **Status (2026-08-04): batches 1–5 of 6 delivered.** B5 sender-mapping sync
+> **Status (2026-08-04): Phase 3 LOCALLY COMPLETE — all 6 batches delivered;
+> live-backend + two-device verification pending.** B6 closure: full finding
+> reconciliation, gamification single-authority overlap proof (no overlap — Edge
+> path active, RPC path dormant), entity contract matrix, migration/capability
+> ledger, and external verification checklist are in `PHASE_3_SYNC_CLOSURE.md`.
+> `kServerRevisionCas` remains false; migrations 0068–0070 authored + lint-clean
+> but NOT deployed. B5 sender-mapping sync
 > durability (072n/008 — keyset + tombstones + typed errors, `96993c5e`) +
 > gamification single-authority (024 — server-authoritative idempotent
 > engagement events via migration 0070 + locked-down RPC; client aggregate-total

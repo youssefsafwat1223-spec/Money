@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 3 IN PROGRESS — batches 1–5 of 6 complete & committed — 2026-08-03
+- **Last updated:** Phase 3 LOCALLY COMPLETE — all 6 batches committed; live/2-device verification pending — 2026-08-04. Full reconciliation + entity matrix + external checklist: `PHASE_3_SYNC_CLOSURE.md`.
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -126,7 +126,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 |---|---|---|
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
-| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **IN PROGRESS** — batches 1–5 of 6 done & committed: B1 051n (acf9ca99), B2 052n-coalescing/023 (d6820285), B3 022/057n/052n revision-CAS+universal-resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 accounts+ledger parity (58614ad4/124fd83b), B5 072n/008 sender-mapping durability (96993c5e) + 024 gamification single-authority (74a77398); batch 6 pending: docs closure |
+| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **LOCALLY COMPLETE** (live/2-device pending) — all 6 batches committed: B1 051n (acf9ca99), B2 052n/023 (d6820285), B3 022/057n/052n revision-CAS+resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 (58614ad4/124fd83b), B5 072n/008 + 024 (96993c5e/74a77398), B6 closure docs. MALI-023 Closed-LV; all others CC-LV (external tail). Gamification single-authority overlap proof: no overlap (Edge active, RPC dormant) — see `PHASE_3_SYNC_CLOSURE.md` §2. |
 | P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | Not started |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
