@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 2 complete (locally verified) — 2026-07-30
+- **Last updated:** Phase 3 IN PROGRESS — batches 1–2 of 6 complete & committed — 2026-07-30
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -64,7 +64,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-020 | High | X | P9 | Locally verified | archive privacy report = gate 5 |
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
 | MALI-022 | High | C | P3 | Not started | resolver 4-of-12; server conditional update needed |
-| MALI-023 | Med | C | P3 | Not started | + child StateError storm amplifier |
+| MALI-023 | Med | C | P3 | Code complete · Locally verified | typed failure classes + dead-letter + bounded backoff + re-arm; `d6820285` (batch 2) |
 | MALI-024 | Med | C | P3 | Not started | XP dual-authority/replay |
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
@@ -92,8 +92,8 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-048n | High | C | P4 | Not started | plan spend currency/refund/scope |
 | MALI-049n | High | C | P4 | Not started | dashboard budget ring period |
 | MALI-050n | High | C | P4 | Not started | Home category totals vs chip |
-| MALI-051n | High | C | P3 | Not started | child cursor skip = permanent loss |
-| MALI-052n | High | C | P3 | Not started | self-conflict + terminal conflicts |
+| MALI-051n | High | C | P3 | Code complete · Locally verified | durable parked_child_rows + drain; cursor never skips; `acf9ca99` (batch 1) |
+| MALI-052n | High | C | P3 | Partial (coalescing done) | outbox coalescing/re-basing done `d6820285` (batch 2); universal conflict contract (resolver for all entities) = batch 3 (pending) |
 | MALI-053n | High | C | P2 | Code complete · Locally verified | flush now covers child + smart-inbox + notif-log + sender-mapping outboxes; `374560ff` |
 | MALI-054n | High | C | P2 | Code complete · Locally verified | native+file residue purge on every destructive path; fail-closed admission; `374560ff`. Device execution = gate 6/9 (external) |
 | MALI-055n | Med | C | P3 | Not started | accounts no conflict detection; setDefault mass-rollback |
@@ -126,7 +126,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 |---|---|---|
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
-| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | Not started |
+| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **IN PROGRESS** — batch 1 (051n) + batch 2 (052n-coalescing, 023) done & committed (acf9ca99, d6820285); batches 3–6 pending: universal conflict contract + atomic server revision (057n/022), accounts/ledger parity (055n/056n/009/010), sender-mappings/gamification (072n/008/024), docs |
 | P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | Not started |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
