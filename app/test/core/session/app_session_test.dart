@@ -54,6 +54,11 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     AppSession.instance.configureCaptureDeviceUnlink(null);
     AppSession.instance.configureLocalDataWipe(null);
+    // MALI-054n: production always registers the native/file residue purge
+    // hook (bootstrap capture_registration). Default it to success here so the
+    // owner-lifecycle tests exercise the production wiring; fail-closed tests
+    // override it. wipeAndReset() below now also runs this hook.
+    AppSession.instance.configureLocalResiduePurge(() async => true);
     await AppSession.instance.wipeAndReset();
   });
 

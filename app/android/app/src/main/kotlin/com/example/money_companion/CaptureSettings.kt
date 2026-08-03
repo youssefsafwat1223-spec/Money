@@ -60,4 +60,14 @@ object CaptureSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_AUTO_ENABLED, enabled).apply()
     }
+
+    /**
+     * MALI-054n/059n: reset the SMS auto-capture opt-in on an identity change so
+     * one user's consent is never inherited by the next. commit() is used so the
+     * purge boundary can confirm completion. Returns true on verified reset.
+     */
+    fun reset(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().remove(KEY_AUTO_ENABLED).commit()
+    }
 }

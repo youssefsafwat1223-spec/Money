@@ -382,6 +382,29 @@ class NativeCaptureBridge {
     }
   }
 
+  /// MALI-054n: purges ALL user-owned native capture residue (the App Group
+  /// pending-message queue + its metadata, notification routes, and notification
+  /// log events on iOS; the durable SharedPreferences queue on Android) so one
+  /// identity's captured bank messages can never be imported under another.
+  /// Install-level config (device secret, backend URL/keys, install id, APNs
+  /// token) is deliberately preserved.
+  ///
+  /// Returns true when the purge is confirmed (or there is nothing native to
+  /// purge on this platform). Returns false when it could NOT be confirmed
+  /// (channel/plugin error) — callers MUST treat false as "residue may remain"
+  /// and fail closed at user-admission boundaries.
+  static Future<bool> purgeAllCaptureState() async {
+    if (!Platform.isIOS && !Platform.isAndroid) return true;
+    try {
+      final ok = await _channel.invokeMethod<bool>('purgeAllCaptureState');
+      return ok ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   static Future<List<SharedCapturedMessage>> _fetchSharedMessages(
     String method,
   ) async {

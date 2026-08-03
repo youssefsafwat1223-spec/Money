@@ -56,18 +56,25 @@ class DataWipeService {
   ];
 
   Future<void> wipeAll() async {
-    for (final table in wipedTables) {
-      await _db.customStatement('DELETE FROM $table;');
-    }
-    // Built-in categories are catalog data and remain available. Custom rows
-    // belong to the signed-out user and must not leak into the next session.
-    await _db.customStatement('''
-      DELETE FROM categories
-      WHERE key LIKE 'custom_%'
-         OR server_id IS NOT NULL
-         OR sync_status IS NOT NULL;
-    ''');
-    await _db.reseedDefaultsAfterWipe();
+    // MALI-011: the wipe must be ATOMIC. A crash mid-loop previously left a
+    // partially-deleted database that the owner gate would then treat as
+    // "owned" once the owner uid was (re)claimed — leaking one user's residue
+    // into the next session. Wrapping the deletes + reseed in one transaction
+    // makes the wipe all-or-nothing.
+    await _db.transaction(() async {
+      for (final table in wipedTables) {
+        await _db.customStatement('DELETE FROM $table;');
+      }
+      // Built-in categories are catalog data and remain available. Custom rows
+      // belong to the signed-out user and must not leak into the next session.
+      await _db.customStatement('''
+        DELETE FROM categories
+        WHERE key LIKE 'custom_%'
+           OR server_id IS NOT NULL
+           OR sync_status IS NOT NULL;
+      ''');
+      await _db.reseedDefaultsAfterWipe();
+    });
   }
 }
 

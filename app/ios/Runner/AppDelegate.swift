@@ -161,6 +161,9 @@ import UserNotifications
           UIApplication.shared.open(url)
         }
         result(nil)
+      case "purgeAllCaptureState":
+        // MALI-054n: wipe this identity's capture residue from the App Group.
+        result(SharedCaptureStore.purgeUserOwnedState())
       default:
         result(FlutterMethodNotImplemented)
       }

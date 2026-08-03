@@ -9,6 +9,7 @@ import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
 import '../sync/sync_wakeup.dart';
 import '../session/app_session.dart';
+import '../session/unsynced_inventory.dart';
 import '../data_portability/app_data_portability_service.dart';
 import '../data_portability/data_portability_models.dart';
 import '../../engine/ai/ai_parser_client.dart';
@@ -499,6 +500,16 @@ final cardRepositoryProvider = Provider<CardRepository>((ref) {
   return DriftCardRepository(
     db,
     outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
+});
+
+/// MALI-053n/011: pre-sign-out inventory of locally-pending user artifacts.
+final unsyncedInventoryServiceProvider =
+    Provider<UnsyncedInventoryService>((ref) {
+  return UnsyncedInventoryService(
+    ref.watch(appDatabaseProvider),
+    localOnlyCardCount:
+        ref.watch(cardRepositoryProvider).countCapabilityGatedUnsyncedCards,
   );
 });
 

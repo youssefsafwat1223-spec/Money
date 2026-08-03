@@ -79,6 +79,23 @@ void main() {
     expect(await PendingNotificationActions.drain(), isEmpty);
   });
 
+  test(
+      'MALI-070n: clear() deletes queued actions so they never replay under the '
+      'next identity, and is safe when the file is absent', () async {
+    await LocalNotificationService.debugRunBackgroundAction(
+      'tx-user-a',
+      confirm: true,
+    );
+
+    // Destructive sign-out purges the file outright (no draining/applying).
+    expect(await PendingNotificationActions.clear(), isTrue);
+
+    // The next user drains nothing — user A's action cannot execute under B.
+    expect(await PendingNotificationActions.drain(), isEmpty);
+    // Idempotent: clearing an already-absent file still reports success.
+    expect(await PendingNotificationActions.clear(), isTrue);
+  });
+
   test('background dismiss while app is closed is recorded for replay',
       () async {
     await LocalNotificationService.debugRunBackgroundAction(

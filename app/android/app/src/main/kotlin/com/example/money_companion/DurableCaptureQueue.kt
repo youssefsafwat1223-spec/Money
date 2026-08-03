@@ -154,6 +154,18 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
         return removed
     }
 
+    /**
+     * MALI-054n: purge ALL queued capture payloads so a previous account's bank
+     * messages can never be imported under a new identity. Uses commit()
+     * (synchronous + verified) rather than apply(), because the purge runs on a
+     * destructive user-lifecycle boundary whose success the caller must be able
+     * to confirm before admitting a new user. Returns true on verified removal.
+     */
+    @Synchronized
+    fun purge(): Boolean {
+        return prefs.edit().remove(KEY_ITEMS).commit()
+    }
+
     @Synchronized
     fun size(): Int = readAll().size
 }

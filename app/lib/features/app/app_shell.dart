@@ -473,9 +473,42 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// pulls — we are leaving this identity, we only need pending local changes
   /// to reach the server so they aren't destroyed with the outboxes).
   Future<void> _flushPendingForSignOut() async {
-    await ref.read(accountsPushServiceProvider).push();
-    await ref.read(planningPushServiceProvider).push();
-    await ref.read(ledgerPushServiceProvider).push();
+    // MALI-053n: flush EVERY outbox — including the child entities (goal
+    // contributions / bill payments / plan links via PlanningChildSyncService),
+    // smart-inbox status, notification log, and sender mappings — so pending
+    // local changes reach the server before the wipe deletes the queues. Each
+    // attempt is best-effort and independent: one offline/failed queue must not
+    // skip the rest. A failure/timeout here is NEVER treated as a successful
+    // sync — the sign-out flow re-checks the unsynced inventory afterward.
+    Future<void> attempt(Future<void> Function() push) async {
+      try {
+        await push();
+      } catch (_) {
+        // Re-checked by the unsynced inventory; do not block the other queues.
+      }
+    }
+
+    await attempt(() async {
+      await ref.read(accountsPushServiceProvider).push();
+    });
+    await attempt(() async {
+      await ref.read(planningPushServiceProvider).push();
+    });
+    await attempt(() async {
+      await ref.read(ledgerPushServiceProvider).push();
+    });
+    await attempt(() async {
+      await ref.read(planningChildSyncServiceProvider).sync();
+    });
+    await attempt(() async {
+      await ref.read(smartInboxSyncServiceProvider).push();
+    });
+    await attempt(() async {
+      await ref.read(notificationLogSyncServiceProvider).sync();
+    });
+    await attempt(() async {
+      await ref.read(senderBankMappingSyncServiceProvider)?.sync();
+    });
   }
 
   Future<void> _runLedgerSync() async {

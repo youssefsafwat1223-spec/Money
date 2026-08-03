@@ -17,6 +17,18 @@ import '../tracking/user_activity_service.dart';
 /// the separate, intentional full-reset path).
 enum SessionStatus { unknown, needsOnboarding, authenticated, sessionExpired }
 
+/// MALI-054n: thrown when a new identity cannot be admitted because the previous
+/// owner's local data / native capture residue could not be fully cleared. The
+/// admission path fails closed rather than exposing one user's data to another.
+class LocalDataOwnershipException implements Exception {
+  const LocalDataOwnershipException();
+
+  @override
+  String toString() =>
+      'LocalDataOwnershipException: refused to admit a new identity onto '
+      'un-purged data/residue from a previous account.';
+}
+
 /// حالة الجلسة (للتحكّم في عرض الـ Onboarding مقابل التطبيق).
 ///
 /// ValueNotifier حتى يُستخدم كـ refreshListenable في go_router دون Riverpod.
@@ -46,6 +58,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> Function()? _wipeLocalFinancialData;
   Future<void> Function()? _flushPendingSync;
 
+  /// MALI-054n/070n: purges USER-OWNED native + filesystem capture residue (the
+  /// App Group / SharedPreferences message queue, notification routes/log, and
+  /// the pending-notification-actions file) that the Drift wipe does NOT cover.
+  /// Returns true only when the purge is confirmed. Injected by bootstrap so the
+  /// session layer stays decoupled from the capture/native layer.
+  Future<bool> Function()? _purgeLocalResidue;
+
   /// UID whose admission is deferred because the local DB is still owned by a
   /// DIFFERENT account and the wipe hook wasn't registered yet (the first
   /// session reconcile runs before `database_open`). Bootstrap resolves it via
@@ -70,6 +89,27 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// نهائياً. best-effort: فشلها (أوفلاين) لا يمنع تسجيل الخروج.
   void configureSignOutFlush(Future<void> Function()? flush) {
     _flushPendingSync = flush;
+  }
+
+  /// Registers the native/filesystem residue purge (MALI-054n/070n). See
+  /// [_purgeLocalResidue]. Wired by bootstrap to the capture bridge + pending
+  /// actions file.
+  void configureLocalResiduePurge(Future<bool> Function()? purge) {
+    _purgeLocalResidue = purge;
+  }
+
+  /// Runs the injected residue purge. Returns false (cannot confirm) when the
+  /// hook is not yet registered or the purge throws/reports failure — callers
+  /// at identity-admission boundaries MUST treat false as "residue may remain"
+  /// and fail closed.
+  Future<bool> _runResiduePurge() async {
+    final purge = _purgeLocalResidue;
+    if (purge == null) return false;
+    try {
+      return await purge();
+    } catch (_) {
+      return false;
+    }
   }
 
   /// آخر هوية Supabase مُؤكَّدة أنها "تملك" البيانات المالية المحلية الحالية
@@ -113,6 +153,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final existing = await _storage.read(key: _kLocalDataOwnerUid);
     if (existing == null || existing == uid) {
       _pendingOwnerConflictUid = null;
+      if (existing == null) {
+        // Claiming a currently-unowned DB. Best-effort residue purge as defense
+        // in depth (e.g. a prior reset whose purge failed): a genuinely fresh
+        // install has nothing to purge, so this is a no-op and never blocks
+        // first-run admission (the hook may not be registered this early).
+        await _runResiduePurge();
+      }
       await _claimLocalDataOwnerIfUnclaimed(uid);
       return true;
     }
@@ -122,6 +169,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
       return false;
     }
     await wipe();
+    // MALI-054n: a DIFFERENT identity must NOT be admitted until the previous
+    // owner's native/filesystem capture residue is confirmed purged. Fail closed
+    // — keep the (old) owner marker and defer; bootstrap/retry re-runs this once
+    // the purge hook is available or the transient purge failure clears.
+    final residuePurged = await _runResiduePurge();
+    if (!residuePurged) {
+      _pendingOwnerConflictUid = uid;
+      return false;
+    }
     await _storage.delete(key: _kLocalDataOwnerUid);
     _pendingOwnerConflictUid = null;
     await _claimLocalDataOwnerIfUnclaimed(uid);
@@ -202,7 +258,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // identity is stored — user B must start from a clean local DB, never
     // on top of user A's rows.
     if (userId != null && userId.isNotEmpty) {
-      await _ensureLocalDataOwnedBy(userId);
+      final owned = await _ensureLocalDataOwnedBy(userId);
+      if (!owned && _wipeLocalFinancialData != null) {
+        // The wipe hook IS registered (not the early-bootstrap defer case), so a
+        // not-owned result here means the previous owner's data/residue could
+        // not be fully cleared. Fail closed (MALI-054n): do NOT admit this
+        // identity onto it. The interactive sign-in caller catches this and
+        // surfaces an error. (When the hook is absent — first reconcile before
+        // database_open — admission is deferred, not blocked, as before.)
+        throw const LocalDataOwnershipException();
+      }
     }
     await _storage.write(key: _kMethod, value: method);
     if (email != null && email.trim().isNotEmpty) {
@@ -303,24 +368,41 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// previous user's data is still readable by whoever signs in next. Safe
   /// to call repeatedly: an already-signed-out state and an already-wiped DB
   /// are both no-ops for every step below.
+  /// Runs the registered best-effort outbox flush with a bounded timeout.
+  /// Public (MALI-053n) so the sign-out UI can flush and then RE-CHECK the
+  /// unsynced inventory before deciding — a timeout/failure here is NEVER
+  /// treated as a successful sync (the inventory re-check is the source of
+  /// truth). Offline/slow network must not block the flow.
+  Future<void> flushPendingForSignOut() async {
+    final flush = _flushPendingSync;
+    if (flush == null) return;
+    try {
+      await flush().timeout(const Duration(seconds: 6));
+    } catch (_) {
+      // Offline/slow network — surfaced by the inventory re-check, not here.
+    }
+  }
+
   Future<void> signOut() async {
     // Best-effort final push BEFORE the wipe: the wipe deletes the sync
     // outboxes, so any change made in the last seconds (e.g. a country
     // change right before signing out) would otherwise be destroyed
     // un-uploaded. Offline sign-out still proceeds.
-    final flush = _flushPendingSync;
-    if (flush != null) {
-      try {
-        await flush().timeout(const Duration(seconds: 6));
-      } catch (_) {
-        // Offline/slow network — sign-out must not be blocked by sync.
-      }
-    }
+    await flushPendingForSignOut();
     final wipe = _wipeLocalFinancialData;
     if (wipe != null) {
       await wipe();
     }
-    await _storage.delete(key: _kLocalDataOwnerUid);
+    // MALI-054n/070n: purge native + filesystem capture residue BEFORE releasing
+    // ownership. If the purge cannot be confirmed, KEEP the owner uid so the DB
+    // stays marked as owned by THIS identity — the next DIFFERENT user then hits
+    // the conflict path (_ensureLocalDataOwnedBy), which re-purges and fails
+    // closed rather than admitting them onto un-purged residue. (Same user
+    // re-login is unaffected: their own residue is not a cross-user leak.)
+    final residuePurged = await _runResiduePurge();
+    if (residuePurged) {
+      await _storage.delete(key: _kLocalDataOwnerUid);
+    }
     UserActivityService.onSignOut();
     final unlink = _unlinkCaptureDevice;
     if (unlink != null) {
@@ -540,6 +622,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   /// حذف الحساب وكل البيانات المحلية (Privacy → حذف كل بياناتي).
   Future<void> wipeAndReset() async {
+    // MALI-054n/070n: purge native + filesystem capture residue as part of the
+    // full reset (account deletion / reset-all), BEFORE deleteAll() drops the
+    // owner marker — otherwise leftover native captures could be imported by the
+    // next identity that null-claims the reset device.
+    await _runResiduePurge();
     // Preserve the SQLCipher DB key across the wipe. The caller empties the DB
     // tables, but the encrypted DB file stays on disk — deleting its key here
     // would orphan that file and make the database unopenable next launch

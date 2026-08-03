@@ -20,6 +20,7 @@ import '../../core/theme/app_shadows.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../core/security/app_lock_service.dart';
 import '../../core/session/app_session.dart';
+import '../../core/session/unsynced_inventory.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -747,23 +748,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// خادم Supabase — بهذا الترتيب فقط: فشل المسح المحلي لا يترك الجهاز بلا
   /// جلسة بعيدة بينما تبقى بياناته المالية قابلة للقراءة لمن يسجّل دخوله بعده.
   Future<void> _signOut(BuildContext context, WidgetRef ref) async {
-    // MALI-017: sign-out wipes local data. Cards the cloud can't hold yet
-    // (account-less or designed, while card cloud-sync is disabled) are
-    // local-only and would be lost silently. Warn first and point to backup
-    // instead of destroying them without the user knowing.
+    // MALI-053n/011/017: sign-out wipes local data, so unsynced/local-only user
+    // data (pending ledger/planning/child outboxes, smart-inbox status, and
+    // cloud-unsupported local-only cards) must never be destroyed silently.
+    // Take a full pre-wipe inventory; if anything is pending, attempt a bounded
+    // flush, then RE-CHECK (a timeout is NOT success); only what still remains
+    // is offered for explicit discard, and the user can always cancel.
     try {
-      final atRisk = await ref
-          .read(cardRepositoryProvider)
-          .countCapabilityGatedUnsyncedCards();
-      if (atRisk > 0 && context.mounted) {
+      final inventory = ref.read(unsyncedInventoryServiceProvider);
+      var pending = await inventory.collect();
+      if (pending.hasPendingUserData) {
+        await AppSession.instance.flushPendingForSignOut();
+        pending = await inventory.collect(); // re-check after the flush
+      }
+      if (pending.hasPendingUserData && context.mounted) {
         final proceed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('بيانات بطاقات غير محفوظة سحابيًا'),
-            content: Text(
-              'لديك $atRisk بطاقة محفوظة على هذا الجهاز فقط ولم تُرفع للسحابة. '
-              'تسجيل الخروج سيزيلها. خُذ نسخة احتياطية أولًا حتى لا تفقدها.',
-            ),
+            title: const Text('بيانات غير محفوظة سحابيًا'),
+            content: Text(_unsyncedSignOutMessage(pending)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
@@ -771,16 +774,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('تسجيل الخروج على أي حال'),
+                child: const Text('تسجيل الخروج وحذف غير المحفوظ'),
               ),
             ],
           ),
         );
-        if (proceed != true) return;
+        if (proceed != true) return; // cancel → abort sign-out, nothing wiped
       }
     } catch (_) {
-      // A detection failure must never trap the user in the app — fall through
-      // to the normal sign-out below.
+      // A detection failure must never trap the user in the app — but it also
+      // must not silently wipe. Surface it and abort so the user can retry.
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.'),
+          ),
+        );
+      }
+      return;
     }
     try {
       await AppSession.instance.signOut();
@@ -2109,6 +2120,28 @@ class _CaptureHealthTile extends StatelessWidget {
       trailing: trailing,
     );
   }
+}
+
+/// MALI-053n: precise "what will be lost" text for the sign-out discard dialog.
+String _unsyncedSignOutMessage(UnsyncedInventory inv) {
+  final parts = <String>[];
+  if (inv.ledgerOutbox > 0) {
+    parts.add('${inv.ledgerOutbox} تغيير في المعاملات');
+  }
+  if (inv.planningOutbox > 0) {
+    parts.add(
+      '${inv.planningOutbox} تغيير في الحسابات/الميزانيات/الأهداف/الفواتير',
+    );
+  }
+  if (inv.smartInboxPending > 0) {
+    parts.add('${inv.smartInboxPending} عنصر في صندوق الوارد');
+  }
+  if (inv.localOnlyCards > 0) {
+    parts.add('${inv.localOnlyCards} بطاقة محفوظة على هذا الجهاز فقط');
+  }
+  final list = parts.join('، ');
+  return 'لديك بيانات لم تُرفع للسحابة وسيحذفها تسجيل الخروج: $list. '
+      'خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.';
 }
 
 String _captureGapLabel(Duration gap) {

@@ -81,6 +81,9 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     AppSession.instance.configureCaptureDeviceUnlink(null);
     AppSession.instance.configureLocalDataWipe(null);
+    // MALI-054n: production always registers the residue purge hook; default it
+    // to success so sign-out releases ownership exactly as it does in the app.
+    AppSession.instance.configureLocalResiduePurge(() async => true);
     await AppSession.instance.wipeAndReset();
   });
 

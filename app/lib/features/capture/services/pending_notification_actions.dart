@@ -30,6 +30,23 @@ class PendingNotificationActions {
     }
   }
 
+  /// MALI-070n: delete the pending-actions file outright (no draining/applying)
+  /// on a destructive lifecycle boundary, so one user's queued confirm/ignore
+  /// actions can never execute under the next identity. Returns true if the file
+  /// is absent afterward (deleted or never existed) — the caller uses this to
+  /// confirm residue removal before admitting a new user.
+  static Future<bool> clear() async {
+    try {
+      final file = await _file();
+      if (await file.exists()) {
+        await file.delete();
+      }
+      return !await file.exists();
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// يسحب الإجراءات المعلّقة ويمسح الملف. يعيد قائمة فارغة إن لم يوجد شيء.
   static Future<List<({String transactionId, bool confirm})>> drain() async {
     try {

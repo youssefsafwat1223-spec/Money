@@ -534,6 +534,26 @@ enum SharedCaptureStore {
     return queue
   }
 
+  /// MALI-054n: removes ALL user-owned capture residue from the App Group so a
+  /// previous account's bank messages can never surface under a new identity.
+  /// Runs under the queue lock (same discipline as the queue writers). Preserves
+  /// install-level config (device secret, backend URL/keys, install id, APNs
+  /// token) — those are not user data and are re-managed by setBackendConfig.
+  /// Returns true on completion.
+  @discardableResult
+  static func purgeUserOwnedState() -> Bool {
+    withQueueLock {
+      defaults?.removeObject(forKey: queueKey)
+      defaults?.removeObject(forKey: legacyKey)
+      defaults?.removeObject(forKey: pendingCountKey)
+      defaults?.removeObject(forKey: latestPayloadIDKey)
+      defaults?.removeObject(forKey: pendingNotificationRoutesKey)
+      defaults?.removeObject(forKey: notificationLogEventsKey)
+      defaults?.synchronize()
+    }
+    return true
+  }
+
   private static func withQueueLock<T>(_ body: () -> T) -> T {
     guard let containerURL = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupIdentifier

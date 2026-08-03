@@ -15,6 +15,8 @@ import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/capture/capture_runtime.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
+import '../../features/capture/services/native_capture_bridge.dart';
+import '../../features/capture/services/pending_notification_actions.dart';
 import '../../features/capture/services/local_notification_service.dart';
 import '../../features/capture/services/notification_log_service.dart';
 import '../../features/cards/brand_mark.dart';
@@ -150,6 +152,16 @@ class BootstrapRunner {
       AppSession.instance.configureLocalDataWipe(
         DataWipeService(database).wipeAll,
       );
+      // MALI-054n/070n: residue purge = native App Group / SharedPreferences
+      // capture queue + the pending-notification-actions file. Both run; the
+      // hook reports success only when BOTH are confirmed, so the owner gate can
+      // fail closed. Registered before the deferred owner-conflict resolves so
+      // the conflict path can purge before admitting the new identity.
+      AppSession.instance.configureLocalResiduePurge(() async {
+        final nativePurged = await NativeCaptureBridge.purgeAllCaptureState();
+        final filesCleared = await PendingNotificationActions.clear();
+        return nativePurged && filesCleared;
+      });
       // Owner gate (MALI-002): the first session reconcile ran before the DB
       // (and therefore the wipe hook) existed. If it deferred an owner
       // conflict — the DB still holds a DIFFERENT account's data — resolve it

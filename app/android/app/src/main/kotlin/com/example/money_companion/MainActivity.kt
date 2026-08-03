@@ -88,6 +88,15 @@ class MainActivity : FlutterFragmentActivity() {
                     )
                 }
 
+                "purgeAllCaptureState" -> {
+                    // MALI-054n: purge this identity's capture residue + reset the
+                    // SMS auto-capture opt-in. Both use commit() so success is
+                    // verified before a new user is admitted. Report the AND of both.
+                    val purged = DurableCaptureQueue.get(this).purge()
+                    val settingsReset = CaptureSettings.reset(this)
+                    result.success(purged && settingsReset)
+                }
+
                 else -> result.notImplemented()
             }
         }
