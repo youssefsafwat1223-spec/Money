@@ -79,14 +79,18 @@ abstract class TransactionRepository {
   Future<List<TransactionEntity>> getPage(
       {required int offset, int limit = 500});
 
-  /// صافي المصروفات (payment + withdrawal - refund) خلال فترة — لحساب «وفّرت».
+  /// صافي المصروفات (payment + withdrawal - refund) خلال فترة نصف-مفتوحة
+  /// `[from, to)` — الحد الأعلى غير شامل (MALI-028). لحساب «وفّرت» وعنوان
+  /// شاشة العمليات (MALI-047n). المؤكّد فقط؛ الاسترداد يخصم؛ التحويل/unknown
+  /// خارج المجموع؛ الحسابات المستبعَدة تُستثنى فقط عند `accountId == null`.
   Future<double> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
     String? accountId,
   });
 
-  /// إجمالي الدخل خلال فترة — يعرض في Dashboard ولا يستهلك الميزانيات.
+  /// إجمالي الدخل خلال فترة نصف-مفتوحة `[from, to)` (MALI-028) — يُعرض في
+  /// Dashboard/العمليات ولا يستهلك الميزانيات. الاسترداد ليس دخلاً.
   Future<double> incomeTotalBetween({
     required DateTime from,
     required DateTime to,
@@ -96,7 +100,8 @@ abstract class TransactionRepository {
   /// آخر رصيد معروف من رسائل البنك، إن وُجد.
   Future<double?> latestBalanceAfter({String? accountId});
 
-  /// إجمالي المصروف والدخل مجمّعاً حسب العملة خلال فترة — لعرض «كل الحسابات».
+  /// إجمالي المصروف والدخل مجمّعاً حسب العملة خلال فترة نصف-مفتوحة `[from, to)`
+  /// (MALI-028) — لعرض «كل الحسابات» دون جمع عملات مختلفة تحت وسم واحد.
   Future<List<CurrencyTotal>> currencyTotalsBetween({
     required DateTime from,
     required DateTime to,
@@ -109,7 +114,10 @@ abstract class TransactionRepository {
     String? accountId,
   });
 
-  /// تفصيل الإنفاق لكل تصنيف خلال فترة — لـ «أين ذهبت أموالك».
+  /// تفصيل الإنفاق الصافي لكل تصنيف خلال فترة نصف-مفتوحة `[from, to)`
+  /// (MALI-028) — لـ «أين ذهبت أموالك» ولمجاميع تصنيفات الرئيسية (MALI-050n).
+  /// نفس السياسة الموحّدة: المؤكّد فقط، الاسترداد يخصم، استبعاد الحسابات
+  /// المُعلَّمة عند `accountId == null`.
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,
     required DateTime to,

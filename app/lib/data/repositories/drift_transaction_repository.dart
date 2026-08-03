@@ -433,6 +433,13 @@ class DriftTransactionRepository implements TransactionRepository {
   /// `income` والمصروف في `payment|withdrawal|refund` مع توقيع الاسترداد
   /// بالسالب، وتستبعد التحويلات و`unknown` والمعلّقة/المتجاهلة من كل إجمالي.
   ///
+  /// MALI-028 / Phase-4: كل نافذة زمنية في هذه المجمِّعات نصف-مفتوحة
+  /// `[from, to)` — الحد الأدنى شامل والحد الأعلى غير شامل
+  /// (`occurred_at >= from AND occurred_at < to`) بدلاً من `BETWEEN` الشامل
+  /// للطرفين، فلا تُحسب لحظة الحد الأعلى في فترتين متجاورتين. المتصلون الحاليون
+  /// يمرّرون `to` بلحظة أخيرة شاملة (مثل `now` أو `نهاية الشهر − 1ms`) فلا يتغيّر
+  /// أي مجموع فعلي؛ الفائدة تظهر لمن يمرّر حدّ فترة نظيفًا (`بداية الفترة التالية`).
+  ///
   /// استبعاد الحسابات المُعلَّمة `exclude_from_totals` يسري فقط عند التجميع عبر
   /// كل الحسابات (`accountId == null`) مع إبقاء `account_id IS NULL` داخل
   /// النطاق. عند فتح حساب بعينه (`accountId != null`) يظهر الحساب بمجاميعه
@@ -522,7 +529,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
         FROM transactions
         WHERE ${aggregate.where}
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
@@ -548,7 +555,7 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
         FROM transactions
         WHERE ${aggregate.where}
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
@@ -589,7 +596,7 @@ class DriftTransactionRepository implements TransactionRepository {
           CAST(COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS REAL) AS income
         FROM transactions
         WHERE ${aggregate.where}
-          AND occurred_at BETWEEN ? AND ?
+          AND occurred_at >= ? AND occurred_at < ?
         GROUP BY currency
         ORDER BY expense DESC;
       ''',
@@ -623,7 +630,7 @@ class DriftTransactionRepository implements TransactionRepository {
                CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
         FROM transactions
         WHERE ${aggregate.where}
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
         GROUP BY date(occurred_at, 'localtime')
         ORDER BY day ASC;
       ''',
@@ -661,7 +668,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE ${aggregate.where}
           AND category_id IS NOT NULL
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)}
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
         GROUP BY category_id
         ORDER BY total DESC;
       ''',
@@ -699,7 +706,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE ${aggregate.where}
           AND category_id = ?
-          AND occurred_at BETWEEN ? AND ?${_accountClause(accountId)};
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)};
       ''',
       variables: [
         Variable.withString(categoryId),
@@ -732,7 +739,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions t
         INNER JOIN merchants m ON m.id = t.merchant_id
         WHERE ${aggregate.where}
-          AND t.occurred_at BETWEEN ? AND ?$accountClause
+          AND t.occurred_at >= ? AND t.occurred_at < ?$accountClause
         GROUP BY t.merchant_id
         ORDER BY total DESC
         LIMIT ?;
