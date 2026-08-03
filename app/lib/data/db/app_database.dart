@@ -794,6 +794,25 @@ class AppDatabase extends GeneratedDatabase {
       );
     ''');
 
+    // MALI-051n: durable parking for child pull-rows whose parent hasn't synced
+    // yet. Storing the raw server row lets the pull cursor advance safely (the
+    // row is never lost) while the child is retried after its parent arrives.
+    // `reason='terminal'` marks a bounded, permanently-unresolvable row so it
+    // stops looping but stays visible for diagnostics. Additive/idempotent —
+    // created for fresh + existing DBs; wiped on sign-out; never backed up.
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS parked_child_rows(
+        table_name TEXT NOT NULL,
+        server_id TEXT NOT NULL,
+        row_json TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        first_seen_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (table_name, server_id)
+      );
+    ''');
+
     await _createDedupHashesTable();
     await _createRemoteMerchantKeywordsTable();
     await _createPendingMerchantFeedbackTable();

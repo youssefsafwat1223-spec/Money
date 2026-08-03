@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -6,6 +8,16 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/sync_cursor.dart';
 import 'planning_outbox_queue.dart';
+
+/// MALI-051n: outcome of applying one child pull-row. `missingParent` means the
+/// parent hasn't synced yet → the row is durably parked (never dropped) so the
+/// cursor can advance safely and the row is retried after the parent arrives.
+enum _ChildApplyOutcome { applied, missingParent, preservedPending }
+
+/// After this many failed drain attempts a parked row is marked terminal: it
+/// stops looping forever but stays visible for diagnostics (a permanently
+/// unresolvable parent relationship rather than a transient ordering gap).
+const int _kParkedChildMaxAttempts = 25;
 
 abstract interface class PlanningChildRemote {
   Future<Map<String, dynamic>> callRpc(
@@ -322,19 +334,33 @@ class PlanningChildSyncService {
 
   Future<void> _pull() async {
     if (_isEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
-      await _pullTable('user_goal_contributions', _pullGoalContribution);
+      // Drain BEFORE the cursor loop so children parked on earlier cycles are
+      // re-attempted now that their parents (pulled earlier this cycle) exist.
+      await _drainParked('goal_contributions', _pullGoalContribution);
+      await _pullTable(
+        'user_goal_contributions',
+        'goal_contributions',
+        _pullGoalContribution,
+      );
     }
     if (_isEnabled(PlanningOutboxQueue.billPaymentsEntityType)) {
-      await _pullTable('user_bill_payments', _pullBillPayment);
+      await _drainParked('bill_payments', _pullBillPayment);
+      await _pullTable('user_bill_payments', 'bill_payments', _pullBillPayment);
     }
     if (_isEnabled(PlanningOutboxQueue.planLinksEntityType)) {
-      await _pullTable('user_plan_transaction_links', _pullPlanLink);
+      await _drainParked('plan_transaction_links', _pullPlanLink);
+      await _pullTable(
+        'user_plan_transaction_links',
+        'plan_transaction_links',
+        _pullPlanLink,
+      );
     }
   }
 
   Future<void> _pullTable(
     String table,
-    Future<void> Function(Map<String, dynamic>) apply,
+    String localTable,
+    Future<_ChildApplyOutcome> Function(Map<String, dynamic>) apply,
   ) async {
     try {
       final cursorKey = 'planning_child_${table.substring(5)}';
@@ -350,7 +376,16 @@ class PlanningChildSyncService {
         final nextCursor = SyncCursor.fromServerRow(rows.last);
         await _db.transaction(() async {
           for (final row in rows) {
-            await apply(row);
+            final outcome = await apply(row);
+            // MALI-051n: a missing-parent row is durably PARKED before the
+            // cursor advances past it, so it can never be permanently skipped.
+            if (outcome == _ChildApplyOutcome.missingParent) {
+              await _parkChild(localTable, row);
+            } else {
+              // A row that resolved (applied) or is a local pending/conflict is
+              // no longer parked — clear any stale parked copy.
+              await _unparkChild(localTable, row['id'] as String);
+            }
           }
           await writeSyncCursor(_db, cursorKey, nextCursor);
         });
@@ -362,15 +397,114 @@ class PlanningChildSyncService {
     }
   }
 
-  Future<void> _pullGoalContribution(Map<String, dynamic> row) async {
+  /// MALI-051n: re-attempt previously-parked child rows (parents may now exist).
+  /// Applied rows are unparked; still-missing rows accrue an attempt and become
+  /// terminal after [_kParkedChildMaxAttempts] so they never loop forever.
+  Future<void> _drainParked(
+    String localTable,
+    Future<_ChildApplyOutcome> Function(Map<String, dynamic>) apply,
+  ) async {
+    final parked = await () async {
+      try {
+        return await _db.customSelect(
+          "SELECT server_id, row_json, attempt_count FROM parked_child_rows "
+          "WHERE table_name = ${sqlString(localTable)} "
+          "AND reason != 'terminal' ORDER BY first_seen_at LIMIT 500;",
+        ).get();
+      } catch (error) {
+        if (kDebugMode) debugPrint('[PlanningChildSync] drain read: $error');
+        return null;
+      }
+    }();
+    if (parked == null) return;
+    for (final p in parked) {
+      final serverId = p.read<String>('server_id');
+      final attempts = p.read<int>('attempt_count');
+      Map<String, dynamic> row;
+      try {
+        row = jsonDecode(p.read<String>('row_json')) as Map<String, dynamic>;
+      } catch (_) {
+        await _markParkedTerminal(localTable, serverId); // corrupt → terminal
+        continue;
+      }
+      try {
+        await _db.transaction(() async {
+          final outcome = await apply(row);
+          if (outcome == _ChildApplyOutcome.missingParent) {
+            if (attempts + 1 >= _kParkedChildMaxAttempts) {
+              await _markParkedTerminal(localTable, serverId);
+            } else {
+              await _bumpParked(localTable, serverId, attempts + 1);
+            }
+          } else {
+            await _unparkChild(localTable, serverId);
+          }
+        });
+      } catch (error) {
+        if (kDebugMode) debugPrint('[PlanningChildSync] drain apply: $error');
+      }
+    }
+  }
+
+  Future<void> _parkChild(String localTable, Map<String, dynamic> row) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    final json = jsonEncode(row);
+    // Preserve first_seen_at + attempt_count on re-park (ON CONFLICT).
+    await _db.customStatement('''
+      INSERT INTO parked_child_rows(
+        table_name, server_id, row_json, reason, attempt_count,
+        first_seen_at, updated_at
+      ) VALUES (
+        ${sqlString(localTable)}, ${sqlString(row['id'] as String)},
+        ${sqlString(json)}, 'missing_parent', 0,
+        ${sqlString(now)}, ${sqlString(now)}
+      ) ON CONFLICT(table_name, server_id) DO UPDATE SET
+        row_json = excluded.row_json, updated_at = excluded.updated_at;
+    ''');
+  }
+
+  Future<void> _unparkChild(String localTable, String serverId) async {
+    await _db.customStatement(
+      'DELETE FROM parked_child_rows WHERE table_name = ${sqlString(localTable)} '
+      'AND server_id = ${sqlString(serverId)};',
+    );
+  }
+
+  Future<void> _bumpParked(
+    String localTable,
+    String serverId,
+    int attempts,
+  ) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.customStatement(
+      'UPDATE parked_child_rows SET attempt_count = $attempts, '
+      'updated_at = ${sqlString(now)} WHERE table_name = ${sqlString(localTable)} '
+      'AND server_id = ${sqlString(serverId)};',
+    );
+  }
+
+  Future<void> _markParkedTerminal(String localTable, String serverId) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.customStatement(
+      "UPDATE parked_child_rows SET reason = 'terminal', "
+      'updated_at = ${sqlString(now)} WHERE table_name = ${sqlString(localTable)} '
+      'AND server_id = ${sqlString(serverId)};',
+    );
+  }
+
+  Future<_ChildApplyOutcome> _pullGoalContribution(
+    Map<String, dynamic> row,
+  ) async {
     final goalLocal = await _localId('goals', row['goal_id'] as String?);
-    if (goalLocal == null) return;
+    if (goalLocal == null) return _ChildApplyOutcome.missingParent;
     final localId = await _childLocalId(
       'goal_contributions',
       row['id'] as String,
       row['local_id'] as String?,
     );
-    if (await _preservePending('goal_contributions', localId)) return;
+    if (await _preservePending('goal_contributions', localId)) {
+      return _ChildApplyOutcome.preservedPending;
+    }
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       INSERT INTO goal_contributions(
@@ -391,21 +525,26 @@ class PlanningChildSyncService {
         server_updated_at=excluded.server_updated_at,
         sync_status='synced', deleted_at=excluded.deleted_at;
     ''');
+    return _ChildApplyOutcome.applied;
   }
 
-  Future<void> _pullBillPayment(Map<String, dynamic> row) async {
+  Future<_ChildApplyOutcome> _pullBillPayment(Map<String, dynamic> row) async {
     final billLocal =
         await _localId('subscriptions', row['subscription_id'] as String?);
-    if (billLocal == null) return;
+    if (billLocal == null) return _ChildApplyOutcome.missingParent;
     final transactionLocal =
         await _localId('transactions', row['transaction_id'] as String?);
-    if (row['transaction_id'] != null && transactionLocal == null) return;
+    if (row['transaction_id'] != null && transactionLocal == null) {
+      return _ChildApplyOutcome.missingParent;
+    }
     final localId = await _childLocalId(
       'bill_payments',
       row['id'] as String,
       row['local_id'] as String?,
     );
-    if (await _preservePending('bill_payments', localId)) return;
+    if (await _preservePending('bill_payments', localId)) {
+      return _ChildApplyOutcome.preservedPending;
+    }
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       INSERT INTO bill_payments(
@@ -435,13 +574,16 @@ class PlanningChildSyncService {
         server_updated_at=excluded.server_updated_at,
         sync_status='synced', deleted_at=excluded.deleted_at;
     ''');
+    return _ChildApplyOutcome.applied;
   }
 
-  Future<void> _pullPlanLink(Map<String, dynamic> row) async {
+  Future<_ChildApplyOutcome> _pullPlanLink(Map<String, dynamic> row) async {
     final planLocal = await _localId('plans', row['plan_id'] as String?);
     final transactionLocal =
         await _localId('transactions', row['transaction_id'] as String?);
-    if (planLocal == null || transactionLocal == null) return;
+    if (planLocal == null || transactionLocal == null) {
+      return _ChildApplyOutcome.missingParent;
+    }
     final status = await _db.customSelect('''
       SELECT sync_status FROM plan_transaction_links
       WHERE plan_id = ${sqlString(planLocal)}
@@ -453,7 +595,7 @@ class PlanningChildSyncService {
         WHERE plan_id = ${sqlString(planLocal)}
           AND transaction_id = ${sqlString(transactionLocal)};
       ''');
-      return;
+      return _ChildApplyOutcome.preservedPending;
     }
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
@@ -471,6 +613,7 @@ class PlanningChildSyncService {
         server_updated_at=excluded.server_updated_at,
         sync_status='synced', deleted_at=excluded.deleted_at;
     ''');
+    return _ChildApplyOutcome.applied;
   }
 
   Future<bool> _preservePending(String table, String localId) async {

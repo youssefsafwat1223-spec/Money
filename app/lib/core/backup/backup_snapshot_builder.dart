@@ -288,6 +288,7 @@ class BackupSnapshotBuilder {
     'ledger_sync_outbox',
     'planning_sync_outbox',
     'sync_cursors',
+    'parked_child_rows',
     'dedup_hashes',
     'smart_inbox_items',
     'suspected_duplicates',
