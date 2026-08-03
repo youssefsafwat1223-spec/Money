@@ -697,8 +697,14 @@ class AppDatabase extends GeneratedDatabase {
         notifications_json TEXT NOT NULL,
         db_encryption_key_ref TEXT NOT NULL,
         privacy_mode_enabled INTEGER NOT NULL DEFAULT 0,
-        ai_consent_granted INTEGER NOT NULL DEFAULT 1,
-        cloud_processing_enabled INTEGER NOT NULL DEFAULT 1,
+        -- MALI-059n: cloud/AI processing default OFF. The boolean columns are the
+        -- effective grant (derived from the versioned state below); the *_state
+        -- columns record the explicit tri-state choice (NULL=unset / accepted /
+        -- declined) so consent is never inferred and can be migrated precisely.
+        ai_consent_granted INTEGER NOT NULL DEFAULT 0,
+        cloud_processing_enabled INTEGER NOT NULL DEFAULT 0,
+        ai_consent_state TEXT NULL,
+        cloud_consent_state TEXT NULL,
         updated_at TEXT NULL,
         server_id TEXT NULL,
         synced_at TEXT NULL,
@@ -914,15 +920,31 @@ class AppDatabase extends GeneratedDatabase {
       'privacy_mode_enabled',
       'INTEGER NOT NULL DEFAULT 0',
     );
+    // MALI-059n: cloud/AI processing default OFF. (A DB predating these columns
+    // gets them as 0; the versioned *_state columns start NULL = unset.)
     await _ensureColumn(
       'user_settings',
       'ai_consent_granted',
-      'INTEGER NOT NULL DEFAULT 1',
+      'INTEGER NOT NULL DEFAULT 0',
     );
     await _ensureColumn(
       'user_settings',
       'cloud_processing_enabled',
-      'INTEGER NOT NULL DEFAULT 1',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _ensureColumn('user_settings', 'ai_consent_state', 'TEXT NULL');
+    await _ensureColumn('user_settings', 'cloud_consent_state', 'TEXT NULL');
+    // MALI-059n migrate-to-OFF: an existing install that never recorded an
+    // explicit choice (state IS NULL) must NOT inherit the old default-ON
+    // boolean — force the effective grant OFF. Idempotent: once the user makes
+    // an explicit choice the state is non-NULL and these rows are skipped.
+    await customStatement(
+      'UPDATE user_settings SET ai_consent_granted = 0 '
+      'WHERE ai_consent_state IS NULL;',
+    );
+    await customStatement(
+      'UPDATE user_settings SET cloud_processing_enabled = 0 '
+      'WHERE cloud_consent_state IS NULL;',
     );
     await _ensureColumn('user_settings', 'display_name', 'TEXT NULL');
     await _ensureColumn('user_settings', 'phone_number', 'TEXT NULL');
@@ -1787,7 +1809,15 @@ class AppDatabase extends GeneratedDatabase {
   /// يُستدعى بعد استعادة نسخة احتياطية لضمان وجود حساب افتراضي وربط
   /// أي سجلات يتيمة (account_id = NULL) به.
   Future<void> runPostRestoreSetup() async {
-    // A restored backup keeps its owner's stored consent choice (MALI-001).
+    // MALI-059n: a restore must NOT import consent as authorization on a new
+    // device — reset both to unset/OFF so the restored device re-asks. (The
+    // backup no longer carries consent, but reset unconditionally so legacy
+    // backups that do carry it can never auto-authorize.)
+    await customStatement(
+      'UPDATE user_settings SET ai_consent_granted = 0, '
+      'cloud_processing_enabled = 0, ai_consent_state = NULL, '
+      'cloud_consent_state = NULL;',
+    );
     await _ensureDefaultAccount();
   }
 

@@ -76,7 +76,13 @@ class PrivacyScreen extends ConsumerWidget {
                             value: settings.cloudProcessingEnabled,
                             onChanged: (value) => _setConsent(
                               ref,
-                              settings.copyWith(cloudProcessingEnabled: value),
+                              // MALI-059n: an interaction is an EXPLICIT choice —
+                              // record accepted/declined (never left unset).
+                              settings.copyWith(
+                                cloudConsentState: value
+                                    ? ConsentState.accepted
+                                    : ConsentState.declined,
+                              ),
                             ),
                           ),
                           _ConsentSwitchCard(
@@ -88,7 +94,11 @@ class PrivacyScreen extends ConsumerWidget {
                             value: settings.aiConsentGranted,
                             onChanged: (value) => _setConsent(
                               ref,
-                              settings.copyWith(aiConsentGranted: value),
+                              settings.copyWith(
+                                aiConsentState: value
+                                    ? ConsentState.accepted
+                                    : ConsentState.declined,
+                              ),
                             ),
                           ),
                         ],

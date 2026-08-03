@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
+import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/features/capture/services/capture_backend_client.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
@@ -111,7 +112,7 @@ void main() {
     settingsRepository = DriftUserSettingsRepository(db);
     final settings = await settingsRepository.getSettings();
     await settingsRepository.saveSettings(
-      settings.copyWith(cloudProcessingEnabled: true),
+      settings.copyWith(cloudConsentState: ConsentState.accepted),
     );
   });
 

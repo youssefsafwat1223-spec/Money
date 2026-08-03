@@ -132,6 +132,12 @@ class ParsingRuleEntity {
   final bool isActive;
 }
 
+/// MALI-059n: a versioned, tri-state consent value. `unset` means the user has
+/// never made an explicit choice (treated as OFF everywhere) and is DISTINCT
+/// from an explicit `declined`, so future migrations and UX can tell them apart.
+/// Persisted as a nullable TEXT column (NULL ⇒ unset).
+enum ConsentState { unset, accepted, declined }
+
 class UserSettingsEntity {
   const UserSettingsEntity({
     required this.id,
@@ -147,8 +153,8 @@ class UserSettingsEntity {
     this.phoneNumber,
     this.avatarPath,
     this.dateOfBirth,
-    this.aiConsentGranted = true,
-    this.cloudProcessingEnabled = true,
+    this.cloudConsentState = ConsentState.unset,
+    this.aiConsentState = ConsentState.unset,
   });
 
   final String id;
@@ -165,13 +171,17 @@ class UserSettingsEntity {
   final String dbEncryptionKeyRef;
   final bool privacyModeEnabled;
 
-  /// AI-assisted parsing is a required Qirsh processing capability.
-  /// The legacy persisted field remains for backup/schema compatibility.
-  final bool aiConsentGranted;
+  /// MALI-059n: explicit, versioned consent — both default OFF (`unset`). Cloud
+  /// processing and AI processing are SEPARATE opt-ins; the local/offline app is
+  /// fully usable without granting either. Consent is never inferred from
+  /// onboarding, sign-in, restore, migration, or previous defaults.
+  final ConsentState cloudConsentState;
+  final ConsentState aiConsentState;
 
-  /// Qirsh backend processing is always enabled when backend configuration is
-  /// available. The legacy field remains for backup/schema compatibility.
-  final bool cloudProcessingEnabled;
+  /// Effective grant = an explicit `accepted` choice. Every cloud/AI gate reads
+  /// these getters, so an `unset`/`declined` state fails closed automatically.
+  bool get cloudProcessingEnabled => cloudConsentState == ConsentState.accepted;
+  bool get aiConsentGranted => aiConsentState == ConsentState.accepted;
 
   UserSettingsEntity copyWith({
     String? id,
@@ -187,8 +197,8 @@ class UserSettingsEntity {
     String? phoneNumber,
     String? avatarPath,
     DateTime? dateOfBirth,
-    bool? aiConsentGranted,
-    bool? cloudProcessingEnabled,
+    ConsentState? cloudConsentState,
+    ConsentState? aiConsentState,
   }) {
     return UserSettingsEntity(
       id: id ?? this.id,
@@ -204,9 +214,8 @@ class UserSettingsEntity {
       notificationsJson: notificationsJson ?? this.notificationsJson,
       dbEncryptionKeyRef: dbEncryptionKeyRef ?? this.dbEncryptionKeyRef,
       privacyModeEnabled: privacyModeEnabled ?? this.privacyModeEnabled,
-      aiConsentGranted: aiConsentGranted ?? this.aiConsentGranted,
-      cloudProcessingEnabled:
-          cloudProcessingEnabled ?? this.cloudProcessingEnabled,
+      cloudConsentState: cloudConsentState ?? this.cloudConsentState,
+      aiConsentState: aiConsentState ?? this.aiConsentState,
     );
   }
 }

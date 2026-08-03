@@ -136,8 +136,10 @@ class BackupSnapshotBuilder {
       'notifications_json',
       'db_encryption_key_ref',
       'privacy_mode_enabled',
-      'ai_consent_granted',
-      'cloud_processing_enabled',
+      // MALI-059n: consent (ai_consent_granted / cloud_processing_enabled and
+      // their versioned *_state columns) is intentionally NOT backed up — a
+      // restore must never import consent as authorization on a new device.
+      // runPostRestoreSetup() additionally resets consent to unset/OFF.
     ],
     'subscriptions': [
       'id',

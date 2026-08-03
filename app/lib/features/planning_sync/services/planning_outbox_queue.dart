@@ -312,8 +312,8 @@ class PlanningOutboxQueue {
       'input_method': s.inputMethod,
       'notifications_json': s.notificationsJson,
       'privacy_mode_enabled': s.privacyModeEnabled,
-      'ai_consent_granted': s.aiConsentGranted,
-      'cloud_processing_enabled': s.cloudProcessingEnabled,
+      // MALI-059n: consent is device-local + explicit — excluded from the sync
+      // payload so it is never transmitted or applied on another device.
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
   }

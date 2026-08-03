@@ -498,8 +498,9 @@ class PlanningPullService {
           input_method = ${keep('input_method', row['input_method'])},
           notifications_json = ${keep('notifications_json', row['notifications_json'])},
           privacy_mode_enabled = ${(row['privacy_mode_enabled'] == true) ? 1 : 0},
-          ai_consent_granted = ${(row['ai_consent_granted'] == true) ? 1 : 0},
-          cloud_processing_enabled = ${(row['cloud_processing_enabled'] == true) ? 1 : 0},
+          -- MALI-059n: consent is device-local + explicit. A server pull must
+          -- NEVER set/inherit cloud/AI consent (that would auto-authorize a new
+          -- device). The consent columns are deliberately left untouched here.
           server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
           server_updated_at = ${sqlNullableString(_dateString(row['updated_at']))},

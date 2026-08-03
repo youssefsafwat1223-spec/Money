@@ -14,6 +14,7 @@ import 'package:money_companion/data/repositories/drift_user_settings_repository
 import 'package:money_companion/data/repositories/supabase_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/features/capture/services/capture_backend_client.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/capture_sync_service.dart';
@@ -117,7 +118,7 @@ void main() {
     settingsRepository = DriftUserSettingsRepository(db);
     final settings = await settingsRepository.getSettings();
     await settingsRepository.saveSettings(
-      settings.copyWith(cloudProcessingEnabled: true),
+      settings.copyWith(cloudConsentState: ConsentState.accepted),
     );
   });
 

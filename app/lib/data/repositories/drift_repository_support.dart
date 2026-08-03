@@ -295,6 +295,19 @@ XpLevelEntity xpLevelFromRow(QueryRow row) {
   );
 }
 
+/// MALI-059n: read the versioned tri-state consent value. NULL (or anything
+/// unexpected) maps to `unset`, which is treated as OFF everywhere — fail closed.
+ConsentState _consentStateFromRow(QueryRow row, String column) {
+  switch (row.readNullable<String>(column)) {
+    case 'accepted':
+      return ConsentState.accepted;
+    case 'declined':
+      return ConsentState.declined;
+    default:
+      return ConsentState.unset;
+  }
+}
+
 UserSettingsEntity userSettingsFromRow(QueryRow row) {
   final dateOfBirth = row.readNullable<String>('date_of_birth');
   return UserSettingsEntity(
@@ -311,9 +324,9 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     notificationsJson: row.read<String>('notifications_json'),
     dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
     privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
-    // Required capabilities. Persisted columns remain for compatibility with
-    // older databases/backups, but runtime processing cannot be disabled.
-    aiConsentGranted: true,
-    cloudProcessingEnabled: true,
+    // MALI-059n: consent is the persisted, versioned choice — no runtime clamp.
+    // An unset/declined state means the cloud/AI gates fail closed.
+    cloudConsentState: _consentStateFromRow(row, 'cloud_consent_state'),
+    aiConsentState: _consentStateFromRow(row, 'ai_consent_state'),
   );
 }

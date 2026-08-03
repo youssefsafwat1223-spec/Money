@@ -7,6 +7,19 @@ import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
+/// MALI-059n: the versioned tri-state consent → nullable TEXT column
+/// (unset ⇒ NULL). Read back by `_consentStateFromRow` in the support layer.
+Variable _consentStateVariable(ConsentState state) {
+  switch (state) {
+    case ConsentState.accepted:
+      return Variable.withString('accepted');
+    case ConsentState.declined:
+      return Variable.withString('declined');
+    case ConsentState.unset:
+      return const Variable<String>(null);
+  }
+}
+
 class DriftUserSettingsRepository implements UserSettingsRepository {
   DriftUserSettingsRepository(this._db, {PlanningOutboxQueue? outboxQueue})
       : _outboxQueue = outboxQueue;
@@ -38,7 +51,8 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
             country = ?, currency = ?, language = ?, theme = ?, input_method = ?,
             notifications_json = ?, db_encryption_key_ref = ?,
             privacy_mode_enabled = ?, ai_consent_granted = ?,
-            cloud_processing_enabled = ?,
+            cloud_processing_enabled = ?, ai_consent_state = ?,
+            cloud_consent_state = ?,
             updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
         WHERE id = ?;
       ''',
@@ -64,8 +78,12 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
           Variable.withString(requiredSettings.notificationsJson),
           Variable.withString(requiredSettings.dbEncryptionKeyRef),
           Variable.withInt(requiredSettings.privacyModeEnabled ? 1 : 0),
+          // MALI-059n: the effective grant is DERIVED from the versioned state,
+          // so the boolean and the state can never drift apart on disk.
           Variable.withInt(requiredSettings.aiConsentGranted ? 1 : 0),
           Variable.withInt(requiredSettings.cloudProcessingEnabled ? 1 : 0),
+          _consentStateVariable(requiredSettings.aiConsentState),
+          _consentStateVariable(requiredSettings.cloudConsentState),
           Variable.withString(requiredSettings.id),
         ],
       );

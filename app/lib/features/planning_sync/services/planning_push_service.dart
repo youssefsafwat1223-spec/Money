@@ -451,9 +451,8 @@ class PlanningPushService {
           'input_method': payload['input_method'],
           'notifications_json': payload['notifications_json'],
           'privacy_mode_enabled': payload['privacy_mode_enabled'] == true,
-          'ai_consent_granted': payload['ai_consent_granted'] == true,
-          'cloud_processing_enabled':
-              payload['cloud_processing_enabled'] == true,
+          // MALI-059n: consent is device-local + explicit — never pushed to the
+          // server (so it can't cross devices as implicit authorization).
         },
       _ => throw ArgumentError('Unsupported planning entity: $entityType'),
     };
