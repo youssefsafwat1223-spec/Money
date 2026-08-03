@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 3 IN PROGRESS — batches 1–4 of 6 complete & committed — 2026-08-03
+- **Last updated:** Phase 3 IN PROGRESS — batches 1–5 of 6 complete & committed — 2026-08-03
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -49,7 +49,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-005 | Crit | X | P9 | Locally verified | live purge time-travel = gates 1/2/12; purge coverage lows = MALI-075n |
 | MALI-006 | High | X | P9 | Code complete (device pending) | merged-manifest+smoke = gate 3 |
 | MALI-007 | High | — | — | Closed | atomic write+outbox re-verified |
-| MALI-008 | High | C | P3 | Not started (core Closed) | periphery = MALI-072n |
+| MALI-008 | High | C | P3 | Code complete · Locally verified | periphery closed via MALI-072n durable sender-mapping sync (keyset + tombstones + typed errors); `96993c5e` (batch 5) |
 | MALI-009 | High | C | P3 | Code complete · Locally verified | versioned canonical payload preserves type/direction/status/source; base-token round-trip; `124fd83b` (batch 4); live 2-device = external |
 | MALI-010 | High | C | P3 | Code complete · Locally verified | withdrawal/refund/unknown/source round-trip via canonical metadata (no lossy debit/credit collapse); `124fd83b` (batch 4) |
 | MALI-011 | High | C | P2 | Code complete · Locally verified | atomic wipe + unsynced inventory (flush→re-check→discard); `374560ff` |
@@ -65,7 +65,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
 | MALI-022 | High | C | P3 | Code complete · Locally verified · **live CAS external-pending** | server revision CAS migration 0068 `4a2da692` + universal resolver all 12 `de672bc0` + client CAS plumbing gated OFF `0e52da68` (batch 3); activation blocked on 0068 staging verification |
 | MALI-023 | Med | C | P3 | Code complete · Locally verified | typed failure classes + dead-letter + bounded backoff + re-arm; `d6820285` (batch 2) |
-| MALI-024 | Med | C | P3 | Not started | XP dual-authority/replay |
+| MALI-024 | Med | C | P3 | Code complete · Locally verified | server-authoritative idempotent engagement events (migration 0070 + locked-down record_engagement_event RPC); client aggregate-total upload removed (tamper vector gone); durable event outbox + exactly-once + projection; `bc0e0ddb` (batch 5). Live concurrency/ownership = external |
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
 | MALI-027 | Med | C | **P1** | Code complete · Locally verified | closed by MALI-046n fix |
@@ -113,7 +113,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-069n | Med | C | P6 | Not started | conn leak + second-instance busy_timeout |
 | MALI-070n | Low | C | P2 | Code complete · Locally verified | pending-actions file purged on destructive paths; `374560ff`. Announcement-dismissal residue = minor, remains backlog |
 | MALI-071n | Low | C | P5 | Not started | logo.dev consent gating |
-| MALI-072n | Low | C | P3 | Not started | _isConflict string-match; sender-mapping deletes |
+| MALI-072n | Low | C | P3 | Code complete · Locally verified | durable sender-mapping sync: keyset pagination + server-authoritative updated_at + durable cursor + tombstone deletion propagation + LWW (pending-safe) + typed error classification (no string-match); soft-delete replaces hard delete; `96993c5e` (batch 5). Live two-device = external |
 | MALI-073n | Low | C | P6 | Not started | missing account_id/category_id indexes |
 | MALI-074n | Low | C | P4 | Not started | card refund gross, NULL-account attribution, decimals |
 | MALI-075n | Low | C | P5 | Not started | backend lows (search_path, gamification writable, purge coverage) |
@@ -126,7 +126,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 |---|---|---|
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
-| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **IN PROGRESS** — batches 1–4 of 6 done & committed: B1 051n (acf9ca99), B2 052n-coalescing/023 (d6820285), B3 022/057n/052n revision-CAS+universal-resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 accounts+ledger parity (58614ad4/124fd83b); batches 5–6 pending: 072n/008/024, docs |
+| P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **IN PROGRESS** — batches 1–5 of 6 done & committed: B1 051n (acf9ca99), B2 052n-coalescing/023 (d6820285), B3 022/057n/052n revision-CAS+universal-resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 accounts+ledger parity (58614ad4/124fd83b), B5 072n/008 sender-mapping durability (96993c5e) + 024 gamification single-authority (74a77398); batch 6 pending: docs closure |
 | P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | Not started |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
@@ -192,7 +192,58 @@ ledger_payload_test (21), ledger_roundtrip_test (18). Full suite green (see
 Batch-4 report). No schema/backend change in Batch 4; capability `kServerRevisionCas`
 stays **false**.
 
-### External / two-device acceptance criteria (still pending)
+## Batch 5 delivered contracts (MALI-072n / 008 / 024)
+
+### Sender-mapping sync contract (MALI-072n / 008)
+- **Pagination:** stable keyset by `(updated_at, id)` with a durable cursor
+  advanced atomically per page; `updated_at` is server-authoritative (0069
+  trigger) so it is monotonic across devices and the keyset never skips a row.
+- **Tombstones:** `deleted_at` (local + server, migration 0069) propagates
+  deletions both ways; a hard delete is replaced by a soft-delete; re-suggesting
+  a sender un-tombstones it (explicit recreate).
+- **Conflict policy:** server-authoritative-timestamp LWW that never overwrites a
+  locally pending change (it is pushed and wins) and never applies an older
+  remote snapshot.
+- **Typed errors:** `classifyOutboxError` replaces string-matching. A natural-key
+  duplicate is resolved by the upsert; any error reaching the handler (unrelated
+  unique-constraint, validation, auth, server, unsupported schema, network) marks
+  the item failed for bounded retry and never falsely resolves it.
+
+### Gamification single-authority contract (MALI-024)
+- **Server authority:** migration 0070 adds `user_engagement_events`
+  (owner-bound idempotency: `UNIQUE(user_id, event_id)` + partial unique
+  `(user_id, business_key)`) and the locked-down `record_engagement_event` RPC
+  (SECURITY DEFINER, fixed search_path, revoked from PUBLIC / granted
+  authenticated, `user_id` from `auth.uid()`). The server validates the event
+  type + version and decides the award; the client cannot submit an XP total.
+- **Idempotency:** duplicate `event_id`/`business_key` awards nothing; the
+  aggregate UPSERT is row-locked so concurrent events cannot lose an increment.
+- **Client:** durable `engagement_events` outbox (event_id idempotency, bounded
+  retry/dead-letter, business-key dedup); exactly-once submit; the client
+  aggregate-total upload is REMOVED (tamper vector gone) — `GamificationSyncService`
+  is pull-only. Displayed state = acknowledged server aggregate + projection of
+  pending events (unknown types project 0 — no invented award).
+- **Event schema:** `{event_id, event_type, occurred_at, business_key?,
+  event_version}`; supported types → award: transaction_confirmed 10,
+  goal_contribution 15, budget_action 5, bill_payment 5, streak_activity 2;
+  unknown/future type or version → rejected (dead-letter), never awarded.
+- **Compatibility:** additive migration; transaction-driven awards continue via
+  the existing evaluate-gamification Edge Function; per-domain-action event
+  enqueue is added as each action migrates off that path (avoids double-award).
+
+### Batch 5 local verification
+`flutter analyze` clean; new tests: sender_bank_mapping_sync_service (11),
+engagement_event_service (12), gamification_sync_service (rewritten, pull-only);
+migration lint PASS (70 files, 14 SECURITY DEFINER); node contract 5 pass / 13
+skip / 0 fail. Full suite green.
+
+### Batch 5 external / two-device acceptance (still pending)
+- Live two-device sender-mapping keyset/tombstone round-trip on a real backend.
+- Live `record_engagement_event` RPC verification: idempotency, ownership
+  (`auth.uid()`), atomic concurrent increments, unknown-type/version rejection,
+  unauthenticated rejection (credential-gated node contract test).
+
+## Batch 4 external / two-device acceptance criteria (still pending)
 - Live `set_default_account` RPC round-trip on a real backend; two-device
   concurrent default switch converges to one default with no field rollback.
 - Two-device ledger round-trip on a real backend confirming withdrawal/refund/

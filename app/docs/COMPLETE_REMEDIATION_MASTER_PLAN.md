@@ -174,7 +174,13 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 3 — Sync & multi-device correctness (one shared sync-semantics contract)
 
-> **Status (2026-08-03): batches 1–4 of 6 delivered.** B1 durable child parking
+> **Status (2026-08-04): batches 1–5 of 6 delivered.** B5 sender-mapping sync
+> durability (072n/008 — keyset + tombstones + typed errors, `96993c5e`) +
+> gamification single-authority (024 — server-authoritative idempotent
+> engagement events via migration 0070 + locked-down RPC; client aggregate-total
+> upload removed, `74a77398`). See the Batch-5 delivered-contracts section in
+> `REMEDIATION_STATUS_LEDGER.md`. Only batch 6 (docs closure) remains.
+> Earlier: batches 1–4 —
 > (051n, `acf9ca99`); B2 outbox coalescing + typed dead-letter/retry (052n/023,
 > `d6820285`); B3 server revision CAS migration 0068 + universal conflict
 > policy/resolver (all 12 entities) + dormant client CAS plumbing gated OFF
