@@ -28,6 +28,7 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
         SELECT *
         FROM sender_bank_mappings
         WHERE normalized_sender_id = ?
+          AND deleted_at IS NULL
         LIMIT 1;
       ''',
       variables: [Variable.withString(normalized)],
@@ -135,6 +136,9 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
           END,
           updated_at = excluded.updated_at,
           synced_at = NULL,
+          -- MALI-072n — re-suggesting a sender un-tombstones it (an explicit
+          -- recreate), so a locally-deleted mapping the user re-adds comes back.
+          deleted_at = NULL,
           sync_status = CASE
             WHEN sender_bank_mappings.status = 'confirmed' THEN sender_bank_mappings.sync_status
             ELSE 'pending'
@@ -231,6 +235,7 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
       '''
         SELECT *
         FROM sender_bank_mappings
+        WHERE deleted_at IS NULL
         ORDER BY updated_at DESC;
       ''',
     ).get();
@@ -379,9 +384,19 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
 
   @override
   Future<void> delete(String id) async {
+    // MALI-072n — soft-delete (tombstone) so the deletion PROPAGATES: the sync
+    // pushes the tombstone to the server, and other devices apply it on pull. A
+    // hard delete vanished locally and silently resurrected on every sync.
+    final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customUpdate(
-      'DELETE FROM sender_bank_mappings WHERE id = ?;',
-      variables: [Variable.withString(id)],
+      'UPDATE sender_bank_mappings '
+      "SET deleted_at = ?, updated_at = ?, sync_status = 'pending' "
+      'WHERE id = ? AND deleted_at IS NULL;',
+      variables: [
+        Variable.withString(now),
+        Variable.withString(now),
+        Variable.withString(id),
+      ],
     );
   }
 

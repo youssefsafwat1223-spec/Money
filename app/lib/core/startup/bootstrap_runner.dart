@@ -8,7 +8,6 @@ import '../../data/catalog/seed_loader.dart';
 import '../../data/db/app_database.dart';
 import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
-import '../../data/repositories/drift_sender_bank_mapping_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
@@ -318,7 +317,7 @@ void _startSenderBankMappingSync(
   SupabaseClient client,
 ) {
   final service = SenderBankMappingSyncService(
-    repository: DriftSenderBankMappingRepository(database),
+    db: database,
     remoteStore: SupabaseSenderBankMappingRemoteStore(client),
     currentUserId: () => client.auth.currentUser?.id,
   );

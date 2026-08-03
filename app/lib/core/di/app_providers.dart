@@ -813,7 +813,7 @@ final senderBankMappingSyncServiceProvider =
     Provider<SenderBankMappingSyncService?>((ref) {
   if (!SupabaseConfig.isConfigured) return null;
   return SenderBankMappingSyncService(
-    repository: ref.watch(senderBankMappingRepositoryProvider),
+    db: ref.watch(appDatabaseProvider),
     remoteStore: SupabaseSenderBankMappingRemoteStore(
       supabase.Supabase.instance.client,
     ),

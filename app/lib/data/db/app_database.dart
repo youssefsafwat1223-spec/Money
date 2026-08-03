@@ -1116,6 +1116,12 @@ class AppDatabase extends GeneratedDatabase {
     ]) {
       await _ensureColumn(table, 'server_revision', 'INTEGER NULL');
     }
+    // MALI-072n / 0069 — sender-mapping sync durability: a local tombstone
+    // (deleted_at) that propagates deletions, and the server base token
+    // (server_updated_at) for conflict-safe pulls. Additive + nullable.
+    await _ensureColumn('sender_bank_mappings', 'deleted_at', 'TEXT NULL');
+    await _ensureColumn(
+        'sender_bank_mappings', 'server_updated_at', 'TEXT NULL');
     // v16: Phase D — local outbox for push sync.
     await customStatement('''
       CREATE TABLE IF NOT EXISTS ledger_sync_outbox (
