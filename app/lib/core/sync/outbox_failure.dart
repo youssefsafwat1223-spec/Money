@@ -77,8 +77,14 @@ OutboxFailureClass classifyOutboxError(Object error) {
     if (code == '429') return OutboxFailureClass.rateLimit;
     if (code == '401' || code == '403') return OutboxFailureClass.auth;
     if (code.startsWith('5')) return OutboxFailureClass.serverError;
-    if (code == '23502' || code == '23514' || code == '22P02') {
-      return OutboxFailureClass.permanentValidation; // not-null/check/invalid-text
+    if (code == '23502' ||
+        code == '23514' ||
+        code == '22P02' ||
+        code == '22023') {
+      // not-null / check / invalid-text / invalid-parameter-value. The last
+      // (22023) is raised by record_engagement_event for an unknown event type
+      // or unsupported event version — a permanent client-side validation error.
+      return OutboxFailureClass.permanentValidation;
     }
     if (code == '23503') return OutboxFailureClass.missingDependency; // FK
     if (code == '42703' || code == '42P01' || code == 'PGRST204') {

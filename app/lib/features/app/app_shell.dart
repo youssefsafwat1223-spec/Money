@@ -47,6 +47,7 @@ import '../cards/cards_providers.dart';
 import '../onboarding/force_update_screen.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../gamification/services/engagement_event_service.dart';
 import '../gamification/services/gamification_sync_service.dart';
 import '../goals/goals_providers.dart';
 import '../plans/plans_providers.dart';
@@ -570,7 +571,16 @@ class _AppShellState extends ConsumerState<AppShell> {
       }
     }
 
-    // Gamification Sync (1-way Supabase -> Local)
+    // Gamification: submit durable engagement events (server awards exactly
+    // once), then pull the acknowledged server aggregate (MALI-024 — the client
+    // never uploads a total).
+    try {
+      await ref.read(engagementEventServiceProvider).push();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[Engagement] push skipped: ${error.runtimeType}');
+      }
+    }
     try {
       await ref.read(gamificationSyncServiceProvider).performSync();
     } catch (error) {

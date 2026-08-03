@@ -41,89 +41,14 @@ class GamificationSyncService {
     // can change (sign-out/sign-in) without it being recreated.
     final userId = await _getAuthUserId();
     if (userId == null) return;
-    try {
-      await _migrateLocalToSupabaseIfNeeded(userId);
-    } catch (error) {
-      // A bootstrap write must never suppress the authoritative pull. This is
-      // especially important for existing users whose server state is valid
-      // while a newly-installed client still has seeded local defaults.
-      if (kDebugMode) {
-        debugPrint('[GamificationSync] bootstrap push failed: $error');
-      }
-    }
+    // MALI-024 — the client is PULL-ONLY for gamification aggregates. It never
+    // uploads an XP/streak/achievement total (that was the dual-authority tamper
+    // vector). The server is authoritative: it awards from engagement events
+    // (record_engagement_event RPC, submitted by EngagementEventService) and the
+    // server-side evaluation of synced domain records. The client only mirrors
+    // the acknowledged server aggregate.
     await _pullFromSupabase(userId);
     if (kDebugMode) debugPrint('[GamificationSync] done');
-  }
-
-  Future<void> _migrateLocalToSupabaseIfNeeded(String userId) async {
-    // Bootstrap each aggregate independently. Older builds could create XP
-    // and terminate before streaks/achievements, so XP alone is not proof
-    // that the whole gamification bootstrap completed.
-    final serverXp = await supabase
-        .from('user_xp_levels')
-        .select('xp')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    final serverStreak = await supabase
-        .from('user_streaks')
-        .select('user_id')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    final serverAchievements = await supabase
-        .from('user_achievements')
-        .select('achievement_key')
-        .eq('user_id', userId)
-        .isFilter('deleted_at', null);
-    final serverAchievementKeys = serverAchievements
-        .map((row) => row['achievement_key'] as String?)
-        .whereType<String>()
-        .toSet();
-
-    // 1. Upload only achievements that are not already represented remotely.
-    final localAchievements = await gamificationRepo.getAchievements();
-    final unlockedAchievements = localAchievements
-        .where(
-          (achievement) =>
-              achievement.unlockedAt != null &&
-              !serverAchievementKeys.contains(achievement.key),
-        )
-        .toList();
-
-    if (unlockedAchievements.isNotEmpty) {
-      final achievementsPayload = unlockedAchievements
-          .map((a) => {
-                'user_id': userId,
-                'local_id': a.id,
-                'achievement_key': a.key,
-                'unlocked_at': a.unlockedAt!.toUtc().toIso8601String(),
-              })
-          .toList();
-
-      await supabase.from('user_achievements').insert(achievementsPayload);
-    }
-
-    // 2. Upload streak only when the remote aggregate is missing.
-    if (serverStreak == null) {
-      final streak = await gamificationRepo.getStreak();
-      await supabase.from('user_streaks').upsert({
-        'user_id': userId,
-        'current_streak': streak.currentStreak,
-        'longest_streak': streak.longestStreak,
-        'last_active_date': dateTimeToSql(streak.lastActiveDate),
-      });
-    }
-
-    // 3. Upload XP only when the remote aggregate is missing.
-    if (serverXp == null) {
-      final xp = await gamificationRepo.getXpLevel();
-      await supabase.from('user_xp_levels').upsert({
-        'user_id': userId,
-        'xp': xp.totalXp,
-        'level': xp.level,
-      });
-    }
   }
 
   Future<void> _pullFromSupabase(String userId) async {
@@ -191,10 +116,13 @@ class GamificationSyncService {
       final lastActiveDate = serverStreak['last_active_date'] as String?;
 
       if (lastActiveDate != null) {
+        // xp_levels/streaks are singleton rows seeded with a generated id (the
+        // repo reads them via LIMIT 1), so target the single row directly — the
+        // old `WHERE id='streak'` matched nothing, so the acknowledged server
+        // aggregate never reached the local display.
         await db.customStatement('''
           UPDATE streaks
-          SET current_streak = ?, longest_streak = ?, last_active_date = ?
-          WHERE id = 'streak';
+          SET current_streak = ?, longest_streak = ?, last_active_date = ?;
         ''', [currentStreak, longestStreak, lastActiveDate]);
       }
     }
@@ -212,8 +140,7 @@ class GamificationSyncService {
 
       await db.customStatement('''
         UPDATE xp_levels
-        SET total_xp = ?, level = ?
-        WHERE id = 'xp_level';
+        SET total_xp = ?, level = ?;
       ''', [currentXp, currentLevel]);
     }
   }

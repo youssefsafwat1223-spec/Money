@@ -10,10 +10,12 @@ import 'package:money_companion/data/repositories/drift_gamification_repository.
 import 'package:money_companion/features/gamification/services/gamification_sync_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+// MALI-024 — the client is PULL-ONLY for gamification aggregates. It must never
+// upload an XP/streak/achievement total (the old dual-authority tamper vector).
+
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
   Future<String> readOrCreateKey() async => 'test-key';
-
   @override
   Future<String?> readStoredKey() async => 'test-key';
 }
@@ -30,7 +32,7 @@ http.Response _json(Object body, http.BaseRequest request, {int status = 200}) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('partial remote bootstrap creates missing streak when XP exists',
+  test('performSync pulls the server aggregate and NEVER uploads a total',
       () async {
     final db = await AppDatabase.open(
       executor: NativeDatabase.memory(),
@@ -38,46 +40,39 @@ void main() {
     );
     addTearDown(db.close);
 
-    var streakExists = false;
-    var streakUpserts = 0;
-    var xpUpserts = 0;
+    final aggregateWrites = <String>[];
     final client = SupabaseClient(
       'https://example.supabase.co',
       'public-anon-key',
       accessToken: () async => 'qa-access-token',
       httpClient: MockClient((request) async {
         final table = request.url.pathSegments.last;
-        final select = request.url.queryParameters['select'];
-
-        if (request.method == 'POST') {
-          if (table == 'user_streaks') {
-            streakExists = true;
-            streakUpserts++;
-          }
-          if (table == 'user_xp_levels') xpUpserts++;
+        // Any write to an aggregate table is the tamper vector — record it so
+        // the test fails if the client ever uploads a total again.
+        if (request.method == 'POST' ||
+            request.method == 'PATCH' ||
+            request.method == 'PUT') {
+          aggregateWrites.add('${request.method} $table');
           return _json(<Object>[], request);
         }
-
         switch (table) {
           case 'user_xp_levels':
             return _json([
               {'user_id': 'qa-user', 'xp': 20, 'level': 2}
             ], request);
           case 'user_streaks':
-            if (!streakExists) return _json(<Object>[], request);
             return _json([
               {
                 'user_id': 'qa-user',
-                'current_streak': 0,
-                'longest_streak': 0,
+                'current_streak': 3,
+                'longest_streak': 5,
                 'last_active_date': '2026-07-23T00:00:00Z',
               }
             ], request);
           case 'user_achievements':
             return _json(<Object>[], request);
           default:
-            fail(
-                'Unexpected request: ${request.method} ${request.url} ($select)');
+            fail('Unexpected request: ${request.method} ${request.url}');
         }
       }),
     );
@@ -92,7 +87,15 @@ void main() {
     await service.performSync();
     await service.performSync();
 
-    expect(streakUpserts, 1);
-    expect(xpUpserts, 0);
+    // The client uploaded NOTHING — no arbitrary XP/streak/achievement total.
+    expect(aggregateWrites, isEmpty,
+        reason: 'the client must never upload a gamification total');
+
+    // The acknowledged server aggregate is mirrored locally.
+    final xp = (await db
+            .customSelect('SELECT total_xp, level FROM xp_levels LIMIT 1;')
+            .getSingle());
+    expect(xp.read<int>('total_xp'), 20);
+    expect(xp.read<int>('level'), 2);
   });
 }

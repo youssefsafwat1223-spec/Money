@@ -42,6 +42,7 @@ class DataWipeService {
     'planning_sync_outbox',
     'sync_cursors',
     'parked_child_rows',
+    'engagement_events',
     'pending_merchant_feedback',
     'financial_cache_health',
     // User-scoped operational rows that used to survive sign-out and leak into

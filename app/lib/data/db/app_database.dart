@@ -1189,6 +1189,29 @@ class AppDatabase extends GeneratedDatabase {
       await _ensureColumn(table, 'status', "TEXT NOT NULL DEFAULT 'pending'");
       await _ensureColumn(table, 'failure_class', 'TEXT NULL');
     }
+    // MALI-024 / 0070 — durable local engagement-event outbox. The client
+    // records typed events; the server (record_engagement_event RPC) decides the
+    // award. The client NEVER stores or uploads an authoritative XP total. The
+    // event_id is the owner-bound idempotency key (exactly-once server award).
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS engagement_events (
+        event_id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        business_key TEXT NULL,
+        event_version INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK(status IN ('pending', 'synced', 'failed', 'dead')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        failure_class TEXT NULL,
+        created_at TEXT NOT NULL,
+        synced_at TEXT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_engagement_events_status '
+      'ON engagement_events(status);',
+    );
     // v22: portable custom categories. Built-in catalog rows keep these null;
     // only user-created rows participate in server mirroring/import.
     await _ensureColumn('categories', 'server_id', 'TEXT NULL');

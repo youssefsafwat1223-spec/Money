@@ -289,6 +289,9 @@ class BackupSnapshotBuilder {
     'planning_sync_outbox',
     'sync_cursors',
     'parked_child_rows',
+    // MALI-024 — engagement events are device-local sync state; the server is
+    // authoritative for the resulting XP/streak/achievement aggregate.
+    'engagement_events',
     'dedup_hashes',
     'smart_inbox_items',
     'suspected_duplicates',
