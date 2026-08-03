@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
-import 'services/planning_conflict_resolver.dart';
+import '../../core/sync/conflict_resolver.dart';
 
 /// MALI-022 part 2 — the visible conflict-resolution surface. Lists planning
 /// rows stuck in `sync_status='conflict'` (a real two-device edit collision)
@@ -23,7 +23,7 @@ class PlanningConflictsSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final conflictsAsync = ref.watch(planningConflictsProvider);
+    final conflictsAsync = ref.watch(conflictsProvider);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       child: conflictsAsync.when(
@@ -83,7 +83,7 @@ class PlanningConflictsSheet extends ConsumerWidget {
 
 class _ConflictRow extends ConsumerStatefulWidget {
   const _ConflictRow({required this.conflict, super.key});
-  final PlanningConflict conflict;
+  final SyncConflict conflict;
 
   @override
   ConsumerState<_ConflictRow> createState() => _ConflictRowState();
@@ -96,7 +96,7 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final resolver = ref.read(planningConflictResolverProvider);
+      final resolver = ref.read(conflictResolverProvider);
       if (keepLocal) {
         await resolver.resolveKeepLocal(
             widget.conflict.entityType, widget.conflict.localId);
@@ -104,7 +104,7 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
         await resolver.resolveKeepRemote(
             widget.conflict.entityType, widget.conflict.localId);
       }
-      ref.invalidate(planningConflictsProvider);
+      ref.invalidate(conflictsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

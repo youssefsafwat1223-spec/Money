@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/core/sync/conflict_policy.dart';
+import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/features/planning_sync/planning_conflicts_sheet.dart';
-import 'package:money_companion/features/planning_sync/services/planning_conflict_resolver.dart';
-import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 
-class _FakeResolver implements PlanningConflictResolver {
+class _FakeResolver implements UniversalConflictResolver {
   final keepLocal = <String>[];
   final keepRemote = <String>[];
 
   @override
-  Future<List<PlanningConflict>> listConflicts() async => const [];
+  Future<List<SyncConflict>> listConflicts() async => const [];
   @override
   Future<void> resolveKeepLocal(String entityType, String localId) async =>
       keepLocal.add('$entityType/$localId');
@@ -23,8 +23,8 @@ class _FakeResolver implements PlanningConflictResolver {
 }
 
 void main() {
-  const conflict = PlanningConflict(
-    entityType: PlanningOutboxQueue.goalsEntityType,
+  const conflict = SyncConflict(
+    entityType: ConflictEntities.goal,
     localId: 'g1',
     label: 'Travel',
   );
@@ -33,8 +33,8 @@ void main() {
     final fake = _FakeResolver();
     await tester.pumpWidget(ProviderScope(
       overrides: [
-        planningConflictsProvider.overrideWith((ref) async => [conflict]),
-        planningConflictResolverProvider.overrideWithValue(fake),
+        conflictsProvider.overrideWith((ref) async => [conflict]),
+        conflictResolverProvider.overrideWithValue(fake),
       ],
       child: const MaterialApp(
         home: Scaffold(body: PlanningConflictsSheet()),
@@ -57,7 +57,7 @@ void main() {
     final fake = await pump(tester);
     await tester.tap(find.text('احتفظ بنسختي'));
     await tester.pumpAndSettle();
-    expect(fake.keepLocal, ['${PlanningOutboxQueue.goalsEntityType}/g1']);
+    expect(fake.keepLocal, ['${ConflictEntities.goal}/g1']);
     expect(fake.keepRemote, isEmpty);
   });
 
@@ -66,7 +66,7 @@ void main() {
     final fake = await pump(tester);
     await tester.tap(find.text('نسخة الجهاز الآخر'));
     await tester.pumpAndSettle();
-    expect(fake.keepRemote, ['${PlanningOutboxQueue.goalsEntityType}/g1']);
+    expect(fake.keepRemote, ['${ConflictEntities.goal}/g1']);
     expect(fake.keepLocal, isEmpty);
   });
 }

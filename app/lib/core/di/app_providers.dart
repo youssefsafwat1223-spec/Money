@@ -7,6 +7,8 @@ import '../auth/account_deletion_service.dart';
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
+import '../sync/conflict_policy.dart';
+import '../sync/conflict_resolver.dart';
 import '../sync/sync_wakeup.dart';
 import '../session/app_session.dart';
 import '../session/unsynced_inventory.dart';
@@ -102,7 +104,6 @@ import '../../features/planning_sync/services/accounts_pull_service.dart';
 import '../../features/planning_sync/services/accounts_push_service.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../../features/planning_sync/services/planning_child_sync_service.dart';
-import '../../features/planning_sync/services/planning_conflict_resolver.dart';
 import '../../features/planning_sync/services/planning_pull_service.dart';
 import '../../features/planning_sync/services/planning_push_service.dart';
 import '../../features/planning_sync/services/planning_startup_registration_service.dart';
@@ -434,6 +435,7 @@ final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
     planningChildSyncService: ref.watch(planningChildSyncServiceProvider),
     startupRegistrationService:
         ref.watch(planningStartupRegistrationServiceProvider),
+    conflictResolver: ref.watch(conflictResolverProvider),
   );
 });
 
@@ -619,23 +621,81 @@ final goalRepositoryProvider = Provider<GoalRepository>((ref) {
   );
 });
 
-/// MALI-022 — visible planning conflict resolution.
-final planningConflictResolverProvider =
-    Provider<PlanningConflictResolver>((ref) {
-  return PlanningConflictResolver(
+/// MALI-022 / MALI-057n — the universal, policy-driven conflict resolver
+/// (replaces the planning-only resolver). Covers all twelve synced entities;
+/// the keep-local re-enqueue is wired per interactive entity via its typed
+/// repository + outbox queue, so resolving carries the current local state.
+final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
+  final ledgerQueue = ref.watch(ledgerOutboxQueueProvider);
+  final planningQueue = ref.watch(planningOutboxQueueProvider);
+  final transactions = ref.watch(transactionRepositoryProvider);
+  final accounts = ref.watch(accountRepositoryProvider);
+  final budgets = ref.watch(budgetRepositoryProvider);
+  final goals = ref.watch(goalRepositoryProvider);
+  final bills = ref.watch(billRepositoryProvider);
+  final plans = ref.watch(planRepositoryProvider);
+
+  return UniversalConflictResolver(
     db: ref.watch(appDatabaseProvider),
-    queue: ref.watch(planningOutboxQueueProvider),
-    budgets: ref.watch(budgetRepositoryProvider),
-    goals: ref.watch(goalRepositoryProvider),
-    bills: ref.watch(billRepositoryProvider),
-    plans: ref.watch(planRepositoryProvider),
+    reEnqueue: {
+      ConflictEntities.transaction: (id) async {
+        final e = await transactions.getById(id);
+        if (e != null) await ledgerQueue.enqueue(OutboxOperation.update, e);
+      },
+      ConflictEntities.account: (id) async {
+        final e = await accounts.getById(id);
+        if (e != null) {
+          await planningQueue.enqueueAccount(PlanningSyncOperation.update, e);
+        }
+      },
+      ConflictEntities.budget: (id) async {
+        final e = await budgets.getById(id);
+        if (e != null) {
+          await planningQueue.enqueueBudget(PlanningSyncOperation.update, e);
+        }
+      },
+      ConflictEntities.goal: (id) async {
+        final e = await goals.getById(id);
+        if (e != null) {
+          await planningQueue.enqueueGoal(PlanningSyncOperation.update, e);
+        }
+      },
+      ConflictEntities.subscription: (id) async {
+        final e = await bills.getById(id);
+        if (e != null) {
+          await planningQueue.enqueueSubscription(
+              PlanningSyncOperation.update, e);
+        }
+      },
+      ConflictEntities.plan: (id) async {
+        final e = await plans.getById(id);
+        if (e != null) {
+          await planningQueue.enqueuePlan(PlanningSyncOperation.update, e);
+        }
+      },
+    },
+    baseFetcher: SupabaseConfig.isConfigured
+        ? (remoteTable, serverId) async {
+            try {
+              final row = await supabase.Supabase.instance.client
+                  .from(remoteTable)
+                  .select('updated_at')
+                  .eq('id', serverId)
+                  .maybeSingle();
+              return row?['updated_at'] as String?;
+            } catch (_) {
+              return null;
+            }
+          }
+        : null,
   );
 });
 
-/// The current unresolved planning conflicts (drives the resolution UI + badge).
-final planningConflictsProvider = FutureProvider<List<PlanningConflict>>((ref) {
+/// The current unresolved conflicts across all interactive entities (drives the
+/// resolution UI + badge).
+final conflictsProvider = FutureProvider<List<SyncConflict>>((ref) {
   ref.watch(dbRevisionProvider); // refresh when any DB write lands
-  return ref.watch(planningConflictResolverProvider).listConflicts();
+  return ref.watch(conflictResolverProvider).listConflicts();
 });
 
 /// MALI-016 — the authoritative, dependency-aware account-deletion path

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/sync/conflict_resolver.dart';
 import 'accounts_pull_service.dart';
 import 'accounts_push_service.dart';
 import 'planning_pull_service.dart';
@@ -15,12 +16,14 @@ class PlanningSyncEngine {
     required PlanningPullService planningPullService,
     required PlanningChildSyncService planningChildSyncService,
     required PlanningStartupRegistrationService startupRegistrationService,
+    required UniversalConflictResolver conflictResolver,
   })  : _accountsPush = accountsPushService,
         _accountsPull = accountsPullService,
         _planningPush = planningPushService,
         _planningPull = planningPullService,
         _planningChildren = planningChildSyncService,
-        _startupRegistration = startupRegistrationService;
+        _startupRegistration = startupRegistrationService,
+        _conflictResolver = conflictResolver;
 
   final AccountsPushService _accountsPush;
   final AccountsPullService _accountsPull;
@@ -28,6 +31,7 @@ class PlanningSyncEngine {
   final PlanningPullService _planningPull;
   final PlanningChildSyncService _planningChildren;
   final PlanningStartupRegistrationService _startupRegistration;
+  final UniversalConflictResolver _conflictResolver;
 
   Future<void> sync() async {
     await syncParents();
@@ -51,6 +55,16 @@ class PlanningSyncEngine {
       await _planningPush.push();
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] planning push error: $e');
+    }
+    // Auto-resolve low-stakes config conflicts (cards/categories/settings) in
+    // favour of the server BEFORE the pull, so the pull overwrites the local
+    // copy within this same pass — they never sit stuck in `conflict` awaiting a
+    // prompt that never comes (MALI-057n). Financial entities are left for the
+    // user to resolve.
+    try {
+      await _conflictResolver.autoResolveDeterministic();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PlanningSync] auto-resolve error: $e');
     }
     try {
       await _planningPull.pull();

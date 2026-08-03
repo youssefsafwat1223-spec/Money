@@ -330,8 +330,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 // MALI-022: surface unresolved multi-device conflicts so they
                 // are no longer stuck/invisible. Shown only when some exist.
-                if ((ref.watch(planningConflictsProvider).valueOrNull ??
-                        const [])
+                if ((ref.watch(conflictsProvider).valueOrNull ?? const [])
                     .isNotEmpty)
                   _NavTile(
                     icon: Icons.sync_problem_outlined,
