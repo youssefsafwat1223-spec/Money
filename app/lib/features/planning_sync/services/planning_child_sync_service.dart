@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/sync_cursor.dart';
@@ -191,7 +192,11 @@ class PlanningChildSyncService {
           await _pushItem(userId, item);
           await _queue.markSuccess(item.id);
         } catch (error) {
-          await _queue.markFailed(item.id, error.toString());
+          await _queue.markFailed(
+            item.id,
+            error.toString(),
+            classifyOutboxError(error),
+          );
           if (kDebugMode) {
             debugPrint('[PlanningChildSync] push ${item.entityType}: $error');
           }

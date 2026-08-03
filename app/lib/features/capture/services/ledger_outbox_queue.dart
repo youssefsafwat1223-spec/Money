@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../core/sync/outbox_failure.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
@@ -54,23 +55,46 @@ class LedgerOutboxQueue {
 
     final now = dateTimeToSql(DateTime.now().toUtc());
     final payload = _buildPayload(op, tx);
-    final id = IdGenerator.next();
 
     await _db.transaction(() async {
-      await _db.customStatement('''
-        INSERT INTO ledger_sync_outbox(
-          id, transaction_id, operation, payload_json,
-          attempt_count, created_at, updated_at
-        ) VALUES (
-          ${sqlString(id)},
-          ${sqlString(tx.id)},
-          ${sqlString(op.name)},
-          ${sqlString(jsonEncode(payload))},
-          0,
-          ${sqlString(now)},
-          ${sqlString(now)}
-        );
-      ''');
+      // MALI-052n: coalesce into any existing PENDING row for this transaction.
+      final existing = await _db.customSelect(
+        "SELECT id, operation FROM ledger_sync_outbox "
+        "WHERE transaction_id = ${sqlString(tx.id)} AND status = 'pending' "
+        "ORDER BY created_at ASC LIMIT 1;",
+      ).getSingleOrNull();
+      if (existing != null) {
+        final coalesced =
+            coalesceOutboxOperation(existing.read<String>('operation'), op.name);
+        if (coalesced == null) {
+          await _db.customStatement(
+            'DELETE FROM ledger_sync_outbox '
+            'WHERE transaction_id = ${sqlString(tx.id)} '
+            "AND status = 'pending';",
+          );
+        } else {
+          await _db.customStatement('''
+            UPDATE ledger_sync_outbox
+            SET operation = ${sqlString(coalesced)},
+                payload_json = ${sqlString(jsonEncode(payload))},
+                attempt_count = 0, status = 'pending', failure_class = NULL,
+                last_error = NULL, next_retry_at = NULL,
+                updated_at = ${sqlString(now)}
+            WHERE transaction_id = ${sqlString(tx.id)} AND status = 'pending';
+          ''');
+        }
+      } else {
+        await _db.customStatement('''
+          INSERT INTO ledger_sync_outbox(
+            id, transaction_id, operation, payload_json,
+            attempt_count, status, created_at, updated_at
+          ) VALUES (
+            ${sqlString(IdGenerator.next())}, ${sqlString(tx.id)},
+            ${sqlString(op.name)}, ${sqlString(jsonEncode(payload))},
+            0, 'pending', ${sqlString(now)}, ${sqlString(now)}
+          );
+        ''');
+      }
       await _db.customStatement('''
         UPDATE transactions
         SET sync_status = 'pending'
@@ -86,9 +110,8 @@ class LedgerOutboxQueue {
       SELECT id, transaction_id, operation, payload_json,
              attempt_count, last_error, next_retry_at
       FROM ledger_sync_outbox
-      WHERE attempt_count >= 5
-         OR next_retry_at IS NULL
-         OR next_retry_at <= ${sqlString(now)}
+      WHERE status = 'pending'
+        AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
       ORDER BY created_at ASC
       LIMIT $limit;
     ''').get();
@@ -120,34 +143,80 @@ class LedgerOutboxQueue {
     );
   }
 
-  Future<void> markFailed(String id, String error) async {
+  /// MALI-023: typed failure handling. Permanent failures dead-letter
+  /// immediately (no retry storm). Retryable failures use bounded exponential
+  /// backoff and dead-letter after [kOutboxMaxAttempts]. Conflicts are handled
+  /// by the push (markConflict), never here.
+  Future<void> markFailed(
+    String id,
+    String error,
+    OutboxFailureClass failureClass,
+  ) async {
     final row = await _db
         .customSelect(
           'SELECT attempt_count FROM ledger_sync_outbox WHERE id = ${sqlString(id)} LIMIT 1;',
         )
         .getSingleOrNull();
     if (row == null) return;
-
-    final previousAttempts = row.read<int>('attempt_count');
-    final attempts = previousAttempts >= 5 ? 1 : previousAttempts + 1;
-    final backoffSeconds = _backoff(attempts);
-    final nextRetry = dateTimeToSql(
-      DateTime.now().toUtc().add(Duration(seconds: backoffSeconds)),
-    );
     final now = dateTimeToSql(DateTime.now().toUtc());
 
+    if (failureClass.isPermanent) {
+      await _db.customStatement('''
+        UPDATE ledger_sync_outbox
+        SET status = 'dead_letter', failure_class = ${sqlString(failureClass.name)},
+            last_error = ${sqlString(error)}, updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(id)};
+      ''');
+      return;
+    }
+
+    final attempts = row.read<int>('attempt_count') + 1;
+    if (attempts >= kOutboxMaxAttempts) {
+      await _db.customStatement('''
+        UPDATE ledger_sync_outbox
+        SET status = 'dead_letter', attempt_count = $attempts,
+            failure_class = ${sqlString(failureClass.name)},
+            last_error = ${sqlString(error)}, updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(id)};
+      ''');
+      return;
+    }
+
+    final nextRetry = dateTimeToSql(
+      DateTime.now().toUtc().add(Duration(seconds: _backoff(attempts))),
+    );
     await _db.customStatement('''
       UPDATE ledger_sync_outbox
-      SET attempt_count = $attempts,
-          last_error = ${sqlString(error)},
-          next_retry_at = ${sqlString(nextRetry)},
+      SET attempt_count = $attempts, failure_class = ${sqlString(failureClass.name)},
+          last_error = ${sqlString(error)}, next_retry_at = ${sqlString(nextRetry)},
           updated_at = ${sqlString(now)}
       WHERE id = ${sqlString(id)};
     ''');
   }
 
-  // Capped exponential backoff. Rows are never discarded: an old exhausted
-  // row is released once after an app update and restarts at attempt one.
+  /// MALI-023: re-arm dead-lettered rows (e.g. after an app/schema upgrade that
+  /// may fix a previously-permanent failure). Returns the number re-armed.
+  Future<int> reArmDeadLetter() async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    return _db.customUpdate('''
+      UPDATE ledger_sync_outbox
+      SET status = 'pending', attempt_count = 0, next_retry_at = NULL,
+          failure_class = NULL, updated_at = ${sqlString(now)}
+      WHERE status = 'dead_letter';
+    ''');
+  }
+
+  /// Queue health for diagnostics (no financial payload exposed).
+  Future<int> deadLetterCount() async {
+    final row = await _db
+        .customSelect(
+          "SELECT COUNT(*) AS n FROM ledger_sync_outbox WHERE status = 'dead_letter';",
+        )
+        .getSingle();
+    return row.read<int>('n');
+  }
+
+  // Capped exponential backoff (30s → ~64min) for retryable failures.
   static int _backoff(int attempt) => 30 * (1 << (attempt - 1).clamp(0, 7));
 
   Map<String, dynamic> _buildPayload(OutboxOperation op, TransactionEntity tx) {

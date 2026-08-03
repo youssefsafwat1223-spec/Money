@@ -9,6 +9,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
 import 'package:money_companion/features/capture/services/ledger_push_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -341,16 +342,22 @@ void main() {
     expect(before.attemptCount, 0);
     expect(before.nextRetryAt, isNull);
 
-    await q.markFailed(before.id, 'network timeout');
+    await q.markFailed(
+      before.id,
+      'network timeout',
+      OutboxFailureClass.transientNetwork,
+    );
 
     final rows = await db
         .customSelect(
-          'SELECT attempt_count, next_retry_at, last_error FROM ledger_sync_outbox;',
+          'SELECT attempt_count, next_retry_at, last_error, status '
+          'FROM ledger_sync_outbox;',
         )
         .get();
     expect(rows.first.read<int>('attempt_count'), 1);
     expect(rows.first.readNullable<String>('next_retry_at'), isNotNull);
     expect(rows.first.readNullable<String>('last_error'), 'network timeout');
+    expect(rows.first.read<String>('status'), 'pending', reason: 'transient');
   });
 
   test(
@@ -372,7 +379,8 @@ void main() {
 
   // ── durable retries ───────────────────────────────────────────────────────
 
-  test('failed item remains durable after five attempts', () async {
+  test('MALI-023: transient failures stay durably pending (not dead-lettered) '
+      'below the attempt bound', () async {
     await _insertTx(db);
     final q = _queue(db);
     final tx = (await DriftTransactionRepository(db).getById('tx-001'))!;
@@ -380,17 +388,19 @@ void main() {
 
     for (var i = 0; i < 5; i++) {
       final items = await db
-          .customSelect(
-            'SELECT id, attempt_count FROM ledger_sync_outbox LIMIT 1;',
-          )
+          .customSelect('SELECT id FROM ledger_sync_outbox LIMIT 1;')
           .get();
-      expect(items.isNotEmpty, isTrue);
       final id = items.first.read<String>('id');
-      await q.markFailed(id, 'error $i');
+      await q.markFailed(id, 'error $i', OutboxFailureClass.transientNetwork);
     }
 
-    // Exhausted rows from an older app version are released once so a fixed
-    // schema/network condition can recover without losing the local write.
-    expect(await q.pendingItems(), hasLength(1));
+    // Durable + still 'pending' (5 < bound) — NOT dead-lettered, and NOT the
+    // old always-eligible hot-loop: it waits for its backoff before re-eligible.
+    final row = await db
+        .customSelect('SELECT attempt_count, status FROM ledger_sync_outbox;')
+        .getSingle();
+    expect(row.read<int>('attempt_count'), 5);
+    expect(row.read<String>('status'), 'pending');
+    expect(await q.deadLetterCount(), 0);
   });
 }

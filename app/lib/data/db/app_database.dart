@@ -1108,7 +1108,9 @@ class AppDatabase extends GeneratedDatabase {
         last_error TEXT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        next_retry_at TEXT NULL
+        next_retry_at TEXT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        failure_class TEXT NULL
       );
     ''');
     await customStatement(
@@ -1157,6 +1159,11 @@ class AppDatabase extends GeneratedDatabase {
     await _ensurePlanningEntitySyncSchema();
     await _ensurePlanningChildSyncSchema();
     await _createPlanningSyncOutboxTable();
+    // MALI-023: dead-letter/retry columns for existing installs (additive).
+    for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+      await _ensureColumn(table, 'status', "TEXT NOT NULL DEFAULT 'pending'");
+      await _ensureColumn(table, 'failure_class', 'TEXT NULL');
+    }
     // v22: portable custom categories. Built-in catalog rows keep these null;
     // only user-created rows participate in server mirroring/import.
     await _ensureColumn('categories', 'server_id', 'TEXT NULL');
@@ -1229,7 +1236,9 @@ class AppDatabase extends GeneratedDatabase {
         last_error TEXT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        next_retry_at TEXT NULL
+        next_retry_at TEXT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        failure_class TEXT NULL
       );
     ''');
     await customStatement(

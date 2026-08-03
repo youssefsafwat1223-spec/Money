@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import 'planning_outbox_queue.dart';
@@ -131,7 +132,7 @@ class AccountsPushService {
         }
       } catch (e) {
         failed++;
-        await _queue.markFailed(item.id, e.toString());
+        await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
         if (kDebugMode) debugPrint('[AccountsPush] item error: $e');
       }
     }

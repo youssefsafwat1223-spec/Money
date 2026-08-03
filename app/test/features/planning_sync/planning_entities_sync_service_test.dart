@@ -258,13 +258,17 @@ void main() {
       final result = await push.push();
 
       expect(result.failed, 0);
-      expect(result.pushed, greaterThanOrEqualTo(7));
+      // MALI-052n coalescing: b1's create+update fold into one create carrying
+      // the latest amount; b-delete's create+delete (both offline, never synced)
+      // drop entirely (no server round-trip). So exactly 4 pushes: b1, s1, g1, p1.
+      expect(result.pushed, 4);
       expect(await _outboxCount(db), 0);
       expect(remote.rows['user_budgets']?['b1']?['amount'], 600);
       expect(remote.rows['user_subscriptions']?['s1']?['name'], 'Netflix');
       expect(remote.rows['user_goals']?['g1']?['saved_amount'], 300);
       expect(remote.rows['user_plans']?['p1']?['name'], 'Summer');
-      expect(remote.deletes, 1);
+      expect(remote.deletes, 0,
+          reason: 'b-delete was created+deleted offline → coalesced away');
     });
 
     test(

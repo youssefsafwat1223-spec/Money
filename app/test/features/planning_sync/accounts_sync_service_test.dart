@@ -284,11 +284,14 @@ void main() {
       await repo.create(_account('delete-account'));
       await repo.delete('delete-account');
 
-      expect(await _outboxCount(db), greaterThanOrEqualTo(4));
+      // MALI-052n coalescing: push-account's create+update fold into one create
+      // (latest name); delete-account's create+delete (both offline, never
+      // synced) drop entirely. So exactly one pending row remains.
+      expect(await _outboxCount(db), 1);
 
       final result = await push.push();
 
-      expect(result.pushed, greaterThanOrEqualTo(4));
+      expect(result.pushed, 1);
       expect(result.failed, 0);
       expect(await _outboxCount(db), 0);
       expect(remote.rowsByLocalId['push-account']?['name'], 'Updated');
@@ -296,7 +299,8 @@ void main() {
         remote.rowsByLocalId['push-account']?['metadata'],
         isA<Map<String, dynamic>>().having((value) => value, 'value', isEmpty),
       );
-      expect(remote.deletes, 1);
+      expect(remote.deletes, 0,
+          reason: 'delete-account was created+deleted offline → coalesced away');
     });
 
     test(

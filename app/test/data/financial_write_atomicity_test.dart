@@ -389,6 +389,20 @@ void main() {
     );
     await DriftBillRepository(db).save(bill);
     await billRepository.recordPayment(payment);
+    // MALI-052n: simulate the creates already synced, so the deletes below
+    // produce real server delete-ops (a fresh INSERT the trigger can catch)
+    // rather than coalescing the pending creates away. Keeps this an atomicity
+    // test (delete + bill cleanup share the outer transaction) under coalescing.
+    await db.customStatement(
+      "UPDATE transactions SET server_id = 'srv-tx', sync_status = 'synced' "
+      "WHERE id = '${transaction.id}';",
+    );
+    await db.customStatement(
+      "UPDATE bill_payments SET server_id = 'srv-pay', sync_status = 'synced' "
+      "WHERE id = '${payment.id}';",
+    );
+    await db.customStatement('DELETE FROM ledger_sync_outbox;');
+    await db.customStatement('DELETE FROM planning_sync_outbox;');
     await db.customStatement('''
       CREATE TRIGGER fail_bill_cleanup_outbox
       BEFORE INSERT ON planning_sync_outbox
@@ -418,7 +432,8 @@ void main() {
         'transaction_id',
         transaction.id,
       ),
-      1,
+      0,
+      reason: 'the delete enqueue rolled back with the aborted transaction',
     );
 
     await db.customStatement('DROP TRIGGER fail_bill_cleanup_outbox;');
@@ -440,7 +455,8 @@ void main() {
         'transaction_id',
         transaction.id,
       ),
-      2,
+      1,
+      reason: 'one coalesced delete row (the create was already synced/cleared)',
     );
     expect(
       await _outboxCount(
@@ -449,7 +465,7 @@ void main() {
         'entity_id',
         payment.id,
       ),
-      2,
+      1,
     );
   });
 }

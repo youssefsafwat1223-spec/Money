@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../core/sync/outbox_failure.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
@@ -86,34 +87,14 @@ class PlanningOutboxQueue {
     final userId = await _getAuthUserId();
     if (userId == null) return false;
 
-    final now = dateTimeToSql(DateTime.now().toUtc());
-    final payload = _buildAccountPayload(op, account);
-    final id = IdGenerator.next();
-
-    await _db.transaction(() async {
-      await _db.customStatement('''
-        INSERT INTO planning_sync_outbox(
-          id, entity_type, entity_id, operation, payload_json,
-          attempt_count, created_at, updated_at
-        ) VALUES (
-          ${sqlString(id)},
-          ${sqlString(accountsEntityType)},
-          ${sqlString(account.id)},
-          ${sqlString(op.name)},
-          ${sqlString(jsonEncode(payload))},
-          0,
-          ${sqlString(now)},
-          ${sqlString(now)}
-        );
-      ''');
-
-      await _db.customStatement('''
-        UPDATE accounts
-        SET sync_status = 'pending'
-        WHERE id = ${sqlString(account.id)};
-      ''');
-    });
-    _onQueued?.call();
+    await _writeOutbox(
+      entityType: accountsEntityType,
+      entityId: account.id,
+      opName: op.name,
+      payload: _buildAccountPayload(op, account),
+      localUpdateSql: "UPDATE accounts SET sync_status = 'pending' "
+          'WHERE id = ${sqlString(account.id)};',
+    );
     return true;
   }
 
@@ -221,30 +202,20 @@ class PlanningOutboxQueue {
     if (!_isSyncEnabled(planLinksEntityType)) return false;
     if (await _getAuthUserId() == null) return false;
     final entityId = '$planId:$transactionId';
-    final now = dateTimeToSql(DateTime.now().toUtc());
     final payload = _withDelete(op, {
       'local_plan_id': planId,
       'local_transaction_id': transactionId,
       'created_at': createdAt.toUtc().toIso8601String(),
     });
-    await _db.transaction(() async {
-      await _db.customStatement('''
-        INSERT INTO planning_sync_outbox(
-          id, entity_type, entity_id, operation, payload_json,
-          attempt_count, created_at, updated_at
-        ) VALUES (
-          ${sqlString(IdGenerator.next())}, ${sqlString(planLinksEntityType)},
-          ${sqlString(entityId)}, ${sqlString(op.name)},
-          ${sqlString(jsonEncode(payload))}, 0, ${sqlString(now)}, ${sqlString(now)}
-        );
-      ''');
-      await _db.customStatement('''
-        UPDATE plan_transaction_links SET sync_status = 'pending'
-        WHERE plan_id = ${sqlString(planId)}
-          AND transaction_id = ${sqlString(transactionId)};
-      ''');
-    });
-    _onQueued?.call();
+    await _writeOutbox(
+      entityType: planLinksEntityType,
+      entityId: entityId,
+      opName: op.name,
+      payload: payload,
+      localUpdateSql: "UPDATE plan_transaction_links SET sync_status = 'pending' "
+          'WHERE plan_id = ${sqlString(planId)} '
+          'AND transaction_id = ${sqlString(transactionId)};',
+    );
     return true;
   }
 
@@ -329,9 +300,6 @@ class PlanningOutboxQueue {
     final userId = await _getAuthUserId();
     if (userId == null) return false;
 
-    final now = dateTimeToSql(DateTime.now().toUtc());
-    final id = IdGenerator.next();
-
     // MALI-022: snapshot the last-known server version as an optimistic base
     // token, so the push can detect a concurrent remote edit and conflict
     // instead of blindly overwriting it (mirrors the ledger's server_updated_at
@@ -348,31 +316,73 @@ class PlanningOutboxQueue {
       if (baseToken != null) 'server_updated_at': baseToken,
     };
 
-    await _db.transaction(() async {
-      await _db.customStatement('''
-        INSERT INTO planning_sync_outbox(
-          id, entity_type, entity_id, operation, payload_json,
-          attempt_count, created_at, updated_at
-        ) VALUES (
-          ${sqlString(id)},
-          ${sqlString(entityType)},
-          ${sqlString(entityId)},
-          ${sqlString(op.name)},
-          ${sqlString(jsonEncode(enriched))},
-          0,
-          ${sqlString(now)},
-          ${sqlString(now)}
-        );
-      ''');
+    await _writeOutbox(
+      entityType: entityType,
+      entityId: entityId,
+      opName: op.name,
+      payload: enriched,
+      localUpdateSql:
+          "UPDATE $table SET sync_status = 'pending' WHERE id = ${sqlString(entityId)};",
+    );
+    return true;
+  }
 
-      await _db.customStatement('''
-        UPDATE $table
-        SET sync_status = 'pending'
-        WHERE id = ${sqlString(entityId)};
-      ''');
+  /// MALI-052n: coalescing writer shared by every planning enqueue path — folds
+  /// an incoming op into an existing PENDING row for the same (entity_type,
+  /// entity_id) so consecutive offline edits become one row (one base token,
+  /// no self-conflict), then marks the local row pending.
+  Future<void> _writeOutbox({
+    required String entityType,
+    required String entityId,
+    required String opName,
+    required Map<String, dynamic> payload,
+    required String localUpdateSql,
+  }) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.transaction(() async {
+      final existing = await _db.customSelect(
+        'SELECT operation FROM planning_sync_outbox '
+        'WHERE entity_type = ${sqlString(entityType)} '
+        'AND entity_id = ${sqlString(entityId)} '
+        "AND status = 'pending' ORDER BY created_at ASC LIMIT 1;",
+      ).getSingleOrNull();
+      if (existing != null) {
+        final coalesced =
+            coalesceOutboxOperation(existing.read<String>('operation'), opName);
+        final scope = 'entity_type = ${sqlString(entityType)} '
+            'AND entity_id = ${sqlString(entityId)} '
+            "AND status = 'pending'";
+        if (coalesced == null) {
+          await _db.customStatement(
+            'DELETE FROM planning_sync_outbox WHERE $scope;',
+          );
+        } else {
+          await _db.customStatement('''
+            UPDATE planning_sync_outbox
+            SET operation = ${sqlString(coalesced)},
+                payload_json = ${sqlString(jsonEncode(payload))},
+                attempt_count = 0, status = 'pending', failure_class = NULL,
+                last_error = NULL, next_retry_at = NULL,
+                updated_at = ${sqlString(now)}
+            WHERE $scope;
+          ''');
+        }
+      } else {
+        await _db.customStatement('''
+          INSERT INTO planning_sync_outbox(
+            id, entity_type, entity_id, operation, payload_json,
+            attempt_count, status, created_at, updated_at
+          ) VALUES (
+            ${sqlString(IdGenerator.next())}, ${sqlString(entityType)},
+            ${sqlString(entityId)}, ${sqlString(opName)},
+            ${sqlString(jsonEncode(payload))}, 0, 'pending',
+            ${sqlString(now)}, ${sqlString(now)}
+          );
+        ''');
+      }
+      await _db.customStatement(localUpdateSql);
     });
     _onQueued?.call();
-    return true;
   }
 
   Future<List<PlanningOutboxItem>> pendingItems({
@@ -386,9 +396,8 @@ class PlanningOutboxQueue {
       SELECT id, entity_type, entity_id, operation, payload_json,
              attempt_count, last_error, next_retry_at
       FROM planning_sync_outbox
-      WHERE (attempt_count >= 5
-         OR next_retry_at IS NULL
-         OR next_retry_at <= ${sqlString(now)})
+      WHERE status = 'pending'
+        AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
         $entityClause
       ORDER BY created_at ASC
       LIMIT $limit;
@@ -422,30 +431,73 @@ class PlanningOutboxQueue {
     );
   }
 
-  Future<void> markFailed(String id, String error) async {
+  /// MALI-023: typed failure handling — permanent → dead-letter immediately;
+  /// retryable → bounded backoff, dead-letter after [kOutboxMaxAttempts].
+  Future<void> markFailed(
+    String id,
+    String error,
+    OutboxFailureClass failureClass,
+  ) async {
     final row = await _db
         .customSelect(
           'SELECT attempt_count FROM planning_sync_outbox WHERE id = ${sqlString(id)} LIMIT 1;',
         )
         .getSingleOrNull();
     if (row == null) return;
-
-    final previousAttempts = row.read<int>('attempt_count');
-    final attempts = previousAttempts >= 5 ? 1 : previousAttempts + 1;
-    final backoffSeconds = _backoff(attempts);
-    final nextRetry = dateTimeToSql(
-      DateTime.now().toUtc().add(Duration(seconds: backoffSeconds)),
-    );
     final now = dateTimeToSql(DateTime.now().toUtc());
 
+    if (failureClass.isPermanent) {
+      await _db.customStatement('''
+        UPDATE planning_sync_outbox
+        SET status = 'dead_letter', failure_class = ${sqlString(failureClass.name)},
+            last_error = ${sqlString(error)}, updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(id)};
+      ''');
+      return;
+    }
+
+    final attempts = row.read<int>('attempt_count') + 1;
+    if (attempts >= kOutboxMaxAttempts) {
+      await _db.customStatement('''
+        UPDATE planning_sync_outbox
+        SET status = 'dead_letter', attempt_count = $attempts,
+            failure_class = ${sqlString(failureClass.name)},
+            last_error = ${sqlString(error)}, updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(id)};
+      ''');
+      return;
+    }
+
+    final nextRetry = dateTimeToSql(
+      DateTime.now().toUtc().add(Duration(seconds: _backoff(attempts))),
+    );
     await _db.customStatement('''
       UPDATE planning_sync_outbox
-      SET attempt_count = $attempts,
-          last_error = ${sqlString(error)},
-          next_retry_at = ${sqlString(nextRetry)},
+      SET attempt_count = $attempts, failure_class = ${sqlString(failureClass.name)},
+          last_error = ${sqlString(error)}, next_retry_at = ${sqlString(nextRetry)},
           updated_at = ${sqlString(now)}
       WHERE id = ${sqlString(id)};
     ''');
+  }
+
+  /// MALI-023: re-arm dead-lettered rows (e.g. after an app/schema upgrade).
+  Future<int> reArmDeadLetter() async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    return _db.customUpdate('''
+      UPDATE planning_sync_outbox
+      SET status = 'pending', attempt_count = 0, next_retry_at = NULL,
+          failure_class = NULL, updated_at = ${sqlString(now)}
+      WHERE status = 'dead_letter';
+    ''');
+  }
+
+  Future<int> deadLetterCount() async {
+    final row = await _db
+        .customSelect(
+          "SELECT COUNT(*) AS n FROM planning_sync_outbox WHERE status = 'dead_letter';",
+        )
+        .getSingle();
+    return row.read<int>('n');
   }
 
   static int _backoff(int attempt) => 30 * (1 << (attempt - 1).clamp(0, 7));
