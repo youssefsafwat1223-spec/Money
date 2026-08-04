@@ -32,9 +32,12 @@ class ReportComposer {
     const aggregator = CategoryAggregator();
 
     final primary = _primaryCurrency(snapshot);
+    // MALI-063n: the donut/slices are scoped to the primary currency's own
+    // category breakdown + total, never the cross-currency sum.
+    final primaryExpense = _expense(snapshot.currencyTotals, primary);
     final current = metrics.computeCashFlow(
       income: _income(snapshot.currencyTotals, primary),
-      expense: _expense(snapshot.currencyTotals, primary),
+      expense: primaryExpense,
     );
     final previous = metrics.computeCashFlow(
       income: _income(snapshot.previousCurrencyTotals, primary),
@@ -45,9 +48,9 @@ class ReportComposer {
     final periodLabel = _periodLabel(snapshot, str);
 
     final slices = aggregator.aggregate(
-      breakdown: snapshot.categoryBreakdown,
+      breakdown: snapshot.categoryBreakdownByCurrency[primary] ?? const [],
       labelFor: (id) => _categoryLabel(snapshot, lang, id),
-      totalExpense: snapshot.totalExpense,
+      totalExpense: primaryExpense,
       otherLabel: str.other,
     );
     final trend = _trend(snapshot, fmt, str, primary);
@@ -85,7 +88,7 @@ class ReportComposer {
         _cmpRow(str.net, fmt, primary, comparison.net, signed: true),
         _savingsRow(str, fmt, current, previous, comparison),
       ],
-      category: _categoryVM(snapshot, fmt, str, primary, slices),
+      category: _categoryVM(snapshot, fmt, str, primary, primaryExpense, slices),
       trend: trend,
       largest: <AmountRowVM>[
         for (final txn in snapshot.largestTransactions)
@@ -234,6 +237,7 @@ class ReportComposer {
     ReportMoneyFormatter fmt,
     ReportStrings str,
     String primary,
+    double primaryExpense,
     List<CategoryReportSlice> slices,
   ) {
     final rows = <CategoryRowVM>[];
@@ -254,7 +258,7 @@ class ReportComposer {
       slices: donut,
       rows: rows,
       centerLabel: str.totalSpend,
-      centerValue: fmt.money(snapshot.totalExpense, primary),
+      centerValue: fmt.money(primaryExpense, primary),
     );
   }
 

@@ -78,6 +78,7 @@ class _FakeTransactionRepository implements TransactionRepository {
     required DateTime from,
     required DateTime to,
     String? accountId,
+    String? currency,
   }) {
     throw UnimplementedError();
   }

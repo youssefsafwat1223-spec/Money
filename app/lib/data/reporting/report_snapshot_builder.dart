@@ -1,3 +1,4 @@
+import '../../domain/entities/category_spend.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/reporting/date_range.dart';
@@ -76,6 +77,19 @@ class ReportSnapshotBuilder {
         from: fromU, to: toU, accountId: accountId);
     final categoryBreakdown = await _transactions.categoryBreakdown(
         from: fromU, to: toU, accountId: accountId);
+    // MALI-063n: a per-currency breakdown so the donut/slices never mix
+    // currencies. One query per currency actually present in the period.
+    final categoryBreakdownByCurrency = <String, List<CategorySpend>>{};
+    for (final ct in currencyTotals) {
+      if (ct.currency.isEmpty) continue;
+      categoryBreakdownByCurrency[ct.currency] =
+          await _transactions.categoryBreakdown(
+        from: fromU,
+        to: toU,
+        accountId: accountId,
+        currency: ct.currency,
+      );
+    }
     final categoryMeta = await _categoryMeta();
     final dailyExpense = await _transactions.dailyExpenseTotals(
         from: fromU, to: toU, accountId: accountId);
@@ -89,7 +103,7 @@ class ReportSnapshotBuilder {
     final bills = await _billsFor();
     final goals = await _goalsFor();
     final appendix = request.content.includeTransactionDetails
-        ? await _appendixFor(range, accountId)
+        ? await _appendixFor(range, accountId, accountsInScope)
         : const <TransactionEntity>[];
 
     return ReportDataSnapshot(
@@ -103,6 +117,10 @@ class ReportSnapshotBuilder {
       totalIncome: totalIncome,
       totalExpense: totalExpense,
       categoryBreakdown: List.unmodifiable(categoryBreakdown),
+      categoryBreakdownByCurrency: Map.unmodifiable({
+        for (final e in categoryBreakdownByCurrency.entries)
+          e.key: List<CategorySpend>.unmodifiable(e.value),
+      }),
       categoryMeta: Map.unmodifiable(categoryMeta),
       dailyExpense: List.unmodifiable(dailyExpense),
       topMerchants: List.unmodifiable(topMerchants),
@@ -128,17 +146,28 @@ class ReportSnapshotBuilder {
   }
 
   /// All confirmed in-period transactions for the appendix, newest first.
+  ///
+  /// Mirrors the totals' scope so appendix rows net to the displayed totals
+  /// (MALI-063n): half-open `[from, to)`, and — in the combined (all-accounts)
+  /// view — the excluded-from-totals account policy (null-account rows stay in).
   Future<List<TransactionEntity>> _appendixFor(
-      DateRange range, String? accountId) async {
+      DateRange range, String? accountId, List<ReportAccountRef> scope) async {
     final fromU = range.from.toUtc();
     final toU = range.to.toUtc();
+    final excludedAccountIds = <String>{
+      if (accountId == null)
+        for (final account in scope)
+          if (account.excludeFromTotals && account.id != null) account.id!,
+    };
     final all = await _transactions.getAll();
     final rows = all
         .where((t) =>
             t.status == TransactionStatus.confirmed &&
             !t.occurredAt.toUtc().isBefore(fromU) &&
             t.occurredAt.toUtc().isBefore(toU) &&
-            (accountId == null || t.accountId == accountId))
+            (accountId == null || t.accountId == accountId) &&
+            (t.accountId == null ||
+                !excludedAccountIds.contains(t.accountId)))
         .toList()
       ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
     return rows;

@@ -145,8 +145,12 @@ class RoutedTransactionRepository implements TransactionRepository {
 
   @override
   Future<List<CategorySpend>> categoryBreakdown(
-          {required DateTime from, required DateTime to, String? accountId}) =>
-      _drift.categoryBreakdown(from: from, to: to, accountId: accountId);
+          {required DateTime from,
+          required DateTime to,
+          String? accountId,
+          String? currency}) =>
+      _drift.categoryBreakdown(
+          from: from, to: to, accountId: accountId, currency: currency);
 
   @override
   Future<double> categoryExpenseTotalBetween({

@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../../../core/utils/currency.dart';
+import '../../../domain/finance/money_format.dart';
 
 /// Report-scoped money & percentage formatting.
 ///
@@ -20,12 +21,10 @@ class ReportMoneyFormatter {
 
   static const String _mask = '••••';
 
-  static const Set<String> _threeDecimalCurrencies = <String>{
-    'KWD', 'BHD', 'OMR', 'TND', 'IQD', 'LYD', 'JOD',
-  };
-
-  int _decimals(String code) =>
-      _threeDecimalCurrencies.contains(code.toUpperCase()) ? 3 : 2;
+  /// MALI-074n / Batch 1: the ONE currency-exponent source (0/2/3 fraction
+  /// digits), so reports match the rest of the app instead of a local list that
+  /// missed 0-decimal currencies (JPY/KRW/…).
+  int _decimals(String code) => currencyDecimalDigits(code);
 
   String _token(String code) =>
       languageCode == 'ar' ? Currency.arabicLabel(code) : code.toUpperCase();

@@ -141,6 +141,7 @@ class ReportDataSnapshot {
     required this.totalIncome,
     required this.totalExpense,
     required this.categoryBreakdown,
+    this.categoryBreakdownByCurrency = const <String, List<CategorySpend>>{},
     required this.categoryMeta,
     required this.dailyExpense,
     required this.topMerchants,
@@ -175,6 +176,12 @@ class ReportDataSnapshot {
   final double totalExpense;
 
   final List<CategorySpend> categoryBreakdown;
+
+  /// Per-currency category breakdown — `currency → categorised net expense`
+  /// (MALI-063n). The FX-safe basis for the donut/slices so a multi-currency
+  /// all-accounts report never mixes currencies in one chart; single-currency
+  /// scopes have one entry equal to [categoryBreakdown].
+  final Map<String, List<CategorySpend>> categoryBreakdownByCurrency;
 
   /// Category id → display metadata for every non-deleted category. Ids present
   /// in [categoryBreakdown] but absent here are deleted categories (they fold

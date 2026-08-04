@@ -629,16 +629,22 @@ class SupabaseTransactionRepository implements TransactionRepository {
     required DateTime from,
     required DateTime to,
     String? accountId,
+    String? currency,
   }) async {
     final rows = await _totalsRows(
       from,
       to,
       accountId,
-      columns: 'amount,category_id,user_category_id,transaction_type',
+      columns: 'amount,category_id,user_category_id,transaction_type,currency',
     );
+    final wantCurrency = currency?.trim().toUpperCase();
     final byCategory = <String, (double, int)>{};
     for (final r in rows) {
       if (r['transaction_type'] != 'expense') continue;
+      if (wantCurrency != null &&
+          (r['currency'] as String?)?.toUpperCase() != wantCurrency) {
+        continue;
+      }
       final categoryId = await _localCategoryIdForRow(r);
       if (categoryId == null) continue;
       final (total, count) = byCategory[categoryId] ?? (0.0, 0);

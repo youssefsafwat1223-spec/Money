@@ -419,6 +419,15 @@ class DriftTransactionRepository implements TransactionRepository {
       ? const []
       : [Variable.withString(accountId), Variable.withString(accountId)];
 
+  // MALI-063n: restrict an aggregate to a single currency so a multi-currency
+  // scope never sums different currencies under one label.
+  static String _currencyClause(String? currency) =>
+      currency == null ? '' : ' AND UPPER(currency) = ?';
+
+  static List<Variable> _currencyVars(String? currency) => currency == null
+      ? const []
+      : [Variable.withString(currency.trim().toUpperCase())];
+
   static String _includedTotalsAccountClause({String tableAlias = ''}) {
     final prefix = tableAlias.isEmpty ? '' : '$tableAlias.';
     return ''' AND (${prefix}account_id IS NULL OR NOT EXISTS (
@@ -655,6 +664,7 @@ class DriftTransactionRepository implements TransactionRepository {
     required DateTime from,
     required DateTime to,
     String? accountId,
+    String? currency,
   }) async {
     final aggregate = _financialAggregateSql(
       _FinancialAggregateFlow.expense,
@@ -668,7 +678,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE ${aggregate.where}
           AND category_id IS NOT NULL
-          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}${_currencyClause(currency)}
         GROUP BY category_id
         ORDER BY total DESC;
       ''',
@@ -676,6 +686,7 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
         ..._accountVars(accountId),
+        ..._currencyVars(currency),
       ],
     ).get();
     return rows

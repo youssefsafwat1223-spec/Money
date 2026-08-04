@@ -117,11 +117,14 @@ abstract class TransactionRepository {
   /// تفصيل الإنفاق الصافي لكل تصنيف خلال فترة نصف-مفتوحة `[from, to)`
   /// (MALI-028) — لـ «أين ذهبت أموالك» ولمجاميع تصنيفات الرئيسية (MALI-050n).
   /// نفس السياسة الموحّدة: المؤكّد فقط، الاسترداد يخصم، استبعاد الحسابات
-  /// المُعلَّمة عند `accountId == null`.
+  /// المُعلَّمة عند `accountId == null`. عند تمرير [currency] يُقصر التجميع على
+  /// تلك العملة فقط (لتقارير «كل الحسابات» متعددة العملات — MALI-063n)، فلا
+  /// تُجمع عملات مختلفة تحت مجموع واحد.
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,
     required DateTime to,
     String? accountId,
+    String? currency,
   });
 
   Future<double> categoryExpenseTotalBetween({
