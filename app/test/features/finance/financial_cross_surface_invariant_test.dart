@@ -6,9 +6,12 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
+import 'package:money_companion/data/reporting/report_snapshot_builder.dart';
 import 'package:money_companion/data/repositories/drift_category_repository.dart';
 import 'package:money_companion/data/repositories/drift_plan_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/domain/reporting/report_request.dart';
+import 'package:money_companion/features/reporting/composition/report_composer.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
@@ -230,6 +233,55 @@ void main() {
 
     final plans = await container.read(plansWithSpentProvider.future);
     expect(plans.single.spent, 400);
+  });
+
+  test('report snapshot + composer agree with the repo/header on one scope',
+      () async {
+    final main = await account('main', isDefault: true);
+    await put(id: 'pay', amount: 500, type: TransactionTypeEntity.payment, accountId: main.id);
+    await put(id: 'ref', amount: 100, type: TransactionTypeEntity.refund, accountId: main.id);
+    await put(id: 'inc', amount: 500, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null);
+
+    final repoExpense = await txRepo.expenseTotalBetween(
+        from: monthStart, to: nextMonthStart, accountId: main.id);
+    final header =
+        await container.read(transactionsPeriodTotalProvider.future);
+
+    final builder = ReportSnapshotBuilder(
+      transactions: txRepo,
+      accounts: accountRepo,
+      categories: categoryRepo,
+      clock: () => now,
+    );
+    final snapshot = await builder.build(ReportRequest(
+      period: const MonthlyPeriod(),
+      scope: SingleAccountScope(main.id),
+      languageCode: 'en',
+      content: const ReportContentOptions(includeTransactionDetails: true),
+    ));
+
+    // Same metric (SAR net expense) across repo, header, report totals + donut.
+    expect(repoExpense, 400);
+    expect(header.netExpense, 400);
+    expect(snapshot.totalExpense, 400);
+    expect(snapshot.currencyTotals.single.expense, 400);
+    expect(snapshot.categoryBreakdownByCurrency['SAR']!
+        .fold<double>(0, (s, c) => s + c.total), 400);
+
+    // Appendix rows (net-expense signed) sum to the same total.
+    final appendixNet = snapshot.appendixTransactions
+        .where((t) =>
+            t.type == TransactionTypeEntity.payment ||
+            t.type == TransactionTypeEntity.withdrawal ||
+            t.type == TransactionTypeEntity.refund)
+        .fold<double>(
+            0,
+            (s, t) =>
+                s + (t.type == TransactionTypeEntity.refund ? -t.amount : t.amount));
+    expect(appendixNet, 400);
+
+    final vm = const ReportComposer().compose(snapshot);
+    expect(vm.category.centerValue, '400.00 SAR');
   });
 
   test('excluded account: dropped from combined totals, kept when scoped',

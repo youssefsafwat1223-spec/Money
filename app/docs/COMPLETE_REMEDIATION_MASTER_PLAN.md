@@ -222,7 +222,20 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 4 — Canonical financial correctness (one contract, all surfaces)
 
-> **Status (2026-08-04): Batches 1–3 Code complete · Locally verified.**
+> **Status (2026-08-04): Batches 1–4 Code complete · Locally verified.**
+> Batch 4 (`b702669c`/`989f6614`/`d5d1605b`/`174ed4c3`): the budget-history
+> transaction list now nets to its total (MALI-062n tail); the PDF report donut/
+> slices/appendix are scoped to the primary currency — never a cross-currency
+> sum — with 0/2/3-decimal formatting (MALI-063n/074n-report); ONE bill-payment
+> attribution contract (`bill_payments` authoritative, one payment counts once,
+> fuzzy match demoted to a link suggestion) + ONE subscription monthly/annual
+> metric replacing three divergent formulas (MALI-064n); and the dormant
+> migration-0030 / Supabase-summary switches are retired (no flag left to
+> reintroduce pre-canonical totals). Batch 5 (MALI-074n card gross/NULL-account)
+> + Batch 6 (the `PHASE_4_FINANCIAL_SEMANTICS.md` closure doc) remain.
+>
+> Earlier:
+> **Batches 1–3 Code complete · Locally verified.**
 > Batch 1 (`71dc2534`): the domain semantics/period/currency contract. Batch 2
 > (`c4b6df97` + `2052687d`): canonical repo aggregates made half-open `[from, to)`
 > (MALI-028) and the **Transactions header** (MALI-047n) + **Home category totals**

@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 4 Batch 3 (Plans + Dashboard budget rings) Code complete · Locally verified — 2026-08-04. Batch 1 `71dc2534`; Batch 2 `c4b6df97`/`2052687d`; Batch 3 `4fa413a9` (plan/budget domain + plan spending) + `4dc0d190` (dashboard rings + budget detail). Batches 4–5 (bills/subscriptions, PDF, card) not started. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
+- **Last updated:** Phase 4 Batch 4 (Reports/PDF, bills/subscriptions, legacy retirement) Code complete · Locally verified — 2026-08-04. B1 `71dc2534`; B2 `c4b6df97`/`2052687d`; B3 `4fa413a9`/`4dc0d190`; B4 `b702669c` (budget-history), `989f6614` (report multi-currency), `d5d1605b` (bill attribution + subscription metric), `174ed4c3` (0030/Supabase-summary retirement). Batch 5 (MALI-074n card, remaining tails) not started. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -59,7 +59,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-015 | High | — | — | Closed | RPC path re-verified (client+server) |
 | MALI-016 | High | — | — | Closed | atomic per-relation deletion re-verified |
 | MALI-017 | High | C | P2 | Code complete · Locally verified | local-only cards in the inventory guard (interactive path); delete/reset gate behind explicit confirmation; remote/cross-UID wipe for isolation; `374560ff` |
-| MALI-018 | High | C+T | P4 | In progress | canonical repo predicate Closed; provider tier: transactions header + Home category (Batch 2 `2052687d`), plan spending + dashboard budget rings + budget detail (Batch 3 `4fa413a9`/`4dc0d190`) all routed through the canonical contract with a cross-surface invariant test; bill/subscription monthly folds + PDF donut remain (Batches 4–5) |
+| MALI-018 | High | C+T | P4 | In progress | canonical repo predicate Closed; provider tier: transactions header + Home category (B2), plan + dashboard rings + budget detail (B3), reports snapshot/donut + budget-history list + bill/subscription metrics (B4) all routed through the canonical contract; dormant Supabase aggregate tier retired. Cross-surface invariant test spans repo/header/Home/budget/plan/report. Card gross surface remains (Batch 5) |
 | MALI-019 | High | C | P5 | Not started | subsumed by MALI-061n |
 | MALI-020 | High | X | P9 | Locally verified | archive privacy report = gate 5 |
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
@@ -69,7 +69,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
 | MALI-027 | Med | C | **P1** | Code complete · Locally verified | closed by MALI-046n fix |
-| MALI-028 | Med | C | P4 | In progress | half-open `[from, to)` for the canonical repo aggregates (Batch 2 `c4b6df97`); genuine half-open budget + plan periods with no epsilon end (Batch 3 `4fa413a9`/`4dc0d190`); boundary rule enforced for all new callers. Report-boundary + dormant-Supabase standardization remains |
+| MALI-028 | Med | C | P4 | In progress | half-open `[from, to)` for the repo aggregates (B2); genuine budget/plan periods (B3); report + budget-history list + dashboard/report previous-period boundaries now genuine exclusive, no epsilon (B4). Boundary rule enforced for every new/changed caller. Card-surface tail (Batch 5) |
 | MALI-029 | Med | C | P7 | Not started | global invalidation breadth |
 | MALI-030 | Med | C | P7 | Not started | streamed reports/memory |
 | MALI-031 | Med | C | P5 | Not started | App Group encryption/Keychain |
@@ -103,9 +103,9 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-059n | Med | P+C | P2 | Code complete · Locally verified | decision implemented (default OFF, separate opt-ins, migrate-to-OFF, versioned state, device-local, restore resets); `89db9f09` |
 | MALI-060n | Med | C | P5 | Not started | anon-key AI unmetered |
 | MALI-061n | Med | C | P5 | Not started | gamification bypasses policy; budget dual-authority |
-| MALI-062n | Med | C | P4 | In progress | Saturday-week fixed in Batch 1 (`RiyadhTime.startOfWeek`); the three divergent weekly/budget-period resolvers unified into one canonical resolver used by ring/detail/reports/alerts + Saturday-anchored history weeks (Batch 3 `4dc0d190`). Per-budget history transaction-LIST vs net-total refund mismatch remains a documented tail |
-| MALI-063n | Med | C | P4 | Not started | PDF multi-currency; latent 0030 RPCs |
-| MALI-064n | Med | C | P4 | Not started | bill paid double-count; monthly formula |
+| MALI-062n | Med | C | P4 | Code complete · Locally verified | Saturday-week fixed (B1); the three divergent weekly/budget-period resolvers unified into one canonical resolver + Saturday-anchored history (B3); the per-period history transaction LIST now nets to its total — refunds included, half-open, excluded-account policy (B4 `b702669c`). Device UI spot-check external |
+| MALI-063n | Med | C | P4 | Code complete · Locally verified | PDF donut center/slices/appendix scoped to the primary currency (per-currency `categoryBreakdown`), never a cross-currency sum; exponent formatter (0/2/3); dormant 0030 RPCs + Supabase-summary flags retired (no switch to re-enable pre-canonical totals); `989f6614`/`174ed4c3` (Batch 4). Live PDF render spot-check external |
+| MALI-064n | Med | C | P4 | Code complete · Locally verified | one attribution contract — `bill_payments` authoritative, a linked payment counts once (double-count gone), fuzzy match demoted to a non-authoritative link suggestion; one canonical `monthlyEquivalent`/`annualEquivalent`/`subscriptionMonthlyTotal` unifying the three divergent formulas; `d5d1605b` (Batch 4). Device UI spot-check external |
 | MALI-065n | Med | C | P5 | Not started | report PDF tmp lifecycle |
 | MALI-066n | Med | C | P7 | Not started | unexecuted-gate cluster |
 | MALI-067n | Med | T | P7 | Not started | source-text tests, no-close, warning suppression |
@@ -115,7 +115,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-071n | Low | C | P5 | Not started | logo.dev consent gating |
 | MALI-072n | Low | C | P3 | Code complete · Locally verified | durable sender-mapping sync: keyset pagination + server-authoritative updated_at + durable cursor + tombstone deletion propagation + LWW (pending-safe) + typed error classification (no string-match); soft-delete replaces hard delete; `96993c5e` (batch 5). Live two-device = external |
 | MALI-073n | Low | C | P6 | Not started | missing account_id/category_id indexes |
-| MALI-074n | Low | C | P4 | Not started | card refund gross, NULL-account attribution, decimals |
+| MALI-074n | Low | C | P4 | In progress | report-tier decimals fixed via the Batch-1 exponent formatter in reports (Batch 4 `989f6614`); card gross/refund + NULL-account attribution surfaces remain (Batch 5) |
 | MALI-075n | Low | C | P5 | Not started | backend lows (search_path, gamification writable, purge coverage) |
 | MALI-076n | Low | C | P6 | Not started | backup lows (trim, blob version, hasRemoteBackup, dead export) |
 | MALI-077n | Low | C+P | P7 | Not started | ops lows (keystore name, email, dead API, package path) |
@@ -127,7 +127,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
 | P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **LOCALLY COMPLETE** (live/2-device pending) — all 6 batches committed: B1 051n (acf9ca99), B2 052n/023 (d6820285), B3 022/057n/052n revision-CAS+resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 (58614ad4/124fd83b), B5 072n/008 + 024 (96993c5e/74a77398), B6 closure docs. MALI-023 Closed-LV; all others CC-LV (external tail). Gamification single-authority overlap proof: no overlap (Edge active, RPC dormant) — see `PHASE_3_SYNC_CLOSURE.md` §2. |
-| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — B1 contract (`71dc2534`); B2 047n/050n (`c4b6df97`/`2052687d`); B3 048n/049n + budget-period 028/062n (`4fa413a9`/`4dc0d190`). Batches 4–5 (064n bills, 063n PDF, 074n card) not started. Full suite 1150; analyze 0 |
+| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — B1 contract; B2 047n/050n; B3 048n/049n + 028/062n; B4 063n/064n + 062n-tail + report 018/028 + legacy retirement (`b702669c`/`989f6614`/`d5d1605b`/`174ed4c3`). Batch 5 (074n card + residual tails) + Batch 6 (closure doc) remain. Full suite 1163; analyze 0 |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
 | P7 CI/test/arch/docs | 066n,067n,029,030,034,035,037,038,040,041,042,043,077n,036-limits,021-deadfile | Not started |
@@ -395,4 +395,77 @@ skip / 0 fail. Full suite green.
   (empty → zero + prompt) separate from the documented all-expenses default —
   needs an additive `scope_mode` column + UI; not started.
 - Budget-history per-period transaction LIST vs net-total refund reconciliation
-  (MALI-062n tail) and bill/subscription/PDF surfaces (Batches 4–5).
+  (MALI-062n tail — delivered in Batch 4) and bill/subscription/PDF surfaces
+  (Batch 4).
+
+## Phase 4 Batch 4 delivered contracts (MALI-063n / 064n / 062n-tail / 074n-report / 018 / 028 + legacy retirement)
+
+### Report currency + interval policy (MALI-063n / 074n / 028)
+- The PDF report picks a **primary currency**; every currency-scoped figure — the
+  donut center, slices, slice-percentage denominator, summary tiles, cash-flow,
+  comparison — uses only that currency's own data. `categoryBreakdown` gained an
+  optional `currency` scope; the snapshot carries `categoryBreakdownByCurrency`
+  (one query per currency present), and the composer feeds the donut the primary
+  currency's breakdown + `currencyTotals[primary].expense`. A single currency
+  label is **never** attached to a cross-currency sum; no FX conversion.
+- The appendix applies the excluded-from-totals account policy in the combined
+  view, so appendix rows net to the displayed per-currency totals.
+- Intervals are genuine half-open `[fromInclusive, toExclusive)`; a transaction
+  at `toExclusive` is in neither totals nor appendix, one before it is in both.
+  The reports-screen + dashboard previous-period bounds are genuine exclusive
+  (no `−1s`/`+1µs` epsilon).
+- Report money uses the Batch-1 `currencyDecimalDigits` (0/2/3 fraction digits).
+
+### Bill-payment attribution contract (MALI-064n)
+- `bill_payments` is the authoritative settled-payment ledger: **one real
+  payment counts exactly once**, no matter how many representations exist
+  (transaction, relation row, manual amount). `billPaidTotal` = Σ recorded
+  payments + the legacy-manual residual (`max(0, manual − recorded)`). Fuzzy
+  merchant-name matched transactions are **never** summed authoritatively — they
+  are shown only as "suggested to link"; `linkedTransactionIds` keeps an
+  already-linked transaction out of that list. The bill-details `totalPaid`
+  double-count (fuzzy transactions + recorded payments) is gone.
+- Refunds: reconciled by removing/reducing the corresponding `bill_payments`
+  row (the ledger is authoritative); a fuzzy refund transaction is not
+  auto-netted (documented).
+
+### Subscription monthly-metric definitions (MALI-064n)
+- **`monthlyEquivalent(bill)`** = the projected MONTHLY recurring obligation,
+  frequency-normalized; **`annualEquivalent(bill)`** = monthlyEquivalent × 12
+  exactly (weekly ×52, monthly ×12, yearly ×1, custom ×365/days). One
+  normalization ended the three divergent "monthly total" formulas
+  (frequency-normalized-30-day vs raw un-normalized sum) and the two annual
+  conventions. **`subscriptionMonthlyTotal`** = Σ monthlyEquivalent over ACTIVE
+  subscriptions, single-currency (paused/cancelled/installment excluded). The
+  transactions screen and subscriptions screen now agree on this metric. The
+  dashboard's auto-detected "recurring candidates" total is a **different**
+  metric (heuristic detection, not saved subscriptions) and is left as-is.
+
+### Budget-history list vs total (MALI-062n tail)
+- The per-period budget transaction list mirrors the canonical consumption
+  exactly (confirmed-only, net-expense types with refunds INCLUDED, half-open,
+  account/category scope, excluded-account policy for global budgets), so its
+  signed sum equals the net total shown beside it; refund rows are visible.
+
+### Legacy aggregation retirement (Outcome B)
+- The two hardcoded-false summary flags, the `supabaseFinancialSummaryService`
+  provider, and every `useSupabaseSummary` branch (dashboard, reports,
+  budget-progress) were removed — all financial surfaces compute from the
+  canonical Drift aggregates; no switch remains to re-enable the pre-canonical
+  0030 tier. `SupabaseFinancialSummaryService` + `SupabaseTransactionRepository`
+  aggregates are documented RETIRED/DORMANT (the latter kept live only for
+  `repairLocalCache()` + credential-gated contract tests). Migration 0030 is
+  marked HISTORICAL (not deleted — deployed); its flag stays OFF.
+
+### Local verification (Batch 4)
+- `flutter analyze` clean; full Flutter suite (see report) with new tests:
+  `budget_history_reconciliation_test` (2), `report_multicurrency_test` (3),
+  `bill_metrics_test` (7), cross-surface invariant extended (+1: report snapshot/composer
+  tie-in on the shared fixture). No schema/migration/backend change beyond the 0030
+  historical comment; `kServerRevisionCas` stays **false**; migrations 0068–0070
+  undeployed.
+
+### Batch 4 external / device acceptance (still pending)
+- Live PDF render spot-check of a multi-currency report (donut labelled per
+  currency; 0/2/3-decimal). On-device bill-details paid total + subscription
+  monthly metric. No live-backend dependency (the retired path is gone).
