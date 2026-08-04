@@ -125,6 +125,11 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
 
   final snapshot = await buildSnapshot(budgets, fallbackAccountId: accountId);
   final allTransactions = await txRepo.getAll();
+  final accounts = await accountRepo.getAll();
+  final excludedAccountIds = <String>{
+    for (final account in accounts)
+      if (account.excludeFromTotals) account.id,
+  };
   final historyEntries = <BudgetHistoryEntry>[];
   final now = DateTime.now();
   final historyFrom = _dateOnly(range.from);
@@ -150,6 +155,7 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
             budget: budget,
             from: period.start,
             to: period.end,
+            excludedAccountIds: excludedAccountIds,
           ),
         ),
       );
@@ -166,7 +172,6 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
           goal.status == 'active' &&
           (accountId == null || goal.accountId == accountId))
       .toList(growable: false);
-  final accounts = await accountRepo.getAll();
   return BudgetsView(
     snapshot: snapshot,
     historyEntries: historyEntries,
@@ -176,21 +181,33 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
   );
 });
 
+/// MALI-062n tail — the per-period budget transaction list must represent the
+/// SAME metric as its net total. It therefore mirrors the canonical
+/// consumption contract exactly: confirmed-only, the net-expense types
+/// (payment/withdrawal ADD, refund SUBTRACTS — refunds are included so the
+/// list's signed sum equals the net total, never hidden), a half-open
+/// `[from, to)` window, the budget's account/category scope, and — for a global
+/// budget — the combined-totals excluded-account policy (null-account rows stay
+/// in). The signed sum of this list equals `budgetSpent` for the same scope.
 List<TransactionEntity> _budgetTransactionsForPeriod(
   List<TransactionEntity> transactions, {
   required BudgetEntity budget,
   required DateTime from,
   required DateTime to,
+  required Set<String> excludedAccountIds,
 }) {
   final result = transactions.where((tx) {
     if (tx.status != TransactionStatus.confirmed) return false;
-    final isExpense = tx.type == TransactionTypeEntity.payment ||
-        tx.type == TransactionTypeEntity.withdrawal;
-    if (!isExpense) return false;
-    if (tx.occurredAt.isBefore(from) || tx.occurredAt.isAfter(to)) {
+    final isNetExpense = tx.type == TransactionTypeEntity.payment ||
+        tx.type == TransactionTypeEntity.withdrawal ||
+        tx.type == TransactionTypeEntity.refund;
+    if (!isNetExpense) return false;
+    if (tx.occurredAt.isBefore(from) || !tx.occurredAt.isBefore(to)) {
       return false;
     }
-    if (budget.accountId != null && tx.accountId != budget.accountId) {
+    if (budget.accountId != null) {
+      if (tx.accountId != budget.accountId) return false;
+    } else if (tx.accountId != null && excludedAccountIds.contains(tx.accountId)) {
       return false;
     }
     if (!budget.isAllExpenses && tx.categoryId != budget.categoryId) {
@@ -201,6 +218,12 @@ List<TransactionEntity> _budgetTransactionsForPeriod(
   result.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
   return result;
 }
+
+/// Signed contribution of a budget-history row to the net total: refund
+/// subtracts, payment/withdrawal add. Kept next to [_budgetTransactionsForPeriod]
+/// so the list and its total cannot drift apart.
+double budgetHistoryRowSigned(TransactionEntity tx) =>
+    tx.type == TransactionTypeEntity.refund ? -tx.amount : tx.amount;
 
 class _BudgetPeriodWindow {
   const _BudgetPeriodWindow({
