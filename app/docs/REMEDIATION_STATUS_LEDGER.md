@@ -5,11 +5,14 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 4 CLOSED (locally verified) — 2026-08-04.** All six
-  batches (B1–B6) landed; the canonical financial-semantics spec is
-  `PHASE_4_FINANCIAL_SEMANTICS.md`. Code + automated verification closed locally
-  (analyze 0, full suite 1179); device/PDF/UI spot-checks remain external.
-  Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`. Batch-6 closure commit records the reconciliation below.
+- **Last updated:** **Phase 5 Batch 1 (native storage + Android backup) Code
+  complete · Locally verified (device-external) — 2026-08-04.** MALI-033/031 +
+  the native-storage portion of MALI-068n: Android Auto Backup disabled +
+  durable capture-queue writes (`5c88417c`); iOS shared-Keychain secrets +
+  AES-encrypted capture queue + aux-queue locking (`30b4f3fc`, iOS simulator
+  build + `xcodebuild test` 6/6). Batches 2–6 of Phase 5 not started.
+  **Phase 4 CLOSED (locally verified)** — spec `PHASE_4_FINANCIAL_SEMANTICS.md`
+  (analyze 0, full suite 1181). Phase 3: `PHASE_3_SYNC_CLOSURE.md`.
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -81,9 +84,9 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-028 | Med | C | P4 | **Closed · locally verified** | half-open `[from, to)` for every Phase-4 interval (repo aggregates, budget/plan/report periods, transactions/dashboard lists, appendix, comparison); no epsilon/`23:59:59`/inclusive-last-instant anywhere; boundary rule enforced for every new/changed caller. Spec §F. Live device = external |
 | MALI-029 | Med | C | P7 | Not started | global invalidation breadth |
 | MALI-030 | Med | C | P7 | Not started | streamed reports/memory |
-| MALI-031 | Med | C | P5 | Not started | App Group encryption/Keychain |
+| MALI-031 | Med | C | P5 | Code complete · Locally verified (device-external) | secret material (device secret + capture-queue key) moved to a shared Keychain access group; capture queue AES-GCM encrypted at rest (legacy-plaintext migration, corrupt fail-closed no-delete); device secret invalidated on wipe; flutter_secure_storage default group preserved. `30b4f3fc` (P5-B1). iOS simulator: build + `xcodebuild test` 6/6 incl. behavioral encryption/secret/purge tests. External: shared-Keychain cross-process app↔extension under a real provisioning profile + `keychain-access-groups` entitlement |
 | MALI-032 | Med | C+T | P5 | Not started | telemetry scrub coverage |
-| MALI-033 | Med | C | P5 | Not started | Android backup rules (now covers SMS queue) |
+| MALI-033 | Med | C | P5 | Code complete · Locally verified (device-external) | Android Auto Backup + device-transfer disabled (`allowBackup="false"`, `fullBackupContent="false"`) — the Keystore-bound DB + raw-SMS queue + secrets would restore incoherent; recovery is via the app's own encrypted backup. `5c88417c` (P5-B1); manifest static-verified (`android_backup_policy_test`). External: on-device restore attempt confirms exclusion |
 | MALI-034 | Med | C | P7 | Not started | import cycle + legacy repair retirement |
 | MALI-035 | Med | D | P7 | Not started | CLAUDE.md drift (incl. dangerous "all optional") |
 | MALI-036 | Med | X+C | P7/P9 | Code complete (limits) | CI wiring = MALI-066n; hosted run = gate 8 |
@@ -118,7 +121,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-065n | Med | C | P5 | Not started | report PDF tmp lifecycle |
 | MALI-066n | Med | C | P7 | Not started | unexecuted-gate cluster |
 | MALI-067n | Med | T | P7 | Not started | source-text tests, no-close, warning suppression |
-| MALI-068n | Med | C | P5 | Not started | native durability (apply/locks/timestamp) |
+| MALI-068n | Med | C | P5 | In progress | native-storage portion done (P5-B1): Android durable-queue writes synchronous (`commit()`, enqueue/ack durable before return) `5c88417c`; iOS aux notification-route/log queues now under the shared `withQueueLock` cross-process lock `30b4f3fc`. Remaining: Android receiver `apply()`→`commit()` in the SMS receiver path + re-enqueue timestamp parsing (Batch 4 native tail) |
 | MALI-069n | Med | C | P6 | Not started | conn leak + second-instance busy_timeout |
 | MALI-070n | Low | C | P2 | Code complete · Locally verified | pending-actions file purged on destructive paths; `374560ff`. Announcement-dismissal residue = minor, remains backlog |
 | MALI-071n | Low | C | P5 | Not started | logo.dev consent gating |
