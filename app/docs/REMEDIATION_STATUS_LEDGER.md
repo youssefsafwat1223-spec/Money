@@ -22,6 +22,11 @@ is ever removed from this ledger.** Updated at the end of every phase.
   to OFF**; revocation takes effect **immediately and fails closed**. A versioned
   consent schema distinguishes unset / explicitly-accepted / explicitly-declined
   (not a default-true boolean).
+- **Plan scope (MALI-048n) — APPROVED 2026-08-04:** an empty stored plan scope
+  permanently means the documented `allExpenses` mode. There is deliberately NO
+  separate `unconfigured` state, NO `scope_mode` column, and NO new UI for the
+  distinction — this **preserves the existing approved product contract**, it is
+  not deferred work. (Supersedes the Batch-3 "deferred product decision" note.)
 - **MALI-046n — CLOSED (locally verified):** on-device production-path
   confirmation remains part of external gate 6 (per Phase-1 approval).
 - **MALI-045n — Code complete · Locally verified:** final closure requires the
@@ -391,9 +396,9 @@ skip / 0 fail. Full suite green.
 
 ### Batch 3 external / product tail (still pending)
 - On-device spot-check of plan progress and dashboard rings.
-- **Product decision:** whether to add a distinct "unconfigured" plan scope
-  (empty → zero + prompt) separate from the documented all-expenses default —
-  needs an additive `scope_mode` column + UI; not started.
+- **Product decision — RESOLVED 2026-08-04 (Batch 5):** empty plan scope stays
+  `allExpenses`; no `unconfigured` state / `scope_mode` column / UI is added.
+  Recorded under Approved product decisions above.
 - Budget-history per-period transaction LIST vs net-total refund reconciliation
   (MALI-062n tail — delivered in Batch 4) and bill/subscription/PDF surfaces
   (Batch 4).

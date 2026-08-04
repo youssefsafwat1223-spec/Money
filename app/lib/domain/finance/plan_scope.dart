@@ -17,12 +17,13 @@ enum PlanScopeMode {
 extension PlanScopeX on PlanEntity {
   /// The plan's scope, named in one place instead of scattering `isEmpty`
   /// checks. Per the established plan-form contract, an empty account+card
-  /// selection is [PlanScopeMode.allExpenses]. The current data model has no
-  /// separate stored "unconfigured/zero" state — introducing one (so an
-  /// empty scope reads as zero rather than all-expenses) would change the
-  /// meaning of every existing empty-scope plan and requires an additive
-  /// schema flag + UI; it is surfaced as a deferred product decision, never
-  /// silently reinterpreted here.
+  /// selection is [PlanScopeMode.allExpenses].
+  ///
+  /// **APPROVED product decision (2026-08-04):** an empty stored scope
+  /// permanently means `allExpenses`. There is deliberately NO separate
+  /// "unconfigured" state, no `scope_mode` column, and no UI for the
+  /// distinction — this preserves the existing approved product contract, it is
+  /// not deferred work.
   PlanScopeMode get scopeMode =>
       accountIds.isEmpty && cardLast4s.isEmpty
           ? PlanScopeMode.allExpenses
