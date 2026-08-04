@@ -275,27 +275,7 @@ class DriftBillRepository implements BillRepository {
         ],
       );
 
-      final bill = await getById(payment.billId);
-      if (bill?.type == BillType.installment) {
-        final currentPaid = bill!.paidCount ?? 0;
-        final requestedPaid = payment.installmentIndex ?? currentPaid + 1;
-        final cappedPaid = bill.totalInstallments == null
-            ? requestedPaid
-            : requestedPaid.clamp(0, bill.totalInstallments!).toInt();
-        final nextPaidCount =
-            cappedPaid < currentPaid ? currentPaid : cappedPaid;
-        await _db.customUpdate(
-          '''
-          UPDATE subscriptions
-          SET paid_count = ?
-          WHERE id = ?;
-        ''',
-          variables: [
-            Variable.withInt(nextPaidCount),
-            Variable.withString(payment.billId),
-          ],
-        );
-      }
+      await _recomputeInstallmentPaidCount(payment.billId);
 
       final rows = await getPayments(payment.billId);
       final saved = rows.firstWhere((item) => item.id == payment.id);
@@ -391,27 +371,7 @@ class DriftBillRepository implements BillRepository {
       }
 
       for (final billId in billIds) {
-        final paidRow = await _db.customSelect(
-          '''
-          SELECT MAX(installment_index) AS paid_count
-          FROM bill_payments
-          WHERE bill_id = ?
-            AND deleted_at IS NULL;
-        ''',
-          variables: [Variable.withString(billId)],
-        ).getSingle();
-        final paidCount = paidRow.readNullable<int>('paid_count') ?? 0;
-        await _db.customUpdate(
-          '''
-          UPDATE subscriptions
-          SET paid_count = ?
-          WHERE id = ? AND type = 'installment';
-        ''',
-          variables: [
-            Variable.withInt(paidCount),
-            Variable.withString(billId),
-          ],
-        );
+        await _recomputeInstallmentPaidCount(billId);
       }
 
       return billIds;
@@ -438,29 +398,49 @@ class DriftBillRepository implements BillRepository {
           PlanningSyncOperation.delete,
           payment,
         );
-        final paidRow = await _db.customSelect(
-          '''
-          SELECT MAX(installment_index) AS paid_count
-          FROM bill_payments
-          WHERE bill_id = ?
-            AND deleted_at IS NULL;
-        ''',
-          variables: [Variable.withString(payment.billId)],
-        ).getSingle();
-        final paidCount = paidRow.readNullable<int>('paid_count') ?? 0;
-        await _db.customUpdate(
-          '''
-          UPDATE subscriptions
-          SET paid_count = ?
-          WHERE id = ? AND type = 'installment';
-        ''',
-          variables: [
-            Variable.withInt(paidCount),
-            Variable.withString(payment.billId),
-          ],
-        );
+        await _recomputeInstallmentPaidCount(payment.billId);
       }
     });
+  }
+
+  /// MALI-074n — the authoritative installment paid count: the number of
+  /// DISTINCT settled installments in the ledger, for the bill's own currency,
+  /// derived from `bill_payments` (never `MAX(installment_index)`, which
+  /// fabricated 1..N from a single high index, and never a monotonic running
+  /// counter). Duplicate-index rows collapse to one; deleted / foreign-currency
+  /// payments never count; out-of-order indexes are safe (paying installment 5
+  /// alone = 1). Called after every settle/delete so `paid_count` always mirrors
+  /// the ledger.
+  Future<void> _recomputeInstallmentPaidCount(String billId) async {
+    final bill = await getById(billId);
+    if (bill == null || bill.type != BillType.installment) return;
+    final row = await _db.customSelect(
+      '''
+        SELECT
+          (SELECT COUNT(DISTINCT installment_index) FROM bill_payments
+             WHERE bill_id = ? AND deleted_at IS NULL
+               AND installment_index IS NOT NULL
+               AND UPPER(currency) = UPPER(?))
+          +
+          (SELECT COUNT(*) FROM bill_payments
+             WHERE bill_id = ? AND deleted_at IS NULL
+               AND installment_index IS NULL
+               AND UPPER(currency) = UPPER(?)) AS paid;
+      ''',
+      variables: [
+        Variable.withString(billId),
+        Variable.withString(bill.currency),
+        Variable.withString(billId),
+        Variable.withString(bill.currency),
+      ],
+    ).getSingle();
+    var paid = row.read<int>('paid');
+    final total = bill.totalInstallments;
+    if (total != null) paid = paid.clamp(0, total).toInt();
+    await _db.customUpdate(
+      "UPDATE subscriptions SET paid_count = ? WHERE id = ? AND type = 'installment';",
+      variables: [Variable.withInt(paid), Variable.withString(billId)],
+    );
   }
 
   BillEntity _fromRow(QueryRow row) {
