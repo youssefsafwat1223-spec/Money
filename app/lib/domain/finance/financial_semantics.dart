@@ -190,4 +190,15 @@ class FinancialSql {
     final p = alias.isEmpty ? '' : '$alias.';
     return "${p}type = 'income'";
   }
+
+  /// Excludes accounts flagged `exclude_from_totals` from a COMBINED aggregate
+  /// (rows with a NULL account stay in). Mirrors the transaction repository's
+  /// combined-totals policy so a surface that must aggregate outside that repo
+  /// (e.g. an all-expenses plan) applies the same exclusion.
+  static String excludedAccountExclusion({String alias = ''}) {
+    final p = alias.isEmpty ? '' : '$alias.';
+    return '(${p}account_id IS NULL OR NOT EXISTS ('
+        'SELECT 1 FROM accounts _excl_acct WHERE _excl_acct.id = ${p}account_id '
+        'AND _excl_acct.exclude_from_totals = 1))';
+  }
 }
