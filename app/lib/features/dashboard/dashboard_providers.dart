@@ -532,8 +532,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   final recent = recentRows
       .where((tx) =>
+          // Half-open [rangeStart, rangeEnd) — consistent with the aggregates.
           !tx.occurredAt.isBefore(rangeStart) &&
-          !tx.occurredAt.isAfter(rangeEnd))
+          tx.occurredAt.isBefore(rangeEnd))
       .take(10)
       .toList(growable: false);
   // الداشبورد يعرض عملة الحساب النشط فقط لتجنب جمع عملات مختلفة في رقم واحد.

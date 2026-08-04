@@ -104,6 +104,7 @@ void main() {
     String currency = 'SAR',
     String? categoryKey = 'groceries',
     DateTime? occurredAt,
+    String? cardLast4,
   }) async {
     await txRepo.saveTransaction(
       transaction: TransactionEntity(
@@ -119,6 +120,7 @@ void main() {
         createdAt: at,
         updatedAt: at,
         accountId: accountId,
+        cardLast4: cardLast4,
         rawMerchant: 'Market $id',
       ),
       categoryKey: categoryKey,
@@ -233,6 +235,28 @@ void main() {
 
     final plans = await container.read(plansWithSpentProvider.future);
     expect(plans.single.spent, 400);
+  });
+
+  test('card summary net-spend == account net expense (same scope)', () async {
+    final main = await account('main', isDefault: true);
+    // All of main's expense is on card 9999 (SAR).
+    await put(id: 'c-pay', amount: 500, type: TransactionTypeEntity.payment, accountId: main.id, cardLast4: '9999');
+    await put(id: 'c-ref', amount: 100, type: TransactionTypeEntity.refund, accountId: main.id, cardLast4: '9999');
+    await put(id: 'c-inc', amount: 200, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null, cardLast4: '9999');
+
+    final repoExpense = await txRepo.expenseTotalBetween(
+        from: monthStart, to: nextMonthStart, accountId: main.id);
+    final header =
+        await container.read(transactionsPeriodTotalProvider.future);
+    final sar = (await txRepo.getCardSummaries())
+        .firstWhere((s) => s.last4 == '9999' && s.currency == 'SAR');
+
+    // Card net-spend (refund-netted) == account/header net expense.
+    expect(repoExpense, 400); // 500 − 100
+    expect(header.netExpense, 400);
+    expect(sar.totalOut, 400);
+    expect(sar.totalOut, repoExpense);
+    expect(sar.totalIn, 200); // income only, refund not counted as income
   });
 
   test('report snapshot + composer agree with the repo/header on one scope',

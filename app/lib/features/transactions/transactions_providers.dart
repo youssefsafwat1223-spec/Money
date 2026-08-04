@@ -46,8 +46,9 @@ class BillsView {
       bills.where((bill) => bill.type == BillType.subscription).length;
   int get installmentsCount =>
       bills.where((bill) => bill.type == BillType.installment).length;
-  double get totalDue =>
-      bills.fold<double>(0, (sum, bill) => sum + bill.amount);
+  // MALI-074n: the dead `totalDue` getter (a raw cross-frequency/currency fold
+  // of `bill.amount`, no consumer) was removed — the canonical monthly metric is
+  // `subscriptionMonthlyTotal` (bill_metrics.dart).
 }
 
 class BillSuggestion {
