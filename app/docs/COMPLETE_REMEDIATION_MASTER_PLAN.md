@@ -222,7 +222,22 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 4 — Canonical financial correctness (one contract, all surfaces)
 
-> **Status (2026-08-04): Batches 1–4 Code complete · Locally verified.**
+> **Status (2026-08-04): Batches 1–5 Code complete · Locally verified — only the
+> Batch-6 closure doc remains in Phase 4.**
+> Batch 5 (`a25a75c7`/`0f86fb7c`/`1fc89450`): exact account ownership (an
+> unassigned row is never attributed to an account by currency — MALI-074n
+> NULL-account contract), per-currency net-spend card summaries (refund-netted,
+> income-only, exponent formatter), an authoritative installment paid-count from
+> the `bill_payments` ledger (distinct settled installments, not
+> `MAX(installment_index)`), a remaining-fold sweep (dead `totalDue` removed;
+> list/dashboard boundaries made half-open; distinct-metric folds left labelled),
+> and the final cross-surface invariant now spanning repo/header/Home/budget-ring/
+> budget-detail/plan/report/card. The approved empty-plan-scope decision
+> (`allExpenses`, no `unconfigured` state) is recorded. Full suite 1179; analyze
+> 0; `kServerRevisionCas` false; migrations 0068–0070 undeployed.
+>
+> Earlier:
+> **Batches 1–4 Code complete · Locally verified.**
 > Batch 4 (`b702669c`/`989f6614`/`d5d1605b`/`174ed4c3`): the budget-history
 > transaction list now nets to its total (MALI-062n tail); the PDF report donut/
 > slices/appendix are scoped to the primary currency — never a cross-currency

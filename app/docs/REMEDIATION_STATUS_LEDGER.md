@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 4 Batch 4 (Reports/PDF, bills/subscriptions, legacy retirement) Code complete · Locally verified — 2026-08-04. B1 `71dc2534`; B2 `c4b6df97`/`2052687d`; B3 `4fa413a9`/`4dc0d190`; B4 `b702669c` (budget-history), `989f6614` (report multi-currency), `d5d1605b` (bill attribution + subscription metric), `174ed4c3` (0030/Supabase-summary retirement). Batch 5 (MALI-074n card, remaining tails) not started. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
+- **Last updated:** Phase 4 Batch 5 (cards, NULL-account attribution, installment counts, final invariants) Code complete · Locally verified — 2026-08-04. B1–B4 as below; B5 `a25a75c7` (exact account ownership + per-currency net card summaries), `0f86fb7c` (installment paid-count from the ledger), `1fc89450` (fold sweep + final cross-surface invariant). Only Batch 6 (the Phase-4 closure doc) remains in Phase 4. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -64,7 +64,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-015 | High | — | — | Closed | RPC path re-verified (client+server) |
 | MALI-016 | High | — | — | Closed | atomic per-relation deletion re-verified |
 | MALI-017 | High | C | P2 | Code complete · Locally verified | local-only cards in the inventory guard (interactive path); delete/reset gate behind explicit confirmation; remote/cross-UID wipe for isolation; `374560ff` |
-| MALI-018 | High | C+T | P4 | In progress | canonical repo predicate Closed; provider tier: transactions header + Home category (B2), plan + dashboard rings + budget detail (B3), reports snapshot/donut + budget-history list + bill/subscription metrics (B4) all routed through the canonical contract; dormant Supabase aggregate tier retired. Cross-surface invariant test spans repo/header/Home/budget/plan/report. Card gross surface remains (Batch 5) |
+| MALI-018 | High | C+T | P4 | Code complete · Locally verified | provider tier complete: header/Home (B2), plan/dashboard rings/budget detail (B3), reports snapshot/donut/appendix + budget-history + bill/subscription (B4), card summary + account detail + installment count (B5) all routed through the canonical contract; dormant Supabase aggregate tier retired. The cross-surface invariant test now spans repo/header/Home/budget-ring/budget-detail/plan/report/card. Live two-device/device = external |
 | MALI-019 | High | C | P5 | Not started | subsumed by MALI-061n |
 | MALI-020 | High | X | P9 | Locally verified | archive privacy report = gate 5 |
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
@@ -74,7 +74,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
 | MALI-027 | Med | C | **P1** | Code complete · Locally verified | closed by MALI-046n fix |
-| MALI-028 | Med | C | P4 | In progress | half-open `[from, to)` for the repo aggregates (B2); genuine budget/plan periods (B3); report + budget-history list + dashboard/report previous-period boundaries now genuine exclusive, no epsilon (B4). Boundary rule enforced for every new/changed caller. Card-surface tail (Batch 5) |
+| MALI-028 | Med | C | P4 | Code complete · Locally verified | half-open `[from, to)` for the repo aggregates (B2); genuine budget/plan periods (B3); report + budget-history + previous-period boundaries (B4); transactions list + dashboard recent-list boundaries now half-open too (B5). No epsilon end anywhere in the Phase-4 surfaces; the boundary rule was enforced for every new/changed caller. Live device = external |
 | MALI-029 | Med | C | P7 | Not started | global invalidation breadth |
 | MALI-030 | Med | C | P7 | Not started | streamed reports/memory |
 | MALI-031 | Med | C | P5 | Not started | App Group encryption/Keychain |
@@ -120,7 +120,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-071n | Low | C | P5 | Not started | logo.dev consent gating |
 | MALI-072n | Low | C | P3 | Code complete · Locally verified | durable sender-mapping sync: keyset pagination + server-authoritative updated_at + durable cursor + tombstone deletion propagation + LWW (pending-safe) + typed error classification (no string-match); soft-delete replaces hard delete; `96993c5e` (batch 5). Live two-device = external |
 | MALI-073n | Low | C | P6 | Not started | missing account_id/category_id indexes |
-| MALI-074n | Low | C | P4 | In progress | report-tier decimals fixed via the Batch-1 exponent formatter in reports (Batch 4 `989f6614`); card gross/refund + NULL-account attribution surfaces remain (Batch 5) |
+| MALI-074n | Low | C | P4 | Code complete · Locally verified | report decimals (B4); exact account ownership (no null-account-by-currency), per-currency net-spend card summaries (refund-netted, income-only, exponent formatter), authoritative installment paid-count from the ledger (B5 `a25a75c7`/`0f86fb7c`/`1fc89450`). Device UI spot-check external |
 | MALI-075n | Low | C | P5 | Not started | backend lows (search_path, gamification writable, purge coverage) |
 | MALI-076n | Low | C | P6 | Not started | backup lows (trim, blob version, hasRemoteBackup, dead export) |
 | MALI-077n | Low | C+P | P7 | Not started | ops lows (keystore name, email, dead API, package path) |
@@ -132,7 +132,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
 | P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **LOCALLY COMPLETE** (live/2-device pending) — all 6 batches committed: B1 051n (acf9ca99), B2 052n/023 (d6820285), B3 022/057n/052n revision-CAS+resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 (58614ad4/124fd83b), B5 072n/008 + 024 (96993c5e/74a77398), B6 closure docs. MALI-023 Closed-LV; all others CC-LV (external tail). Gamification single-authority overlap proof: no overlap (Edge active, RPC dormant) — see `PHASE_3_SYNC_CLOSURE.md` §2. |
-| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — B1 contract; B2 047n/050n; B3 048n/049n + 028/062n; B4 063n/064n + 062n-tail + report 018/028 + legacy retirement (`b702669c`/`989f6614`/`d5d1605b`/`174ed4c3`). Batch 5 (074n card + residual tails) + Batch 6 (closure doc) remain. Full suite 1163; analyze 0 |
+| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — B1–B5 code complete (047n/050n/048n/049n/063n/064n/074n Code complete · LV; 018/062n Code complete · LV; 028 In progress, only card/report boundary tails were the last; all now genuine half-open). Only Batch 6 (the `PHASE_4_FINANCIAL_SEMANTICS.md` closure doc) remains. Full suite 1179; analyze 0 |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
 | P7 CI/test/arch/docs | 066n,067n,029,030,034,035,037,038,040,041,042,043,077n,036-limits,021-deadfile | Not started |
@@ -474,3 +474,69 @@ skip / 0 fail. Full suite green.
 - Live PDF render spot-check of a multi-currency report (donut labelled per
   currency; 0/2/3-decimal). On-device bill-details paid total + subscription
   monthly metric. No live-backend dependency (the retired path is gone).
+
+## Phase 4 Batch 5 delivered contracts (MALI-074n / 018-provider / 028-list)
+
+### NULL-account attribution contract (MALI-074n)
+- A specific account's scope is EXACT ownership (`account_id = ?`). An
+  unassigned (`account_id IS NULL`) transaction belongs to no account and is
+  never attributed to one because its currency matches — it appears only in the
+  all-accounts scope (`accountId == null`). Fixed at the source (`_accountClause`
+  → every Drift aggregate) plus the transactions list scoping and the report
+  "largest transactions" builder. Assigning an orphan to an account (incl. the
+  dashboard's one-time currency reconciliation) moves it exactly once; it then
+  appears there because it is assigned, not by a read-time currency match. Both
+  lists and totals share the exact-ownership rule so they cannot disagree.
+
+### Account-detail contract (MALI-018)
+- Account detail reads the same canonical account-scoped aggregates as the
+  dashboard/transactions/reports (exact ownership, confirmed-only, refund-netted,
+  excluded-account policy affects only combined totals, half-open, full-dataset
+  set-based, exponent formatter). No separate account-detail fold exists.
+
+### Card financial-metric contract (MALI-074n)
+- Per (last4, currency): `totalOut` = **net spend** (payment + withdrawal −
+  refund), `totalIn` = **income only** (a refund is netted into spend, never
+  ordinary income), confirmed-only, transfers excluded, set-based
+  (pagination-independent). `CardSummary`/`CardAccountBreakdownRow` carry
+  `currency`; the grouper keys by (last4, currency) so two currencies on one card
+  never merge. The card UI shows the summary's own currency with the exponent
+  formatter (0/2/3 digits). Card net-spend equals the account's net expense for
+  the same scope (cross-surface invariant).
+
+### Installment paid-count contract (MALI-074n)
+- The authoritative paid count is the number of DISTINCT settled installments in
+  the `bill_payments` ledger for the bill's own currency
+  (`COUNT(DISTINCT installment_index)` for indexed rows + one per null-indexed
+  row, non-deleted, capped at totalInstallments), recomputed after every settle
+  and delete — never `MAX(installment_index)` and never a monotonic counter.
+  Duplicate-index rows collapse to one; deleted / foreign-currency payments never
+  count; paying installment 5 alone = 1; out-of-order is safe; a payment linked
+  to a transaction is one ledger row = one count.
+
+### Remaining-fold disposition (MALI-018)
+- Removed: dead `BillsView.totalDue` (raw cross-frequency/currency fold, no
+  consumer). Made half-open: transactions list + dashboard recent-list date
+  filters. Left as intentionally-different metrics with distinct labels: the
+  dashboard "قيد المراجعة" gross pending sum (pending-review affordance), the
+  dashboard auto-detected recurring-candidates total (heuristic, not saved
+  subscriptions), the subscriptions "إجمالي مديونية الأقساط" remaining-debt
+  projection (built on the corrected paid-count). No mixed-currency raw sum, no
+  page-dependent total, and no direction-inferred expense remains on a
+  user-facing Phase-4 financial total.
+
+### Approved plan-scope decision (recorded)
+- Empty plan scope permanently means `allExpenses`; no `unconfigured` state /
+  `scope_mode` column / UI (Approved product decisions, above).
+
+### Local verification (Batch 5)
+- `flutter analyze` clean; full Flutter suite **1179** (B4 1163 + 16 new). New
+  tests: `null_account_attribution_test` (4), `card_summary_canonical_test` (4),
+  `installment_paid_count_test` (7), cross-surface invariant +1 (card tie-in);
+  `repository_test` updated to the exact-ownership contract; card constructors
+  carry currency. No schema/migration/backend change; `kServerRevisionCas`
+  stays **false**; migrations 0068–0070 undeployed.
+
+### Batch 5 external / device acceptance (still pending)
+- On-device spot-check of account detail (unassigned rows only under
+  all-accounts), card in/out/net per currency, and installment "X of N".
