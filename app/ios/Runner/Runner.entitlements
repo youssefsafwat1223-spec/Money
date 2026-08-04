@@ -12,5 +12,15 @@
 	<array>
 		<string>group.com.youssefsafwat.mali</string>
 	</array>
+	<!-- MALI-031 — shared Keychain access group for the device secret + capture-
+	     queue key. The FIRST entry MUST stay the app's own bundle group so
+	     flutter_secure_storage (which uses the default group) keeps reading the
+	     existing SQLCipher DB key; the `.shared` group is used explicitly by
+	     SharedCaptureStore/SharedKeychain and is shared with the extension. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.youssefsafwat.mali</string>
+		<string>$(AppIdentifierPrefix)com.youssefsafwat.mali.shared</string>
+	</array>
 </dict>
 </plist>

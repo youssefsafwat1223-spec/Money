@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import Security
 
 /// Shared store between the Flutter host app, the Share Extension, and the
 /// "Process Bank SMS" App Intent.
@@ -30,6 +31,12 @@ enum SharedCaptureStore {
   private static let pendingNotificationRoutesKey = "pending_notification_routes_v1"
   private static let notificationLogEventsKey = "pending_notification_log_events_v1"
   private static let queueLockFileName = "pending_bank_messages.lock"
+
+  // MALI-031 — secret material lives in the shared Keychain, never UserDefaults.
+  // `deviceSecretKC` is the device auth secret; `queueEncryptionKeyKC` is the
+  // AES-256 key that encrypts the raw-SMS capture queue at rest.
+  private static let deviceSecretKC = "device_secret"
+  private static let queueEncryptionKeyKC = "capture_queue_key_v1"
 
   private static var defaults: UserDefaults? {
     UserDefaults(suiteName: appGroupIdentifier)
@@ -374,10 +381,26 @@ enum SharedCaptureStore {
     BackendConfig(
       cloudProcessingEnabled: defaults?.bool(forKey: cloudProcessingEnabledKey) ?? false,
       installID: clean(defaults?.string(forKey: installIDKey)),
-      deviceSecret: clean(defaults?.string(forKey: deviceSecretKey)),
+      deviceSecret: migratedDeviceSecret(),
       backendURL: clean(defaults?.string(forKey: backendURLKey)),
       anonKey: clean(defaults?.string(forKey: anonKeyKey))
     )
+  }
+
+  /// The device secret from the shared Keychain. A legacy UserDefaults value is
+  /// migrated into the Keychain once and then removed, so the secret is never
+  /// left as a plaintext UserDefaults duplicate (MALI-031).
+  private static func migratedDeviceSecret() -> String? {
+    if let fromKeychain = clean(SharedKeychain.string(forKey: deviceSecretKC)) {
+      return fromKeychain
+    }
+    if let legacy = clean(defaults?.string(forKey: deviceSecretKey)) {
+      SharedKeychain.setString(legacy, forKey: deviceSecretKC)
+      defaults?.removeObject(forKey: deviceSecretKey)
+      defaults?.synchronize()
+      return legacy
+    }
+    return nil
   }
 
   static func setBackendConfig(
@@ -391,7 +414,14 @@ enum SharedCaptureStore {
     defaults?.set(cloudProcessingEnabled, forKey: cloudProcessingEnabledKey)
     defaults?.set(aiConsentGranted, forKey: aiConsentGrantedKey)
     setOrRemove(installID, forKey: installIDKey)
-    setOrRemove(deviceSecret, forKey: deviceSecretKey)
+    // MALI-031: device secret → shared Keychain only; never a UserDefaults
+    // duplicate. Any legacy plaintext value is removed.
+    if let secret = clean(deviceSecret) {
+      SharedKeychain.setString(secret, forKey: deviceSecretKC)
+    } else {
+      SharedKeychain.remove(forKey: deviceSecretKC)
+    }
+    defaults?.removeObject(forKey: deviceSecretKey)
     setOrRemove(backendURL, forKey: backendURLKey)
     setOrRemove(anonKey, forKey: anonKeyKey)
     defaults?.synchronize()
@@ -426,27 +456,33 @@ enum SharedCaptureStore {
       payload.smartInboxItemId != nil else {
       return
     }
-    var queue = loadNotificationRoutes()
-    queue.append(payload)
-    if queue.count > 10 {
-      queue.removeFirst(queue.count - 10)
-    }
-    if let data = try? JSONEncoder().encode(queue) {
-      defaults?.set(data, forKey: pendingNotificationRoutesKey)
-      defaults?.synchronize()
+    // MALI-068n: read-modify-write under the shared cross-process lock so a
+    // concurrent host/extension write cannot lose a route.
+    withQueueLock {
+      var queue = loadNotificationRoutes()
+      queue.append(payload)
+      if queue.count > 10 {
+        queue.removeFirst(queue.count - 10)
+      }
+      if let data = try? JSONEncoder().encode(queue) {
+        defaults?.set(data, forKey: pendingNotificationRoutesKey)
+        defaults?.synchronize()
+      }
     }
   }
 
   static func consumePendingNotificationRoutesJSON() -> String? {
-    let queue = loadNotificationRoutes()
-    guard !queue.isEmpty,
-          let data = try? JSONEncoder().encode(queue),
-          let json = String(data: data, encoding: .utf8) else {
-      return nil
+    withQueueLock {
+      let queue = loadNotificationRoutes()
+      guard !queue.isEmpty,
+            let data = try? JSONEncoder().encode(queue),
+            let json = String(data: data, encoding: .utf8) else {
+        return nil
+      }
+      defaults?.removeObject(forKey: pendingNotificationRoutesKey)
+      defaults?.synchronize()
+      return json
     }
-    defaults?.removeObject(forKey: pendingNotificationRoutesKey)
-    defaults?.synchronize()
-    return json
   }
 
   static func isoString(from date: Date) -> String {
@@ -478,26 +514,31 @@ enum SharedCaptureStore {
       errorReason: clean(errorReason).map { String($0.prefix(300)) },
       occurredAt: isoFormatter.string(from: Date())
     )
-    var queue = loadNotificationLogEvents()
-    queue.append(payload)
-    if queue.count > 200 {
-      queue.removeFirst(queue.count - 200)
+    // MALI-068n: RMW under the shared cross-process lock.
+    withQueueLock {
+      var queue = loadNotificationLogEvents()
+      queue.append(payload)
+      if queue.count > 200 {
+        queue.removeFirst(queue.count - 200)
+      }
+      guard let data = try? JSONEncoder().encode(queue) else { return }
+      defaults?.set(data, forKey: notificationLogEventsKey)
+      defaults?.synchronize()
     }
-    guard let data = try? JSONEncoder().encode(queue) else { return }
-    defaults?.set(data, forKey: notificationLogEventsKey)
-    defaults?.synchronize()
   }
 
   static func consumePendingNotificationLogEventsJSON() -> String? {
-    let queue = loadNotificationLogEvents()
-    guard !queue.isEmpty,
-          let data = try? JSONEncoder().encode(queue),
-          let json = String(data: data, encoding: .utf8) else {
-      return nil
+    withQueueLock {
+      let queue = loadNotificationLogEvents()
+      guard !queue.isEmpty,
+            let data = try? JSONEncoder().encode(queue),
+            let json = String(data: data, encoding: .utf8) else {
+        return nil
+      }
+      defaults?.removeObject(forKey: notificationLogEventsKey)
+      defaults?.synchronize()
+      return json
     }
-    defaults?.removeObject(forKey: notificationLogEventsKey)
-    defaults?.synchronize()
-    return json
   }
 
   private static func loadNotificationLogEvents() -> [NotificationLogEventPayload] {
@@ -519,11 +560,12 @@ enum SharedCaptureStore {
   }
 
   private static func loadQueue() -> [Payload] {
-    guard let data = defaults?.data(forKey: queueKey),
-          let queue = try? JSONDecoder().decode([Payload].self, from: data) else {
-      return []
-    }
-    return queue
+    guard let data = defaults?.data(forKey: queueKey) else { return [] }
+    // MALI-031: the blob is AES-GCM encrypted. A legacy plaintext-JSON blob is
+    // migrated transparently; a corrupt/undecryptable blob fails CLOSED (empty)
+    // and is deliberately NOT deleted here, so a transient key issue never
+    // discards recoverable records.
+    return decodeQueueBlob(data) ?? []
   }
 
   private static func loadNotificationRoutes() -> [NotificationRoutePayload] {
@@ -534,12 +576,14 @@ enum SharedCaptureStore {
     return queue
   }
 
-  /// MALI-054n: removes ALL user-owned capture residue from the App Group so a
-  /// previous account's bank messages can never surface under a new identity.
-  /// Runs under the queue lock (same discipline as the queue writers). Preserves
-  /// install-level config (device secret, backend URL/keys, install id, APNs
-  /// token) — those are not user data and are re-managed by setBackendConfig.
-  /// Returns true on completion.
+  /// MALI-054n / MALI-031: removes ALL user-owned capture residue from the App
+  /// Group AND invalidates the device secret + queue-encryption key, so a
+  /// previous account's bank messages can never surface under a new identity and
+  /// user B never inherits user A's device auth or a key that could decrypt
+  /// residual data. Runs under the queue lock (same discipline as the queue
+  /// writers). Install-level NON-secret config (backend URL/keys, install id,
+  /// APNs token) is preserved and re-managed by setBackendConfig; the device
+  /// secret is re-provisioned on the next login. Returns true on completion.
   @discardableResult
   static func purgeUserOwnedState() -> Bool {
     withQueueLock {
@@ -549,6 +593,9 @@ enum SharedCaptureStore {
       defaults?.removeObject(forKey: latestPayloadIDKey)
       defaults?.removeObject(forKey: pendingNotificationRoutesKey)
       defaults?.removeObject(forKey: notificationLogEventsKey)
+      defaults?.removeObject(forKey: deviceSecretKey) // legacy plaintext, if any
+      SharedKeychain.remove(forKey: deviceSecretKC)
+      SharedKeychain.remove(forKey: queueEncryptionKeyKC)
       defaults?.synchronize()
     }
     return true
@@ -576,7 +623,7 @@ enum SharedCaptureStore {
     if queue.isEmpty {
       defaults?.removeObject(forKey: queueKey)
     } else {
-      guard let data = try? JSONEncoder().encode(queue) else {
+      guard let data = encodeQueueBlob(queue) else {
         return false
       }
       defaults?.set(data, forKey: queueKey)
@@ -640,5 +687,118 @@ enum SharedCaptureStore {
     ].joined(separator: "|")
     let digest = SHA256.hash(data: Data(raw.utf8))
     return digest.map { String(format: "%02x", $0) }.joined()
+  }
+
+  // MARK: - Capture-queue encryption (MALI-031)
+
+  /// The AES-256 key that encrypts the capture queue at rest, held in the shared
+  /// Keychain (accessible to the host app and the extension). Generated once.
+  private static func encryptionKey() -> SymmetricKey? {
+    if let data = SharedKeychain.data(forKey: queueEncryptionKeyKC), data.count == 32 {
+      return SymmetricKey(data: data)
+    }
+    let key = SymmetricKey(size: .bits256)
+    let raw = key.withUnsafeBytes { Data(Array($0)) }
+    guard SharedKeychain.setData(raw, forKey: queueEncryptionKeyKC) else { return nil }
+    return key
+  }
+
+  /// Encrypts the queue as an AES-GCM combined blob. Returns nil if the shared
+  /// Keychain (hence the key) is unavailable, so the caller does NOT overwrite a
+  /// good blob with an unencrypted one.
+  private static func encodeQueueBlob(_ queue: [Payload]) -> Data? {
+    guard let key = encryptionKey(),
+          let json = try? JSONEncoder().encode(queue),
+          let sealed = try? AES.GCM.seal(json, using: key).combined else {
+      return nil
+    }
+    return sealed
+  }
+
+  /// Decrypts a stored blob. New blobs are AES-GCM sealed; a legacy plaintext
+  /// JSON blob is decoded transparently (one-time migration on next save). A
+  /// corrupt / undecryptable blob returns nil (fail closed).
+  private static func decodeQueueBlob(_ data: Data) -> [Payload]? {
+    if let key = encryptionKey(),
+       let box = try? AES.GCM.SealedBox(combined: data),
+       let plain = try? AES.GCM.open(box, using: key),
+       let queue = try? JSONDecoder().decode([Payload].self, from: plain) {
+      return queue
+    }
+    // Legacy plaintext migration path.
+    if let queue = try? JSONDecoder().decode([Payload].self, from: data) {
+      return queue
+    }
+    return nil
+  }
+}
+
+/// MALI-031 — secret material (device secret, capture-queue key) lives here, in
+/// a shared Keychain access group readable by the host app and the Share
+/// Extension, never in App Group UserDefaults. The access group's team prefix is
+/// resolved at build time from the `AppIdentifierPrefix` Info.plist value; the
+/// `.shared` group is declared in each target's `keychain-access-groups`
+/// entitlement. Items are `ThisDeviceOnly` and never sync to iCloud.
+private enum SharedKeychain {
+  private static let service = "com.youssefsafwat.mali.sharedcapture"
+
+  /// The shared access group, or nil when the team prefix can't be resolved
+  /// (e.g. an unsigned simulator/dev build). When nil, the item is stored in the
+  /// app's DEFAULT keychain instead — still Keychain (ThisDeviceOnly), never
+  /// UserDefaults — so the app stays functional; cross-process app↔extension
+  /// sharing then requires the entitled group and is a device-verified path.
+  static var accessGroup: String? {
+    guard let prefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as? String,
+          !prefix.isEmpty else {
+      return nil
+    }
+    return "\(prefix)com.youssefsafwat.mali.shared"
+  }
+
+  private static func baseQuery(_ key: String) -> [String: Any] {
+    var q: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: key,
+    ]
+    if let group = accessGroup {
+      q[kSecAttrAccessGroup as String] = group
+    }
+    return q
+  }
+
+  @discardableResult
+  static func setData(_ data: Data, forKey key: String) -> Bool {
+    let base = baseQuery(key)
+    SecItemDelete(base as CFDictionary)
+    var add = base
+    add[kSecValueData as String] = data
+    add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+  }
+
+  static func data(forKey key: String) -> Data? {
+    var query = baseQuery(key)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    var result: CFTypeRef?
+    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
+      return nil
+    }
+    return result as? Data
+  }
+
+  @discardableResult
+  static func setString(_ value: String, forKey key: String) -> Bool {
+    setData(Data(value.utf8), forKey: key)
+  }
+
+  static func string(forKey key: String) -> String? {
+    guard let data = data(forKey: key) else { return nil }
+    return String(data: data, encoding: .utf8)
+  }
+
+  static func remove(forKey key: String) {
+    SecItemDelete(baseQuery(key) as CFDictionary)
   }
 }

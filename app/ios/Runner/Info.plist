@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+		<!-- MALI-031 — Xcode expands $(AppIdentifierPrefix) to the team-id prefix
+		     at build time; SharedKeychain reads it to build the shared Keychain
+		     access group at runtime. -->
+		<key>AppIdentifierPrefix</key>
+		<string>$(AppIdentifierPrefix)</string>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>
