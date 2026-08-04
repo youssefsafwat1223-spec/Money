@@ -222,20 +222,23 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 4 — Canonical financial correctness (one contract, all surfaces)
 
-> **Status (2026-08-04): Batch 1 + Batch 2 Code complete · Locally verified.**
-> Batch 1 (`71dc2534`): the domain semantics/period/currency contract
-> (`financial_semantics.dart`, `financial_period.dart` half-open, Saturday-week
-> fix MALI-062n, `money_format.dart`). Batch 2 (`c4b6df97` + `2052687d`):
-> canonical repo aggregates made half-open `[from, to)` (MALI-028, all 7
-> methods, boundary-safe for existing callers) and the **Transactions header**
-> (MALI-047n) + **Home category totals** (MALI-050n) routed through the canonical
-> aggregate with a provider-tier cross-surface invariant test (MALI-018 provider
-> tier). No signature/schema change; the dormant Supabase summary tier is
-> untouched (MALI-063n). Full suite 1131; analyze 0; `kServerRevisionCas` stays
-> false; migrations 0068–0070 undeployed. Batches 3–5 remaining: MALI-048n plan
-> spend, MALI-049n dashboard budget rings, MALI-064n bill double-count, MALI-063n
-> PDF multi-currency + 0030 RPCs, MALI-074n card gross/decimals. See the Batch-2
-> delivered-contracts section in `REMEDIATION_STATUS_LEDGER.md`.
+> **Status (2026-08-04): Batches 1–3 Code complete · Locally verified.**
+> Batch 1 (`71dc2534`): the domain semantics/period/currency contract. Batch 2
+> (`c4b6df97` + `2052687d`): canonical repo aggregates made half-open `[from, to)`
+> (MALI-028) and the **Transactions header** (MALI-047n) + **Home category totals**
+> (MALI-050n) routed through it. Batch 3 (`4fa413a9` + `4dc0d190`): **plan spending**
+> (MALI-048n — currency isolation, refund netting, half-open window, explicit
+> scope model, UNION membership, fail-closed currency) and **dashboard budget
+> rings** (MALI-049n — the ring uses the budget's own stored period via one
+> canonical resolver shared with budget detail/reports/alerts, never the
+> dashboard filter; genuine Saturday-week half-open periods, unifying the three
+> divergent resolvers — MALI-028/062n budget-period portion). New callers obey a
+> strict genuine-`toExclusive` boundary rule (no epsilon ends). No signature/
+> schema change; dormant Supabase summary tier untouched (MALI-063n). Full suite
+> 1150; analyze 0; `kServerRevisionCas` false; migrations 0068–0070 undeployed.
+> Batches 4–5 remaining: MALI-064n bill double-count, MALI-063n PDF multi-currency
+> + 0030 RPCs, MALI-074n card gross/decimals. See the Batch-2 and Batch-3
+> delivered-contracts sections in `REMEDIATION_STATUS_LEDGER.md`.
 
 - **Shared contract:** extend the MALI-018 canonical predicate (`_financialAggregateSql`)
   into a single domain-level financial-semantics module covering income/expense/transfer/

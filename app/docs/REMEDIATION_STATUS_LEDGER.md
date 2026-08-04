@@ -5,7 +5,7 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 4 Batch 2 (Transactions header + Home category) Code complete · Locally verified — 2026-08-04. Batch 1 (semantics/period/currency contract) `71dc2534`; Batch 2 `c4b6df97` (canonical half-open aggregates) + `2052687d` (provider rewiring + tests). Batches 3–5 (plan/dashboard/bill/PDF surfaces) not started. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
+- **Last updated:** Phase 4 Batch 3 (Plans + Dashboard budget rings) Code complete · Locally verified — 2026-08-04. Batch 1 `71dc2534`; Batch 2 `c4b6df97`/`2052687d`; Batch 3 `4fa413a9` (plan/budget domain + plan spending) + `4dc0d190` (dashboard rings + budget detail). Batches 4–5 (bills/subscriptions, PDF, card) not started. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -59,7 +59,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-015 | High | — | — | Closed | RPC path re-verified (client+server) |
 | MALI-016 | High | — | — | Closed | atomic per-relation deletion re-verified |
 | MALI-017 | High | C | P2 | Code complete · Locally verified | local-only cards in the inventory guard (interactive path); delete/reset gate behind explicit confirmation; remote/cross-UID wipe for isolation; `374560ff` |
-| MALI-018 | High | C+T | P4 | In progress | canonical repo predicate Closed; provider tier: transactions header + Home category routed through the canonical aggregate with a cross-surface invariant test (Batch 2, `2052687d`); plan/dashboard-ring/bill/subscription folds remain (Batches 3–4) |
+| MALI-018 | High | C+T | P4 | In progress | canonical repo predicate Closed; provider tier: transactions header + Home category (Batch 2 `2052687d`), plan spending + dashboard budget rings + budget detail (Batch 3 `4fa413a9`/`4dc0d190`) all routed through the canonical contract with a cross-surface invariant test; bill/subscription monthly folds + PDF donut remain (Batches 4–5) |
 | MALI-019 | High | C | P5 | Not started | subsumed by MALI-061n |
 | MALI-020 | High | X | P9 | Locally verified | archive privacy report = gate 5 |
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
@@ -69,7 +69,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
 | MALI-027 | Med | C | **P1** | Code complete · Locally verified | closed by MALI-046n fix |
-| MALI-028 | Med | C | P4 | In progress | half-open `[from, to)` now the contract for the canonical repo aggregates (all 7 methods, Batch 2 `c4b6df97`); boundary-safe for existing callers; week anchor fixed in Batch 1 (MALI-062n). Budget-period + report-boundary standardization for other surfaces remains |
+| MALI-028 | Med | C | P4 | In progress | half-open `[from, to)` for the canonical repo aggregates (Batch 2 `c4b6df97`); genuine half-open budget + plan periods with no epsilon end (Batch 3 `4fa413a9`/`4dc0d190`); boundary rule enforced for all new callers. Report-boundary + dormant-Supabase standardization remains |
 | MALI-029 | Med | C | P7 | Not started | global invalidation breadth |
 | MALI-030 | Med | C | P7 | Not started | streamed reports/memory |
 | MALI-031 | Med | C | P5 | Not started | App Group encryption/Keychain |
@@ -89,8 +89,8 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-045n | High | C | **P1** | Code complete · Locally verified | FK-safe restore (full parents + suspend-correctly + sanitize + verify); 5 regression tests; on-device round-trip = gate 6 |
 | MALI-046n | High | C | **P1** | Closed · locally verified | `enableMigrations:false` → pipeline owns user_version; 5 regression tests; on-device path = gate 6 |
 | MALI-047n | High | C | P4 | Code complete · Locally verified | header total now canonical net expense over the complete dataset (`transactionsPeriodTotalProvider`), pagination-independent, confirmed-only, refund-netted, single-currency; bespoke `TransactionsView` folds removed; `2052687d` (Batch 2). Device UI spot-check external |
-| MALI-048n | High | C | P4 | Not started | plan spend currency/refund/scope |
-| MALI-049n | High | C | P4 | Not started | dashboard budget ring period |
+| MALI-048n | High | C | P4 | Code complete · Locally verified | canonical plan spending: half-open window, plan-currency isolation (no cross-currency sum, incl. linked rows), refund netting (no raw SUM), confirmed-only, excluded-account policy for all-expenses scope, UNION account/card membership, blank-currency fail-closed, list==total; empty scope preserved as documented all-expenses; `4fa413a9` (Batch 3). Device UI spot-check + unconfigured-scope product decision external |
+| MALI-049n | High | C | P4 | Code complete · Locally verified | dashboard ring uses the budget's OWN stored period (not the dashboard filter) via one canonical resolver shared with budget detail/reports/alerts; genuine half-open Saturday week; ring == detail == repo consumption; refund/excluded/currency identical; `4dc0d190` (Batch 3). Device UI spot-check external |
 | MALI-050n | High | C | P4 | Code complete · Locally verified | Home category totals sourced from canonical `categoryBreakdown` (refund netting, status, excluded-account, half-open month); cannot disagree with the adjacent budget chip for the same scope; bespoke `getAll()` fold removed; `2052687d` (Batch 2). Provider is not currently UI-wired (dropped by the Calm-Capital redesign) — closed at the provider tier to hold the invariant. Device UI spot-check external |
 | MALI-051n | High | C | P3 | Code complete · Locally verified | durable parked_child_rows + drain; cursor never skips; `acf9ca99` (batch 1) |
 | MALI-052n | High | C | P3 | Code complete · Locally verified | outbox coalescing/re-basing `d6820285` (batch 2) + universal conflict policy/resolver for all 12 entities `de672bc0` (batch 3); live 2-device = external |
@@ -103,7 +103,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-059n | Med | P+C | P2 | Code complete · Locally verified | decision implemented (default OFF, separate opt-ins, migrate-to-OFF, versioned state, device-local, restore resets); `89db9f09` |
 | MALI-060n | Med | C | P5 | Not started | anon-key AI unmetered |
 | MALI-061n | Med | C | P5 | Not started | gamification bypasses policy; budget dual-authority |
-| MALI-062n | Med | C | P4 | Not started | weekly anchor + budget scope divergence |
+| MALI-062n | Med | C | P4 | In progress | Saturday-week fixed in Batch 1 (`RiyadhTime.startOfWeek`); the three divergent weekly/budget-period resolvers unified into one canonical resolver used by ring/detail/reports/alerts + Saturday-anchored history weeks (Batch 3 `4dc0d190`). Per-budget history transaction-LIST vs net-total refund mismatch remains a documented tail |
 | MALI-063n | Med | C | P4 | Not started | PDF multi-currency; latent 0030 RPCs |
 | MALI-064n | Med | C | P4 | Not started | bill paid double-count; monthly formula |
 | MALI-065n | Med | C | P5 | Not started | report PDF tmp lifecycle |
@@ -127,7 +127,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
 | P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **LOCALLY COMPLETE** (live/2-device pending) — all 6 batches committed: B1 051n (acf9ca99), B2 052n/023 (d6820285), B3 022/057n/052n revision-CAS+resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 (58614ad4/124fd83b), B5 072n/008 + 024 (96993c5e/74a77398), B6 closure docs. MALI-023 Closed-LV; all others CC-LV (external tail). Gamification single-authority overlap proof: no overlap (Edge active, RPC dormant) — see `PHASE_3_SYNC_CLOSURE.md` §2. |
-| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — Batch 1 (semantics/period/currency contract, `71dc2534`); Batch 2 (047n/050n + provider-tier 018 + boundary-tier 028, `c4b6df97`/`2052687d`). Batches 3–5 (048n plan spend, 049n dashboard rings, 064n bills, 063n PDF, 074n card) not started. Full suite 1131; analyze 0 |
+| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — B1 contract (`71dc2534`); B2 047n/050n (`c4b6df97`/`2052687d`); B3 048n/049n + budget-period 028/062n (`4fa413a9`/`4dc0d190`). Batches 4–5 (064n bills, 063n PDF, 074n card) not started. Full suite 1150; analyze 0 |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
 | P7 CI/test/arch/docs | 066n,067n,029,030,034,035,037,038,040,041,042,043,077n,036-limits,021-deadfile | Not started |
@@ -323,3 +323,76 @@ skip / 0 fail. Full suite green.
 ### Batch 2 external / device acceptance (still pending)
 - On-device spot-check that the Transactions header and (once/if re-wired) the
   Home category groups render the canonical values with the scope currency.
+
+## Phase 4 Batch 3 delivered contracts (MALI-048n / 049n / 018-provider / 028-062n budget-period)
+
+### Plan scope model (MALI-048n)
+- Two explicit modes (`lib/domain/finance/plan_scope.dart`, `PlanScopeMode`):
+  **allExpenses** (no account/card selected) and **selected** (one or more
+  accounts/cards). All-expenses is the DOCUMENTED plan-form contract shown to
+  the user ("if you don't choose an account or card, the plan counts all
+  expenses in the period"), named in one place instead of scattered `isEmpty`
+  checks — not an accidental empty-means-all.
+- **Empty vs all-expenses:** the current data model has NO separate stored
+  "unconfigured/zero" state; an empty selection has always meant all-expenses.
+  This meaning is preserved exactly — no user data is reinterpreted. A distinct
+  unconfigured state (empty → zero + configuration prompt) would change every
+  existing empty-scope plan and requires an additive `scope_mode` column + UI;
+  it is surfaced as a **deferred product decision**, not invented.
+- **Membership: UNION.** A transaction counts if it matches the plan's window +
+  currency + status + net-expense type AND (its account ∈ selected accounts OR
+  its card ∈ selected cards OR it is manually linked). The same membership backs
+  `spentForPlan` and `transactionsForPlan`, so the displayed list nets to the
+  displayed total. Applies to plan progress, the plan transaction list, and any
+  future notification.
+- **Plan currency policy:** every candidate row (including manually-linked ones)
+  must match the plan's currency — a SAR plan never sums an EGP/USD/KWD amount;
+  no exchange-rate conversion. A blank currency is an invalid configuration and
+  **fails closed to zero** consumption / an empty list.
+- **Semantics:** net expense (payment + withdrawal − refund) via the shared
+  `FinancialSql` signed sum (no raw `SUM(amount)`), confirmed-only, genuine
+  half-open `[startDate, endExclusive)` window where `endExclusive` is the start
+  of the day after the plan's last day (derived from the legacy `23:59:59`
+  endDate with no epsilon), and the excluded-from-totals account policy for the
+  all-expenses scope (an explicitly-selected account overrides it).
+
+### Budget period + scope contract (MALI-049n / 028 / 062n)
+- **One resolver:** `resolveBudgetPeriod(budget, now)` (`budget_period.dart`)
+  returns a genuine half-open `[from, to)` window via `FinancialPeriod` —
+  Saturday-anchored week, calendar month/year, NO epsilon end. Used by the
+  dashboard ring, budget detail (`budgetsViewProvider`), the reports/alerts
+  use-case (`BudgetProgressUseCase`), and the Saturday-anchored budgets-screen
+  history. The yearly `−1ms` and the three previously-divergent weekly
+  definitions are gone.
+- **One consumption:** `budgetSpent(repo, budget, period, {fallbackAccountId})`
+  — all-expenses budgets net across categories, category budgets scope to their
+  category, both through the canonical aggregate (refund netting, confirmed-only,
+  excluded-account policy). A budget with its own account stays account-scoped; a
+  global budget falls back to the surface's active account, so the dashboard ring
+  and budget detail agree for the same scope.
+- **No filter leakage:** the dashboard transaction filter no longer feeds any
+  budget-consumption query. A monthly budget stays monthly under a "last 90 days"
+  filter; the ring equals budget detail equals the repository aggregate.
+- **Boundary rule:** all new/changed budget/plan callers pass a genuine
+  `toExclusive` boundary; no `end − 1ms/1μs`, `23:59:59`, or inclusive last
+  instant is introduced or relied upon. The dormant Supabase summary batch-fetch
+  path (flag-off) is left untouched (MALI-063n).
+
+### Local verification (Batch 3)
+- `flutter analyze` clean (0 issues); full Flutter suite **1150** (baseline 1131
+  + 19 new). New tests: `plan_spending_canonical_test` (11), 
+  `budget_consumption_canonical_test` (7 — resolver genuine half-open incl. leap
+  day; budget detail == canonical repo and filter-invariant; excluded account);
+  `financial_cross_surface_invariant_test` extended (+1 — repo == header ==
+  budget detail == plan progress on one all-expenses month fixture, all 400 after
+  a refund). Existing plan/budget/report/alert tests remain green.
+- No schema, migration, backend, or capability change; `kServerRevisionCas`
+  stays **false**; migrations 0068–0070 remain undeployed.
+
+### Batch 3 external / product tail (still pending)
+- On-device spot-check of plan progress and dashboard rings.
+- **Product decision:** whether to add a distinct "unconfigured" plan scope
+  (empty → zero + prompt) separate from the documented all-expenses default —
+  needs an additive `scope_mode` column + UI; not started.
+- Budget-history per-period transaction LIST vs net-total refund reconciliation
+  (MALI-062n tail) and bill/subscription/PDF surfaces (Batches 4–5).
