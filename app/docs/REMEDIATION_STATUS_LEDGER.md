@@ -5,7 +5,11 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** Phase 4 Batch 5 (cards, NULL-account attribution, installment counts, final invariants) Code complete · Locally verified — 2026-08-04. B1–B4 as below; B5 `a25a75c7` (exact account ownership + per-currency net card summaries), `0f86fb7c` (installment paid-count from the ledger), `1fc89450` (fold sweep + final cross-surface invariant). Only Batch 6 (the Phase-4 closure doc) remains in Phase 4. Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`.
+- **Last updated:** **Phase 4 CLOSED (locally verified) — 2026-08-04.** All six
+  batches (B1–B6) landed; the canonical financial-semantics spec is
+  `PHASE_4_FINANCIAL_SEMANTICS.md`. Code + automated verification closed locally
+  (analyze 0, full suite 1179); device/PDF/UI spot-checks remain external.
+  Phase 3 reconciliation: `PHASE_3_SYNC_CLOSURE.md`. Batch-6 closure commit records the reconciliation below.
 
 > **Phase 2 note — bug found & fixed during implementation (not a new finding):**
 > `drift_repository_support.dart` `userSettingsFromRow` hard-coded both consent
@@ -64,7 +68,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-015 | High | — | — | Closed | RPC path re-verified (client+server) |
 | MALI-016 | High | — | — | Closed | atomic per-relation deletion re-verified |
 | MALI-017 | High | C | P2 | Code complete · Locally verified | local-only cards in the inventory guard (interactive path); delete/reset gate behind explicit confirmation; remote/cross-UID wipe for isolation; `374560ff` |
-| MALI-018 | High | C+T | P4 | Code complete · Locally verified | provider tier complete: header/Home (B2), plan/dashboard rings/budget detail (B3), reports snapshot/donut/appendix + budget-history + bill/subscription (B4), card summary + account detail + installment count (B5) all routed through the canonical contract; dormant Supabase aggregate tier retired. The cross-surface invariant test now spans repo/header/Home/budget-ring/budget-detail/plan/report/card. Live two-device/device = external |
+| MALI-018 | High | C+T | P4 | **Closed · locally verified** | provider tier complete across repository/header/Home/plan/budget-ring/budget-detail/budget-history/report/bill/subscription/card/account-detail/installment; dormant Supabase aggregate tier retired; locked by the cross-surface invariant suite. Spec: `PHASE_4_FINANCIAL_SEMANTICS.md`. Live two-device/device = external |
 | MALI-019 | High | C | P5 | Not started | subsumed by MALI-061n |
 | MALI-020 | High | X | P9 | Locally verified | archive privacy report = gate 5 |
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
@@ -74,7 +78,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-025 | Med | C | P5 | Not started | iOS 64-limit, redaction |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
 | MALI-027 | Med | C | **P1** | Code complete · Locally verified | closed by MALI-046n fix |
-| MALI-028 | Med | C | P4 | Code complete · Locally verified | half-open `[from, to)` for the repo aggregates (B2); genuine budget/plan periods (B3); report + budget-history + previous-period boundaries (B4); transactions list + dashboard recent-list boundaries now half-open too (B5). No epsilon end anywhere in the Phase-4 surfaces; the boundary rule was enforced for every new/changed caller. Live device = external |
+| MALI-028 | Med | C | P4 | **Closed · locally verified** | half-open `[from, to)` for every Phase-4 interval (repo aggregates, budget/plan/report periods, transactions/dashboard lists, appendix, comparison); no epsilon/`23:59:59`/inclusive-last-instant anywhere; boundary rule enforced for every new/changed caller. Spec §F. Live device = external |
 | MALI-029 | Med | C | P7 | Not started | global invalidation breadth |
 | MALI-030 | Med | C | P7 | Not started | streamed reports/memory |
 | MALI-031 | Med | C | P5 | Not started | App Group encryption/Keychain |
@@ -108,7 +112,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-059n | Med | P+C | P2 | Code complete · Locally verified | decision implemented (default OFF, separate opt-ins, migrate-to-OFF, versioned state, device-local, restore resets); `89db9f09` |
 | MALI-060n | Med | C | P5 | Not started | anon-key AI unmetered |
 | MALI-061n | Med | C | P5 | Not started | gamification bypasses policy; budget dual-authority |
-| MALI-062n | Med | C | P4 | Code complete · Locally verified | Saturday-week fixed (B1); the three divergent weekly/budget-period resolvers unified into one canonical resolver + Saturday-anchored history (B3); the per-period history transaction LIST now nets to its total — refunds included, half-open, excluded-account policy (B4 `b702669c`). Device UI spot-check external |
+| MALI-062n | Med | C | P4 | **Closed · locally verified** | Saturday-week fixed (B1); the three divergent weekly/budget-period resolvers unified into one canonical resolver + Saturday-anchored history (B3); the per-period history transaction LIST nets to its total (B4). Week definitions, budget periods, and history list-vs-total parity all verified. Device UI spot-check external |
 | MALI-063n | Med | C | P4 | Code complete · Locally verified | PDF donut center/slices/appendix scoped to the primary currency (per-currency `categoryBreakdown`), never a cross-currency sum; exponent formatter (0/2/3); dormant 0030 RPCs + Supabase-summary flags retired (no switch to re-enable pre-canonical totals); `989f6614`/`174ed4c3` (Batch 4). Live PDF render spot-check external |
 | MALI-064n | Med | C | P4 | Code complete · Locally verified | one attribution contract — `bill_payments` authoritative, a linked payment counts once (double-count gone), fuzzy match demoted to a non-authoritative link suggestion; one canonical `monthlyEquivalent`/`annualEquivalent`/`subscriptionMonthlyTotal` unifying the three divergent formulas; `d5d1605b` (Batch 4). Device UI spot-check external |
 | MALI-065n | Med | C | P5 | Not started | report PDF tmp lifecycle |
@@ -132,7 +136,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | P1 migrations/restore | MALI-046n/027, MALI-045n/014 | **Code complete · Locally verified** (full suite 1003; awaiting approval) |
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
 | P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **LOCALLY COMPLETE** (live/2-device pending) — all 6 batches committed: B1 051n (acf9ca99), B2 052n/023 (d6820285), B3 022/057n/052n revision-CAS+resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 (58614ad4/124fd83b), B5 072n/008 + 024 (96993c5e/74a77398), B6 closure docs. MALI-023 Closed-LV; all others CC-LV (external tail). Gamification single-authority overlap proof: no overlap (Edge active, RPC dormant) — see `PHASE_3_SYNC_CLOSURE.md` §2. |
-| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **In progress** — B1–B5 code complete (047n/050n/048n/049n/063n/064n/074n Code complete · LV; 018/062n Code complete · LV; 028 In progress, only card/report boundary tails were the last; all now genuine half-open). Only Batch 6 (the `PHASE_4_FINANCIAL_SEMANTICS.md` closure doc) remains. Full suite 1179; analyze 0 |
+| P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **CLOSED · locally verified** — B1–B6 complete. 018/028/062n Closed · LV; 047n/048n/049n/050n/063n/064n/074n Code complete · LV (documented device spot-checks remain). Spec `PHASE_4_FINANCIAL_SEMANTICS.md`. Full suite 1179; analyze 0. Verdict: code+automated closed locally, device/PDF/UI external-pending |
 | P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
 | P7 CI/test/arch/docs | 066n,067n,029,030,034,035,037,038,040,041,042,043,077n,036-limits,021-deadfile | Not started |
@@ -540,3 +544,71 @@ skip / 0 fail. Full suite green.
 ### Batch 5 external / device acceptance (still pending)
 - On-device spot-check of account detail (unassigned rows only under
   all-accounts), card in/out/net per currency, and installment "X of N".
+
+## Phase 4 closure reconciliation (Batch 6)
+
+Canonical spec: `PHASE_4_FINANCIAL_SEMANTICS.md`. Phase-4 commits (17):
+`71dc2534` `c4b6df97` `2052687d` `161f669f` `4fa413a9` `4dc0d190` `76423f1b`
+`b702669c` `989f6614` `d5d1605b` `174ed4c3` `9e819ee0` `d2b911da` `a25a75c7`
+`0f86fb7c` `1fc89450` `acb079a3` (+ this Batch-6 closure commit).
+
+Per-finding reconciliation (defect → root cause → remediation → commits → tests →
+status). "External" = a device/PDF/UI spot-check with no automated proxy; never
+marked done without captured evidence.
+
+- **MALI-047n — Code complete · Locally verified.** Defect: Transactions header
+  folded loaded pages (counted pending, refund-as-income, page-dependent). Root
+  cause: a second Dart aggregation tier. Remediation: `transactionsPeriodTotalProvider`
+  → canonical `expenseTotalBetween`, confirmed-only, refund-netted, single-currency,
+  pagination-independent. Commits `2052687d`. Tests: cross-surface invariant (501-row,
+  types, statuses, boundaries). External: header render spot-check.
+- **MALI-048n — Code complete · Locally verified.** Defect: plan `SUM(amount)` with
+  no refund/currency/half-open. Remediation: canonical membership (half-open window,
+  plan currency isolation incl. linked rows, net-expense signed sum, UNION account/card,
+  fail-closed currency, list==total). Commit `4fa413a9`. Tests: `plan_spending_canonical_test`
+  (11). External: plan progress spot-check. Empty scope = `allExpenses` (approved).
+- **MALI-049n — Code complete · Locally verified.** Defect: dashboard ring used the
+  screen filter as the budget window; ring ≠ detail. Remediation: `resolveBudgetPeriod`
+  + `budgetSpent` shared by ring/detail/reports/alerts; genuine Saturday-week half-open.
+  Commit `4dc0d190`. Tests: `budget_consumption_canonical_test` (filter-invariant),
+  cross-surface. External: ring render spot-check.
+- **MALI-050n — Code complete · Locally verified.** Defect: Home category fold, no
+  refund netting, disagreed with the budget chip. Remediation: `categoryBreakdown`
+  (canonical). Commit `2052687d`. Tests: cross-surface (Home==breakdown==budget).
+  Provider not UI-wired (Calm-Capital redesign) — closed at the provider tier.
+  External: n/a until re-wired.
+- **MALI-062n — Closed · locally verified.** Defect: three weekly definitions; history
+  list ≠ total. Remediation: Saturday-week (`71dc2534`); one resolver + Saturday history
+  (`4dc0d190`); history list nets to total (`b702669c`). Tests: `budget_history_reconciliation_test`,
+  `budget_consumption_canonical_test`.
+- **MALI-063n — Code complete · Locally verified.** Defect: PDF donut cross-currency sum;
+  dormant 0030 tier. Remediation: per-currency `categoryBreakdown` + primary-currency
+  donut/slices/appendix; exponent formatter; retired the 0030/Supabase-summary switches.
+  Commits `989f6614`/`174ed4c3`. Tests: `report_multicurrency_test`. External: on-device
+  PDF render.
+- **MALI-064n — Code complete · Locally verified.** Defect: bill paid double-count
+  (fuzzy + recorded + manual); three monthly formulas. Remediation: `bill_payments`
+  authoritative `billPaidTotal` (fuzzy = suggestion); one `monthlyEquivalent`/`annualEquivalent`/
+  `subscriptionMonthlyTotal`. Commit `d5d1605b`. Tests: `bill_metrics_test`. External:
+  bill-details + subscription metric spot-check.
+- **MALI-074n — Code complete · Locally verified.** Defect: card gross/refund-as-income,
+  cross-currency card sums, null-account-by-currency, `MAX(installment_index)`. Remediation:
+  exact account ownership; per-currency net card summaries; ledger-based distinct
+  installment count; report decimals. Commits `989f6614`/`a25a75c7`/`0f86fb7c`. Tests:
+  `null_account_attribution_test`, `card_summary_canonical_test`, `installment_paid_count_test`.
+  External: card/account/installment device spot-check.
+- **MALI-018 — Closed · locally verified.** Defect: a second Dart aggregation tier
+  contradicted the canonical repo predicate on multiple surfaces. Remediation: every
+  provider/report/bill/card/account tier routed through the canonical aggregate/helper;
+  dormant Supabase tier retired; locked by the cross-surface invariant suite (B2–B5).
+- **MALI-028 — Closed · locally verified.** Defect: inclusive `BETWEEN` / epsilon ends.
+  Remediation: half-open `[from, to)` for every Phase-4 interval; boundary rule enforced.
+  Tests: `financial_aggregate_boundary_test` + every canonical test.
+
+**Phase-4 closure verdict: Code complete — external verification pending.**
+Phase-4 production code and all automated (Drift/provider/domain) invariants are
+**closed locally**; the only remaining acceptance is device/PDF/UI spot-checks
+(listed per finding above, and per batch). This item is closed; the wider program
+(Phases 5–9, MALI-026, live revision-CAS activation, external validation) remains
+open. `kServerRevisionCas` stays **false**; migrations 0068–0070 remain
+undeployed; engagement-event authority not activated.

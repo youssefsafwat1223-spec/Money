@@ -222,8 +222,17 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 4 — Canonical financial correctness (one contract, all surfaces)
 
-> **Status (2026-08-04): Batches 1–5 Code complete · Locally verified — only the
-> Batch-6 closure doc remains in Phase 4.**
+> **Status (2026-08-04): PHASE 4 CLOSED — locally verified (code + automated);
+> device/PDF/UI spot-checks external-pending.** All six batches landed. The
+> authoritative canonical spec is `PHASE_4_FINANCIAL_SEMANTICS.md`; the
+> per-finding reconciliation and closure verdict are in `REMEDIATION_STATUS_LEDGER.md`
+> ("Phase 4 closure reconciliation"). 018/028/062n Closed · LV; 047n/048n/049n/
+> 050n/063n/064n/074n Code complete · LV (documented device spot-checks remain).
+> Full suite 1179; analyze 0; `kServerRevisionCas` false; migrations 0068–0070
+> undeployed. Batch 6 was documentation/verification only (no production code).
+>
+> Earlier (batch history):
+> **Batches 1–5 Code complete · Locally verified.**
 > Batch 5 (`a25a75c7`/`0f86fb7c`/`1fc89450`): exact account ownership (an
 > unassigned row is never attributed to an account by currency — MALI-074n
 > NULL-account contract), per-currency net-spend card summaries (refund-netted,
