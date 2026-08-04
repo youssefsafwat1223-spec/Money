@@ -18,6 +18,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/bill_entity.dart';
+import '../../domain/finance/bill_metrics.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../cards/brand_mark.dart';
 import '../common/premium_loading.dart';
@@ -113,7 +114,7 @@ class TransactionsScreen extends ConsumerWidget {
 
           final monthlyTotal = activeSubs.fold<double>(
             0,
-            (sum, bill) => sum + _monthlyAmount(bill),
+            (sum, bill) => sum + monthlyEquivalent(bill),
           );
 
           return SafeArea(
@@ -917,7 +918,7 @@ class _BillsTabState extends State<_BillsTab> {
     final activeCount = bills.where((bill) => bill.isConfirmed).length;
     final monthlyTotal = bills.fold<double>(
       0,
-      (sum, bill) => sum + _monthlyAmount(bill),
+      (sum, bill) => sum + monthlyEquivalent(bill),
     );
     final nextThisWeek = bills.where((bill) {
       final now = DateTime.now();
@@ -1606,14 +1607,6 @@ class _DateHeader extends StatelessWidget {
   }
 }
 
-double _monthlyAmount(BillEntity bill) => switch (bill.frequency) {
-      BillFrequency.weekly => bill.amount * 4,
-      BillFrequency.monthly => bill.amount,
-      BillFrequency.yearly => bill.amount / 12,
-      BillFrequency.custom => bill.customIntervalDays == null
-          ? bill.amount
-          : bill.amount * (30 / bill.customIntervalDays!),
-    };
 
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   _TabBarDelegate({required this.child});

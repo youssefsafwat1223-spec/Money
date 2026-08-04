@@ -12,27 +12,12 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
+import '../../domain/finance/bill_metrics.dart';
 import '../cards/brand_mark.dart';
 import '../common/premium_loading.dart';
 import 'bill_details_sheet.dart';
 import 'bill_form_sheet.dart';
 import 'subscriptions_providers.dart';
-
-/// Yearly cost of a subscription, normalized from its billing frequency — a
-/// small "39/mo" feels harmless, "468/yr" prompts a real decision.
-double _annualSubscriptionCost(BillEntity bill) {
-  switch (bill.frequency) {
-    case BillFrequency.weekly:
-      return bill.amount * 52;
-    case BillFrequency.monthly:
-      return bill.amount * 12;
-    case BillFrequency.yearly:
-      return bill.amount;
-    case BillFrequency.custom:
-      final days = bill.customIntervalDays ?? 30;
-      return days <= 0 ? bill.amount * 12 : bill.amount * (365 / days);
-  }
-}
 
 String _dueInLabel(DateTime due) {
   final days = due.difference(DateTime.now()).inDays;
@@ -70,10 +55,9 @@ class SubscriptionsScreen extends ConsumerWidget {
         final insts =
             bills.where((b) => b.type == BillType.installment).toList();
         final suggestions = suggestionsAsync.valueOrNull ?? [];
-        // active subscriptions monthly total
-        final monthlyTotal = subs
-            .where((b) => b.status == BillStatus.active)
-            .fold<double>(0, (s, b) => s + b.amount);
+        // MALI-064n: projected monthly recurring obligation (frequency-
+        // normalized, active subscriptions only) — the ONE canonical metric.
+        final monthlyTotal = subscriptionMonthlyTotal(subs);
 
         return DefaultTabController(
           length: 2,
@@ -450,7 +434,7 @@ class _SubscriptionCard extends StatelessWidget {
                     ),
                     if (bill.type == BillType.subscription)
                       Text(
-                        '≈ ${Formatters.amount(_annualSubscriptionCost(bill))}/سنة',
+                        '≈ ${Formatters.amount(annualEquivalent(bill))}/سنة',
                         style: AppTypography.caption(c.textLight),
                       ),
                   ],

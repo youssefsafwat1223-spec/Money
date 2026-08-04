@@ -12,6 +12,7 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/bill_metrics.dart';
 import '../../engine/categorization/category.dart';
 import '../cards/brand_mark.dart';
 import '../common/app_card.dart';
@@ -74,16 +75,19 @@ class BillDetailsSheet extends ConsumerWidget {
             final transactions = snapshot.data ?? const <TransactionEntity>[];
             final payments =
                 paymentsAsync.valueOrNull ?? const <BillPaymentEntity>[];
-            final transactionsPaid =
-                transactions.fold<double>(0, (sum, tx) => sum + tx.amount);
-            final recordedPaid = payments.fold<double>(
-                0, (sum, payment) => sum + payment.amount);
-            final manualPaid = currentBill.safeManualPaidAmount;
-            final legacyManualPaid = (manualPaid - recordedPaid)
-                .clamp(0.0, double.infinity)
-                .toDouble();
-            final totalPaid =
-                transactionsPaid + recordedPaid + legacyManualPaid;
+            // MALI-064n: bill_payments is the authoritative ledger — one real
+            // payment counts once. Fuzzy name-matched transactions are NOT
+            // summed; the unlinked ones are shown only as link suggestions.
+            final paidSummary = billPaidTotal(
+              payments: payments,
+              manualPaidAmount: currentBill.safeManualPaidAmount,
+            );
+            final legacyManualPaid = paidSummary.legacyManual;
+            final totalPaid = paidSummary.total;
+            final linkedTxIds = linkedTransactionIds(payments);
+            final suggestedTransactions = transactions
+                .where((tx) => !linkedTxIds.contains(tx.id))
+                .toList(growable: false);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -138,8 +142,8 @@ class BillDetailsSheet extends ConsumerWidget {
                       Container(width: 1, height: 38, color: c.border),
                       Expanded(
                         child: _SummaryTile(
-                          label: 'عمليات',
-                          value: '${transactions.length + payments.length}',
+                          label: 'دفعات مسجّلة',
+                          value: '${payments.length}',
                         ),
                       ),
                     ],
@@ -251,15 +255,20 @@ class BillDetailsSheet extends ConsumerWidget {
                   for (final payment in payments)
                     _BillPaymentRow(payment: payment, bill: currentBill),
                 const SizedBox(height: AppSpacing.s5),
-                Text('عمليات مرتبطة',
+                Text('عمليات مقترحة للربط',
                     style: AppTypography.bodyStrong(c.textPrimary)),
+                const SizedBox(height: 2),
+                Text(
+                  'مطابقة بالاسم — لا تُحتسب ضمن المدفوع حتى تربطها كدفعة.',
+                  style: AppTypography.caption(c.textSecondary),
+                ),
                 const SizedBox(height: AppSpacing.s2),
                 if (snapshot.connectionState == ConnectionState.waiting)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: AppSpacing.s4),
                     child: Center(child: CircularProgressIndicator()),
                   )
-                else if (transactions.isEmpty)
+                else if (suggestedTransactions.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.s3),
                     decoration: BoxDecoration(
@@ -268,13 +277,13 @@ class BillDetailsSheet extends ConsumerWidget {
                       border: Border.all(color: c.border),
                     ),
                     child: Text(
-                      'لسه مفيش عمليات مؤكدة مرتبطة بالاسم ده.',
+                      'لا توجد عمليات مقترحة للربط.',
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textSecondary),
                     ),
                   )
                 else
-                  for (final tx in transactions.take(12))
+                  for (final tx in suggestedTransactions.take(12))
                     _BillTransactionRow(tx: tx),
               ],
             );
