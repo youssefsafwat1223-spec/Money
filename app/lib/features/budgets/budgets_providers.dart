@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/budget_period.dart';
+import '../../domain/reporting/date_range.dart';
 import '../common/category_catalog.dart';
 import '../transactions/transactions_providers.dart';
 
@@ -75,19 +78,15 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
     required DateTime to,
     String? fallbackAccountId,
   }) async {
-    final scopedAccountId = budget.accountId ?? fallbackAccountId;
-    final spent = budget.isAllExpenses
-        ? await txRepo.expenseTotalBetween(
-            from: from,
-            to: to,
-            accountId: scopedAccountId,
-          )
-        : await txRepo.categoryExpenseTotalBetween(
-            categoryId: budget.categoryId,
-            from: from,
-            to: to,
-            accountId: scopedAccountId,
-          );
+    // MALI-049n: one canonical consumption contract (refund netting, confirmed-
+    // only status, excluded-account policy) shared with the dashboard ring and
+    // the report snapshot.
+    final spent = await budgetSpent(
+      txRepo,
+      budget,
+      DateRange(from, to),
+      fallbackAccountId: fallbackAccountId,
+    );
     final ratio = budget.amount == 0 ? 0.0 : spent / budget.amount;
     final health = ratio >= 1
         ? BudgetHealth.over
@@ -260,11 +259,10 @@ List<_BudgetPeriodWindow> _weeklyPeriods(
   DateTime to,
   DateTime now,
 ) {
-  var start = anchor;
-  final weeksSinceAnchor = from.difference(anchor).inDays ~/ 7;
-  if (weeksSinceAnchor > 0) {
-    start = anchor.add(Duration(days: (weeksSinceAnchor - 1) * 7));
-  }
+  // MALI-049n/062n: history weeks are Saturday-anchored (the canonical week),
+  // matching the current-period resolver — not the budget's arbitrary
+  // creation-day anchor, which made the current-week ring and history disagree.
+  var start = RiyadhTime.startOfWeek(from);
   final periods = <_BudgetPeriodWindow>[];
   while (!start.isAfter(to)) {
     final rawEnd = start
@@ -340,32 +338,12 @@ DateTime _endOfDay(DateTime value) =>
 /// Yearly  → Jan 1 → Dec 31 (calendar year).
 /// Weekly  → rolling window from startDate anchor.
 /// Daily   → today only.
+// MALI-049n/028: the budget's CURRENT period via the ONE canonical resolver —
+// genuine half-open `[from, to)`, Saturday-anchored week, no epsilon end.
 ({DateTime from, DateTime to}) _currentPeriodFor(
     BudgetEntity budget, DateTime now) {
-  final today = _dateOnly(now);
-  switch (budget.period) {
-    case BudgetPeriod.daily:
-      return (from: today, to: _endOfDay(today));
-    case BudgetPeriod.weekly:
-      final anchor = _dateOnly(budget.startDate);
-      final daysSince = today.difference(anchor).inDays;
-      final weeksElapsed = daysSince >= 0 ? daysSince ~/ 7 : 0;
-      final start = anchor.add(Duration(days: weeksElapsed * 7));
-      final rawEnd = start
-          .add(const Duration(days: 7))
-          .subtract(const Duration(milliseconds: 1));
-      return (from: start, to: rawEnd.isAfter(now) ? now : rawEnd);
-    case BudgetPeriod.monthly:
-      final start = DateTime(now.year, now.month, 1);
-      final rawEnd = DateTime(now.year, now.month + 1, 1)
-          .subtract(const Duration(milliseconds: 1));
-      return (from: start, to: rawEnd);
-    case BudgetPeriod.yearly:
-      final start = DateTime(now.year, 1, 1);
-      final rawEnd = DateTime(now.year + 1, 1, 1)
-          .subtract(const Duration(milliseconds: 1));
-      return (from: start, to: rawEnd);
-  }
+  final range = resolveBudgetPeriod(budget, now);
+  return (from: range.from, to: range.to);
 }
 
 final budgetsPageTabProvider = StateProvider<int>((ref) => 0);

@@ -7,11 +7,15 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_category_repository.dart';
+import 'package:money_companion/data/repositories/drift_plan_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
+import 'package:money_companion/domain/entities/plan_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/features/budgets/budgets_providers.dart';
 import 'package:money_companion/features/dashboard/home_sections_providers.dart';
+import 'package:money_companion/features/plans/plans_providers.dart';
 import 'package:money_companion/features/transactions/transactions_providers.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -178,6 +182,54 @@ void main() {
     expect(groceriesGroup.budget, isNotNull);
     expect(groceriesGroup.budget!.spent, groceriesGroup.total);
     expect(groceriesGroup.budget!.spent, 400);
+  });
+
+  test(
+      'one fixture agrees across repo, header, budget detail and plan progress '
+      '(same all-expenses month scope)', () async {
+    final main = await account('main', isDefault: true);
+    // groceries 500 − 100 refund = net 400 everywhere.
+    await put(id: 'pay', amount: 500, type: TransactionTypeEntity.payment, accountId: main.id);
+    await put(id: 'ref', amount: 100, type: TransactionTypeEntity.refund, accountId: main.id);
+    await put(id: 'inc', amount: 900, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null);
+
+    await budgetRepo.save(BudgetEntity(
+      id: 'b-all',
+      categoryId: BudgetEntity.allExpensesCategoryId,
+      amount: 5000,
+      period: BudgetPeriod.monthly,
+      startDate: monthStart,
+      isActive: true,
+      lastNotifiedSpentAmount: 0,
+      lastNotifiedPeriodStart: DateTime.utc(2000),
+    ));
+    final planRepo = DriftPlanRepository(db);
+    await planRepo.save(PlanEntity(
+      id: 'p-month',
+      name: 'الشهر',
+      budgetAmount: 5000,
+      currency: 'SAR',
+      startDate: monthStart,
+      endDate: DateTime(now.year, now.month + 1, 0, 23, 59, 59), // last day
+      accountIds: const [],
+      cardLast4s: const [],
+      status: PlanStatus.active,
+      createdAt: monthStart,
+    ));
+
+    final repoExpense = await txRepo.expenseTotalBetween(
+        from: monthStart, to: nextMonthStart, accountId: main.id);
+    expect(repoExpense, 400);
+
+    final header =
+        await container.read(transactionsPeriodTotalProvider.future);
+    expect(header.netExpense, 400);
+
+    final budgetView = await container.read(budgetsViewProvider.future);
+    expect(budgetView.snapshot.entries.single.spent, 400);
+
+    final plans = await container.read(plansWithSpentProvider.future);
+    expect(plans.single.spent, 400);
   });
 
   test('excluded account: dropped from combined totals, kept when scoped',

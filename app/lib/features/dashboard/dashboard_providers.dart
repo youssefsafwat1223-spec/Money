@@ -9,6 +9,7 @@ import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/budget_period.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
@@ -581,22 +582,18 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   final accountMap = {for (final a in accounts) a.id: a.name};
   final budgetProgress = await Future.wait(activeBudgets.map((budget) async {
-    final ps = switch (budget.period) {
-      BudgetPeriod.daily => today,
-      BudgetPeriod.weekly =>
-        today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7)),
-      BudgetPeriod.monthly => rangeStart,
-      BudgetPeriod.yearly => DateTime(now.year, 1, 1),
-    };
-    final bSpent = budget.isAllExpenses
-        ? await txRepo.expenseTotalBetween(
-            from: ps, to: now, accountId: budget.accountId)
-        : await txRepo.categoryExpenseTotalBetween(
-            categoryId: budget.categoryId,
-            from: ps,
-            to: now,
-            accountId: budget.accountId ?? accountId,
-          );
+    // MALI-049n: consumption comes from the budget's OWN stored period (via the
+    // canonical resolver), NEVER the dashboard filter range — so a monthly
+    // budget stays monthly when the filter is "last 90 days", a weekly budget
+    // uses the canonical Saturday-start week, and the ring matches budget
+    // detail / the repository aggregate for the same scope.
+    final period = resolveBudgetPeriod(budget, now);
+    final bSpent = await budgetSpent(
+      txRepo,
+      budget,
+      period,
+      fallbackAccountId: accountId,
+    );
     final bRatio = budget.amount == 0 ? 0.0 : bSpent / budget.amount;
     final catView = catalog.byId(budget.categoryId);
     return DashboardBudgetEntry(

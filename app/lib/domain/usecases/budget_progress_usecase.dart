@@ -1,6 +1,7 @@
-import '../../core/utils/riyadh_time.dart';
 import '../entities/budget_entity.dart';
 import '../entities/engagement_entities.dart';
+import '../finance/budget_period.dart';
+import '../reporting/date_range.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/transaction_repository.dart';
 import 'engagement_usecase.dart';
@@ -138,57 +139,26 @@ class BudgetProgressUseCase {
     return _budgetRepository.save(updated);
   }
 
+  // MALI-049n/028 — the ONE canonical budget-period resolver (genuine half-open
+  // `[from, to)`, Saturday-anchored week, no epsilon end). The current period
+  // contains `now`; a rolled-over period contains its own `start`.
   (DateTime, DateTime) _currentPeriodFor(BudgetPeriod period, DateTime now) {
-    switch (period) {
-      case BudgetPeriod.daily:
-        return (RiyadhTime.startOfDay(now), RiyadhTime.endOfDay(now));
-      case BudgetPeriod.weekly:
-        return (RiyadhTime.startOfWeek(now), RiyadhTime.endOfWeek(now));
-      case BudgetPeriod.monthly:
-        return (RiyadhTime.startOfMonth(now), RiyadhTime.endOfMonth(now));
-      case BudgetPeriod.yearly:
-        final local = RiyadhTime.toRiyadh(now);
-        final start = DateTime(local.year);
-        final end =
-            DateTime(local.year + 1).subtract(const Duration(milliseconds: 1));
-        return (start, end);
-    }
+    final range = budgetPeriodContaining(period, now);
+    return (range.from, range.to);
   }
 
   (DateTime, DateTime) _periodForStart(BudgetPeriod period, DateTime start) {
-    switch (period) {
-      case BudgetPeriod.daily:
-        return (start, start.add(const Duration(days: 1)));
-      case BudgetPeriod.weekly:
-        return (start, start.add(const Duration(days: 7)));
-      case BudgetPeriod.monthly:
-        final local = RiyadhTime.toRiyadh(start);
-        final end = DateTime(local.year, local.month + 1);
-        return (start, end);
-      case BudgetPeriod.yearly:
-        final local = RiyadhTime.toRiyadh(start);
-        final end =
-            DateTime(local.year + 1).subtract(const Duration(milliseconds: 1));
-        return (start, end);
-    }
+    final range = budgetPeriodContaining(period, start);
+    return (range.from, range.to);
   }
 
   Future<double> _spentForBudget(
     BudgetEntity budget,
     (DateTime, DateTime) period,
-  ) {
-    if (budget.isAllExpenses) {
-      return _transactionRepository.expenseTotalBetween(
-        from: period.$1,
-        to: period.$2,
-        accountId: budget.accountId,
+  ) =>
+      budgetSpent(
+        _transactionRepository,
+        budget,
+        DateRange(period.$1, period.$2),
       );
-    }
-    return _transactionRepository.categoryExpenseTotalBetween(
-      categoryId: budget.categoryId,
-      from: period.$1,
-      to: period.$2,
-      accountId: budget.accountId,
-    );
-  }
 }
