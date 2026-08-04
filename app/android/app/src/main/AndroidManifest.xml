@@ -38,9 +38,29 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
          ═══════════════════════════════════════════════════════════════════════ -->
 
+    <!-- MALI-033 — Android Auto Backup / device-transfer policy.
+         The entire local dataset is Keystore-bound and would restore INCOHERENT
+         under platform backup:
+           • SQLCipher DB `money_companion.sqlite` — encrypted with a key held in
+             flutter_secure_storage (Android Keystore). Auto Backup never restores
+             the Keystore key, so a restored DB is permanently undecryptable.
+           • SharedPreferences `mali_capture_queue_v1` — raw captured bank-SMS
+             queue (user-owned sensitive data); must not survive onto another
+             device/user (Phase-2 cross-user guarantee).
+           • SharedPreferences `mali_capture_settings_v1` — capture opt-in flag;
+             restoring "capture enabled" onto a new device without the permission
+             flow is incoherent.
+           • SharedPreferences `FlutterSecureStorage` — Keystore-wrapped secrets
+             (DB key, device secret); undecryptable after restore.
+         There is no coordinated key-restoration path, so platform backup is
+         disabled entirely. Financial-data recovery is via the app's OWN
+         passphrase-encrypted cloud backup (backup_snapshot_builder /
+         restore_backup_usecase), not Android Auto Backup. -->
     <application
         android:label="قرش"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/launcher_icon">
         <meta-data
             android:name="com.dexterous.flutterlocalnotifications.default_notification_icon"

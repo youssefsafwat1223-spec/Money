@@ -89,7 +89,15 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
     }
 
     @Synchronized
-    private fun writeAll(items: List<Item>) {
+    /**
+     * MALI-068n: writes are SYNCHRONOUS (`commit()`), not `apply()`. A broadcast
+     * receiver / App-Intent process can be killed the instant it returns, so the
+     * enqueue and the per-item acknowledge must be durably on disk before the
+     * caller proceeds — otherwise a captured message is lost, or a re-delivered
+     * one resurrects an already-acknowledged item. Returns whether the write was
+     * durably committed.
+     */
+    private fun writeAll(items: List<Item>): Boolean {
         val array = JSONArray()
         items.forEach { item ->
             val o = JSONObject()
@@ -100,10 +108,13 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
             o.put("receivedAt", item.receivedAt)
             array.put(o)
         }
-        prefs.edit().putString(KEY_ITEMS, array.toString()).apply()
+        return prefs.edit().putString(KEY_ITEMS, array.toString()).commit()
     }
 
-    /** Idempotent enqueue: a duplicate id (or identical text+source) is ignored. */
+    /**
+     * Idempotent enqueue: a duplicate id (or identical text+source) is ignored.
+     * Returns true only when the new item was durably persisted before return.
+     */
     @Synchronized
     fun enqueue(item: Item): Boolean {
         val items = readAll()
@@ -111,8 +122,7 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
         if (items.any { it.text == item.text && it.source == item.source }) return false
         if (items.size >= MAX_ITEMS) items.removeAt(0) // drop oldest, keep newest
         items.add(item)
-        writeAll(items)
-        return true
+        return writeAll(items) // false if not durably committed
     }
 
     /** Non-destructive read of the whole queue as a JSON array (null if empty). */
@@ -141,17 +151,20 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
     @Synchronized
     fun drainJson(): String? {
         val json = peekJson() ?: return null
-        prefs.edit().remove(KEY_ITEMS).apply()
+        prefs.edit().remove(KEY_ITEMS).commit() // durable clear before returning
         return json
     }
 
-    /** Remove exactly the acknowledged id. Returns true if something was removed. */
+    /**
+     * Remove exactly the acknowledged id. Returns true only when the removal was
+     * durably committed, so a kill after ack never resurrects the item.
+     */
     @Synchronized
     fun acknowledge(id: String): Boolean {
         val items = readAll()
         val removed = items.removeAll { it.id == id }
-        if (removed) writeAll(items)
-        return removed
+        if (!removed) return false
+        return writeAll(items)
     }
 
     /**
