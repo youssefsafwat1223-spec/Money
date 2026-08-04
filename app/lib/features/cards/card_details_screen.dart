@@ -6,7 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
-import '../../core/utils/formatters.dart';
+import '../../domain/finance/money_format.dart';
 import '../../domain/entities/card_summary.dart';
 import '../common/app_header.dart';
 import '../common/category_catalog.dart';
@@ -63,8 +63,10 @@ class _CardDetailsContent extends ConsumerWidget {
           totalOut: summary?.totalOut ?? 0,
           colorTheme: summary?.colorTheme,
           accentHex: summary?.accentHex,
-          currency: (txAsync.valueOrNull?.isNotEmpty ?? false)
-              ? txAsync.valueOrNull!.first.currency
+          // MALI-074n: the summary's own currency (the totals are per-currency),
+          // not a guess from the first transaction row.
+          currency: (summary?.currency.isNotEmpty ?? false)
+              ? summary!.currency
               : (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR'),
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -176,7 +178,9 @@ class _CardHeader extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 2),
-        Text('${Formatters.amount(value)} ${Currency.arabicLabel(currency)}',
+        Text(
+            '${formatMoneyAmount(value, currency)} '
+            '${Currency.arabicLabel(currency)}',
             style: TextStyle(
                 color: color, fontSize: 17, fontWeight: FontWeight.w700)),
       ],

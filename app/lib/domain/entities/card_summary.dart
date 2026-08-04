@@ -1,9 +1,12 @@
 import '../../engine/parser/card_network.dart';
 
-/// ملخّص بطاقة: آخر 4 أرقام + الشبكة + إجمالي الداخل/الخارج.
+/// ملخّص بطاقة لعملة واحدة (MALI-074n): آخر 4 أرقام + العملة + الشبكة.
+/// [totalOut] صافي الإنفاق (payment + withdrawal − refund، الاسترداد يخصم)،
+/// و[totalIn] الدخل فقط (لا يشمل الاسترداد). لا تُجمع عملتان في ملخّص واحد.
 class CardSummary {
   const CardSummary({
     required this.last4,
+    required this.currency,
     required this.network,
     required this.totalOut,
     required this.totalIn,
@@ -13,8 +16,15 @@ class CardSummary {
   });
 
   final String last4;
+
+  /// عملة هذا الملخّص — إلزامية؛ بطاقة بعملتين تُنتج ملخّصين منفصلين.
+  final String currency;
   final CardNetwork network;
+
+  /// صافي الإنفاق: payment + withdrawal − refund (الاسترداد يخصم، لا يُحتسب دخلاً).
   final double totalOut;
+
+  /// الدخل فقط (income) — الاسترداد لا يظهر هنا.
   final double totalIn;
   final int count;
 
@@ -28,6 +38,7 @@ class CardSummary {
   }) {
     return CardSummary(
       last4: last4,
+      currency: currency,
       network: network,
       totalOut: totalOut,
       totalIn: totalIn,

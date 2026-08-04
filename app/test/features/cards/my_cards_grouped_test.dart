@@ -23,6 +23,7 @@ AccountEntity _account(String id, String name) => AccountEntity(
 
 CardSummary _card(String last4) => CardSummary(
       last4: last4,
+      currency: 'SAR',
       network: CardNetwork.visa,
       totalOut: 100,
       totalIn: 0,

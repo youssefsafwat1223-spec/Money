@@ -813,26 +813,34 @@ class SupabaseTransactionRepository implements TransactionRepository {
       final rows = await _fetchAllRows(
         () => _getClient()
             .from('user_transactions')
-            .select('amount,metadata,transaction_type')
+            .select('amount,metadata,transaction_type,currency')
             .eq('user_id', uid)
             .isFilter('deleted_at', null),
       );
-      final byCard = <String, (double, double, int)>{};
+      // RETIRED/DORMANT path (routed repo uses Drift). Keyed by (last4,currency)
+      // for parity with the canonical Drift summary; refund is a negative
+      // net-spend contribution, income only in inflow.
+      final byCard = <String, (double, double, int, String)>{};
       for (final r in rows) {
         final last4 =
             (r['metadata'] as Map<String, dynamic>?)?['last4'] as String?;
         if (last4 == null) continue;
+        final currency =
+            (r['currency'] as String?)?.trim().toUpperCase() ?? '';
         final amount = (r['amount'] as num).toDouble();
-        final (out, inn, count) = byCard[last4] ?? (0.0, 0.0, 0);
-        final isOut = r['transaction_type'] == 'expense';
-        final isIn = r['transaction_type'] == 'income' ||
-            r['transaction_type'] == 'refund';
-        byCard[last4] =
-            (out + (isOut ? amount : 0), inn + (isIn ? amount : 0), count + 1);
+        final key = '$last4|$currency';
+        final (out, inn, count, _) = byCard[key] ?? (0.0, 0.0, 0, currency);
+        final type = r['transaction_type'];
+        final outDelta = type == 'refund'
+            ? -amount
+            : (type == 'expense' ? amount : 0.0);
+        final inDelta = type == 'income' ? amount : 0.0;
+        byCard[key] = (out + outDelta, inn + inDelta, count + 1, currency);
       }
       final result = byCard.entries
           .map((e) => CardSummary(
-                last4: e.key,
+                last4: e.key.split('|').first,
+                currency: e.value.$4,
                 // شبكة البطاقة كانت تُستنتج من raw_message نصيًا محليًا؛
                 // هذا العمود غير مخزَّن على الخادم، فتبقى unknown هنا.
                 network: CardNetwork.unknown,

@@ -258,16 +258,19 @@ class TransactionsListNotifier
     final defaultAccount = await accountRepo.getDefault();
     final activeAccount = selectedAccount ?? defaultAccount;
     final all = _loaded;
+    // MALI-074n: exact account ownership — an unassigned (null-account) row is
+    // NOT shown under a specific account just because its currency matches
+    // (that made one orphan appear under every same-currency account). It
+    // appears only in the all-accounts scope. Matches the header aggregate.
     final scoped = all.where((tx) {
       if (activeAccount == null) return true;
-      if (tx.accountId == activeAccount.id) return true;
-      return tx.accountId == null &&
-          tx.currency.toUpperCase() == activeAccount.currency.toUpperCase();
+      return tx.accountId == activeAccount.id;
     });
     final inRange = scoped.where((tx) {
       if (pendingOnly) return tx.status == TransactionStatus.pending;
       final at = tx.occurredAt;
-      return !at.isBefore(range.from) && !at.isAfter(range.to);
+      // Half-open [from, to) — consistent with the canonical period aggregates.
+      return !at.isBefore(range.from) && at.isBefore(range.to);
     });
     final filteredByKind = inRange.where((tx) {
       if (pendingOnly) return true;

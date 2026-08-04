@@ -169,8 +169,8 @@ void main() {
     }
   });
 
-  test('account-scoped reads include legacy null-account rows by currency',
-      () async {
+  test('account-scoped reads EXCLUDE null-account rows; global scope includes '
+      'them (MALI-074n exact ownership)', () async {
     final account = await accountRepository.getDefault();
     expect(account, isNotNull);
     final now = DateTime.utc(2026, 7, 5, 9, 30);
@@ -213,10 +213,17 @@ void main() {
     );
     final recent =
         await transactionRepository.getRecent(limit: 10, accountId: account.id);
+    final globalRecent =
+        await transactionRepository.getRecent(limit: 10, accountId: null);
 
-    expect(total, 12.5);
-    expect(recent.map((tx) => tx.id), contains('legacy_same_currency'));
+    // Exact ownership: an unassigned row is NOT attributed to a specific
+    // account just because its currency matches.
+    expect(total, 0);
+    expect(recent.map((tx) => tx.id), isNot(contains('legacy_same_currency')));
     expect(recent.map((tx) => tx.id), isNot(contains('legacy_other_currency')));
+    // All-accounts scope surfaces unassigned rows (both currencies).
+    expect(globalRecent.map((tx) => tx.id), contains('legacy_same_currency'));
+    expect(globalRecent.map((tx) => tx.id), contains('legacy_other_currency'));
   });
 
   test('editing transaction time updates duplicate comparison time', () async {

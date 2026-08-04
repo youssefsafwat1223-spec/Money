@@ -402,22 +402,19 @@ class DriftTransactionRepository implements TransactionRepository {
     });
   }
 
-  // بند تصفية الحساب: يضم العمليات القديمة التي لا تحمل account_id إذا كانت
-  // عملتها تطابق عملة الحساب المختار. هذا يطابق سلوك شاشة العمليات.
+  // MALI-074n: a specific account's scope is EXACT ownership (`account_id = ?`).
+  // An unassigned (`account_id IS NULL`) row belongs to NO specific account and
+  // must never be attributed to one just because its currency matches — that
+  // made a single orphan row appear in every same-currency account. Unassigned
+  // rows appear only in the all-accounts scope (`accountId == null`, no clause).
   static String _accountClause(String? accountId, {String tableAlias = ''}) {
     if (accountId == null) return '';
     final prefix = tableAlias.isEmpty ? '' : '$tableAlias.';
-    return '''
- AND (${prefix}account_id = ?
-      OR (${prefix}account_id IS NULL
-          AND UPPER(${prefix}currency) = (
-            SELECT UPPER(currency) FROM accounts WHERE id = ?
-          )))''';
+    return ' AND ${prefix}account_id = ?';
   }
 
-  static List<Variable> _accountVars(String? accountId) => accountId == null
-      ? const []
-      : [Variable.withString(accountId), Variable.withString(accountId)];
+  static List<Variable> _accountVars(String? accountId) =>
+      accountId == null ? const [] : [Variable.withString(accountId)];
 
   // MALI-063n: restrict an aggregate to a single currency so a multi-currency
   // scope never sums different currencies under one label.
@@ -776,8 +773,11 @@ class DriftTransactionRepository implements TransactionRepository {
     final rows = await _db.customSelect(
       '''
         SELECT card_last4 AS last4,
-               CAST(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END) AS REAL) AS out_total,
-               CAST(SUM(CASE WHEN type IN ('income','refund') THEN amount ELSE 0 END) AS REAL) AS in_total,
+               UPPER(currency) AS currency,
+               CAST(SUM(CASE WHEN type = 'refund' THEN -amount
+                            WHEN type IN ('payment','withdrawal') THEN amount
+                            ELSE 0 END) AS REAL) AS out_total,
+               CAST(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS REAL) AS in_total,
                COUNT(*) AS cnt,
                MAX(raw_message) AS sample,
                (SELECT color_theme FROM cards
@@ -790,13 +790,14 @@ class DriftTransactionRepository implements TransactionRepository {
                   ORDER BY cards.updated_at DESC LIMIT 1) AS accent_hex
         FROM transactions
         WHERE card_last4 IS NOT NULL AND status = 'confirmed'
-        GROUP BY card_last4
+        GROUP BY card_last4, UPPER(currency)
         ORDER BY (out_total + in_total) DESC;
       ''',
     ).get();
     return rows
         .map((r) => CardSummary(
               last4: r.read<String>('last4'),
+              currency: r.read<String>('currency'),
               network: CardNetworkDetector.detect(
                   r.readNullable<String>('sample') ?? ''),
               totalOut: r.read<double>('out_total'),
@@ -814,8 +815,11 @@ class DriftTransactionRepository implements TransactionRepository {
       '''
         SELECT card_last4 AS last4,
                account_id AS account_id,
-               CAST(SUM(CASE WHEN type IN ('payment','withdrawal') THEN amount ELSE 0 END) AS REAL) AS out_total,
-               CAST(SUM(CASE WHEN type IN ('income','refund') THEN amount ELSE 0 END) AS REAL) AS in_total,
+               UPPER(currency) AS currency,
+               CAST(SUM(CASE WHEN type = 'refund' THEN -amount
+                            WHEN type IN ('payment','withdrawal') THEN amount
+                            ELSE 0 END) AS REAL) AS out_total,
+               CAST(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS REAL) AS in_total,
                COUNT(*) AS cnt,
                MAX(raw_message) AS sample,
                (SELECT color_theme FROM cards
@@ -830,12 +834,13 @@ class DriftTransactionRepository implements TransactionRepository {
                   ORDER BY cards.updated_at DESC LIMIT 1) AS accent_hex
         FROM transactions
         WHERE card_last4 IS NOT NULL AND status = 'confirmed'
-        GROUP BY card_last4, account_id;
+        GROUP BY card_last4, account_id, UPPER(currency);
       ''',
     ).get();
     return rows
         .map((r) => CardAccountBreakdownRow(
               last4: r.read<String>('last4'),
+              currency: r.read<String>('currency'),
               accountId: r.readNullable<String>('account_id'),
               totalOut: r.read<double>('out_total'),
               totalIn: r.read<double>('in_total'),

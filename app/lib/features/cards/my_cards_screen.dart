@@ -7,7 +7,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/finance/money_format.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/card_entity.dart';
 import '../../domain/entities/card_summary.dart';
@@ -28,6 +30,7 @@ String _cardKey(String? accountId, String last4) => '${accountId ?? ''}|$last4';
 /// ملخّص بلا عمليات لبطاقة يدوية أُضيفت للتوّ (لا تظهر بعد في التجميع المشتقّ).
 CardSummary _zeroSummary(CardEntity card) => CardSummary(
       last4: card.last4,
+      currency: '', // a managed card with no transactions has no currency yet
       network: card.network,
       totalOut: 0,
       totalIn: 0,
@@ -357,12 +360,18 @@ class _CardRow extends ConsumerWidget {
   }
 
   Widget _flow(String label, double value, Color color) {
+    // MALI-074n: exponent-correct amount + the card's own currency label
+    // (totals are per-currency; a zero-summary managed card has no currency).
+    final money = formatMoneyAmount(value, card.currency);
+    final text = card.currency.isEmpty
+        ? money
+        : '$money ${Currency.arabicLabel(card.currency)}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
             style: AppTypography.caption(Colors.white.withValues(alpha: 0.6))),
-        Text(Formatters.amount(value), style: AppTypography.bodyStrong(color)),
+        Text(text, style: AppTypography.bodyStrong(color)),
       ],
     );
   }

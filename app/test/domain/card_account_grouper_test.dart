@@ -8,9 +8,11 @@ CardAccountBreakdownRow _row(
   double out = 100,
   double income = 0,
   String sample = 'card 1234 visa',
+  String currency = 'SAR',
 }) =>
     CardAccountBreakdownRow(
       last4: last4,
+      currency: currency,
       accountId: accountId,
       totalIn: income,
       totalOut: out,

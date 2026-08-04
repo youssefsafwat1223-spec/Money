@@ -6,6 +6,7 @@ import '../../engine/parser/card_network.dart';
 class CardAccountBreakdownRow {
   const CardAccountBreakdownRow({
     required this.last4,
+    required this.currency,
     required this.accountId,
     required this.totalIn,
     required this.totalOut,
@@ -16,7 +17,12 @@ class CardAccountBreakdownRow {
   });
 
   final String last4;
+
+  /// عملة هذا الصف (MALI-074n) — لا تُدمج عملتان في بطاقة واحدة.
+  final String currency;
   final String? accountId;
+
+  /// الدخل فقط (income). صافي الإنفاق في [totalOut] (الاسترداد يخصم منه).
   final double totalIn;
   final double totalOut;
   final int count;
@@ -55,18 +61,19 @@ class CardAccountGrouper {
   final double confidence;
 
   CardGrouping group(List<CardAccountBreakdownRow> rows) {
-    // تجميع الصفوف حسب آخر 4 أرقام.
-    final byLast4 = <String, List<CardAccountBreakdownRow>>{};
+    // MALI-074n: group by (last4, currency) so two currencies on one card never
+    // merge into a single cross-currency summary.
+    final byCard = <String, List<CardAccountBreakdownRow>>{};
     for (final row in rows) {
-      byLast4.putIfAbsent(row.last4, () => []).add(row);
+      byCard.putIfAbsent('${row.last4}|${row.currency}', () => []).add(row);
     }
 
     final byAccount = <String, List<CardSummary>>{};
     final unassigned = <CardSummary>[];
 
-    for (final entry in byLast4.entries) {
-      final cardRows = entry.value;
-      final summary = _summaryFor(entry.key, cardRows);
+    for (final cardRows in byCard.values) {
+      final summary = _summaryFor(cardRows.first.last4, cardRows.first.currency,
+          cardRows);
       final owner = _confidentOwner(cardRows);
       if (owner == null) {
         unassigned.add(summary);
@@ -78,7 +85,8 @@ class CardAccountGrouper {
     return CardGrouping(byAccount: byAccount, unassigned: unassigned);
   }
 
-  CardSummary _summaryFor(String last4, List<CardAccountBreakdownRow> rows) {
+  CardSummary _summaryFor(
+      String last4, String currency, List<CardAccountBreakdownRow> rows) {
     var totalIn = 0.0;
     var totalOut = 0.0;
     var count = 0;
@@ -95,6 +103,7 @@ class CardAccountGrouper {
     }
     return CardSummary(
       last4: last4,
+      currency: currency,
       network: CardNetworkDetector.detect(sample),
       totalOut: totalOut,
       totalIn: totalIn,
