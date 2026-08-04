@@ -1,3 +1,13 @@
+-- HISTORICAL / RETIRED (Phase 4, MALI-063n). These summary RPCs carry
+-- PRE-canonical financial semantics (no refund netting, no half-open windows,
+-- no unified excluded-account policy). The app no longer calls them — every
+-- financial surface computes from the canonical Drift aggregates, and the Dart
+-- gating flags + summary-service provider have been removed so the path cannot
+-- be re-enabled. This migration is kept for history (do not delete a deployed
+-- migration); the seeded `dashboard_supabase_summary` flag stays OFF. Do NOT
+-- reintroduce a caller without first rewriting these functions to the canonical
+-- semantics (types/refunds/status/excluded-accounts/currency/half-open period).
+--
 -- Phase 3: authenticated financial summary RPCs. All functions are SECURITY
 -- INVOKER, explicitly scope rows to auth.uid(), and exclude tombstones.
 

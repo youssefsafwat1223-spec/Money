@@ -333,8 +333,6 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       defaultAccount ??
       (accounts.isEmpty ? null : accounts.first);
   final accountId = activeAccount?.id;
-  final useSupabaseSummary = supabaseDashboardSummaryEnabled();
-  final summaryService = ref.watch(supabaseFinancialSummaryServiceProvider);
 
   final now = DateTime.now();
   final rangeStart =
@@ -343,7 +341,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final daysInRange =
       rangeEnd.difference(rangeStart).inDays.abs().clamp(1, 3660) + 1;
   final previousStart = rangeStart.subtract(Duration(days: daysInRange));
-  final previousEnd = rangeStart.subtract(const Duration(seconds: 1));
+  // MALI-028: the previous period ends where the current one begins — a genuine
+  // exclusive boundary, not an epsilon-adjusted last instant.
+  final previousEnd = rangeStart;
   final today = DateTime(now.year, now.month, now.day);
   final weekStart =
       today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
@@ -351,123 +351,31 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   // سارف/دخل الشهر ثابتان على الشهر الحالي بغض النظر عن الفلتر المختار.
   final calendarMonthStart = DateTime(now.year, now.month, 1);
-  // A refresh used to await every summary RPC serially while Riverpod kept
-  // showing the previous numbers. Start all independent summaries together so
-  // a newly-saved transaction is reflected as soon as the slowest request
-  // completes, rather than after the sum of all request times.
-  final monthSummaryFuture = useSupabaseSummary
-      ? summaryService.periodSummary(
-          from: calendarMonthStart,
-          to: now.add(const Duration(microseconds: 1)),
-          accountId: accountId,
-        )
-      : Future.value(null);
-  final previousRangeSummaryFuture = useSupabaseSummary
-      ? summaryService.periodSummary(
-          from: previousStart,
-          to: rangeStart,
-          accountId: accountId,
-        )
-      : Future.value(null);
-  final weekSummaryFuture = useSupabaseSummary
-      ? summaryService.periodSummary(
-          from: weekStart,
-          to: now.add(const Duration(microseconds: 1)),
-          accountId: accountId,
-        )
-      : Future.value(null);
-  final todaySummaryFuture = useSupabaseSummary
-      ? summaryService.periodSummary(
-          from: today,
-          to: now.add(const Duration(microseconds: 1)),
-          accountId: accountId,
-        )
-      : Future.value(null);
-  final previousWeekSummaryFuture = useSupabaseSummary
-      ? summaryService.periodSummary(
-          from: prevWeekStart,
-          to: weekStart,
-          accountId: accountId,
-        )
-      : Future.value(null);
-  final balanceFuture = useSupabaseSummary && accountId != null
-      ? summaryService
-          .accountBalance(accountId)
-          .then((summary) => summary?.effectiveBalance)
-      : txRepo.latestBalanceAfter(accountId: accountId);
-  // The selected filter range's own income/expense totals — distinct from
-  // monthSummary (always calendar-month) and previousRangeSummary (the prior
-  // period, for comparison). Feeds the dashboard's income-vs-expense summary.
-  final rangeSummaryFuture = useSupabaseSummary
-      ? summaryService.periodSummary(
-          from: rangeStart,
-          to: rangeEnd.add(const Duration(microseconds: 1)),
-          accountId: accountId,
-        )
-      : Future.value(null);
-
-  final (
-    monthSummary,
-    previousRangeSummary,
-    weekSummary,
-    todaySummary,
-    previousWeekSummary,
-    balance,
-    rangeSummary,
-  ) = await (
-    monthSummaryFuture,
-    previousRangeSummaryFuture,
-    weekSummaryFuture,
-    todaySummaryFuture,
-    previousWeekSummaryFuture,
-    balanceFuture,
-    rangeSummaryFuture,
-  ).wait;
-
-  final thisMonthExpensesFuture = monthSummary != null
-      ? Future.value(monthSummary.expense)
-      : txRepo.expenseTotalBetween(
-          from: calendarMonthStart, to: now, accountId: accountId);
-  final thisMonthIncomeFuture = monthSummary != null
-      ? Future.value(monthSummary.income)
-      : txRepo.incomeTotalBetween(
-          from: calendarMonthStart, to: now, accountId: accountId);
-  final prevMonthExpensesFuture = previousRangeSummary != null
-      ? Future.value(previousRangeSummary.expense)
-      : txRepo.expenseTotalBetween(
-          from: previousStart,
-          to: previousEnd,
-          accountId: accountId,
-        );
-  final weekSpendFuture = weekSummary != null
-      ? Future.value(weekSummary.expense)
-      : txRepo.expenseTotalBetween(
-          from: weekStart, to: now, accountId: accountId);
-  final todaySpendFuture = todaySummary != null
-      ? Future.value(todaySummary.expense)
-      : txRepo.expenseTotalBetween(from: today, to: now, accountId: accountId);
-  final todayIncomeFuture = todaySummary != null
-      ? Future.value(todaySummary.income)
-      : txRepo.incomeTotalBetween(from: today, to: now, accountId: accountId);
-  final weekIncomeFuture = weekSummary != null
-      ? Future.value(weekSummary.income)
-      : txRepo.incomeTotalBetween(
-          from: weekStart, to: now, accountId: accountId);
-  final previousWeekSpendFuture = previousWeekSummary != null
-      ? Future.value(previousWeekSummary.expense)
-      : txRepo.expenseTotalBetween(
-          from: prevWeekStart,
-          to: weekStart,
-          accountId: accountId,
-        );
-  final rangeExpenseFuture = rangeSummary != null
-      ? Future.value(rangeSummary.expense)
-      : txRepo.expenseTotalBetween(
-          from: rangeStart, to: rangeEnd, accountId: accountId);
-  final rangeIncomeFuture = rangeSummary != null
-      ? Future.value(rangeSummary.income)
-      : txRepo.incomeTotalBetween(
-          from: rangeStart, to: rangeEnd, accountId: accountId);
+  // MALI-063n: every total comes from the canonical Drift aggregates (the
+  // dormant Supabase summary path is retired). Independent reads start together
+  // so a refresh reflects a newly-saved transaction as soon as the slowest read
+  // completes.
+  final balanceFuture = txRepo.latestBalanceAfter(accountId: accountId);
+  final thisMonthExpensesFuture = txRepo.expenseTotalBetween(
+      from: calendarMonthStart, to: now, accountId: accountId);
+  final thisMonthIncomeFuture = txRepo.incomeTotalBetween(
+      from: calendarMonthStart, to: now, accountId: accountId);
+  final prevMonthExpensesFuture = txRepo.expenseTotalBetween(
+      from: previousStart, to: previousEnd, accountId: accountId);
+  final weekSpendFuture = txRepo.expenseTotalBetween(
+      from: weekStart, to: now, accountId: accountId);
+  final todaySpendFuture =
+      txRepo.expenseTotalBetween(from: today, to: now, accountId: accountId);
+  final todayIncomeFuture =
+      txRepo.incomeTotalBetween(from: today, to: now, accountId: accountId);
+  final weekIncomeFuture = txRepo.incomeTotalBetween(
+      from: weekStart, to: now, accountId: accountId);
+  final previousWeekSpendFuture = txRepo.expenseTotalBetween(
+      from: prevWeekStart, to: weekStart, accountId: accountId);
+  final rangeExpenseFuture = txRepo.expenseTotalBetween(
+      from: rangeStart, to: rangeEnd, accountId: accountId);
+  final rangeIncomeFuture = txRepo.incomeTotalBetween(
+      from: rangeStart, to: rangeEnd, accountId: accountId);
   final (
     thisMonthExpenses,
     thisMonthIncome,
@@ -487,12 +395,11 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     weekIncomeFuture,
     previousWeekSpendFuture,
   ).wait;
-  // Dart's tuple `.wait` extension tops out at 8 elements, so the two new
-  // range totals are awaited separately (still concurrently with each other,
-  // and their own futures were already started above alongside everything
-  // else — this split only affects how the results are collected).
-  final (rangeExpense, rangeIncome) =
-      await (rangeExpenseFuture, rangeIncomeFuture).wait;
+  // Dart's tuple `.wait` extension tops out at 8 elements, so the remaining
+  // totals are awaited separately (still concurrently — their futures were
+  // started above alongside everything else).
+  final (rangeExpense, rangeIncome, balance) =
+      await (rangeExpenseFuture, rangeIncomeFuture, balanceFuture).wait;
   final pendingReview = allTransactions
       .where((tx) =>
           tx.status == TransactionStatus.pending &&
@@ -506,14 +413,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // This is especially important with direct Supabase repositories, where
   // every aggregate is otherwise a separate network wait.
   final allBudgetsFuture = budgetRepo.getAll();
-  final breakdownFuture = useSupabaseSummary
-      ? summaryService.categorySummary(
-          from: rangeStart,
-          to: rangeEnd.add(const Duration(microseconds: 1)),
-          accountId: accountId,
-        )
-      : txRepo.categoryBreakdown(
-          from: rangeStart, to: rangeEnd, accountId: accountId);
+  final breakdownFuture = txRepo.categoryBreakdown(
+      from: rangeStart, to: rangeEnd, accountId: accountId);
   final dailySpendTrendFuture = txRepo.dailyExpenseTotals(
       from: rangeStart, to: rangeEnd, accountId: accountId);
   final weeklyDailySpendFuture = txRepo.dailyExpenseTotals(

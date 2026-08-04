@@ -530,6 +530,12 @@ class SupabaseTransactionRepository implements TransactionRepository {
   }
 
   // ── قراءة: تجميعات محدودة بفترة (تصفية على الخادم + تجميع في Dart) ──
+  // RETIRED / DORMANT (MALI-063n): the aggregate methods below carry
+  // pre-canonical semantics and are NOT runtime-reachable — the live path uses
+  // this class only for `repairLocalCache()`, and the UI reads every aggregate
+  // from the canonical Drift-backed RoutedTransactionRepository. Kept for the
+  // credential-gated contract tests; do not wire for reads without
+  // canonicalizing (types/refunds/status/excluded-accounts/currency/half-open).
 
   @override
   Future<double> expenseTotalBetween({

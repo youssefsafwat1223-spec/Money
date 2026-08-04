@@ -41,8 +41,14 @@ class BudgetSpentSummary {
   final double spent;
 }
 
-/// Thin authenticated client for Phase 3 summary RPCs. Widgets never use this
-/// directly; providers choose it only behind dashboard_supabase_summary.
+/// RETIRED (MALI-063n). Thin authenticated client for the migration-0030
+/// financial-summary RPCs. Those RPCs carry PRE-canonical semantics (no refund
+/// netting, no half-open windows, no unified excluded-account policy), so this
+/// path is no longer wired into any provider — every financial surface computes
+/// from the canonical Drift aggregates. The class survives only for the
+/// credential-gated contract tests. Do NOT re-wire it for reads without first
+/// canonicalizing the 0030 RPCs; there is deliberately no feature flag left to
+/// flip it back on.
 class SupabaseFinancialSummaryService {
   SupabaseFinancialSummaryService({
     SupabaseClient Function()? getClient,

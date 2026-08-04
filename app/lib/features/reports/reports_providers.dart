@@ -96,39 +96,17 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
   final range =
       effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final rangeEnd = range.to.isAfter(now) ? now : range.to;
-  final useSupabaseSummary = supabaseDashboardSummaryEnabled();
-  final summaryService = ref.watch(supabaseFinancialSummaryServiceProvider);
 
   Future<ReportSection> section(
       DateTime from, DateTime to, DateTime prevFrom, DateTime prevTo) async {
-    final summary = useSupabaseSummary
-        ? await summaryService.periodSummary(
-            from: from,
-            to: to.add(const Duration(microseconds: 1)),
-            accountId: accountId,
-          )
-        : null;
-    final previousSummary = useSupabaseSummary
-        ? await summaryService.periodSummary(
-            from: prevFrom,
-            to: prevTo.add(const Duration(microseconds: 1)),
-            accountId: accountId,
-          )
-        : null;
-    final total = summary?.expense ??
-        await txRepo.expenseTotalBetween(
-            from: from, to: to, accountId: accountId);
-    final prevTotal = previousSummary?.expense ??
-        await txRepo.expenseTotalBetween(
-            from: prevFrom, to: prevTo, accountId: accountId);
-    final breakdown = useSupabaseSummary
-        ? await summaryService.categorySummary(
-            from: from,
-            to: to.add(const Duration(microseconds: 1)),
-            accountId: accountId,
-          )
-        : await txRepo.categoryBreakdown(
-            from: from, to: to, accountId: accountId);
+    // MALI-063n: always the canonical Drift aggregates (the dormant Supabase
+    // summary path is retired).
+    final total = await txRepo.expenseTotalBetween(
+        from: from, to: to, accountId: accountId);
+    final prevTotal = await txRepo.expenseTotalBetween(
+        from: prevFrom, to: prevTo, accountId: accountId);
+    final breakdown = await txRepo.categoryBreakdown(
+        from: from, to: to, accountId: accountId);
     final sumAll = breakdown.fold<double>(0, (s, i) => s + i.total);
     final topCategories = <CategorySlice>[];
     for (final item in breakdown.take(18)) {
@@ -169,7 +147,9 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
   final daysInRange =
       rangeEnd.difference(rangeStart).inDays.abs().clamp(1, 3660) + 1;
   final prevRangeStart = rangeStart.subtract(Duration(days: daysInRange));
-  final prevRangeEnd = rangeStart.subtract(const Duration(seconds: 1));
+  // MALI-028: the previous period ends where the current one begins — a genuine
+  // exclusive boundary, not an epsilon-adjusted last instant.
+  final prevRangeEnd = rangeStart;
   final monthly =
       await section(rangeStart, rangeEnd, prevRangeStart, prevRangeEnd);
 

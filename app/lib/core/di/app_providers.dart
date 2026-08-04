@@ -40,7 +40,6 @@ import '../../data/repositories/routed_transaction_repository.dart';
 import '../../data/repositories/supabase_account_repository.dart';
 import '../../data/repositories/supabase_bill_repository.dart';
 import '../../data/repositories/supabase_budget_repository.dart';
-import '../../data/repositories/supabase_financial_summary_service.dart';
 import '../../data/repositories/supabase_goal_repository.dart';
 import '../../data/repositories/supabase_plan_repository.dart';
 import '../../data/repositories/supabase_smart_inbox_repository.dart';
@@ -232,15 +231,15 @@ FeatureFlagService get featureFlags {
       'FeatureFlagService not initialised. Call syncCatalog first.');
 }
 
-/// Summary RPCs use Supabase account UUIDs, so they are safe only after both
-/// account and transaction primary repositories have been enabled for the
-/// same QA user. Every flag remains false by default.
-// S0: ملخّصات الداشبورد/التقارير كانت تُقرأ مباشرة من Supabase عبر RPC (مسار
-// UI → Supabase). أُوقِف هذا المسار — الواجهة تحسب من Drift (الكاش المحلي) عبر
-// txRepo الذي صار Drift دائمًا. يُعاد التفعيل كمزامنة خلفية فقط لو لزم لاحقًا.
-bool supabaseDashboardSummaryEnabled() => false;
-
-bool supabaseBudgetProgressSummaryEnabled() => false;
+// MALI-063n — RETIRED. Dashboard/report/budget summaries were once read
+// straight from Supabase RPCs (migration 0030), which carry PRE-canonical
+// financial semantics (no refund netting, no half-open windows, no unified
+// exclusion). That UI→Supabase path is gone: every financial surface computes
+// from the canonical Drift aggregates. The gating flags and the
+// `SupabaseFinancialSummaryService` provider were removed so the switch can no
+// longer be flipped back on. The RPCs remain in 0030 marked historical; the
+// service class survives only for the credential-gated contract tests. Do NOT
+// re-wire it for reads without canonicalizing the RPCs first.
 
 final accountDeletionServiceProvider = Provider<AccountDeletionService>((ref) {
   return AccountDeletionService();
@@ -249,11 +248,6 @@ final accountDeletionServiceProvider = Provider<AccountDeletionService>((ref) {
 final accountDeletionStatusProvider =
     FutureProvider<AccountDeletionStatus>((ref) {
   return ref.watch(accountDeletionServiceProvider).getStatus();
-});
-
-final supabaseFinancialSummaryServiceProvider =
-    Provider<SupabaseFinancialSummaryService>((ref) {
-  return SupabaseFinancialSummaryService();
 });
 
 final financialCacheRepairServiceProvider =
@@ -1063,16 +1057,13 @@ final addGoalContributionUseCaseProvider =
 });
 
 final budgetProgressUseCaseProvider = Provider<BudgetProgressUseCase>((ref) {
-  final useSupabaseSummary = supabaseBudgetProgressSummaryEnabled();
-  final summaryService = ref.watch(supabaseFinancialSummaryServiceProvider);
+  // MALI-063n: the dormant Supabase budget-summary batch-fetch (pre-canonical
+  // semantics) is retired — budget consumption is always the canonical Drift
+  // path.
   return BudgetProgressUseCase(
     budgetRepository: ref.watch(budgetRepositoryProvider),
     transactionRepository: ref.watch(transactionRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
-    fetchBatchSpent: useSupabaseSummary
-        ? ({required from, required to}) =>
-            summaryService.budgetProgressSummary(from: from, to: to)
-        : null,
   );
 });
 
