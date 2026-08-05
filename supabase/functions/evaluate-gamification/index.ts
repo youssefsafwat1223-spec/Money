@@ -24,72 +24,39 @@ serve(async (req) => {
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // MALI-024 §5 — award each transaction AT MOST ONCE. The insert into the
-  // idempotency ledger is the atomic guard: a webhook retry, duplicate delivery,
-  // function retry, or a second concurrent worker all collide on the primary key
-  // and return here without awarding, so XP/achievements/streak and the push are
-  // never double-counted.
   if (!transaction.id) {
     return new Response('OK');
   }
-  const claim = await supabase
-    .from('gamification_awarded_transactions')
-    .insert({ transaction_id: String(transaction.id), user_id: userId })
-    .select('transaction_id')
-    .maybeSingle();
-  if (claim.error || !claim.data) {
-    // Unique-violation (already awarded) or a write failure → do not award again.
+
+  // MALI-024 §5 — award atomically, EXACTLY ONCE. The RPC folds the idempotency
+  // claim and the XP / level / achievement / notification-eligibility write into
+  // ONE Postgres transaction, so a crash rolls the claim back together with the
+  // award (no lost or partial award), a webhook retry / duplicate delivery /
+  // function retry / lost response reconstructs the stored canonical result, and
+  // two concurrent workers serialise on the claim row lock — never double-count.
+  const { data: award, error: awardError } = await supabase.rpc(
+    'award_gamification_for_transaction',
+    { p_transaction_id: String(transaction.id), p_user_id: userId },
+  );
+  if (awardError || !award || award.awarded !== true) {
+    // Not owned / transient error → do not award; the webhook may retry safely.
     return new Response('OK');
   }
 
-  // Award XP (e.g., 10 XP per transaction)
-  const xpAward = 10;
+  const leveledUp = award.leveled_up === true;
+  const achievementCode: string | null = award.achievement ?? null;
+  const achievementLabels: Record<string, string> = {
+    first_transaction: 'First Transaction!',
+    tenth_transaction: '10th Transaction!',
+    century_transaction: '100th Transaction Century!',
+  };
 
-  // Fetch current XP level
-  const { data: xpLevelData } = await supabase
-    .from('user_xp_levels')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
-
-  let newXp = xpAward;
-  let currentLevel = 1;
-  let leveledUp = false;
-
-  if (xpLevelData) {
-    newXp = (xpLevelData.xp || 0) + xpAward;
-    currentLevel = xpLevelData.level || 1;
-
-    // Level formula e.g. level = floor(sqrt(xp / 100)) + 1
-    const newLevel = Math.floor(Math.sqrt(newXp / 100)) + 1;
-    if (newLevel > currentLevel) {
-      leveledUp = true;
-      currentLevel = newLevel;
-    }
-
-    await supabase
-      .from('user_xp_levels')
-      .update({ xp: newXp, level: currentLevel })
-      .eq('user_id', userId);
-  } else {
-    await supabase
-      .from('user_xp_levels')
-      .insert({ user_id: userId, xp: newXp, level: currentLevel });
-  }
-
-  // Check achievements (1st, 10th, 100th transaction)
-  const { count } = await supabase
-    .from('user_transactions')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId);
-
-  let achievementUnlocked = null;
-  if (count === 1) achievementUnlocked = 'First Transaction!';
-  else if (count === 10) achievementUnlocked = '10th Transaction!';
-  else if (count === 100) achievementUnlocked = '100th Transaction Century!';
-
-  // Dispatch APNs if needed
-  if (leveledUp || achievementUnlocked) {
+  // Notification delivery happens AFTER the award has committed — never inside
+  // the transaction. The payloadId is stable per transaction, so APNs collapses
+  // a retry into the same notification: provider failure stays retryable, a
+  // repeat can never create a duplicate, and a send failure never rolls back or
+  // re-awards (the award is already durably committed above).
+  if (leveledUp || achievementCode) {
     const { data: devices } = await supabase
       .from('capture_devices')
       .select('apns_token, apns_environment')
@@ -101,17 +68,17 @@ serve(async (req) => {
       let title = '';
       if (leveledUp) {
         title = 'Level Up! 🌟';
-        body = `Congratulations! You reached Level ${currentLevel}!`;
-      } else if (achievementUnlocked) {
+        body = `Congratulations! You reached Level ${award.level}!`;
+      } else if (achievementCode) {
         title = 'Achievement Unlocked! 🏆';
-        body = `You unlocked: ${achievementUnlocked}`;
+        body = `You unlocked: ${achievementLabels[achievementCode] ?? achievementCode}`;
       }
 
       for (const device of devices) {
         await sendCapturePush({
           token: device.apns_token,
           environment: device.apns_environment as 'sandbox' | 'production',
-          payloadId: crypto.randomUUID(),
+          payloadId: `gamification:${transaction.id}`,
           title,
           body,
           notificationType: 'gamification_alert',
