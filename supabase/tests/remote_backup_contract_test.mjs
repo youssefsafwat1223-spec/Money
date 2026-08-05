@@ -54,3 +54,39 @@ test('backupNow publishes a generation (no fixed-path upsert overwrite)', () => 
   // disable() is stop-only; delete is a separate explicit action.
   assert.match(svc, /Future<void> deleteRemoteBackups\(\)/);
 });
+
+// MALI-076n §12 (closure) — server-atomic generation CAS (migration 0076).
+test('0076 commit_backup_generation is a locked-down atomic CAS RPC', () => {
+  const m0076 = read('supabase/migrations/0076_backup_generation_cas.sql');
+  assert.match(m0076, /CREATE OR REPLACE FUNCTION public\.commit_backup_generation/);
+  assert.match(m0076, /SECURITY DEFINER/);
+  assert.match(m0076, /SET search_path = public/);
+  assert.match(m0076, /v_owner\s+UUID := auth\.uid\(\)/); // owner from auth
+  assert.match(m0076, /split_part\(p_object_path, '\/', 1\) <> v_owner::text/); // owner path
+  assert.match(m0076, /FROM storage\.objects[\s\S]*bucket_id = 'backups'/); // object exists + size
+  assert.match(m0076, /FOR UPDATE/); // row lock
+  assert.match(m0076, /'stale_generation'/); // CAS reject
+  assert.match(m0076, /'operation_conflict'/); // idempotency guard
+  assert.match(m0076, /'replay', true/); // idempotent replay of the winner
+  assert.match(m0076, /previous_generation_id\s*=\s*backups\.generation_id/); // retain previous
+  assert.match(m0076, /REVOKE ALL ON FUNCTION public\.commit_backup_generation[\s\S]*FROM PUBLIC, anon/);
+  assert.match(m0076, /GRANT EXECUTE ON FUNCTION public\.commit_backup_generation[\s\S]*TO authenticated/);
+});
+
+test('the adapter commits via the server-atomic RPC + maps typed errors', () => {
+  const adapter = read('app/lib/core/backup/supabase_remote_backup_store.dart');
+  assert.match(adapter, /rpc\('commit_backup_generation'/);
+  assert.match(adapter, /'stale_generation':/);
+  assert.match(adapter, /'operation_conflict':/);
+  assert.match(adapter, /'ownership_mismatch':/);
+});
+
+// MALI-076n §16 — truthful UI state.
+test('the UI derives Protected from the typed state, not a boolean', () => {
+  const controller = read('app/lib/core/backup/remote_backup_controller.dart');
+  assert.match(controller, /RemoteBackupState\.enabledIdle/); // Protected == committed
+  assert.match(controller, /if \(_busy\) return null/); // operation coordinator
+  const screen = read('app/lib/features/backup/backup_screen.dart');
+  assert.match(screen, /remoteBackupStateLabel\(state\)/);
+  assert.match(screen, /state\.isProtected/);
+});
