@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -101,6 +102,26 @@ class EncryptedBackupService implements BackupService {
     return recovery;
   }
 
+  /// MALI-058n — the remote-backup metadata row upserted alongside the upload.
+  /// It is built ONLY from the user id, the object path, and blob size/version/
+  /// time — never from user_settings or any key material — so it can carry no key
+  /// canary. Exposed so a test can assert the actual object, not just the source.
+  @visibleForTesting
+  static Map<String, dynamic> uploadMetadata({
+    required String userId,
+    required String path,
+    required int blobVersion,
+    required int sizeBytes,
+    required String updatedAtIso,
+  }) =>
+      {
+        'user_id': userId,
+        'blob_path': path,
+        'blob_version': blobVersion,
+        'size_bytes': sizeBytes,
+        'updated_at': updatedAtIso,
+      };
+
   @override
   Future<void> backupNow() async {
     final userId = _userId();
@@ -162,13 +183,13 @@ class EncryptedBackupService implements BackupService {
             ),
           );
       final now = DateTime.now().toUtc();
-      await _client.from('backups').upsert({
-        'user_id': userId,
-        'blob_path': path,
-        'blob_version': blob.version,
-        'size_bytes': bytes.length,
-        'updated_at': now.toIso8601String(),
-      });
+      await _client.from('backups').upsert(uploadMetadata(
+        userId: userId,
+        path: path,
+        blobVersion: blob.version,
+        sizeBytes: bytes.length,
+        updatedAtIso: now.toIso8601String(),
+      ));
       await _storage.write(key: _lastKey, value: now.toIso8601String());
     } on supabase.StorageException catch (error) {
       throw BackupException(backupStorageExceptionMessage(error));

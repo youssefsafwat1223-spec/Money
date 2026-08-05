@@ -116,9 +116,16 @@ class AppDatabase extends GeneratedDatabase {
   static Future<AppDatabase> open({
     DatabaseKeyStore? keyStore,
     QueryExecutor? executor,
+    @visibleForTesting Future<bool> Function()? databaseFileExists,
   }) async {
     final resolvedKeyStore = keyStore ?? SecureDatabaseKeyStore();
     if (executor != null) {
+      // In-memory/test path. Only exercise the key-state gate when a test opts
+      // in by injecting databaseFileExists (avoids touching path_provider, which
+      // is unmocked in most in-memory tests).
+      if (databaseFileExists != null) {
+        await _resolveKeyStateOrThrow(resolvedKeyStore, databaseFileExists);
+      }
       final connection = executor is DatabaseConnection
           ? executor
           : DatabaseConnection(executor);
@@ -131,6 +138,14 @@ class AppDatabase extends GeneratedDatabase {
       return db;
     }
 
+    // MALI-058n — before creating or using any key, decide the key state. If an
+    // encrypted DB already exists but its key is gone, fail with a typed state
+    // instead of minting a new key (which would leave the DB unopenable and mask
+    // the loss). Never reads a key from Drift/backup, never deletes.
+    await _resolveKeyStateOrThrow(
+      resolvedKeyStore,
+      databaseFileExists ?? _encryptedDatabaseExists,
+    );
     final encryptionKey = await resolvedKeyStore.readOrCreateKey();
     final encryptedConnection = await _openEncryptedConnection(encryptionKey);
     final db = AppDatabase._(
@@ -167,6 +182,28 @@ class AppDatabase extends GeneratedDatabase {
       if (await file.exists()) {
         await file.delete();
       }
+    }
+  }
+
+  /// MALI-058n — true when the on-disk encrypted database file already exists.
+  static Future<bool> _encryptedDatabaseExists() async {
+    final directory = await getApplicationSupportDirectory();
+    return File(p.join(directory.path, 'money_companion.sqlite')).exists();
+  }
+
+  /// MALI-058n — resolve the open-time key state and fail CLOSED with the typed
+  /// [LocalDatabaseKeyUnavailableException] when an encrypted DB exists but its
+  /// key is gone. Never mints a new key here, never reads a key from Drift or a
+  /// backup, and never deletes anything.
+  static Future<void> _resolveKeyStateOrThrow(
+    DatabaseKeyStore keyStore,
+    Future<bool> Function() databaseExists,
+  ) async {
+    final storedKey = await keyStore.readStoredKey();
+    final exists = await databaseExists();
+    if (classifyDatabaseKeyState(databaseExists: exists, storedKey: storedKey) ==
+        DatabaseKeyState.keyUnavailable) {
+      throw const LocalDatabaseKeyUnavailableException();
     }
   }
 
