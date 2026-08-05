@@ -90,9 +90,51 @@ const String kDefaultAccountLocalId = 'default_account';
 enum DatabaseLifecycleState {
   opening,
   open,
+  maintenanceRequested,
   closing,
   closed,
   failed,
+
+  /// An exclusive maintenance operation could not restore a usable database.
+  /// No partially-initialized database is published; the owner must reset/reopen.
+  recoveryRequired,
+}
+
+/// MALI-069n — typed, privacy-safe database-lifecycle failures. Carry no SQL,
+/// key, path, bound value, user id, or financial row.
+enum DatabaseLifecycleFailure {
+  closed,
+  recoveryRequired,
+  maintenanceTimeout,
+}
+
+class DatabaseLifecycleException implements Exception {
+  const DatabaseLifecycleException(this.reason);
+  final DatabaseLifecycleFailure reason;
+  @override
+  String toString() => 'DatabaseLifecycleException(${reason.name})';
+}
+
+/// MALI-069n §Blocker-3 — a transient, retryable busy/locked condition after the
+/// bounded busy_timeout wait expires. Never carries the raw SQLite message.
+class DatabaseBusyException implements Exception {
+  const DatabaseBusyException();
+  bool get isRetryable => true;
+  @override
+  String toString() => 'DatabaseBusyException';
+}
+
+/// Map a caught database error to a typed [DatabaseBusyException] when it is a
+/// SQLITE_BUSY (5) / SQLITE_LOCKED (6) result (including the 261/262 extended
+/// codes); otherwise return null so a non-busy error is never misclassified. Uses
+/// only the numeric result code — never the raw exception text.
+DatabaseBusyException? mapDatabaseBusy(Object error) {
+  if (error is SqliteException) {
+    final code = error.extendedResultCode;
+    final primary = code & 0xFF; // low byte = primary result code
+    if (primary == 5 || primary == 6) return const DatabaseBusyException();
+  }
+  return null;
 }
 
 class AppDatabase extends GeneratedDatabase {
@@ -177,13 +219,29 @@ class AppDatabase extends GeneratedDatabase {
     return _finishOpen(db, runMigrations);
   }
 
-  /// MALI-069n §6 — open a bounded SECONDARY connection to the same encrypted
-  /// file (e.g. the background capture-import or notification-action isolate). It
-  /// uses the authoritative key + the centralized PRAGMA contract but never runs
-  /// application migrations (the main connection owns them) — callers MUST close
-  /// it in a `try/finally`.
-  static Future<AppDatabase> openSecondary({DatabaseKeyStore? keyStore}) =>
-      open(keyStore: keyStore, runMigrations: false);
+  /// MALI-069n §6/§Blocker-2 — open a bounded SECONDARY connection to the same
+  /// encrypted file (e.g. the background capture-import or notification-action
+  /// isolate). It uses the authoritative key + the centralized PRAGMA contract
+  /// but never runs application migrations (the main connection owns them), so it
+  /// can never observe a partially-upgraded schema — callers MUST close it in a
+  /// `try/finally`.
+  ///
+  /// When an in-memory [owner] is available (same isolate), the secondary is
+  /// ADMITTED only while the owner is in a usable state — refused (typed) while
+  /// the owner is opening/migrating/closing/closed/failed or under exclusive
+  /// maintenance. The two production paths run where no owner is accessible (a
+  /// background isolate / no main connection), so their admission is file-level:
+  /// the Batch-1 key-state gate + the shared PRAGMA/busy_timeout contract + the
+  /// no-concurrent-migration rule. Batch-5 main-isolate maintenance uses [owner].
+  static Future<AppDatabase> openSecondary({
+    DatabaseKeyStore? keyStore,
+    AppDatabase? owner,
+  }) async {
+    if (owner != null && !owner.admitsSecondary) {
+      throw const DatabaseLifecycleException(DatabaseLifecycleFailure.closed);
+    }
+    return open(keyStore: keyStore, runMigrations: false);
+  }
 
   /// MALI-069n §3 — finish opening: run the migration pipeline for a MAIN open,
   /// and on ANY failure close the just-created native connection + its background
@@ -471,29 +529,143 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   Completer<void>? _maintenanceLock;
+  int _activeBorrows = 0;
+  bool _maintenanceRequested = false;
+  final _borrowQueue = <Completer<void>>[];
+  Completer<void>? _drain;
 
-  /// True while an exclusive maintenance operation holds the database.
-  bool get isUnderMaintenance =>
-      _maintenanceLock != null && !_maintenanceLock!.isCompleted;
+  /// True while an exclusive maintenance operation holds (or is acquiring) the gate.
+  bool get isUnderMaintenance => _maintenanceRequested;
 
-  /// MALI-069n §10 — run [action] as an EXCLUSIVE database-maintenance operation:
-  /// serialized against any other maintenance (a second concurrent request waits
-  /// its turn), with the database marked under maintenance so callers can observe
-  /// or await it. This is the lifecycle primitive the Batch-5 restore/reset matrix
-  /// will build on; it does NOT itself rewrite restore. On a recoverable failure
-  /// the maintenance flag is always cleared so the database returns to a usable
-  /// state; the action's own error propagates unchanged.
-  Future<T> runExclusiveMaintenance<T>(Future<T> Function() action) async {
-    while (isUnderMaintenance) {
+  /// The number of in-flight borrows (for tests/diagnostics).
+  int get activeBorrows => _activeBorrows;
+
+  /// Whether a NEW secondary connection may be admitted right now (§Blocker-2):
+  /// only when the owner is fully open and not quiescing for maintenance.
+  bool get admitsSecondary =>
+      _lifecycle == DatabaseLifecycleState.open && !_maintenanceRequested;
+
+  void _throwIfUnusable() {
+    switch (_lifecycle) {
+      case DatabaseLifecycleState.closing:
+      case DatabaseLifecycleState.closed:
+        throw const DatabaseLifecycleException(DatabaseLifecycleFailure.closed);
+      case DatabaseLifecycleState.failed:
+      case DatabaseLifecycleState.recoveryRequired:
+        throw const DatabaseLifecycleException(
+            DatabaseLifecycleFailure.recoveryRequired);
+      case DatabaseLifecycleState.opening:
+      case DatabaseLifecycleState.open:
+      case DatabaseLifecycleState.maintenanceRequested:
+        return;
+    }
+  }
+
+  /// MALI-069n §Blocker-1 — borrow the database for ONE operation through the
+  /// lifecycle gate. A borrow is REJECTED (typed) after close/failed/recovery,
+  /// and QUEUED while exclusive maintenance holds the gate, so maintenance can
+  /// safely quiesce the database and file-level maintenance never races an active
+  /// operation. Operations that must not run during maintenance route here.
+  Future<T> borrow<T>(Future<T> Function() op) async {
+    _throwIfUnusable();
+    while (_maintenanceRequested) {
+      final waiter = Completer<void>();
+      _borrowQueue.add(waiter);
+      await waiter.future;
+      _throwIfUnusable();
+    }
+    _activeBorrows++;
+    try {
+      return await op();
+    } finally {
+      _activeBorrows--;
+      if (_activeBorrows == 0 && _drain != null && !_drain!.isCompleted) {
+        _drain!.complete();
+      }
+    }
+  }
+
+  /// MALI-069n §10/§Blocker-1 — ENFORCEABLE exclusive maintenance. It serialises
+  /// against other maintenance, transitions to [maintenanceRequested] so NEW
+  /// borrows/secondaries are refused or QUEUED, waits (bounded by [drainTimeout])
+  /// for active borrows to drain, then runs [action]. On success it returns to
+  /// [open]; on a recoverable failure it restores the prior usable state; if the
+  /// action signals it left the database unusable (by throwing
+  /// [DatabaseLifecycleException] with [recoveryRequired]) it exposes the typed
+  /// [recoveryRequired] state and never publishes a partial database. Cleanup is
+  /// idempotent and never hides the original failure. This is the primitive the
+  /// Batch-5 restore/reset matrix builds on; it does not itself rewrite restore.
+  Future<T> runExclusiveMaintenance<T>(
+    Future<T> Function() action, {
+    Duration drainTimeout = const Duration(seconds: 10),
+  }) async {
+    while (_maintenanceLock != null && !_maintenanceLock!.isCompleted) {
       await _maintenanceLock!.future;
     }
     final lock = Completer<void>();
     _maintenanceLock = lock;
+    final priorState = _lifecycle;
+    _maintenanceRequested = true;
+    _lifecycle = DatabaseLifecycleState.maintenanceRequested;
     try {
-      return await action();
+      await _drainBorrows(drainTimeout);
+      final result = await action();
+      _lifecycle = DatabaseLifecycleState.open;
+      return result;
+    } catch (error) {
+      if (error is DatabaseLifecycleException &&
+          error.reason == DatabaseLifecycleFailure.recoveryRequired) {
+        _lifecycle = DatabaseLifecycleState.recoveryRequired;
+      } else if (_lifecycle == DatabaseLifecycleState.maintenanceRequested) {
+        // Recoverable: the DB was not torn down — restore the prior usable state.
+        _lifecycle = priorState;
+      }
+      rethrow; // preserve the original typed cause
     } finally {
+      _maintenanceRequested = false;
       _maintenanceLock = null;
       lock.complete();
+      final queued = [..._borrowQueue];
+      _borrowQueue.clear();
+      for (final waiter in queued) {
+        if (!waiter.isCompleted) waiter.complete();
+      }
+    }
+  }
+
+  Future<void> _drainBorrows(Duration timeout) async {
+    if (_activeBorrows == 0) return;
+    _drain = Completer<void>();
+    try {
+      await _drain!.future.timeout(timeout);
+    } on TimeoutException {
+      throw const DatabaseLifecycleException(
+          DatabaseLifecycleFailure.maintenanceTimeout);
+    } finally {
+      _drain = null;
+    }
+  }
+
+  /// MALI-069n §Blocker-3 — run [op] with a BOUNDED retry when the connection's
+  /// busy_timeout wait still ends in a transient SQLITE_BUSY/LOCKED. A non-busy
+  /// error is rethrown unchanged (never misclassified); an exhausted busy retry
+  /// throws the typed, privacy-safe [DatabaseBusyException] (never the raw SQLite
+  /// text). Does NOT retry, reset, delete, or rotate anything else. The caller
+  /// must not pass an active-transaction body (retry-in-transaction is unsafe).
+  Future<T> runWithBusyRetry<T>(
+    Future<T> Function() op, {
+    int maxAttempts = 3,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      attempt++;
+      try {
+        return await op();
+      } catch (error) {
+        final busy = mapDatabaseBusy(error);
+        if (busy == null) rethrow; // a non-busy error is never misclassified
+        if (attempt >= maxAttempts) throw busy; // typed + bounded
+      }
     }
   }
 
