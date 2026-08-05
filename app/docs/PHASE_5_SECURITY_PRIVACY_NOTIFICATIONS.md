@@ -222,7 +222,7 @@ rate-limit RPC).
 | **bank-discovery** | device secret or user JWT | `ai`, fail-closed | 50/day | body ≤8 KB, sms ≤1200–2000, sender ≤64 | None *(flag)* | **Mixed** — legacy `200 {error}` on AI-result failure *(flag)* | Gemini 12 s | `safeLog` sender **hash** + length only; PII guard |
 | **enrich-merchant** | device secret or user JWT | **`cloud`**, fail-closed | 200/day | body ≤4 KB, name ≤200 | 0071 claim/complete (hash) | Yes | Places 8 s | Never echoes merchant/upstream error |
 | **set-device-consent** | **device secret only** (user JWT rejected) | n/a — *is* the consent write path | 200/day | body ≤2 KB | Absolute update (naturally idempotent) | Yes | n/a | None |
-| **process-ios-sms** (legacy path) | device secret via `verifyDevice` (no user-JWT path) | **caller-supplied `allowAi` flag**, *not* the consent record *(flag)* | 300/day/install | **no explicit byte cap** *(flag)* | `processed_captures` existence + 23505 convergence (not 0071) | Legacy `{error}` codes | Gemini 3.5 s | Derived metadata only; persists `sanitized_text` for review rows (storage) |
+| **process-ios-sms** | device secret via `verifyDevice` (no user-JWT path) | **server-owned `ai_consent_granted`** (fail-closed); `allowAi` is compat-only and cannot override OFF; revoked blocks AI | 300/day/install | **bounded body (16 KB) via `readBoundedJsonBody`** + SMS ≤2000 / sender ≤64 | `processed_captures` existence + 23505 convergence | Legacy `{error}` codes | Gemini 3.5 s | Metadata only (no raw sms/sender/merchant); persists `sanitized_text` for review rows (storage) |
 | **register-device** | `install_id` only (unauth bootstrap — *issues* the secret) | n/a | 20/day/installHash | no byte cap | Upsert on installHash; rotates secret each call | Legacy | n/a | None; returns the issued secret |
 | **merchant-feedback** | **RETIRED** — Bearer required else 401; gateway also guards | n/a | n/a | n/a | n/a | Explicit **410** `{retired, replacement:'enrich-merchant'}` (not a silent 200) | n/a | None |
 | **evaluate-gamification** | **service-role Bearer only** (constant-time compare) → 403 | n/a (webhook) | n/a | raw (trusted webhook) | **`award_gamification_for_transaction` RPC — atomic exactly-once** (see §J) | Plain `Forbidden`/`OK` | APNs (helper) | No sensitive content |
@@ -251,37 +251,50 @@ purely-local user never gets a server row. Caller-selected install IDs are never
 authoritative — `resolveVerifiedIdentity` derives the owner key server-side from a
 verified device secret or a real user JWT.
 
-**Honest residual flags for E (documented, not silently reopened):**
-1. **`process-ios-sms`** predates the 060n hardening: it gates AI on a
-   **caller-supplied `allowAi`** flag (client-gated, not the server consent
-   record) and has **no request-body byte cap**. Candidate for a future batch;
-   flagged in the external checklist.
-2. **Consent-default asymmetry:** the *device* path is strictly fail-closed
-   (0071 default FALSE), but a *user-JWT* caller with an existing `user_settings`
-   row defaults consent **ON** (only a missing row is OFF). Confirm intended.
+**Residual notes for E:**
+1. **`process-ios-sms` — HARDENED (closure correction).** AI is now gated by the
+   **server-owned `ai_consent_granted`** record; `allowAi` is compatibility
+   metadata only and can never override a server OFF; a revoked credential blocks
+   AI on the next request; the read fails closed (also safe while 0071 is
+   undeployed). The body is read through `readBoundedJsonBody` (16 KB ceiling,
+   does not trust Content-Length, UTF-8-byte-aware), with bounded SMS/sender/
+   payload lengths and a strict `schema_version`. All gates (body → schema →
+   device auth → ownership → consent → quota → idempotency) precede any Gemini
+   call. The idempotency replay is checked before the quota bump by design (a
+   lost-response retry must not consume quota); both still precede Gemini.
+2. **Consent-default asymmetry (unchanged, noted):** the *device* path is
+   strictly fail-closed (0071 default FALSE); a *user-JWT* caller with an existing
+   `user_settings` row defaults consent **ON** (only a missing row is OFF).
+   Confirm intended in staging.
 3. **`bank-discovery`** returns a legacy `200 {error}` on AI-result failure rather
-   than the typed envelope (auth/consent/rate/payload paths do use it).
+   than the typed envelope (auth/consent/rate/payload paths do use it) — a minor
+   consistency note, outside the 060n identity/consent boundary.
 
 ### F. Notification authority matrix
 
 **Two cross-cutting facts.** (1) **APNs is iOS-only** — every server push is Apple
 HTTP/2; there is **no Android/FCM server push**, so Android is local-only for
-every type. (2) Local↔server single-authority is **formally coordinated only for
-capture-review and budgets**; goals/streak/bill/achievements each have both a
-local and a server path with only independent watermarks — **duplicates are
-possible** (documented gap, below).
+every type. (2) **Every notification type now has exactly one authority contract**
+(Phase-5 closure correction). Capture-review, budgets, goals, and achievements use
+an explicit **local-primary / server-fallback** model — the server pushes only
+when no device has been active recently (`anyDeviceRecentlyActive`). Bills,
+streaks, and weekly reports are **local-scheduled-authority only** (the redundant
+server cron push was retired — a scheduled local notification fires via the OS
+even when the app is idle, so `anyDeviceRecentlyActive` cannot coordinate it). No
+type generates an independent local **and** server notification for the same
+business event.
 
 | Type | Active authority | Fallback | Stable event ID | Dedup / reconciliation | Prefs / quiet hours | Privacy | Multi-device |
 |---|---|---|---|---|---|---|---|
 | **Capture review** | iOS Shortcut path → server APNs; Android/Share/relay → local | Local fires iff native did **not** (`shouldShowLocalReview`: false when `sent`/imported/`!ownerValid`); a **lost** APNs response still fires local | `notificationEventId('review', txnId)` (SHA-256 of type+key, **not** text) | id-collapse; server durable idempotency via `source_payload_id` + `apns_push_sent_at` | `captureReview`; **quiet hours bypassed** (time-sensitive) | redacted generic content; channel `private`; no balance | server fans out to all devices |
 | **Transaction review** | *Not a distinct type* — same as capture review | — | — | — | — | — | — |
-| **Capture "light"** (confirmed/dup/unprocessable) | local only | none | txn id when present, **else `title\|body` display text** *(flag)* | id-collapse | `captureLight`; quiet hours bypassed | redacted | local per device |
-| **Budgets** | **local primary**, server fallback | server pushes only if **no device active in 6 h** (`anyDeviceRecentlyActive`); watermark still advances | `budgetAlertNotificationId(budgetId, periodStart, bucket)` SHA-256 (fallback text-hash when `notifId==null`, callers pass stable) *(flag)* | tier buckets 75/90/100 %; server fires only on new higher tier / +10 % | `budgetWarning`/`budgetOver`; local reschedules past quiet hours; server coarse country→UTC offset | redacted; channel `private` | server fans out |
-| **Bills / subscriptions** | **local scheduled**; server cron push also exists — **no local↔server dedup** *(flag)* | independent | `billReminderNotificationId(bill.id)` SHA-256 `[92000,992000)` | id = f(bill.id): edit keeps id (OS replaces); delete → dropped from set → capacity planner cancels stale | `subscriptionReminder` + `reminderOn`; quiet-hours shift | redacted; channel default | local per device; server fans out |
-| **Goals** | **local** on contribution; server webhook push also fires — **no active-device suppression** *(flag)* | independent watermarks (client map + server `last_notified_saved_amount`) | `goalMilestoneNotificationId(goalId)` SHA-256 `[1000000,1900000)`; milestones 25/50/75/100 once | crossed-once | `goalMilestone`; quiet hours via `_show`/policy | redacted | server fans out |
+| **Capture "light"** (confirmed/dup/unprocessable) | local only | none | `notificationEventId('captureLight', stableId)` — `stableId` = txn id **or** an immutable content fingerprint, **never display text** | id-collapse | `captureLight`; quiet hours bypassed | redacted | local per device |
+| **Budgets** | **local primary**, server fallback | server pushes only if **no device active in 6 h** (`anyDeviceRecentlyActive`); watermark still advances | `budgetAlertNotificationId(budgetId, periodStart, bucket)` SHA-256 — `notifId` now **required** (no text-hash fallback) | tier buckets 75/90/100 %; server fires only on new higher tier / +10 % | `budgetWarning`/`budgetOver`; local reschedules past quiet hours; server coarse country→UTC offset | redacted; channel `private` | server fans out |
+| **Bills / subscriptions** | **local scheduled only** (server cron push **RETIRED**) | none — the OS fires the schedule even when the app is idle | `billReminderNotificationId(bill.id)` SHA-256 `[92000,992000)` | id = f(bill.id): edit keeps id (OS replaces); delete → dropped from set → capacity planner cancels stale | `subscriptionReminder` + `reminderOn`; quiet-hours shift | redacted; channel default | local per device |
+| **Goals** | **local primary**, server fallback | server pushes only when **no device active in 6 h** (`anyDeviceRecentlyActive`); durable watermark still advances | `goalMilestoneNotificationId(goalId)` (local) + stable server collapse id `goal:<goalId>:<milestone>` | crossed-once (`last_notified_saved_amount`) | `goalMilestone` + quiet hours (`isPushAllowed`); redacted content in privacy mode | redacted | server fans out |
 | **Weekly reports** | **local scheduled only** (Sat 09:00, id `91001`) | none | constant `91001` | single fixed id; re-planned each cycle | `weeklyReport`; `nextAllowedRiyadh` | redacted | local per device only |
-| **Streaks** | local scheduled (20:00, id `88008`) **+** server cron push — **no dedup** *(flag)* | independent | fixed `88008` | cancelled if active today / pref off | `streakReminder`; server `isPushAllowed` | redacted | local + server fan-out |
-| **Achievements** | **local** on gamification sync **+** server push | independent | `achievementNotificationId(key)` (stable key, not text) | first post-sign-in pull suppressed (no history replay); server collapse id `gamification:<txnId>` | `achievements`. **Server gap:** `evaluate-gamification` imports no policy → **not** prefs/quiet-hours gated *(flag)* | redacted | server fans out |
+| **Streaks** | **local scheduled only** (20:00, id `88008`; server cron push **RETIRED**) | none | fixed `88008` | cancelled if active today / pref off | `streakReminder` (local gate) | redacted | local per device |
+| **Achievements** | **local primary** (gamification sync on pull), server fallback | server pushes only when **no device active in 6 h**; gated by the full policy | `achievementNotificationId(key)` (local) + stable server collapse id `gamification:<txnId>` | first post-sign-in pull suppressed (no history replay) | `achievements` per-type + quiet hours + lock-screen privacy — **now enforced server-side** in `evaluate-gamification` (`isPushAllowed`/`hideLockScreenContent`) | redacted | server fans out |
 | **Sync / conflict** | **Not a user notification** — silent data reconciliation + DB status-monotonicity guard only | — | — | — | — | — | — |
 | **Backup / security** | **Not implemented** — no backup/security/login/new-device notification exists | — | — | — | — | — | — |
 
@@ -422,22 +435,26 @@ complete without evidence.
 | **MALI-031** | Secrets in plaintext `UserDefaults`; capture queue plaintext | No shared-Keychain / at-rest encryption | Device secret + queue key → shared Keychain; queue AES-GCM; corrupt fail-closed no-delete; secret invalidated on wipe | `30b4f3fc` | iOS sim build + `xcodebuild test` 6/6 (encryption/secret/purge) | Encryption, purge, corruption-fail-closed | Shared-Keychain cross-process app↔extension under real provisioning + entitlement | Code complete — locally verified; external verification pending |
 | **MALI-032** | Free-form text could ride Sentry events | No outbound allowlist | `beforeSend`+`beforeBreadcrumb` allowlist; class-name+stripped frames only; native auto-breadcrumbs off | `bff0f1d8` | Canary tests (every sensitive class) | No canary survives serialized event | Native-SDK crash scrubbing parity | Code complete — locally verified; external verification pending |
 | **MALI-033** | Android Auto Backup would restore incoherent Keystore-bound data | `allowBackup` default on | `allowBackup=false` + `fullBackupContent=false` | `5c88417c` | `android_backup_policy_test` (manifest static) | Manifest attributes set | On-device restore-attempt exclusion; (no `dataExtractionRules` XML — flagged) | Code complete — locally verified; external verification pending |
-| **MALI-060n** | AI/paid endpoints trusted caller install_id | No server-verified identity/consent/idempotency | `_shared/ai_endpoint.ts`: verified identity, fail-closed consent, per-identity rate limit, typed errors, bounded bodies, upstream timeouts, 0071 idempotency; `set-device-consent` | `b6c990f8`/`9bf26554`/`2aa29d60`/`3316c154`/`8dd5f1b1` | deno 67→68/0 (+ credential-gated ignored) | Identity/consent/limit/idempotency shape | Live migration apply + RPC concurrency + Android consent-push; process-ios-sms residuals (flagged §E) | Code complete — locally verified; external verification pending |
-| **MALI-061n** | Notification identity off mutable display text/hashCode | Unstable ids; dual budget authority; capture double-fire | Stable business-key ids; budget local-primary/server-fallback; `CaptureNotificationAuthority` | `1e217ce3`/`5b2c771b`/`c3ffc673` | 5 capture-authority behavioral tests | Stable id + single capture authority | Live two-path device delivery; local↔server dedup gaps for goals/streak/bill/achievements (flagged §F) | Code complete — locally verified; external verification pending |
+| **MALI-060n** | AI/paid endpoints trusted caller install_id | No server-verified identity/consent/idempotency | `_shared/ai_endpoint.ts`: verified identity, fail-closed consent, per-identity rate limit, typed errors, bounded bodies, upstream timeouts, 0071 idempotency; `set-device-consent`. **Closure:** `process-ios-sms` brought onto the same boundary — server-owned consent (`allowAi` compat-only), `readBoundedJsonBody` cap, schema/length limits, gate ordering before Gemini | `b6c990f8`/`9bf26554`/`2aa29d60`/`3316c154`/`8dd5f1b1` + closure | deno shape + `readBoundedJsonBody` unit tests + static ordering + credential-gated real-backend gates | Identity/consent/limit/idempotency shape; process-ios-sms bounded/consent-gated (verified) | Live migration apply + RPC concurrency + Android consent-push + live `process-ios-sms` consent under 0071 | Code complete — locally verified; external verification pending |
+| **MALI-061n** | Notification identity off mutable display text/hashCode | Unstable ids; dual budget authority; capture double-fire; uncoordinated goal/streak/bill/achievement paths; text-derived captureLight/budget ids | Stable business-key ids; budget local-primary/server-fallback; `CaptureNotificationAuthority`. **Closure:** goals+achievements coordinated (server fallback via `anyDeviceRecentlyActive`), streak/bill server cron **retired** (local scheduled sole authority), captureLight id from a generated-before-notify stable key, budget `notifId` required (no text-hash fallback) | `1e217ce3`/`5b2c771b`/`c3ffc673` + closure | 5 capture-authority tests + stable-id tests + coordinated-fallback static contracts | Single authority per type; no "may duplicate"; display-text-independent ids | Live two-path device delivery; live two-device fallback timing | Code complete — locally verified; external verification pending |
 | **MALI-065n** | Export temp files world-legible / clipboard leak | No managed lifecycle | `ManagedExportStore`: opaque names, private dir, iOS file-protection, startup+lease sweep, no clipboard fallback | `2d1072f6` | 9 filesystem tests + iOS sim build | Names/sweep/dispose/no-clipboard | Device file-protection + backup-exclusion attributes | Code complete — locally verified; external verification pending |
 | **MALI-068n** | Non-durable native queue; receiver-time timestamps; exact alarms | apply-not-commit; `now` stamping; exact-alarm policy | Synchronous `commit()`; peek≠ack; epoch timestamp authority; inexact alarms; nullable receivedAt | `5c88417c`/`30b4f3fc`/`8337202e`/`d72e5785` | Dart/manifest contract + file-backed lease tests | Durability, lease, timestamp resolution | Android compile, receiver process-death replay, alarm delivery, reboot | Code complete — locally verified; external verification pending |
 | **MALI-071n** | Merchant logos leaked merchant identity unconditionally | No consent gate | Consent-gated (fail-closed) domain-only logo ladder; no prefetch | `08e7ca0d` | 4 widget tests (no `Image` with consent off) | Zero requests when consent off | — (fully local-verifiable) | **Closed — locally verified** |
 | **MALI-075n** | SD search_path gaps; metrics free-for-all insert; purge gaps | Missing hardening | 0072: SD search_path fix; owner-bound `record_metric`; purge coverage | `0010b037`/`4e927db5`/`975af849` | 11 backend contract tests | Migration shape | Live RLS/RPC/quota/purge under real Postgres | Code complete — locally verified; external verification pending |
-| **MALI-019** | No server preference enforcement; lock-screen leak; title logged | Missing privacy contract | Server per-type + quiet-hours policy (already present); lock-screen redaction; log-leak fix; sign-out reminder-cancel | `224394fd`/`f7cbe727` | Redaction + reconciliation + quiet-hours tests | Redaction, honest states, sign-out cancel | Device lock-screen render; server quiet-hours is coarse country→UTC (flagged §F) | Code complete — locally verified; external verification pending |
+| **MALI-019** | No server preference enforcement; lock-screen leak; title logged; gamification push ungated | Missing privacy contract; `evaluate-gamification` bypassed the policy | Server per-type + quiet-hours policy; lock-screen redaction; log-leak fix; sign-out reminder-cancel. **Closure:** `evaluate-gamification` now routes the post-award push through `loadNotificationPolicy`/`isPushAllowed('achievement')` + quiet hours + `hideLockScreenContent` redaction + device eligibility + coordinated fallback | `224394fd`/`f7cbe727` + closure | Redaction + reconciliation + quiet-hours tests + gamification-policy deno tests + static contract | Achievement push gated by prefs/quiet-hours/privacy server-side | Device lock-screen render; server quiet-hours is coarse country→UTC | Code complete — locally verified; external verification pending |
 | **MALI-024** | Client could forge XP; award not crash-safe | Owner aggregate-writes; claim+award non-atomic | 0073 read-only aggregates; 0074 single-transaction exactly-once award | `9fdd30e7`/`c4f2aea0`/`ae1f967b` | Contract + credential-gated concurrency/replay/ownership | Read-only shape, atomic award structure | Live RLS + award-RPC concurrency; migration 0070 stays inactive | Code complete — locally verified; external verification pending |
 | **MALI-025** | iOS 64-pending overflow silently drops | No capacity planner | `NotificationCapacityPlanner` (reserve, priority, rolling window, verify pending) | `9128589e` | 5 planner tests | Planner logic | On-device 64-limit behavior | Code complete — locally verified; external verification pending |
 | **MALI-044** | Dead anonymous no-op endpoint (fake success) | Never-implemented TODO | Retired: Bearer + 410 → `enrich-merchant` | `6ddd5aaa` | Contract test | 410 + auth shape | Live deployment + endpoint authorization | Code complete — locally verified; external verification pending |
 | **MALI-039** (P5 portion) | `debugPrint` leaks in release; unsanitized logs | No central sink | Global redacting `debugPrint` sink + `Diag` API; length-bound | `0010b037` | `diagnostics_test.dart` | Redaction + bound (debug & release) | — (locally verifiable) | Code complete — locally verified; external verification pending |
 
 No Phase-5 finding is `In progress`; none is `Not closed` (no known remaining
-*code* defect within Phase-5 scope). The `process-ios-sms` consent/byte-cap
-residual and the notification dedup/quiet-hours gaps are documented, out-of-scope
-for the Phase-5 findings above, and tracked in §4 for a future batch.
+*code* defect within Phase-5 scope). The four production-code defects surfaced by
+this document's own honesty — the ungated gamification push (MALI-019), the
+uncoordinated goal/streak/bill/achievement paths and two text-derived ids
+(MALI-061n), and the `process-ios-sms` caller-authorized-AI / unbounded-body tail
+(MALI-060n) — were **fixed** in the Phase-5 closure correction, not deferred. They
+were inside the scope of MALI-019/061n/060n and are now coordinated, stable-id'd,
+and consent/limit-gated respectively, with tests.
 
 ---
 
@@ -517,9 +534,10 @@ repeated here — see `PHASE_3_SYNC_CLOSURE.md` and
 - [ ] Notification-eligibility uniqueness (no duplicate eligibility row).
 
 ### Multi-device
-- [ ] Notification fallback coordination (server suppresses when a device is
-      recently active — **currently only budgets/capture**; goals/streak/bill/
-      achievements may duplicate — verify/accept).
+- [ ] Notification fallback-coordination timing under real two-device use: the
+      server suppresses budgets/goals/achievements when a device was active in the
+      last 6 h (`anyDeviceRecentlyActive`); confirm the window is well-tuned and
+      that streak/bill (local-scheduled only, server cron retired) never double-fire.
 - [ ] Capture deduplication across devices.
 - [ ] Ownership / sign-out isolation.
 - [ ] Preference & privacy propagation across devices.

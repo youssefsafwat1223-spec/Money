@@ -294,7 +294,25 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 5 — Security, privacy, notifications, native hardening
 
-> **Status (2026-08-05): Batch 6 — documentation, reconciliation, external-gate
+> **Status (2026-08-05): Batch 6 closure correction.** The Batch-6 documentation's
+> own honesty surfaced four production-code defects INSIDE Phase-5 scope, which
+> were FIXED (not deferred): **MALI-019** — `evaluate-gamification` post-award push
+> now passes the server-authoritative notification policy (per-type + quiet hours
+> via `isPushAllowed`, `hideLockScreenContent` redaction, device eligibility,
+> coordinated fallback), eligibility staying exactly-once in the 0074 RPC;
+> **MALI-061n** — goals + achievements are local-primary/server-fallback
+> (`anyDeviceRecentlyActive`), the redundant streak/bill server cron push is
+> RETIRED (scheduled-local is the sole authority), and the two text-derived
+> notification ids (captureLight, budget) are replaced with generated-before-notify
+> stable keys; **MALI-060n** — `process-ios-sms` is brought onto the Batch-3
+> boundary (server-owned consent with `allowAi` compat-only, `readBoundedJsonBody`
+> cap, schema/length limits, gate ordering before any Gemini call). Gates: analyze
+> 0, full suite 1258, deno 76/0/2-ignored, node 21/0 (+23 credential-gated skips),
+> migration lint PASS, ci_gates PASS; 4 pre-existing `_shared` deno-lint findings
+> unchanged. Migrations 0068–0074 undeployed; `kServerRevisionCas=false`; 0070
+> inactive. No type remains documented as "may duplicate".
+>
+> **Prior — Batch 6 — documentation, reconciliation, external-gate
 > inventory, formal closure (documentation & verification only; no production code
 > changed).** The authoritative Phase-5 contract spec is
 > `PHASE_5_SECURITY_PRIVACY_NOTIFICATIONS.md` — it documents the FINAL implemented
