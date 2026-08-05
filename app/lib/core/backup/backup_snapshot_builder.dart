@@ -122,6 +122,22 @@ class BackupSnapshotBuilder {
       'last_active_date',
       'freezes_available',
     ],
+    // Backup-safe user_settings columns (MALI-058n). Each is user-authored,
+    // owned by the single local user, portable across the user's devices, and
+    // safe to restore; an absent value falls back to the column default on the
+    // destination. EXCLUDED, deliberately: db_encryption_key_ref (the local
+    // SQLCipher key is device-scoped platform-secure-storage material and must
+    // never enter a snapshot — MALI-058n); consent columns (ai_consent_granted /
+    // cloud_processing_enabled + versioned *_state — a restore must never import
+    // consent as authorization, MALI-059n; runPostRestoreSetup resets them OFF).
+    //   id                 — the settings row id (stable per install)
+    //   display_name       — user profile name
+    //   phone_number       — user profile phone
+    //   avatar_path        — local avatar file reference
+    //   date_of_birth      — user profile DOB
+    //   country / currency / language / theme / input_method — UI/locale prefs
+    //   notifications_json — notification preferences blob
+    //   privacy_mode_enabled — lock-screen privacy toggle
     'user_settings': [
       'id',
       'display_name',
@@ -134,12 +150,7 @@ class BackupSnapshotBuilder {
       'theme',
       'input_method',
       'notifications_json',
-      'db_encryption_key_ref',
       'privacy_mode_enabled',
-      // MALI-059n: consent (ai_consent_granted / cloud_processing_enabled and
-      // their versioned *_state columns) is intentionally NOT backed up — a
-      // restore must never import consent as authorization on a new device.
-      // runPostRestoreSetup() additionally resets consent to unset/OFF.
     ],
     'subscriptions': [
       'id',
@@ -315,6 +326,12 @@ class BackupSnapshotBuilder {
 
   /// Tables captured by the backup — exposed for the coverage-guard test.
   static Set<String> get backedUpTables => _tables.keys.toSet();
+
+  /// The single source of truth for backup-safe columns, per table. The restore
+  /// path uses this as its column WHITELIST (MALI-058n §6) so a snapshot key can
+  /// never inject an arbitrary column name into restore SQL, and any excluded
+  /// column (e.g. the deprecated db_encryption_key_ref) is dropped on the way in.
+  static const Map<String, List<String>> restorableColumns = _tables;
 
   Future<Map<String, dynamic>> build() async {
     final tables = <String, List<Map<String, Object?>>>{};

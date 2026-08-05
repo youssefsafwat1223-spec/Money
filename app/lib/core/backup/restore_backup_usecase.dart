@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../data/db/app_database.dart';
 import 'backup_service.dart';
+import 'backup_snapshot_builder.dart';
 
 class RestoreBackupUseCase {
   const RestoreBackupUseCase(this._db);
@@ -219,6 +220,24 @@ class RestoreBackupUseCase {
             'تعذّرت الاستعادة.',
           );
         }
+        // MALI-058n §4/§6 — fail CLOSED on an unexpected key/secret-like field
+        // BEFORE any destructive step. The one known-deprecated field
+        // (db_encryption_key_ref from a legacy snapshot) is tolerated — it is
+        // dropped on insert, so an otherwise-valid legacy backup still restores.
+        // Any OTHER security-sensitive column outside the backup-safe whitelist
+        // is rejected, so a tampered/foreign snapshot can never smuggle key
+        // material (or a mismatched location) into the restored database.
+        final allowed = BackupSnapshotBuilder.restorableColumns[entry.key];
+        for (final key in row.keys) {
+          if (allowed != null && allowed.contains(key)) continue;
+          if (_knownDeprecatedColumns.contains(key)) continue;
+          if (_looksSensitive(key)) {
+            throw BackupException(
+              'النسخة الاحتياطية تحتوي على حقل حسّاس غير متوقع '
+              '("${entry.key}"). تعذّرت الاستعادة.',
+            );
+          }
+        }
       }
     }
     // v3+ must carry every REQUIRED table as a non-empty list. These three
@@ -252,12 +271,53 @@ class RestoreBackupUseCase {
     'user_settings',
   };
 
+  // MALI-058n §3/§7 — a legacy snapshot may carry the deprecated raw-key column;
+  // it is never written to the destination DB.
+  static const _knownDeprecatedColumns = {'db_encryption_key_ref'};
+
+  // Any snapshot column outside the backup-safe whitelist whose NAME looks like
+  // key/secret material and is not a known-deprecated field → fail closed.
+  static final _sensitivePattern = RegExp(
+    r'(?:^|_)(key|secret|token|password|passphrase|credential|cipher)(?:$|_)',
+    caseSensitive: false,
+  );
+  static bool _looksSensitive(String column) =>
+      _sensitivePattern.hasMatch(column);
+
   Future<void> _insertRow(String table, Map<String, dynamic> row) async {
     final data = Map<String, dynamic>.from(row);
     if (table == 'transactions') {
       data['raw_message'] = '[restored: raw message intentionally excluded]';
     }
-    final columns = data.keys.toList(growable: false);
+    if (table == 'user_settings') {
+      // MALI-058n §4 — the deprecated key column is NOT NULL, so the restore
+      // must write it, but it writes ONLY '' — never the (possibly key-bearing)
+      // value a legacy/foreign snapshot may carry.
+      data['db_encryption_key_ref'] = '';
+    }
+    // MALI-058n §6 — column names are fixed by application code, NEVER taken
+    // from arbitrary snapshot keys. Restrict to the backup-safe whitelist; any
+    // other key (a legacy db_encryption_key_ref value, or any unrecognized
+    // field) is dropped here and never reaches the SQL or the destination DB.
+    final allowed = BackupSnapshotBuilder.restorableColumns[table];
+    if (allowed == null) {
+      // A restore-order table must have a defined whitelist — refuse to build
+      // SQL from arbitrary identifiers rather than trust the snapshot.
+      throw BackupException(
+        'تعذّرت الاستعادة: جدول غير مدعوم ("$table").',
+      );
+    }
+    final restorable = <String>{
+      ...allowed,
+      if (table == 'transactions') 'raw_message',
+      // Written as '' above; included so the NOT NULL column is satisfied.
+      if (table == 'user_settings') 'db_encryption_key_ref',
+    };
+    final columns = [
+      for (final column in restorable)
+        if (data.containsKey(column)) column,
+    ];
+    if (columns.isEmpty) return;
     final placeholders = List.filled(columns.length, '?').join(', ');
     await _db.customInsert(
       'INSERT OR REPLACE INTO $table(${columns.join(', ')}) VALUES ($placeholders);',
