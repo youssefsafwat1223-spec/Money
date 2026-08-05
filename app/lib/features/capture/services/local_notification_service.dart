@@ -1127,7 +1127,10 @@ class LocalNotificationService {
     await PendingNotificationActions.record(transactionId, confirm: confirm);
     final AppDatabase db;
     try {
-      db = await AppDatabase.open();
+      // MALI-069n §6 — a bounded SECONDARY connection in the notification
+      // background isolate: same key + PRAGMA contract, no concurrent migrations
+      // (the main app connection owns them). Closed in the finally below.
+      db = await AppDatabase.openSecondary();
     } catch (_) {
       // الجهاز غالباً مقفول ومفتاح التشفير غير متاح من الـ Keychain —
       // الإجراء مسجَّل أعلاه ويُطبَّق عند أول فتح للتطبيق بدلاً من فقدانه.

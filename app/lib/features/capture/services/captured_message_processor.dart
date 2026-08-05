@@ -66,7 +66,11 @@ class CapturedMessageProcessor {
     bool showNotifications = true,
     AppDatabase? database,
   }) async {
-    final db = database ?? await AppDatabase.open();
+    // MALI-069n §6 — when no shared database is supplied this is a bounded
+    // SECONDARY connection to the same encrypted file: same key + PRAGMA
+    // contract, but it never runs migrations concurrently with the main
+    // connection (which owns them). Always closed in the finally below.
+    final db = database ?? await AppDatabase.openSecondary();
     final shouldCloseDatabase = database == null;
     try {
       final settingsRepository = DriftUserSettingsRepository(db);
