@@ -18,7 +18,8 @@ export type NotificationType =
   | 'budget_over'
   | 'goal_milestone'
   | 'streak_reminder'
-  | 'bill_reminder';
+  | 'bill_reminder'
+  | 'achievement';
 
 export interface NotificationPolicy {
   budgetWarning: boolean;
@@ -26,6 +27,11 @@ export interface NotificationPolicy {
   goalMilestone: boolean;
   streakReminder: boolean;
   subscriptionReminder: boolean;
+  achievements: boolean;
+  // Lock-screen privacy — when true, server pushes must carry generic content
+  // only (no XP/level/achievement/financial text). Mirrors the client's
+  // NotificationPreferences.hideLockScreenContent.
+  hideLockScreenContent: boolean;
   quietHoursEnabled: boolean;
   quietHoursStartHour: number;
   quietHoursEndHour: number;
@@ -39,6 +45,8 @@ const defaultPolicy: NotificationPolicy = {
   goalMilestone: true,
   streakReminder: true,
   subscriptionReminder: true,
+  achievements: true,
+  hideLockScreenContent: false,
   quietHoursEnabled: false,
   quietHoursStartHour: 23,
   quietHoursEndHour: 8,
@@ -91,6 +99,8 @@ export async function loadNotificationPolicy(
       goalMilestone: parsed.goalMilestone !== false,
       streakReminder: parsed.streakReminder !== false,
       subscriptionReminder: parsed.subscriptionReminder !== false,
+      achievements: parsed.achievements !== false,
+      hideLockScreenContent: parsed.hideLockScreenContent === true,
       quietHoursEnabled: parsed.quietHoursEnabled === true,
       quietHoursStartHour: typeof parsed.quietHoursStartHour === 'number'
         ? parsed.quietHoursStartHour
@@ -119,6 +129,7 @@ export function isPushAllowed(
     goal_milestone: policy.goalMilestone,
     streak_reminder: policy.streakReminder,
     bill_reminder: policy.subscriptionReminder,
+    achievement: policy.achievements,
   }[type];
   if (!typeEnabled) return false;
 

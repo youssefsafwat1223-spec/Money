@@ -12,11 +12,38 @@ const base: NotificationPolicy = {
   goalMilestone: true,
   streakReminder: true,
   subscriptionReminder: true,
+  achievements: true,
+  hideLockScreenContent: false,
   quietHoursEnabled: false,
   quietHoursStartHour: 23,
   quietHoursEndHour: 8,
   utcOffsetHours: null,
 };
+
+// MALI-019 — gamification pushes are gated by the same policy contract.
+Deno.test('achievement push respects its own per-type toggle', () => {
+  assertEquals(isPushAllowed(base, 'achievement'), true);
+  assertEquals(isPushAllowed({ ...base, achievements: false }, 'achievement'), false);
+  // Disabling achievements leaves other types alone.
+  assertEquals(isPushAllowed({ ...base, achievements: false }, 'budget_over'), true);
+});
+
+Deno.test('achievement push is suppressed inside quiet hours (overnight window)', () => {
+  // 23:00→08:00 local, UTC+3. 01:00 local (22:00 UTC) is inside the window.
+  const p = { ...base, quietHoursEnabled: true, utcOffsetHours: 3 };
+  const inside = new Date(Date.UTC(2026, 0, 1, 22, 0, 0)); // 01:00 local
+  const outside = new Date(Date.UTC(2026, 0, 1, 9, 0, 0)); // 12:00 local
+  assertEquals(isPushAllowed(p, 'achievement', inside), false);
+  assertEquals(isPushAllowed(p, 'achievement', outside), true);
+});
+
+Deno.test('achievement quiet-hours boundaries are half-open [start, end)', () => {
+  const p = { ...base, quietHoursEnabled: true, utcOffsetHours: 0, quietHoursStartHour: 23, quietHoursEndHour: 8 };
+  const at23 = new Date(Date.UTC(2026, 0, 1, 23, 0, 0)); // exactly start → suppressed
+  const at8 = new Date(Date.UTC(2026, 0, 1, 8, 0, 0)); // exactly end → allowed
+  assertEquals(isPushAllowed(p, 'achievement', at23), false);
+  assertEquals(isPushAllowed(p, 'achievement', at8), true);
+});
 
 Deno.test('per-type toggle suppresses only its own type', () => {
   const p = { ...base, streakReminder: false };
@@ -129,6 +156,8 @@ Deno.test('loadNotificationPolicy parses notifications_json and maps country off
   assertEquals(policy.quietHoursEnabled, true);
   assertEquals(policy.quietHoursStartHour, 22);
   assertEquals(policy.utcOffsetHours, 3); // SA → +3
+  assertEquals(policy.achievements, true); // absent key → default enabled
+  assertEquals(policy.hideLockScreenContent, false); // absent key → default off
 });
 
 Deno.test('loadNotificationPolicy fails open on malformed json', async () => {

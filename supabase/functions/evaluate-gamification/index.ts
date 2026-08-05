@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { timingSafeEqual } from '../_shared/capture_auth.ts';
+import { anyDeviceRecentlyActive, isPushAllowed, loadNotificationPolicy } from '../_shared/notification_policy.ts';
 
 serve(async (req) => {
   // Service-only endpoint (MALI-004): only the DB webhook's service-role
@@ -45,47 +46,78 @@ serve(async (req) => {
 
   const leveledUp = award.leveled_up === true;
   const achievementCode: string | null = award.achievement ?? null;
-  const achievementLabels: Record<string, string> = {
-    first_transaction: 'First Transaction!',
-    tenth_transaction: '10th Transaction!',
-    century_transaction: '100th Transaction Century!',
-  };
+  const ok = () => new Response('OK', { headers: { 'Content-Type': 'application/json' } });
+  if (!leveledUp && !achievementCode) return ok();
 
-  // Notification delivery happens AFTER the award has committed — never inside
-  // the transaction. The payloadId is stable per transaction, so APNs collapses
-  // a retry into the same notification: provider failure stays retryable, a
-  // repeat can never create a duplicate, and a send failure never rolls back or
-  // re-awards (the award is already durably committed above).
-  if (leveledUp || achievementCode) {
-    const { data: devices } = await supabase
-      .from('capture_devices')
-      .select('apns_token, apns_environment')
-      .eq('user_id', userId)
-      .not('apns_token', 'is', null);
+  // MALI-019 — the notification generated after the award must pass the
+  // server-authoritative notification-policy contract before ANY provider
+  // delivery. Notification ELIGIBILITY was already recorded exactly-once inside
+  // the award transaction (0074); this gate governs only best-effort DELIVERY,
+  // which happens after the commit and never re-awards. Preference OFF or quiet
+  // hours ⇒ no push (defer-or-suppress). Caller-supplied preference/quiet-hours/
+  // privacy values are never authoritative — the policy is loaded server-side.
+  const policy = await loadNotificationPolicy(supabase, userId);
+  if (!isPushAllowed(policy, 'achievement')) return ok();
 
-    if (devices && devices.length > 0) {
-      let body = '';
-      let title = '';
-      if (leveledUp) {
-        title = 'Level Up! 🌟';
-        body = `Congratulations! You reached Level ${award.level}!`;
-      } else if (achievementCode) {
-        title = 'Achievement Unlocked! 🏆';
-        body = `You unlocked: ${achievementLabels[achievementCode] ?? achievementCode}`;
-      }
+  const { data: devices } = await supabase
+    .from('capture_devices')
+    .select('apns_token, apns_environment, last_seen_at')
+    .eq('user_id', userId)
+    .not('apns_token', 'is', null);
+  if (!devices || devices.length === 0) return ok();
 
-      for (const device of devices) {
-        await sendCapturePush({
-          token: device.apns_token,
-          environment: device.apns_environment as 'sandbox' | 'production',
-          payloadId: `gamification:${transaction.id}`,
-          title,
-          body,
-          notificationType: 'gamification_alert',
-        });
-      }
-    }
+  // MALI-061n coordination — the LOCAL app is the PRIMARY achievement authority
+  // (gamification_sync notifies on pull when a device is active). The server is
+  // the FALLBACK that pushes only when NO device has been active recently, so we
+  // never generate a local+server duplicate for the same award.
+  const fallbackWindowMs = 6 * 60 * 60 * 1000;
+  if (
+    anyDeviceRecentlyActive(
+      devices.map((d) => d.last_seen_at as string | null),
+      Date.now(),
+      fallbackWindowMs,
+    )
+  ) {
+    return ok();
   }
 
-  return new Response('OK', { headers: { 'Content-Type': 'application/json' } });
+  // Lock-screen privacy — redacted mode carries GENERIC content only (no XP,
+  // level, achievement name, or any financial text). Sourced from the server-
+  // owned policy, never a caller-supplied flag.
+  let title: string;
+  let body: string;
+  if (policy.hideLockScreenContent) {
+    title = 'قرش';
+    body = 'لديك تحديث جديد. افتح التطبيق للمزيد.';
+  } else if (leveledUp) {
+    title = 'Level Up! 🌟';
+    body = `Congratulations! You reached Level ${award.level}!`;
+  } else {
+    const achievementLabels: Record<string, string> = {
+      first_transaction: 'First Transaction!',
+      tenth_transaction: '10th Transaction!',
+      century_transaction: '100th Transaction Century!',
+    };
+    title = 'Achievement Unlocked! 🏆';
+    body = `You unlocked: ${achievementLabels[achievementCode!] ?? achievementCode}`;
+  }
+
+  // Delivery is best-effort and AFTER the committed award. The payloadId is
+  // stable per transaction, so APNs collapses a retry into the same notification
+  // (banner-replacement, not strict delivery idempotency): provider failure
+  // stays retryable, a repeat cannot create a second eligibility row, and a send
+  // failure never rolls back or re-awards. APNs acceptance is not marked as
+  // displayed/delivered.
+  for (const device of devices) {
+    await sendCapturePush({
+      token: device.apns_token,
+      environment: device.apns_environment as 'sandbox' | 'production',
+      payloadId: `gamification:${transaction.id}`,
+      title,
+      body,
+      notificationType: 'gamification_alert',
+    });
+  }
+
+  return ok();
 });
