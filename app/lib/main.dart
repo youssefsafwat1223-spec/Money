@@ -7,6 +7,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'app.dart';
 import 'core/backend/sentry_config.dart';
 import 'core/di/app_providers.dart';
+import 'core/observability/telemetry_sanitizer.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
 import 'data/db/app_database.dart';
@@ -21,33 +22,27 @@ Future<void> main() async {
         options.sendDefaultPii = false;
         options.tracesSampleRate = 0.0;
         options.attachScreenshot = false;
-        // Defence-in-depth: redact anything that looks like a monetary amount
-        // or a long digit run (account/card) from crash payloads, so financial
-        // data can never reach Sentry via an exception message.
-        options.beforeSend = (event, hint) => _scrubSentryEvent(event);
+        // MALI-032 — native crashes are serialized by the native SDK and do
+        // NOT pass through the Dart boundary below, so silence native
+        // auto-breadcrumbs (UI/navigation/system) which could otherwise ride
+        // along on a native crash payload unscrubbed.
+        options.enableAutoNativeBreadcrumbs = false;
+        // MALI-032 — allowlist telemetry boundary. Every outbound event and
+        // breadcrumb is stripped down to allowlisted, redacted fields so no
+        // free-form text (SMS/merchant/amount/account/token) can leak. Covers
+        // beforeSend AND beforeBreadcrumb — never assume the former covers the
+        // latter. See TelemetrySanitizer for the exact contract and the
+        // documented native limitation.
+        options.beforeSend =
+            (event, hint) => TelemetrySanitizer.sanitizeEvent(event);
+        options.beforeBreadcrumb =
+            (crumb, hint) => TelemetrySanitizer.sanitizeBreadcrumb(crumb);
       },
       appRunner: () async => runApp(const StartupApp()),
     );
     return;
   }
   runApp(const StartupApp());
-}
-
-/// Redacts monetary amounts and long digit runs from a Sentry event's exception
-/// values before it is sent. Conservative on purpose so stack traces stay
-/// useful while financial data cannot leak.
-SentryEvent _scrubSentryEvent(SentryEvent event) {
-  String scrub(String input) => input
-      .replaceAll(RegExp(r'\d[\d,]*\.\d{2,3}'), '[amount]')
-      .replaceAll(RegExp(r'\d{5,}'), '[redacted]');
-  final exceptions = event.exceptions;
-  if (exceptions == null || exceptions.isEmpty) return event;
-  return event.copyWith(
-    exceptions: <SentryException>[
-      for (final e in exceptions)
-        if (e.value == null) e else e.copyWith(value: scrub(e.value!)),
-    ],
-  );
 }
 
 /// Root widget for the first frame. Renders [StartupLoadingScreen] while
