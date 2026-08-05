@@ -85,6 +85,16 @@ class _SchemaMigration {
 /// to the single auto-seeded default.)
 const String kDefaultAccountLocalId = 'default_account';
 
+/// MALI-069n §2 — the database connection lifecycle. A failed open never leaves a
+/// live connection/isolate; close is idempotent and waits for init to settle.
+enum DatabaseLifecycleState {
+  opening,
+  open,
+  closing,
+  closed,
+  failed,
+}
+
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
     DatabaseConnection connection, {
@@ -95,6 +105,11 @@ class AppDatabase extends GeneratedDatabase {
   final DatabaseKeyStore keyStore;
   final bool isEncrypted;
   final _manualRevisionController = StreamController<int>.broadcast();
+
+  DatabaseLifecycleState _lifecycle = DatabaseLifecycleState.opening;
+
+  /// The current typed lifecycle state (MALI-069n §2).
+  DatabaseLifecycleState get lifecycleState => _lifecycle;
   var _manualRevision = 0;
 
   @override
@@ -116,7 +131,14 @@ class AppDatabase extends GeneratedDatabase {
   static Future<AppDatabase> open({
     DatabaseKeyStore? keyStore,
     QueryExecutor? executor,
+    // MALI-069n §6 — a secondary (background/second-connection) open passes
+    // false: it uses the same key + PRAGMA contract but does NOT run the
+    // migration pipeline, so the file's migrations are never run concurrently
+    // from two connections. The MAIN application open (the sole migration owner)
+    // uses the default true. See [openSecondary].
+    bool runMigrations = true,
     @visibleForTesting Future<bool> Function()? databaseFileExists,
+    @visibleForTesting Future<void> Function(String phase)? debugFailInit,
   }) async {
     final resolvedKeyStore = keyStore ?? SecureDatabaseKeyStore();
     if (executor != null) {
@@ -133,9 +155,8 @@ class AppDatabase extends GeneratedDatabase {
         connection,
         keyStore: resolvedKeyStore,
         isEncrypted: false,
-      );
-      await db.initialize();
-      return db;
+      )..debugFailAtPhase = debugFailInit;
+      return _finishOpen(db, runMigrations);
     }
 
     // MALI-058n — before creating or using any key, decide the key state. If an
@@ -153,7 +174,37 @@ class AppDatabase extends GeneratedDatabase {
       keyStore: resolvedKeyStore,
       isEncrypted: true,
     );
-    await db.initialize();
+    return _finishOpen(db, runMigrations);
+  }
+
+  /// MALI-069n §6 — open a bounded SECONDARY connection to the same encrypted
+  /// file (e.g. the background capture-import or notification-action isolate). It
+  /// uses the authoritative key + the centralized PRAGMA contract but never runs
+  /// application migrations (the main connection owns them) — callers MUST close
+  /// it in a `try/finally`.
+  static Future<AppDatabase> openSecondary({DatabaseKeyStore? keyStore}) =>
+      open(keyStore: keyStore, runMigrations: false);
+
+  /// MALI-069n §3 — finish opening: run the migration pipeline for a MAIN open,
+  /// and on ANY failure close the just-created native connection + its background
+  /// isolate (best-effort, never masking the original error), mark [failed], and
+  /// rethrow the typed cause. No key rotation, no file deletion. A SECONDARY open
+  /// (runMigrations=false) skips the pipeline entirely.
+  static Future<AppDatabase> _finishOpen(
+      AppDatabase db, bool runMigrations) async {
+    db._lifecycle = DatabaseLifecycleState.opening;
+    if (!runMigrations) {
+      db._lifecycle = DatabaseLifecycleState.open;
+      return db;
+    }
+    try {
+      await db.initialize();
+    } catch (_) {
+      db._lifecycle = DatabaseLifecycleState.failed;
+      await db._closeQuietly();
+      rethrow;
+    }
+    db._lifecycle = DatabaseLifecycleState.open;
     return db;
   }
 
@@ -389,10 +440,61 @@ class AppDatabase extends GeneratedDatabase {
     }
   }
 
+  Future<void>? _closeFuture;
+
+  /// MALI-069n §2 — idempotent close. Concurrent/repeated close calls share one
+  /// teardown; it first waits for any in-flight initialization to SETTLE (so we
+  /// never tear down mid-migration), then closes the stream + the executor
+  /// (which stops the background isolate). Safe to call after a failed open.
   @override
-  Future<void> close() async {
+  Future<void> close() => _closeFuture ??= _close();
+
+  Future<void> _close() async {
+    if (_lifecycle != DatabaseLifecycleState.failed) {
+      _lifecycle = DatabaseLifecycleState.closing;
+    }
+    // Let a running init finish or fail before teardown — never abort it midway.
+    try {
+      await _initFuture;
+    } catch (_) {}
     await _manualRevisionController.close();
     await executor.close();
+    _lifecycle = DatabaseLifecycleState.closed;
+  }
+
+  /// Best-effort close used by failed-open cleanup — never throws, so it can
+  /// never mask the original initialization failure (MALI-069n §3).
+  Future<void> _closeQuietly() async {
+    try {
+      await close();
+    } catch (_) {}
+  }
+
+  Completer<void>? _maintenanceLock;
+
+  /// True while an exclusive maintenance operation holds the database.
+  bool get isUnderMaintenance =>
+      _maintenanceLock != null && !_maintenanceLock!.isCompleted;
+
+  /// MALI-069n §10 — run [action] as an EXCLUSIVE database-maintenance operation:
+  /// serialized against any other maintenance (a second concurrent request waits
+  /// its turn), with the database marked under maintenance so callers can observe
+  /// or await it. This is the lifecycle primitive the Batch-5 restore/reset matrix
+  /// will build on; it does NOT itself rewrite restore. On a recoverable failure
+  /// the maintenance flag is always cleared so the database returns to a usable
+  /// state; the action's own error propagates unchanged.
+  Future<T> runExclusiveMaintenance<T>(Future<T> Function() action) async {
+    while (isUnderMaintenance) {
+      await _maintenanceLock!.future;
+    }
+    final lock = Completer<void>();
+    _maintenanceLock = lock;
+    try {
+      return await action();
+    } finally {
+      _maintenanceLock = null;
+      lock.complete();
+    }
   }
 
   Stream<int> get manualRevisionStream => _manualRevisionController.stream;
@@ -483,6 +585,12 @@ class AppDatabase extends GeneratedDatabase {
       // runs no migrator and never writes `user_version`, so the pipeline
       // observes the real on-disk version and remains the only writer.
       enableMigrations: false,
+      // MALI-069n §7 — the single centralized connection-configuration contract.
+      // EVERY production connection (main and approved secondary) runs THIS setup,
+      // so they can never silently differ. Order is SQLCipher-correct: activate
+      // the cipher, verify the extension is present (fail-closed — never continue
+      // unencrypted), install the key, prove the key by touching sqlite_master,
+      // then set the integrity/contention PRAGMAs.
       setup: (database) {
         database.execute("PRAGMA cipher = 'sqlcipher';");
         final cipher = database.select('PRAGMA cipher;');
@@ -494,9 +602,17 @@ class AppDatabase extends GeneratedDatabase {
         database.execute("PRAGMA key = '${escapeSqlString(key)}';");
         database.select('SELECT count(*) FROM sqlite_master;');
         database.execute('PRAGMA foreign_keys = ON;');
+        // MALI-069n §8 — bounded wait on transient write contention (e.g. the
+        // background capture/notification second connection racing the main
+        // one), instead of failing immediately with SQLITE_BUSY. Bounded so it
+        // can never hang; a genuinely stuck lock surfaces as a typed busy error.
+        database.execute('PRAGMA busy_timeout = $_busyTimeoutMs;');
       },
     );
   }
+
+  /// MALI-069n §8 — bounded busy wait (ms) applied to every production connection.
+  static const int _busyTimeoutMs = 5000;
 
   Future<void> _createSchema() async {
     await customStatement('''
