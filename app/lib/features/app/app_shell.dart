@@ -420,7 +420,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     try {
       await ref
           .read(captureDeviceRegistrationServiceProvider)
-          .syncNativeState();
+          .syncBackendState();
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[Capture] native state sync skipped: $error');

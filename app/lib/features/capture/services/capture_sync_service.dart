@@ -91,7 +91,7 @@ class CaptureSyncService {
       );
     }
 
-    await _registrationService.syncNativeState();
+    await _registrationService.syncBackendState();
     final secret = await _registrationService.readDeviceSecret();
     if (secret == null || secret.isEmpty) {
       return const CaptureSyncResult(

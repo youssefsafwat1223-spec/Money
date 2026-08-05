@@ -203,4 +203,105 @@ void main() {
     expect(client.pushCalls, 1);
     expect(await service.readDeviceSecret(), 'stale-device-secret');
   });
+
+  // ── MALI-060n Android consent-propagation tail ────────────────────────────
+
+  CaptureDeviceRegistrationService androidService(_ConsentRecordingClient c) =>
+      CaptureDeviceRegistrationService(
+        settingsRepository: settingsRepository,
+        client: c,
+        storage: const FlutterSecureStorage(),
+        isIos: () => false,
+        isAndroid: () => true,
+        isBackendConfigured: () => true,
+        loadInstallId: () async => 'install-id',
+      );
+
+  Future<void> setConsent({required bool ai, required bool cloud}) async {
+    final s = await settingsRepository.getSettings();
+    await settingsRepository.saveSettings(s.copyWith(
+      aiConsentState: ai ? ConsentState.accepted : ConsentState.declined,
+      cloudConsentState: cloud ? ConsentState.accepted : ConsentState.declined,
+    ));
+  }
+
+  test('Android default OFF: no registration, no consent push', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: false, cloud: false);
+    final client = _ConsentRecordingClient();
+    await androidService(client).syncBackendState();
+    expect(client.registeredPlatforms, isEmpty);
+    expect(client.consentCalls, isEmpty);
+    expect(await androidService(client).readDeviceSecret(), isNull);
+  });
+
+  test('Android enable: registers android device and pushes consent true',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: true, cloud: true);
+    final client = _ConsentRecordingClient();
+    final service = androidService(client);
+    await service.syncBackendState();
+    expect(client.registeredPlatforms, ['android']);
+    expect(client.consentCalls.last, (ai: true, cloud: true));
+    expect(await service.readDeviceSecret(), 'android-secret');
+  });
+
+  test('Android revoke: pushes consent false without re-registering', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'qirsh_capture_device_secret': 'existing-secret',
+    });
+    await setConsent(ai: false, cloud: false);
+    final client = _ConsentRecordingClient();
+    await androidService(client).syncBackendState();
+    expect(client.registeredPlatforms, isEmpty); // secret already present
+    expect(client.consentCalls.last, (ai: false, cloud: false));
+  });
+
+  test('Android offline registration fails closed without throwing', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: true, cloud: true);
+    final client = _ConsentRecordingClient()..registerThrows = true;
+    await androidService(client).syncBackendState(); // must not throw
+    expect(client.consentCalls, isEmpty);
+    expect(await androidService(client).readDeviceSecret(), isNull);
+  });
+
+  test('Android consent-push failure is swallowed (retried next sync)',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'qirsh_capture_device_secret': 'existing-secret',
+    });
+    await setConsent(ai: true, cloud: true);
+    final client = _ConsentRecordingClient()..consentThrows = true;
+    await androidService(client).syncBackendState(); // must not throw
+  });
+}
+
+class _ConsentRecordingClient extends _RotatingCaptureClient {
+  final registeredPlatforms = <String>[];
+  final consentCalls = <({bool ai, bool cloud})>[];
+  bool registerThrows = false;
+  bool consentThrows = false;
+
+  @override
+  Future<String> registerDevice({
+    required String installId,
+    String platform = 'ios',
+  }) async {
+    if (registerThrows) throw const CaptureBackendException('offline');
+    registeredPlatforms.add(platform);
+    return 'android-secret';
+  }
+
+  @override
+  Future<void> setDeviceConsent({
+    required String installId,
+    required String deviceSecret,
+    required bool aiConsentGranted,
+    required bool cloudProcessingEnabled,
+  }) async {
+    if (consentThrows) throw const CaptureBackendException('offline');
+    consentCalls.add((ai: aiConsentGranted, cloud: cloudProcessingEnabled));
+  }
 }

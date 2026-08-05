@@ -145,7 +145,7 @@ class PrivacyScreen extends ConsumerWidget {
     try {
       await ref
           .read(captureDeviceRegistrationServiceProvider)
-          .syncNativeState();
+          .syncBackendState();
     } catch (_) {
       // Best-effort: the startup sync re-applies the stored value anyway.
     }

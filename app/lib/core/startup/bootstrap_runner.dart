@@ -179,7 +179,7 @@ class BootstrapRunner {
             .resolvePendingLocalDataOwnerConflict(Supabase.instance.client);
       }
       unawaited(
-        captureRegistration.syncNativeState().catchError((_) {
+        captureRegistration.syncBackendState().catchError((_) {
           // Capture backend registration is optional; local fallback remains active.
         }),
       );

@@ -31,6 +31,9 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
 class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   @override
+  Future<void> syncBackendState() async {}
+
+  @override
   Future<void> syncNativeState() async {}
 
   @override

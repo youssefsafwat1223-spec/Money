@@ -27,6 +27,7 @@ class CaptureDeviceRegistrationService {
     CaptureBackendClient? client,
     FlutterSecureStorage? storage,
     bool Function()? isIos,
+    bool Function()? isAndroid,
     bool Function()? isBackendConfigured,
     Future<String> Function()? loadInstallId,
     NativeBackendConfigWriter? writeNativeBackendConfig,
@@ -35,6 +36,7 @@ class CaptureDeviceRegistrationService {
         _client = client,
         _storage = storage ?? const FlutterSecureStorage(),
         _isIos = isIos ?? (() => Platform.isIOS),
+        _isAndroid = isAndroid ?? (() => Platform.isAndroid),
         _isBackendConfigured =
             isBackendConfigured ?? (() => SupabaseConfig.isConfigured),
         _loadInstallId = loadInstallId ?? InstallId.get,
@@ -48,6 +50,7 @@ class CaptureDeviceRegistrationService {
   final CaptureBackendClient? _client;
   final FlutterSecureStorage _storage;
   final bool Function() _isIos;
+  final bool Function() _isAndroid;
   final bool Function() _isBackendConfigured;
   final Future<String> Function() _loadInstallId;
   final NativeBackendConfigWriter _writeNativeBackendConfig;
@@ -68,6 +71,61 @@ class CaptureDeviceRegistrationService {
         supabaseUrl: SupabaseConfig.url,
         anonKey: SupabaseConfig.anonKey,
       );
+
+  /// Platform dispatcher for keeping the backend in sync (MALI-060n Android
+  /// tail). iOS writes the native App-Intent config AND pushes consent; Android
+  /// registers the device and pushes consent (no native App-Intent config).
+  /// Both keep the verified server consent row current. Call this from every
+  /// trigger point (registration, consent change, startup, resume) instead of
+  /// [syncNativeState] directly.
+  Future<void> syncBackendState() async {
+    if (_isIos()) {
+      await syncNativeState();
+    } else if (_isAndroid()) {
+      await _syncAndroidConsentState();
+    }
+  }
+
+  /// Android consent propagation. Registers a device (to obtain the verified
+  /// secret the hardened AI endpoints require) ONLY once the user has opted into
+  /// cloud/AI — a purely-local user never gets a server device row — then
+  /// mirrors consent onto that verified row. Fail-closed and best-effort: a
+  /// failure never blocks local parsing, and a stale/absent server row defaults
+  /// consent OFF (never open). No SMS/financial payload is ever sent here.
+  Future<void> _syncAndroidConsentState() async {
+    if (!_isBackendConfigured()) return;
+    final settings = await _settingsRepository.getSettings();
+    final wantsCloudOrAi =
+        settings.cloudProcessingEnabled || settings.aiConsentGranted;
+    final installId = await _loadInstallId();
+    var secret = await _storage.read(key: _secretKey);
+
+    if (secret == null || secret.isEmpty) {
+      // No opt-in yet → no server device, AI stays local (fail-closed).
+      if (!wantsCloudOrAi) return;
+      try {
+        secret = await _backendClient.registerDevice(
+          installId: installId,
+          platform: 'android',
+        );
+        await _storage.write(key: _secretKey, value: secret);
+      } catch (_) {
+        return; // retried on the next sync; nothing leaks, nothing breaks
+      }
+    }
+
+    try {
+      await _backendClient.setDeviceConsent(
+        installId: installId,
+        deviceSecret: secret,
+        aiConsentGranted: settings.aiConsentGranted,
+        cloudProcessingEnabled: settings.cloudProcessingEnabled,
+      );
+    } catch (_) {
+      // Consent push is retried on the next sync; a stale server row still fails
+      // closed (defaults FALSE), never open.
+    }
+  }
 
   Future<void> syncNativeState() async {
     if (!_isIos()) return;
