@@ -294,15 +294,26 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 5 — Security, privacy, notifications, native hardening
 
-> **Status (2026-08-04): Batch 1 (shared native storage + Android backup) Code
-> complete · Locally verified (device-external).** MALI-033 (Android Auto Backup
-> disabled — Keystore-bound data restores incoherent), MALI-031 (iOS shared-
-> Keychain secrets + AES-encrypted capture queue + secret invalidation on wipe),
-> and the native-storage portion of MALI-068n (Android durable `commit()` writes;
-> iOS aux-queue locking). iOS simulator build + `xcodebuild test` 6/6 (behavioral
-> encryption/secret/purge). `5c88417c`/`30b4f3fc`. Batches 2–6 (telemetry/temp/
-> logo, AI auth, notifications, backend/RLS, closure) not started. The full
-> `PHASE_5_SECURITY_PRIVACY_NOTIFICATIONS.md` spec is written at Phase-5 closure.
+> **Status (2026-08-05): Batch 2 (telemetry, logging, temp files, export
+> privacy, merchant logos) Code complete · Locally verified.** MALI-032
+> (allowlist Sentry boundary — beforeSend + beforeBreadcrumb, drop all
+> free-form text, structured `TelemetryCodes`, behavioral canary tests
+> `bff0f1d8`), MALI-039 + the MALI-075n logging portion (central redacting
+> `debugPrint` sink + `Diag`; SQL already parameterized `0010b037`), MALI-065n
+> (one `ManagedExportStore` — opaque names, iOS file-protection + backup-
+> exclusion channel, delete on success/cancel/failure, startup + resume sweeps,
+> no clipboard fallback; 9 fs tests + iOS build `2d1072f6`), MALI-071n
+> (merchant logos gated on cloud-processing consent, fail-closed, ladder
+> bundled→consented remote→placeholder `08e7ca0d`). Merchant edge functions
+> reviewed — no sensitive logging. analyze 0.
+>
+> **Prior — Batch 1 (shared native storage + Android backup) — 2026-08-04:**
+> MALI-033 (Android Auto Backup disabled), MALI-031 (iOS shared-Keychain
+> secrets + AES-encrypted capture queue + secret invalidation), native-storage
+> portion of MALI-068n. iOS simulator build + `xcodebuild test` 6/6.
+> `5c88417c`/`30b4f3fc`. Batches 3–6 (AI auth, notifications, backend/RLS,
+> closure) not started. The full `PHASE_5_SECURITY_PRIVACY_NOTIFICATIONS.md`
+> spec is written at Phase-5 closure.
 
 - MALI-061n/019: apply notification policy + quiet hours to gamification pushes; one
   authority per notification type; stable (non-random) collapse ids.

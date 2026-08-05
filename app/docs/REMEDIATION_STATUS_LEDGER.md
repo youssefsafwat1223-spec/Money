@@ -5,12 +5,19 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 5 Batch 1 (native storage + Android backup) Code
-  complete · Locally verified (device-external) — 2026-08-04.** MALI-033/031 +
-  the native-storage portion of MALI-068n: Android Auto Backup disabled +
-  durable capture-queue writes (`5c88417c`); iOS shared-Keychain secrets +
-  AES-encrypted capture queue + aux-queue locking (`30b4f3fc`, iOS simulator
-  build + `xcodebuild test` 6/6). Batches 2–6 of Phase 5 not started.
+- **Last updated:** **Phase 5 Batch 2 (telemetry, logging, temp files, export
+  privacy, merchant logos) Code complete · Locally verified — 2026-08-05.**
+  MALI-032 (allowlist telemetry boundary `bff0f1d8`), MALI-065n (managed
+  temp-export lifecycle `2d1072f6`, iOS simulator build), MALI-071n (merchant-
+  logo consent gate `08e7ca0d`), and the logging/privacy portions of MALI-039 +
+  MALI-075n (central redacting `debugPrint` sink + `Diag` `0010b037`; merchant
+  edge functions reviewed — no sensitive logging). analyze 0, targeted suites
+  green. Batches 3–6 of Phase 5 not started.
+  Prior — **Phase 5 Batch 1 (native storage + Android backup) — 2026-08-04:**
+  MALI-033/031 + the native-storage portion of MALI-068n: Android Auto Backup
+  disabled + durable capture-queue writes (`5c88417c`); iOS shared-Keychain
+  secrets + AES-encrypted capture queue + aux-queue locking (`30b4f3fc`, iOS
+  simulator build + `xcodebuild test` 6/6).
   **Phase 4 CLOSED (locally verified)** — spec `PHASE_4_FINANCIAL_SEMANTICS.md`
   (analyze 0, full suite 1181). Phase 3: `PHASE_3_SYNC_CLOSURE.md`.
 
@@ -85,14 +92,14 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-029 | Med | C | P7 | Not started | global invalidation breadth |
 | MALI-030 | Med | C | P7 | Not started | streamed reports/memory |
 | MALI-031 | Med | C | P5 | Code complete · Locally verified (device-external) | secret material (device secret + capture-queue key) moved to a shared Keychain access group; capture queue AES-GCM encrypted at rest (legacy-plaintext migration, corrupt fail-closed no-delete); device secret invalidated on wipe; flutter_secure_storage default group preserved. `30b4f3fc` (P5-B1). iOS simulator: build + `xcodebuild test` 6/6 incl. behavioral encryption/secret/purge tests. External: shared-Keychain cross-process app↔extension under a real provisioning profile + `keychain-access-groups` entitlement |
-| MALI-032 | Med | C+T | P5 | Not started | telemetry scrub coverage |
+| MALI-032 | Med | C+T | P5 | Code complete · Locally verified | allowlist telemetry boundary — beforeSend AND beforeBreadcrumb drop all free-form text (exception messages, breadcrumbs, threads, request, user), keeping only allowlisted tags/extra/contexts + exception class name + stack frames (vars stripped) + structured `TelemetryCodes`; native auto-breadcrumbs disabled (the Dart boundary cannot scrub native-SDK crashes — documented residual); behavioral canary tests inject every sensitive class through message/cause/stack-vars/breadcrumb/tag/context/extra/URL/db-error and assert none survive the serialized event. `bff0f1d8` (P5-B2). Native-SDK scrubbing parity external |
 | MALI-033 | Med | C | P5 | Code complete · Locally verified (device-external) | Android Auto Backup + device-transfer disabled (`allowBackup="false"`, `fullBackupContent="false"`) — the Keystore-bound DB + raw-SMS queue + secrets would restore incoherent; recovery is via the app's own encrypted backup. `5c88417c` (P5-B1); manifest static-verified (`android_backup_policy_test`). External: on-device restore attempt confirms exclusion |
 | MALI-034 | Med | C | P7 | Not started | import cycle + legacy repair retirement |
 | MALI-035 | Med | D | P7 | Not started | CLAUDE.md drift (incl. dangerous "all optional") |
 | MALI-036 | Med | X+C | P7/P9 | Code complete (limits) | CI wiring = MALI-066n; hosted run = gate 8 |
 | MALI-037 | Med | C | P7 | Not started | CVE/license gate |
 | MALI-038 | Low | C+T | P7 | Not started | font bundling (+ test MALI-067n) |
-| MALI-039 | Low | C | P5/P7 | Not started | debug diagnostics redaction (debug-only) |
+| MALI-039 | Low | C | P5/P7 | Code complete · Locally verified | central redacting diagnostic sink — `main()` rewires the global `debugPrint` to redact (shared `PrivacyRedactor`) + length-bound every line (all call sites, plugins, future code) in debug AND release; `Diag.error`/`Diag.log` sanctioned structured API; SQL already parameterized (custom SQL interpolates only fixed table identifiers, never values). `0010b037` (P5-B2) |
 | MALI-040 | Low | T | P7 | Not started | test isolation (subsumed by MALI-067n) |
 | MALI-041 | Low | T | P7 | Not started | admin auth test (subsumed by MALI-066n/067n) |
 | MALI-042 | Low | T | P7 | Not started | Edge unit isolation (MALI-066n) |
@@ -118,17 +125,17 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-062n | Med | C | P4 | **Closed · locally verified** | Saturday-week fixed (B1); the three divergent weekly/budget-period resolvers unified into one canonical resolver + Saturday-anchored history (B3); the per-period history transaction LIST nets to its total (B4). Week definitions, budget periods, and history list-vs-total parity all verified. Device UI spot-check external |
 | MALI-063n | Med | C | P4 | Code complete · Locally verified | PDF donut center/slices/appendix scoped to the primary currency (per-currency `categoryBreakdown`), never a cross-currency sum; exponent formatter (0/2/3); dormant 0030 RPCs + Supabase-summary flags retired (no switch to re-enable pre-canonical totals); `989f6614`/`174ed4c3` (Batch 4). Live PDF render spot-check external |
 | MALI-064n | Med | C | P4 | Code complete · Locally verified | one attribution contract — `bill_payments` authoritative, a linked payment counts once (double-count gone), fuzzy match demoted to a non-authoritative link suggestion; one canonical `monthlyEquivalent`/`annualEquivalent`/`subscriptionMonthlyTotal` unifying the three divergent formulas; `d5d1605b` (Batch 4). Device UI spot-check external |
-| MALI-065n | Med | C | P5 | Not started | report PDF tmp lifecycle |
+| MALI-065n | Med | C | P5 | Code complete · Locally verified (device-external) | one `ManagedExportStore` for every export temp file (report PDF / CSV / full-data package): opaque, data-free on-disk names; iOS `NSFileProtectionComplete` + backup-exclusion via a new `mali/export_protection` channel (Android no-op — FBE + `allowBackup=false`); delete on success/cancel/failure (idempotent + retry); startup delete-all + resume bounded-lease sweep (corrupt-metadata / orphan-sidecar tolerant); NO clipboard fallback for full ledger/package (dead `data_export.dart` removed); 9 behavioral filesystem tests + iOS simulator build. `2d1072f6` (P5-B2). Device file-protection/backup-exclusion attributes external |
 | MALI-066n | Med | C | P7 | Not started | unexecuted-gate cluster |
 | MALI-067n | Med | T | P7 | Not started | source-text tests, no-close, warning suppression |
 | MALI-068n | Med | C | P5 | In progress | native-storage portion done (P5-B1): Android durable-queue writes synchronous (`commit()`, enqueue/ack durable before return) `5c88417c`; iOS aux notification-route/log queues now under the shared `withQueueLock` cross-process lock `30b4f3fc`. Remaining: Android receiver `apply()`→`commit()` in the SMS receiver path + re-enqueue timestamp parsing (Batch 4 native tail) |
 | MALI-069n | Med | C | P6 | Not started | conn leak + second-instance busy_timeout |
 | MALI-070n | Low | C | P2 | Code complete · Locally verified | pending-actions file purged on destructive paths; `374560ff`. Announcement-dismissal residue = minor, remains backlog |
-| MALI-071n | Low | C | P5 | Not started | logo.dev consent gating |
+| MALI-071n | Low | C | P5 | Code complete · Locally verified | merchant logos gated on cloud-processing consent (fail-closed while loading/errored/unset) — OFF/revoked = ZERO outbound requests (bundled SVG or letter placeholder only); data-minimization ladder made explicit: bundled SVG → (consented) catalog `logoUrl` → logo.dev by verified PUBLIC DOMAIN (never raw merchant text) → placeholder; no prefetch path (`registerBrandLogos` is asset-only); `BrandMark`→`ConsumerWidget`; 4 widget tests assert no `Image` widget with consent OFF even given a `logoUrl`. `08e7ca0d` (P5-B2) |
 | MALI-072n | Low | C | P3 | Code complete · Locally verified | durable sender-mapping sync: keyset pagination + server-authoritative updated_at + durable cursor + tombstone deletion propagation + LWW (pending-safe) + typed error classification (no string-match); soft-delete replaces hard delete; `96993c5e` (batch 5). Live two-device = external |
 | MALI-073n | Low | C | P6 | Not started | missing account_id/category_id indexes |
 | MALI-074n | Low | C | P4 | Code complete · Locally verified | report decimals (B4); exact account ownership (no null-account-by-currency), per-currency net-spend card summaries (refund-netted, income-only, exponent formatter), authoritative installment paid-count from the ledger (B5 `a25a75c7`/`0f86fb7c`/`1fc89450`). Device UI spot-check external |
-| MALI-075n | Low | C | P5 | Not started | backend lows (search_path, gamification writable, purge coverage) |
+| MALI-075n | Low | C | P5 | In progress | logging/privacy portion done (P5-B2, shared with MALI-039): global `debugPrint` redaction + `Diag` `0010b037`; edge-function log review of the in-scope (merchant) functions `merchant-feedback`/`enrich-merchant` found NO sensitive logging (no `console.*` at all — nothing to redact). Backend lows (search_path, gamification writable, purge coverage) remain **Phase-5 Batch 5** |
 | MALI-076n | Low | C | P6 | Not started | backup lows (trim, blob version, hasRemoteBackup, dead export) |
 | MALI-077n | Low | C+P | P7 | Not started | ops lows (keystore name, email, dead API, package path) |
 
