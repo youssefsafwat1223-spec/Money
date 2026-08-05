@@ -112,3 +112,67 @@ $$;
 REVOKE ALL ON FUNCTION public.record_metric(TEXT, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.record_metric(TEXT, TEXT) FROM anon;
 GRANT EXECUTE ON FUNCTION public.record_metric(TEXT, TEXT) TO authenticated;
+
+-- ── 3. Purge/retention tails — Batch 1–5 tables (MALI-075n §7) ────────────────
+--
+-- Extend account erasure to cover the tables added since 0065. All satellites
+-- keyed by install hash / owner_key are resolved through the user's registered
+-- devices BEFORE those device rows are deleted. Migrations apply in order, so
+-- the 0070/0071/0072 tables exist by the time this replacement runs. NOT
+-- DEPLOYED in this batch.
+CREATE OR REPLACE FUNCTION public.purge_user_data(p_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+  -- Children before parents (FK order), satellites before their anchors.
+
+  -- Capture pipeline + AI satellites keyed by install hash / owner_key: resolve
+  -- them through the user's devices before those device rows are removed.
+  DELETE FROM public.capture_rate_limits
+  WHERE install_id_hash IN (
+    SELECT install_id_hash FROM public.capture_devices WHERE user_id = p_user_id
+  );
+
+  -- AI idempotency ledger (0071): owner_key is `u:<uid>` or `d:<installHash>`.
+  DELETE FROM public.ai_request_idempotency
+  WHERE owner_key = 'u:' || p_user_id::text
+     OR owner_key IN (
+       SELECT 'd:' || install_id_hash
+       FROM public.capture_devices WHERE user_id = p_user_id
+     );
+
+  DELETE FROM public.notification_logs where user_id = p_user_id;
+
+  DELETE FROM public.user_bill_payments        WHERE user_id = p_user_id;
+  DELETE FROM public.user_goal_contributions   WHERE user_id = p_user_id;
+  DELETE FROM public.user_plan_transaction_links WHERE user_id = p_user_id;
+  DELETE FROM public.user_subscriptions        WHERE user_id = p_user_id;
+  DELETE FROM public.user_goals                WHERE user_id = p_user_id;
+  DELETE FROM public.user_plans                WHERE user_id = p_user_id;
+  DELETE FROM public.user_budgets              WHERE user_id = p_user_id;
+  DELETE FROM public.user_transactions         WHERE user_id = p_user_id;
+  DELETE FROM public.user_cards                WHERE user_id = p_user_id;
+  DELETE FROM public.user_accounts             WHERE user_id = p_user_id;
+  DELETE FROM public.user_smart_inbox          WHERE user_id = p_user_id;
+  DELETE FROM public.user_categories           WHERE user_id = p_user_id;
+  DELETE FROM public.financial_import_runs     WHERE user_id = p_user_id;
+  DELETE FROM public.user_settings             WHERE user_id = p_user_id;
+  DELETE FROM public.user_achievements         WHERE user_id = p_user_id;
+  DELETE FROM public.user_streaks              WHERE user_id = p_user_id;
+  DELETE FROM public.user_xp_levels            WHERE user_id = p_user_id;
+  -- Engagement events (0070, dormant) + per-user metrics quota counters (0072).
+  DELETE FROM public.user_engagement_events    WHERE user_id = p_user_id;
+  DELETE FROM public.metrics_rate_limits        WHERE user_id = p_user_id;
+  DELETE FROM public.feature_flag_overrides    WHERE user_id = p_user_id;
+  DELETE FROM public.sender_bank_mappings      WHERE user_id = p_user_id;
+  DELETE FROM public.capture_devices           WHERE user_id = p_user_id;
+  DELETE FROM public.backups                   WHERE user_id = p_user_id;
+  DELETE FROM public.profiles                  WHERE id      = p_user_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.purge_user_data(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.purge_user_data(uuid) TO service_role;

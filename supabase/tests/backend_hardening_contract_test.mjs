@@ -79,3 +79,15 @@ test('record_engagement_event derives owner server-side and rejects client autho
   // The XP award is a server-side CASE — the client can never supply the amount.
   assert.match(m0070, /v_award := CASE p_event_type/);
 });
+
+// MALI-075n §7 — account purge covers the Batch 1–5 tables.
+test('purge_user_data erases AI idempotency, engagement, and metrics-quota rows', () => {
+  const purge = m0072.slice(m0072.indexOf('FUNCTION public.purge_user_data'));
+  assert.match(purge, /DELETE FROM public\.ai_request_idempotency/);
+  assert.match(purge, /owner_key = 'u:' \|\| p_user_id::text/); // user key
+  assert.match(purge, /'d:' \|\| install_id_hash/); // + device keys
+  assert.match(purge, /DELETE FROM public\.user_engagement_events\s+WHERE user_id = p_user_id/);
+  assert.match(purge, /DELETE FROM public\.metrics_rate_limits\s+WHERE user_id = p_user_id/);
+  // AI-idempotency purge must run BEFORE capture_devices are deleted.
+  assert.ok(purge.indexOf('ai_request_idempotency') < purge.indexOf('DELETE FROM public.capture_devices'));
+});
