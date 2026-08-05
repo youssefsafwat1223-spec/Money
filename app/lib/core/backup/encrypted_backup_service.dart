@@ -32,6 +32,9 @@ class EncryptedBackupService implements BackupService {
   static const _lastKey = 'backup_last_at';
   static const _localKeyKey = 'backup_local_key';
   static const _keySlotsKey = 'backup_key_slots';
+  // MALI-076n — marks a slot set + local content key as the v3 authenticated
+  // envelope format. Absent ⇒ a legacy (pre-v3) install that keeps its format.
+  static const _envelopeVersionKey = 'backup_envelope_version';
 
   final AppDatabase _database;
   final supabase.SupabaseClient _client;
@@ -64,22 +67,17 @@ class EncryptedBackupService implements BackupService {
   @override
   Future<String> enable({required String passphrase}) async {
     final userId = _userId();
-    final normalizedPassphrase = passphrase.trim();
+    // MALI-076n §6 — v3 uses the passphrase EXACTLY as entered (UTF-8, no trim,
+    // no Unicode normalization); whitespace and case are significant.
     final recovery = _generateRecoveryCode();
     final keyBytes = _crypto.randomBytes(32);
-    final keySlots = [
-      await _crypto.createKeySlot(
-        type: 'password',
-        secret: normalizedPassphrase,
-        keyBytes: keyBytes,
-      ),
-      await _crypto.createKeySlot(
-        type: 'recovery',
-        secret: recovery,
-        keyBytes: keyBytes,
-      ),
-    ];
+    final keySlots = await _crypto.createV3KeySlots(
+      contentKey: keyBytes,
+      passphrase: passphrase,
+      recoveryCode: recovery,
+    );
     await _storage.write(key: _enabledKey, value: '1');
+    await _storage.write(key: _envelopeVersionKey, value: '3');
     await _storage.write(key: _recoveryKey, value: recovery);
     await _storage.write(key: _keySlotsKey, value: _encodeKeySlots(keySlots));
     await _storage.write(
@@ -139,6 +137,40 @@ class EncryptedBackupService implements BackupService {
 
     final snapshot = await BackupSnapshotBuilder(_database).build();
     final keyBytes = base64Decode(keyRaw);
+
+    // MALI-076n — current installs write the v3 authenticated envelope, reusing
+    // the stored content key + slots (no passphrase needed for a background
+    // backup). Pre-v3 installs keep their existing format until re-enable.
+    final isV3 = await _storage.read(key: _envelopeVersionKey) == '3';
+    if (isV3 && slotsRaw != null && slotsRaw.isNotEmpty) {
+      final v3Blob = await _crypto.encryptEnvelopeV3WithContentKey(
+        json: snapshot,
+        schemaVersion: BackupSnapshotBuilder.currentSchemaVersion,
+        contentKey: keyBytes,
+        keySlots: _decodeKeySlots(slotsRaw),
+      );
+      final v3Bytes = v3Blob.toBytes();
+      final path = '$userId/backup.enc';
+      await _client.storage.from(_bucket).uploadBinary(
+            path,
+            v3Bytes,
+            fileOptions: const supabase.FileOptions(
+              upsert: true,
+              contentType: 'application/octet-stream',
+            ),
+          );
+      final nowV3 = DateTime.now().toUtc();
+      await _client.from('backups').upsert(uploadMetadata(
+            userId: userId,
+            path: path,
+            blobVersion: v3Blob.version,
+            sizeBytes: v3Bytes.length,
+            updatedAtIso: nowV3.toIso8601String(),
+          ));
+      await _storage.write(key: _lastKey, value: nowV3.toIso8601String());
+      return;
+    }
+
     final shouldUpgradeLegacyBackup =
         (slotsRaw == null || slotsRaw.isEmpty) && recoveryRaw != null;
     final blob = shouldUpgradeLegacyBackup
@@ -222,10 +254,18 @@ class EncryptedBackupService implements BackupService {
     final path = '$userId/backup.enc';
     final bytes = await _client.storage.from(_bucket).download(path);
     try {
-      final blob = EncryptedBackupBlob.fromBytes(bytes);
+      // MALI-076n §9 — structurally validate the untrusted envelope and enforce
+      // resource limits BEFORE any KDF, then decrypt/authenticate — all before
+      // the destructive restore below (which itself validates before deleting).
+      final blob = EncryptedBackupBlob.fromBytesChecked(bytes);
       List<int>? keyBytes;
       Map<String, dynamic> snapshot;
-      if (blob.keySlots.isEmpty) {
+      if (blob.version >= 3) {
+        // v3: the passphrase (or recovery code) unwraps a slot → content key →
+        // authenticated payload. Header + slot AAD are verified here.
+        keyBytes = await _crypto.unwrapContentKeyV3(blob: blob, secret: passphrase);
+        snapshot = await _crypto.decryptPayloadV3(blob: blob, contentKey: keyBytes);
+      } else if (blob.keySlots.isEmpty) {
         snapshot = await _crypto.decryptJson(
           blob: blob,
           passphrase: passphrase.trim(),
@@ -255,7 +295,19 @@ class EncryptedBackupService implements BackupService {
       await RestoreBackupUseCase(_database)(snapshot);
       await _afterRestore?.call();
       await _storage.write(key: _enabledKey, value: '1');
-      if (keyBytes == null) {
+      if (blob.version >= 3) {
+        // Preserve the v3 content key + slots so future background backups can
+        // re-encrypt without the passphrase, and mark the format as v3.
+        await _storage.write(key: _envelopeVersionKey, value: '3');
+        await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes!));
+        await _storage.write(
+          key: _keySlotsKey,
+          value: _encodeKeySlots(blob.keySlots),
+        );
+        await _storage.delete(key: _saltKey);
+        await _storage.delete(key: _recoveryKey);
+      } else if (keyBytes == null) {
+        await _storage.delete(key: _envelopeVersionKey);
         await _storage.write(key: _saltKey, value: base64Encode(blob.salt));
         final key = await _crypto.deriveKey(
           passphrase: passphrase.trim(),
@@ -267,6 +319,7 @@ class EncryptedBackupService implements BackupService {
         );
         await _storage.delete(key: _keySlotsKey);
       } else {
+        await _storage.delete(key: _envelopeVersionKey);
         await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes));
         await _storage.write(
           key: _keySlotsKey,
@@ -279,10 +332,31 @@ class EncryptedBackupService implements BackupService {
         key: _lastKey,
         value: DateTime.now().toUtc().toIso8601String(),
       );
+    } on BackupEnvelopeException catch (e) {
+      throw BackupException(_envelopeErrorMessage(e.kind));
     } on SecretBoxAuthenticationError {
       throw const BackupException('كلمة مرور النسخة الاحتياطية غير صحيحة.');
     } on FormatException {
       throw const BackupException('ملف النسخة الاحتياطية غير صالح.');
+    }
+  }
+
+  // Safe, non-leaking user messages for typed envelope failures (MALI-076n §8).
+  // A wrong passphrase, tampering, and corruption are cryptographically
+  // indistinguishable, so they share one message.
+  static String _envelopeErrorMessage(BackupEnvelopeErrorKind kind) {
+    switch (kind) {
+      case BackupEnvelopeErrorKind.authenticationFailed:
+        return 'تعذّر فك النسخة الاحتياطية: كلمة المرور غير صحيحة أو الملف تالف.';
+      case BackupEnvelopeErrorKind.unsupportedVersion:
+      case BackupEnvelopeErrorKind.incompatibleSchema:
+        return 'هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.';
+      case BackupEnvelopeErrorKind.payloadTooLarge:
+      case BackupEnvelopeErrorKind.unsafeKdfParams:
+      case BackupEnvelopeErrorKind.unsupportedAlgorithm:
+      case BackupEnvelopeErrorKind.malformed:
+      case BackupEnvelopeErrorKind.decodeFailed:
+        return 'ملف النسخة الاحتياطية غير صالح.';
     }
   }
 
@@ -309,6 +383,7 @@ class EncryptedBackupService implements BackupService {
     await _storage.delete(key: _lastKey);
     await _storage.delete(key: _localKeyKey);
     await _storage.delete(key: _keySlotsKey);
+    await _storage.delete(key: _envelopeVersionKey);
   }
 
   String _encodeKeySlots(List<BackupKeySlot> slots) {
