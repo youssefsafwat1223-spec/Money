@@ -1,10 +1,14 @@
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assertEquals, assertNotEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { sha256Hex } from './capture_auth.ts';
 import {
   apiError,
+  claimIdempotency,
   consentError,
   correlationId,
+  fetchWithTimeout,
+  isAbortError,
   MAX_RETRY_AFTER_SECONDS,
+  payloadHash,
   readJsonBody,
   resolveVerifiedIdentity,
   schemaError,
@@ -236,4 +240,69 @@ Deno.test('correlationId is opaque and unique', () => {
   const b = correlationId();
   assertEquals(a === b, false);
   assertEquals(a.length > 0, true);
+});
+
+// ── Idempotency + upstream helpers ──────────────────────────────────────────
+
+Deno.test('payloadHash is deterministic and payload-sensitive', async () => {
+  const a = await payloadHash(['owner', 'parse-sms', 'ACME 512.34']);
+  const b = await payloadHash(['owner', 'parse-sms', 'ACME 512.34']);
+  const c = await payloadHash(['owner', 'parse-sms', 'ACME 999.99']);
+  assertEquals(a, b);
+  assertNotEquals(a, c);
+});
+
+// deno-lint-ignore no-explicit-any
+function rpcSupabase(rows: unknown, error: unknown = null): any {
+  return { rpc: () => Promise.resolve({ data: rows, error }) };
+}
+
+Deno.test('claimIdempotency maps every RPC outcome', async () => {
+  assertEquals(
+    (await claimIdempotency(
+      rpcSupabase([{ outcome: 'claimed', status: 'in_progress', result: {} }]),
+      'o',
+      'e',
+      'r',
+      'h',
+    )).outcome,
+    'claimed',
+  );
+  assertEquals(
+    (await claimIdempotency(
+      rpcSupabase([{ outcome: 'mismatch', status: 'in_progress', result: {} }]),
+      'o',
+      'e',
+      'r',
+      'h',
+    )).outcome,
+    'mismatch',
+  );
+  const exists = await claimIdempotency(
+    rpcSupabase([{ outcome: 'exists', status: 'succeeded', result: { category: 'cafes' } }]),
+    'o',
+    'e',
+    'r',
+    'h',
+  );
+  assertEquals(exists.outcome, 'exists');
+  if (exists.outcome === 'exists') assertEquals(exists.result.category, 'cafes');
+  assertEquals(
+    (await claimIdempotency(rpcSupabase(null, { message: 'boom' }), 'o', 'e', 'r', 'h')).outcome,
+    'error',
+  );
+});
+
+Deno.test('fetchWithTimeout aborts a hung upstream', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise((_, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    })) as typeof fetch;
+  try {
+    const err = await assertRejects(() => fetchWithTimeout('http://example.test', {}, 10));
+    assertEquals(isAbortError(err), true);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

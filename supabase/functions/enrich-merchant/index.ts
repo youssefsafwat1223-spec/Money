@@ -15,8 +15,23 @@
 //   GOOGLE_MAPS_API_KEY        (Places API enabled)
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
-import { bumpCaptureEndpointRateLimit, corsHeaders, serviceClient } from '../_shared/capture_auth.ts';
-import { apiError, consentError, correlationId, resolveVerifiedIdentity, schemaError } from '../_shared/ai_endpoint.ts';
+import { bumpCaptureEndpointRateLimit, corsHeaders, readString, serviceClient } from '../_shared/capture_auth.ts';
+import {
+  apiError,
+  claimIdempotency,
+  completeIdempotency,
+  consentError,
+  correlationId,
+  fetchWithTimeout,
+  payloadHash,
+  readJsonBody,
+  resolveVerifiedIdentity,
+  schemaError,
+} from '../_shared/ai_endpoint.ts';
+
+const MAX_BODY_BYTES = 4096;
+const MAX_MERCHANT_LENGTH = 200;
+const PLACES_TIMEOUT_MS = 8000;
 
 // MALI-060n — per-VERIFIED-IDENTITY daily cap (device/user), not per
 // caller-supplied install_id. Enrichment happens organically as unknown
@@ -214,11 +229,9 @@ Deno.serve(async (req) => {
   const cid = correlationId();
   const supabase = serviceClient();
 
-  const raw = await req.json().catch(() => null);
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return apiError('invalid_payload', { correlationId: cid });
-  }
-  const body = raw as Record<string, unknown>;
+  const bodyRes = await readJsonBody(req, MAX_BODY_BYTES);
+  if (!bodyRes.ok) return apiError(bodyRes.code, { correlationId: cid });
+  const body = bodyRes.body;
 
   const schemaBad = schemaError(body, cid);
   if (schemaBad) return schemaBad;
@@ -245,10 +258,46 @@ Deno.serve(async (req) => {
   if (!merchantName) {
     return apiError('invalid_payload', { correlationId: cid });
   }
+  if (merchantName.length > MAX_MERCHANT_LENGTH) {
+    return apiError('payload_too_large', { correlationId: cid });
+  }
   const countryCode = ((body.country_code as string | undefined) ?? 'ALL')
     .toUpperCase();
   const write = body.write !== false; // default true
   const bankAtmLike = looksLikeBankAtmQuery(merchantName);
+
+  // Idempotency (MALI-060n): a stable request_id makes a retry reuse the stored
+  // category instead of re-calling the paid Places API. Only a payload hash +
+  // the small {category} result are stored, expiring by TTL.
+  const requestId = readString(body, 'request_id', 'requestId');
+  let idempotencyClaimed = false;
+  if (requestId) {
+    const hash = await payloadHash([
+      identity.identity.ownerKey,
+      'enrich-merchant',
+      merchantName.toUpperCase(),
+      countryCode,
+    ]);
+    const claim = await claimIdempotency(supabase, identity.identity.ownerKey, 'enrich-merchant', requestId, hash);
+    if (claim.outcome === 'mismatch') {
+      return apiError('request_replay_mismatch', { correlationId: cid });
+    }
+    if (claim.outcome === 'exists') {
+      if (claim.status === 'succeeded' && typeof claim.result.category === 'string') {
+        return new Response(
+          JSON.stringify({
+            merchant_name: merchantName,
+            category: claim.result.category,
+            matched: true,
+            written: false,
+          }),
+          { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
+        );
+      }
+      return apiError('upstream_unavailable', { correlationId: cid, retryable: true, retryAfterSeconds: 3 });
+    }
+    idempotencyClaimed = claim.outcome === 'claimed';
+  }
   let placeName = '';
   let category = 'other';
 
@@ -259,7 +308,7 @@ Deno.serve(async (req) => {
     // ── Google Places Text Search ──────────────────────────────────────────────
     try {
       const region = countryCode.length === 2 ? countryCode : undefined;
-      const placesRes = await fetch(PLACES_URL, {
+      const placesRes = await fetchWithTimeout(PLACES_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -271,7 +320,7 @@ Deno.serve(async (req) => {
           maxResultCount: 1,
           ...(region ? { regionCode: region } : {}),
         }),
-      });
+      }, PLACES_TIMEOUT_MS);
       if (!placesRes.ok) throw new Error(`places_${placesRes.status}`);
       const json = await placesRes.json();
       const place = json?.places?.[0];
@@ -321,8 +370,17 @@ Deno.serve(async (req) => {
       : await supabase.from('merchant_keywords').insert(row);
     if (writeError) {
       // MALI-060n/039 — never echo the merchant name or upstream error text.
+      if (idempotencyClaimed) {
+        await completeIdempotency(supabase, identity.identity.ownerKey, 'enrich-merchant', requestId, 'failed', {});
+      }
       return apiError('internal_error', { correlationId: cid });
     }
+  }
+
+  if (idempotencyClaimed) {
+    await completeIdempotency(supabase, identity.identity.ownerKey, 'enrich-merchant', requestId, 'succeeded', {
+      category,
+    });
   }
 
   return new Response(

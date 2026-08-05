@@ -1,5 +1,27 @@
-import { bumpCaptureEndpointRateLimit, corsHeaders, serviceClient } from '../_shared/capture_auth.ts';
-import { apiError, consentError, correlationId, resolveVerifiedIdentity, schemaError } from '../_shared/ai_endpoint.ts';
+import { bumpCaptureEndpointRateLimit, corsHeaders, readString, serviceClient } from '../_shared/capture_auth.ts';
+import {
+  apiError,
+  claimIdempotency,
+  completeIdempotency,
+  consentError,
+  correlationId,
+  fetchWithTimeout,
+  isAbortError,
+  payloadHash,
+  readJsonBody,
+  resolveVerifiedIdentity,
+  schemaError,
+} from '../_shared/ai_endpoint.ts';
+
+const MAX_BODY_BYTES = 8192;
+const MAX_SMS_LENGTH = 2000;
+const GEMINI_TIMEOUT_MS = 12000;
+
+function jsonResponse(obj: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(obj), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
 
 // Google deprecates model IDs fast — gemini-2.0-flash-lite was shut down 2026-06-01.
 // Pin to a stable versioned ID, not an alias. Current: gemini-2.5-flash-lite-preview-06-17.
@@ -240,11 +262,9 @@ Deno.serve(async (req) => {
   const cid = correlationId();
   const supabase = serviceClient();
 
-  const raw = await req.json().catch(() => null);
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return apiError('invalid_payload', { correlationId: cid });
-  }
-  const body = raw as Record<string, unknown>;
+  const bodyRes = await readJsonBody(req, MAX_BODY_BYTES);
+  if (!bodyRes.ok) return apiError(bodyRes.code, { correlationId: cid });
+  const body = bodyRes.body;
 
   const schemaBad = schemaError(body, cid);
   if (schemaBad) return schemaBad;
@@ -261,6 +281,9 @@ Deno.serve(async (req) => {
 
   if (typeof body.sanitized_sms !== 'string' || !body.sanitized_sms.trim()) {
     return apiError('invalid_payload', { correlationId: cid });
+  }
+  if ((body.sanitized_sms as string).length > MAX_SMS_LENGTH) {
+    return apiError('payload_too_large', { correlationId: cid });
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -281,6 +304,41 @@ Deno.serve(async (req) => {
   if (!GEMINI_API_KEY) {
     return apiError('upstream_unavailable', { correlationId: cid, retryable: true });
   }
+
+  // Idempotency (MALI-060n): a stable client request_id makes a retry never
+  // repeat the paid Gemini call. Only a payload HASH is stored (never the raw
+  // SMS), plus the bounded result which expires by TTL.
+  const requestId = readString(body, 'request_id', 'requestId');
+  let idempotencyClaimed = false;
+  if (requestId) {
+    const hash = await payloadHash([identity.identity.ownerKey, 'parse-sms', reSanitized]);
+    const claim = await claimIdempotency(supabase, identity.identity.ownerKey, 'parse-sms', requestId, hash);
+    if (claim.outcome === 'mismatch') {
+      return apiError('request_replay_mismatch', { correlationId: cid });
+    }
+    if (claim.outcome === 'exists') {
+      if (claim.status === 'succeeded' && Object.keys(claim.result).length > 0) {
+        return jsonResponse(claim.result);
+      }
+      // A concurrent duplicate is mid-flight (or a prior attempt failed): never
+      // re-pay. Ask the client to retry shortly (it may parse locally meanwhile).
+      return apiError('upstream_unavailable', { correlationId: cid, retryable: true, retryAfterSeconds: 3 });
+    }
+    idempotencyClaimed = claim.outcome === 'claimed';
+  }
+
+  const finish = async (obj: Record<string, unknown>): Promise<Response> => {
+    if (idempotencyClaimed) {
+      await completeIdempotency(supabase, identity.identity.ownerKey, 'parse-sms', requestId, 'succeeded', obj);
+    }
+    return jsonResponse(obj);
+  };
+  const failUpstream = async (code: 'upstream_rejected' | 'upstream_timeout'): Promise<Response> => {
+    if (idempotencyClaimed) {
+      await completeIdempotency(supabase, identity.identity.ownerKey, 'parse-sms', requestId, 'failed', {});
+    }
+    return apiError(code, { correlationId: cid, retryable: code === 'upstream_timeout' });
+  };
 
   const prompt = `You are a bank SMS parser. Extract transaction details from this sanitized bank SMS.
 Return ONLY a JSON object. Omit fields you cannot determine. Amount MUST appear in the message.
@@ -348,50 +406,36 @@ Return ONLY valid JSON. No markdown, no explanation.`;
 
   let parsed: Record<string, unknown> | null = null;
   try {
-    const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+    const geminiRes = await fetchWithTimeout(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0, maxOutputTokens: 256 },
       }),
-    });
+    }, GEMINI_TIMEOUT_MS);
     if (!geminiRes.ok) throw new Error(`gemini_${geminiRes.status}`);
     const geminiJson = await geminiRes.json();
     const text: string = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     parsed = JSON.parse(cleaned);
-  } catch {
+  } catch (error) {
+    // A timeout is distinct from a genuine rejection; the client may retry.
+    if (isAbortError(error)) return await failUpstream('upstream_timeout');
     const fallback = fallbackParse(reSanitized);
-    if (fallback) {
-      return new Response(
-        JSON.stringify({ ...fallback, model_used: `${GEMINI_MODEL}+fallback` }),
-        { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
-      );
-    }
-    return apiError('upstream_rejected', { correlationId: cid });
+    if (fallback) return await finish({ ...fallback, model_used: `${GEMINI_MODEL}+fallback` });
+    return await failUpstream('upstream_rejected');
   }
 
   if (parsed?.is_transaction === false) {
-    return new Response(
-      JSON.stringify({ is_transaction: false }),
-      { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
-    );
+    return await finish({ is_transaction: false });
   }
 
   if (!parsed || typeof parsed.amount !== 'number' || !parsed.currency) {
     const fallback = fallbackParse(reSanitized);
-    if (fallback) {
-      return new Response(
-        JSON.stringify({ ...fallback, model_used: `${GEMINI_MODEL}+fallback` }),
-        { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
-      );
-    }
-    return apiError('upstream_rejected', { correlationId: cid });
+    if (fallback) return await finish({ ...fallback, model_used: `${GEMINI_MODEL}+fallback` });
+    return await failUpstream('upstream_rejected');
   }
 
-  return new Response(
-    JSON.stringify({ ...normalizeParsedCategory(parsed, reSanitized), model_used: GEMINI_MODEL }),
-    { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
-  );
+  return await finish({ ...normalizeParsedCategory(parsed, reSanitized), model_used: GEMINI_MODEL });
 });

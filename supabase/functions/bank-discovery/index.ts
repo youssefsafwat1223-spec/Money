@@ -3,10 +3,16 @@ import {
   apiError,
   consentError,
   correlationId,
+  fetchWithTimeout,
+  readJsonBody,
   resolveVerifiedIdentity,
   safeLog,
   schemaError,
 } from '../_shared/ai_endpoint.ts';
+
+const MAX_BODY_BYTES = 8192;
+const MAX_SMS_LENGTH = 2000;
+const GEMINI_TIMEOUT_MS = 12000;
 
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
@@ -52,15 +58,13 @@ Deno.serve(async (req) => {
   const cid = correlationId();
   const supabase = serviceClient();
 
-  const raw = await req.json().catch(() => null);
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return apiError('invalid_payload', { correlationId: cid });
-  }
-  const rec = raw as Record<string, unknown>;
+  const bodyRes = await readJsonBody(req, MAX_BODY_BYTES);
+  if (!bodyRes.ok) return apiError(bodyRes.code, { correlationId: cid });
+  const rec = bodyRes.body;
   const schemaBad = schemaError(rec, cid);
   if (schemaBad) return schemaBad;
 
-  const parsedRequest = parseRequest(raw);
+  const parsedRequest = parseRequest(rec);
   if ('error' in parsedRequest) {
     safeLog({ event: 'bank_discovery_rejected', reason: parsedRequest.error, correlation_id: cid });
     return apiError('invalid_payload', { correlationId: cid });
@@ -82,6 +86,10 @@ Deno.serve(async (req) => {
   );
   if (limited) return apiError('rate_limited', { correlationId: cid, retryable: true });
 
+  if (request.sanitizedSms.length > MAX_SMS_LENGTH) {
+    return apiError('payload_too_large', { correlationId: cid });
+  }
+
   const safeSms = reSanitize(request.sanitizedSms);
   const senderHash = await shortHash(request.senderId);
   if (containsUnsafeRawData(safeSms)) {
@@ -97,7 +105,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+    const geminiRes = await fetchWithTimeout(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -108,7 +116,7 @@ Deno.serve(async (req) => {
           responseMimeType: 'application/json',
         },
       }),
-    });
+    }, GEMINI_TIMEOUT_MS);
     safeLog({
       event: 'bank_discovery_gemini_response',
       senderHash,

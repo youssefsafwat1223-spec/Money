@@ -288,6 +288,90 @@ export async function resolveVerifiedIdentity(
   return { ok: false, response: apiError('authentication_required', { correlationId: cid }) };
 }
 
+// ── Bounded upstream fetch ──────────────────────────────────────────────────
+
+/// fetch() with a hard timeout via AbortController, so a hung upstream cannot
+/// pin an edge invocation open. Throws an AbortError on timeout — callers map it
+/// to `upstream_timeout`.
+export function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+/// True when a thrown error is an abort (our timeout) rather than a real fault.
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError' ||
+    (error instanceof Error && error.name === 'AbortError');
+}
+
+// ── Idempotency (backed by the 0071 claim_ai_idempotency RPC) ────────────────
+
+export const AI_IDEMPOTENCY_TTL_SECONDS = 3600;
+
+/// A stable hash over the SERVER-derived owner + endpoint + normalized payload.
+/// The raw payload is never stored — only this hash — so a replay with a changed
+/// payload is detectable without retaining sensitive text.
+export function payloadHash(parts: string[]): Promise<string> {
+  return sha256Hex(parts.join(' '));
+}
+
+export type ClaimResult =
+  | { outcome: 'claimed' }
+  | { outcome: 'exists'; status: string; result: Record<string, unknown> }
+  | { outcome: 'mismatch' }
+  | { outcome: 'error' };
+
+/// Atomically claims a request id (see the 0071 RPC). `error` on any RPC fault
+/// so the caller can decide to proceed best-effort rather than fail the request.
+export async function claimIdempotency(
+  supabase: ReturnType<typeof serviceClient>,
+  ownerKey: string,
+  endpoint: string,
+  requestId: string,
+  hash: string,
+  ttlSeconds = AI_IDEMPOTENCY_TTL_SECONDS,
+): Promise<ClaimResult> {
+  const { data, error } = await supabase.rpc('claim_ai_idempotency', {
+    p_owner_key: ownerKey,
+    p_endpoint: endpoint,
+    p_request_id: requestId,
+    p_payload_hash: hash,
+    p_ttl_seconds: ttlSeconds,
+  });
+  if (error || !Array.isArray(data) || data.length === 0) return { outcome: 'error' };
+  const row = data[0] as { outcome: string; status: string; result: unknown };
+  if (row.outcome === 'claimed') return { outcome: 'claimed' };
+  if (row.outcome === 'mismatch') return { outcome: 'mismatch' };
+  return {
+    outcome: 'exists',
+    status: row.status,
+    result: (row.result ?? {}) as Record<string, unknown>,
+  };
+}
+
+/// Records the outcome of a claimed request (safe metadata only).
+export async function completeIdempotency(
+  supabase: ReturnType<typeof serviceClient>,
+  ownerKey: string,
+  endpoint: string,
+  requestId: string,
+  status: 'succeeded' | 'failed',
+  result: Record<string, unknown>,
+): Promise<void> {
+  await supabase.rpc('complete_ai_idempotency', {
+    p_owner_key: ownerKey,
+    p_endpoint: endpoint,
+    p_request_id: requestId,
+    p_status: status,
+    p_result: result,
+  });
+}
+
 export type ConsentKind = 'ai' | 'cloud';
 
 /// Returns a `consent_required` Response when the verified identity has not
