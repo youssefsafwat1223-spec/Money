@@ -294,9 +294,27 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 5 — Security, privacy, notifications, native hardening
 
-> **Status (2026-08-05): Batch 5 (backend, RLS, SECURITY DEFINER, metrics, purge,
+> **Status (2026-08-05): Batch 6 — documentation, reconciliation, external-gate
+> inventory, formal closure (documentation & verification only; no production code
+> changed).** The authoritative Phase-5 contract spec is
+> `PHASE_5_SECURITY_PRIVACY_NOTIFICATIONS.md` — it documents the FINAL implemented
+> contracts (native storage, Android persistence/backup/alarms, telemetry/
+> diagnostics, temp exports, the AI-endpoint security matrix, the notification
+> authority/terminology/scheduling contracts, the backend security model, and the
+> gamification 8-layer authority incl. the 0074 single-transaction atomic-award
+> RPC), the per-finding reconciliation, the 0068–0074 migration/activation
+> inventory, the environment-grouped external checklist, and the permanent
+> architectural guardrails with their enforcing tests. **Verdict: Phase 5 code
+> complete — locally verified; signed-device, Android, APNs, store-policy, and
+> live-PostgreSQL verification pending.** Migrations 0068–0074 undeployed;
+> `kServerRevisionCas=false`; migration 0070 authority inactive. The whole
+> remediation program is NOT complete (Phases 6–9, MALI-026, external validation
+> remain).
+>
+> **Prior — Batch 5 (backend, RLS, SECURITY DEFINER, metrics, purge,
 > gamification, endpoint hardening) Code complete · Locally verified.** MALI-075n
-> / MALI-044 / MALI-024-backend. Migration 0072 (additive, undeployed, lint PASS).
+> / MALI-044 / MALI-024-backend. Migration 0072 (additive, undeployed, lint PASS);
+> Batch-5 closures added 0073 (aggregate read-only) + 0074 (atomic award).
 >
 > - **SECURITY DEFINER inventory:** a precise per-function audit found exactly two
 >   SD functions lacking a fixed search_path. `handle_new_user` (0001) is DEAD

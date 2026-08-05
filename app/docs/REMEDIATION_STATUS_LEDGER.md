@@ -5,9 +5,18 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 5 Batch 5 (backend, RLS, SECURITY DEFINER, metrics,
-  purge, gamification, endpoint hardening) Code complete · Locally verified —
-  2026-08-05.** MALI-075n (SD search_path — dead handle_new_user dropped, prune
+- **Last updated:** **Phase 5 Batch 6 (documentation, reconciliation, external-gate
+  inventory, formal closure) — 2026-08-05.** Documentation & verification only; no
+  production code changed. Authoritative Phase-5 contract spec created:
+  `PHASE_5_SECURITY_PRIVACY_NOTIFICATIONS.md` (native storage, Android, telemetry,
+  exports, AI-endpoint matrix, notification authority/terminology/scheduling,
+  backend security, gamification 8-layer authority + the 0074 atomic-award
+  contract). Verdict: **Phase 5 code complete — locally verified; signed-device,
+  Android, APNs, store-policy, and live-PostgreSQL verification pending.**
+  Migrations 0068–0074 undeployed; `kServerRevisionCas=false`; migration 0070
+  authority inactive. Prior — **Phase 5 Batch 5 (backend, RLS, SECURITY DEFINER,
+  metrics, purge, gamification, endpoint hardening) Code complete · Locally
+  verified — 2026-08-05.** MALI-075n (SD search_path — dead handle_new_user dropped, prune
   fixed; owner-bound rate-limited `record_metric` RPC replacing `with check
   (true)`; purge coverage extended to AI-idempotency/engagement/metrics-quota),
   MALI-044 (dead merchant-feedback retired — auth + 410), MALI-024 backend
@@ -193,7 +202,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | P2 lifecycle/consent | 053n,054n,070n,011,017,001,059n | **Code complete · Locally verified** (full suite 1015; commits 374560ff + 89db9f09; awaiting approval) |
 | P3 sync | 051n,052n,055n,056n,057n,008,009,010,022,023,024,072n | **LOCALLY COMPLETE** (live/2-device pending) — all 6 batches committed: B1 051n (acf9ca99), B2 052n/023 (d6820285), B3 022/057n/052n revision-CAS+resolver (4a2da692/de672bc0/0e52da68, **live CAS external-pending**), B4 055n/056n/009/010 (58614ad4/124fd83b), B5 072n/008 + 024 (96993c5e/74a77398), B6 closure docs. MALI-023 Closed-LV; all others CC-LV (external tail). Gamification single-authority overlap proof: no overlap (Edge active, RPC dormant) — see `PHASE_3_SYNC_CLOSURE.md` §2. |
 | P4 financial | 047n,048n,049n,050n,062n,063n,064n,074n,018,028 | **CLOSED · locally verified** — B1–B6 complete. 018/028/062n Closed · LV; 047n/048n/049n/050n/063n/064n/074n Code complete · LV (documented device spot-checks remain). Spec `PHASE_4_FINANCIAL_SEMANTICS.md`. Full suite 1179; analyze 0. Verdict: code+automated closed locally, device/PDF/UI external-pending |
-| P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | Not started |
+| P5 security/notif/native | 031,032,033,060n,061n,065n,068n,071n,075n,019,025,044,039 | **Phase 5 code complete — locally verified; external verification pending.** All 6 batches committed: B1 native storage (031/033/068n `5c88417c`/`30b4f3fc`), B2 telemetry/logging/exports/logos (032/065n/071n/039/075n-logging `bff0f1d8`/`2d1072f6`/`08e7ca0d`/`0010b037`), B3 AI endpoint auth (060n `b6c990f8`+), B4 notification authority (061n/019/025/068n-tail `1e217ce3`/`224394fd`/`9128589e`/`8337202e` + closure `f7cbe727`/`c3ffc673`/`d72e5785`), B5 backend/RLS/metrics/purge/gamification (075n/044/024 `4e927db5`/`6ddd5aaa`/`975af849` + closures `9fdd30e7`/`c4f2aea0`/`ae1f967b`), B6 closure docs. MALI-071n Closed·LV; all others Code complete·LV (external tail). Authoritative spec: `PHASE_5_SECURITY_PRIVACY_NOTIFICATIONS.md`. Migrations 0068–0074 undeployed; `kServerRevisionCas=false`; 0070 authority inactive. External: signed-device, Android, APNs, store-policy, live-Postgres |
 | P6 backup/DB/reliability | 058n,069n,073n,076n | Not started |
 | P7 CI/test/arch/docs | 066n,067n,029,030,034,035,037,038,040,041,042,043,077n,036-limits,021-deadfile | Not started |
 | P8 MALI-026 | 026 | Not started (blocked on P1) |
