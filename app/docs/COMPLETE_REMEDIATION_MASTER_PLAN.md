@@ -311,7 +311,19 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 >   `metrics_rate_limits`), server timestamp, NO PII stored. Client → RPC.
 > - **Gamification (MALI-024):** `record_engagement_event` (0070) hardening
 >   asserted (auth.uid() owner, reject unauth/unknown-type/unsupported-version,
->   server-fixed CASE award, ON CONFLICT idempotent). **Effective dormancy —
+>   server-fixed CASE award, ON CONFLICT idempotent). **Batch-5 closure — gap
+>   found & fixed:** the earlier report wrongly accepted 0062's owner
+>   aggregate-writes; a normal authenticated client could forge its OWN
+>   XP/level/streak/achievement totals (owner-scoped write is NOT security).
+>   **Migration 0073** supersedes those policies (drops owner insert/update +
+>   revokes INSERT/UPDATE/DELETE from authenticated) → aggregates READ-ONLY to
+>   clients; the server (service_role) is the sole authoritative writer; the
+>   client is pull-only (verified). **Legacy idempotency (§5):**
+>   evaluate-gamification double-awarded per webhook retry/duplicate/concurrent;
+>   a `gamification_awarded_transactions` claim-before-award ledger (0073,
+>   deny-all RLS, purge-covered) makes it exactly-once per transaction. Client
+>   engagement submission already bounded (retry→dead-letter, projection
+>   preserves progress, pull reconciles). `9fdd30e7`. **Effective dormancy —
 >   corrected characterization:** the client DOES enqueue + submit engagement
 >   events (`_syncEngagement` → the RPC), but because 0070 is UNDEPLOYED the RPC
 >   does not exist, so every submission 404s (best-effort, caught) and produces
