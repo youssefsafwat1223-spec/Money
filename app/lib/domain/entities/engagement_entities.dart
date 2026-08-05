@@ -77,6 +77,7 @@ class NotificationPreferences {
     this.weeklyReport = true,
     this.subscriptionReminder = true,
     this.goalMilestone = true,
+    this.hideLockScreenContent = false,
     this.quietHoursEnabled = false,
     this.quietHoursStartHour = 23,
     this.quietHoursEndHour = 8,
@@ -98,6 +99,12 @@ class NotificationPreferences {
   final bool weeklyReport;
   final bool subscriptionReminder;
   final bool goalMilestone;
+
+  /// MALI-019 §6 — lock-screen privacy: when true, every notification is
+  /// rendered with generic localized text (no amount/merchant/account/sender/
+  /// balance/name/raw SMS); the tap payload still carries an opaque local id.
+  /// Default false (full details) — documented, non-regressive.
+  final bool hideLockScreenContent;
   final bool quietHoursEnabled;
   final int quietHoursStartHour;
   final int quietHoursEndHour;
@@ -144,6 +151,7 @@ class NotificationPreferences {
     bool? weeklyReport,
     bool? subscriptionReminder,
     bool? goalMilestone,
+    bool? hideLockScreenContent,
     bool? quietHoursEnabled,
     int? quietHoursStartHour,
     int? quietHoursEndHour,
@@ -165,6 +173,8 @@ class NotificationPreferences {
       weeklyReport: weeklyReport ?? this.weeklyReport,
       subscriptionReminder: subscriptionReminder ?? this.subscriptionReminder,
       goalMilestone: goalMilestone ?? this.goalMilestone,
+      hideLockScreenContent:
+          hideLockScreenContent ?? this.hideLockScreenContent,
       quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
       quietHoursStartHour: quietHoursStartHour ?? this.quietHoursStartHour,
       quietHoursEndHour: quietHoursEndHour ?? this.quietHoursEndHour,
@@ -193,6 +203,7 @@ class NotificationPreferences {
       'weeklyReport': weeklyReport,
       'subscriptionReminder': subscriptionReminder,
       'goalMilestone': goalMilestone,
+      'hideLockScreenContent': hideLockScreenContent,
       'quietHoursEnabled': quietHoursEnabled,
       'quietHoursStartHour': quietHoursStartHour,
       'quietHoursEndHour': quietHoursEndHour,
@@ -220,6 +231,8 @@ class NotificationPreferences {
       weeklyReport: json['weeklyReport'] as bool? ?? true,
       subscriptionReminder: json['subscriptionReminder'] as bool? ?? true,
       goalMilestone: json['goalMilestone'] as bool? ?? true,
+      hideLockScreenContent:
+          json['hideLockScreenContent'] as bool? ?? false,
       quietHoursEnabled: json['quietHoursEnabled'] as bool? ?? false,
       quietHoursStartHour: json['quietHoursStartHour'] as int? ?? 23,
       quietHoursEndHour: json['quietHoursEndHour'] as int? ?? 8,

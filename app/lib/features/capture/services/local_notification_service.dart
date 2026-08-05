@@ -92,6 +92,33 @@ class LocalNotificationService {
   /// notification is silently dropped. Every id goes through here.
   static int _safeId(int raw) => raw & 0x7FFFFFFF;
 
+  /// MALI-019 §6 — the redaction contract: generic, financial-data-free
+  /// lock-screen content per type. Used by the local path; the APNs path honors
+  /// the synced preference server-side (C6 coordination + edge policy). Public
+  /// so the privacy guarantee is directly testable.
+  static (String, String) redactedContentFor(NotificationType type) {
+    switch (type) {
+      case NotificationType.captureReview:
+      case NotificationType.captureLight:
+        return ('قرش', 'عملية بحاجة إلى مراجعة — افتح التطبيق لعرض التفاصيل');
+      case NotificationType.budgetWarning:
+      case NotificationType.budgetOver:
+        return ('قرش', 'لديك تنبيه ميزانية — افتح التطبيق');
+      case NotificationType.subscriptionReminder:
+        return ('قرش', 'لديك تذكير مالي — افتح التطبيق');
+      case NotificationType.goalMilestone:
+        return ('قرش', 'لديك تحديث هدف — افتح التطبيق');
+      case NotificationType.weeklyReport:
+        return ('قرش', 'تقريرك الأسبوعي جاهز — افتح التطبيق');
+      case NotificationType.achievements:
+        return ('قرش', 'لديك إنجاز جديد — افتح التطبيق');
+      case NotificationType.streakReminder:
+        return ('قرش', 'لديك تذكير — افتح التطبيق');
+      case NotificationType.marketing:
+        return ('قرش', 'لديك رسالة — افتح التطبيق');
+    }
+  }
+
   static const String _reviewChannelId = 'capture_review';
   // v2 because Android keeps the original channel importance forever after it
   // is created. The old capture_light channel was low importance, so confirmed
@@ -639,6 +666,14 @@ class LocalNotificationService {
       return;
     }
 
+    // MALI-019 §6 — lock-screen privacy. The OS-displayed content is generic
+    // when redaction is on (no amount/merchant/account/sender/balance/name/raw
+    // SMS); the in-app inbox history below keeps the real content, shown only
+    // inside the app behind its lock. The tap payload is unchanged (opaque id).
+    final bool redact = preferences.hideLockScreenContent;
+    final (String shownTitle, String shownBody) =
+        redact ? redactedContentFor(notificationType) : (title, body);
+
     final decodedPayload = CaptureNotificationPayload.tryDecode(payload);
     final logId = await _createLog(
       notificationType: notificationType,
@@ -666,8 +701,8 @@ class LocalNotificationService {
       if (!isCaptureNotification && _isQuietHour(now, preferences)) {
         await _plugin.zonedSchedule(
           id: id,
-          title: title,
-          body: body,
+          title: shownTitle,
+          body: shownBody,
           scheduledDate: _nextAllowedDate(now, preferences),
           notificationDetails: details,
           payload: effectivePayload,
@@ -679,11 +714,13 @@ class LocalNotificationService {
         return;
       }
 
-      debugPrint('[Notif] plugin.show id=$id title=$title');
+      // MALI-019 §9 — never log the rendered title/body (may hold merchant/
+      // amount); the id + type are enough to trace.
+      debugPrint('[Notif] plugin.show id=$id');
       await _plugin.show(
         id: id,
-        title: title,
-        body: body,
+        title: shownTitle,
+        body: shownBody,
         notificationDetails: details,
         payload: effectivePayload,
       );

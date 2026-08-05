@@ -465,6 +465,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       prefs.copyWith(captureLight: value),
                     ),
                   ),
+                  // MALI-019 §6 — lock-screen privacy.
+                  _SwitchTile(
+                    title: 'إخفاء التفاصيل الحساسة على شاشة القفل',
+                    icon: Icons.lock_outline,
+                    value: prefs.hideLockScreenContent,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(hideLockScreenContent: value),
+                    ),
+                  ),
                 ],
               )),
           const SizedBox(height: AppSpacing.s3),
