@@ -507,7 +507,37 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 3 — remote-backup state, safe publication,
+> **Status (2026-08-06): Batch 3 closure — the four approved remote-backup tails
+> implemented.** (1) **Truthful UI/provider state:** `RemoteBackupController`
+> (StateNotifier) is wired into the backup screen; the label + icon derive from
+> the typed `RemoteBackupState`, so "محمي/Protected" renders ONLY for
+> `enabledIdle` (a committed + verified generation) — never on local encryption,
+> a staging upload, or metadata creation alone. `refresh()` reconstructs from
+> remote truth on startup/resume, sign-out resets, and one operation coordinator
+> (busy-mutex) serialises manual/automatic backups so they can never independently
+> upload duplicate generations; a consent gate blocks uploads when cloud consent
+> is OFF. (2) **Server-atomic generation CAS:** migration **0076**
+> `commit_backup_generation` (SECURITY DEFINER, fixed search_path, PUBLIC/anon
+> revoked, authenticated-only) derives the owner from auth, verifies the
+> owner-scoped object path + byte size from `storage.objects`, takes a `FOR
+> UPDATE` row lock, rejects a stale expected generation, guards operation
+> conflicts, replays the winning operation idempotently, moves the pointer in ONE
+> transaction, and retains the previous generation — the adapter now commits via
+> this RPC (backup-specific; `kServerRevisionCas` stays false). (3) **Trigger
+> coordination:** an audit found the app has NO automatic background backup
+> triggers (backup runs only on manual action + enable); both route through the
+> coordinator with the consent gate + serialization + sign-out invalidation (no
+> new background-execution framework introduced). (4) **Retention:** the publisher
+> keeps the current + one previous known-good generation, prunes the 2-back only
+> after the replacement commits, and `pruneOrphans` clears abandoned staging
+> objects; `deleteRemoteBackups` is the explicit destructive path. A
+> credential-gated real-Supabase Storage/RLS/CAS harness is added (skips honestly;
+> the fake store does not prove live RLS or PostgreSQL concurrency). +18 closure
+> tests. MALI-076n remote portion + MALI-014 → Code complete · locally verified;
+> live Supabase Storage/RLS + two-device verification pending. **MALI-069n
+> untouched (Batch 4).**
+>
+> **Prior — Status (2026-08-06): Batch 3 — remote-backup state, safe publication,
 > verified download (MALI-076n remote portion + MALI-014 remote reliability) —
 > Code complete · Locally verified (live-backend + UI + retention tails
 > external).** The remote-backup flow used a boolean (`backupEnabled`/`hasBackup`)
