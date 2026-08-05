@@ -6,6 +6,7 @@ import UserNotifications
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var captureChannel: FlutterMethodChannel?
+  private var exportProtectionChannel: FlutterMethodChannel?
   private var didRegisterPendingMessagesObserver = false
   private var privacySnapshotView: UIView?
   private static let apnsRegistrationFailureKey = "apns_registration_failure"
@@ -20,6 +21,7 @@ import UserNotifications
     GeneratedPluginRegistrant.register(with: self)
     let didFinish = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     configureNativeCaptureChannelIfNeeded()
+    configureExportProtectionChannelIfNeeded()
     if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
       SharedCaptureStore.enqueueNotificationRoute(userInfo: remote)
     }
@@ -31,6 +33,7 @@ import UserNotifications
     super.applicationDidBecomeActive(application)
     removePrivacySnapshotView()
     configureNativeCaptureChannelIfNeeded()
+    configureExportProtectionChannelIfNeeded()
   }
 
   override func applicationDidEnterBackground(_ application: UIApplication) {
@@ -170,6 +173,55 @@ import UserNotifications
     }
     captureChannel = channel
     registerPendingMessagesObserverIfNeeded()
+  }
+
+  /// MALI-065n — applies at-rest protection to a managed export temp file:
+  /// NSFileProtectionComplete (unreadable while the device is locked) and
+  /// exclusion from iCloud/iTunes backup. Best-effort from Dart's side.
+  func configureExportProtectionChannelIfNeeded() {
+    guard exportProtectionChannel == nil,
+          let controller = rootFlutterViewController() else {
+      return
+    }
+
+    let channel = FlutterMethodChannel(
+      name: "mali/export_protection",
+      binaryMessenger: controller.binaryMessenger
+    )
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "protect":
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String else {
+          result(FlutterError(
+            code: "bad_args",
+            message: "Expected a file path.",
+            details: nil
+          ))
+          return
+        }
+        do {
+          try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: path
+          )
+          var url = URL(fileURLWithPath: path)
+          var values = URLResourceValues()
+          values.isExcludedFromBackup = true
+          try url.setResourceValues(values)
+          result(nil)
+        } catch {
+          result(FlutterError(
+            code: "protect_failed",
+            message: error.localizedDescription,
+            details: nil
+          ))
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    exportProtectionChannel = channel
   }
 
   override func application(

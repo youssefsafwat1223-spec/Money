@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/exporting/export_file_protector.dart';
+import 'package:money_companion/core/exporting/managed_export_store.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/reporting/report_snapshot_builder.dart';
@@ -77,7 +79,10 @@ void main() {
       clock: clock,
     );
     fileService = ReportFileService(
-      temporaryDirectory: () => Directory.systemTemp.createTemp('report_test_'),
+      store: ManagedExportStore(
+        baseDirectory: () => Directory.systemTemp.createTemp('report_test_'),
+        protector: const NoopExportFileProtector(),
+      ),
     );
     controller = ReportGenerationController(
       fileService: fileService,
@@ -98,7 +103,7 @@ void main() {
       onProgress: (p) => stages.add(p.stage),
     );
 
-    expect(await result.file.exists(), isTrue);
+    expect(await result.export.file.exists(), isTrue);
     expect(String.fromCharCodes(result.bytes.take(5)), '%PDF-');
     expect(
       stages,
@@ -110,7 +115,7 @@ void main() {
         ReportStage.ready,
       ]),
     );
-    await fileService.deleteQuietly(result.file);
+    await fileService.dispose(result.export);
   });
 
   test('renders off a background isolate when font bytes are provided', () async {
@@ -129,7 +134,7 @@ void main() {
     final result =
         await isolateController.generate(const ReportRequest(period: MonthlyPeriod()));
     expect(String.fromCharCodes(result.bytes.take(5)), '%PDF-');
-    await fileService.deleteQuietly(result.file);
+    await fileService.dispose(result.export);
   });
 
   test('a pre-cancelled token aborts with the cancelled error', () async {
@@ -162,8 +167,8 @@ void main() {
     );
     // The clock ticks per collection; an equal capturedAt proves no re-collect.
     expect(second.snapshot.capturedAt, first.snapshot.capturedAt);
-    await fileService.deleteQuietly(first.file);
-    await fileService.deleteQuietly(second.file);
+    await fileService.dispose(first.export);
+    await fileService.dispose(second.export);
   });
 
   test('fileName is safe, ASCII-only, and deterministic', () {

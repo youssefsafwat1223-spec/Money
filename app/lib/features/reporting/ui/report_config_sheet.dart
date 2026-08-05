@@ -258,7 +258,7 @@ Future<void> runReportGeneration(
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ReportPreviewScreen(
         bytes: result.bytes,
-        file: result.file,
+        export: result.export,
         fileService: ref.read(reportFileServiceProvider),
         containsSensitive: !request.privacyMode,
       ),

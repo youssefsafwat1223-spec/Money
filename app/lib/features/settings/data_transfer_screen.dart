@@ -1,16 +1,16 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/backup/backup_service.dart';
 import '../../core/data_portability/data_portability_models.dart';
+import '../../core/exporting/export_providers.dart';
+import '../../core/exporting/managed_export_store.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -151,7 +151,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   Future<void> _export({required bool fullPackage}) async {
     if (_busy) return;
     setState(() => _busy = true);
-    File? tempFile;
+    ManagedExport? export;
     ExportedFile exported;
     try {
       final service = ref.read(dataPortabilityServiceProvider);
@@ -170,24 +170,25 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       return;
     }
 
+    final store = ref.read(managedExportStoreProvider);
     try {
-      final directory = await getTemporaryDirectory();
-      tempFile = File('${directory.path}/${exported.name}');
-      await tempFile.writeAsBytes(exported.bytes, flush: true);
+      // MALI-065n: opaque on-disk name + platform file-protection; the friendly
+      // date-based `exported.name` is presented only in the share sheet.
+      export = await store.writeBytes(
+        exported.bytes,
+        shareName: exported.name,
+        extension: _extensionOf(exported.name),
+        mimeType: exported.mimeType,
+      );
     } catch (error, stackTrace) {
       _logExportFailure('write', error, stackTrace);
-      try {
-        await tempFile?.delete();
-      } catch (_) {}
       _message('تعذر حفظ ملف التصدير مؤقتًا على الجهاز.');
       if (mounted) setState(() => _busy = false);
       return;
     }
 
     if (!mounted) {
-      try {
-        await tempFile.delete();
-      } catch (_) {}
+      await store.dispose(export);
       return;
     }
 
@@ -198,24 +199,31 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
           : null;
       await Share.shareXFiles(
         [
-          XFile(tempFile.path, mimeType: exported.mimeType, name: exported.name)
+          XFile(export.file.path,
+              mimeType: export.mimeType, name: export.shareName)
         ],
         subject: fullPackage ? 'Qirsh financial data' : 'Qirsh transactions',
         text: fullPackage
             ? 'ملف بيانات قرش المالية. احتفظ به في مكان خاص.'
             : 'تصدير عمليات قرش بصيغة CSV.',
         sharePositionOrigin: shareOrigin,
-        fileNameOverrides: [exported.name],
+        fileNameOverrides: [export.shareName],
       );
     } catch (error, stackTrace) {
+      // MALI-065n: no clipboard fallback for full ledger/package — surface the
+      // failure and let the user retry sharing.
       _logExportFailure('share', error, stackTrace);
       _message('تم تجهيز الملف، لكن تعذر فتح نافذة المشاركة. حاول مرة أخرى.');
     } finally {
-      try {
-        await tempFile.delete();
-      } catch (_) {}
+      // Delete on success, cancel, AND failure (the share outcome is unknown).
+      await store.dispose(export);
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  static String _extensionOf(String name) {
+    final dot = name.lastIndexOf('.');
+    return dot < 0 ? 'bin' : name.substring(dot + 1);
   }
 
   void _logExportFailure(

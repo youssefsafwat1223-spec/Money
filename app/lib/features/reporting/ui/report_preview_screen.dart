@@ -1,29 +1,47 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../../../core/exporting/managed_export_store.dart';
 import '../services/report_file_service.dart';
 
 /// Previews a generated report before sharing. The PDF is rendered with
 /// `printing`'s [PdfPreview]; sharing is gated by a privacy warning when the
 /// report is unmasked, and print goes through the system dialog.
-class ReportPreviewScreen extends StatelessWidget {
+///
+/// MALI-065n: the managed temp PDF is deleted the moment this preview is
+/// dismissed (see [State.dispose]) — covering the share-cancelled and
+/// share-failed paths equally, since we never rely on knowing the outcome — and
+/// the bounded-lease sweep reclaims it if the process is killed while open.
+class ReportPreviewScreen extends StatefulWidget {
   const ReportPreviewScreen({
     super.key,
     required this.bytes,
-    required this.file,
+    required this.export,
     required this.fileService,
     this.containsSensitive = true,
   });
 
   final Uint8List bytes;
-  final File file;
+  final ManagedExport export;
   final ReportFileService fileService;
 
   /// Whether the report shows unmasked sensitive data (drives the share warning).
   final bool containsSensitive;
+
+  @override
+  State<ReportPreviewScreen> createState() => _ReportPreviewScreenState();
+}
+
+class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
+  @override
+  void dispose() {
+    // The export has done its job once the user leaves the preview. Delete it
+    // now (idempotent, best-effort); the sweep is the crash backstop.
+    widget.fileService.dispose(widget.export);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +49,7 @@ class ReportPreviewScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(isAr ? 'معاينة التقرير' : 'Report preview')),
       body: PdfPreview(
-        build: (_) async => bytes,
+        build: (_) async => widget.bytes,
         useActions: false,
         canChangePageFormat: false,
         canChangeOrientation: false,
@@ -52,7 +70,7 @@ class ReportPreviewScreen extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => fileService.printPdf(bytes),
+                  onPressed: () => widget.fileService.printPdf(widget.bytes),
                   icon: const Icon(Icons.print_outlined, size: 18),
                   label: Text(isAr ? 'طباعة' : 'Print'),
                 ),
@@ -65,7 +83,7 @@ class ReportPreviewScreen extends StatelessWidget {
   }
 
   Future<void> _share(BuildContext context, bool isAr) async {
-    if (containsSensitive) {
+    if (widget.containsSensitive) {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -91,8 +109,8 @@ class ReportPreviewScreen extends StatelessWidget {
     final box = context.findRenderObject() as RenderBox?;
     final origin =
         box != null ? box.localToGlobal(Offset.zero) & box.size : null;
-    await fileService.share(
-      file,
+    await widget.fileService.share(
+      widget.export,
       origin: origin,
       subject: isAr ? 'التقرير المالي' : 'Financial Report',
     );

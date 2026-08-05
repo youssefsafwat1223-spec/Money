@@ -1,7 +1,7 @@
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import '../../../core/exporting/managed_export_store.dart';
 import '../../../data/reporting/report_snapshot_builder.dart';
 import '../../../domain/reporting/report_data_snapshot.dart';
 import '../../../domain/reporting/report_request.dart';
@@ -64,12 +64,12 @@ class ReportCancelToken {
 /// The finished artifact.
 class ReportResult {
   const ReportResult({
-    required this.file,
+    required this.export,
     required this.bytes,
     required this.snapshot,
   });
 
-  final File file;
+  final ManagedExport export;
   final Uint8List bytes;
   final ReportDataSnapshot snapshot;
 }
@@ -195,11 +195,11 @@ class ReportGenerationController {
       }
       throwIfCancelled();
 
-      // 4 — write temp file.
+      // 4 — write temp file (managed lifecycle: opaque name, protected, swept).
       emit(ReportStage.writing, 0.9);
-      final File file;
+      final ManagedExport export;
       try {
-        file = await fileService.writeTemporary(
+        export = await fileService.writeReport(
           bytes,
           fileService.fileName(snapshot.range, snapshot.capturedAt),
         );
@@ -208,7 +208,7 @@ class ReportGenerationController {
       }
 
       emit(ReportStage.ready, 1);
-      return ReportResult(file: file, bytes: bytes, snapshot: snapshot);
+      return ReportResult(export: export, bytes: bytes, snapshot: snapshot);
     } on ReportGenerationException {
       rethrow;
     } catch (e) {

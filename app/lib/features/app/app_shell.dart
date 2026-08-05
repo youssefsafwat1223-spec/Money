@@ -14,6 +14,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/diagnostics/duplicate_trace_service.dart';
+import '../../core/exporting/export_providers.dart';
+import '../../core/exporting/managed_export_store.dart';
 import '../../core/router/modal_route_observer.dart';
 import 'app_boot_loader.dart';
 import '../planning_sync/services/startup_sync_reconcile_service.dart';
@@ -285,6 +287,12 @@ class _AppShellState extends ConsumerState<AppShell> {
     await _drainPendingNotificationRoutes();
     await _syncEngagement();
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
+    // MALI-065n: bounded-lease sweep of any export temp file a crash orphaned
+    // while backgrounded — never touches one still inside its lease (an
+    // in-flight share).
+    unawaited(ref
+        .read(managedExportStoreProvider)
+        .sweep(olderThan: ManagedExportStore.defaultLease));
     _drainCelebrations();
   }
 

@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/catalog/seed_loader.dart';
 import '../../data/db/app_database.dart';
+import '../exporting/managed_export_store.dart';
 import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
@@ -139,6 +140,13 @@ class BootstrapRunner {
     await _step(
       'feature_flags_init',
       () => initFeatureFlagService(database),
+    );
+
+    // MALI-065n: on a fresh process no export share can be in flight, so any
+    // file left in the managed export dir is a crash orphan — reclaim them all.
+    await _step(
+      'export_temp_sweep',
+      () => ManagedExportStore().sweep(),
     );
 
     await _step('capture_registration', () async {
