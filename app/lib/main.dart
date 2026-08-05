@@ -7,6 +7,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'app.dart';
 import 'core/backend/sentry_config.dart';
 import 'core/di/app_providers.dart';
+import 'core/observability/diagnostics.dart';
 import 'core/observability/telemetry_sanitizer.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
@@ -15,6 +16,9 @@ import 'features/app/startup_loading_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // MALI-039 — redact + bound every diagnostic line (all call sites, plugins,
+  // future code) before it reaches the platform log, in debug and release.
+  Diag.installRedactingSink();
   if (SentryConfig.isConfigured) {
     await SentryFlutter.init(
       (options) {
