@@ -87,6 +87,16 @@ class SupabaseRemoteBackupStore implements RemoteBackupStore {
   }
 
   @override
+  Future<List<String>> listObjects(String prefix) async {
+    try {
+      final files = await _client.storage.from(_bucket).list(path: prefix);
+      return files.map((f) => '$prefix/${f.name}').toList(growable: false);
+    } on supabase.StorageException {
+      return const [];
+    }
+  }
+
+  @override
   Future<void> commitGeneration(
     RemoteBackupMetadata m, {
     String? expectedPrevGenerationId,
@@ -96,31 +106,47 @@ class SupabaseRemoteBackupStore implements RemoteBackupStore {
       throw const RemoteBackupException(
           RemoteBackupErrorKind.authenticationRequired);
     }
-    // Compare-and-set on the current committed generation (the owner RLS scopes
-    // the row to this user). A server-atomic CAS RPC is a documented follow-up;
-    // this read-check-then-write prevents the common lost-update and detects a
-    // concurrent device that already advanced the generation.
-    final current = await readCurrentGeneration();
-    if (current?.generationId != expectedPrevGenerationId) {
-      throw const RemoteBackupException(RemoteBackupErrorKind.staleGeneration);
-    }
-    final now = DateTime.now().toUtc().toIso8601String();
+    // SERVER-ATOMIC compare-and-set (migration 0076): the RPC derives the owner
+    // from auth, verifies the object's owner-scoped path + byte size, locks the
+    // pointer row, rejects a stale expected generation, records the operation for
+    // idempotent replay, and moves the pointer — all in one transaction.
+    final dynamic result;
     try {
-      await _client.from('backups').upsert({
-        'user_id': owner,
-        'blob_path': m.objectPath,
-        'blob_version': m.envelopeVersion,
-        'size_bytes': m.sizeBytes,
-        'blob_sha256': m.blobSha256,
-        'generation_id': m.generationId,
-        'operation_id': m.operationId,
-        'status': m.status,
-        'committed_at': now,
-        'updated_at': now,
+      result = await _client.rpc('commit_backup_generation', params: {
+        'p_generation_id': m.generationId,
+        'p_object_path': m.objectPath,
+        'p_blob_version': m.envelopeVersion,
+        'p_size_bytes': m.sizeBytes,
+        'p_blob_sha256': m.blobSha256,
+        'p_operation_id': m.operationId,
+        'p_expected_prev_generation_id': expectedPrevGenerationId,
       });
     } on supabase.PostgrestException {
       throw const RemoteBackupException(
           RemoteBackupErrorKind.storageUnavailable);
+    }
+    if (result is! Map || result['ok'] != true) {
+      throw RemoteBackupException(_mapServerError(
+          result is Map ? result['error'] as String? : null));
+    }
+  }
+
+  static RemoteBackupErrorKind _mapServerError(String? code) {
+    switch (code) {
+      case 'authentication_required':
+        return RemoteBackupErrorKind.authenticationRequired;
+      case 'ownership_mismatch':
+        return RemoteBackupErrorKind.ownershipMismatch;
+      case 'stale_generation':
+        return RemoteBackupErrorKind.staleGeneration;
+      case 'operation_conflict':
+        return RemoteBackupErrorKind.operationConflict;
+      case 'upload_verification_failed':
+        return RemoteBackupErrorKind.uploadVerificationFailed;
+      case 'remote_object_missing':
+        return RemoteBackupErrorKind.remoteObjectMissing;
+      default:
+        return RemoteBackupErrorKind.internalError;
     }
   }
 
@@ -143,6 +169,8 @@ class SupabaseRemoteBackupStore implements RemoteBackupStore {
         blobSha256: (row['blob_sha256'] as String?) ?? '',
         operationId: (row['operation_id'] as String?) ?? '',
         status: (row['status'] as String?) ?? 'committed',
+        previousGenerationId: row['previous_generation_id'] as String?,
+        previousObjectPath: row['previous_object_path'] as String?,
       );
     } on supabase.PostgrestException {
       return null;

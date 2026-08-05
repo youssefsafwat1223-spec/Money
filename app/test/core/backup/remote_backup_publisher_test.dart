@@ -56,6 +56,10 @@ class FakeRemoteBackupStore implements RemoteBackupStore {
   }
 
   @override
+  Future<List<String>> listObjects(String prefix) async =>
+      objects.keys.where((k) => k.startsWith(prefix)).toList();
+
+  @override
   Future<void> commitGeneration(RemoteBackupMetadata m,
       {String? expectedPrevGenerationId}) async {
     commitCalls++;
@@ -142,15 +146,38 @@ void main() {
       expect((await store.readCurrentGeneration())!.generationId, 'gen-1');
     });
 
-    test('the previous object is retired only AFTER the new pointer commits',
+    test('retention: the PREVIOUS generation is retained; only the 2-back is pruned',
         () async {
       final store = FakeRemoteBackupStore();
       final pub = RemoteBackupPublisher(store);
-      await commitFirst(pub);
+      await commitFirst(pub); // gen-1
       await pub.publish(blob: blobB, envelopeVersion: 3, generationId: 'gen-2', operationId: 'op-2');
-      expect((await store.readCurrentGeneration())!.generationId, 'gen-2');
-      expect(store.objects.containsKey('user-A/g/gen-1.enc'), isFalse); // retired
+      // current=gen-2, previous=gen-1 → both retained.
+      expect(store.objects.containsKey('user-A/g/gen-1.enc'), isTrue);
       expect(store.objects.containsKey('user-A/g/gen-2.enc'), isTrue);
+      final m2 = (await store.readCurrentGeneration())!;
+      expect(m2.previousGenerationId, 'gen-1');
+
+      await pub.publish(blob: blobA, envelopeVersion: 3, generationId: 'gen-3', operationId: 'op-3');
+      // current=gen-3, previous=gen-2 → gen-1 (2-back) pruned; gen-2 kept.
+      expect(store.objects.containsKey('user-A/g/gen-1.enc'), isFalse); // pruned
+      expect(store.objects.containsKey('user-A/g/gen-2.enc'), isTrue); // previous
+      expect(store.objects.containsKey('user-A/g/gen-3.enc'), isTrue); // current
+      expect((await store.readCurrentGeneration())!.previousGenerationId, 'gen-2');
+    });
+
+    test('pruneOrphans removes abandoned staging but keeps current + previous',
+        () async {
+      final store = FakeRemoteBackupStore();
+      final pub = RemoteBackupPublisher(store);
+      await commitFirst(pub); // gen-1
+      await pub.publish(blob: blobB, envelopeVersion: 3, generationId: 'gen-2', operationId: 'op-2');
+      store.objects['user-A/g/orphan.enc'] =
+          Uint8List.fromList([1, 2, 3]); // an interrupted upload's orphan
+      await pub.pruneOrphans();
+      expect(store.objects.containsKey('user-A/g/orphan.enc'), isFalse); // pruned
+      expect(store.objects.containsKey('user-A/g/gen-2.enc'), isTrue); // current
+      expect(store.objects.containsKey('user-A/g/gen-1.enc'), isTrue); // previous
     });
 
     test('unauthenticated publish is authenticationRequired', () async {

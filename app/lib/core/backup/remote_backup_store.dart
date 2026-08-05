@@ -23,6 +23,8 @@ class RemoteBackupMetadata {
     required this.blobSha256,
     required this.operationId,
     this.status = 'committed',
+    this.previousGenerationId,
+    this.previousObjectPath,
   });
 
   final String generationId;
@@ -32,6 +34,12 @@ class RemoteBackupMetadata {
   final String blobSha256;
   final String operationId;
   final String status;
+
+  /// The immediately-previous known-good generation, retained (MALI-076n §15)
+  /// until the NEXT generation commits — so a new backup never leaves the user
+  /// with only one recoverable copy. Null for the first generation.
+  final String? previousGenerationId;
+  final String? previousObjectPath;
 }
 
 /// Abstraction over remote object storage + the current-generation pointer.
@@ -51,6 +59,9 @@ abstract class RemoteBackupStore {
   Future<Uint8List> getObject(String path, {required int maxBytes});
 
   Future<void> deleteObject(String path);
+
+  /// Full object paths under [prefix] (e.g. the user's generation folder).
+  Future<List<String>> listObjects(String prefix);
 
   /// Commit the current-generation pointer. When [expectedPrevGenerationId] is
   /// provided it is a compare-and-set: a mismatch throws
@@ -128,15 +139,41 @@ class RemoteBackupPublisher {
       sizeBytes: blob.length,
       blobSha256: sha256Hex(blob),
       operationId: operationId,
+      // Retain the just-superseded generation as the known-good previous.
+      previousGenerationId: current?.generationId,
+      previousObjectPath: current?.objectPath,
     );
     // 3. Atomically commit the pointer (CAS on the previous generation).
     await _store.commitGeneration(meta,
         expectedPrevGenerationId: current?.generationId);
-    // 4. Retire the previous object ONLY after the new pointer is committed.
-    if (current != null && current.objectPath != objectPath) {
-      await _safeDelete(current.objectPath);
+    // 4. Retention (§15): keep the new current + the previous generation; prune
+    //    only the object that is now TWO generations back (what used to be the
+    //    previous). The previous known-good is never deleted before the
+    //    replacement is committed.
+    final twoBack = current?.previousObjectPath;
+    if (twoBack != null && twoBack != objectPath && twoBack != current?.objectPath) {
+      await _safeDelete(twoBack);
     }
     return meta;
+  }
+
+  /// Prune abandoned staging objects (from interrupted uploads) that are neither
+  /// the current nor the previous committed generation. Bounded + retryable;
+  /// never deletes the current or previous known-good object.
+  Future<void> pruneOrphans() async {
+    final owner = _store.ownerId;
+    if (owner == null) return;
+    final current = await _store.readCurrentGeneration();
+    final keep = <String>{
+      if (current != null) current.objectPath,
+      if (current?.previousObjectPath != null) current!.previousObjectPath!,
+    };
+    final all = await _store.listObjects('$owner/g');
+    for (final path in all) {
+      if (!keep.contains(path)) {
+        await _safeDelete(path);
+      }
+    }
   }
 
   /// Download + integrity-verify the committed generation BEFORE any decryption
