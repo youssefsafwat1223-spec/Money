@@ -7,10 +7,13 @@ import 'package:cryptography/cryptography.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../data/db/app_database.dart';
+import '../utils/id_generator.dart';
 import 'backup_crypto.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
+import 'remote_backup_store.dart';
 import 'restore_backup_usecase.dart';
+import 'supabase_remote_backup_store.dart';
 
 class EncryptedBackupService implements BackupService {
   EncryptedBackupService({
@@ -39,6 +42,12 @@ class EncryptedBackupService implements BackupService {
   final AppDatabase _database;
   final supabase.SupabaseClient _client;
   final FlutterSecureStorage _storage;
+
+  // MALI-076n §5 — safe generation-based publication + verified download.
+  late final RemoteBackupStore _remoteStore =
+      SupabaseRemoteBackupStore(_client);
+  late final RemoteBackupPublisher _publisher =
+      RemoteBackupPublisher(_remoteStore);
   final BackupCrypto _crypto;
   final Future<void> Function()? _afterRestore;
 
@@ -150,24 +159,19 @@ class EncryptedBackupService implements BackupService {
         keySlots: _decodeKeySlots(slotsRaw),
       );
       final v3Bytes = v3Blob.toBytes();
-      final path = '$userId/backup.enc';
-      await _client.storage.from(_bucket).uploadBinary(
-            path,
-            v3Bytes,
-            fileOptions: const supabase.FileOptions(
-              upsert: true,
-              contentType: 'application/octet-stream',
-            ),
-          );
-      final nowV3 = DateTime.now().toUtc();
-      await _client.from('backups').upsert(uploadMetadata(
-            userId: userId,
-            path: path,
-            blobVersion: v3Blob.version,
-            sizeBytes: v3Bytes.length,
-            updatedAtIso: nowV3.toIso8601String(),
-          ));
-      await _storage.write(key: _lastKey, value: nowV3.toIso8601String());
+      // MALI-076n §5 — publish as a NEW generation: a unique per-generation
+      // object path, size-verified upload, compare-and-set pointer commit, then
+      // retire the previous object ONLY after the new pointer commits. An
+      // interrupted upload can only orphan a new object; the last valid backup is
+      // never replaced.
+      await _publisher.publish(
+        blob: v3Bytes,
+        envelopeVersion: v3Blob.version,
+        generationId: IdGenerator.uuidV4(),
+        operationId: IdGenerator.uuidV4(),
+      );
+      await _storage.write(
+          key: _lastKey, value: DateTime.now().toUtc().toIso8601String());
       return;
     }
 
@@ -228,20 +232,35 @@ class EncryptedBackupService implements BackupService {
     }
   }
 
+  /// MALI-076n §3 — DISABLE stops future uploads ONLY. It clears local backup
+  /// scheduling + keys but deliberately does NOT delete the remote backup, so the
+  /// existing backup stays restorable (with its passphrase) and re-enabling makes
+  /// a fresh one. Deleting remote data is a SEPARATE, explicit destructive action
+  /// ([deleteRemoteBackups]); the two are never silently combined. The local
+  /// database is unaffected either way.
   @override
   Future<void> disable() async {
-    final userId = _client.auth.currentUser?.id;
-    if (userId != null) {
-      final path = '$userId/backup.enc';
-      await _client.storage.from(_bucket).remove([path]);
-      await _client.from('backups').delete().eq('user_id', userId);
+    await _clearLocalBackupState();
+  }
+
+  /// MALI-076n §3 — the explicit destructive action: delete the committed remote
+  /// backup object + its pointer (and any legacy fixed object). A failed remote
+  /// deletion surfaces a typed [RemoteBackupException]; the local database and
+  /// local files are never touched.
+  Future<void> deleteRemoteBackups() async {
+    final generation = await _remoteStore.readCurrentGeneration();
+    if (generation != null) {
+      await _remoteStore.deleteObject(generation.objectPath);
     }
-    await _storage.delete(key: _enabledKey);
-    await _storage.delete(key: _saltKey);
-    await _storage.delete(key: _recoveryKey);
-    await _storage.delete(key: _lastKey);
-    await _storage.delete(key: _localKeyKey);
-    await _storage.delete(key: _keySlotsKey);
+    final owner = _remoteStore.ownerId;
+    if (owner != null) {
+      try {
+        await _client.storage.from(_bucket).remove(['$owner/backup.enc']);
+      } on supabase.StorageException {
+        // Legacy object may be absent — that is idempotent success.
+      }
+    }
+    await _remoteStore.clearGeneration();
   }
 
   @override
@@ -251,8 +270,17 @@ class EncryptedBackupService implements BackupService {
 
   Future<void> restore({required String passphrase}) async {
     final userId = _userId();
-    final path = '$userId/backup.enc';
-    final bytes = await _client.storage.from(_bucket).download(path);
+    // MALI-076n §7 — prefer the committed generation, integrity-verified (size +
+    // encrypted-blob hash) BEFORE any decryption. A legacy backup with no
+    // generation pointer falls back to the fixed object path (its integrity is
+    // still enforced by the v3/legacy envelope authentication below).
+    final generation = await _remoteStore.readCurrentGeneration();
+    final Uint8List bytes;
+    if (generation != null) {
+      bytes = await _publisher.downloadVerified(generation);
+    } else {
+      bytes = await _client.storage.from(_bucket).download('$userId/backup.enc');
+    }
     try {
       // MALI-076n §9 — structurally validate the untrusted envelope and enforce
       // resource limits BEFORE any KDF, then decrypt/authenticate — all before
