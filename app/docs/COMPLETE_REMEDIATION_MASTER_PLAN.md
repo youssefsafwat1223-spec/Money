@@ -294,7 +294,46 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 5 — Security, privacy, notifications, native hardening
 
-> **Status (2026-08-05): Batch 3 (AI endpoint authentication, verified identity,
+> **Status (2026-08-05): Batch 4 (notification authority, policy, dedup,
+> lock-screen privacy, scheduling limits, Android receiver tail) Code complete ·
+> Locally verified.** MALI-061n / MALI-019 / MALI-025 / MALI-068n + the Batch-3
+> Android consent tail.
+>
+> - **Android consent tail:** a platform dispatcher `syncBackendState()` registers
+>   the Android device (only after cloud/AI opt-in) and pushes consent via
+>   `set-device-consent`, fail-closed; iOS unchanged. `1e2d88f4`.
+> - **Event identity (§3):** `notificationEventId`/`achievementNotificationId` —
+>   stable business key, never display text/hashCode (achievement + review ids
+>   fixed). `1e217ce3`.
+> - **Lock-screen privacy (§6/§9):** `hideLockScreenContent` pref + generic
+>   `redactedContentFor` per type; in-app inbox keeps real content; title-logging
+>   leak removed; delivery states already honest (no 'delivered'). `224394fd`.
+> - **iOS capacity (§8):** `NotificationCapacityPlanner` (cap < 64, immediate
+>   reserve, importance-then-due, rolling window, verify actual pending set).
+>   `9128589e`.
+> - **Android tail (§9/§11):** SMS native-epoch timestamp authority
+>   (`resolveCapturedReceivedAt`: epoch→ISO-legacy→null, never `now`); durable
+>   corruption clear; inexact alarms + Play-restricted exact-alarm permissions
+>   removed. `8337202e`. Android compile/receiver/alarm/device EXTERNAL.
+> - **Authority coordination (§12):** budget local-primary; evaluate-budgets
+>   pushes only as a fallback when no device is recently active
+>   (`anyDeviceRecentlyActive`). `5b2c771b`.
+>
+> ### Batch-4 notification-authority matrix
+>
+> | Type | Authority | Fallback | Logical event id | Privacy | Quiet hours | Dedup |
+> |---|---|---|---|---|---|---|
+> | capture review/light | local (`_show`) | — | `review:<txnId>` / capture payload id | redacted-aware | bypass (time-sensitive) | id + notification_logs |
+> | budget warning/over | **local (immediate)** | server (`evaluate-budgets`, when inactive) | `budget:<id>:<period>:<bucket>` + spend watermark | redacted-aware / server policy | enforced both tiers | watermark + recency guard |
+> | achievement / streak | local (gamification→`_show`) | — | `achievement:<key>` | generic | enforced | stable id |
+> | bill/subscription, weekly report, goal | local scheduler | — | `notificationEventId(type,key)` | redacted-aware | enforced (defer) | capacity-planned ids |
+> | (Phase-3) gamification award authority | legacy transaction-triggered ONLY | — | — | — | — | 0070 engagement authority stays DORMANT |
+>
+> Preserved: Phase-3 gamification transition (0070 engagement authority not
+> activated), install_id non-authoritative, server consent authoritative. Native
+> Android receiver/alarm/device verification remains external.
+>
+> **Prior — Batch 3 (AI endpoint authentication, verified identity,
 > consent, rate limiting, abuse controls) Code complete · Locally verified.**
 > MALI-060n. The three client-callable paid endpoints — parse-sms (Gemini),
 > bank-discovery (Gemini), enrich-merchant (Google Places) — no longer trust a
