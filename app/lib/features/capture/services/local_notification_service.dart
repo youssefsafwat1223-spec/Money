@@ -11,6 +11,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../../../data/db/app_database.dart';
 import '../../../domain/entities/engagement_entities.dart';
+import '../../../domain/services/notification_capacity_planner.dart';
 import '../../../domain/services/notification_planner.dart';
 import '../capture_runtime.dart';
 import 'notification_log_service.dart';
@@ -137,6 +138,11 @@ class LocalNotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+
+  /// MALI-025 — bounds how many pending reminders we keep, below iOS's ~64
+  /// platform max, reserving headroom for immediate alerts.
+  static const NotificationCapacityPlanner _capacityPlanner =
+      NotificationCapacityPlanner();
 
   /// حافظة سجل الإشعارات داخل التطبيق (شاشة الرسائل). تُضبط عند الإقلاع
   /// بمستودع الإعدادات؛ كل إشعار يُعرض يُسجَّل هنا أيضاً حتى يجده المستخدم
@@ -559,25 +565,51 @@ class LocalNotificationService {
   Future<void> schedulePlannedNotifications(
     List<PlannedLocalNotification> notifications,
   ) async {
+    // MALI-025 — schedule within the pending-capacity budget (iOS silently
+    // drops requests past ~64 pending). Reserve headroom for immediate alerts,
+    // prefer importance then nearest-due, and roll the window forward instead of
+    // burning the budget on far-future recurrences.
+    final Set<int> managedPending;
     try {
       if (!_initialized) {
         await initialize();
       }
-      await _plugin.cancel(id: _weeklyReportId);
       final pending = await _plugin.pendingNotificationRequests();
-      for (final request in pending) {
-        if (request.id >= 92000 && request.id < 992000) {
-          await _plugin.cancel(id: request.id);
-        }
-      }
+      managedPending = {
+        for (final request in pending)
+          if (_isManagedScheduledId(request.id)) request.id,
+      };
     } catch (error) {
-      // Setup (init/cancel-old) failed — nothing durable was scheduled yet,
-      // so there's no per-notification attempt to log here. Stop the whole
-      // batch rather than schedule on top of an uncertain plugin state.
+      // Setup (init/read-pending) failed — nothing durable was scheduled yet.
+      // Stop rather than schedule on top of an uncertain plugin state.
       debugPrint('[Notif] schedulePlannedNotifications setup failed: $error');
       return;
     }
-    for (final notification in notifications) {
+
+    final byId = {for (final n in notifications) n.id: n};
+    final plan = _capacityPlanner.plan(
+      currentManagedPending: managedPending,
+      desired: [
+        for (final n in notifications)
+          ScheduleCandidate(
+            id: n.id,
+            due: n.scheduledAtRiyadh,
+            priority: _plannedPriority(n.kind),
+          ),
+      ],
+      now: DateTime.now(),
+    );
+
+    // Cancel stale/dropped managed pending before adding replacements.
+    for (final staleId in plan.toCancel) {
+      try {
+        await _plugin.cancel(id: staleId);
+      } catch (_) {}
+    }
+
+    for (final candidate in plan.toSchedule) {
+      final notification = byId[candidate.id];
+      if (notification == null) continue;
       final notificationType = notification.kind.name;
       final logId = await logService?.recordCreated(
         channel: _localChannel,
@@ -616,6 +648,32 @@ class LocalNotificationService {
           );
         }
       }
+    }
+
+    // MALI-025 — verify the actual pending set instead of assuming every
+    // schedule was accepted. Safe count only, no financial content.
+    try {
+      final after = await _plugin.pendingNotificationRequests();
+      final managed =
+          after.where((r) => _isManagedScheduledId(r.id)).length;
+      debugPrint('[Notif] window: planned=${plan.toSchedule.length} '
+          'managedPending=$managed cap=${_capacityPlanner.capacity}');
+    } catch (_) {
+      // Verification is best-effort diagnostics.
+    }
+  }
+
+  /// Ids this planner owns: bill/subscription reminders and the weekly report.
+  /// Never touches immediate/foreign notifications.
+  static bool _isManagedScheduledId(int id) =>
+      id == _weeklyReportId || (id >= 92000 && id < 992000);
+
+  static int _plannedPriority(PlannedNotificationKind kind) {
+    switch (kind) {
+      case PlannedNotificationKind.subscriptionReminder:
+        return 3; // time-sensitive bill/subscription due dates
+      case PlannedNotificationKind.weeklyReport:
+        return 1; // low priority — dropped first under pressure
     }
   }
 
