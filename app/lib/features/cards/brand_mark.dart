@@ -1,14 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../engine/parser/payment_aggregators.dart';
+import '../settings/settings_providers.dart';
+
+/// MALI-071n — whether merchant logos may be fetched from a third party.
+///
+/// Fetching a logo tells the remote host (the admin catalog CDN, or
+/// img.logo.dev) which merchant the user is looking at, so it is gated on the
+/// user's cloud-processing consent. Fails CLOSED: while the setting is loading,
+/// errored, or unset, no remote request is made. Bundled SVGs and the letter
+/// placeholder are always available offline regardless.
+final remoteMerchantLogosAllowedProvider = Provider<bool>((ref) {
+  return ref.watch(userSettingsProvider).maybeWhen(
+        data: (settings) => settings.cloudProcessingEnabled,
+        orElse: () => false,
+      );
+});
 
 /// علامة العلامة التجارية (Brand mark).
 ///
-/// الأولوية لشعار SVG حقيقي لو متوفّر في `assets/brands/`، وإلا مربّع ملوّن بحرف
-/// مميّز للعلامات المعروفة، وبديل افتراضي لأي متجر — كله بدون أي طلب شبكة
-/// (offline + خصوصية: مابنبعتش اسم التاجر لأي خدمة خارجية).
-class BrandMark extends StatelessWidget {
+/// سلّم تقليل البيانات (MALI-071n): شعار SVG مرفق في الحزمة أولاً (محلي، بدون
+/// شبكة) → ثم — بشرط موافقة المعالجة السحابية فقط — شعار الـ admin/DB ثم logo.dev
+/// بالدومين العام المعروف (مش اسم التاجر الخام) → وإلا مربّع ملوّن بحرف. لو
+/// الموافقة مرفوضة: لا أي طلب شبكة إطلاقاً — المرفق أو الحرف فقط.
+class BrandMark extends ConsumerWidget {
   const BrandMark({
     super.key,
     required this.name,
@@ -339,12 +356,48 @@ class BrandMark extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    // 0) شعار من الـ admin/DB (URL) — لو فشل التحميل نرجع للبديل.
-    if (logoUrl != null && logoUrl!.isNotEmpty) {
-      return _networkLogo(logoUrl!, fallback: _drawnMark());
+  Widget build(BuildContext context, WidgetRef ref) {
+    final allowRemote = ref.watch(remoteMerchantLogosAllowedProvider);
+
+    // 1) شعار SVG مرفق (محلي، بدون شبكة) — أول السلّم دائماً.
+    final slug = _resolveSlug(name);
+    if (slug != null) return _svgMark(slug);
+
+    // 2) الشعارات البعيدة تتطلّب موافقة المعالجة السحابية. مرفوضة → مفيش أي طلب.
+    if (allowRemote) {
+      if (logoUrl != null && logoUrl!.isNotEmpty) {
+        return _networkLogo(logoUrl!, fallback: _logoDevMark());
+      }
+      return _logoDevMark();
     }
-    return _drawnMark();
+
+    // 3) بديل بدون شبكة.
+    return _letterMark();
+  }
+
+  /// شعار logo.dev بالدومين العام (تُستدعى فقط بعد التحقق من الموافقة).
+  Widget _logoDevMark() {
+    final logoDevUrl = logoDevUrlFor(name);
+    if (logoDevUrl != null) {
+      return _networkLogo(logoDevUrl, fallback: _letterMark());
+    }
+    return _letterMark();
+  }
+
+  Widget _svgMark(String slug) {
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(size * 0.28),
+      ),
+      child: SvgPicture.asset(
+        'assets/brands/$slug.svg',
+        fit: BoxFit.contain,
+      ),
+    );
   }
 
   /// مربّع أبيض بشعار من الشبكة، مع [fallback] لو فشل التحميل/أثناء التحميل.
@@ -365,35 +418,6 @@ class BrandMark extends StatelessWidget {
             progress == null ? child : fallback,
       ),
     );
-  }
-
-  Widget _drawnMark() {
-    // 1) شعار SVG حقيقي لو موجود (صريح أو مكتشف تلقائياً من الملفات المرفقة).
-    final slug = _resolveSlug(name);
-    if (slug != null) {
-      return Container(
-        width: size,
-        height: size,
-        padding: EdgeInsets.all(size * 0.18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(size * 0.28),
-        ),
-        child: SvgPicture.asset(
-          'assets/brands/$slug.svg',
-          fit: BoxFit.contain,
-        ),
-      );
-    }
-
-    // 2) شعار إقليمي من logo.dev عبر الشبكة (لو التاجر له دومين معروف).
-    final logoDevUrl = logoDevUrlFor(name);
-    if (logoDevUrl != null) {
-      return _networkLogo(logoDevUrl, fallback: _letterMark());
-    }
-
-    // 3) مربّع ملوّن + حرف (بديل بدون شعار).
-    return _letterMark();
   }
 
   Widget _letterMark() {
