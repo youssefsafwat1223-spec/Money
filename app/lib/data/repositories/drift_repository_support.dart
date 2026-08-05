@@ -322,7 +322,9 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     theme: row.read<String>('theme'),
     inputMethod: row.read<String>('input_method'),
     notificationsJson: row.read<String>('notifications_json'),
-    dbEncryptionKeyRef: row.read<String>('db_encryption_key_ref'),
+    // MALI-058n — the deprecated key column is never surfaced into app memory;
+    // the entity always sees ''. The SQLCipher key comes only from secure storage.
+    dbEncryptionKeyRef: '',
     privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
     // MALI-059n: consent is the persisted, versioned choice — no runtime clamp.
     // An unset/declined state means the cloud/AI gates fail closed.

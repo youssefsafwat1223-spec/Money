@@ -419,6 +419,19 @@ class AppDatabase extends GeneratedDatabase {
     return rows.first.read<int>('total');
   }
 
+  /// MALI-058n — idempotent local repair that clears any legacy raw SQLCipher
+  /// key stored in the deprecated `db_encryption_key_ref` column. Touches ONLY
+  /// that column (never another setting), never reads the value into memory/logs,
+  /// and is a no-op once the value is already empty. Returns the number of rows
+  /// repaired (0 on a clean device) so callers can assert idempotency in tests.
+  Future<int> clearDeprecatedDbKeyRef() async {
+    return customUpdate(
+      "UPDATE user_settings SET db_encryption_key_ref = '' "
+      "WHERE db_encryption_key_ref != '';",
+      updateKind: UpdateKind.update,
+    );
+  }
+
   static Future<DatabaseConnection> _openEncryptedConnection(String key) async {
     final directory = await getApplicationSupportDirectory();
     final file = File(p.join(directory.path, 'money_companion.sqlite'));
@@ -695,6 +708,11 @@ class AppDatabase extends GeneratedDatabase {
         theme TEXT NOT NULL,
         input_method TEXT NOT NULL,
         notifications_json TEXT NOT NULL,
+        -- DEPRECATED (MALI-058n): kept for schema stability (no table rebuild
+        -- before MALI-026) but NON-AUTHORITATIVE. Every production writer writes
+        -- '' here; the SQLCipher key lives ONLY in platform secure storage and is
+        -- never stored in the DB, backed up, synced, or exported. A local repair
+        -- clears any legacy non-empty value.
         db_encryption_key_ref TEXT NOT NULL,
         privacy_mode_enabled INTEGER NOT NULL DEFAULT 0,
         -- MALI-059n: cloud/AI processing default OFF. The boolean columns are the
@@ -1864,17 +1882,19 @@ class AppDatabase extends GeneratedDatabase {
     }
 
     if (await count('user_settings') == 0) {
-      final keyRef = await keyStore.readStoredKey() ?? '';
+      // MALI-058n — the SQLCipher key lives ONLY in platform secure storage and
+      // is NEVER copied into the database. db_encryption_key_ref is a deprecated,
+      // non-authoritative column that must stay EMPTY so it can never enter a
+      // backup snapshot; it is seeded to '' (not the raw key).
       await customInsert(
         '''
           INSERT INTO user_settings(
             id, country, currency, language, theme, input_method, notifications_json, db_encryption_key_ref, privacy_mode_enabled
           )
-          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursEnabled":false,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', ?, 0);
+          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursEnabled":false,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', '', 0);
         ''',
         variables: [
           Variable.withString(IdGenerator.next()),
-          Variable.withString(keyRef),
         ],
       );
     }

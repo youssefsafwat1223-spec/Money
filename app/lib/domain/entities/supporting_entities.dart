@@ -147,7 +147,9 @@ class UserSettingsEntity {
     required this.theme,
     required this.inputMethod,
     required this.notificationsJson,
-    required this.dbEncryptionKeyRef,
+    // DEPRECATED (MALI-058n): non-authoritative; always empty. Defaulted so
+    // callers need not supply it. The SQLCipher key lives only in secure storage.
+    this.dbEncryptionKeyRef = '',
     required this.privacyModeEnabled,
     this.displayName,
     this.phoneNumber,
@@ -168,6 +170,10 @@ class UserSettingsEntity {
   final String theme;
   final String inputMethod;
   final String notificationsJson;
+
+  /// DEPRECATED (MALI-058n) — non-authoritative and always empty. The SQLCipher
+  /// database key lives ONLY in platform secure storage; it is never stored in
+  /// Drift, backed up, synced, or exported.
   final String dbEncryptionKeyRef;
   final bool privacyModeEnabled;
 

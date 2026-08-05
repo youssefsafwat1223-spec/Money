@@ -54,6 +54,7 @@ class BootstrapRunner {
   bool _senderBankSyncStarted = false;
   bool _goalAutoSavesRan = false;
   bool _cardBackfillRan = false;
+  bool _dbKeyRefCleanupRan = false;
   String? _lastStep;
 
   /// Whether any transaction existed when bootstrap finished — read by
@@ -188,6 +189,23 @@ class BootstrapRunner {
         }),
       );
     });
+
+    // MALI-058n — clear any legacy raw-key value from the deprecated
+    // db_encryption_key_ref column. Runs AFTER admission (the identity above is
+    // established), is idempotent (no-op once empty), touches only that column,
+    // and never reads the value into logs/errors. Best-effort: a failure leaves
+    // the value in place but backup generation already refuses to serialize it.
+    if (!_dbKeyRefCleanupRan) {
+      await _step('db_key_ref_cleanup', () async {
+        try {
+          await database.clearDeprecatedDbKeyRef();
+        } catch (_) {
+          // Never block startup; the value never leaves the device regardless.
+        } finally {
+          _dbKeyRefCleanupRan = true;
+        }
+      });
+    }
 
     if (!_goalAutoSavesRan) {
       await _step('goal_autosaves', () async {

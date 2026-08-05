@@ -76,7 +76,9 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
           Variable.withString(requiredSettings.theme),
           Variable.withString(requiredSettings.inputMethod),
           Variable.withString(requiredSettings.notificationsJson),
-          Variable.withString(requiredSettings.dbEncryptionKeyRef),
+          // MALI-058n — never persist key material: this deprecated column is
+          // always written empty, regardless of the entity value.
+          const Variable<String>(''),
           Variable.withInt(requiredSettings.privacyModeEnabled ? 1 : 0),
           // MALI-059n: the effective grant is DERIVED from the versioned state,
           // so the boolean and the state can never drift apart on disk.
