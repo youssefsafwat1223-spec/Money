@@ -64,6 +64,7 @@ void main() {
         body: 'body',
         type: NotificationType.budgetWarning,
         preferences: const NotificationPreferences(),
+        notifId: 95001,
       ),
       completes,
     );

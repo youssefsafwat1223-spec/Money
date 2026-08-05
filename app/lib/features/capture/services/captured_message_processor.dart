@@ -206,7 +206,7 @@ class CapturedMessageProcessor {
               title: content.title,
               body: content.body,
               preferences: notificationPreferences,
-              stableId: result.addTransactionResult.transaction?.id,
+              stableId: result.notificationStableId,
             );
           case CapturedMessageDisposition.requestConfirmation:
             final transaction = result.addTransactionResult.transaction;
@@ -228,7 +228,7 @@ class CapturedMessageProcessor {
               title: content.title,
               body: content.body,
               preferences: notificationPreferences,
-              stableId: result.addTransactionResult.transaction?.id,
+              stableId: result.notificationStableId,
             );
           case CapturedMessageDisposition.unprocessable:
             await LocalNotificationService.instance
@@ -236,6 +236,7 @@ class CapturedMessageProcessor {
               title: 'رسالة لم نتمكن من تحليلها',
               body: 'افتح قرش والصق الرسالة يدوياً للإضافة.',
               preferences: notificationPreferences,
+              stableId: result.notificationStableId,
             );
         }
       }

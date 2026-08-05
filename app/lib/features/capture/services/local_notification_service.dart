@@ -88,10 +88,6 @@ class LocalNotificationService {
 
   static final LocalNotificationService instance = LocalNotificationService._();
 
-  /// Clamp any id to a non-negative 31-bit int. The Android plugin reads the id
-  /// as a Java `Integer`; a Dart hashCode > 2^31 throws (Long→Integer) and the
-  /// notification is silently dropped. Every id goes through here.
-  static int _safeId(int raw) => raw & 0x7FFFFFFF;
 
   /// MALI-019 §6 — the redaction contract: generic, financial-data-free
   /// lock-screen content per type. Used by the local path; the APNs path honors
@@ -306,7 +302,7 @@ class LocalNotificationService {
     required String title,
     required String body,
     required NotificationPreferences preferences,
-    String? stableId,
+    required String stableId,
   }) async {
     debugPrint(
         '[Notif] showLightCapture captureLight=${preferences.captureLight}');
@@ -314,9 +310,10 @@ class LocalNotificationService {
       return;
     }
     await _show(
-      // Idempotent per transaction (or per content when no id is available):
-      // the same capture notified twice replaces rather than duplicates.
-      id: _safeId((stableId ?? '$title|$body').hashCode),
+      // MALI-061n §3 — stable logical identity from the capture business key
+      // (transaction id or immutable-content fingerprint), NEVER the display
+      // text. The same capture notified twice replaces rather than duplicates.
+      id: notificationEventId('captureLight', stableId),
       title: title,
       body: body,
       notificationType: NotificationType.captureLight,
@@ -433,10 +430,13 @@ class LocalNotificationService {
     required String body,
     required NotificationType type,
     required NotificationPreferences preferences,
-    int? notifId,
+    required int notifId,
   }) async {
     await _show(
-      id: notifId ?? _safeId(title.hashCode ^ body.hashCode),
+      // MALI-061n §3 — the caller always supplies a stable
+      // budgetAlertNotificationId(budgetId, periodStart, bucket); no display-text
+      // fallback (which would change the id whenever the rendered text changed).
+      id: notifId,
       title: title,
       body: body,
       notificationType: type,

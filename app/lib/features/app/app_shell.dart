@@ -840,7 +840,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           title: content.title,
           body: content.body,
           preferences: preferences,
-          stableId: result.addTransactionResult.transaction?.id,
+          stableId: result.notificationStableId,
         );
       case CapturedMessageDisposition.requestConfirmation:
         final transaction = result.addTransactionResult.transaction;
@@ -860,13 +860,14 @@ class _AppShellState extends ConsumerState<AppShell> {
           title: content.title,
           body: content.body,
           preferences: preferences,
-          stableId: result.addTransactionResult.transaction?.id,
+          stableId: result.notificationStableId,
         );
       case CapturedMessageDisposition.unprocessable:
         await LocalNotificationService.instance.showLightCaptureNotification(
           title: 'رسالة غير مدعومة',
           body: 'افتح قرش والصق الرسالة يدوياً للإضافة.',
           preferences: preferences,
+          stableId: result.notificationStableId,
         );
     }
   }
