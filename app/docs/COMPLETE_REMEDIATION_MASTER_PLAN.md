@@ -533,8 +533,25 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > (passphrase envelope, remote-backup reliability, DB connection lifecycle,
 > restore/recovery matrix, closure) not started. **External:** on-device
 > secure-storage + real encrypted backup round-trip.
+>
+> **Batch-1 closure reconciliation.** Two gaps closed: (1) the approved contract's
+> **typed missing-key state** — `open()` now resolves `classifyDatabaseKeyState`
+> (keyPresent / freshInstall / keyUnavailable) BEFORE creating or using a key, and
+> throws the typed `LocalDatabaseKeyUnavailableException` when an encrypted DB
+> exists but its secure-storage key is gone (never mints a new key, never opens
+> with a new key, never reads a key from Drift/backup, never deletes; the existing
+> explicit recovery/reset UX is preserved). The four conditions are programmatically
+> distinct: **DB-key missing** (typed state) · **wrong backup passphrase**
+> (`SecretBoxAuthenticationError`) · **corrupt DB with a key** (a present key always
+> classifies keyPresent) · **fresh install** (no DB + no key → normal key creation).
+> (2) The egress checks previously "held by construction" are now **behavioral**:
+> restore makes zero key-store calls (destination key unchanged, foreign key never
+> written), a missing key never falls back to backup data, and the key canary is
+> absent from the upload metadata, the CSV/full-package exports, and telemetry.
+> 15 closure tests. MALI-058n → Code complete · locally verified; physical-device
+> secure-storage + real encrypted backup round-trip pending.
 
-- MALI-058n: **DONE (Batch 1)** — stop storing the SQLCipher key in `user_settings`/backups (store NOTHING; the key stays in secure storage; restore writes '' + whitelists columns + fails closed on unknown key-like fields).
+- MALI-058n: **DONE (Batch 1 + closure)** — stop storing the SQLCipher key in `user_settings`/backups (store NOTHING; the key stays in secure storage; restore writes '' + whitelists columns + fails closed on unknown key-like fields); typed missing-key state + end-to-end isolation evidence.
 - MALI-076n: validate backup `version`/`kdf`; normalize passphrase trim; distinguish network-error from no-backup; whitelist restore columns against `_tables`; delete the dead `data_export.dart` clipboard helper.
 - MALI-069n: close the connection/isolate on failed init; set `busy_timeout`; define safe second-connection behavior for the background notification path.
 - MALI-073n: add `transactions(account_id)`/`(category_id)` indexes (measure query plans; address the NULL-account OR-subquery that defeats them).
