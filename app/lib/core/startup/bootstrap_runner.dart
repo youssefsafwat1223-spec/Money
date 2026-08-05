@@ -167,6 +167,10 @@ class BootstrapRunner {
       AppSession.instance.configureLocalResiduePurge(() async {
         final nativePurged = await NativeCaptureBridge.purgeAllCaptureState();
         final filesCleared = await PendingNotificationActions.clear();
+        // MALI-019 §10 — clear the previous user's pending OS reminders too, so a
+        // stale bill/weekly/streak reminder can never surface after sign-out /
+        // ownership change. Best-effort; does not gate the fail-closed result.
+        await LocalNotificationService.instance.cancelScheduledReminders();
         return nativePurged && filesCleared;
       });
       // Owner gate (MALI-002): the first session reconcile ran before the DB

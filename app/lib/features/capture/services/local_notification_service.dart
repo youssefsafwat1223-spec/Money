@@ -663,10 +663,33 @@ class LocalNotificationService {
     }
   }
 
-  /// Ids this planner owns: bill/subscription reminders and the weekly report.
-  /// Never touches immediate/foreign notifications.
+  /// Ids the CAPACITY planner owns: bill/subscription reminders and the weekly
+  /// report. Never touches immediate/foreign notifications.
   static bool _isManagedScheduledId(int id) =>
       id == _weeklyReportId || (id >= 92000 && id < 992000);
+
+  /// Every app-managed SCHEDULED reminder id (bill/subscription, weekly report,
+  /// streak). Public so the sign-out cancellation set is directly testable.
+  /// Excludes immediate/foreign ids so we never cancel someone else's request.
+  static bool isManagedReminderId(int id) =>
+      _isManagedScheduledId(id) || id == _streakReminderId;
+
+  /// MALI-019 §10 — cancel every app-managed scheduled reminder so a sign-out /
+  /// ownership change never leaves the previous user's bill/weekly/streak
+  /// reminders pending. Best-effort; the next planning cycle reconciles anyway.
+  Future<void> cancelScheduledReminders() async {
+    try {
+      if (!_initialized) await initialize();
+      final pending = await _plugin.pendingNotificationRequests();
+      for (final request in pending) {
+        if (isManagedReminderId(request.id)) {
+          await _plugin.cancel(id: request.id);
+        }
+      }
+    } catch (_) {
+      // Best-effort — a failure here must never block the sign-out wipe.
+    }
+  }
 
   static int _plannedPriority(PlannedNotificationKind kind) {
     switch (kind) {

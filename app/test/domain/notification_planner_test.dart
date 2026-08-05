@@ -331,4 +331,105 @@ void main() {
       );
     });
   });
+
+  // ── Reminder reconciliation (MALI-019 §10 / MALI-061n) ────────────────────
+  // Reconciliation is re-plan-from-source + capacity-cancel-stale: planScheduled
+  // reflects the CURRENT bills+prefs, and schedulePlannedNotifications cancels
+  // any managed pending id no longer in the plan (see
+  // notification_capacity_planner_test 'cancels managed pending that fell out').
+  group('reminder reconciliation', () {
+    const planner = NotificationPlanner();
+    BillEntity bill({required DateTime due, bool reminderOn = true}) => BillEntity(
+          id: 'netflix',
+          name: 'Netflix',
+          amount: 45,
+          currency: 'SAR',
+          type: BillType.subscription,
+          frequency: BillFrequency.monthly,
+          nextDueDate: due,
+          reminderOn: reminderOn,
+          isConfirmed: true,
+          createdAt: DateTime(2026, 6, 1),
+        );
+
+    test('editing the due date keeps the SAME id (OS replaces) at a new time',
+        () {
+      final p1 = planner.planBillReminders(
+        preferences: const NotificationPreferences(),
+        bills: [bill(due: DateTime(2026, 6, 20))],
+        nowRiyadh: DateTime(2026, 6, 12, 9),
+      );
+      final p2 = planner.planBillReminders(
+        preferences: const NotificationPreferences(),
+        bills: [bill(due: DateTime(2026, 6, 25))],
+        nowRiyadh: DateTime(2026, 6, 12, 9),
+      );
+      expect(p1.first.id, p2.first.id); // stable → replaces, never duplicates
+      expect(p1.first.id, billReminderNotificationId('netflix'));
+      expect(p1.first.scheduledAtRiyadh, isNot(p2.first.scheduledAtRiyadh));
+    });
+
+    test('disabling a reminder plans nothing (capacity then cancels the stale id)',
+        () {
+      final planned = planner.planBillReminders(
+        preferences: const NotificationPreferences(),
+        bills: [bill(due: DateTime(2026, 6, 20), reminderOn: false)],
+        nowRiyadh: DateTime(2026, 6, 12, 9),
+      );
+      expect(planned, isEmpty);
+    });
+
+    test('a deleted bill (absent from source) plans nothing', () {
+      final planned = planner.planBillReminders(
+        preferences: const NotificationPreferences(),
+        bills: const [],
+        nowRiyadh: DateTime(2026, 6, 12, 9),
+      );
+      expect(planned, isEmpty);
+    });
+
+    test('scheduled times are Riyadh-anchored — device-tz/DST independent', () {
+      // planBillReminders is a pure function of the Riyadh wall clock, so a
+      // device timezone change cannot shift or duplicate it. Asia/Riyadh has no
+      // DST, so there are no gap/overlap transitions to reconcile.
+      final planned = planner.planBillReminders(
+        preferences: const NotificationPreferences(),
+        bills: [bill(due: DateTime(2026, 6, 20))],
+        nowRiyadh: DateTime(2026, 6, 12, 9),
+      );
+      expect(planned.first.scheduledAtRiyadh, DateTime(2026, 6, 19, 10));
+    });
+  });
+
+  // ── Quiet-hours policy boundaries (MALI-019) ──────────────────────────────
+  group('isQuietHour boundaries', () {
+    const planner = NotificationPlanner();
+    NotificationPreferences qh(int start, int end) => NotificationPreferences(
+        quietHoursEnabled: true,
+        quietHoursStartHour: start,
+        quietHoursEndHour: end);
+    DateTime at(int hour) => DateTime(2026, 6, 12, hour);
+
+    test('within-day window: inclusive start, exclusive end', () {
+      final p = qh(13, 17);
+      expect(planner.isQuietHour(at(12), p), isFalse);
+      expect(planner.isQuietHour(at(13), p), isTrue); // start boundary
+      expect(planner.isQuietHour(at(16), p), isTrue);
+      expect(planner.isQuietHour(at(17), p), isFalse); // end boundary
+    });
+
+    test('overnight window crosses midnight', () {
+      final p = qh(23, 8);
+      expect(planner.isQuietHour(at(23), p), isTrue);
+      expect(planner.isQuietHour(at(0), p), isTrue);
+      expect(planner.isQuietHour(at(7), p), isTrue);
+      expect(planner.isQuietHour(at(8), p), isFalse); // end boundary exclusive
+      expect(planner.isQuietHour(at(12), p), isFalse);
+    });
+
+    test('disabled quiet hours are never quiet', () {
+      expect(
+          planner.isQuietHour(at(2), const NotificationPreferences()), isFalse);
+    });
+  });
 }
