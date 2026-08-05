@@ -5,12 +5,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <!-- Exact scheduling for streak/weekly/bill reminders (zonedSchedule uses
-         exactAllowWhileIdle). USE_EXACT_ALARM covers Android 13+ alarm/reminder
-         apps; SCHEDULE_EXACT_ALARM is the user-grantable fallback. Without these
-         exact alarms throw on Android 14+ and reminders silently never fire. -->
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- MALI-068n §9 — streak/weekly/bill reminders TOLERATE inexact delivery,
+         so we schedule with inexactAllowWhileIdle and deliberately do NOT
+         request the Play-policy-restricted USE_EXACT_ALARM / SCHEDULE_EXACT_ALARM
+         permissions. Inexact alarms never throw and need no runtime grant, so a
+         reminder is never silently lost for want of exact-alarm access. If a
+         genuinely time-critical alarm is ever needed, add the permission with a
+         documented eligible use case and a runtime-capability fallback. -->
     <!-- Reschedule pending notifications after a device reboot (the
          flutter_local_notifications boot receiver needs this permission). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

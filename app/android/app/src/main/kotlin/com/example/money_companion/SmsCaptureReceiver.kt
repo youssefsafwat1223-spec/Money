@@ -38,13 +38,20 @@ class SmsCaptureReceiver : BroadcastReceiver() {
         val text = body.toString().trim()
         if (text.isEmpty() || !looksFinancial(text)) return // drop unrelated SMS
 
+        // MALI-068n §11 — the SMS's own receipt epoch is authoritative, not the
+        // (possibly later) time this receiver runs. Fall back to now only if the
+        // platform did not supply one.
+        val smsEpochMs = messages.firstOrNull()?.timestampMillis
+            ?.takeIf { it > 0 } ?: System.currentTimeMillis()
+
         DurableCaptureQueue.get(context).enqueue(
             DurableCaptureQueue.Item(
                 id = UUID.randomUUID().toString(),
                 text = text,
                 sender = sender?.trim()?.takeIf { it.isNotEmpty() },
                 source = "sms",
-                receivedAt = DurableCaptureQueue.isoNow(),
+                receivedAt = DurableCaptureQueue.isoOf(smsEpochMs),
+                receivedAtEpochMs = smsEpochMs,
             ),
         )
     }

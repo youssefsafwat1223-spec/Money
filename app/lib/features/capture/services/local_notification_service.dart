@@ -540,7 +540,7 @@ class LocalNotificationService {
             presentSound: false,
           ),
         ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       );
       if (logId != null) {
         await logService?.recordSent(
@@ -628,7 +628,7 @@ class LocalNotificationService {
             notificationLogId: logId,
             notificationType: notificationType,
           ).encode(),
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         );
         if (logId != null) {
           await logService?.recordSent(
@@ -764,7 +764,7 @@ class LocalNotificationService {
           scheduledDate: _nextAllowedDate(now, preferences),
           notificationDetails: details,
           payload: effectivePayload,
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         );
         await _recordSent(logId, notificationType);
         await _recordHistory(

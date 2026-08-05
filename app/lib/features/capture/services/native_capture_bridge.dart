@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import '../../../domain/entities/captured_message.dart';
+import '../../../domain/services/captured_timestamp.dart';
 
 /// A single bank message drained from the native share queue.
 class SharedCapturedMessage {
@@ -463,9 +464,12 @@ class NativeCaptureBridge {
           locale: _emptyToNull(rawLocale),
           status: _emptyToNull(rawStatus),
           failureReason: _emptyToNull(rawFailureReason),
-          receivedAt: rawReceivedAt == null || rawReceivedAt.isEmpty
-              ? null
-              : DateTime.tryParse(rawReceivedAt)?.toUtc(),
+          // MALI-068n §11 — native epoch is authoritative; the ISO string is a
+          // legacy fallback; unknown → null (never `now`).
+          receivedAt: resolveCapturedReceivedAt(
+            epochMs: item['receivedAtEpochMs'] as int?,
+            isoString: rawReceivedAt,
+          ),
         ),
       );
     }
@@ -533,9 +537,12 @@ class NativeCaptureBridge {
             smartInboxItemId: _emptyToNull(_asString(item['smartInboxItemId'])),
             notificationType: _emptyToNull(_asString(item['notificationType'])),
             source: _emptyToNull(_asString(item['source'])),
-            receivedAt: item['receivedAt'] is String
-                ? DateTime.tryParse(item['receivedAt'] as String)?.toUtc()
-                : null,
+            receivedAt: resolveCapturedReceivedAt(
+              epochMs: item['receivedAtEpochMs'] as int?,
+              isoString: item['receivedAt'] is String
+                  ? item['receivedAt'] as String
+                  : null,
+            ),
             notificationLogId:
                 _emptyToNull(_asString(item['notificationLogId'])),
           ),

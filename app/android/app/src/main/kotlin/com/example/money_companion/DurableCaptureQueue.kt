@@ -51,6 +51,13 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
             fmt.timeZone = TimeZone.getTimeZone("UTC")
             return fmt.format(Date())
         }
+
+        /** ISO-8601 UTC string for a specific epoch (the SMS receipt time). */
+        fun isoOf(epochMs: Long): String {
+            val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            fmt.timeZone = TimeZone.getTimeZone("UTC")
+            return fmt.format(Date(epochMs))
+        }
     }
 
     data class Item(
@@ -58,7 +65,10 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
         val text: String,
         val sender: String?,
         val source: String, // "share" | "sms"
-        val receivedAt: String, // ISO-8601 UTC
+        val receivedAt: String, // ISO-8601 UTC (legacy/display fallback)
+        // MALI-068n §11 — authoritative native epoch (SMS timestampMillis / share
+        // time). Dart prefers this over parsing receivedAt. 0 = legacy item.
+        val receivedAtEpochMs: Long = System.currentTimeMillis(),
     )
 
     @Synchronized
@@ -76,6 +86,7 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
                         sender = if (o.isNull("sender")) null else o.optString("sender"),
                         source = o.optString("source", "share"),
                         receivedAt = o.optString("receivedAt", ""),
+                        receivedAtEpochMs = o.optLong("receivedAtEpochMs", 0L),
                     ),
                 )
             }
@@ -83,7 +94,7 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
         } catch (_: Throwable) {
             // Corruption safety: never let a malformed store crash capture —
             // drop it and start clean rather than throwing on every read.
-            prefs.edit().remove(KEY_ITEMS).apply()
+            prefs.edit().remove(KEY_ITEMS).commit()
             mutableListOf()
         }
     }
@@ -106,6 +117,7 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
             if (item.sender != null) o.put("sender", item.sender)
             o.put("source", item.source)
             o.put("receivedAt", item.receivedAt)
+            o.put("receivedAtEpochMs", item.receivedAtEpochMs)
             array.put(o)
         }
         return prefs.edit().putString(KEY_ITEMS, array.toString()).commit()
@@ -138,6 +150,7 @@ class DurableCaptureQueue private constructor(private val prefs: SharedPreferenc
             if (item.sender != null) o.put("sender", item.sender)
             o.put("source", item.source)
             o.put("receivedAt", item.receivedAt)
+            o.put("receivedAtEpochMs", item.receivedAtEpochMs)
             array.put(o)
         }
         return array.toString()
