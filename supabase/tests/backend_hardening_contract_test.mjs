@@ -107,16 +107,44 @@ test('gamification aggregates: 0073 removes owner write policies + revokes grant
   assert.doesNotMatch(sync, /user_achievements'\)[\s\S]{0,80}\.(insert|update|upsert)\(/);
 });
 
-// MALI-024 §5 — the active legacy award path is exactly-once per transaction.
-test('evaluate-gamification claims each transaction before awarding (idempotent)', () => {
+// MALI-024 §5 (closure) — the legacy award is EXACTLY-ONCE via a single-
+// transaction RPC (claim + XP fold together), not a non-atomic claim-then-update.
+test('award RPC (0074) folds claim + XP into one SECURITY DEFINER transaction', () => {
+  const m0074 = read('supabase/migrations/0074_gamification_atomic_award.sql');
+  assert.match(m0074, /CREATE OR REPLACE FUNCTION public\.award_gamification_for_transaction/);
+  assert.match(m0074, /SECURITY DEFINER/);
+  assert.match(m0074, /SET search_path = public/);
+  // Ownership is verified server-side (caller identity is not trusted).
+  assert.match(m0074, /WHERE id::text = p_transaction_id AND user_id = p_user_id/);
+  assert.match(m0074, /'not_owner'/);
+  // Claim INSERT and the XP mutation live in the SAME function body → one txn.
+  const claimIdx = m0074.indexOf('INSERT INTO gamification_awarded_transactions');
+  const xpIdx = m0074.indexOf('INSERT INTO user_xp_levels');
+  assert.ok(claimIdx > 0 && xpIdx > claimIdx, 'claim + XP mutation must be one body');
+  assert.match(m0074, /ON CONFLICT \(transaction_id\) DO NOTHING/); // atomic claim
+  // Canonical result recorded atomically with the award (eligibility record).
+  assert.match(m0074, /ADD COLUMN IF NOT EXISTS leveled_up/);
+  assert.match(m0074, /ADD COLUMN IF NOT EXISTS achievement_code/);
+  // Locked down to service_role only.
+  assert.match(m0074, /REVOKE ALL ON FUNCTION public\.award_gamification_for_transaction\(TEXT, UUID\) FROM PUBLIC, anon, authenticated/);
+  assert.match(m0074, /GRANT EXECUTE ON FUNCTION public\.award_gamification_for_transaction\(TEXT, UUID\) TO service_role/);
+});
+
+test('evaluate-gamification awards via the atomic RPC, pushes after commit (stable id)', () => {
   const fn = read('supabase/functions/evaluate-gamification/index.ts');
-  // The idempotency claim runs BEFORE any XP award.
-  const claimIdx = fn.indexOf('gamification_awarded_transactions');
-  const awardIdx = fn.indexOf('const xpAward');
-  assert.ok(claimIdx > 0 && claimIdx < awardIdx, 'claim must precede award');
-  assert.match(fn, /\.insert\(\{ transaction_id: String\(transaction\.id\)/);
-  assert.match(fn, /if \(claim\.error \|\| !claim\.data\)[\s\S]{0,160}return new Response\('OK'\)/);
-  // The ledger table denies all direct client access.
+  // The Edge Function no longer claims + mutates in separate calls — it delegates
+  // the whole award to the single-transaction RPC.
+  assert.match(fn, /rpc\(\s*'award_gamification_for_transaction'/);
+  assert.doesNotMatch(fn, /from\('user_xp_levels'\)[\s\S]{0,80}\.(update|insert)\(/);
+  assert.doesNotMatch(fn, /from\('gamification_awarded_transactions'\)/);
+  // Delivery is AFTER the award result, and keyed by a STABLE per-transaction id
+  // (APNs collapse-id) so a retry cannot duplicate the notification.
+  const awardIdx = fn.indexOf('award_gamification_for_transaction');
+  const pushIdx = fn.indexOf('await sendCapturePush(');
+  assert.ok(awardIdx > 0 && pushIdx > awardIdx, 'push must follow the award');
+  assert.match(fn, /payloadId: `gamification:\$\{transaction\.id\}`/);
+  assert.doesNotMatch(fn, /payloadId: crypto\.randomUUID\(\)/); // no per-send random id
+  // The ledger table still denies all direct client access.
   const m0073 = read('supabase/migrations/0073_gamification_aggregate_readonly.sql');
   assert.match(m0073, /gamification_awarded_transactions[\s\S]*ENABLE ROW LEVEL SECURITY/);
   assert.match(m0073, /gamification_awarded_transactions_no_direct_access[\s\S]*USING \(false\)/);

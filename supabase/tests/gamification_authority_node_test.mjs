@@ -82,3 +82,90 @@ test('legacy award ledger dedups a replayed transaction id', gate, async () => {
     await fetch(`${url}/rest/v1/gamification_awarded_transactions?transaction_id=eq.${txnId}`, { method: 'DELETE', headers: svcHeaders() });
   }
 });
+
+// MALI-024 §4 (closure) — the atomic award RPC is crash-safe exactly-once. The
+// claim and the XP mutation share ONE Postgres transaction, so these observable
+// behaviours prove: no duplicate XP, no lost XP, no partial state, a lost-
+// response retry reconstructs the same canonical result, and ownership is
+// enforced server-side. (A mid-transaction crash cannot leave partial state —
+// that is Postgres atomicity of the single function body, asserted structurally
+// in backend_hardening_contract_test.mjs.)
+const awardRpc = (txnId, uid) => fetch(`${url}/rest/v1/rpc/award_gamification_for_transaction`, {
+  method: 'POST', headers: svcHeaders(),
+  body: JSON.stringify({ p_transaction_id: txnId, p_user_id: uid }),
+}).then((r) => r.json());
+
+const seedUserWithTxn = async () => {
+  const email = `gami-${randomUUID()}@example.test`;
+  const password = randomUUID();
+  const created = await (await fetch(`${url}/auth/v1/admin/users`, {
+    method: 'POST', headers: svcHeaders(),
+    body: JSON.stringify({ email, password, email_confirm: true }),
+  })).json();
+  const uid = created.id;
+  assert.ok(uid, `create user failed: ${JSON.stringify(created)}`);
+  const txn = await (await fetch(`${url}/rest/v1/user_transactions`, {
+    method: 'POST', headers: { ...svcHeaders(), Prefer: 'return=representation' },
+    body: JSON.stringify({
+      user_id: uid, amount: 12.5, currency: 'SAR', type: 'debit',
+      occurred_at: new Date().toISOString(), source: 'manual',
+    }),
+  })).json();
+  return { uid, txnId: txn[0].id };
+};
+
+const xpOf = async (uid) => {
+  const rows = await (await fetch(`${url}/rest/v1/user_xp_levels?user_id=eq.${uid}&select=xp`, { headers: svcHeaders() })).json();
+  return rows[0]?.xp ?? 0;
+};
+
+const cleanup = async (uid) => {
+  await fetch(`${url}/rest/v1/gamification_awarded_transactions?user_id=eq.${uid}`, { method: 'DELETE', headers: svcHeaders() });
+  await fetch(`${url}/auth/v1/admin/users/${uid}`, { method: 'DELETE', headers: svcHeaders() });
+};
+
+test('award RPC: sequential replay awards XP exactly once (lost-response safe)', gate, async () => {
+  const { uid, txnId } = await seedUserWithTxn();
+  try {
+    const first = await awardRpc(txnId, uid);
+    assert.equal(first.awarded, true);
+    assert.equal(first.duplicate, false, 'first call is the winner');
+    const second = await awardRpc(txnId, uid);
+    assert.equal(second.awarded, true);
+    assert.equal(second.duplicate, true, 'replay must be a duplicate, not a re-award');
+    // Canonical result is reconstructed identically.
+    assert.equal(second.achievement, first.achievement);
+    assert.equal(second.leveled_up, first.leveled_up);
+    assert.equal(await xpOf(uid), 10, 'XP awarded exactly once across the replay');
+  } finally {
+    await cleanup(uid);
+  }
+});
+
+test('award RPC: two concurrent workers award XP exactly once', gate, async () => {
+  const { uid, txnId } = await seedUserWithTxn();
+  try {
+    const [a, b] = await Promise.all([awardRpc(txnId, uid), awardRpc(txnId, uid)]);
+    assert.ok(a.awarded && b.awarded, 'both calls resolve to an award result');
+    const winners = [a, b].filter((r) => r.duplicate === false).length;
+    assert.equal(winners, 1, 'exactly one worker wins the claim');
+    assert.equal(await xpOf(uid), 10, 'XP awarded exactly once under concurrency');
+  } finally {
+    await cleanup(uid);
+  }
+});
+
+test('award RPC: rejects a transaction that does not belong to the caller user', gate, async () => {
+  const owner = await seedUserWithTxn();
+  const stranger = await seedUserWithTxn();
+  try {
+    // Try to award owner's transaction to the stranger user.
+    const res = await awardRpc(owner.txnId, stranger.uid);
+    assert.equal(res.awarded, false, 'non-owner award must be refused');
+    assert.equal(res.reason, 'not_owner');
+    assert.equal(await xpOf(stranger.uid), 0, 'no XP granted to the non-owner');
+  } finally {
+    await cleanup(owner.uid);
+    await cleanup(stranger.uid);
+  }
+});
