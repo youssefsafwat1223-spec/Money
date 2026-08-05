@@ -43,6 +43,58 @@ export function readString(data: Record<string, unknown>, ...keys: string[]): st
   return '';
 }
 
+export type BoundedBody =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; reason: 'too_large' | 'invalid_json' | 'unsupported_media_type' };
+
+// Read a request body as JSON with a hard byte ceiling, WITHOUT trusting
+// Content-Length (which may be absent or forged). Streams the body and aborts
+// the moment the cumulative ACTUAL bytes exceed maxBytes, so an attacker cannot
+// force an oversized read by lying about (or omitting) Content-Length. Bytes are
+// counted before UTF-8 decoding, so multi-byte input cannot slip past the cap.
+export async function readBoundedJsonBody(
+  req: Request,
+  maxBytes: number,
+): Promise<BoundedBody> {
+  const contentType = req.headers.get('content-type') ?? '';
+  if (contentType && !contentType.toLowerCase().includes('application/json')) {
+    return { ok: false, reason: 'unsupported_media_type' };
+  }
+  const reader = req.body?.getReader();
+  if (!reader) return { ok: false, reason: 'invalid_json' };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return { ok: false, reason: 'too_large' };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    merged.set(c, offset);
+    offset += c.byteLength;
+  }
+  try {
+    const text = new TextDecoder('utf-8').decode(merged);
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') return { ok: false, reason: 'invalid_json' };
+    return { ok: true, body: parsed as Record<string, unknown> };
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+}
+
 // Constant-time comparison for secret hashes — avoids leaking timing
 // information via early-exit string equality (`!==`). Accepts `unknown` and
 // never throws: a malformed value (wrong type, null, undefined) fails closed

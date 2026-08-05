@@ -149,3 +149,64 @@ test('evaluate-gamification awards via the atomic RPC, pushes after commit (stab
   assert.match(m0073, /gamification_awarded_transactions[\s\S]*ENABLE ROW LEVEL SECURITY/);
   assert.match(m0073, /gamification_awarded_transactions_no_direct_access[\s\S]*USING \(false\)/);
 });
+
+// ── Phase-5 closure correction ───────────────────────────────────────────────
+
+// MALI-019 — the gamification push passes the authoritative notification policy.
+test('evaluate-gamification enforces notification policy + coordinated fallback', () => {
+  const fn = read('supabase/functions/evaluate-gamification/index.ts');
+  assert.match(fn, /from '\.\.\/_shared\/notification_policy\.ts'/);
+  assert.match(fn, /loadNotificationPolicy\(supabase, userId\)/);
+  assert.match(fn, /isPushAllowed\(policy, 'achievement'\)/); // per-type + quiet hours
+  assert.match(fn, /anyDeviceRecentlyActive\(/); // local-primary/server-fallback
+  assert.match(fn, /policy\.hideLockScreenContent/); // redacted lock-screen mode
+  // The policy/coordination gates all run BEFORE the push.
+  const policyIdx = fn.indexOf("isPushAllowed(policy, 'achievement')");
+  const pushIdx = fn.indexOf('await sendCapturePush(');
+  assert.ok(policyIdx > 0 && pushIdx > policyIdx, 'policy gate precedes the push');
+  // Eligibility stays exactly-once in the RPC (award precedes the policy gate).
+  const awardIdx = fn.indexOf('award_gamification_for_transaction');
+  assert.ok(awardIdx > 0 && policyIdx > awardIdx, 'award precedes notification');
+});
+
+// MALI-061n — goals use a coordinated fallback + a stable collapse id.
+test('evaluate-goals is coordinated (fallback) with a stable event id', () => {
+  const fn = read('supabase/functions/evaluate-goals/index.ts');
+  assert.match(fn, /anyDeviceRecentlyActive\(/);
+  assert.match(fn, /payloadId: `goal:\$\{goal\.id\}:\$\{Math\.round\(crossedMilestone \* 100\)\}`/);
+  assert.doesNotMatch(fn, /payloadId: crypto\.randomUUID\(\)/); // no unstable id
+});
+
+// MALI-061n — the redundant streak/bill server authority is retired.
+test('cron-daily-reminders is retired (no duplicate server push)', () => {
+  const fn = read('supabase/functions/cron-daily-reminders/index.ts');
+  assert.match(fn, /RETIRED/);
+  assert.doesNotMatch(fn, /sendCapturePush/); // no server push at all
+  assert.match(fn, /'retired'/);
+  assert.match(fn, /timingSafeEqual/); // still authenticates the dispatcher
+});
+
+// MALI-060n — process-ios-sms follows the Batch-3 boundary.
+test('process-ios-sms: bounded body, schema, server consent before any Gemini', () => {
+  const fn = read('supabase/functions/process-ios-sms/index.ts');
+  // Bounded body read, not a raw req.json().
+  assert.match(fn, /readBoundedJsonBody\(req, MAX_BODY_BYTES\)/);
+  assert.doesNotMatch(fn, /await req\.json\(\)/);
+  assert.match(fn, /unsupported_schema_version/); // strict schema version
+  assert.match(fn, /payload_too_large/); // bounded field lengths
+  // Consent is server-owned; allowAi is compat-only and cannot override OFF.
+  assert.match(fn, /ai_consent_granted/);
+  assert.match(fn, /const aiAllowed = allowAi && serverAiConsent/);
+  assert.match(fn, /allowAi: aiAllowed/); // parseSms gets the server-gated flag
+  // No Gemini before consent: the consent read precedes parseSms().
+  const consentIdx = fn.indexOf('ai_consent_granted');
+  const parseIdx = fn.indexOf('await parseSms(');
+  assert.ok(consentIdx > 0 && parseIdx > consentIdx, 'consent resolved before parseSms');
+  // Privacy: the metadata log object carries only booleans/metadata — never the
+  // raw SMS text vars (sanitizedText/rawText). (parsed.merchant != null is a
+  // boolean flag, not the merchant string.)
+  assert.match(fn, /event: 'sms_parse_result'/);
+  const logStart = fn.indexOf("event: 'sms_parse_result'");
+  const logBlock = fn.slice(logStart, fn.indexOf('}));', logStart));
+  assert.doesNotMatch(logBlock, /sanitizedText|rawText/);
+});

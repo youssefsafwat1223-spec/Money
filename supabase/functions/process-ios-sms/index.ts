@@ -1,5 +1,5 @@
 import rules from './parser_rules.json' with { type: 'json' };
-import { corsHeaders, json, readString, serviceClient, sha256Hex, verifyDevice } from '../_shared/capture_auth.ts';
+import { corsHeaders, json, readBoundedJsonBody, readString, serviceClient, sha256Hex, verifyDevice } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
 import { markApnsLogFailed, markApnsLogSent, upsertQueuedApnsLog } from '../_shared/notification_logs.ts';
@@ -49,8 +49,38 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
-  const body = await req.json().catch(() => null) as Record<string, unknown> | null;
-  if (!body) return json({ error: 'invalid_json' }, 400);
+  // MALI-060n — gate ordering. Every gate below completes BEFORE any Gemini
+  // (paid upstream) call, which lives in parseSms():
+  //   1. body-size   → readBoundedJsonBody (does not trust Content-Length)
+  //   2. schema      → schema_version === 1
+  //   2b. length     → bounded SMS / sender / field lengths
+  //   3. device auth → verifyDevice (device secret)
+  //   4. ownership   → auth.userId / auth.installIdHash (server-derived)
+  //   5. consent     → server-owned ai_consent_granted (allowAi is compat-only)
+  //   (idempotency replay is checked before the quota bump ON PURPOSE, so a
+  //    legitimate lost-response retry does not consume quota; both still precede
+  //    parseSms.)
+  //   6. quota       → bumpRateLimit
+  //   7. idempotency → processed_captures existence
+  const MAX_BODY_BYTES = 16 * 1024; // one SMS + metadata; generous, bounded.
+  const bodyResult = await readBoundedJsonBody(req, MAX_BODY_BYTES);
+  if (!bodyResult.ok) {
+    const status = bodyResult.reason === 'too_large'
+      ? 413
+      : bodyResult.reason === 'unsupported_media_type'
+      ? 415
+      : 400;
+    return json({ error: bodyResult.reason }, status);
+  }
+  const body = bodyResult.body;
+
+  // Strict schema version (reject unexpected/expensive modes early).
+  const schemaVersion = typeof body.schema_version === 'number'
+    ? body.schema_version
+    : typeof body.schemaVersion === 'number'
+    ? body.schemaVersion
+    : 1;
+  if (schemaVersion !== 1) return json({ error: 'unsupported_schema_version' }, 400);
 
   const installId = readString(body, 'installId', 'install_id');
   const deviceSecret = readString(body, 'deviceSecret', 'device_secret');
@@ -66,10 +96,37 @@ Deno.serve(async (req) => {
   if (!payloadId || !sanitizedText) {
     return json({ error: 'missing_fields' }, 400);
   }
+  // Bounded field lengths (defence in depth beyond the byte cap).
+  const MAX_SMS_CHARS = 2000;
+  const MAX_SENDER_CHARS = 64;
+  const MAX_PAYLOAD_ID_CHARS = 200;
+  if (sanitizedText.length > MAX_SMS_CHARS || rawText.length > MAX_SMS_CHARS) {
+    return json({ error: 'payload_too_large' }, 413);
+  }
+  if (sender.length > MAX_SENDER_CHARS || payloadId.length > MAX_PAYLOAD_ID_CHARS) {
+    return json({ error: 'invalid_fields' }, 400);
+  }
 
   const supabase = serviceClient();
   const auth = await verifyDevice(supabase, installId, deviceSecret);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+
+  // MALI-060n — AI authority is the SERVER-owned per-device consent record, not
+  // the caller's allowAi flag. allowAi is compatibility metadata only: AI runs
+  // only when the verified device has BOTH granted consent AND requested it, so
+  // allowAi=true can never override a server OFF, and a revoked credential
+  // blocks AI on the very next request. The read fails CLOSED (missing row /
+  // absent column / any error ⇒ consent OFF), which also keeps this correct
+  // while migration 0071 is undeployed (server AI simply stays off; the client
+  // degrades to a local parse).
+  const consent = await supabase
+    .from('capture_devices')
+    .select('ai_consent_granted, revoked_at')
+    .eq('install_id_hash', auth.installIdHash)
+    .maybeSingle();
+  const serverAiConsent = !consent.error && !!consent.data &&
+    consent.data.ai_consent_granted === true && consent.data.revoked_at == null;
+  const aiAllowed = allowAi && serverAiConsent;
 
   const existing = await supabase
     .from('processed_captures')
@@ -100,9 +157,11 @@ Deno.serve(async (req) => {
     receivedAt,
     tzOffsetMinutes,
     locale,
-    allowAi,
+    // Server-authoritative: never the raw caller flag.
+    allowAi: aiAllowed,
   });
 
+  // Metadata only — never the raw SMS, sender, amount, merchant, secret, or body.
   console.log(JSON.stringify({
     event: 'sms_parse_result',
     hasAmount: parsed.amount != null,
@@ -111,7 +170,8 @@ Deno.serve(async (req) => {
     hasMerchant: parsed.merchant != null,
     confidence: parsed.confidence ?? null,
     parserSource: parsed.parserSource ?? null,
-    allowAi,
+    aiRequested: allowAi,
+    aiApplied: aiAllowed,
   }));
 
   const rawFingerprint = await sha256Hex(`${auth.installIdHash}|${payloadId}|${sanitizedText}`);
