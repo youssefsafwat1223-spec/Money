@@ -318,12 +318,21 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 >   **Migration 0073** supersedes those policies (drops owner insert/update +
 >   revokes INSERT/UPDATE/DELETE from authenticated) → aggregates READ-ONLY to
 >   clients; the server (service_role) is the sole authoritative writer; the
->   client is pull-only (verified). **Legacy idempotency (§5):**
->   evaluate-gamification double-awarded per webhook retry/duplicate/concurrent;
->   a `gamification_awarded_transactions` claim-before-award ledger (0073,
->   deny-all RLS, purge-covered) makes it exactly-once per transaction. Client
+>   client is pull-only (verified). **Legacy idempotency (§5) — crash-safety
+>   correction:** the first fix (`9fdd30e7`) claimed the ledger row and mutated
+>   XP in SEPARATE Edge calls (separate transactions); a crash after the claim
+>   committed but before the XP update LOST the award permanently (the claim then
+>   blocked every retry). **Migration 0074** folds the claim + XP / level /
+>   achievement / notification-eligibility into ONE Postgres transaction
+>   (`award_gamification_for_transaction`: SECURITY DEFINER, fixed search_path,
+>   ownership-verified, service_role-only) → **exactly-once AUTHORITATIVE
+>   mutation** (crash rolls the claim back with the award; a lost-response /
+>   duplicate / concurrent retry reconstructs the stored canonical result; no
+>   partial state). APNs delivery happens AFTER commit, keyed by a stable
+>   per-transaction collapse id (best-effort, idempotent, retryable — a send
+>   failure never rolls back or re-awards). Ledger purge-covered. Client
 >   engagement submission already bounded (retry→dead-letter, projection
->   preserves progress, pull reconciles). `9fdd30e7`. **Effective dormancy —
+>   preserves progress, pull reconciles). **Effective dormancy —
 >   corrected characterization:** the client DOES enqueue + submit engagement
 >   events (`_syncEngagement` → the RPC), but because 0070 is UNDEPLOYED the RPC
 >   does not exist, so every submission 404s (best-effort, caught) and produces
