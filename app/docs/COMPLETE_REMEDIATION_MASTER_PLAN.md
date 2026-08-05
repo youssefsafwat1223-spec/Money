@@ -507,7 +507,43 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-05): Batch 1 — encryption-key & backup-schema hygiene
+> **Status (2026-08-06): Batch 2 — versioned authenticated backup envelope
+> (MALI-076n backup-envelope portion + MALI-014 format-compat) — Code complete ·
+> Locally verified (device/cross-platform external).** The legacy v1/v2 blob
+> header (version/kdf/cipher/salt/nonce) was UNAUTHENTICATED and the algorithm
+> fields were DECORATIVE (decrypt hardcoded AES-GCM/Argon2id and ignored them);
+> there was no magic identifier, no resource limits on blob-declared lengths, and
+> `enable()` silently trimmed the passphrase. **New v3 envelope:** magic
+> `MALIBAK`, `envelopeVersion:3`, `schemaVersion`, `cipher:aes-256-gcm`,
+> `kdf:argon2id` + `kdfParams{memory:65536 KiB, iterations:3, parallelism:2,
+> hashLength:32}`, `compression:none`, all cryptographically bound as AES-256-GCM
+> **additional authenticated data** to the payload AND every key slot — a modified
+> header field, algorithm id, or KDF parameter fails authentication before any
+> restore mutation. The content-key + password/recovery-slot model is preserved
+> (slot AAD excludes schemaVersion so stored slots survive a snapshot schema
+> bump). **Untrusted parameters and lengths are resource-limited BEFORE the
+> expensive KDF** (memory 8–256 MiB, iterations 1–10, parallelism 1–4, salt
+> 16–64 B, nonce = 12 B, ciphertext ≤ 64 MiB, ≤ 8 slots, blob ≤ 96 MiB),
+> preventing memory/CPU DoS and allocation overflow. **Passphrase (v3):** exact
+> UTF-8, no trimming, no Unicode normalization, case + whitespace significant
+> (legacy v1/v2 keep their historical trim for old-backup recovery). **Typed
+> `BackupEnvelopeException`** taxonomy, distinct from
+> `LocalDatabaseKeyUnavailableException`; a wrong passphrase, tampering, and
+> corruption are cryptographically indistinguishable and share one safe message.
+> Restore order: `fromBytesChecked` (validate + limit) → decrypt/authenticate →
+> Batch-1 column whitelist → preflight → destructive delete, so any failure leaves
+> the current DB untouched. Writer emits **v3 only**; reader accepts v1/v2/v3 by
+> the in-blob version marker (no exception-driven format guessing). Backups are
+> uploaded as opaque encrypted bytes (no local staging file to make atomic; the
+> Phase-5 managed-export lifecycle is unchanged). Remote metadata stays advisory —
+> the envelope version lives inside the authenticated blob. 22 crypto/compat/
+> resource/privacy tests; no schema or migration change. **MALI-069n was listed in
+> the Batch-2 finding set in error; it is DB connection-lifecycle work and is
+> DEFERRED to Batch 4 — no connection ownership/isolate/busy_timeout/second-
+> connection/cleanup behavior was touched in Batch 2.** External: physical-device
+> secure-storage + real encrypted round-trip + cross-platform KDF vectors.
+>
+> **Prior — Status (2026-08-05): Batch 1 — encryption-key & backup-schema hygiene
 > (MALI-058n) — Code complete · Locally verified (device-external).** Root defect:
 > the DB seed copied the RAW SQLCipher key (`keyStore.readStoredKey()`) into
 > `user_settings.db_encryption_key_ref`, which was ALSO in the backup column
