@@ -1,98 +1,34 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
-import { sendCapturePush } from '../_shared/apns.ts';
 import { timingSafeEqual } from '../_shared/capture_auth.ts';
-import { isPushAllowed, loadNotificationPolicy } from '../_shared/notification_policy.ts';
 
-serve(async (req) => {
-  // Service-only endpoint (MALI-004): only the pg_cron dispatcher
-  // (run_cron_daily_reminders, sending the Vault service-role key) may
-  // trigger a reminder sweep — otherwise anyone could spam every device.
+// RETIRED (MALI-061n) — single-authority reconciliation.
+//
+// This sweep previously pushed streak_reminder and bill_reminder notifications
+// to every device. Both are ALSO produced on-device as SCHEDULED LOCAL
+// notifications (streak at 20:00 device-local, id 88008; bill reminders the day
+// before at 10:00 device-local, ids [92000,992000)). The local schedule is the
+// authoritative path: it fires via the OS even when the app is not running, is
+// timezone-correct on the device, and applies the per-type preference + quiet
+// hours locally. Running this server sweep in parallel produced a second,
+// independent notification for the same business event (a duplicate) — and
+// `anyDeviceRecentlyActive` cannot coordinate a scheduled-local notification,
+// because a device idle for hours still fires its scheduled reminder.
+//
+// Per the closure decision, the redundant server authority is retired rather
+// than wrapped in a fragile timing heuristic. The pg_cron dispatcher may keep
+// invoking this endpoint; it authenticates and then no-ops. (Immediate,
+// event-driven pushes — budgets, goals, achievements — keep their coordinated
+// local-primary/server-fallback model in their own functions.)
+serve((req) => {
   const authHeader = req.headers.get('authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
     return new Response('Forbidden', { status: 403 });
   }
-
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-
-  // 1. Check user_streaks where last_active_date < today
-  const { data: streaks } = await supabase
-    .from('user_streaks')
-    .select('user_id, last_active_date, current_streak')
-    .lt('last_active_date', today.toISOString());
-
-  if (streaks && streaks.length > 0) {
-    for (const streak of streaks) {
-      // Per-user preference + quiet-hours gate (MALI-019) — a cron sweep
-      // touches many users, so load the policy for each.
-      const policy = await loadNotificationPolicy(supabase, streak.user_id);
-      if (!isPushAllowed(policy, 'streak_reminder')) continue;
-
-      const { data: devices } = await supabase
-        .from('capture_devices')
-        .select('apns_token, apns_environment')
-        .eq('user_id', streak.user_id)
-        .not('apns_token', 'is', null);
-
-      if (devices) {
-        for (const device of devices) {
-          await sendCapturePush({
-            token: device.apns_token,
-            environment: device.apns_environment as any,
-            payloadId: crypto.randomUUID(),
-            title: 'Keep Your Streak Alive! 🔥',
-            body: `You are on a ${streak.current_streak}-day streak! Log in today to keep it going.`,
-            notificationType: 'streak_reminder'
-          });
-        }
-      }
-    }
-  }
-
-  // 2. Check user_subscriptions (bills) due in next 3 days where is_confirmed = false
-  const in3Days = new Date(today);
-  in3Days.setDate(in3Days.getDate() + 3);
-
-  const { data: subscriptions } = await supabase
-    .from('user_subscriptions')
-    .select('user_id, name, next_due_date, amount')
-    .eq('is_confirmed', false)
-    .gte('next_due_date', today.toISOString())
-    .lte('next_due_date', in3Days.toISOString());
-
-  if (subscriptions && subscriptions.length > 0) {
-    for (const sub of subscriptions) {
-      // Per-user preference + quiet-hours gate (MALI-019).
-      const policy = await loadNotificationPolicy(supabase, sub.user_id);
-      if (!isPushAllowed(policy, 'bill_reminder')) continue;
-
-      const { data: devices } = await supabase
-        .from('capture_devices')
-        .select('apns_token, apns_environment')
-        .eq('user_id', sub.user_id)
-        .not('apns_token', 'is', null);
-
-      if (devices) {
-        for (const device of devices) {
-          await sendCapturePush({
-            token: device.apns_token,
-            environment: device.apns_environment as any,
-            payloadId: crypto.randomUUID(),
-            title: 'Upcoming Bill Reminder 🗓',
-            body: `${sub.name || 'A bill'} of ${sub.amount} is due soon. Make sure it's covered!`,
-            notificationType: 'bill_reminder'
-          });
-        }
-      }
-    }
-  }
-
-  return new Response('OK', { headers: { 'Content-Type': 'application/json' } });
+  // No pushes: streak + bill reminders are owned by the on-device scheduler.
+  return new Response(
+    JSON.stringify({ status: 'retired', authority: 'local_scheduled_reminders' }),
+    { headers: { 'Content-Type': 'application/json' } },
+  );
 });
