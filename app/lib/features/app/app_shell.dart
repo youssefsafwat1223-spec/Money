@@ -40,6 +40,7 @@ import '../capture/capture_runtime.dart';
 import '../capture/services/capture_notification_content.dart';
 import '../capture/services/capture_sync_service.dart';
 import '../capture/services/captured_message_processor.dart';
+import '../capture/services/capture_notification_authority.dart';
 import '../capture/services/local_notification_service.dart';
 import '../capture/services/notification_log_service.dart';
 import '../capture/services/pending_notification_actions.dart';
@@ -727,8 +728,17 @@ class _AppShellState extends ConsumerState<AppShell> {
                   transactionId: result.transactionId!,
                 );
           }
-          // AppIntent already showed a notification (status == 'sent'); skip duplicate.
-          if (message.status != 'sent') {
+          // MALI-061n §12 — one authority per capture. Reached only for a
+          // freshly-imported payload (the already-imported branch acks + skips
+          // above) whose owner is valid (a stale owner throws AuthRepoException
+          // above). The native App Intent / APNs preview owns it when
+          // status=='sent'; a lost APNs response leaves status != 'sent', so the
+          // local path still fires — losing the response never suppresses both.
+          if (CaptureNotificationAuthority.shouldShowLocalReview(
+            status: message.status,
+            alreadyImported: false,
+            ownerValid: true,
+          )) {
             await _showCapturedMessageNotification(
               result,
               notificationPreferences,
