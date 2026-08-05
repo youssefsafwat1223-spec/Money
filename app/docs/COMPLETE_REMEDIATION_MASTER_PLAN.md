@@ -507,7 +507,34 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 4 closure — the maintenance boundary is now
+> **Status (2026-08-06): Batch 4 closure #2 — CROSS-ISOLATE lease + ownership
+> generation.** The in-memory borrow/maintenance gate could not coordinate the two
+> production secondary paths, which run as background isolates (Dart's
+> RandomAccessFile.lock is POSIX-fcntl = per-PROCESS, so it cannot coordinate
+> isolates within one process). Replaced with a FILESYSTEM lease every
+> isolate/process sees: an ATOMIC maintenance-intent marker
+> (File.create(exclusive:true), stale-recovered by bounded age) plus a REGISTRY of
+> per-secondary lease files (created on acquire, deleted in `finally`).
+> `openSecondary({leaseManager})` acquires a cross-isolate SHARED lease (held for
+> the connection's lifetime, released on close) and is REFUSED (typed
+> DatabaseLeaseUnavailable) while intent is active; `runExclusiveMaintenance(mode:
+> fileExclusive, leaseManager)` publishes intent (refusing new secondaries),
+> drains in-memory borrows AND every secondary lease with a bounded timeout, then
+> runs — the file-exclusive contract the Batch-5 restore/reset will use; no
+> deletion/replacement may begin while any shared lease exists. The two production
+> secondary paths (background capture-import + notification-action isolate) now
+> pass AppDatabase.appSupportLeaseManager(). Proven with a REAL Isolate.spawn test
+> (a shared lease held in another isolate blocks exclusive maintenance in the
+> main). Cross-isolate ownership generation: OwnershipGuard reuses the Phase-2
+> admission owner UID (secure storage → visible to every isolate); a background
+> job captures the owner at creation and re-checks before commit/native-ack, so a
+> sign-out / wipe / ownership change aborts the old-user job WITHOUT committing
+> (no leaked previous-owner rows — tested). +15 more closure tests (7 lease + 8
+> integration/ownership/watcher). No Drift schema bump; no Supabase migration.
+> MALI-069n + the MALI-027 lifecycle tail → Code complete · locally verified;
+> native process timing + real-device SQLite contention pending.
+>
+> **Prior — Status (2026-08-06): Batch 4 closure — the maintenance boundary is now
 > ENFORCEABLE, plus secondary admission, a typed busy taxonomy, and stream
 > ownership.** The flag-only `runExclusiveMaintenance` became a real borrow/lease
 > gate: `borrow<T>()` is REJECTED (typed `DatabaseLifecycleException`) after
