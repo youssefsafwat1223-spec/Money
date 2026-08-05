@@ -1127,10 +1127,14 @@ class LocalNotificationService {
     await PendingNotificationActions.record(transactionId, confirm: confirm);
     final AppDatabase db;
     try {
-      // MALI-069n §6 — a bounded SECONDARY connection in the notification
-      // background isolate: same key + PRAGMA contract, no concurrent migrations
-      // (the main app connection owns them). Closed in the finally below.
-      db = await AppDatabase.openSecondary();
+      // MALI-069n §6/§Blocker-1 — a bounded SECONDARY connection in the
+      // notification background isolate: same key + PRAGMA contract, no
+      // concurrent migrations, and a CROSS-ISOLATE shared lease (refused while
+      // file-exclusive maintenance is in progress). Closed in the finally below
+      // (which releases the lease).
+      db = await AppDatabase.openSecondary(
+        leaseManager: await AppDatabase.appSupportLeaseManager(),
+      );
     } catch (_) {
       // الجهاز غالباً مقفول ومفتاح التشفير غير متاح من الـ Keychain —
       // الإجراء مسجَّل أعلاه ويُطبَّق عند أول فتح للتطبيق بدلاً من فقدانه.

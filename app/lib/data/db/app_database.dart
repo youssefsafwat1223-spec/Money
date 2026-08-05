@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/utils/id_generator.dart';
 import 'database_key_store.dart';
+import 'database_lease.dart';
 import 'database_seed.dart';
 import 'sql_value_codec.dart';
 
@@ -113,6 +114,17 @@ class DatabaseLifecycleException implements Exception {
   final DatabaseLifecycleFailure reason;
   @override
   String toString() => 'DatabaseLifecycleException(${reason.name})';
+}
+
+/// MALI-069n §Blocker-2 — maintenance modes.
+enum MaintenanceMode {
+  /// Logical maintenance over the existing open connection (no file-level lock).
+  logical,
+
+  /// File-exclusive maintenance: every isolate/process must be quiesced; acquires
+  /// the cross-isolate exclusive lease before running (Batch-5 destructive
+  /// restore/reset uses this).
+  fileExclusive,
 }
 
 /// MALI-069n §Blocker-3 — a transient, retryable busy/locked condition after the
@@ -236,11 +248,34 @@ class AppDatabase extends GeneratedDatabase {
   static Future<AppDatabase> openSecondary({
     DatabaseKeyStore? keyStore,
     AppDatabase? owner,
+    DatabaseLeaseManager? leaseManager,
   }) async {
     if (owner != null && !owner.admitsSecondary) {
       throw const DatabaseLifecycleException(DatabaseLifecycleFailure.closed);
     }
-    return open(keyStore: keyStore, runMigrations: false);
+    // Cross-isolate admission: acquire a SHARED lease first, so the secondary is
+    // refused while file-exclusive maintenance intent is active and, once open,
+    // maintenance in any isolate waits for it to close. Held for the lifetime;
+    // released on close.
+    final lease = leaseManager != null ? await leaseManager.acquireShared() : null;
+    try {
+      final db = await open(keyStore: keyStore, runMigrations: false);
+      db._lease = lease;
+      return db;
+    } catch (_) {
+      if (lease != null) await lease.release();
+      rethrow;
+    }
+  }
+
+  /// MALI-069n §Blocker-1 — the production cross-isolate lease manager, using
+  /// files beside the database in the app-support directory.
+  static Future<DatabaseLeaseManager> appSupportLeaseManager() async {
+    final directory = await getApplicationSupportDirectory();
+    return DatabaseLeaseManager(
+      leaseDir: p.join(directory.path, 'db_leases'),
+      intentPath: p.join(directory.path, 'money_companion.sqlite.maint'),
+    );
   }
 
   /// MALI-069n §3 — finish opening: run the migration pipeline for a MAIN open,
@@ -507,6 +542,10 @@ class AppDatabase extends GeneratedDatabase {
   @override
   Future<void> close() => _closeFuture ??= _close();
 
+  /// A cross-isolate SHARED lease held for a secondary connection's lifetime
+  /// (MALI-069n §Blocker-1); released on close.
+  DatabaseFileLease? _lease;
+
   Future<void> _close() async {
     if (_lifecycle != DatabaseLifecycleState.failed) {
       _lifecycle = DatabaseLifecycleState.closing;
@@ -517,6 +556,11 @@ class AppDatabase extends GeneratedDatabase {
     } catch (_) {}
     await _manualRevisionController.close();
     await executor.close();
+    // Release the cross-isolate shared lease so file-exclusive maintenance can
+    // proceed once every secondary has closed.
+    final lease = _lease;
+    _lease = null;
+    if (lease != null) await lease.release();
     _lifecycle = DatabaseLifecycleState.closed;
   }
 
@@ -598,7 +642,13 @@ class AppDatabase extends GeneratedDatabase {
   Future<T> runExclusiveMaintenance<T>(
     Future<T> Function() action, {
     Duration drainTimeout = const Duration(seconds: 10),
+    MaintenanceMode mode = MaintenanceMode.logical,
+    DatabaseLeaseManager? leaseManager,
+    Duration exclusiveTimeout = const Duration(seconds: 10),
   }) async {
+    if (mode == MaintenanceMode.fileExclusive && leaseManager == null) {
+      throw ArgumentError('fileExclusive maintenance requires a leaseManager');
+    }
     while (_maintenanceLock != null && !_maintenanceLock!.isCompleted) {
       await _maintenanceLock!.future;
     }
@@ -607,8 +657,16 @@ class AppDatabase extends GeneratedDatabase {
     final priorState = _lifecycle;
     _maintenanceRequested = true;
     _lifecycle = DatabaseLifecycleState.maintenanceRequested;
+    DatabaseFileLease? exclusive;
     try {
+      // 1. Drain in-memory (main-isolate) borrows.
       await _drainBorrows(drainTimeout);
+      // 2. For file-level exclusivity, acquire the CROSS-ISOLATE exclusive lease
+      //    — this publishes maintenance intent (refusing new secondaries) and
+      //    waits (bounded) for every secondary lease to close.
+      if (mode == MaintenanceMode.fileExclusive) {
+        exclusive = await leaseManager!.acquireExclusive(timeout: exclusiveTimeout);
+      }
       final result = await action();
       _lifecycle = DatabaseLifecycleState.open;
       return result;
@@ -622,6 +680,9 @@ class AppDatabase extends GeneratedDatabase {
       }
       rethrow; // preserve the original typed cause
     } finally {
+      // Release the cross-isolate exclusive lease (clears the intent marker) so
+      // secondaries may resume.
+      if (exclusive != null) await exclusive.release();
       _maintenanceRequested = false;
       _maintenanceLock = null;
       lock.complete();
