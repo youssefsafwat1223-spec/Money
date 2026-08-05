@@ -59,7 +59,7 @@ class GamificationSyncService {
         .eq('user_id', userId)
         .isFilter('deleted_at', null);
 
-    final newlyUnlockedNames = <String>[];
+    final unlockedToNotify = <({String key, String name})>[];
     for (final row in serverAchievements) {
       final key = row['achievement_key'] as String;
       final unlockedAt = DateTime.parse(row['unlocked_at'] as String).toUtc();
@@ -78,20 +78,21 @@ class GamificationSyncService {
         WHERE key = ?;
       ''', [dateTimeToSql(unlockedAt), key]);
       if (newlyUnlocked) {
-        newlyUnlockedNames.add(local.read<String>('name_ar'));
+        unlockedToNotify.add((key: key, name: local.read<String>('name_ar')));
       }
     }
     // Suppressed during the post-sign-in restore (appDataRestoring): the first
     // pull re-learns EVERY previously-earned achievement at once — notifying
     // then would spam the user with their whole history.
-    if (newlyUnlockedNames.isNotEmpty && !appDataRestoring.value) {
+    if (unlockedToNotify.isNotEmpty && !appDataRestoring.value) {
       try {
         final preferences = await LoadNotificationPreferencesUseCase(
           DriftUserSettingsRepository(db),
         ).call();
-        for (final name in newlyUnlockedNames) {
+        for (final achievement in unlockedToNotify) {
           await LocalNotificationService.instance.showAchievementNotification(
-            title: '🏆 إنجاز جديد: $name',
+            achievementKey: achievement.key,
+            title: '🏆 إنجاز جديد: ${achievement.name}',
             body: 'فتحت إنجازاً جديداً — افتح قرش وشوفه.',
             preferences: preferences,
           );

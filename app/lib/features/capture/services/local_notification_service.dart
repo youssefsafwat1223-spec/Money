@@ -232,7 +232,9 @@ class LocalNotificationService {
       return;
     }
     await _show(
-      id: _safeId(transactionId.hashCode),
+      // MALI-061n §3 — stable logical identity from the transaction id (a
+      // business key), not its unstable hashCode.
+      id: notificationEventId('review', transactionId),
       title: title,
       body: body,
       notificationType: NotificationType.captureReview,
@@ -426,12 +428,15 @@ class LocalNotificationService {
   }
 
   Future<void> showAchievementNotification({
+    required String achievementKey,
     required String title,
     required String body,
     required NotificationPreferences preferences,
   }) async {
     await _show(
-      id: _safeId(title.hashCode ^ body.hashCode),
+      // MALI-061n §3 — stable logical identity from the achievement KEY, never
+      // the mutable/localizable title+body (which re-fired on any text change).
+      id: achievementNotificationId(achievementKey),
       title: title,
       body: body,
       notificationType: NotificationType.achievements,

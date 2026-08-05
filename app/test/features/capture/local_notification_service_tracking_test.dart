@@ -79,6 +79,7 @@ void main() {
     // used by several call sites in app_shell.dart.
     // ignore: unawaited_futures
     LocalNotificationService.instance.showAchievementNotification(
+      achievementKey: 'first_capture',
       title: 'شارة جديدة',
       body: 'body',
       preferences: const NotificationPreferences(),

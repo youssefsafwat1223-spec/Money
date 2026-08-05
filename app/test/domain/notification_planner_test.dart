@@ -292,4 +292,43 @@ void main() {
       expect(id, isNot(inInclusiveRange(92000, 991999)));
     }
   });
+
+  // ── notificationEventId / achievementNotificationId (MALI-061n §3) ────────
+  group('notificationEventId', () {
+    test('is deterministic and depends on type + key, not display text', () {
+      expect(
+        notificationEventId('achievement', 'streak_7'),
+        notificationEventId('achievement', 'streak_7'),
+      );
+      // Different key → different id; different type → different id.
+      expect(
+        notificationEventId('achievement', 'streak_7'),
+        isNot(notificationEventId('achievement', 'streak_30')),
+      );
+      expect(
+        notificationEventId('achievement', 'streak_7'),
+        isNot(notificationEventId('review', 'streak_7')),
+      );
+    });
+
+    test('lives in its own [2000000, 2900000) range, clear of bills/goals', () {
+      for (var i = 0; i < 500; i++) {
+        final id = notificationEventId('review', 'txn-$i');
+        expect(id, inInclusiveRange(2000000, 2899999));
+        expect(id, isNot(inInclusiveRange(92000, 991999))); // bills
+        expect(id, isNot(inInclusiveRange(1000000, 1899999))); // goals
+      }
+    });
+
+    test('achievementNotificationId is a stable function of the key only', () {
+      expect(
+        achievementNotificationId('big_saver'),
+        achievementNotificationId('big_saver'),
+      );
+      expect(
+        achievementNotificationId('big_saver'),
+        notificationEventId('achievement', 'big_saver'),
+      );
+    });
+  });
 }
