@@ -22,9 +22,12 @@ class MetricsClient {
     // where an uncaught exception here previously stopped runApp() from ever
     // being called, hanging every cold start with an invalid stored session.
     try {
-      await client.from('metrics').insert({
-        'metric_key': key,
-        if (dimension != null) 'dimension': dimension,
+      // MALI-075n — go through the owner-bound, allowlisted, rate-limited RPC
+      // instead of a direct insert (the `with check (true)` policy is removed).
+      // Unknown keys / over-quota calls are silently no-ops server-side.
+      await client.rpc('record_metric', params: {
+        'p_metric_key': key,
+        'p_dimension': dimension,
       });
     } catch (_) {
       // Best-effort — never propagate a metrics failure to the caller.

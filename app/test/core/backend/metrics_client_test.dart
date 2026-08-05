@@ -79,4 +79,29 @@ void main() {
 
     expect(called, isFalse);
   });
+
+  test('MALI-075n: routes through the record_metric RPC, not a direct insert',
+      () async {
+    String? path;
+    final http = MockClient((request) async {
+      path = request.url.path;
+      return Response('null', 200,
+          headers: const {'content-type': 'application/json'});
+    });
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'public-anon-key',
+      httpClient: http,
+    );
+    await client.auth.recoverSession(jsonEncode({
+      'access_token': _fakeNotYetExpiredAccessToken(),
+      'token_type': 'bearer',
+      'user': {'id': 'qa-user'},
+    }));
+
+    await MetricsClient(client: client).logEvent('app_open', dimension: 'ios');
+
+    expect(path, contains('/rpc/record_metric'));
+    expect(path, isNot(contains('/metrics'))); // never the raw table
+  });
 }
