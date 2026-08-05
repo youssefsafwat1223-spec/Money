@@ -507,7 +507,34 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-- MALI-058n: stop storing the SQLCipher key in `user_settings`/backups (store a fingerprint; null on restore).
+> **Status (2026-08-05): Batch 1 — encryption-key & backup-schema hygiene
+> (MALI-058n) — Code complete · Locally verified (device-external).** Root defect:
+> the DB seed copied the RAW SQLCipher key (`keyStore.readStoredKey()`) into
+> `user_settings.db_encryption_key_ref`, which was ALSO in the backup column
+> allowlist — so the raw local-database key was serialized into every backup
+> snapshot (recoverable from any blob decrypted with the user passphrase). The
+> final contract is STRICTER than the original plan (which proposed storing a
+> fingerprint): the column stores NOTHING — the raw key lives only in
+> platform secure storage (`money_companion.db_key`), device-scoped, and is never
+> in Drift, a backup, a sync payload, an export, a log, or telemetry. Restore
+> writes through the destination's already-open encrypted connection and never
+> mutates its key; the backup passphrase-derived key and the DB key are distinct
+> and never interchangeable. Implementation: seed + repo writer write ''; the repo
+> read never surfaces the column into the entity; excluded from the backup
+> allowlist; restore filters every row to a CENTRAL column whitelist
+> (`BackupSnapshotBuilder.restorableColumns`) so no arbitrary snapshot key reaches
+> SQL, writes '' to the NOT NULL column, drops a legacy `db_encryption_key_ref`
+> value, and FAILS CLOSED on any other key/secret-like field BEFORE the
+> destructive delete; an idempotent post-admission repair (`clearDeprecatedDbKeyRef`)
+> clears legacy values without reading them. Key-loss behavior is documented (no
+> silent delete — explicit recovery UX; `readOrCreateKey` never consults a
+> backup). No local schema-version bump (idempotent data repair, not a rebuild);
+> no Supabase migration. 6 real-Drift behavioral tests. Gates green. Batches 2–6
+> (passphrase envelope, remote-backup reliability, DB connection lifecycle,
+> restore/recovery matrix, closure) not started. **External:** on-device
+> secure-storage + real encrypted backup round-trip.
+
+- MALI-058n: **DONE (Batch 1)** — stop storing the SQLCipher key in `user_settings`/backups (store NOTHING; the key stays in secure storage; restore writes '' + whitelists columns + fails closed on unknown key-like fields).
 - MALI-076n: validate backup `version`/`kdf`; normalize passphrase trim; distinguish network-error from no-backup; whitelist restore columns against `_tables`; delete the dead `data_export.dart` clipboard helper.
 - MALI-069n: close the connection/isolate on failed init; set `busy_timeout`; define safe second-connection behavior for the background notification path.
 - MALI-073n: add `transactions(account_id)`/`(category_id)` indexes (measure query plans; address the NULL-account OR-subquery that defeats them).
