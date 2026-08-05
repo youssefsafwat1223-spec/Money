@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/backup/backup_service.dart';
+import '../../core/backup/remote_backup_controller.dart';
+import '../../core/backup/remote_backup_state.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -130,14 +132,23 @@ class _EnabledView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
+    // MALI-076n §16 — the label + icon derive from the TRUTHFUL typed state, so
+    // "محمي" (Protected) shows only for a committed + verified remote generation.
+    final state = ref.watch(remoteBackupControllerProvider);
+    final controller = ref.read(remoteBackupControllerProvider.notifier);
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
         Row(
           children: [
-            Icon(Icons.cloud_done_outlined, color: c.success),
+            Icon(
+              state.isProtected
+                  ? Icons.cloud_done_outlined
+                  : Icons.cloud_sync_outlined,
+              color: state.isProtected ? c.success : c.textLight,
+            ),
             const SizedBox(width: AppSpacing.s3),
-            Text('النسخ الاحتياطي مفعّل',
+            Text(remoteBackupStateLabel(state),
                 style: AppTypography.headline(c.textMain)),
           ],
         ),
@@ -150,10 +161,12 @@ class _EnabledView extends ConsumerWidget {
         ),
         const SizedBox(height: AppSpacing.s5),
         FilledButton(
-          onPressed: () async {
-            await ref.read(backupServiceProvider).backupNow();
-            ref.invalidate(backupStatusProvider);
-          },
+          onPressed: state.isInFlight
+              ? null
+              : () async {
+                  await controller.backupNow();
+                  ref.invalidate(backupStatusProvider);
+                },
           child: const Text('نسخ احتياطي الآن'),
         ),
         const SizedBox(height: AppSpacing.s3),
@@ -161,7 +174,7 @@ class _EnabledView extends ConsumerWidget {
         const SizedBox(height: AppSpacing.s3),
         OutlinedButton(
           onPressed: () async {
-            await ref.read(backupServiceProvider).disable();
+            await controller.disableStop();
             ref.invalidate(backupStatusProvider);
           },
           child:

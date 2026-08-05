@@ -10,6 +10,8 @@ import '../../features/capture/services/transactions_backfill_service.dart';
 import '../../features/planning_sync/services/accounts_backfill_service.dart';
 import '../../features/planning_sync/services/planning_primary_backfill_service.dart';
 import 'encrypted_backup_service.dart';
+import 'remote_backup_controller.dart';
+import 'remote_backup_state.dart';
 
 class BackupStatus {
   const BackupStatus({required this.enabled, this.lastBackupAt});
@@ -44,7 +46,11 @@ abstract class BackupService {
 
   Future<void> restoreFromBackup({required String passphrase});
 
+  /// Stop future backups (MALI-076n §3) — does NOT delete remote data.
   Future<void> disable();
+
+  /// The separate, explicit destructive action: delete the remote backup(s).
+  Future<void> deleteRemoteBackups();
 }
 
 class StubBackupService implements BackupService {
@@ -93,6 +99,9 @@ class StubBackupService implements BackupService {
     await _storage.delete(key: _kLast);
   }
 
+  @override
+  Future<void> deleteRemoteBackups() async {}
+
   String _generateRecoveryCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final rng = Random.secure();
@@ -111,6 +120,15 @@ final backupServiceProvider = Provider<BackupService>((ref) {
     );
   }
   return StubBackupService();
+});
+
+/// MALI-076n §16 — the truthful remote-backup state, wired to the screen.
+final remoteBackupControllerProvider =
+    StateNotifierProvider<RemoteBackupController, RemoteBackupState>((ref) {
+  final controller = RemoteBackupController(ref.watch(backupServiceProvider));
+  // Reconstruct truthful state from remote truth on first read.
+  controller.refresh();
+  return controller;
 });
 
 Future<void> _backfillRestoredPrimaryData(AppDatabase database) async {

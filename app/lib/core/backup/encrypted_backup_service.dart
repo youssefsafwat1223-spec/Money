@@ -247,6 +247,7 @@ class EncryptedBackupService implements BackupService {
   /// backup object + its pointer (and any legacy fixed object). A failed remote
   /// deletion surfaces a typed [RemoteBackupException]; the local database and
   /// local files are never touched.
+  @override
   Future<void> deleteRemoteBackups() async {
     final generation = await _remoteStore.readCurrentGeneration();
     if (generation != null) {

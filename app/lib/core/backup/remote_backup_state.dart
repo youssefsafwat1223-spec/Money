@@ -23,6 +23,7 @@ enum RemoteBackupState {
   consentRequired,
   failedRetryable,
   failedTerminal,
+  cancelled,
 }
 
 extension RemoteBackupStateX on RemoteBackupState {

@@ -43,6 +43,9 @@ class _FakeBackupService implements BackupService {
     enabled = false;
     lastBackupAt = null;
   }
+
+  @override
+  Future<void> deleteRemoteBackups() async {}
 }
 
 void main() {
