@@ -507,8 +507,40 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 3 closure — the four approved remote-backup tails
-> implemented.** (1) **Truthful UI/provider state:** `RemoteBackupController`
+> **Status (2026-08-06): Batch 4 — database connection lifecycle, failed-init
+> cleanup, concurrent same-file access (MALI-069n + MALI-027 lifecycle tail) —
+> Code complete · Locally verified (device-external).** Three defects fixed: (1)
+> **connection/isolate leak on failed init** — `open()` awaited the migration
+> pipeline and, on failure, left the native `createBackgroundConnection` + its
+> background isolate alive; `_finishOpen` now closes the connection on ANY init
+> failure (best-effort — never masking the original typed error, verified the
+> original error propagates), marks the lifecycle `failed`, and rethrows, with no
+> key rotation and no file deletion (the Batch-1 missing-key / corrupt-DB / wrong-
+> passphrase / fresh-install distinctions are preserved). (2) **missing
+> busy_timeout** — the single centralized connection-configuration contract in
+> `_openEncryptedConnection` (SQLCipher-correct order: cipher → verify extension →
+> key → prove key → foreign_keys) now also sets `busy_timeout = 5000` on EVERY
+> production connection, so the background second connection racing the main one
+> waits a bounded time instead of failing immediately with SQLITE_BUSY. (3)
+> **uncontrolled second connections** — the two same-file second connections (the
+> background capture-import in `captured_message_processor` and the
+> notification-action background isolate in `local_notification_service`) called
+> `AppDatabase.open()`, which ran the full migration pipeline; they now use
+> `AppDatabase.openSecondary()` (`runMigrations:false`) — same authoritative key +
+> the same PRAGMA contract, but the migration pipeline is NEVER run concurrently
+> from two connections, and each is closed in a `try/finally`. Added a typed
+> `DatabaseLifecycleState` (opening/open/closing/closed/failed), an idempotent
+> `close()` that waits for any in-flight init to SETTLE before teardown (a
+> concurrent close shares one teardown), and a `runExclusiveMaintenance` lifecycle
+> primitive (§10) that serialises + marks maintenance and always clears the flag —
+> the abstraction the Batch-5 restore/reset matrix will build on (Batch 4 does not
+> rewrite restore). No Drift schema-version bump; no Supabase migration. 8
+> real-Drift lifecycle tests. External: on-device native-isolate leak audit + real
+> file-lock contention. **Migrations 0068–0076 remain undeployed; kServerRevisionCas
+> false; migration 0070 inactive.**
+>
+> **Prior — Status (2026-08-06): Batch 3 closure — the four approved remote-backup
+> tails implemented.** (1) **Truthful UI/provider state:** `RemoteBackupController`
 > (StateNotifier) is wired into the backup screen; the label + icon derive from
 > the typed `RemoteBackupState`, so "محمي/Protected" renders ONLY for
 > `enabledIdle` (a committed + verified generation) — never on local encryption,
