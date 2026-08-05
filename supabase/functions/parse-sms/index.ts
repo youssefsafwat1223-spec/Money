@@ -1,4 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { bumpCaptureEndpointRateLimit, corsHeaders, serviceClient } from '../_shared/capture_auth.ts';
+import { apiError, consentError, correlationId, resolveVerifiedIdentity, schemaError } from '../_shared/ai_endpoint.ts';
 
 // Google deprecates model IDs fast — gemini-2.0-flash-lite was shut down 2026-06-01.
 // Pin to a stable versioned ID, not an alias. Current: gemini-2.5-flash-lite-preview-06-17.
@@ -40,15 +41,6 @@ function reSanitize(text: string): string {
   text = text.replace(/\bTo\s*:\s*.+/gi, 'To: [REDACTED]');
   text = text.replace(/(عزيزي|عزيزتي)\s+\S+/gi, '[REDACTED]');
   return text.trim();
-}
-
-async function hashInstallId(installId: string): Promise<string> {
-  const data = new TextEncoder().encode(installId);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join()
-    .slice(0, 16);
 }
 
 function compactToken(value: string): string {
@@ -240,76 +232,54 @@ function normalizeParsedCategory(
   return parsed;
 }
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
-};
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Require Authorization header with Bearer token (anon JWT)
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: corsHeaders,
-    });
+  const cid = correlationId();
+  const supabase = serviceClient();
+
+  const raw = await req.json().catch(() => null);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return apiError('invalid_payload', { correlationId: cid });
+  }
+  const body = raw as Record<string, unknown>;
+
+  const schemaBad = schemaError(body, cid);
+  if (schemaBad) return schemaBad;
+
+  // MALI-060n — raw bank SMS goes to Gemini: a verified identity (device secret
+  // or user JWT), never the caller-supplied install_id, is required, and the AI
+  // processing consent is enforced server-side. A missing verified identity or
+  // consent returns a typed failure and the client falls back to local parsing.
+  const identity = await resolveVerifiedIdentity(req, supabase, body, cid);
+  if (!identity.ok) return identity.response;
+
+  const consentBad = consentError(identity.identity, 'ai', cid);
+  if (consentBad) return consentBad;
+
+  if (typeof body.sanitized_sms !== 'string' || !body.sanitized_sms.trim()) {
+    return apiError('invalid_payload', { correlationId: cid });
   }
 
-  // The Supabase gateway verifies the JWT (verify_jwt) before the request
-  // reaches here, so any valid project token — including the app's anon key —
-  // is accepted. Do NOT call auth.getUser(jwt) here: an anon token has no user,
-  // so getUser() returns an error and wrongly 401s every app request (the AI
-  // then never runs). The service-role client below is used for rate-limit
-  // bookkeeping only.
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  );
-
-  const body = await req.json().catch(() => null);
-  if (!body?.sanitized_sms || !body?.install_id) {
-    return new Response(JSON.stringify({ error: 'missing_fields' }), {
-      status: 400,
-      headers: corsHeaders,
-    });
-  }
-
-  const installIdHash = await hashInstallId(body.install_id as string);
   const today = new Date().toISOString().slice(0, 10);
 
-  // Rate-limit check: 20 calls per install_id hash per day
-  const { data: rateRow } = await supabase
-    .from('ai_rate_limits')
-    .select('call_count')
-    .eq('install_id_hash', installIdHash)
-    .eq('date', today)
-    .maybeSingle();
-
-  const currentCount = (rateRow?.call_count ?? 0) as number;
-  if (currentCount >= RATE_LIMIT_PER_DAY) {
-    return new Response(JSON.stringify({ error: 'rate_limit_exceeded' }), {
-      status: 429,
-      headers: corsHeaders,
-    });
-  }
-
-  await supabase.from('ai_rate_limits').upsert(
-    { install_id_hash: installIdHash, date: today, call_count: currentCount + 1 },
-    { onConflict: 'install_id_hash,date' },
+  // Atomic per-verified-identity daily cap (replaces the racy read-then-upsert
+  // on ai_rate_limits keyed by a caller-supplied install_id).
+  const limited = await bumpCaptureEndpointRateLimit(
+    supabase,
+    identity.identity.ownerKey,
+    'parse-sms',
+    RATE_LIMIT_PER_DAY,
   );
+  if (limited) return apiError('rate_limited', { correlationId: cid, retryable: true });
 
   // Re-sanitize server-side before sending to Gemini
   const reSanitized = reSanitize(body.sanitized_sms as string);
 
   if (!GEMINI_API_KEY) {
-    return new Response(JSON.stringify({ error: 'ai_not_configured' }), {
-      status: 503,
-      headers: corsHeaders,
-    });
+    return apiError('upstream_unavailable', { correlationId: cid, retryable: true });
   }
 
   const prompt = `You are a bank SMS parser. Extract transaction details from this sanitized bank SMS.
@@ -399,10 +369,7 @@ Return ONLY valid JSON. No markdown, no explanation.`;
         { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
       );
     }
-    return new Response(JSON.stringify({ error: 'ai_parse_failed' }), {
-      status: 502,
-      headers: corsHeaders,
-    });
+    return apiError('upstream_rejected', { correlationId: cid });
   }
 
   if (parsed?.is_transaction === false) {
@@ -420,10 +387,7 @@ Return ONLY valid JSON. No markdown, no explanation.`;
         { headers: { 'Content-Type': 'application/json', ...corsHeaders } },
       );
     }
-    return new Response(JSON.stringify({ error: 'invalid_ai_response' }), {
-      status: 502,
-      headers: corsHeaders,
-    });
+    return apiError('upstream_rejected', { correlationId: cid });
   }
 
   return new Response(

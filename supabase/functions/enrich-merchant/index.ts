@@ -6,32 +6,27 @@
 //
 // Trigger: called directly from the app's normal transaction flow whenever
 // an unknown merchant is encountered (see app_providers.dart /
-// captured_message_processor.dart), not just an admin panel button. Auth:
-// Bearer (any valid project token, including the app's public anon key) —
-// rate-limited per install below since the caller isn't admin-restricted.
+// captured_message_processor.dart), not just an admin panel button. Auth
+// (MALI-060n): a server-verified device secret or a real user JWT — never the
+// caller-supplied install_id — selects the owner; cloud-processing consent is
+// enforced server-side; the daily cap is keyed on that verified identity.
 //
 // Required secrets:
 //   GOOGLE_MAPS_API_KEY        (Places API enabled)
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { bumpCaptureEndpointRateLimit, installHash } from '../_shared/capture_auth.ts';
+import { bumpCaptureEndpointRateLimit, corsHeaders, serviceClient } from '../_shared/capture_auth.ts';
+import { apiError, consentError, correlationId, resolveVerifiedIdentity, schemaError } from '../_shared/ai_endpoint.ts';
 
-// Per-install daily cap. Enrichment happens organically as unknown merchants
-// show up during normal use, so this is looser than parse-sms's AI-call cap —
-// it just bounds worst-case Google Places spend and catalog-write volume from
-// a single caller (the endpoint accepts any valid project token, including
-// the public anon key shipped in the app binary, so it has no other caller
-// identity to bound by).
-const DAILY_LIMIT_PER_INSTALL = 200;
+// MALI-060n — per-VERIFIED-IDENTITY daily cap (device/user), not per
+// caller-supplied install_id. Enrichment happens organically as unknown
+// merchants show up during normal use, so this is looser than parse-sms's
+// AI-call cap; it bounds worst-case Google Places spend + catalog-write volume
+// from one verified caller.
+const DAILY_LIMIT_PER_IDENTITY = 200;
 
 const MAPS_API_KEY = Deno.env.get('GOOGLE_MAPS_API_KEY') ?? '';
 const PLACES_URL = 'https://places.googleapis.com/v1/places:searchText';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
-};
 
 // Google Place type → our category key. First match wins (most specific first).
 const TYPE_TO_CATEGORY: Array<[string, string]> = [
@@ -216,52 +211,43 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: corsHeaders,
-    });
-  }
+  const cid = correlationId();
+  const supabase = serviceClient();
 
-  // The Supabase gateway already verifies the JWT (verify_jwt) before reaching
-  // here, so any valid project token (anon for the app, user for the admin,
-  // service role for a cron) is accepted. The service-role client below is used
-  // only to write the resolved row.
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  const raw = await req.json().catch(() => null);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return apiError('invalid_payload', { correlationId: cid });
+  }
+  const body = raw as Record<string, unknown>;
+
+  const schemaBad = schemaError(body, cid);
+  if (schemaBad) return schemaBad;
+
+  // MALI-060n — a verified identity (device secret or user JWT), never the
+  // caller-supplied install_id, selects the owner and rate-limit namespace.
+  const identity = await resolveVerifiedIdentity(req, supabase, body, cid);
+  if (!identity.ok) return identity.response;
+
+  // Merchant enrichment sends the merchant name to Google Places (cloud
+  // processing) — require the cloud-processing consent server-side.
+  const consentBad = consentError(identity.identity, 'cloud', cid);
+  if (consentBad) return consentBad;
+
+  const limited = await bumpCaptureEndpointRateLimit(
+    supabase,
+    identity.identity.ownerKey,
+    'enrich-merchant',
+    DAILY_LIMIT_PER_IDENTITY,
   );
+  if (limited) return apiError('rate_limited', { correlationId: cid, retryable: true });
 
-  const body = await req.json().catch(() => null);
-
-  const installId = (body?.install_id as string | undefined)?.trim();
-  if (installId) {
-    const installIdHash = await installHash(installId);
-    const limited = await bumpCaptureEndpointRateLimit(
-      supabase,
-      installIdHash,
-      'enrich-merchant',
-      DAILY_LIMIT_PER_INSTALL,
-    );
-    if (limited) {
-      return new Response(JSON.stringify({ error: 'rate_limited' }), {
-        status: 429,
-        headers: corsHeaders,
-      });
-    }
-  }
-
-  const merchantName = (body?.merchant_name as string | undefined)?.trim();
+  const merchantName = (body.merchant_name as string | undefined)?.trim();
   if (!merchantName) {
-    return new Response(JSON.stringify({ error: 'missing_merchant_name' }), {
-      status: 400,
-      headers: corsHeaders,
-    });
+    return apiError('invalid_payload', { correlationId: cid });
   }
-  const countryCode = ((body?.country_code as string | undefined) ?? 'ALL')
+  const countryCode = ((body.country_code as string | undefined) ?? 'ALL')
     .toUpperCase();
-  const write = body?.write !== false; // default true
+  const write = body.write !== false; // default true
   const bankAtmLike = looksLikeBankAtmQuery(merchantName);
   let placeName = '';
   let category = 'other';
@@ -334,16 +320,8 @@ Deno.serve(async (req) => {
       ? await supabase.from('merchant_keywords').update(row).eq('id', existing.id)
       : await supabase.from('merchant_keywords').insert(row);
     if (writeError) {
-      return new Response(
-        JSON.stringify({
-          error: 'write_failed',
-          detail: writeError.message,
-          merchant_name: merchantName,
-          place_name: placeName,
-          category,
-        }),
-        { status: 500, headers: corsHeaders },
-      );
+      // MALI-060n/039 — never echo the merchant name or upstream error text.
+      return apiError('internal_error', { correlationId: cid });
     }
   }
 

@@ -1,4 +1,12 @@
-import { bumpCaptureEndpointRateLimit, installHash, serviceClient } from '../_shared/capture_auth.ts';
+import { bumpCaptureEndpointRateLimit, serviceClient } from '../_shared/capture_auth.ts';
+import {
+  apiError,
+  consentError,
+  correlationId,
+  resolveVerifiedIdentity,
+  safeLog,
+  schemaError,
+} from '../_shared/ai_endpoint.ts';
 
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
@@ -9,7 +17,7 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 // rarely. The cap exists to bound cost/abuse from a direct caller using the
 // public anon key, not to constrain normal usage — same pattern and limit
 // class as enrich-merchant's DAILY_LIMIT_PER_INSTALL.
-const DAILY_LIMIT_PER_INSTALL = 50;
+const DAILY_LIMIT_PER_IDENTITY = 50;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,57 +49,51 @@ Deno.serve(async (req) => {
     return json({ error: 'method_not_allowed' }, 405);
   }
 
-  const authHeader = req.headers.get('authorization') ?? '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json({ error: 'unauthorized' }, 401);
-  }
+  const cid = correlationId();
+  const supabase = serviceClient();
 
-  const body = await req.json().catch(() => null);
-  const parsedRequest = parseRequest(body);
+  const raw = await req.json().catch(() => null);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return apiError('invalid_payload', { correlationId: cid });
+  }
+  const rec = raw as Record<string, unknown>;
+  const schemaBad = schemaError(rec, cid);
+  if (schemaBad) return schemaBad;
+
+  const parsedRequest = parseRequest(raw);
   if ('error' in parsedRequest) {
-    console.warn('bank-discovery rejected request', {
-      reason: parsedRequest.error,
-    });
-    return json({ error: parsedRequest.error }, 400);
+    safeLog({ event: 'bank_discovery_rejected', reason: parsedRequest.error, correlation_id: cid });
+    return apiError('invalid_payload', { correlationId: cid });
   }
-
   const request = parsedRequest.request;
 
-  if (request.installId) {
-    const supabase = serviceClient();
-    const installIdHash = await installHash(request.installId);
-    const limited = await bumpCaptureEndpointRateLimit(
-      supabase,
-      installIdHash,
-      'bank-discovery',
-      DAILY_LIMIT_PER_INSTALL,
-    );
-    if (limited) {
-      return json({ error: 'rate_limited' }, 429);
-    }
-  }
+  // MALI-060n — bank discovery sends the (sanitized) SMS to Gemini: verified
+  // identity + AI consent required; rate limit keyed on the verified identity,
+  // never the caller-supplied install_id.
+  const identity = await resolveVerifiedIdentity(req, supabase, rec, cid);
+  if (!identity.ok) return identity.response;
+  const consentBad = consentError(identity.identity, 'ai', cid);
+  if (consentBad) return consentBad;
+  const limited = await bumpCaptureEndpointRateLimit(
+    supabase,
+    identity.identity.ownerKey,
+    'bank-discovery',
+    DAILY_LIMIT_PER_IDENTITY,
+  );
+  if (limited) return apiError('rate_limited', { correlationId: cid, retryable: true });
 
   const safeSms = reSanitize(request.sanitizedSms);
+  const senderHash = await shortHash(request.senderId);
   if (containsUnsafeRawData(safeSms)) {
-    console.warn('bank-discovery rejected request', {
-      reason: 'unsafe_payload',
-      senderHash: await shortHash(request.senderId),
-      textLength: safeSms.length,
-    });
-    return json({ error: 'unsafe_payload' }, 400);
+    safeLog({ event: 'bank_discovery_unsafe_payload', senderHash, textLength: safeSms.length, correlation_id: cid });
+    return apiError('invalid_payload', { correlationId: cid });
   }
 
-  const senderHash = await shortHash(request.senderId);
-  console.log('bank-discovery request received', {
-    senderHash,
-    textLength: safeSms.length,
-    detectedCurrency: request.detectedCurrency ?? null,
-    localeHint: request.localeHint ?? null,
-  });
+  safeLog({ event: 'bank_discovery_request', senderHash, textLength: safeSms.length, correlation_id: cid });
 
   if (!GEMINI_API_KEY) {
-    console.error('bank-discovery Gemini not configured', { senderHash });
-    return json({ error: 'ai_not_configured' }, 503);
+    safeLog({ event: 'bank_discovery_ai_unconfigured', correlation_id: cid });
+    return apiError('upstream_unavailable', { correlationId: cid, retryable: true });
   }
 
   try {
@@ -107,11 +109,13 @@ Deno.serve(async (req) => {
         },
       }),
     });
-    console.log('bank-discovery Gemini response', {
+    safeLog({
+      event: 'bank_discovery_gemini_response',
       senderHash,
       status: geminiRes.status,
       ok: geminiRes.ok,
       model: GEMINI_MODEL,
+      correlation_id: cid,
     });
 
     if (!geminiRes.ok) {
@@ -125,19 +129,19 @@ Deno.serve(async (req) => {
       return json({ error: 'no_suggestion' }, 200);
     }
 
-    console.log('bank-discovery suggestion parsed', {
+    safeLog({
+      event: 'bank_discovery_suggestion',
       senderHash,
       country: suggestion.country,
       confidence: suggestion.confidence,
       hasBankKeySuggestion: Boolean(suggestion.bankKeySuggestion),
+      correlation_id: cid,
     });
 
     return json(suggestion);
-  } catch (error) {
-    console.error('bank-discovery failed', {
-      senderHash,
-      error: error instanceof Error ? error.message : 'unknown_error',
-    });
+  } catch (_error) {
+    // Never log the raw error text (may embed upstream/body detail).
+    safeLog({ event: 'bank_discovery_failed', senderHash, correlation_id: cid });
     return json({ error: 'ai_discovery_failed' }, 200);
   }
 });
