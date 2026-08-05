@@ -507,7 +507,36 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 4 — database connection lifecycle, failed-init
+> **Status (2026-08-06): Batch 4 closure — the maintenance boundary is now
+> ENFORCEABLE, plus secondary admission, a typed busy taxonomy, and stream
+> ownership.** The flag-only `runExclusiveMaintenance` became a real borrow/lease
+> gate: `borrow<T>()` is REJECTED (typed `DatabaseLifecycleException`) after
+> close/failed/recovery and QUEUED while maintenance holds the gate;
+> `runExclusiveMaintenance` transitions to `maintenanceRequested` so new
+> borrows/secondaries are refused/queued, DRAINS active borrows with a bounded
+> `drainTimeout` (→ typed `maintenanceTimeout`), runs the action, returns to
+> `open` on success, restores the prior usable state on a recoverable failure,
+> and exposes the typed `recoveryRequired` state on an unrecoverable one (never
+> publishing a partial database); cleanup is idempotent and never masks the
+> original error. Secondary admission: `admitsSecondary` (open && not under
+> maintenance) + `openSecondary({owner})` refused (typed) unless the owner is
+> usable — the two production second-connection paths run where no owner is
+> in-memory-accessible (a background isolate / no main connection), so their
+> admission is file-level (the Batch-1 key-state gate + the shared PRAGMA +
+> busy_timeout contract + the no-concurrent-migration rule), documented. Typed
+> busy taxonomy: `mapDatabaseBusy` maps SQLITE_BUSY(5)/LOCKED(6) (+ the 261/262
+> extended codes) to a retryable `DatabaseBusyException` using only the numeric
+> result code — never the raw text, non-busy never misclassified — and
+> `runWithBusyRetry` retries bounded then throws the typed error, never inside a
+> transaction, with no reset/rotate. Stream/provider ownership: `appDatabaseProvider`
+> is an OVERRIDE HOLDER (main/bootstrap owns the DB; no provider closes it), so a
+> non-owning `ProviderContainer` disposal leaves the database open, and closing
+> with a live Drift watcher completes cleanly (no use-after-close). +15 closure
+> tests. No Drift schema bump; no Supabase migration. MALI-069n + the MALI-027
+> lifecycle tail → Code complete · locally verified; native-isolate + real-device
+> file-lock timing pending.
+>
+> **Prior — Status (2026-08-06): Batch 4 — database connection lifecycle, failed-init
 > cleanup, concurrent same-file access (MALI-069n + MALI-027 lifecycle tail) —
 > Code complete · Locally verified (device-external).** Three defects fixed: (1)
 > **connection/isolate leak on failed init** — `open()` awaited the migration
