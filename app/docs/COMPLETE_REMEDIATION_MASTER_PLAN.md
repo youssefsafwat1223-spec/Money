@@ -507,7 +507,40 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 2 — versioned authenticated backup envelope
+> **Status (2026-08-06): Batch 3 — remote-backup state, safe publication,
+> verified download (MALI-076n remote portion + MALI-014 remote reliability) —
+> Code complete · Locally verified (live-backend + UI + retention tails
+> external).** The remote-backup flow used a boolean (`backupEnabled`/`hasBackup`)
+> and uploaded with `upsert=true` to a single fixed `backup.enc` object — so an
+> interrupted upload could REPLACE the only valid backup, and the UI could claim
+> protection before a verified commit. New: a typed `RemoteBackupState` machine
+> (16 states; only `enabledIdle` = Protected), a `RemoteBackupErrorKind` taxonomy
+> (distinct from the envelope + DB-key errors), and a bounded exponential-backoff
+> retry policy (offline pauses without consuming an attempt; terminal ≠
+> retryable). **Safe generation publication** — `RemoteBackupPublisher` over an
+> injectable `RemoteBackupStore`: each backup uploads to a UNIQUE per-generation
+> object path, the size is verified, the pointer is committed with a
+> compare-and-set on the previous generation, and the old object is retired ONLY
+> after the new pointer commits, so an interrupted upload can only orphan a new
+> object and never replaces the last valid backup. **Verified download** — size +
+> encrypted-blob SHA-256 checked before any decryption (a transport check, never a
+> substitute for the v3 AEAD authentication). **Lost-response idempotency** — a
+> retry of the same generation returns the committed result with no duplicate
+> upload. **disable() is now stop-only**; deleting remote data is a separate
+> explicit `deleteRemoteBackups()`. Migration **0075** (additive, undeployed) adds
+> the generation/hash/operation/status pointer columns; ownership stays
+> server-enforced (owner RLS on `backups` + the storage `<uid>/` folder RLS — a
+> caller-supplied owner id is never authoritative, a leaked path alone grants no
+> access). The `SupabaseRemoteBackupStore` adapter is wired into
+> `backupNow`/`restore`. 28 new tests (state/retry 11 + publication/download 12 +
+> contract 5), proven with an injected fake store. **Remaining tails (NOT this
+> batch, external/follow-up):** truthful UI-state rendering (§16), automatic-
+> trigger changes (§14), multi-generation retention/pruning (§15), a server-atomic
+> CAS RPC, and credential-gated live Supabase Storage/RLS tests. **MALI-069n stays
+> untouched (Batch 4).** External: live Supabase round-trip + two-device conflict +
+> device.
+>
+> **Prior — Status (2026-08-06): Batch 2 — versioned authenticated backup envelope
 > (MALI-076n backup-envelope portion + MALI-014 format-compat) — Code complete ·
 > Locally verified (device/cross-platform external).** The legacy v1/v2 blob
 > header (version/kdf/cipher/salt/nonce) was UNAUTHENTICATED and the algorithm
