@@ -294,7 +294,45 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 5 — Security, privacy, notifications, native hardening
 
-> **Status (2026-08-05): Batch 2 (telemetry, logging, temp files, export
+> **Status (2026-08-05): Batch 3 (AI endpoint authentication, verified identity,
+> consent, rate limiting, abuse controls) Code complete · Locally verified.**
+> MALI-060n. The three client-callable paid endpoints — parse-sms (Gemini),
+> bank-discovery (Gemini), enrich-merchant (Google Places) — no longer trust a
+> caller-supplied install_id. Shared `_shared/ai_endpoint.ts` enforces:
+> server-verified identity (device secret via `verifyDevice`, else real user JWT;
+> install_id alone → authentication_required), fail-closed server-side consent
+> (AI for parse/discovery, cloud for enrich), an atomic rate limit keyed on the
+> verified identity, a typed 13-code error envelope (never a raw message/upstream
+> body), bounded bodies + text-length caps, upstream timeouts + classified
+> errors, and request idempotency (0071 `claim_ai_idempotency`, payload hash
+> only) so a retry never double-pays. Migration 0071 (consent columns +
+> revoked_at + idempotency ledger + locked-down RPCs, migration-lint PASS, NOT
+> deployed) + `set-device-consent` write path + client wiring (device_secret +
+> request_id + schema_version, consent push via iOS syncNativeState). deno 67/0
+> (+2 credential-gated real-backend ignored). `b6c990f8`/`9bf26554`/`2aa29d60`/
+> `3316c154`/`8dd5f1b1`.
+>
+> ### Batch-3 endpoint matrix (MALI-060n)
+>
+> | Endpoint | Paid upstream | Authoritative identity | Consent | Quota (per identity/day) | Idempotency | Notes |
+> |---|---|---|---|---|---|---|
+> | `parse-sms` | Gemini | device secret / user JWT | AI (fail-closed) | 500 | request_id → claim RPC | primary; local-parse fallback |
+> | `bank-discovery` | Gemini | device secret / user JWT | AI (fail-closed) | 50 | n/a (200-on-fail, rare) | safeLog only |
+> | `enrich-merchant` | Google Places | device secret / user JWT | cloud (fail-closed) | 200 | request_id → claim RPC | leak removed; idempotent upsert |
+> | `set-device-consent` | — | device secret (only) | writes consent | 200 | — | consent write path (new) |
+> | `process-ios-sms` | Gemini (internal) | device secret (existing) | existing capture flow | 300 | payload_id (existing) | already verified; unchanged |
+> | `register-device` | — | bootstraps secret | — | 20 | — | issues/rotates device secret |
+> | `catalog-*` (delta/flags/…) | none (no paid upstream) | anon read | — | — | — | cheap cached content; out of scope |
+> | worker/cron (`evaluate-*`, purge, retries) | none | service-role / bearer secret | — | — | — | not client-callable; out of scope |
+> | `merchant-feedback` | none | anon | — | — | — | keyword list only; no console.* (Batch-2 verified) |
+>
+> Compatibility: an old client sending only install_id gets a typed
+> authentication_required and falls back to local parsing; a new client's extra
+> fields are ignored by the old server. Rollout = migration 0071 + functions,
+> then client. Live migration apply, RPC concurrency, and the Android
+> consent-push path remain external/follow-up.
+>
+> **Prior — Batch 2 (telemetry, logging, temp files, export
 > privacy, merchant logos) Code complete · Locally verified.** MALI-032
 > (allowlist Sentry boundary — beforeSend + beforeBreadcrumb, drop all
 > free-form text, structured `TelemetryCodes`, behavioral canary tests

@@ -5,8 +5,19 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 5 Batch 2 (telemetry, logging, temp files, export
-  privacy, merchant logos) Code complete · Locally verified — 2026-08-05.**
+- **Last updated:** **Phase 5 Batch 3 (AI endpoint authentication, verified
+  identity, consent, rate limiting, abuse controls) Code complete · Locally
+  verified — 2026-08-05.** MALI-060n: parse-sms/bank-discovery/enrich-merchant
+  now require a server-verified identity (device secret or user JWT, never
+  caller install_id), enforce consent server-side (fail-closed), rate-limit +
+  idempotency on the verified identity, bounded payloads, upstream timeouts, and
+  a typed error envelope; migration 0071 (consent cols + idempotency RPCs, NOT
+  deployed) + set-device-consent + client wiring. Endpoint matrix in the master
+  plan. deno 67/0 (+2 credential-gated real-backend ignored), migration-lint
+  PASS. Live migration apply + RPC concurrency + Android consent-push external.
+  Batches 4–6 not started.
+  Prior — **Phase 5 Batch 2 (telemetry, logging, temp files, export
+  privacy, merchant logos) — 2026-08-05.**
   MALI-032 (allowlist telemetry boundary `bff0f1d8`), MALI-065n (managed
   temp-export lifecycle `2d1072f6`, iOS simulator build), MALI-071n (merchant-
   logo consent gate `08e7ca0d`), and the logging/privacy portions of MALI-039 +
@@ -120,7 +131,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-057n | Med | C | P3 | Code complete · Locally verified · **live CAS external-pending** | pull/push base compare + universal per-entity policy; `de672bc0`/`0e52da68` (batch 3) |
 | MALI-058n | Med | C | P6 | Not started | SQLCipher key in DB + backup |
 | MALI-059n | Med | P+C | P2 | Code complete · Locally verified | decision implemented (default OFF, separate opt-ins, migrate-to-OFF, versioned state, device-local, restore resets); `89db9f09` |
-| MALI-060n | Med | C | P5 | Not started | anon-key AI unmetered |
+| MALI-060n | Med | C | P5 | Code complete · Locally verified (live-backend external) | AI/paid endpoints (parse-sms, bank-discovery, enrich-merchant) no longer trust a caller-supplied install_id. Shared `_shared/ai_endpoint.ts`: server-verified identity (device secret via `verifyDevice`, else real user JWT; install_id alone → `authentication_required`), fail-closed server-side consent (AI for parse/discovery, cloud for enrich), atomic rate limit keyed on the verified identity (`bump_capture_rate_limit`), typed 13-code error envelope (no raw message/upstream body), bounded bodies + text-length caps, upstream timeouts (AbortController) + classified upstream errors, and request idempotency (0071 `claim_ai_idempotency`, payload HASH only) so a retry never double-pays. enrich-merchant merchant-name leak removed; bank-discovery logs via `safeLog`. Migration 0071 (consent cols + revoked_at + idempotency ledger + locked-down RPCs) + `set-device-consent` write path. Client sends device_secret + stable request_id + schema_version and pushes consent (iOS syncNativeState); degrades to local parse on failure. `b6c990f8`/`9bf26554`/`2aa29d60`/`3316c154`/`8dd5f1b1` (P5-B3). deno 67/0/2-ignored; migration lint PASS. External: live migration apply + RPC concurrency + Android consent-push path |
 | MALI-061n | Med | C | P5 | Not started | gamification bypasses policy; budget dual-authority |
 | MALI-062n | Med | C | P4 | **Closed · locally verified** | Saturday-week fixed (B1); the three divergent weekly/budget-period resolvers unified into one canonical resolver + Saturday-anchored history (B3); the per-period history transaction LIST nets to its total (B4). Week definitions, budget periods, and history list-vs-total parity all verified. Device UI spot-check external |
 | MALI-063n | Med | C | P4 | Code complete · Locally verified | PDF donut center/slices/appendix scoped to the primary currency (per-currency `categoryBreakdown`), never a cross-currency sum; exponent formatter (0/2/3); dormant 0030 RPCs + Supabase-summary flags retired (no switch to re-enable pre-canonical totals); `989f6614`/`174ed4c3` (Batch 4). Live PDF render spot-check external |
