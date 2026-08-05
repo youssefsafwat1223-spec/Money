@@ -1,5 +1,6 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
+  anyDeviceRecentlyActive,
   isPushAllowed,
   loadNotificationPolicy,
   type NotificationPolicy,
@@ -188,4 +189,22 @@ Deno.test('loadNotificationPolicy with no row returns defaults', async () => {
   const policy = await loadNotificationPolicy(supabase as any, 'u1');
   assertEquals(policy.budgetWarning, true);
   assertEquals(policy.utcOffsetHours, null);
+});
+
+Deno.test('anyDeviceRecentlyActive: local-primary budget coordination', () => {
+  const now = Date.parse('2026-08-05T12:00:00Z');
+  const hour = 3600_000;
+  // A device seen 1h ago is recently active → server defers to the local app.
+  assertEquals(
+    anyDeviceRecentlyActive(['2026-08-05T11:00:00Z'], now, 6 * hour),
+    true,
+  );
+  // All devices stale (> window) → server fallback fires.
+  assertEquals(
+    anyDeviceRecentlyActive(['2026-08-04T00:00:00Z', null], now, 6 * hour),
+    false,
+  );
+  // No devices / missing timestamps → not active (server fallback).
+  assertEquals(anyDeviceRecentlyActive([], now, 6 * hour), false);
+  assertEquals(anyDeviceRecentlyActive([undefined, 'garbage'], now, 6 * hour), false);
 });

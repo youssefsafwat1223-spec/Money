@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { timingSafeEqual } from '../_shared/capture_auth.ts';
-import { isPushAllowed, loadNotificationPolicy } from '../_shared/notification_policy.ts';
+import { anyDeviceRecentlyActive, isPushAllowed, loadNotificationPolicy } from '../_shared/notification_policy.ts';
 
 // The client maps BudgetEntity.allExpensesCategoryId ('__all_expenses__') to
 // this key when syncing budgets to user_budgets — see
@@ -46,9 +46,22 @@ serve(async (req) => {
 
   const { data: devices } = await supabase
     .from('capture_devices')
-    .select('apns_token, apns_environment, install_id_hash')
+    .select('apns_token, apns_environment, install_id_hash, last_seen_at')
     .eq('user_id', userId)
     .not('apns_token', 'is', null);
+
+  // MALI-061n — single-authority coordination. The LOCAL app fires the budget
+  // alert immediately when it processes a transaction; this server path is only
+  // the FALLBACK for when no device has been active recently (so the local
+  // alert could not have fired). When a device IS recently active we still
+  // advance the notified watermark (below) so the tier isn't re-pushed later,
+  // but we do NOT push here — avoiding the local+server duplicate.
+  const budgetFallbackWindowMs = 6 * 60 * 60 * 1000;
+  const deviceRecentlyActive = anyDeviceRecentlyActive(
+    (devices ?? []).map((d) => d.last_seen_at as string | null),
+    Date.now(),
+    budgetFallbackWindowMs,
+  );
 
   // Server-side honoring of the user's notification preferences (MALI-019):
   // one load per request (userId is fixed here).
@@ -116,10 +129,16 @@ serve(async (req) => {
     const budgetType = bucket === 3 ? 'budget_over' : 'budget_warning';
     if (!isPushAllowed(policy, budgetType)) continue;
 
+    // Advance the notified watermark regardless — an active local app is
+    // assumed to have covered this tier, so it must not be re-pushed later.
     await supabase
       .from('user_budgets')
       .update({ last_notified_spent_amount: currentSpend })
       .eq('id', budget.id);
+
+    // Local app is the primary authority when a device is active — don't
+    // double-notify. Fall through to the server push only when inactive.
+    if (deviceRecentlyActive) continue;
 
     if (devices && devices.length > 0) {
       for (const device of devices) {

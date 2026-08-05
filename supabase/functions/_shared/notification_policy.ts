@@ -92,14 +92,12 @@ export async function loadNotificationPolicy(
       streakReminder: parsed.streakReminder !== false,
       subscriptionReminder: parsed.subscriptionReminder !== false,
       quietHoursEnabled: parsed.quietHoursEnabled === true,
-      quietHoursStartHour:
-        typeof parsed.quietHoursStartHour === 'number'
-          ? parsed.quietHoursStartHour
-          : defaultPolicy.quietHoursStartHour,
-      quietHoursEndHour:
-        typeof parsed.quietHoursEndHour === 'number'
-          ? parsed.quietHoursEndHour
-          : defaultPolicy.quietHoursEndHour,
+      quietHoursStartHour: typeof parsed.quietHoursStartHour === 'number'
+        ? parsed.quietHoursStartHour
+        : defaultPolicy.quietHoursStartHour,
+      quietHoursEndHour: typeof parsed.quietHoursEndHour === 'number'
+        ? parsed.quietHoursEndHour
+        : defaultPolicy.quietHoursEndHour,
       utcOffsetHours,
     };
   } catch {
@@ -125,14 +123,27 @@ export function isPushAllowed(
   if (!typeEnabled) return false;
 
   if (policy.quietHoursEnabled && policy.utcOffsetHours !== null) {
-    const localHour =
-      (now.getUTCHours() + policy.utcOffsetHours + 24) % 24;
+    const localHour = (now.getUTCHours() + policy.utcOffsetHours + 24) % 24;
     const start = policy.quietHoursStartHour;
     const end = policy.quietHoursEndHour;
-    const inQuietHours = start <= end
-      ? localHour >= start && localHour < end
-      : localHour >= start || localHour < end; // wraps past midnight
+    const inQuietHours = start <= end ? localHour >= start && localHour < end : localHour >= start || localHour < end; // wraps past midnight
     if (inQuietHours) return false;
   }
   return true;
+}
+
+/// MALI-061n coordination — the LOCAL app is the primary budget-alert authority
+/// (it fires immediately when a transaction is processed). The server is a
+/// FALLBACK that pushes only when NO device has been active recently, so the
+/// local immediate alert could not have fired. Pure + tested.
+export function anyDeviceRecentlyActive(
+  lastSeenAtValues: Array<string | null | undefined>,
+  nowMs: number,
+  windowMs: number,
+): boolean {
+  return lastSeenAtValues.some((value) => {
+    if (!value) return false;
+    const t = Date.parse(value);
+    return Number.isFinite(t) && nowMs - t < windowMs;
+  });
 }
