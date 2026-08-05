@@ -294,7 +294,43 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 5 — Security, privacy, notifications, native hardening
 
-> **Status (2026-08-05): Batch 4 (notification authority, policy, dedup,
+> **Status (2026-08-05): Batch 5 (backend, RLS, SECURITY DEFINER, metrics, purge,
+> gamification, endpoint hardening) Code complete · Locally verified.** MALI-075n
+> / MALI-044 / MALI-024-backend. Migration 0072 (additive, undeployed, lint PASS).
+>
+> - **SECURITY DEFINER inventory:** a precise per-function audit found exactly two
+>   SD functions lacking a fixed search_path. `handle_new_user` (0001) is DEAD
+>   (0005 dropped its trigger + superseded it with `create_profile_on_signup`,
+>   which sets search_path) → dropped. `prune_processed_captures` (0012) recreated
+>   with `SET search_path = public` + re-locked. All other SD functions
+>   (0005/0033/0035/0065/0070/0071) already have one.
+> - **Metrics (MALI-075n):** the `with check (true)` free-for-all authenticated
+>   INSERT is removed + revoked. `record_metric(key, dimension)` RPC gates
+>   ingestion — authenticated-only (owner from auth.uid()), event allowlist
+>   ({app_open}), bounded lengths, atomic per-user daily quota (deny-all
+>   `metrics_rate_limits`), server timestamp, NO PII stored. Client → RPC.
+> - **Gamification (MALI-024):** dormant `record_engagement_event` (0070) hardening
+>   asserted (auth.uid() owner, reject unauth/unknown-type/unsupported-version,
+>   server-fixed CASE award, ON CONFLICT idempotent). **Activation gate**
+>   (unchanged): 0070 deployed + real concurrency/idempotency tests green + client
+>   event path enabled + legacy transaction-triggered authority disabled in the
+>   same release. Client aggregate-write policies (0062) are the accepted
+>   offline-first Phase-3 design (per-user, non-financial); left intact.
+> - **Purge/retention:** `purge_user_data` extended to AI-idempotency (owner_key),
+>   engagement, and metrics-quota rows in FK-safe order (before capture_devices).
+>   Idempotency rows also self-expire (0071 TTL); metrics counters self-prune.
+> - **Dead endpoints (MALI-044):** merchant-feedback retired (auth + 410 →
+>   enrich-merchant); its unwired client noted. Other Edge functions carry real
+>   contracts (Batch 3 verified identity / catalog reads / service-role workers).
+> - **Admin auth (MALI-041):** unchanged — the known admin-test failure is a
+>   test-harness brittleness (Phase-7 scope per prior approval); production admin
+>   authorization (0035 get_user_stats service-role lockdown) is intact.
+>
+> `4e927db5`/`6ddd5aaa`/`975af849`. Live RLS/RPC/purge/quota under real Postgres +
+> the credential-gated node/deno tests remain external where no local Supabase
+> exists.
+>
+> **Prior — Batch 4 (notification authority, policy, dedup,
 > lock-screen privacy, scheduling limits, Android receiver tail) Code complete ·
 > Locally verified.** MALI-061n / MALI-019 / MALI-025 / MALI-068n + the Batch-3
 > Android consent tail.

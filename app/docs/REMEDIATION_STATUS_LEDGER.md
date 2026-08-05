@@ -5,7 +5,18 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 5 Batch 4 (notification authority, policy,
+- **Last updated:** **Phase 5 Batch 5 (backend, RLS, SECURITY DEFINER, metrics,
+  purge, gamification, endpoint hardening) Code complete · Locally verified —
+  2026-08-05.** MALI-075n (SD search_path — dead handle_new_user dropped, prune
+  fixed; owner-bound rate-limited `record_metric` RPC replacing `with check
+  (true)`; purge coverage extended to AI-idempotency/engagement/metrics-quota),
+  MALI-044 (dead merchant-feedback retired — auth + 410), MALI-024 backend
+  confirmation (dormant record_engagement_event hardening asserted; activation
+  gate documented). Migration 0072 (additive, undeployed, lint PASS).
+  `4e927db5`/`6ddd5aaa`/`975af849`. analyze 0, flutter suite green, deno 68/0
+  (+2 ignored), 9 backend contract tests. Live RLS/RPC/purge under real Postgres
+  external. Batch 6 not started.
+  Prior — **Phase 5 Batch 4 (notification authority, policy,
   deduplication, lock-screen privacy, scheduling limits, Android receiver tail)
   Code complete · Locally verified — 2026-08-05.** MALI-061n (stable event
   identity off display text; budget local-primary/server-fallback coordination),
@@ -109,7 +120,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-021 | High | C | P6/P7 | Not started (scope Closed) | dead file + PDF sweep = MALI-076n/065n |
 | MALI-022 | High | C | P3 | Code complete · Locally verified · **live CAS external-pending** | server revision CAS migration 0068 `4a2da692` + universal resolver all 12 `de672bc0` + client CAS plumbing gated OFF `0e52da68` (batch 3); activation blocked on 0068 staging verification |
 | MALI-023 | Med | C | P3 | Code complete · Locally verified | typed failure classes + dead-letter + bounded backoff + re-arm; `d6820285` (batch 2) |
-| MALI-024 | Med | C | P3 | Code complete · Locally verified | server-authoritative idempotent engagement events (migration 0070 + locked-down record_engagement_event RPC); client aggregate-total upload removed (tamper vector gone); durable event outbox + exactly-once + projection; `bc0e0ddb` (batch 5). Live concurrency/ownership = external |
+| MALI-024 | Med | C | P3 | Code complete · Locally verified | server-authoritative idempotent engagement events (migration 0070 + locked-down record_engagement_event RPC); client aggregate-total upload removed (tamper vector gone); durable event outbox + exactly-once + projection; `bc0e0ddb` (batch 5). **P5-B5 confirmation:** contract tests assert record_engagement_event derives owner from auth.uid(), rejects unauthenticated/unknown-type/unsupported-version, server-fixed CASE award (no client XP), idempotent (ON CONFLICT DO NOTHING), SD + fixed search_path; the path stays DORMANT (0070 undeployed, no client enqueues; legacy transaction-triggered award authority remains active). Activation gate documented in the master plan. `6ddd5aaa`. Live concurrency/ownership = external |
 | MALI-025 | Med | C | P5 | Code complete · Locally verified (device external) | NotificationCapacityPlanner (pure): internal cap below iOS's ~64 max, immediate-alert reserve, importance-then-nearest-due, past-due drop, rolling window over app-managed ids only; schedulePlannedNotifications reads the live pending set, applies {schedule,cancel}, and verifies the actual pending set (safe count only). 5 planner tests. `9128589e` (P5-B4). On-device 64-limit behavior external |
 | MALI-026 | Med | C | **P8** | Not started | separate financial-storage project |
 | MALI-027 | Med | C | **P1** | Code complete · Locally verified | closed by MALI-046n fix |
@@ -129,7 +140,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-041 | Low | T | P7 | Not started | admin auth test (subsumed by MALI-066n/067n) |
 | MALI-042 | Low | T | P7 | Not started | Edge unit isolation (MALI-066n) |
 | MALI-043 | Low | P+D | P7 | Decision required | canonical brand name (Mali vs Qirsh) |
-| MALI-044 | Low | C | P5 | Not started | metrics WITH CHECK(true) |
+| MALI-044 | Low | C | P5 | Code complete · Locally verified (live-backend external) | dead/no-op endpoint retired: merchant-feedback (never-implemented `TODO`, anonymous, fake-success) now requires a bearer token and returns an explicit 410 `retired` → `enrich-merchant`, with a reuse guard; its unwired client (`flushIfReady` never called) noted. The metrics `with check (true)` policy is removed under MALI-075n (0072). `6ddd5aaa` (P5-B5) |
 | MALI-045n | High | C | **P1** | Code complete · Locally verified | FK-safe restore (full parents + suspend-correctly + sanitize + verify); 5 regression tests; on-device round-trip = gate 6 |
 | MALI-046n | High | C | **P1** | Closed · locally verified | `enableMigrations:false` → pipeline owns user_version; 5 regression tests; on-device path = gate 6 |
 | MALI-047n | High | C | P4 | Code complete · Locally verified | header total now canonical net expense over the complete dataset (`transactionsPeriodTotalProvider`), pagination-independent, confirmed-only, refund-netted, single-currency; bespoke `TransactionsView` folds removed; `2052687d` (Batch 2). Device UI spot-check external |
@@ -160,7 +171,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-072n | Low | C | P3 | Code complete · Locally verified | durable sender-mapping sync: keyset pagination + server-authoritative updated_at + durable cursor + tombstone deletion propagation + LWW (pending-safe) + typed error classification (no string-match); soft-delete replaces hard delete; `96993c5e` (batch 5). Live two-device = external |
 | MALI-073n | Low | C | P6 | Not started | missing account_id/category_id indexes |
 | MALI-074n | Low | C | P4 | Code complete · Locally verified | report decimals (B4); exact account ownership (no null-account-by-currency), per-currency net-spend card summaries (refund-netted, income-only, exponent formatter), authoritative installment paid-count from the ledger (B5 `a25a75c7`/`0f86fb7c`/`1fc89450`). Device UI spot-check external |
-| MALI-075n | Low | C | P5 | In progress | logging/privacy portion done (P5-B2, shared with MALI-039): global `debugPrint` redaction + `Diag` `0010b037`; edge-function log review of the in-scope (merchant) functions `merchant-feedback`/`enrich-merchant` found NO sensitive logging (no `console.*` at all — nothing to redact). Backend lows (search_path, gamification writable, purge coverage) remain **Phase-5 Batch 5** |
+| MALI-075n | Low | C | P5 | Code complete · Locally verified (live-backend external) | logging/privacy portion (P5-B2 `0010b037`) + backend lows (P5-B5, migration 0072, undeployed): (a) SD search_path — the only two functions lacking a fixed path fixed (dead `handle_new_user` dropped; `prune_processed_captures` recreated with search_path + re-locked); a precise per-function audit confirms all others already had one. (b) Metrics ingestion — `with check (true)` free-for-all authenticated insert removed + INSERT revoked; owner-bound (auth.uid()) `record_metric` RPC with event allowlist, length bounds, atomic per-user daily quota (deny-all `metrics_rate_limits`), no PII stored; client routes through the RPC. (c) Purge coverage — `purge_user_data` extended to AI idempotency (owner_key), engagement, and metrics-quota rows in FK-safe order. `4e927db5`/`975af849` (P5-B5). Live RLS/RPC/purge under real Postgres external |
 | MALI-076n | Low | C | P6 | Not started | backup lows (trim, blob version, hasRemoteBackup, dead export) |
 | MALI-077n | Low | C+P | P7 | Not started | ops lows (keystore name, email, dead API, package path) |
 
