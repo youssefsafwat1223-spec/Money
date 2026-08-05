@@ -111,4 +111,66 @@ void main() {
       AddTransactionOutcome.notTransaction,
     );
   });
+
+  // ── MALI-068n §11 — received-time authority through the ingest pipeline ────
+  group('captured occurredAt authority', () {
+    Future<DateTime> savedOccurredAt() async {
+      final txns = await DriftTransactionRepository(db).getAll();
+      expect(txns, hasLength(1));
+      return txns.first.occurredAt.toUtc();
+    }
+
+    test('an SMS-parsed date wins over receivedAt (never overwritten)',
+        () async {
+      const dated = 'عملية شراء\nمبلغ:SAR 45.00\nلدى:NETFLIX\n'
+          'في:2026-04-08 12:45';
+      final result = await ingestCapturedMessage.fromCapturedMessage(
+        CapturedMessage(
+          text: dated,
+          source: CapturedMessageSource.androidShare,
+          // A deliberately wrong receipt time must NOT become occurredAt.
+          receivedAt: DateTime.utc(2000, 1, 1),
+        ),
+      );
+      expect(result.addTransactionResult.outcome, AddTransactionOutcome.added);
+      expect((await savedOccurredAt()).year, 2026);
+    });
+
+    test('a dateless SMS uses the real receivedAt (not now)', () async {
+      const dateless = 'عملية شراء\nمبلغ:SAR 30.00\nلدى:STARBUCKS';
+      final received = DateTime.utc(2026, 7, 1, 9);
+      await ingestCapturedMessage.fromCapturedMessage(
+        CapturedMessage(
+          text: dateless,
+          source: CapturedMessageSource.androidShare,
+          receivedAt: received,
+        ),
+      );
+      final occurredAt = await savedOccurredAt();
+      expect(occurredAt.difference(received).inMinutes.abs() < 5, isTrue,
+          reason: 'occurredAt should track the real receipt time');
+    });
+
+    test('a dateless SMS with unknown (null) receivedAt does not crash and '
+        'falls back once (documented policy), never mid-pipeline', () async {
+      const dateless = 'عملية شراء\nمبلغ:SAR 12.00\nلدى:COSTA';
+      final before = DateTime.now().toUtc();
+      final result = await ingestCapturedMessage.fromCapturedMessage(
+        const CapturedMessage(
+          text: dateless,
+          source: CapturedMessageSource.androidShare,
+          receivedAt: null, // corrupt/absent native timestamp
+        ),
+      );
+      expect(result.addTransactionResult.outcome, AddTransactionOutcome.added);
+      final occurredAt = await savedOccurredAt();
+      // The single documented fallback is ~now; a valid time is never replaced.
+      expect(occurredAt.isAfter(before.subtract(const Duration(minutes: 1))),
+          isTrue);
+    });
+    // Idempotent payload-id replay (crash-after-commit-before-ack → no
+    // duplicate) is covered end-to-end with the real dedup store in
+    // capture_sync_service_test.dart ('failed ack followed by dedup prune must
+    // not re-import the capture').
+  });
 }

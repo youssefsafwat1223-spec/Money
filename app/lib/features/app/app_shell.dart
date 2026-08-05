@@ -706,7 +706,11 @@ class _AppShellState extends ConsumerState<AppShell> {
             text: message.text,
             senderId: message.sender,
             source: message.source,
-            receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
+            // MALI-068n §11 — pass the resolved native time through as-is (null
+            // when unknown). Do NOT stamp `now` here; AddTransactionUseCase
+            // prefers the SMS-parsed date and owns the single documented
+            // last-resort fallback.
+            receivedAt: message.receivedAt,
           );
           final result = await ingestUseCase.fromCapturedMessage(captured);
           if (kDebugMode) {
