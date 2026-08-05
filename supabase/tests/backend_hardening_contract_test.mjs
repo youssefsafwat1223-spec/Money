@@ -91,3 +91,33 @@ test('purge_user_data erases AI idempotency, engagement, and metrics-quota rows'
   // AI-idempotency purge must run BEFORE capture_devices are deleted.
   assert.ok(purge.indexOf('ai_request_idempotency') < purge.indexOf('DELETE FROM public.capture_devices'));
 });
+
+// MALI-024 (closure) — gamification aggregates are read-only to normal clients.
+test('gamification aggregates: 0073 removes owner write policies + revokes grants', () => {
+  const m0073 = read('supabase/migrations/0073_gamification_aggregate_readonly.sql');
+  for (const t of ['user_xp_levels', 'user_streaks', 'user_achievements']) {
+    assert.match(m0073, new RegExp(`DROP POLICY IF EXISTS ${t}_owner_insert`));
+    assert.match(m0073, new RegExp(`DROP POLICY IF EXISTS ${t}_owner_update`));
+    assert.match(m0073, new RegExp(`REVOKE INSERT, UPDATE, DELETE ON public\\.${t} FROM authenticated`));
+  }
+  // The client never writes these tables — it only reads (pull-only projection).
+  const sync = read('app/lib/features/gamification/services/gamification_sync_service.dart');
+  assert.doesNotMatch(sync, /user_xp_levels'\)[\s\S]{0,80}\.(insert|update|upsert)\(/);
+  assert.doesNotMatch(sync, /user_streaks'\)[\s\S]{0,80}\.(insert|update|upsert)\(/);
+  assert.doesNotMatch(sync, /user_achievements'\)[\s\S]{0,80}\.(insert|update|upsert)\(/);
+});
+
+// MALI-024 §5 — the active legacy award path is exactly-once per transaction.
+test('evaluate-gamification claims each transaction before awarding (idempotent)', () => {
+  const fn = read('supabase/functions/evaluate-gamification/index.ts');
+  // The idempotency claim runs BEFORE any XP award.
+  const claimIdx = fn.indexOf('gamification_awarded_transactions');
+  const awardIdx = fn.indexOf('const xpAward');
+  assert.ok(claimIdx > 0 && claimIdx < awardIdx, 'claim must precede award');
+  assert.match(fn, /\.insert\(\{ transaction_id: String\(transaction\.id\)/);
+  assert.match(fn, /if \(claim\.error \|\| !claim\.data\)[\s\S]{0,160}return new Response\('OK'\)/);
+  // The ledger table denies all direct client access.
+  const m0073 = read('supabase/migrations/0073_gamification_aggregate_readonly.sql');
+  assert.match(m0073, /gamification_awarded_transactions[\s\S]*ENABLE ROW LEVEL SECURITY/);
+  assert.match(m0073, /gamification_awarded_transactions_no_direct_access[\s\S]*USING \(false\)/);
+});

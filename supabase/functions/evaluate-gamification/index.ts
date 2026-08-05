@@ -24,9 +24,27 @@ serve(async (req) => {
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+  // MALI-024 §5 — award each transaction AT MOST ONCE. The insert into the
+  // idempotency ledger is the atomic guard: a webhook retry, duplicate delivery,
+  // function retry, or a second concurrent worker all collide on the primary key
+  // and return here without awarding, so XP/achievements/streak and the push are
+  // never double-counted.
+  if (!transaction.id) {
+    return new Response('OK');
+  }
+  const claim = await supabase
+    .from('gamification_awarded_transactions')
+    .insert({ transaction_id: String(transaction.id), user_id: userId })
+    .select('transaction_id')
+    .maybeSingle();
+  if (claim.error || !claim.data) {
+    // Unique-violation (already awarded) or a write failure → do not award again.
+    return new Response('OK');
+  }
+
   // Award XP (e.g., 10 XP per transaction)
   const xpAward = 10;
-  
+
   // Fetch current XP level
   const { data: xpLevelData } = await supabase
     .from('user_xp_levels')
@@ -41,7 +59,7 @@ serve(async (req) => {
   if (xpLevelData) {
     newXp = (xpLevelData.xp || 0) + xpAward;
     currentLevel = xpLevelData.level || 1;
-    
+
     // Level formula e.g. level = floor(sqrt(xp / 100)) + 1
     const newLevel = Math.floor(Math.sqrt(newXp / 100)) + 1;
     if (newLevel > currentLevel) {
@@ -66,9 +84,9 @@ serve(async (req) => {
     .eq('user_id', userId);
 
   let achievementUnlocked = null;
-  if (count === 1) achievementUnlocked = "First Transaction!";
-  else if (count === 10) achievementUnlocked = "10th Transaction!";
-  else if (count === 100) achievementUnlocked = "100th Transaction Century!";
+  if (count === 1) achievementUnlocked = 'First Transaction!';
+  else if (count === 10) achievementUnlocked = '10th Transaction!';
+  else if (count === 100) achievementUnlocked = '100th Transaction Century!';
 
   // Dispatch APNs if needed
   if (leveledUp || achievementUnlocked) {
@@ -92,11 +110,11 @@ serve(async (req) => {
       for (const device of devices) {
         await sendCapturePush({
           token: device.apns_token,
-          environment: device.apns_environment as any,
+          environment: device.apns_environment as 'sandbox' | 'production',
           payloadId: crypto.randomUUID(),
           title,
           body,
-          notificationType: 'gamification_alert'
+          notificationType: 'gamification_alert',
         });
       }
     }

@@ -163,9 +163,12 @@ BEGIN
   DELETE FROM public.user_achievements         WHERE user_id = p_user_id;
   DELETE FROM public.user_streaks              WHERE user_id = p_user_id;
   DELETE FROM public.user_xp_levels            WHERE user_id = p_user_id;
-  -- Engagement events (0070, dormant) + per-user metrics quota counters (0072).
+  -- Engagement events (0070, dormant) + per-user metrics quota counters (0072)
+  -- + the legacy-award idempotency ledger (0073; plpgsql late-binds, so the
+  -- table resolves at call time — 0073 deploys in the same ordered chain).
   DELETE FROM public.user_engagement_events    WHERE user_id = p_user_id;
   DELETE FROM public.metrics_rate_limits        WHERE user_id = p_user_id;
+  DELETE FROM public.gamification_awarded_transactions WHERE user_id = p_user_id;
   DELETE FROM public.feature_flag_overrides    WHERE user_id = p_user_id;
   DELETE FROM public.sender_bank_mappings      WHERE user_id = p_user_id;
   DELETE FROM public.capture_devices           WHERE user_id = p_user_id;
