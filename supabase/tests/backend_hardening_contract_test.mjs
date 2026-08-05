@@ -54,3 +54,28 @@ test('client routes metrics through the RPC, never a raw table insert', () => {
   assert.match(client, /rpc\(\s*'record_metric'/);
   assert.doesNotMatch(client, /from\('metrics'\)\.insert/);
 });
+
+// MALI-044 — merchant-feedback secure retirement.
+test('merchant-feedback is retired: requires auth, returns 410, no silent no-op', () => {
+  const fn = read('supabase/functions/merchant-feedback/index.ts');
+  assert.match(fn, /RETIRED/);
+  assert.match(fn, /startsWith\('Bearer '\)/); // no anonymous access
+  assert.match(fn, /'unauthorized'.*401|401/s);
+  assert.match(fn, /'retired'.*410|410/s);
+  assert.doesNotMatch(fn, /received: body\.keywords\.length/); // no silent success
+  assert.doesNotMatch(fn, /^\s*\/\/ TODO: insert/m); // the no-op code is gone
+});
+
+// MALI-024 — dormant engagement authority is hardened (future path).
+test('record_engagement_event derives owner server-side and rejects client authority', () => {
+  const m0070 = read('supabase/migrations/0070_engagement_events.sql');
+  assert.match(m0070, /v_user_id UUID := auth\.uid\(\)/); // owner from auth.uid()
+  assert.match(m0070, /IF v_user_id IS NULL THEN[\s\S]*unauthenticated/);
+  assert.match(m0070, /unsupported event version/); // schema version rejected
+  assert.match(m0070, /unknown event type/); // unknown type rejected
+  assert.match(m0070, /ON CONFLICT \(user_id, event_id\) DO NOTHING/); // idempotent
+  assert.match(m0070, /SECURITY DEFINER/);
+  assert.match(m0070, /SET search_path = public/);
+  // The XP award is a server-side CASE — the client can never supply the amount.
+  assert.match(m0070, /v_award := CASE p_event_type/);
+});
