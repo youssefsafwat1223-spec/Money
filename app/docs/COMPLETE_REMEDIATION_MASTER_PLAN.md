@@ -309,12 +309,18 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 >   ingestion — authenticated-only (owner from auth.uid()), event allowlist
 >   ({app_open}), bounded lengths, atomic per-user daily quota (deny-all
 >   `metrics_rate_limits`), server timestamp, NO PII stored. Client → RPC.
-> - **Gamification (MALI-024):** dormant `record_engagement_event` (0070) hardening
+> - **Gamification (MALI-024):** `record_engagement_event` (0070) hardening
 >   asserted (auth.uid() owner, reject unauth/unknown-type/unsupported-version,
->   server-fixed CASE award, ON CONFLICT idempotent). **Activation gate**
->   (unchanged): 0070 deployed + real concurrency/idempotency tests green + client
->   event path enabled + legacy transaction-triggered authority disabled in the
->   same release. Client aggregate-write policies (0062) are the accepted
+>   server-fixed CASE award, ON CONFLICT idempotent). **Effective dormancy —
+>   corrected characterization:** the client DOES enqueue + submit engagement
+>   events (`_syncEngagement` → the RPC), but because 0070 is UNDEPLOYED the RPC
+>   does not exist, so every submission 404s (best-effort, caught) and produces
+>   NO award; the legacy transaction-triggered path (evaluate-gamification) is the
+>   sole active award authority. **Activation gate (critical):** deploying 0070
+>   while the legacy path is still active would DOUBLE-AWARD, so activation
+>   requires — in the SAME release — 0070 deployed + real concurrency/idempotency
+>   tests green + the legacy transaction-triggered authority disabled. This batch
+>   keeps 0070 undeployed. Client aggregate-write policies (0062) are the accepted
 >   offline-first Phase-3 design (per-user, non-financial); left intact.
 > - **Purge/retention:** `purge_user_data` extended to AI-idempotency (owner_key),
 >   engagement, and metrics-quota rows in FK-safe order (before capture_devices).
