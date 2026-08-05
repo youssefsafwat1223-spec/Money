@@ -23,6 +23,7 @@ import '../../data/catalog/catalog_sync_service.dart';
 import '../../data/catalog/feature_flag_service.dart';
 import '../../data/catalog/growth_campaign_service.dart';
 import '../../data/catalog/seed_loader.dart';
+import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../../data/repositories/account_deletion_service.dart';
@@ -784,6 +785,8 @@ final bankDiscoveryClientProvider = Provider<BankDiscoveryClient?>((ref) {
     getAnonJwt: () async =>
         supabase.Supabase.instance.client.auth.currentSession?.accessToken ??
         SupabaseConfig.anonKey,
+    loadDeviceSecret:
+        ref.read(captureDeviceRegistrationServiceProvider).readDeviceSecret,
   );
 });
 
@@ -927,12 +930,19 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
             try {
               final settings =
                   await DriftUserSettingsRepository(db).getSettings();
+              final deviceSecret = await ref
+                  .read(captureDeviceRegistrationServiceProvider)
+                  .readDeviceSecret();
               final res = await supabase.Supabase.instance.client.functions
                   .invoke('enrich-merchant', body: {
                 'merchant_name': keyword,
                 'country_code': settings.country,
                 'write': true,
                 'install_id': await InstallId.get(),
+                if (deviceSecret != null && deviceSecret.isNotEmpty)
+                  'device_secret': deviceSecret,
+                'request_id': IdGenerator.uuidV4(),
+                'schema_version': 1,
               });
               final data = res.data;
               if (data is Map && data['matched'] == true) {
@@ -953,6 +963,9 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
                 supabase.Supabase.instance.client.auth.currentSession
                     ?.accessToken ??
                 SupabaseConfig.anonKey,
+            loadDeviceSecret: ref
+                .read(captureDeviceRegistrationServiceProvider)
+                .readDeviceSecret,
           )
         : null,
     loadAiConsent: () async {

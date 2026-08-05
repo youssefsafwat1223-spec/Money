@@ -85,6 +85,14 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
   }) async {}
 
   @override
+  Future<void> setDeviceConsent({
+    required String installId,
+    required String deviceSecret,
+    required bool aiConsentGranted,
+    required bool cloudProcessingEnabled,
+  }) async {}
+
+  @override
   Future<void> unlinkDevice({
     required String installId,
     required String deviceSecret,

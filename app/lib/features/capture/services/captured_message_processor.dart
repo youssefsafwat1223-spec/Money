@@ -3,7 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/backend/rules_client.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/id_generator.dart';
 import '../../../core/utils/install_id.dart';
+import 'capture_device_registration_service.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/repositories/drift_budget_repository.dart';
@@ -68,6 +70,11 @@ class CapturedMessageProcessor {
     final shouldCloseDatabase = database == null;
     try {
       final settingsRepository = DriftUserSettingsRepository(db);
+      // MALI-060n — the AI/enrichment endpoints authenticate on the server-
+      // verified device secret. Read it once here and hand it to each client.
+      final deviceRegistration =
+          CaptureDeviceRegistrationService(settingsRepository: settingsRepository);
+      Future<String?> loadDeviceSecret() => deviceRegistration.readDeviceSecret();
       // Background/native captures must enter the sync pipeline like every
       // other write. The queues are auth-gated internally (guest → local-only).
       final ledgerOutbox = buildLedgerOutboxQueue(db);
@@ -98,6 +105,7 @@ class CapturedMessageProcessor {
                   supabase.Supabase.instance.client.auth.currentSession
                       ?.accessToken ??
                   SupabaseConfig.anonKey,
+              loadDeviceSecret: loadDeviceSecret,
             )
           : null;
       final bankDiscoveryClient = SupabaseConfig.isConfigured
@@ -106,6 +114,7 @@ class CapturedMessageProcessor {
                   '${SupabaseConfig.url}/functions/v1/bank-discovery',
               getAnonJwt: () async => supabase
                   .Supabase.instance.client.auth.currentSession?.accessToken,
+              loadDeviceSecret: loadDeviceSecret,
             )
           : null;
       final ingestUseCase = IngestCapturedMessageUseCase(
@@ -128,6 +137,7 @@ class CapturedMessageProcessor {
               ? (keyword) async {
                   try {
                     final settings = await settingsRepository.getSettings();
+                    final deviceSecret = await loadDeviceSecret();
                     final res = await supabase
                         .Supabase.instance.client.functions
                         .invoke('enrich-merchant', body: {
@@ -135,6 +145,10 @@ class CapturedMessageProcessor {
                       'country_code': settings.country,
                       'write': true,
                       'install_id': await InstallId.get(),
+                      if (deviceSecret != null && deviceSecret.isNotEmpty)
+                        'device_secret': deviceSecret,
+                      'request_id': IdGenerator.uuidV4(),
+                      'schema_version': 1,
                     });
                     final data = res.data;
                     if (data is Map && data['matched'] == true) {

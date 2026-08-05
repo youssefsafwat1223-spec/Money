@@ -12,15 +12,21 @@ class GeminiBankDiscoveryClient implements BankDiscoveryClient {
   GeminiBankDiscoveryClient({
     required String edgeFunctionUrl,
     required Future<String?> Function() getAnonJwt,
+    Future<String?> Function()? loadDeviceSecret,
     http.Client? httpClient,
     Duration timeout = const Duration(seconds: 4),
   })  : _url = edgeFunctionUrl,
         _getAnonJwt = getAnonJwt,
+        _loadDeviceSecret = loadDeviceSecret,
         _http = httpClient ?? http.Client(),
         _timeout = timeout;
 
   final String _url;
   final Future<String?> Function() _getAnonJwt;
+
+  /// MALI-060n: server-verified device secret. Without it the hardened server
+  /// returns authentication_required and discovery is silently skipped.
+  final Future<String?> Function()? _loadDeviceSecret;
   final http.Client _http;
   final Duration _timeout;
 
@@ -30,6 +36,7 @@ class GeminiBankDiscoveryClient implements BankDiscoveryClient {
   ) async {
     final jwt = await _getAnonJwt();
     if (jwt == null) return null;
+    final deviceSecret = await _loadDeviceSecret?.call();
     try {
       final response = await _http
           .post(
@@ -44,6 +51,9 @@ class GeminiBankDiscoveryClient implements BankDiscoveryClient {
               'detected_currency': request.detectedCurrency,
               'locale_hint': request.localeHint,
               'install_id': request.installId,
+              if (deviceSecret != null && deviceSecret.isNotEmpty)
+                'device_secret': deviceSecret,
+              'schema_version': 1,
             }),
           )
           .timeout(_timeout);

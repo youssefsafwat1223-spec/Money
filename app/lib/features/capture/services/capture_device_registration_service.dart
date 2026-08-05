@@ -111,6 +111,21 @@ class CaptureDeviceRegistrationService {
       anonKey: SupabaseConfig.anonKey,
       aiConsentGranted: settings.aiConsentGranted,
     );
+    // MALI-060n — mirror consent onto the verified server device row so the
+    // AI/paid endpoints enforce it authoritatively (revocation propagates the
+    // moment the user toggles it, since syncNativeState re-runs). Best-effort:
+    // a failure here must never block native config or local capture.
+    try {
+      await _backendClient.setDeviceConsent(
+        installId: installId,
+        deviceSecret: secret,
+        aiConsentGranted: settings.aiConsentGranted,
+        cloudProcessingEnabled: settings.cloudProcessingEnabled,
+      );
+    } catch (_) {
+      // Consent push is retried on the next sync; a stale server row still fails
+      // closed (defaults FALSE), never open.
+    }
     try {
       final token = await _loadApnsToken();
       if (token != null) {

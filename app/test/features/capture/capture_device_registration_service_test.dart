@@ -60,6 +60,14 @@ class _RotatingCaptureClient implements CaptureBackendClient {
   }) async {}
 
   @override
+  Future<void> setDeviceConsent({
+    required String installId,
+    required String deviceSecret,
+    required bool aiConsentGranted,
+    required bool cloudProcessingEnabled,
+  }) async {}
+
+  @override
   Future<void> processIosSms({
     required String installId,
     required String deviceSecret,

@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/utils/id_generator.dart';
+
 class AiParseException implements Exception {
   const AiParseException(this.reason);
 
@@ -60,13 +62,20 @@ class SupabaseAiParserClient implements AiParserClient {
   SupabaseAiParserClient({
     required String edgeFunctionUrl,
     required Future<String?> Function() getAnonJwt,
+    Future<String?> Function()? loadDeviceSecret,
     http.Client? httpClient,
   })  : _url = edgeFunctionUrl,
         _getAnonJwt = getAnonJwt,
+        _loadDeviceSecret = loadDeviceSecret,
         _http = httpClient ?? http.Client();
 
   final String _url;
   final Future<String?> Function() _getAnonJwt;
+
+  /// MALI-060n: the server-verified device secret. When present the request is
+  /// authenticated as this device; without it the hardened server returns
+  /// authentication_required and the caller falls back to local parsing.
+  final Future<String?> Function()? _loadDeviceSecret;
   final http.Client _http;
 
   @override
@@ -79,10 +88,18 @@ class SupabaseAiParserClient implements AiParserClient {
     if (jwt == null || jwt.isEmpty) {
       throw const AiParseException('missing_jwt');
     }
+    final deviceSecret = await _loadDeviceSecret?.call();
+    // One stable id for this logical request so the two attempts below (and any
+    // client-level retry) are idempotent server-side — never a double AI charge.
+    final requestId = IdGenerator.uuidV4();
     final body = jsonEncode({
       'sanitized_sms': sanitizedSms,
       'sender_id': senderId,
       'install_id': installId,
+      if (deviceSecret != null && deviceSecret.isNotEmpty)
+        'device_secret': deviceSecret,
+      'request_id': requestId,
+      'schema_version': 1,
     });
     // Up to 2 attempts: cold starts / transient 5xx on the edge function are
     // common (e.g. a 502 then a 200), so retry once before giving up. The

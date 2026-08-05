@@ -49,6 +49,33 @@ class CaptureBackendClient {
     return secret;
   }
 
+  /// MALI-060n — pushes this device's consent to the server so the AI/paid
+  /// endpoints can enforce it authoritatively. Consent is never a per-request
+  /// caller-supplied boolean; it lives on the verified capture_devices row.
+  Future<void> setDeviceConsent({
+    required String installId,
+    required String deviceSecret,
+    required bool aiConsentGranted,
+    required bool cloudProcessingEnabled,
+  }) async {
+    final response = await _http
+        .post(
+          _functionUri('set-device-consent'),
+          headers: _headers,
+          body: jsonEncode({
+            'installId': installId,
+            'deviceSecret': deviceSecret,
+            'ai_consent_granted': aiConsentGranted,
+            'cloud_processing_enabled': cloudProcessingEnabled,
+            'schema_version': 1,
+          }),
+        )
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw CaptureBackendException('set_consent_failed_${response.statusCode}');
+    }
+  }
+
   Future<void> linkDevice({
     required String installId,
     required String deviceSecret,
