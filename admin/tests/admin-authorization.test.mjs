@@ -96,3 +96,48 @@ test("contract FAILS when a privileged read occurs before the checks", () => {
     "await client.from('admin_users').select('id');";
   assert.equal(enforcesAuthThenAdminThenRead(bad), false);
 });
+
+// MALI-041 REGRESSION (the exact original failure mode) — the prior assertion matched
+// a hard-coded double-quote literal `.from("admin_users")` and therefore reported a
+// FALSE failure whenever the (correct) source used single quotes. This locks in
+// quote-style invariance: a correctly-ordered path must pass in BOTH quote styles, and
+// specifically the single-quote form that used to trip the old test must now pass.
+test("MALI-041 regression: auth-order contract is quote-style invariant", () => {
+  const withQuote = (q) =>
+    [
+      "const { data: { user } } = await client.auth.getUser(token);",
+      `const { data: admin } = await client.from(${q}admin_users${q}).select(${q}id${q});`,
+      `const { data: rows } = await client.from(${q}sms_parsers${q}).select(${q}*${q});`,
+    ].join("\n");
+
+  const singleQuoted = withQuote("'"); // the form the OLD double-quote test failed on
+  const doubleQuoted = withQuote('"');
+
+  assert.equal(
+    enforcesAuthThenAdminThenRead(singleQuoted),
+    true,
+    "single-quote source must pass (this is the exact MALI-041 false-failure input)",
+  );
+  assert.equal(
+    enforcesAuthThenAdminThenRead(doubleQuoted),
+    true,
+    "double-quote source must pass",
+  );
+
+  // And the invariance is real: swapping ' ↔ " on the whole source changes nothing.
+  assert.equal(
+    enforcesAuthThenAdminThenRead(singleQuoted),
+    enforcesAuthThenAdminThenRead(doubleQuoted),
+    "verdict must not depend on quote style",
+  );
+
+  // The live source (whatever quote style it actually uses today) also satisfies it —
+  // so the regression is anchored to the real file, not only to synthetic fixtures.
+  assert.equal(
+    enforcesAuthThenAdminThenRead(
+      read("../supabase/functions/parser-test/index.ts"),
+    ),
+    true,
+    "the real parser-test source satisfies the quote-independent contract",
+  );
+});
