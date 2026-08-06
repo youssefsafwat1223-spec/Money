@@ -66,23 +66,55 @@ void main() {
     });
   });
 
-  group('startup recovery keyed on owner pid (same-process safety)', () {
-    test('a leftover lease tagged with a DIFFERENT pid is recovered; a CURRENT-pid '
-        'lease is left untouched', () async {
+  group('startup recovery is keyed by the INSTANCE TOKEN, not PID', () {
+    // MALI-069n pre-Batch-5 gate: pids are reused across process lifetimes, so PID
+    // equality must never be treated as liveness/ownership proof. Recovery keys on
+    // the random per-process-instance token.
+    test('same simulated PID but a DIFFERENT instance token → recognized as an '
+        'ENDED instance and recovered; a record carrying the CURRENT instance '
+        'token is never removed', () {
       final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
-      // A leftover from an ENDED instance (different pid).
-      final ended = File('${leaseDir.path}/999_0_a.lease');
-      ended.writeAsStringSync('tok\n999999\ninst-old');
-      // A live lease belonging to THIS process (current pid) — e.g. a background
-      // isolate that opened just before bootstrap ran recovery.
-      final live = await _manager(dir).acquireShared();
-      addTearDown(live.release);
+      const currentToken = 'current-instance-token';
+      final samePid = pid; // the OLD record shares THIS process's pid (reuse).
 
-      final cleared = _manager(dir).recoverEndedInstances();
-      expect(cleared, 1, reason: 'only the different-pid leftover is recovered');
-      expect(ended.existsSync(), isFalse);
-      expect(_manager(dir).debugLiveLeaseCount(), 1,
-          reason: 'the current-pid live lease is never reaped at startup');
+      // Old record: SAME pid, DIFFERENT instance token → belongs to the ended
+      // instance even though the pid matches.
+      final oldRecord = File('${leaseDir.path}/${samePid}_0_a.lease')
+        ..writeAsStringSync('oldtok\n$samePid\nold-instance-token');
+      // Current record: carries the CURRENT instance token (any pid) → must be kept.
+      final currentRecord = File('${leaseDir.path}/${samePid}_1_b.lease')
+        ..writeAsStringSync('curtok\n$samePid\n$currentToken');
+
+      final m = DatabaseLeaseManager(
+        leaseDir: '${dir.path}/leases',
+        intentPath: '${dir.path}/db.maint',
+        instanceToken: currentToken,
+      );
+      final cleared = m.recoverEndedInstances();
+
+      expect(cleared, 1, reason: 'only the different-token record is recovered');
+      expect(oldRecord.existsSync(), isFalse,
+          reason: 'same PID + different instance token → ended → recovered');
+      expect(currentRecord.existsSync(), isTrue,
+          reason: 'the current instance token is never removed');
+      expect(m.debugLiveLeaseCount(), 1);
+    });
+
+    test('a DIFFERENT pid but the SAME instance token is NOT removed (PID equality '
+        'is neither required nor sufficient)', () {
+      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
+      const currentToken = 'shared-instance-token';
+      // A record from a different pid but the SAME instance token (e.g. a same-
+      // process background isolate that adopted the process token) → kept.
+      File('${leaseDir.path}/777_0_c.lease')
+          .writeAsStringSync('t\n777777\n$currentToken');
+      final m = DatabaseLeaseManager(
+        leaseDir: '${dir.path}/leases',
+        intentPath: '${dir.path}/db.maint',
+        instanceToken: currentToken,
+      );
+      expect(m.recoverEndedInstances(), 0,
+          reason: 'same instance token → live → never removed regardless of pid');
     });
 
     test('a malformed leftover record is recovered under the lock', () {

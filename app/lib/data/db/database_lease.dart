@@ -302,8 +302,15 @@ class DatabaseLeaseManager {
     try {
       final rec = _LeaseRecord.tryParse(f.readAsStringSync());
       // Unparseable/partial leftover under the exclusive process lock → ended.
-      if (rec == null || rec.pid == null) return true;
-      return rec.pid != ownerPid;
+      if (rec == null) return true;
+      // Keyed by the random per-process-INSTANCE TOKEN, never by PID: pids are
+      // reused across process lifetimes, so PID equality is NOT liveness or
+      // ownership proof (a fresh process can inherit a dead one's pid). A record
+      // carrying THIS instance's token is live and is NEVER removed; any other
+      // token belongs to an ended instance — and recovery runs only while the
+      // caller holds the exclusive process lock, which is what proves the prior
+      // instance ended.
+      return rec.instance != instanceToken;
     } catch (_) {
       return true;
     }
