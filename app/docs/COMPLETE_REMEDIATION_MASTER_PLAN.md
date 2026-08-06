@@ -507,7 +507,49 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 4 closure #4 — Contract B (single-process) proven;
+> **Status (2026-08-06): Batch 5 — restore compatibility, atomic rollback, crash
+> recovery, and user-data recovery matrix.** Restore is refactored into two explicit
+> phases and wired onto the accepted Batch-4 maintenance primitive.
+>
+> **Preparation (before the gate, no mutation):** the existing envelope reader
+> decodes/decrypts/limits (typed errors preserved), then `RestorePreparation`
+> validates schema support, the Batch-1 column whitelist, sensitive-field rejection,
+> required tables, and rejects any unknown/excluded table — and builds an IMMUTABLE
+> `RestorePlan` (opaque operationId, envelope+schema version, opaque source
+> fingerprint, whitelisted table payloads, expected row counts, privacy-safe
+> warnings). The plan holds no passphrase, key, path, token, or raw JSON.
+>
+> **Mutation (consumes only the plan):** `RestoreService` revalidates the admission
+> generation before the gate and again immediately before the transaction, then runs
+> the destructive delete/insert/sanitize through `runFileExclusiveMaintenance` in one
+> Drift transaction. Before commit it VERIFIES the result against the plan — required
+> singleton row, transaction count == plan, no duplicate ids, sanitize-safe tables ≤
+> plan, the canonical net-expense confirmed total (Phase-4 `FinancialSql`) == the
+> plan's total, no SQLCipher key ref, no intentionally-excluded/remote/pending table
+> — and throws BEFORE commit on any mismatch, so the whole restore rolls back and the
+> original database is preserved (proven with a duplicate-id rollback test asserting
+> the destination is unchanged).
+>
+> **Result taxonomy + replay + ownership:** every failure maps to a typed
+> `RestoreOutcome` (success/cancelled/authenticationFailed/malformedBackup/
+> unsupportedEnvelope/incompatibleSnapshot/payloadTooLarge/ownershipChanged/
+> maintenanceTimeout/databaseBusy/validationFailed/rollbackCompleted/rollbackFailed/
+> reopenFailed/recoveryRequired/localFileUnavailable/remoteObjectUnavailable/
+> remoteIntegrityFailed/internalFailure) with a safe user message — never a raw
+> error. An in-memory operation-ID guard makes a committed restore idempotent (no
+> destructive replay on acknowledgement loss) and rejects the same op id carrying a
+> different source. An admission change (sign-out / wipe / ownership change /
+> same-UID re-login) before commit aborts without mutation.
+>
+> **Preserved contracts:** the verified committed-generation download, the v1/v2/v3
+> legacy envelope readers, Batch-1 key isolation, Batch-4 admission + file-exclusive
+> maintenance, Phase-1 FK-safe restore, Phase-2 ownership isolation, and Phase-4
+> financial semantics all stand. No Drift schema bump; no Supabase migration.
+> **Remaining external (device-only):** real process-kill-mid-transaction timing —
+> covered locally by SQLite transactional rollback + the operation-ID replay guard.
+> Batch 6 (formal closure) is NOT started.
+>
+> **Prior — Status (2026-08-06): Batch 4 closure #4 — Contract B (single-process) proven;
 > heartbeat/mtime removed as the reaping authority.** Closure #3's renewable
 > heartbeat/mtime lease made a stopped heartbeat authorize reaping — unsafe, because
 > a live isolate blocked in a long SQLite call (or a paused/suspended isolate) stops
