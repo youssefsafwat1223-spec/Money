@@ -5,8 +5,18 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 6 Batch 6 FINAL reconciliation — confirmation
-  capability + post-commit usability — 2026-08-06.** Closed two production-integration
+- **Last updated:** **Phase 7 Batch 1 — CI/test-harness/skip/lint/known-failure
+  truthfulness — 2026-08-06.** Made `tools/ci_gates.sh` the truthful canonical gate:
+  added the previously CI-invisible Deno lint + Node contract + admin auth suites,
+  strict exit propagation, an unavailable-vs-pass split, and a `--self-test` /
+  `CI_GATES_INJECT_FAILURE` self-check (a failed gate provably exits non-zero); wired
+  `.github/workflows/ci.yml` to run the SAME gate + a generated-code freshness check
+  (was Flutter-only). Fixed **MALI-041** (admin parser-test now quote-independent + 3
+  negative self-tests → 7/0, no longer a known failure) and the 4 Deno-lint findings
+  (0 now, no semantic change). No production feature behavior changed. Phase-6
+  contracts preserved; migrations 0068–0076 undeployed; CAS false; 0070 inactive.
+  See `app/docs/PHASE_7_TEST_AND_CI_CONTRACT.md`. Prior — **Phase 6 Batch 6 FINAL
+  reconciliation — confirmation capability + post-commit usability — 2026-08-06.** Closed two production-integration
   ambiguities: (1) removed the combined `restoreFromBackup`/`restore` bypass —
   destructive mutation now requires an unforgeable single-use `RestoreConfirmation`
   (private-constructor capability minted only by the controller, tied to op
@@ -326,7 +336,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-038 | Low | C+T | P7 | Not started | font bundling (+ test MALI-067n) |
 | MALI-039 | Low | C | P5/P7 | Code complete · Locally verified | central redacting diagnostic sink — `main()` rewires the global `debugPrint` to redact (shared `PrivacyRedactor`) + length-bound every line (all call sites, plugins, future code) in debug AND release; `Diag.error`/`Diag.log` sanctioned structured API; SQL already parameterized (custom SQL interpolates only fixed table identifiers, never values). `0010b037` (P5-B2) |
 | MALI-040 | Low | T | P7 | Not started | test isolation (subsumed by MALI-067n) |
-| MALI-041 | Low | T | P7 | Not started | admin auth test (subsumed by MALI-066n/067n) |
+| MALI-041 | Low | T | P7 | **Code complete · Locally verified** | **P7-B1** admin auth test quality FIXED — the brittle double-quote source match is replaced by a quote/whitespace-independent structural contract (`auth.getUser → admin_users allowlist → sms_parsers read`, no caller-supplied admin identity) + 3 negative self-tests (fail if auth/allowlist/ordering broken). 7 pass / 0 fail. Also wired into the canonical gate + CI (closes the MALI-066n "test reached no CI step" gap). No longer a known failure. |
 | MALI-042 | Low | T | P7 | Not started | Edge unit isolation (MALI-066n) |
 | MALI-043 | Low | P+D | P7 | Decision required | canonical brand name (Mali vs Qirsh) |
 | MALI-044 | Low | C | P5 | Code complete · Locally verified (live-backend external) | dead/no-op endpoint retired: merchant-feedback (never-implemented `TODO`, anonymous, fake-success) now requires a bearer token and returns an explicit 410 `retired` → `enrich-merchant`, with a reuse guard; its unwired client (`flushIfReady` never called) noted. The metrics `with check (true)` policy is removed under MALI-075n (0072). `6ddd5aaa` (P5-B5) |

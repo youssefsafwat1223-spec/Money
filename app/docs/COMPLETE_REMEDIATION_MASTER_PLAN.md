@@ -978,6 +978,19 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 7 — CI, tests, architecture, performance, docs
 
+> **Status (2026-08-06): Batch 1 — CI/test-harness/skip/lint/known-failure
+> truthfulness (Code complete · Locally verified).** `tools/ci_gates.sh` is now the
+> truthful canonical gate: it runs the previously CI-invisible Deno lint + Node
+> contract + admin auth suites, latches failures (strict exit), reports UNAVAILABLE
+> toolchains separately from passes, and self-tests its own failure propagation
+> (`--self-test` / `CI_GATES_INJECT_FAILURE`). `.github/workflows/ci.yml` now runs
+> that same gate (was Flutter-only) plus a build_runner generated-code freshness
+> check. **MALI-041** fixed: the admin parser-test is quote/whitespace-independent
+> with 3 negative self-tests (7/0) — no longer a known failure, and now in CI (closes
+> the MALI-066n admin-suite gap). All 4 Deno-lint findings fixed with no semantic
+> change. No production feature behavior changed. See
+> `app/docs/PHASE_7_TEST_AND_CI_CONTRACT.md`. Batches 2–5 not started.
+
 - MALI-066n: wire `verify_ios_packaging.sh` into CI; run ALL Deno function tests (not just `_shared`); enable the admin auth suite; one authoritative CI config.
 - MALI-067n/040/041/042/038: replace source-text tests with behavioral/AST tests; close every test DB; remove Drift warning suppression; randomized/repeated ordering; correct font bundling.
 - MALI-034: break the app_shell↔dashboard import cycle; retire/isolate the legacy Supabase-primary repair architecture.
