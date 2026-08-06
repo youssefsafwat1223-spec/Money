@@ -14,6 +14,7 @@ import 'backup_crypto.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
 import 'remote_backup_store.dart';
+import 'restore_plan.dart';
 import 'restore_preparation.dart';
 import 'restore_result.dart';
 import 'restore_service.dart';
@@ -55,9 +56,13 @@ class EncryptedBackupService implements BackupService {
   final BackupCrypto _crypto;
   final Future<void> Function()? _afterRestore;
 
-  // MALI-014/076n §2/§9 — one restore orchestrator per process so its in-memory
-  // operation-replay guard persists across restore attempts.
+  // MALI-014/076n §2/§9 — one restore orchestrator per process so its durable
+  // replay journal is consulted across restore attempts.
   late final RestoreService _restoreService = RestoreService(_database);
+
+  // Transient, in-memory prepared-restore state (decrypt outputs) between
+  // prepareRestore and the user-confirmed commitRestore. Never exposed to the UI.
+  final Map<String, _PreparedRestore> _prepared = {};
 
   @override
   Future<BackupStatus> status() async {
@@ -273,16 +278,24 @@ class EncryptedBackupService implements BackupService {
   }
 
   @override
-  Future<void> restoreFromBackup({required String passphrase}) {
-    return restore(passphrase: passphrase);
+  @override
+  Future<void> restoreFromBackup({required String passphrase}) async {
+    // Non-interactive convenience (prepare + commit). The interactive UI drives
+    // prepareRestore → explicit confirmation → commitRestore via RestoreController.
+    final plan = await prepareRestore(passphrase: passphrase);
+    await commitRestore(plan: plan);
   }
 
-  Future<void> restore({required String passphrase}) async {
+  Future<void> restore({required String passphrase}) =>
+      restoreFromBackup(passphrase: passphrase);
+
+  @override
+  Future<RestorePlan> prepareRestore({required String passphrase}) async {
     final userId = _userId();
     // MALI-076n §7 — prefer the committed generation, integrity-verified (size +
     // encrypted-blob hash) BEFORE any decryption. A legacy backup with no
-    // generation pointer falls back to the fixed object path (its integrity is
-    // still enforced by the v3/legacy envelope authentication below).
+    // generation pointer falls back to the fixed object path (integrity still
+    // enforced by the v3/legacy envelope authentication below).
     final generation = await _remoteStore.readCurrentGeneration();
     final Uint8List bytes;
     if (generation != null) {
@@ -291,49 +304,31 @@ class EncryptedBackupService implements BackupService {
       bytes = await _client.storage.from(_bucket).download('$userId/backup.enc');
     }
     try {
-      // MALI-076n §9 — structurally validate the untrusted envelope and enforce
-      // resource limits BEFORE any KDF, then decrypt/authenticate — all before
-      // the destructive restore below (which itself validates before deleting).
+      // MALI-076n §9 — structurally validate + limit BEFORE any KDF, then
+      // decrypt/authenticate. NOTHING is mutated in preparation.
       final blob = EncryptedBackupBlob.fromBytesChecked(bytes);
       List<int>? keyBytes;
       Map<String, dynamic> snapshot;
       if (blob.version >= 3) {
-        // v3: the passphrase (or recovery code) unwraps a slot → content key →
-        // authenticated payload. Header + slot AAD are verified here.
         keyBytes = await _crypto.unwrapContentKeyV3(blob: blob, secret: passphrase);
         snapshot = await _crypto.decryptPayloadV3(blob: blob, contentKey: keyBytes);
       } else if (blob.keySlots.isEmpty) {
-        snapshot = await _crypto.decryptJson(
-          blob: blob,
-          passphrase: passphrase.trim(),
-        );
+        snapshot =
+            await _crypto.decryptJson(blob: blob, passphrase: passphrase.trim());
       } else {
         try {
           keyBytes = await _crypto.unwrapKeyFromSlots(
-            keySlots: blob.keySlots,
-            secret: passphrase,
-          );
-          snapshot = await _crypto.decryptJsonWithRawKey(
-            blob: blob,
-            keyBytes: keyBytes,
-          );
+              keySlots: blob.keySlots, secret: passphrase);
+          snapshot =
+              await _crypto.decryptJsonWithRawKey(blob: blob, keyBytes: keyBytes);
         } on SecretBoxAuthenticationError {
           final legacyKey = await _crypto.deriveKey(
-            passphrase: passphrase.trim(),
-            salt: blob.salt,
-          );
+              passphrase: passphrase.trim(), salt: blob.salt);
           keyBytes = await legacyKey.extractBytes();
-          snapshot = await _crypto.decryptJsonWithRawKey(
-            blob: blob,
-            keyBytes: keyBytes,
-          );
+          snapshot =
+              await _crypto.decryptJsonWithRawKey(blob: blob, keyBytes: keyBytes);
         }
       }
-      // MALI-014/076n §2 — PREPARATION (already past decode/decrypt/limits above):
-      // validate + build the immutable plan, then MUTATE through the accepted
-      // file-exclusive maintenance primitive with admission validation + in-txn
-      // verification. A non-success outcome throws a safe BackupException; the
-      // original database is preserved by the transaction's rollback.
       final plan = RestorePreparation.build(
         snapshot: snapshot,
         envelopeVersion: blob.version,
@@ -341,69 +336,12 @@ class EncryptedBackupService implements BackupService {
         operationId:
             generation?.operationId ?? RestorePreparation.fingerprint(bytes),
       );
-      DatabaseLeaseManager? leaseManager;
-      try {
-        leaseManager = await AppDatabase.appSupportLeaseManager();
-      } catch (_) {
-        // No app-support dir (e.g. a headless test) → logical maintenance; there
-        // are no cross-isolate secondaries to fence in that context.
-        leaseManager = null;
-      }
-      final ownershipGuard = OwnershipGuard();
-      final admissionToken = await ownershipGuard.capture();
-      final result = await _restoreService.execute(
-        plan: plan,
-        leaseManager: leaseManager,
-        ownershipGuard: ownershipGuard,
-        admissionToken: admissionToken,
-        afterRestore: _afterRestore,
-      );
-      if (!result.isCommitted) {
-        throw BackupException(_restoreOutcomeMessage(result.outcome));
-      }
-      // A committed restore (fresh or discovered after a crash/restart) is
-      // authoritative — acknowledge idempotently; it is never destructively replayed.
-      if (result.operationId != null) {
-        await _restoreService.acknowledge(result.operationId!);
-      }
-      await _storage.write(key: _enabledKey, value: '1');
-      if (blob.version >= 3) {
-        // Preserve the v3 content key + slots so future background backups can
-        // re-encrypt without the passphrase, and mark the format as v3.
-        await _storage.write(key: _envelopeVersionKey, value: '3');
-        await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes!));
-        await _storage.write(
-          key: _keySlotsKey,
-          value: _encodeKeySlots(blob.keySlots),
-        );
-        await _storage.delete(key: _saltKey);
-        await _storage.delete(key: _recoveryKey);
-      } else if (keyBytes == null) {
-        await _storage.delete(key: _envelopeVersionKey);
-        await _storage.write(key: _saltKey, value: base64Encode(blob.salt));
-        final key = await _crypto.deriveKey(
-          passphrase: passphrase.trim(),
-          salt: blob.salt,
-        );
-        await _storage.write(
-          key: _localKeyKey,
-          value: base64Encode(await key.extractBytes()),
-        );
-        await _storage.delete(key: _keySlotsKey);
-      } else {
-        await _storage.delete(key: _envelopeVersionKey);
-        await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes));
-        await _storage.write(
-          key: _keySlotsKey,
-          value: _encodeKeySlots(blob.keySlots),
-        );
-        await _storage.delete(key: _saltKey);
-        await _storage.delete(key: _recoveryKey);
-      }
-      await _storage.write(
-        key: _lastKey,
-        value: DateTime.now().toUtc().toIso8601String(),
-      );
+      // Stash the (sensitive) decrypt outputs in memory ONLY — keyed by the
+      // operation id — for commitRestore's key-state persistence. Never exposed to
+      // the UI (the plan carries no key).
+      _prepared[plan.operationId] =
+          _PreparedRestore(plan, keyBytes, blob, passphrase);
+      return plan;
     } on BackupEnvelopeException catch (e) {
       throw BackupException(_envelopeErrorMessage(e.kind));
     } on SecretBoxAuthenticationError {
@@ -411,6 +349,68 @@ class EncryptedBackupService implements BackupService {
     } on FormatException {
       throw const BackupException('ملف النسخة الاحتياطية غير صالح.');
     }
+  }
+
+  @override
+  Future<RestoreResult> commitRestore({required RestorePlan plan}) async {
+    final prepared = _prepared[plan.operationId];
+    if (prepared == null) {
+      throw const BackupException('انتهت صلاحية جلسة الاستعادة. أعد المحاولة.');
+    }
+    DatabaseLeaseManager? leaseManager;
+    try {
+      leaseManager = await AppDatabase.appSupportLeaseManager();
+    } catch (_) {
+      leaseManager = null; // headless/test → logical maintenance
+    }
+    final ownershipGuard = OwnershipGuard();
+    final admissionToken = await ownershipGuard.capture();
+    final result = await _restoreService.execute(
+      plan: plan,
+      leaseManager: leaseManager,
+      ownershipGuard: ownershipGuard,
+      admissionToken: admissionToken,
+      afterRestore: _afterRestore,
+    );
+    if (!result.isCommitted) {
+      _prepared.remove(plan.operationId);
+      throw BackupException(_restoreOutcomeMessage(result.outcome));
+    }
+    if (result.operationId != null) {
+      await _restoreService.acknowledge(result.operationId!);
+    }
+    await _persistKeyStateAfterRestore(prepared);
+    _prepared.remove(plan.operationId);
+    return result;
+  }
+
+  Future<void> _persistKeyStateAfterRestore(_PreparedRestore prepared) async {
+    final blob = prepared.blob;
+    final keyBytes = prepared.keyBytes;
+    await _storage.write(key: _enabledKey, value: '1');
+    if (blob.version >= 3) {
+      await _storage.write(key: _envelopeVersionKey, value: '3');
+      await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes!));
+      await _storage.write(key: _keySlotsKey, value: _encodeKeySlots(blob.keySlots));
+      await _storage.delete(key: _saltKey);
+      await _storage.delete(key: _recoveryKey);
+    } else if (keyBytes == null) {
+      await _storage.delete(key: _envelopeVersionKey);
+      await _storage.write(key: _saltKey, value: base64Encode(blob.salt));
+      final key = await _crypto.deriveKey(
+          passphrase: prepared.passphrase.trim(), salt: blob.salt);
+      await _storage.write(
+          key: _localKeyKey, value: base64Encode(await key.extractBytes()));
+      await _storage.delete(key: _keySlotsKey);
+    } else {
+      await _storage.delete(key: _envelopeVersionKey);
+      await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes));
+      await _storage.write(key: _keySlotsKey, value: _encodeKeySlots(blob.keySlots));
+      await _storage.delete(key: _saltKey);
+      await _storage.delete(key: _recoveryKey);
+    }
+    await _storage.write(
+        key: _lastKey, value: DateTime.now().toUtc().toIso8601String());
   }
 
   // Safe, non-leaking user messages for typed envelope failures (MALI-076n §8).
@@ -510,4 +510,15 @@ String backupStorageExceptionMessage(supabase.StorageException error) {
     return 'إعداد النسخ الاحتياطي غير مكتمل: أنشئ Storage bucket باسم backups في Supabase ثم جرّب تاني.';
   }
   return 'فشل رفع النسخة الاحتياطية: ${error.message}';
+}
+
+// Transient decrypt state held between prepareRestore and commitRestore. Lives in
+// memory only and is discarded after commit — the key never reaches the UI or disk
+// except as the existing backup key-state (unchanged behavior).
+class _PreparedRestore {
+  _PreparedRestore(this.plan, this.keyBytes, this.blob, this.passphrase);
+  final RestorePlan plan;
+  final List<int>? keyBytes;
+  final EncryptedBackupBlob blob;
+  final String passphrase;
 }

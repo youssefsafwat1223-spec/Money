@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_service.dart';
+import 'package:money_companion/core/backup/restore_plan.dart';
+import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/backup/remote_backup_controller.dart';
 import 'package:money_companion/core/backup/remote_backup_state.dart';
 
@@ -40,6 +42,14 @@ class _FakeBackupService implements BackupService {
 
   @override
   Future<void> restoreFromBackup({required String passphrase}) async {}
+
+  @override
+  Future<RestorePlan> prepareRestore({required String passphrase}) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<RestoreResult> commitRestore({required RestorePlan plan}) async =>
+      throw UnimplementedError();
   @override
   Future<void> disable() async => enabled = false;
   @override

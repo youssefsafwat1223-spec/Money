@@ -12,6 +12,8 @@ import '../../features/planning_sync/services/planning_primary_backfill_service.
 import 'encrypted_backup_service.dart';
 import 'remote_backup_controller.dart';
 import 'remote_backup_state.dart';
+import 'restore_plan.dart';
+import 'restore_result.dart';
 
 class BackupStatus {
   const BackupStatus({required this.enabled, this.lastBackupAt});
@@ -45,6 +47,14 @@ abstract class BackupService {
   Future<void> backupNow();
 
   Future<void> restoreFromBackup({required String passphrase});
+
+  /// MALI-014 §Blocker-5 — the two-phase interactive restore: [prepareRestore]
+  /// downloads/decrypts/validates and returns an immutable plan WITHOUT mutating
+  /// anything; the UI then requires an explicit user confirmation before
+  /// [commitRestore] runs the destructive mutation through the maintenance gate.
+  Future<RestorePlan> prepareRestore({required String passphrase});
+
+  Future<RestoreResult> commitRestore({required RestorePlan plan});
 
   /// Stop future backups (MALI-076n §3) — does NOT delete remote data.
   Future<void> disable();
@@ -91,6 +101,14 @@ class StubBackupService implements BackupService {
 
   @override
   Future<void> restoreFromBackup({required String passphrase}) async {}
+
+  @override
+  Future<RestorePlan> prepareRestore({required String passphrase}) async =>
+      throw const BackupException('لا توجد نسخة احتياطية على هذا الجهاز.');
+
+  @override
+  Future<RestoreResult> commitRestore({required RestorePlan plan}) async =>
+      const RestoreResult(RestoreOutcome.internalFailure);
 
   @override
   Future<void> disable() async {

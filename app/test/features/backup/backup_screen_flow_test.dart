@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_service.dart';
+import 'package:money_companion/core/backup/restore_plan.dart';
+import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/backup/backup_screen.dart';
@@ -37,6 +39,14 @@ class _FakeBackupService implements BackupService {
 
   @override
   Future<void> restoreFromBackup({required String passphrase}) async {}
+
+  @override
+  Future<RestorePlan> prepareRestore({required String passphrase}) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<RestoreResult> commitRestore({required RestorePlan plan}) async =>
+      throw UnimplementedError();
 
   @override
   Future<void> disable() async {

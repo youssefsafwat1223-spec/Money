@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/backend/supabase_config.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/backup/backup_service.dart';
+import '../../core/backup/restore_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -49,35 +50,81 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
       _busy = true;
       _error = null;
     });
+    // MALI-014 §Blocker-5 — drive the truthful two-phase restore through the
+    // controller: PREPARE (download/decrypt/validate, no mutation) → explicit
+    // user confirmation → COMMIT (destructive mutation via the maintenance gate).
+    final service = ref.read(backupServiceProvider);
+    final controller = RestoreController(
+      prepare: () => service.prepareRestore(passphrase: passphrase),
+      mutate: (plan) => service.commitRestore(plan: plan),
+    );
     try {
-      await ref
-          .read(backupServiceProvider)
-          .restoreFromBackup(passphrase: passphrase);
-      _refreshLocalData();
-      if (!mounted) return;
-      if (widget.onboardingFlow) {
-        _replaceWithSetup(OnboardingSetupEntry.captureGuide);
-      } else {
-        context.go('/data-transfer');
+      await controller.beginPreparation();
+      if (controller.value.phase != RestoreUiPhase.readyForConfirmation) {
+        _showRestoreError(controller.value.message);
+        return;
       }
-    } on BackupException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = _useRecoveryCode &&
-                error.message.contains('كلمة مرور النسخة الاحتياطية')
-            ? context.l10n.recoveryCodeIncorrect
-            : error.message;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = _useRecoveryCode
-            ? context.l10n.recoveryCodeIncorrect
-            : context.l10n.backupPasswordIncorrect;
-      });
+      // The database is NOT touched until the user confirms this replacement.
+      final confirmed = await _confirmRestore();
+      if (!confirmed) {
+        controller.cancel();
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
+      await controller.confirm();
+      if (controller.value.phase == RestoreUiPhase.completed) {
+        _refreshLocalData();
+        if (!mounted) return;
+        if (widget.onboardingFlow) {
+          _replaceWithSetup(OnboardingSetupEntry.captureGuide);
+        } else {
+          context.go('/data-transfer');
+        }
+      } else {
+        _showRestoreError(controller.value.message);
+      }
+    } finally {
+      controller.dispose();
     }
+  }
+
+  void _showRestoreError(String? message) {
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = message ??
+          (_useRecoveryCode
+              ? context.l10n.recoveryCodeIncorrect
+              : context.l10n.backupPasswordIncorrect);
+    });
+  }
+
+  /// The explicit final confirmation shown ONLY after preparation succeeds and
+  /// BEFORE any destructive mutation. Cancelling changes nothing.
+  Future<bool> _confirmRestore() async {
+    if (!mounted) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تأكيد الاستعادة'),
+        content: const Text(
+          'ستحل النسخة الاحتياطية محل بياناتك الحالية على هذا الجهاز. '
+          'لا يمكن التراجع بعد التأكيد. متابعة؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('استعادة'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
   }
 
   void _startFresh() {
@@ -276,6 +323,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                         ],
                       ),
                       child: ElevatedButton(
+                        key: const Key('restore_cta'),
                         onPressed: _busy ? null : _restore,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,

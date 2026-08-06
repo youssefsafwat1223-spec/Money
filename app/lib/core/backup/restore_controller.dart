@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'backup_service.dart';
 import 'restore_plan.dart';
 import 'restore_result.dart';
 
@@ -93,8 +94,14 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
         warnings: plan.warnings,
         operationId: plan.operationId,
       );
+    } on BackupException catch (e) {
+      // Preparation never mutates → the database is unchanged. Keep the curated,
+      // privacy-safe message (e.g. wrong passphrase).
+      value = RestoreUiState(
+        phase: RestoreUiPhase.failedWithoutChanges,
+        message: e.message,
+      );
     } catch (_) {
-      // Preparation never mutates → the database is unchanged.
       value = const RestoreUiState(
         phase: RestoreUiPhase.failedWithoutChanges,
         message: 'تعذّر تجهيز الاستعادة. تحقّق من الملف وكلمة المرور.',
@@ -129,6 +136,12 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
     final RestoreResult result;
     try {
       result = await _mutate(plan);
+    } on BackupException catch (e) {
+      value = RestoreUiState(
+        phase: RestoreUiPhase.failedWithoutChanges,
+        message: e.message,
+      );
+      return;
     } catch (_) {
       value = const RestoreUiState(
         phase: RestoreUiPhase.failedWithoutChanges,
