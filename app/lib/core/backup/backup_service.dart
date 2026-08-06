@@ -12,6 +12,7 @@ import '../../features/planning_sync/services/planning_primary_backfill_service.
 import 'encrypted_backup_service.dart';
 import 'remote_backup_controller.dart';
 import 'remote_backup_state.dart';
+import 'restore_controller.dart';
 import 'restore_plan.dart';
 import 'restore_result.dart';
 
@@ -46,15 +47,25 @@ abstract class BackupService {
 
   Future<void> backupNow();
 
-  Future<void> restoreFromBackup({required String passphrase});
-
-  /// MALI-014 §Blocker-5 — the two-phase interactive restore: [prepareRestore]
+  /// MALI-014 §Blocker-1/5 — the ONLY restore path is two-phase: [prepareRestore]
   /// downloads/decrypts/validates and returns an immutable plan WITHOUT mutating
-  /// anything; the UI then requires an explicit user confirmation before
-  /// [commitRestore] runs the destructive mutation through the maintenance gate.
+  /// anything; the canonical UI flow (RestoreController) then obtains an explicit
+  /// user confirmation, which mints the unforgeable [RestoreConfirmation]
+  /// capability that [commitRestore] REQUIRES. There is no combined prepare+commit
+  /// production entry point, so destructive mutation cannot bypass confirmation.
   Future<RestorePlan> prepareRestore({required String passphrase});
 
-  Future<RestoreResult> commitRestore({required RestorePlan plan});
+  Future<RestoreResult> commitRestore(
+      {required RestoreConfirmation confirmation});
+
+  /// Post-commit usability proof — the restored database must be readable AND still
+  /// owned by the admission that ran the restore. The controller shows `completed`
+  /// only after this succeeds, and acknowledges only then.
+  Future<bool> verifyRestoredDatabaseUsable();
+
+  /// Durable, idempotent acknowledgement of a committed restore — called ONLY after
+  /// the database is proven usable (never before).
+  Future<void> acknowledgeRestore({required String operationId});
 
   /// Stop future backups (MALI-076n §3) — does NOT delete remote data.
   Future<void> disable();
@@ -100,15 +111,19 @@ class StubBackupService implements BackupService {
   }
 
   @override
-  Future<void> restoreFromBackup({required String passphrase}) async {}
-
-  @override
   Future<RestorePlan> prepareRestore({required String passphrase}) async =>
       throw const BackupException('لا توجد نسخة احتياطية على هذا الجهاز.');
 
   @override
-  Future<RestoreResult> commitRestore({required RestorePlan plan}) async =>
+  Future<RestoreResult> commitRestore(
+          {required RestoreConfirmation confirmation}) async =>
       const RestoreResult(RestoreOutcome.internalFailure);
+
+  @override
+  Future<bool> verifyRestoredDatabaseUsable() async => false;
+
+  @override
+  Future<void> acknowledgeRestore({required String operationId}) async {}
 
   @override
   Future<void> disable() async {

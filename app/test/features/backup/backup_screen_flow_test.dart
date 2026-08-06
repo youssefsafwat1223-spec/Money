@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_service.dart';
+import 'package:money_companion/core/backup/restore_controller.dart';
 import 'package:money_companion/core/backup/restore_plan.dart';
 import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/session/app_session.dart';
@@ -37,16 +38,20 @@ class _FakeBackupService implements BackupService {
     lastBackupAt = DateTime.utc(2026, 6, 28, 12);
   }
 
-  @override
-  Future<void> restoreFromBackup({required String passphrase}) async {}
 
   @override
   Future<RestorePlan> prepareRestore({required String passphrase}) async =>
       throw UnimplementedError();
 
   @override
-  Future<RestoreResult> commitRestore({required RestorePlan plan}) async =>
+  Future<RestoreResult> commitRestore({required RestoreConfirmation confirmation}) async =>
       throw UnimplementedError();
+
+  @override
+  Future<bool> verifyRestoredDatabaseUsable() async => true;
+
+  @override
+  Future<void> acknowledgeRestore({required String operationId}) async {}
 
   @override
   Future<void> disable() async {

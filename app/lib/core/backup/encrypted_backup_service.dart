@@ -14,6 +14,7 @@ import 'backup_crypto.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
 import 'remote_backup_store.dart';
+import 'restore_controller.dart';
 import 'restore_plan.dart';
 import 'restore_preparation.dart';
 import 'restore_result.dart';
@@ -277,17 +278,13 @@ class EncryptedBackupService implements BackupService {
     await _remoteStore.clearGeneration();
   }
 
-  @override
-  @override
-  Future<void> restoreFromBackup({required String passphrase}) async {
-    // Non-interactive convenience (prepare + commit). The interactive UI drives
-    // prepareRestore → explicit confirmation → commitRestore via RestoreController.
-    final plan = await prepareRestore(passphrase: passphrase);
-    await commitRestore(plan: plan);
-  }
-
-  Future<void> restore({required String passphrase}) =>
-      restoreFromBackup(passphrase: passphrase);
+  // MALI-014 §Blocker-1 — there is NO combined prepare+commit production path. A
+  // destructive mutation can ONLY be reached through prepareRestore → an explicit
+  // user confirmation (which mints the unforgeable RestoreConfirmation capability) →
+  // commitRestore(confirmation). Retains the admission that authorised the last
+  // committed restore, so the post-commit usability check can detect an ownership
+  // change.
+  AdmissionToken? _lastRestoreAdmission;
 
   @override
   Future<RestorePlan> prepareRestore({required String passphrase}) async {
@@ -336,11 +333,14 @@ class EncryptedBackupService implements BackupService {
         operationId:
             generation?.operationId ?? RestorePreparation.fingerprint(bytes),
       );
-      // Stash the (sensitive) decrypt outputs in memory ONLY — keyed by the
-      // operation id — for commitRestore's key-state persistence. Never exposed to
-      // the UI (the plan carries no key).
+      // Capture the admission at PREPARATION and stash the (sensitive) decrypt
+      // outputs in memory ONLY — keyed by the operation id. commitRestore validates
+      // this admission at mutation time, so a same-UID re-login / ownership change
+      // between preparation and commit invalidates the confirmation. Never exposed
+      // to the UI (the plan carries no key).
+      final admissionToken = await OwnershipGuard().capture();
       _prepared[plan.operationId] =
-          _PreparedRestore(plan, keyBytes, blob, passphrase);
+          _PreparedRestore(plan, keyBytes, blob, passphrase, admissionToken);
       return plan;
     } on BackupEnvelopeException catch (e) {
       throw BackupException(_envelopeErrorMessage(e.kind));
@@ -352,10 +352,19 @@ class EncryptedBackupService implements BackupService {
   }
 
   @override
-  Future<RestoreResult> commitRestore({required RestorePlan plan}) async {
+  Future<RestoreResult> commitRestore(
+      {required RestoreConfirmation confirmation}) async {
+    final plan = confirmation.plan;
     final prepared = _prepared[plan.operationId];
-    if (prepared == null) {
-      throw const BackupException('انتهت صلاحية جلسة الاستعادة. أعد المحاولة.');
+    // The confirmation must be tied to a real prepared operation with a matching
+    // source fingerprint, and consumed exactly once (a reused/stale confirmation, a
+    // changed source, or an unprepared plan is a typed rejection — no mutation).
+    if (prepared == null ||
+        prepared.plan.sourceFingerprint != plan.sourceFingerprint) {
+      return const RestoreResult(RestoreOutcome.validationFailed);
+    }
+    if (!confirmation.consume()) {
+      return const RestoreResult(RestoreOutcome.validationFailed);
     }
     DatabaseLeaseManager? leaseManager;
     try {
@@ -363,26 +372,48 @@ class EncryptedBackupService implements BackupService {
     } catch (_) {
       leaseManager = null; // headless/test → logical maintenance
     }
-    final ownershipGuard = OwnershipGuard();
-    final admissionToken = await ownershipGuard.capture();
+    // Validate the admission captured at PREPARATION — a re-login / ownership change
+    // since then rotates the generation and aborts before mutation.
     final result = await _restoreService.execute(
       plan: plan,
       leaseManager: leaseManager,
-      ownershipGuard: ownershipGuard,
-      admissionToken: admissionToken,
+      ownershipGuard: OwnershipGuard(),
+      admissionToken: prepared.admissionToken,
       afterRestore: _afterRestore,
     );
-    if (!result.isCommitted) {
-      _prepared.remove(plan.operationId);
-      throw BackupException(_restoreOutcomeMessage(result.outcome));
+    if (result.isCommitted) {
+      _lastRestoreAdmission = prepared.admissionToken;
+      await _persistKeyStateAfterRestore(prepared);
     }
-    if (result.operationId != null) {
-      await _restoreService.acknowledge(result.operationId!);
-    }
-    await _persistKeyStateAfterRestore(prepared);
     _prepared.remove(plan.operationId);
+    // NOT acknowledged here — acknowledgement happens only AFTER the controller has
+    // proven the database usable (verifyRestoredDatabaseUsable).
     return result;
   }
+
+  /// Post-commit usability proof (MALI-014 §Blocker-2): the restored database must be
+  /// readable through a real query AND still owned by the admission that ran the
+  /// restore. Returns false → the controller routes to recoveryRequired (never
+  /// completed) and does NOT acknowledge; startup recovery re-establishes.
+  @override
+  Future<bool> verifyRestoredDatabaseUsable() async {
+    final admission = _lastRestoreAdmission;
+    if (admission != null && !await OwnershipGuard().isCurrent(admission)) {
+      return false; // ownership changed after commit
+    }
+    try {
+      await _database
+          .customSelect('SELECT COUNT(*) AS c FROM user_settings;')
+          .getSingle();
+      return true;
+    } catch (_) {
+      return false; // the connection is not usable
+    }
+  }
+
+  @override
+  Future<void> acknowledgeRestore({required String operationId}) =>
+      _restoreService.acknowledge(operationId);
 
   Future<void> _persistKeyStateAfterRestore(_PreparedRestore prepared) async {
     final blob = prepared.blob;
@@ -429,43 +460,6 @@ class EncryptedBackupService implements BackupService {
       case BackupEnvelopeErrorKind.malformed:
       case BackupEnvelopeErrorKind.decodeFailed:
         return 'ملف النسخة الاحتياطية غير صالح.';
-    }
-  }
-
-  // Safe, non-leaking user messages for a typed restore outcome (MALI-014/076n
-  // §14). No raw error, key, path, or financial value is ever exposed.
-  static String _restoreOutcomeMessage(RestoreOutcome outcome) {
-    switch (outcome) {
-      case RestoreOutcome.ownershipChanged:
-        return 'تغيّر الحساب أثناء الاستعادة. سجّل الدخول بالحساب الصحيح ثم أعد المحاولة.';
-      case RestoreOutcome.maintenanceTimeout:
-      case RestoreOutcome.databaseBusy:
-        return 'قاعدة البيانات مشغولة الآن. أغلق العمليات الأخرى وأعد المحاولة.';
-      case RestoreOutcome.recoveryRequired:
-      case RestoreOutcome.reopenFailed:
-      case RestoreOutcome.rollbackFailed:
-        return 'تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح. أعد تشغيل التطبيق.';
-      case RestoreOutcome.incompatibleSnapshot:
-      case RestoreOutcome.unsupportedEnvelope:
-        return 'هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.';
-      case RestoreOutcome.authenticationFailed:
-        return 'كلمة مرور النسخة الاحتياطية غير صحيحة.';
-      case RestoreOutcome.payloadTooLarge:
-      case RestoreOutcome.malformedBackup:
-        return 'ملف النسخة الاحتياطية غير صالح.';
-      case RestoreOutcome.remoteObjectUnavailable:
-      case RestoreOutcome.remoteIntegrityFailed:
-      case RestoreOutcome.localFileUnavailable:
-        return 'تعذّر الوصول إلى النسخة الاحتياطية.';
-      case RestoreOutcome.validationFailed:
-      case RestoreOutcome.rollbackCompleted:
-        return 'تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.';
-      case RestoreOutcome.cancelled:
-        return 'أُلغيت الاستعادة.';
-      case RestoreOutcome.success:
-      case RestoreOutcome.committedPendingAcknowledgement:
-      case RestoreOutcome.internalFailure:
-        return 'تعذّرت الاستعادة. أعد المحاولة.';
     }
   }
 
@@ -516,9 +510,11 @@ String backupStorageExceptionMessage(supabase.StorageException error) {
 // memory only and is discarded after commit — the key never reaches the UI or disk
 // except as the existing backup key-state (unchanged behavior).
 class _PreparedRestore {
-  _PreparedRestore(this.plan, this.keyBytes, this.blob, this.passphrase);
+  _PreparedRestore(
+      this.plan, this.keyBytes, this.blob, this.passphrase, this.admissionToken);
   final RestorePlan plan;
   final List<int>? keyBytes;
   final EncryptedBackupBlob blob;
   final String passphrase;
+  final AdmissionToken admissionToken;
 }
