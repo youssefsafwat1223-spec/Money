@@ -507,7 +507,51 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 5 — restore compatibility, atomic rollback, crash
+> **Status (2026-08-06): Batch 5 closure — durable replay journal, preparation-time
+> compatibility adapters, complete rollback evidence, crash/replay recovery, and a
+> truthful UI controller.** Five gaps flagged after Batch-5's core were closed:
+>
+> 1. **Durable replay journal (§Blocker-1).** The in-memory guard is replaced by a
+>    `restore_operations` Drift table (local schema **v27 → v28**, additive, created
+>    idempotently on fresh install + upgrade, excluded from backup/restore/sync/
+>    export, bounded retention). Its `committed` transition is written INSIDE the
+>    restore transaction, so it commits atomically with the restored data and rolls
+>    back with it. A crash / acknowledgement loss is recovered at restart:
+>    the committed operation is discovered (`committedPendingAcknowledgement`) and
+>    NEVER destructively replayed; acknowledgement is idempotent; a same-op-id /
+>    different-source is rejected.
+> 2. **Preparation-time compatibility adapters (§Blocker-2).** An explicit
+>    `SnapshotSchemaAdapter` per snapshot version (v1/v2/v3) normalizes the source to
+>    the current plan shape BEFORE the maintenance/mutation phase (version-specific
+>    required tables + column defaults + safe warnings; a future version is rejected
+>    before mutation). Synthetic v1/v2/v3 fixtures exercise the adapters end-to-end.
+> 3. **Complete rollback evidence (§Blocker-3).** Deterministic fault injection at 9
+>    transaction-boundary points (after first/several deletes, first/partial insert,
+>    relationship reconstruction, before/during/after verification, journal commit),
+>    each proving a full-DB digest (all user-data tables) + per-currency financial
+>    totals are unchanged and no committed marker survives. In-transaction
+>    verification strengthened (per-currency canonical totals, default-account +
+>    singleton, no duplicate/key/remote).
+> 4. **Local crash/replay (§Blocker-4).** File-backed crash-before-commit (reopen =
+>    complete old state, no committed marker, FK-clean); commit-before-ack restart
+>    (a fresh service discovers the committed op via the durable journal, does not
+>    replay, then acknowledges idempotently); and a REAL `Process.start` native-sqlite
+>    kill proving SQLite rolls back the uncommitted transaction (native SQLCipher
+>    timing is the only external part — skip-safe under load).
+> 5. **Truthful UI controller (§Blocker-5).** A `RestoreController` state machine
+>    (selecting → downloading → decrypting → validating → readyForConfirmation →
+>    waitingForDatabase → restoring → completed / cancelled / failedWithoutChanges /
+>    recoveryRequired) ENFORCES an explicit confirmation gate before any mutation,
+>    guarantees cancellation-before-mutation changes nothing, shows success only
+>    after commit/verify/reopen, maps typed outcomes to safe phases, and
+>    acknowledges idempotently. Broad screen redesign intentionally avoided.
+>
+> MALI-014 + MALI-076n restore-side → Code complete · Locally verified; native
+> process-kill timing, SQLCipher hardware round-trip, and device UI verification
+> pending. No Supabase migration; the only schema change is the additive local
+> `restore_operations` table (v28). Batch 6 (formal closure) is NOT started.
+>
+> **Prior — Status (2026-08-06): Batch 5 — restore compatibility, atomic rollback, crash
 > recovery, and user-data recovery matrix.** Restore is refactored into two explicit
 > phases and wired onto the accepted Batch-4 maintenance primitive.
 >
