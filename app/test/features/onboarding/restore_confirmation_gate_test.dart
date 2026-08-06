@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:money_companion/core/backup/backup_service.dart';
+import 'package:money_companion/core/backup/restore_controller.dart';
 import 'package:money_companion/core/backup/restore_plan.dart';
 import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
@@ -33,13 +34,16 @@ class _RecordingBackupService implements BackupService {
   }
 
   @override
-  Future<RestoreResult> commitRestore({required RestorePlan plan}) async {
+  Future<RestoreResult> commitRestore(
+      {required RestoreConfirmation confirmation}) async {
     commitCalls++;
     return const RestoreResult(RestoreOutcome.success, operationId: 'op');
   }
 
   @override
-  Future<void> restoreFromBackup({required String passphrase}) async {}
+  Future<bool> verifyRestoredDatabaseUsable() async => true;
+  @override
+  Future<void> acknowledgeRestore({required String operationId}) async {}
   @override
   Future<BackupStatus> status() async => const BackupStatus(enabled: false);
   @override

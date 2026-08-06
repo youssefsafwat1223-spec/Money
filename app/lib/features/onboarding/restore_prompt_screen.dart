@@ -56,7 +56,11 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
     final service = ref.read(backupServiceProvider);
     final controller = RestoreController(
       prepare: () => service.prepareRestore(passphrase: passphrase),
-      mutate: (plan) => service.commitRestore(plan: plan),
+      mutate: (confirmation) =>
+          service.commitRestore(confirmation: confirmation),
+      reestablish: () => service.verifyRestoredDatabaseUsable(),
+      acknowledge: (opId) =>
+          service.acknowledgeRestore(operationId: opId),
     );
     try {
       await controller.beginPreparation();
