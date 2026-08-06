@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -245,57 +246,107 @@ void main() {
     });
 
     test('REAL Process.start kill mid-transaction → SQLite rolls back the '
-        'uncommitted work (native sqlite; SQLCipher timing external)', () async {
-      // The durable crash/replay LOGIC is proven by the in-process file-backed
-      // tests above. This is the real-OS-kill confirmation on native sqlite; its
-      // subprocess timing is the external part, so ANY environmental failure skips
-      // (never fails the gate) and the positive rollback is asserted only when the
-      // native path clearly works.
+        'uncommitted work (native sqlite)', () async {
+      // Phase-7 B1 §Blocker-5 — this is a LOCALLY testable process test (pure Dart +
+      // the on-disk sqlite native lib). A busy machine is NOT an external
+      // prerequisite, so load NEVER causes a silent skip: readiness has a generous
+      // 60s deadline that absorbs load, a transient post-kill lock triggers a bounded
+      // SETUP retry, and the rollback result is ASSERTED — a surviving uncommitted
+      // row FAILS loudly as the real durability defect it would be. The ONLY skips are
+      // genuine platform absence: no `dart` executable, or the sqlite3 native library
+      // cannot be loaded at all.
+      try {
+        final v = await Process.run('dart', const ['--version']);
+        if (v.exitCode != 0) {
+          markTestSkipped('dart executable unavailable (exit ${v.exitCode})');
+          return;
+        }
+      } on ProcessException catch (e) {
+        markTestSkipped('dart executable not on PATH: ${e.message}');
+        return;
+      }
+
       final dir = Directory.systemTemp.createTempSync('mali_kill_');
       addTearDown(() {
         try {
           dir.deleteSync(recursive: true);
         } catch (_) {}
       });
-      try {
-        final dbPath = '${dir.path}/plain.db';
-        final ready = '${dir.path}/ready';
-        final child = File('${dir.path}/child.dart')
-          ..writeAsStringSync(_childSource);
-        final proc = await Process.start(
-          'dart',
-          ['--packages=${Directory.current.path}/.dart_tool/package_config.json',
-            child.path, dbPath, ready],
-        );
-        addTearDown(() {
-          try {
-            proc.kill(ProcessSignal.sigkill);
-          } catch (_) {}
-        });
-        for (var i = 0; i < 200 && !File(ready).existsSync(); i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-        if (!File(ready).existsSync()) {
-          markTestSkipped('child could not open native sqlite in time');
-          return;
-        }
-        proc.kill(ProcessSignal.sigkill);
-        await proc.exitCode;
 
-        final readerOut = (await _readPlain(dir.path, dbPath)).trim();
-        // Clean rollback result is EXACTLY the committed pre-row (the killed
-        // transaction's DELETE + insert were rolled back). Skip on any ambiguity.
-        if (readerOut != 'committed-before') {
-          markTestSkipped('native sqlite kill/reader ambiguous: "$readerOut"');
+      final dbPath = '${dir.path}/plain.db';
+      final ready = '${dir.path}/ready';
+      final childErr = StringBuffer();
+      File('${dir.path}/child.dart').writeAsStringSync(_childSource);
+
+      final proc = await Process.start(
+        'dart',
+        ['--packages=${Directory.current.path}/.dart_tool/package_config.json',
+          '${dir.path}/child.dart', dbPath, ready],
+      );
+      proc.stderr.transform(const SystemEncoding().decoder).listen(childErr.write);
+      var childExited = false;
+      int? childExit;
+      unawaited(proc.exitCode.then((c) {
+        childExited = true;
+        childExit = c;
+      }));
+      addTearDown(() {
+        try {
+          proc.kill(ProcessSignal.sigkill);
+        } catch (_) {}
+      });
+
+      // Generous readiness deadline absorbs local load — we do NOT skip because the
+      // machine is busy. We only stop early if the child DIED, and then only SKIP if
+      // its stderr proves native sqlite could not load.
+      final deadline = DateTime.now().add(const Duration(seconds: 60));
+      while (!File(ready).existsSync() &&
+          !childExited &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      if (!File(ready).existsSync()) {
+        if (childExited && _nativeSqliteUnavailable(childErr.toString())) {
+          markTestSkipped(
+              'native sqlite could not load in child: ${childErr.toString().trim()}');
           return;
         }
-        expect(readerOut, 'committed-before',
-            reason: 'SQLite rolled back the killed, uncommitted transaction');
-      } catch (e) {
-        markTestSkipped('native sqlite Process.start path unavailable: $e');
+        // Live-but-silent past 60s, or a non-native death: a genuine defect, not an
+        // external prerequisite. FAIL with diagnostics rather than skip.
+        fail('child never signalled ready within 60s '
+            '(exited=$childExited exit=$childExit) '
+            'stderr="${childErr.toString().trim()}"');
       }
-    }, timeout: const Timeout(Duration(seconds: 90)));
+
+      proc.kill(ProcessSignal.sigkill);
+      await proc.exitCode;
+
+      final read = await _readPlain(dir.path, dbPath);
+      if (read.nativeUnavailable) {
+        markTestSkipped('native sqlite reader unavailable: ${read.diagnostic}');
+        return;
+      }
+      // A DATA answer is asserted, never skipped: a surviving "uncommitted-restore"
+      // row means the killed transaction was NOT rolled back — a real durability bug.
+      expect(read.value.trim(), 'committed-before',
+          reason: 'SQLite must roll back the killed, uncommitted transaction; a '
+              'surviving "uncommitted-restore" row is a real durability defect '
+              '(reader diagnostic: ${read.diagnostic})');
+    }, timeout: const Timeout(Duration(seconds: 120)));
   });
+}
+
+/// True when [s] (a child/reader stderr or exception text) shows the sqlite3 native
+/// library itself could not be loaded — the only condition under which the local
+/// process test may legitimately skip rather than fail.
+bool _nativeSqliteUnavailable(String s) {
+  final t = s.toLowerCase();
+  return t.contains('failed to load dynamic library') ||
+      t.contains('failed to lookup symbol') ||
+      t.contains('libsqlite3') ||
+      t.contains('cannot open shared object') ||
+      t.contains('sqlitelibrarynotfound') ||
+      (t.contains('sqlite3') && t.contains('could not'));
 }
 
 // A child process: opens a PLAIN native sqlite file, commits a marker row, then
@@ -315,7 +366,14 @@ void main(List<String> args) {
 }
 ''';
 
-Future<String> _readPlain(String dir, String dbPath) async {
+class _ReadResult {
+  const _ReadResult(this.value, {this.nativeUnavailable = false, this.diagnostic = ''});
+  final String value;
+  final bool nativeUnavailable;
+  final String diagnostic;
+}
+
+Future<_ReadResult> _readPlain(String dir, String dbPath) async {
   final reader = File('$dir/reader.dart')
     ..writeAsStringSync('''
 import 'dart:io';
@@ -326,14 +384,35 @@ void main(List<String> args) {
   stdout.write(rows.map((r) => r['v']).join(','));
 }
 ''');
-  try {
-    final res = await Process.run(
-      'dart',
-      ['--packages=${Directory.current.path}/.dart_tool/package_config.json',
-        reader.path, dbPath],
-    ).timeout(const Duration(seconds: 15));
-    return '${res.stdout}';
-  } catch (_) {
-    return '__skip__'; // sqlite3 unavailable / reader timed out → the test skips
+  var lastDiag = '';
+  // Bounded SETUP retry: a transient "database is locked" immediately after SIGKILL
+  // is an OS timing artefact, not a result — retry the read, never skip for it.
+  for (var attempt = 0; attempt < 4; attempt++) {
+    try {
+      final res = await Process.run(
+        'dart',
+        ['--packages=${Directory.current.path}/.dart_tool/package_config.json',
+          reader.path, dbPath],
+      ).timeout(const Duration(seconds: 30));
+      final err = '${res.stderr}';
+      if (res.exitCode == 0) return _ReadResult('${res.stdout}');
+      if (_nativeSqliteUnavailable(err)) {
+        return _ReadResult('', nativeUnavailable: true, diagnostic: err.trim());
+      }
+      lastDiag = err.trim();
+      final low = err.toLowerCase();
+      if (low.contains('database is locked') || low.contains('sqlite_busy')) {
+        await Future<void>.delayed(Duration(milliseconds: 100 * (attempt + 1)));
+        continue; // transient — retry setup, do not skip
+      }
+      break; // a non-native, non-transient reader error is a genuine failure surface
+    } on ProcessException catch (e) {
+      return _ReadResult('', nativeUnavailable: true, diagnostic: e.message);
+    } on TimeoutException catch (e) {
+      lastDiag = 'reader timeout: $e';
+    }
   }
+  // Retries exhausted without a native-unavailable classification: return a sentinel
+  // the caller ASSERTS against, so it fails loudly with diagnostics (never a skip).
+  return _ReadResult('__reader_failed__', diagnostic: lastDiag);
 }
