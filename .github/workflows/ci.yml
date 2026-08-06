@@ -6,17 +6,14 @@ on:
   pull_request:
 
 jobs:
-  flutter:
-    name: Analyze & Test (app)
+  gates:
+    name: Canonical CI gates (tools/ci_gates.sh)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # مكتبة sqlite3 الأصلية مطلوبة لاختبارات Drift (NativeDatabase) على VM المضيف.
+      # Native sqlite3 is required for Drift (NativeDatabase) tests on the host VM.
       - name: Install sqlite3 native lib
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-0 libsqlite3-dev sqlite3
 
@@ -26,17 +23,40 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Generate platform folders (non-destructive)
+        working-directory: app
         run: flutter create .
 
-      - name: Install dependencies
+      - name: Install app dependencies
+        working-directory: app
         run: flutter pub get
 
       - name: Run build_runner
+        working-directory: app
         run: dart run build_runner build --delete-conflicting-outputs
 
-      - name: Analyze
-        run: flutter analyze
+      # Phase-7 B1 — generated-code freshness: committed generated output must match a
+      # fresh build_runner run. A stale artifact fails the gate.
+      - name: Generated-code freshness
+        working-directory: app
+        run: git diff --exit-code || (echo "::error::committed generated code is stale — run build_runner and commit" && exit 1)
 
-      - name: Test
-        run: flutter test --reporter expanded
+      - name: Install admin dependencies
+        working-directory: admin
+        run: npm ci
+
+      # Phase-7 B1 — the SAME canonical gate developers run locally (analyze, full
+      # Flutter suite, deno tests + lint, node contract tests, admin auth, migration
+      # lint). No CI-only subset that omits mandatory tests.
+      - name: Run canonical CI gates
+        run: bash tools/ci_gates.sh
