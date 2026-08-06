@@ -507,8 +507,31 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 6 — integration reconciliation, documentation,
-> external-verification matrix, formal LOCAL closure.** One real integration defect
+> **Status (2026-08-06): Batch 6 final reconciliation — confirmation capability +
+> post-commit usability.** Two remaining production-integration ambiguities closed:
+>
+> - **No confirmation bypass.** The combined `restoreFromBackup`/`restore` entry
+>   points are REMOVED. Destructive mutation is reachable only through
+>   `prepareRestore` → explicit user confirmation → `commitRestore`, and
+>   `commitRestore` REQUIRES an unforgeable single-use `RestoreConfirmation`
+>   capability whose constructor is private to the controller's library — no
+>   service/provider/onboarding/recovery/background path can fabricate one. It is
+>   tied to the operation id + source fingerprint (a changed source → rejected), the
+>   admission is captured at preparation and re-validated at commit (same-UID
+>   re-login / ownership change → aborted), it is consumed exactly once, and
+>   cancellation destroys the pending confirmation. A production-call-site contract
+>   test proves no direct destructive call exists outside the canonical boundary.
+> - **Success is post-commit-usable, not merely committed.** The controller now
+>   sequences `restoring → verifying → reestablishingDatabase → completed`. After the
+>   transaction commits (data + durable journal marker atomically), the service runs
+>   a **usable-state proof** (`verifyRestoredDatabaseUsable`: a real production query
+>   + the restore's admission still current); only then is the restore durably
+>   **acknowledged** and `completed` shown. A failed reopen/admission →
+>   `recoveryRequired`, NEVER completed, and NOT acknowledged — the data stays
+>   committed and startup recovery re-establishes (never re-restores).
+>
+> **Prior — Status (2026-08-06): Batch 6 — integration reconciliation, documentation,
+> external-verification matrix, formal LOCAL closure.** One integration defect
 > fixed: the `RestoreController` was unwired — the production restore screen bypassed
 > it, so no explicit confirmation gate existed before destructive mutation.
 > `EncryptedBackupService` now splits `prepareRestore` (download/decrypt/validate, no
@@ -521,8 +544,8 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > external-verification checklist.
 >
 > **Final local status roll-up — `Code complete — locally verified; physical-device,
-> native SQLCipher/process timing, live Supabase, and multi-device verification
-> pending.`** Per finding: **MALI-014** (restore/rollback/recovery) — durable replay
+> native SQLCipher/process timing, live Supabase, multi-device, and device restore-UI
+> verification pending.`** Per finding: **MALI-014** (restore/rollback/recovery) — durable replay
 > journal, prep/mutation split, in-txn verification + atomic rollback, crash/replay,
 > truthful UI; **MALI-027 lifecycle tail** — one migration owner, once-per-open,
 > failed-init cleanup, cross-isolate admission generation; **MALI-058n** — SQLCipher

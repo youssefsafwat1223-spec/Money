@@ -5,8 +5,20 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 6 Batch 6 — integration reconciliation, documentation,
-  external-verification matrix, formal LOCAL closure — 2026-08-06.** Fixed one real
+- **Last updated:** **Phase 6 Batch 6 FINAL reconciliation — confirmation
+  capability + post-commit usability — 2026-08-06.** Closed two production-integration
+  ambiguities: (1) removed the combined `restoreFromBackup`/`restore` bypass —
+  destructive mutation now requires an unforgeable single-use `RestoreConfirmation`
+  (private-constructor capability minted only by the controller, tied to op
+  id/fingerprint/admission, consumed once, destroyed on cancel), enforced by a
+  production-call-site contract test; (2) `completed` is emitted only after commit →
+  verifying → reestablishingDatabase (a real usable-state proof: production query +
+  admission still current) → durable acknowledgement — a failed reopen/admission →
+  `recoveryRequired`, not completed, not acknowledged (data stays committed; startup
+  recovery re-establishes). +19 tests. Roll-up → **Code complete — locally verified;
+  physical-device, native SQLCipher/process timing, live Supabase, multi-device, and
+  device restore-UI verification pending.** Prior — **Phase 6 Batch 6 — integration
+  reconciliation, documentation, external-verification matrix, formal LOCAL closure — 2026-08-06.** Fixed one real
   integration defect: the `RestoreController` existed but was unwired — the
   production restore screen bypassed it, so there was NO explicit confirmation gate
   before destructive mutation. `EncryptedBackupService` now exposes prepareRestore

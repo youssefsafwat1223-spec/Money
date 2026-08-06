@@ -1,7 +1,8 @@
 # Phase 6 — Database, Backup & Restore (local closure)
 
 Status: **Code complete — locally verified; physical-device, native SQLCipher /
-process timing, live Supabase, and multi-device verification pending.**
+process timing, live Supabase, multi-device, and device restore-UI verification
+pending.**
 
 This document is the single reference for the Phase-6 data-integrity/reliability
 work (MALI-014, 027 lifecycle tail, 058n, 069n, 076n). It reflects the accepted
@@ -87,8 +88,11 @@ warnings; no secret/key/path).
 (singleton + default account, transactions count == plan, no duplicate ids,
 sanitize-safe tables ≤ plan, per-currency canonical net-expense total == plan, no
 SQLCipher key ref, no excluded/remote table) → durable `committed` journal marker
-(same transaction) → commit → acknowledge. Any failure throws before commit → whole
-restore rolls back, original DB preserved.
+(same transaction) → commit → **post-commit usable-state proof (query + admission)**
+→ **acknowledge (only after usable)**. Any failure throws before commit → whole
+restore rolls back, original DB preserved. A committed-but-not-usable state →
+`recoveryRequired` (data committed, not acknowledged; startup recovery
+re-establishes).
 
 ## 8. Restore journal schema & state machine (schema v28)
 
@@ -134,14 +138,47 @@ supported adapter has a synthetic fixture + end-to-end restore test.
 - **Real `Process.start` native-sqlite kill:** SQLite rolls back the uncommitted
   transaction (native SQLCipher timing external, skip-safe).
 
-## 11. UI confirmation flow
+## 11. UI confirmation flow, confirmation capability & entry-point map
 
 `RestoreController` state machine: downloading → decrypting → validating →
-**readyForConfirmation** → waitingForDatabase → restoring → completed / cancelled /
-failedWithoutChanges / recoveryRequired. The production restore screen drives it:
-preparation runs with NO mutation, an explicit confirmation dialog appears before any
-destructive write, cancellation changes nothing, and `completed` is shown only after a
-committed outcome. Acknowledgement is idempotent. (Widget-tested.)
+**readyForConfirmation** → waitingForDatabase → restoring → **verifying** →
+**reestablishingDatabase** → completed / cancelled / failedWithoutChanges /
+recoveryRequired.
+
+**Confirmation capability (no bypass).** There is NO combined prepare+commit
+production entry point. Destructive mutation requires an unforgeable single-use
+`RestoreConfirmation` whose constructor is private to the controller's library — only
+the canonical flow (post-preparation, post-explicit-user-confirmation) mints one. It
+is tied to the operation id + source fingerprint (changed source → rejected), the
+admission is captured at preparation and re-validated at commit (same-UID re-login /
+ownership change → aborted before mutation), consumed exactly once, and destroyed on
+cancellation. A production-call-site contract test proves no direct destructive call
+exists outside this boundary.
+
+**`completed` is post-usable, not merely committed.** After the transaction commits
+(data + journal marker atomically), the service runs `verifyRestoredDatabaseUsable`
+(a real production query + the restore's admission still current). Only then is the
+restore **acknowledged** (durably, idempotently, never before usable) and `completed`
+shown. A failed reopen/admission → `recoveryRequired`, never completed, never
+acknowledged; the data stays committed and startup recovery re-establishes (never
+re-restores).
+
+**Production restore entry-point map** — every UI path (onboarding / recovery /
+backup-settings / data-transfer) → `RestorePromptScreen` (route `/backup/restore`):
+
+| Step | Component |
+|---|---|
+| preparation API | `BackupService.prepareRestore` (no mutation) |
+| controller | `RestoreController` |
+| confirmation owner | the user, via the screen's confirmation dialog |
+| confirmed-command creation | `RestoreConfirmation` (private-ctor capability, controller-minted) |
+| mutation API | `BackupService.commitRestore(confirmation)` |
+| maintenance mode | file-exclusive (production) / logical (single-connection tests) |
+| post-commit lifecycle | verify → `verifyRestoredDatabaseUsable` (query + admission) |
+| acknowledgement | `BackupService.acknowledgeRestore` — only after usable |
+
+`restoreFromBackup = prepare + commit` is NOT an accepted production path — it was
+removed.
 
 ## 12. Privacy guarantees
 
