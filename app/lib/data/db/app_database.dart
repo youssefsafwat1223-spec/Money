@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/utils/id_generator.dart';
 import 'database_key_store.dart';
 import 'database_lease.dart';
+import 'database_process_liveness.dart';
 import 'database_seed.dart';
 import 'ownership_guard.dart';
 import 'sql_value_codec.dart';
@@ -287,13 +288,49 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   /// MALI-069n §Blocker-1 — the production cross-isolate lease manager, using
-  /// files beside the database in the app-support directory.
+  /// files beside the database in the app-support directory. Records are tagged
+  /// with the current pid + (when known) the process-instance token established by
+  /// [initProcessLiveness].
   static Future<DatabaseLeaseManager> appSupportLeaseManager() async {
     final directory = await getApplicationSupportDirectory();
     return DatabaseLeaseManager(
       leaseDir: p.join(directory.path, 'db_leases'),
       intentPath: p.join(directory.path, 'money_companion.sqlite.maint'),
+      instanceToken: _processLiveness?.instanceToken,
     );
+  }
+
+  /// The retained process-liveness handle (Contract B). Held for the process
+  /// lifetime so the OS advisory lock stays taken until this process dies.
+  static ProcessLivenessHandle? _processLiveness;
+
+  /// MALI-069n §Batch-4-closure-4 — establish PROCESS liveness once at startup
+  /// (bootstrap). Takes the process-lifetime OS advisory lock; if this process is
+  /// the sole opener (acquired the exclusive lock — Contract B guarantees no
+  /// concurrent opener), it clears leftover lease/intent records from ENDED
+  /// instances (identified by a different owner pid — never a live same-process
+  /// isolate's lease). This startup pass, gated by the OS lock, is the ONLY reaping
+  /// authority; nothing time-based ever deletes a record. Idempotent per process.
+  static Future<ProcessLivenessHandle> initProcessLiveness() async {
+    final existing = _processLiveness;
+    if (existing != null) return existing;
+    final directory = await getApplicationSupportDirectory();
+    final liveness = DatabaseProcessLiveness(
+      lockPath: p.join(directory.path, 'money_companion.sqlite.plock'),
+      instancePath: p.join(directory.path, 'money_companion.sqlite.instance'),
+    );
+    final handle = liveness.acquire();
+    _processLiveness = handle;
+    if (handle.acquiredExclusive) {
+      final manager = DatabaseLeaseManager(
+        leaseDir: p.join(directory.path, 'db_leases'),
+        intentPath: p.join(directory.path, 'money_companion.sqlite.maint'),
+        ownerPid: handle.ownerPid,
+        instanceToken: handle.instanceToken,
+      );
+      manager.recoverEndedInstances();
+    }
+    return handle;
   }
 
   /// MALI-069n §3 — finish opening: run the migration pipeline for a MAIN open,

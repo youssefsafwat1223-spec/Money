@@ -116,6 +116,11 @@ class BootstrapRunner {
       () => LocalNotificationService.instance.initialize(),
     );
 
+    // MALI-069n §Batch-4-closure-4 (Contract B) — take the process-lifetime OS
+    // advisory lock and, if this is the sole opener, clear leftover lease/intent
+    // records from ENDED process instances BEFORE opening. This startup pass is the
+    // only reaping authority; runtime maintenance never reaps.
+    await _step('database_process_liveness', AppDatabase.initProcessLiveness);
     _database ??= await _step('database_open', () => AppDatabase.open());
     final database = _database!;
 
