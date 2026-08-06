@@ -2,6 +2,7 @@ import 'package:crypto/crypto.dart';
 
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
+import 'restore_compatibility.dart';
 import 'restore_plan.dart';
 import 'restore_backup_usecase.dart';
 
@@ -65,10 +66,14 @@ class RestorePreparation {
       sanitized[entry.key] = rows;
     }
 
+    // §Blocker-2 — apply the EXPLICIT preparation-time adapter for this snapshot
+    // version, normalizing to the current plan shape (verifies version-specific
+    // required tables, applies any column defaults, records version warnings).
+    final normalized = RestoreCompatibility.normalize(sanitized, schemaVersion);
+
     final warnings = <String>[
       if (envelopeVersion < 3) 'legacy_envelope_v$envelopeVersion',
-      if (schemaVersion < RestoreBackupUseCase.currentSchemaVersion)
-        'older_schema_v$schemaVersion',
+      ...normalized.warnings,
     ];
 
     return RestorePlan(
@@ -76,7 +81,7 @@ class RestorePreparation {
       envelopeVersion: envelopeVersion,
       snapshotSchemaVersion: schemaVersion,
       sourceFingerprint: fingerprint(sourceBytes),
-      tables: sanitized,
+      tables: normalized.tables,
       warnings: warnings,
     );
   }
