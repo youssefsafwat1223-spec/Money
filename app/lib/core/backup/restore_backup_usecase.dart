@@ -1,8 +1,11 @@
 import 'package:drift/drift.dart';
 
 import '../../data/db/app_database.dart';
+import '../../domain/finance/financial_semantics.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
+import 'restore_plan.dart';
+import 'restore_result.dart';
 
 class RestoreBackupUseCase {
   const RestoreBackupUseCase(this._db);
@@ -54,7 +57,11 @@ class RestoreBackupUseCase {
     'accounts',
   ];
 
-  Future<void> call(Map<String, dynamic> snapshot) async {
+  /// Apply [snapshot] destructively. When [plan] is supplied (Batch-5 pipeline),
+  /// an in-transaction verification runs against it before commit, so any
+  /// row-count / financial-total / integrity mismatch rolls the WHOLE restore back
+  /// and leaves the original database unchanged.
+  Future<void> call(Map<String, dynamic> snapshot, {RestorePlan? plan}) async {
     final schemaVersion = _schemaVersion(snapshot);
     if (schemaVersion > currentSchemaVersion) {
       // Reject BEFORE touching the DB — the delete/restore transaction below
@@ -72,7 +79,7 @@ class RestoreBackupUseCase {
     // DB. A v3 backup with a missing/empty categories payload must be rejected
     // here — otherwise conditional-delete would wipe the catalog and restore
     // nothing.
-    final tables = _validateSnapshot(snapshot, schemaVersion);
+    final tables = validateTables(snapshot, schemaVersion);
 
     // MALI-045n: `PRAGMA foreign_keys` is connection-scoped and a documented
     // NO-OP while a transaction is pending, so it MUST be toggled OUTSIDE
@@ -113,6 +120,10 @@ class RestoreBackupUseCase {
             'البيانات.',
           );
         }
+        // MALI-014/076n §6 — in-transaction verification against the immutable
+        // plan. Any mismatch throws BEFORE commit → the whole restore rolls back
+        // and the original database is preserved.
+        if (plan != null) await _verifyAgainstPlan(plan);
       });
     } finally {
       await _db.customStatement('PRAGMA foreign_keys = ON;');
@@ -185,6 +196,101 @@ class RestoreBackupUseCase {
     );
   }
 
+  /// MALI-014/076n §6 — verify the freshly-written (uncommitted) database state
+  /// against the immutable plan. Throws [RestoreVerificationException] on any
+  /// mismatch so the transaction rolls back before commit. Runs INSIDE the restore
+  /// transaction. No data is surfaced — only protocol labels.
+  Future<void> _verifyAgainstPlan(RestorePlan plan) async {
+    Future<int> count(String table) async {
+      final row = await _db
+          .customSelect('SELECT COUNT(*) AS c FROM $table;')
+          .getSingle();
+      return row.read<int>('c');
+    }
+
+    // (1) Required singleton — the single user_settings row must exist.
+    if (await count('user_settings') != 1) {
+      throw const RestoreVerificationException('missing_singleton');
+    }
+
+    // (2) Transactions are never sanitized away, so their count must match the
+    // plan exactly; and no duplicate primary id may exist (INSERT OR REPLACE
+    // dedupes, so a mismatch means the plan itself carried duplicates).
+    final expectedTxns = plan.expectedRowCounts['transactions'] ?? 0;
+    final actualTxns = await count('transactions');
+    if (actualTxns != expectedTxns) {
+      throw const RestoreVerificationException('row_count_mismatch');
+    }
+    final distinctTxnIds = (await _db
+            .customSelect('SELECT COUNT(DISTINCT id) AS c FROM transactions;')
+            .getSingle())
+        .read<int>('c');
+    if (distinctTxnIds != actualTxns) {
+      throw const RestoreVerificationException('duplicate_identifier');
+    }
+
+    // (3) Tables that CAN be sanitized (orphans dropped) must never have MORE rows
+    // than the plan — more rows means a stray insert leaked in.
+    for (final entry in plan.expectedRowCounts.entries) {
+      if (entry.key == 'transactions') continue;
+      if (await count(entry.key) > entry.value) {
+        throw const RestoreVerificationException('row_count_mismatch');
+      }
+    }
+
+    // (4) Financial fidelity — the canonical net-expense confirmed total computed
+    // over the RESTORED transactions must equal the total computed over the PLAN's
+    // transactions (Phase-4 semantics). A silent value corruption fails here.
+    final restoredTotal = (await _db
+            .customSelect(
+              'SELECT COALESCE(SUM(${FinancialSql.netExpenseSignedAmount()}), 0) AS t '
+              'FROM transactions WHERE ${FinancialSql.confirmedPredicate()};',
+            )
+            .getSingle())
+        .read<double>('t');
+    final planTotal = _planNetExpenseTotal(plan);
+    if ((restoredTotal - planTotal).abs() > 1e-6) {
+      throw const RestoreVerificationException('total_mismatch');
+    }
+
+    // (5) No SQLCipher key reference may survive the restore.
+    final keyRef = (await _db
+            .customSelect(
+                "SELECT COALESCE(db_encryption_key_ref, '') AS k FROM user_settings LIMIT 1;")
+            .getSingle())
+        .read<String>('k');
+    if (keyRef.isNotEmpty) {
+      throw const RestoreVerificationException('key_ref_present');
+    }
+
+    // (6) No intentionally-excluded (remote/pending relay/cache) table may be in
+    // the plan — those must never be restored.
+    for (final table in plan.tables.keys) {
+      if (BackupSnapshotBuilder.intentionallyExcluded.contains(table)) {
+        throw const RestoreVerificationException('remote_row_present');
+      }
+    }
+  }
+
+  /// Canonical net-expense confirmed total over the plan's transaction rows
+  /// (refund subtracts; payment/withdrawal add; confirmed only) — mirrors
+  /// [FinancialSql.netExpenseSignedAmount] + [FinancialSql.confirmedPredicate].
+  double _planNetExpenseTotal(RestorePlan plan) {
+    var total = 0.0;
+    for (final row in plan.tables['transactions'] ?? const []) {
+      if (row['status'] != 'confirmed') continue;
+      final amount = (row['amount'] as num?)?.toDouble() ?? 0.0;
+      switch (row['type']) {
+        case 'refund':
+          total -= amount;
+        case 'payment':
+        case 'withdrawal':
+          total += amount;
+      }
+    }
+    return total;
+  }
+
   int _schemaVersion(Map<String, dynamic> snapshot) {
     final value = snapshot['schemaVersion'];
     if (value is int && value > 0) return value;
@@ -195,7 +301,7 @@ class RestoreBackupUseCase {
   /// backups so a bad file can never leave the DB half-restored, and refuses a
   /// v3 backup whose categories payload is missing/empty (which would let the
   /// conditional delete wipe the catalog with nothing to restore).
-  Map<String, dynamic> _validateSnapshot(
+  static Map<String, dynamic> validateTables(
     Map<String, dynamic> snapshot,
     int schemaVersion,
   ) {
