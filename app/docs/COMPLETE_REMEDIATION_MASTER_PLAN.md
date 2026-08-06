@@ -507,9 +507,56 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 4 closure #3 — ADMISSION GENERATION + RENEWABLE
+> **Status (2026-08-06): Batch 4 closure #4 — Contract B (single-process) proven;
+> heartbeat/mtime removed as the reaping authority.** Closure #3's renewable
+> heartbeat/mtime lease made a stopped heartbeat authorize reaping — unsafe, because
+> a live isolate blocked in a long SQLite call (or a paused/suspended isolate) stops
+> heartbeating without closing its connection, so destructive maintenance could
+> begin over a still-open connection. This pass replaces that authority.
+>
+> **Step 1 — process-access inventory (docs/PROCESS_ACCESS_INVENTORY.md).** Every
+> executable that could touch the DB was audited against the actual manifests,
+> entitlements, and Xcode targets. Result: **Contract B — exactly one OS process
+> (the Flutter host app) can ever open the Drift/SQLCipher database.** Evidence: no
+> Swift/Kotlin code references sqlite/sqlcipher/sqlite3mc; the iOS `ShareBankMessage`
+> extension and `BankMessageShortcuts` App Intents are pure-native and stage to the
+> App Group (`UserDefaults(suiteName:)` + shared Keychain) — no `FlutterEngine`, so
+> the `sqlite3mc`/Drift Dart plugin can never load in them; the Android manifest
+> declares no `android:process`, so the notification `ActionBroadcastReceiver` and
+> all receivers run as same-process background isolates; the only three Dart open
+> sites are bootstrap (`open`) + the two `openSecondary` background isolates.
+>
+> **Step 2 — Contract B enforcement + safe authority.** (a) A source-scan gate fails
+> if any extension/receiver imports Drift / embeds a Flutter engine / references the
+> DB, if `android:process` appears, or if a new Dart open site is added. (b) The
+> authoritative lease/intent record is IMMUTABLE and written atomically (temp-file +
+> rename), carrying only a fencing token, owner pid, and instance token — a reader
+> never observes partial content, and liveness = record EXISTENCE, never age.
+>
+> **Step 3 — heartbeat is no longer an authority.** RUNTIME maintenance NEVER reaps:
+> it waits for every shared lease to be RELEASED by its holder with a typed BOUNDED
+> TIMEOUT. A live-but-blocked/paused isolate keeps its lease → maintenance times out
+> (safe), never corrupts; uncertain liveness never authorizes deletion. No
+> wall-clock/mtime decision exists, so forward/backward clock jumps and suspension
+> can never authorize deletion.
+>
+> **Step 4/5 — process-liveness recovery + maintenance entry.** The ONLY reaping is
+> stale-file recovery at process start (`DatabaseProcessLiveness`): a starting
+> process takes a process-lifetime OS advisory lock (POSIX fcntl, released by the OS
+> on death — even SIGKILL); acquiring the exclusive lock is proof that prior
+> instances ended, so it clears leftovers tagged with a DIFFERENT owner pid (pids
+> are unique among live processes); a current-pid live lease is never cleared.
+> `runFileExclusiveMaintenance` enters its callback only after: admission generation
+> valid → new borrows blocked → intent fenced → main borrows drained → new
+> secondaries blocked → every shared lease RELEASED (or, only at startup, its owner
+> proven ended) → uncertain holders yield a typed timeout → stable-zero verified.
+> Proven with a REAL `Process.start` test (a live external holder is not reaped;
+> after SIGKILL its leftover is recovered and a new instance token minted) plus the
+> deterministic isolate/race/timeout suite. Restore/reset itself is NOT started.
+>
+> **Prior — Status (2026-08-06): Batch 4 closure #3 — ADMISSION GENERATION + RENEWABLE
 > (heartbeat/fencing) lease.** Closure #2 shipped the cross-isolate filesystem
-> lease; this pass fixes two correctness gaps the reviewer flagged in it.
+> lease; closure #3 fixed two correctness gaps the reviewer flagged in it.
 >
 > **(1) Ownership is an admission GENERATION, not UID-only.** A UID alone cannot
 > invalidate work from a PREVIOUS session of the SAME user (`A→sign-out→A`, or
