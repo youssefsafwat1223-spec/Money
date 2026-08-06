@@ -26,10 +26,11 @@ export interface LedgerWriteResult {
   created: boolean;
 }
 
-export async function isLedgerDualWriteEnabled(
+export function isLedgerDualWriteEnabled(
   supabase: ReturnType<typeof serviceClient>,
   userId: string | null,
 ): Promise<boolean> {
+  // Returns the resolver's Promise directly (no await needed here).
   return resolveUserBooleanFlag(supabase, 'ledger_dual_write', userId, {
     requireUser: true,
   });

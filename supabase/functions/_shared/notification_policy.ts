@@ -74,8 +74,8 @@ const countryUtcOffsets: Record<string, number> = {
   MA: 1,
 };
 
-// deno-lint-ignore no-explicit-any
 export async function loadNotificationPolicy(
+  // deno-lint-ignore no-explicit-any -- the Supabase Edge client is loosely typed here.
   supabase: any,
   userId: string,
 ): Promise<NotificationPolicy> {

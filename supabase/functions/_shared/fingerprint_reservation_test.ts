@@ -23,6 +23,7 @@ class AtomicMemoryStore implements FingerprintReservationStore {
   }
 
   async find(installIdHash: string, fingerprints: string[]) {
+    await Promise.resolve(); // keep the async store-interface signature
     const data = fingerprints
       .map((fingerprint) => this.rows.get(`${installIdHash}|${fingerprint}`))
       .filter((row): row is FingerprintRow => row != null);
