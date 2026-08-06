@@ -15,7 +15,9 @@ import 'database_seed.dart';
 import 'ownership_guard.dart';
 import 'sql_value_codec.dart';
 
-const int _targetSchemaVersion = 27;
+// v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
+// (created idempotently by _createSchema on both fresh install and upgrade).
+const int _targetSchemaVersion = 28;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -940,6 +942,27 @@ class AppDatabase extends GeneratedDatabase {
   static const int _busyTimeoutMs = 5000;
 
   Future<void> _createSchema() async {
+    // MALI-014/076n §Batch-5-closure §Blocker-1 — the DURABLE restore-operation
+    // journal. Privacy-safe columns ONLY (no passphrase/key/payload/total/path).
+    // Excluded from backup/restore/sync/export (see BackupSnapshotBuilder). The
+    // `committed` transition is written INSIDE the restore transaction so it is
+    // atomic with the restored data; a crash after commit is discovered here at
+    // startup so a destructive restore is never replayed.
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS restore_operations(
+        operation_id TEXT PRIMARY KEY,
+        source_fingerprint TEXT NOT NULL,
+        envelope_version INTEGER NOT NULL,
+        snapshot_schema_version INTEGER NOT NULL,
+        owner_generation_hash TEXT NULL,
+        state TEXT NOT NULL,
+        prepared_at TEXT NOT NULL,
+        committed_at TEXT NULL,
+        acknowledged_at TEXT NULL,
+        terminal_error_class TEXT NULL
+      );
+    ''');
+
     await customStatement('''
       CREATE TABLE IF NOT EXISTS categories(
         id TEXT PRIMARY KEY,

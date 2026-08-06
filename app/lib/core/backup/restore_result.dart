@@ -9,6 +9,11 @@ enum RestoreOutcome {
   /// The restore committed AND the database reopened successfully.
   success,
 
+  /// The restore committed durably but was not yet acknowledged (discovered after
+  /// a crash/restart, or a lost UI acknowledgement) — the restored data is
+  /// authoritative and must NOT be replayed; the caller acknowledges idempotently.
+  committedPendingAcknowledgement,
+
   /// The user cancelled before destructive mutation began.
   cancelled,
 
@@ -82,6 +87,13 @@ class RestoreResult {
   final List<String> warnings;
 
   bool get isSuccess => outcome == RestoreOutcome.success;
+
+  /// True when the restore is durably committed — a fresh success OR a
+  /// discovered-after-restart committed operation. In both cases the restored data
+  /// is authoritative and must not be replayed.
+  bool get isCommitted =>
+      outcome == RestoreOutcome.success ||
+      outcome == RestoreOutcome.committedPendingAcknowledgement;
 
   /// True when the pre-restore database is guaranteed intact (no mutation, or a
   /// confirmed rollback).

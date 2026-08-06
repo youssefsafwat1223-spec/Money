@@ -66,15 +66,15 @@ void main() {
 
     final dbFramework = openUninit(newDbFile(), enableMigrations: true);
     addTearDown(dbFramework.close);
-    expect(await userVersion(dbFramework), 27,
+    expect(await userVersion(dbFramework), 28,
         reason: 'framework stamps schemaVersion — the behavior the fix disables');
   });
 
-  test('fresh database (production config) initializes forward to 27', () async {
+  test('fresh database (production config) initializes forward to 28', () async {
     final db = openUninit(newDbFile());
     addTearDown(db.close);
     await db.initialize();
-    expect(await userVersion(db), 27);
+    expect(await userVersion(db), 28);
     expect(await count(db, 'accounts'), greaterThan(0));
     expect(await count(db, 'categories'), greaterThan(0));
   });
@@ -118,7 +118,7 @@ void main() {
 
     await db.initialize();
 
-    expect(await userVersion(db), 27);
+    expect(await userVersion(db), 28);
     expect(await columnExists(db, 'transactions', 'foreign_amount'), isTrue,
         reason: 'version<9 gate fired — real on-disk version (8) was observed');
     expect(await count(db, "transactions WHERE id='legacy_tx'"), 1,
@@ -138,10 +138,10 @@ void main() {
 
     final db2 = openUninit(f);
     addTearDown(db2.close);
-    expect(await userVersion(db2), 27,
-        reason: 'the pipeline persisted 27 to disk; observed on reopen');
+    expect(await userVersion(db2), 28,
+        reason: 'the pipeline persisted 28 to disk; observed on reopen');
     await db2.initialize(); // idempotent no-op
-    expect(await userVersion(db2), 27);
+    expect(await userVersion(db2), 28);
     expect(await count(db2, "accounts WHERE id='marker'"), 1);
   });
 
@@ -161,6 +161,6 @@ void main() {
       throwsA(isA<UnsupportedDatabaseVersionException>()),
     );
     expect(await userVersion(db2), 999,
-        reason: 'fail closed: version untouched, NOT stamped to 27');
+        reason: 'fail closed: version untouched, NOT stamped to 28');
   });
 }

@@ -45,6 +45,10 @@ class DataWipeService {
     'engagement_events',
     'pending_merchant_feedback',
     'financial_cache_health',
+    // MALI-014 Batch-5 — the durable restore-operation journal is per-session
+    // recovery state; clear it on sign-out/account change so a previous owner's
+    // restore operations never carry into the next session (MALI-011).
+    'restore_operations',
     // User-scoped operational rows that used to survive sign-out and leak into
     // the next user's session on this device (the SQLCipher key and DB file are
     // reused across users, so an unwiped table is readable as-is): the previous
