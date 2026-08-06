@@ -507,7 +507,34 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 5 closure — durable replay journal, preparation-time
+> **Status (2026-08-06): Batch 6 — integration reconciliation, documentation,
+> external-verification matrix, formal LOCAL closure.** One real integration defect
+> fixed: the `RestoreController` was unwired — the production restore screen bypassed
+> it, so no explicit confirmation gate existed before destructive mutation.
+> `EncryptedBackupService` now splits `prepareRestore` (download/decrypt/validate, no
+> mutation) from `commitRestore` (mutation via the maintenance gate), and
+> `RestorePromptScreen` drives `RestoreController` with an explicit confirmation
+> dialog — widget-tested to prove preparation never mutates, cancellation runs no
+> mutation, and the mutation runs only after confirmation. Verified schema v28 is
+> owned by the versioned migration pipeline (clean install + realistic v27→v28 upgrade
+> + idempotent reopen + PK constraint). Added the Phase-6 closure document and the
+> external-verification checklist.
+>
+> **Final local status roll-up — `Code complete — locally verified; physical-device,
+> native SQLCipher/process timing, live Supabase, and multi-device verification
+> pending.`** Per finding: **MALI-014** (restore/rollback/recovery) — durable replay
+> journal, prep/mutation split, in-txn verification + atomic rollback, crash/replay,
+> truthful UI; **MALI-027 lifecycle tail** — one migration owner, once-per-open,
+> failed-init cleanup, cross-isolate admission generation; **MALI-058n** — SQLCipher
+> key isolation (key in secure storage only; no key in backup/restore/export);
+> **MALI-069n** — Contract-B single-process invariant, process-liveness OS-lock
+> authority (no heartbeat reaping), file-exclusive maintenance; **MALI-076n** —
+> authenticated v3 envelope + v1/v2 readers, generation CAS + verified download,
+> restore-side pipeline. All external gates are enumerated in
+> `PHASE_6_EXTERNAL_VERIFICATION_CHECKLIST.md`. No new Supabase migration;
+> `kServerRevisionCas = false`; migration 0070 inactive; 0068–0076 undeployed.
+>
+> **Prior — Status (2026-08-06): Batch 5 closure — durable replay journal, preparation-time
 > compatibility adapters, complete rollback evidence, crash/replay recovery, and a
 > truthful UI controller.** Five gaps flagged after Batch-5's core were closed:
 >

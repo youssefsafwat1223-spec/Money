@@ -5,7 +5,20 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 6 Batch 5 closure — durable replay journal (local
+- **Last updated:** **Phase 6 Batch 6 — integration reconciliation, documentation,
+  external-verification matrix, formal LOCAL closure — 2026-08-06.** Fixed one real
+  integration defect: the `RestoreController` existed but was unwired — the
+  production restore screen bypassed it, so there was NO explicit confirmation gate
+  before destructive mutation. `EncryptedBackupService` now exposes prepareRestore
+  (no mutation) + commitRestore; `RestorePromptScreen` drives the controller with an
+  explicit confirmation dialog (widget-tested: preparation never mutates, cancel = no
+  mutation, confirm = mutation + navigate). Verified the v28 journal schema is
+  version-pipeline-owned (clean install + realistic v27→v28 upgrade + idempotent
+  reopen + PK). Added `PHASE_6_DATABASE_BACKUP_RESTORE.md` (closure doc) +
+  `PHASE_6_EXTERNAL_VERIFICATION_CHECKLIST.md`. **Phase-6 local roll-up: Code
+  complete — locally verified; physical-device, native SQLCipher/process timing, live
+  Supabase, and multi-device verification pending.** No new Supabase migration; CAS
+  false; 0070 inactive. Prior — **Phase 6 Batch 5 closure — durable replay journal (local
   schema v28), preparation-time compatibility adapters, full rollback evidence,
   crash/replay recovery, truthful UI controller — 2026-08-06.** The in-memory replay
   guard is replaced by a durable `restore_operations` journal whose `committed`
