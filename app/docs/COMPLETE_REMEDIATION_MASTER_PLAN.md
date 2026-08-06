@@ -388,6 +388,9 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > - **Admin auth (MALI-041):** unchanged — the known admin-test failure is a
 >   test-harness brittleness (Phase-7 scope per prior approval); production admin
 >   authorization (0035 get_user_stats service-role lockdown) is intact.
+>   *(Phase-7 B1 update: MALI-041 is now RESOLVED — the brittle assertion was replaced
+>   by a quote-independent contract + regression; admin suite 8/0. See the Phase-7
+>   status block.)*
 >
 > `4e927db5`/`6ddd5aaa`/`975af849`. Live RLS/RPC/purge/quota under real Postgres +
 > the credential-gated node/deno tests remain external where no local Supabase
@@ -978,20 +981,33 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 7 — CI, tests, architecture, performance, docs
 
-> **Status (2026-08-06): Batch 1 — CI/test-harness/skip/lint/known-failure
-> truthfulness (Code complete · Locally verified).** `tools/ci_gates.sh` is now the
-> truthful canonical gate: it runs the previously CI-invisible Deno lint + Node
-> contract + admin auth suites, latches failures (strict exit), reports UNAVAILABLE
-> toolchains separately from passes, and self-tests its own failure propagation
-> (`--self-test` / `CI_GATES_INJECT_FAILURE`). `.github/workflows/ci.yml` now runs
-> that same gate (was Flutter-only) plus a build_runner generated-code freshness
-> check. **MALI-041** fixed: the admin parser-test is quote/whitespace-independent
-> with 3 negative self-tests (7/0) — no longer a known failure, and now in CI (closes
-> the MALI-066n admin-suite gap). All 4 Deno-lint findings fixed with no semantic
-> change. No production feature behavior changed. See
-> `app/docs/PHASE_7_TEST_AND_CI_CONTRACT.md`. Batches 2–5 not started.
+> **Status (2026-08-06): Batch 1 CLOSURE — CI/test-harness/skip/lint/known-failure
+> truthfulness (Code complete · Locally verified).** `tools/ci_gates.sh` is the SINGLE
+> truthful canonical gate (local == CI, no CI-only subset or extra step): it runs the
+> previously CI-invisible Deno lint + Node contract + admin auth suites, a
+> machine-readable **skip/ignore manifest** gate, and **l10n** freshness (`.g.dart` is
+> gitignored — a git-diff on it was a false-green; committed `app/lib/l10n` is the real
+> staleness surface, checked inside the gate). It latches failures (`PIPESTATUS`,
+> `fail=1`, banner guarded by `fail==0`), reports UNAVAILABLE toolchains separately, a
+> truthful **nested summary** keeps passed/failed/unavailable/node-skipped/deno-ignored/
+> lint-exceptions SEPARATE (+ secret-free `CI_GATES_JSON`), and self-tests its own
+> failure propagation (`--self-test` / `CI_GATES_INJECT_FAILURE`). Skip policy is
+> enforced by `tools/test_skip_manifest.json` + `tools/check_test_skips.mjs` (unexpected/
+> disappeared skip, changed reason, ignored-without-entry, partial/present-credential all
+> FAIL). The locally-testable `Process.start` kill test no longer skips under load
+> (generous readiness + bounded retry; rollback asserted; only genuine dart/native-sqlite
+> absence skips) — 3/3, 0 skips under full load. Exactly **7** retained `deno-lint-ignore
+> no-explicit-any` exceptions, documented + allowlist-contracted. **MALI-041** reconciled
+> to its authoritative identity (double-quote assertion vs single-quote source;
+> `FULL_APP_AUDIT.md:622` / `FINAL_FULL_PRODUCTION_AUDIT.md:122`), baseline reproduced,
+> quote-independent contract + **regression** added → admin **8/0**; distinct from
+> **MALI-066n** (partially addressed — the wired suites are now mandatory + contract-
+> proven; per-function test dirs + `verify_ios_packaging.sh` remain). All 4 Deno-lint
+> findings fixed, no semantic change. No production feature behavior changed. See
+> `app/docs/PHASE_7_TEST_AND_CI_CONTRACT.md`. Batches 2–5 not started; not formally
+> closed until this reconciliation is approved.
 
-- MALI-066n: wire `verify_ios_packaging.sh` into CI; run ALL Deno function tests (not just `_shared`); enable the admin auth suite; one authoritative CI config.
+- MALI-066n: **P7-B1 partial** — admin auth suite, Deno `_shared` tests + lint, Node contract, skip manifest, migration lint, l10n freshness are now mandatory in the ONE canonical gate (`tools/ci_gates.sh`), contract-proven wired. **Remaining:** wire `verify_ios_packaging.sh` into the gate; run per-Edge-function test dirs beyond `_shared/`.
 - MALI-067n/040/041/042/038: replace source-text tests with behavioral/AST tests; close every test DB; remove Drift warning suppression; randomized/repeated ordering; correct font bundling.
 - MALI-034: break the app_shell↔dashboard import cycle; retire/isolate the legacy Supabase-primary repair architecture.
 - MALI-029/030: table-scoped invalidation; streamed/paged reports + memory budgets + large-dataset tests.
