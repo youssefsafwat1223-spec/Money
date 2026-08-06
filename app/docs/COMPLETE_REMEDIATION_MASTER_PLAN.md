@@ -507,7 +507,57 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 
 ## PHASE 6 — Backup, DB, reliability hardening
 
-> **Status (2026-08-06): Batch 4 closure #2 — CROSS-ISOLATE lease + ownership
+> **Status (2026-08-06): Batch 4 closure #3 — ADMISSION GENERATION + RENEWABLE
+> (heartbeat/fencing) lease.** Closure #2 shipped the cross-isolate filesystem
+> lease; this pass fixes two correctness gaps the reviewer flagged in it.
+>
+> **(1) Ownership is an admission GENERATION, not UID-only.** A UID alone cannot
+> invalidate work from a PREVIOUS session of the SAME user (`A→sign-out→A`, or
+> `A→B→A` — a stale job still carrying UID A would be accepted). Phase-2 admission
+> (`AppSession`) now stores a cryptographically-random generation nonce
+> (`local_data_owner_generation`, `Random.secure()`) beside the owner UID: minted
+> on every genuine (re-)admission (idempotent within a live session so its own
+> in-flight jobs stay valid) and invalidated BEFORE any sign-out purge / wipe /
+> ownership change — so it rotates even when the same UID signs in again.
+> `OwnershipGuard` binds a background job to an `AdmissionToken {ownerUid,
+> generation}` (no secret/financial content) and re-validates it at ALL FIVE
+> boundaries: before the lease and before the secondary open (both inside
+> `openSecondary`, typed `StaleOwnershipException`), immediately before the Drift
+> commit, immediately before the native acknowledgement, and before any
+> notification. Both production isolates (background capture-import + the
+> notification-action isolate) capture the token and abort a superseded session
+> WITHOUT committing, acknowledging, or notifying. This REUSES and extends the
+> Phase-2 admission system — no second identity.
+>
+> **(2) Leases and the maintenance intent are RENEWABLE, not fixed-age.** A
+> fixed-age file could be false-reaped while its holder is still alive (a long
+> restore, a paused/suspended device, a forward clock jump). Each lease and the
+> intent now carries a unique fencing token and a HEARTBEAT — a bounded periodic
+> mtime bump done by REWRITING the file (a plain `setLastModified` truncates to
+> whole seconds on macOS, too coarse for a bounded ttl). Liveness/expiry is
+> measured from the LAST heartbeat, so long-running valid work stays protected
+> indefinitely; stale recovery happens only after the heartbeat stops past the ttl
+> AND a re-verification (unchanged token+mtime); cleanup is token-matched (an older
+> holder's cleanup can never remove a newer lease/intent); a killed isolate simply
+> stops beating and becomes recoverable after the ttl — never a permanent lock. The
+> files hold ONLY a random token — no UID, path, key, or financial data.
+>
+> **(3) The shared-acquire vs maintenance-intent race is provably closed.** Shared
+> acquisition is TWO-PHASE (create the lease, THEN re-read the intent and back off
+> if it appeared/changed); the maintenance side publishes its fenced intent, drains
+> every pre-existing live lease, then requires a STABLE-ZERO settle so a lease
+> created concurrently with the last drain check (which self-deletes on its own
+> intent re-read) is waited out before any destructive work. Verified with
+> deterministic REAL-isolate tests: both race windows, "maintenance never enters
+> while a live shared lease exists", a 14-round cross-isolate zero-overlap hammer,
+> long-op-survives-heartbeat, crashed-holder recovery, fencing, typed bounded
+> timeout, and no-leaked-timer/file. `runFileExclusiveMaintenance` is the single
+> explicit Batch-5 primitive (admission-validated → drain borrows → fence intent →
+> drain every shared lease → callback quiesces/reopens → recoverable restores /
+> unrecoverable → `recoveryRequired`). No Drift schema bump; no Supabase migration.
+> Restore/reset itself is NOT started.
+>
+> **Prior — Status (2026-08-06): Batch 4 closure #2 — CROSS-ISOLATE lease + ownership
 > generation.** The in-memory borrow/maintenance gate could not coordinate the two
 > production secondary paths, which run as background isolates (Dart's
 > RandomAccessFile.lock is POSIX-fcntl = per-PROCESS, so it cannot coordinate
