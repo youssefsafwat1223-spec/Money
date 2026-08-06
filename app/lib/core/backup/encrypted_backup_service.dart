@@ -7,12 +7,16 @@ import 'package:cryptography/cryptography.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../data/db/app_database.dart';
+import '../../data/db/database_lease.dart';
+import '../../data/db/ownership_guard.dart';
 import '../utils/id_generator.dart';
 import 'backup_crypto.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
 import 'remote_backup_store.dart';
-import 'restore_backup_usecase.dart';
+import 'restore_preparation.dart';
+import 'restore_result.dart';
+import 'restore_service.dart';
 import 'supabase_remote_backup_store.dart';
 
 class EncryptedBackupService implements BackupService {
@@ -50,6 +54,10 @@ class EncryptedBackupService implements BackupService {
       RemoteBackupPublisher(_remoteStore);
   final BackupCrypto _crypto;
   final Future<void> Function()? _afterRestore;
+
+  // MALI-014/076n §2/§9 — one restore orchestrator per process so its in-memory
+  // operation-replay guard persists across restore attempts.
+  late final RestoreService _restoreService = RestoreService(_database);
 
   @override
   Future<BackupStatus> status() async {
@@ -321,8 +329,38 @@ class EncryptedBackupService implements BackupService {
           );
         }
       }
-      await RestoreBackupUseCase(_database)(snapshot);
-      await _afterRestore?.call();
+      // MALI-014/076n §2 — PREPARATION (already past decode/decrypt/limits above):
+      // validate + build the immutable plan, then MUTATE through the accepted
+      // file-exclusive maintenance primitive with admission validation + in-txn
+      // verification. A non-success outcome throws a safe BackupException; the
+      // original database is preserved by the transaction's rollback.
+      final plan = RestorePreparation.build(
+        snapshot: snapshot,
+        envelopeVersion: blob.version,
+        sourceBytes: bytes,
+        operationId:
+            generation?.operationId ?? RestorePreparation.fingerprint(bytes),
+      );
+      DatabaseLeaseManager? leaseManager;
+      try {
+        leaseManager = await AppDatabase.appSupportLeaseManager();
+      } catch (_) {
+        // No app-support dir (e.g. a headless test) → logical maintenance; there
+        // are no cross-isolate secondaries to fence in that context.
+        leaseManager = null;
+      }
+      final ownershipGuard = OwnershipGuard();
+      final admissionToken = await ownershipGuard.capture();
+      final result = await _restoreService.execute(
+        plan: plan,
+        leaseManager: leaseManager,
+        ownershipGuard: ownershipGuard,
+        admissionToken: admissionToken,
+        afterRestore: _afterRestore,
+      );
+      if (!result.isSuccess) {
+        throw BackupException(_restoreOutcomeMessage(result.outcome));
+      }
       await _storage.write(key: _enabledKey, value: '1');
       if (blob.version >= 3) {
         // Preserve the v3 content key + slots so future background backups can
@@ -386,6 +424,42 @@ class EncryptedBackupService implements BackupService {
       case BackupEnvelopeErrorKind.malformed:
       case BackupEnvelopeErrorKind.decodeFailed:
         return 'ملف النسخة الاحتياطية غير صالح.';
+    }
+  }
+
+  // Safe, non-leaking user messages for a typed restore outcome (MALI-014/076n
+  // §14). No raw error, key, path, or financial value is ever exposed.
+  static String _restoreOutcomeMessage(RestoreOutcome outcome) {
+    switch (outcome) {
+      case RestoreOutcome.ownershipChanged:
+        return 'تغيّر الحساب أثناء الاستعادة. سجّل الدخول بالحساب الصحيح ثم أعد المحاولة.';
+      case RestoreOutcome.maintenanceTimeout:
+      case RestoreOutcome.databaseBusy:
+        return 'قاعدة البيانات مشغولة الآن. أغلق العمليات الأخرى وأعد المحاولة.';
+      case RestoreOutcome.recoveryRequired:
+      case RestoreOutcome.reopenFailed:
+      case RestoreOutcome.rollbackFailed:
+        return 'تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح. أعد تشغيل التطبيق.';
+      case RestoreOutcome.incompatibleSnapshot:
+      case RestoreOutcome.unsupportedEnvelope:
+        return 'هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.';
+      case RestoreOutcome.authenticationFailed:
+        return 'كلمة مرور النسخة الاحتياطية غير صحيحة.';
+      case RestoreOutcome.payloadTooLarge:
+      case RestoreOutcome.malformedBackup:
+        return 'ملف النسخة الاحتياطية غير صالح.';
+      case RestoreOutcome.remoteObjectUnavailable:
+      case RestoreOutcome.remoteIntegrityFailed:
+      case RestoreOutcome.localFileUnavailable:
+        return 'تعذّر الوصول إلى النسخة الاحتياطية.';
+      case RestoreOutcome.validationFailed:
+      case RestoreOutcome.rollbackCompleted:
+        return 'تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.';
+      case RestoreOutcome.cancelled:
+        return 'أُلغيت الاستعادة.';
+      case RestoreOutcome.success:
+      case RestoreOutcome.internalFailure:
+        return 'تعذّرت الاستعادة. أعد المحاولة.';
     }
   }
 
