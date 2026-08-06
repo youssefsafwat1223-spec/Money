@@ -11,6 +11,7 @@ import '../../core/utils/id_generator.dart';
 import 'database_key_store.dart';
 import 'database_lease.dart';
 import 'database_seed.dart';
+import 'ownership_guard.dart';
 import 'sql_value_codec.dart';
 
 const int _targetSchemaVersion = 27;
@@ -249,9 +250,19 @@ class AppDatabase extends GeneratedDatabase {
     DatabaseKeyStore? keyStore,
     AppDatabase? owner,
     DatabaseLeaseManager? leaseManager,
+    OwnershipGuard? ownershipGuard,
+    AdmissionToken? admissionToken,
   }) async {
     if (owner != null && !owner.admitsSecondary) {
       throw const DatabaseLifecycleException(DatabaseLifecycleFailure.closed);
+    }
+    // MALI-069n §Blocker-1 point 1 — validate the admission generation BEFORE
+    // acquiring the lease: a job from a previous session (sign-out / wipe /
+    // ownership change / same-UID re-login) is refused before it touches anything.
+    if (ownershipGuard != null &&
+        admissionToken != null &&
+        !await ownershipGuard.isCurrent(admissionToken)) {
+      throw const StaleOwnershipException();
     }
     // Cross-isolate admission: acquire a SHARED lease first, so the secondary is
     // refused while file-exclusive maintenance intent is active and, once open,
@@ -259,6 +270,13 @@ class AppDatabase extends GeneratedDatabase {
     // released on close.
     final lease = leaseManager != null ? await leaseManager.acquireShared() : null;
     try {
+      // MALI-069n §Blocker-1 point 2 — re-validate immediately before opening the
+      // connection (ownership can change between the lease and the open).
+      if (ownershipGuard != null &&
+          admissionToken != null &&
+          !await ownershipGuard.isCurrent(admissionToken)) {
+        throw const StaleOwnershipException();
+      }
       final db = await open(keyStore: keyStore, runMigrations: false);
       db._lease = lease;
       return db;
@@ -692,6 +710,43 @@ class AppDatabase extends GeneratedDatabase {
         if (!waiter.isCompleted) waiter.complete();
       }
     }
+  }
+
+  /// MALI-069n §Batch-5 primitive — the single explicit file-exclusive maintenance
+  /// entry point the Batch-5 restore/reset will build on. It does NOT itself rewrite
+  /// restore; it guarantees the boundary around [action]:
+  ///   * the captured admission generation is validated first (a job from a
+  ///     superseded session aborts with [StaleOwnershipException] before any lock);
+  ///   * in-memory main borrows are drained (bounded);
+  ///   * a fenced cross-isolate maintenance intent is published, refusing NEW
+  ///     secondaries, and every pre-existing live shared lease is drained with a
+  ///     stable-zero settle so no lease can enter during [action];
+  ///   * quiescing/closing the main executor and the safe reopen happen INSIDE
+  ///     [action] (that is restore's job); a recoverable failure restores the prior
+  ///     usable lifecycle, and an unrecoverable reopen failure surfaces as
+  ///     [DatabaseLifecycleFailure.recoveryRequired].
+  /// No file deletion/replacement may begin inside [action] while any shared lease
+  /// exists — the drain above is what guarantees that.
+  Future<T> runFileExclusiveMaintenance<T>(
+    Future<T> Function() action, {
+    required DatabaseLeaseManager leaseManager,
+    OwnershipGuard? ownershipGuard,
+    AdmissionToken? admissionToken,
+    Duration drainTimeout = const Duration(seconds: 10),
+    Duration exclusiveTimeout = const Duration(seconds: 10),
+  }) async {
+    if (ownershipGuard != null &&
+        admissionToken != null &&
+        !await ownershipGuard.isCurrent(admissionToken)) {
+      throw const StaleOwnershipException();
+    }
+    return runExclusiveMaintenance(
+      action,
+      mode: MaintenanceMode.fileExclusive,
+      leaseManager: leaseManager,
+      drainTimeout: drainTimeout,
+      exclusiveTimeout: exclusiveTimeout,
+    );
   }
 
   Future<void> _drainBorrows(Duration timeout) async {

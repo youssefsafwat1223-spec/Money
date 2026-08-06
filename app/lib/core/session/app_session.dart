@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -46,6 +47,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
   static const String _kCurrentAccount = 'onboarding_current_account_v1';
   static const String _kCompletedAccounts = 'onboarding_completed_accounts_v1';
   static const String _kLocalDataOwnerUid = 'local_data_owner_uid';
+  // MALI-069n §Blocker-1: the ADMISSION GENERATION. A cryptographically-random
+  // nonce rotated on every genuine admission and invalidated before sign-out /
+  // wipe / ownership change, so a background job bound to a previous session is
+  // rejected even when the SAME UID signs in again. Read cross-isolate by
+  // OwnershipGuard. Not a secret; carries no financial data.
+  static const String _kLocalDataOwnerGeneration = 'local_data_owner_generation';
 
   String? authMethod;
   String? email;
@@ -138,7 +145,35 @@ class AppSession extends ValueNotifier<SessionStatus> {
           rethrow;
         }
       }
+      // MALI-069n §Blocker-1: mint a fresh admission generation ONLY when none
+      // exists (a genuine (re-)admission — sign-out/wipe/ownership-change cleared
+      // it). An idempotent reconcile of the SAME live session keeps its generation,
+      // so its own in-flight background jobs stay valid; a real re-login always
+      // sees the generation absent and rotates, rejecting the previous session's
+      // jobs — even for the same UID.
+      await _mintOwnerGenerationIfAbsent();
     }
+  }
+
+  /// Writes a fresh cryptographically-random admission generation iff none is
+  /// currently stored.
+  Future<void> _mintOwnerGenerationIfAbsent() async {
+    final existing = await _storage.read(key: _kLocalDataOwnerGeneration);
+    if (existing != null) return;
+    await _storage.write(
+        key: _kLocalDataOwnerGeneration, value: _newOwnerGeneration());
+  }
+
+  /// Invalidates the admission generation so any in-flight background job bound to
+  /// it is rejected. Called BEFORE a sign-out purge / wipe / ownership change.
+  Future<void> _invalidateOwnerGeneration() async {
+    await _storage.delete(key: _kLocalDataOwnerGeneration);
+  }
+
+  static String _newOwnerGeneration() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   /// Ensures the shared local DB belongs to [uid] BEFORE the session is
@@ -168,6 +203,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _pendingOwnerConflictUid = uid;
       return false;
     }
+    // MALI-069n §Blocker-1: invalidate the admission generation BEFORE the
+    // ownership-change wipe, so a background job from the previous owner is
+    // rejected before any destructive step and the incoming owner mints a fresh
+    // generation on claim below.
+    await _invalidateOwnerGeneration();
     await wipe();
     // MALI-054n: a DIFFERENT identity must NOT be admitted until the previous
     // owner's native/filesystem capture residue is confirmed purged. Fail closed
@@ -384,6 +424,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   Future<void> signOut() async {
+    // MALI-069n §Blocker-1: invalidate the admission generation FIRST, before any
+    // purge/wipe begins, so an in-flight background job bound to this session is
+    // rejected at its next validation boundary and can neither commit nor
+    // acknowledge under the outgoing (or a subsequent) admission.
+    await _invalidateOwnerGeneration();
     // Best-effort final push BEFORE the wipe: the wipe deletes the sync
     // outboxes, so any change made in the last seconds (e.g. a country
     // change right before signing out) would otherwise be destroyed

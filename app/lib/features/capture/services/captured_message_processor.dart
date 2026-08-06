@@ -8,6 +8,7 @@ import '../../../core/utils/install_id.dart';
 import 'capture_device_registration_service.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/ownership_guard.dart';
 import '../../../data/repositories/drift_budget_repository.dart';
 import '../../../data/repositories/drift_card_repository.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
@@ -71,11 +72,21 @@ class CapturedMessageProcessor {
     // contract, no concurrent migrations, and it holds a CROSS-ISOLATE shared
     // lease (refused while file-exclusive maintenance is in progress). Always
     // closed in the finally below (which releases the lease).
+    final shouldCloseDatabase = database == null;
+    // MALI-069n §Blocker-1 — this background isolate does not share the owner
+    // object in memory, so it binds to the current ADMISSION GENERATION and
+    // re-validates at every boundary (points 1/2 in openSecondary, points 3/4/5
+    // below). A previous session's capture never commits or notifies under a new
+    // admission (sign-out / wipe / ownership change / same-UID re-login).
+    final ownershipGuard = shouldCloseDatabase ? OwnershipGuard() : null;
+    final admissionToken =
+        ownershipGuard != null ? await ownershipGuard.capture() : null;
     final db = database ??
         await AppDatabase.openSecondary(
           leaseManager: await AppDatabase.appSupportLeaseManager(),
+          ownershipGuard: ownershipGuard,
+          admissionToken: admissionToken,
         );
-    final shouldCloseDatabase = database == null;
     try {
       final settingsRepository = DriftUserSettingsRepository(db);
       // MALI-060n — the AI/enrichment endpoints authenticate on the server-
@@ -191,6 +202,15 @@ class CapturedMessageProcessor {
         ),
       );
 
+      // Point 3 — re-validate immediately before the Drift commit. If the
+      // admission changed while we were preparing, abort WITHOUT writing: the
+      // capture belongs to a session that no longer owns this database.
+      if (ownershipGuard != null &&
+          admissionToken != null &&
+          !await ownershipGuard.isCurrent(admissionToken)) {
+        throw const StaleOwnershipException();
+      }
+
       final result = await ingestUseCase.fromCapturedMessage(message);
 
       if (result.addTransactionResult.outcome == AddTransactionOutcome.added) {
@@ -202,7 +222,13 @@ class CapturedMessageProcessor {
         await checkBudgetAlert(db, notificationPreferences);
       }
 
-      if (showNotifications) {
+      // Points 4/5 — re-validate before the native acknowledgement / any
+      // notification side effect. A superseded session must never surface a
+      // banner to whoever owns the device now.
+      final ownershipStillValid = ownershipGuard == null ||
+          admissionToken == null ||
+          await ownershipGuard.isCurrent(admissionToken);
+      if (showNotifications && ownershipStillValid) {
         switch (result.disposition) {
           case CapturedMessageDisposition.ignored:
             break;

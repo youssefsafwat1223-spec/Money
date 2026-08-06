@@ -10,6 +10,7 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../../data/db/app_database.dart';
+import '../../../data/db/ownership_guard.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/notification_capacity_planner.dart';
 import '../../../domain/services/notification_planner.dart';
@@ -1125,22 +1126,42 @@ class LocalNotificationService {
     // Supabase هو المرجع — أول قراءة من الخادم كانت تعيد الحالة القديمة.
     // إعادة التطبيق آمنة التكرار في وضع Drift (تأكيد مؤكَّد/حذف محذوف).
     await PendingNotificationActions.record(transactionId, confirm: confirm);
+    // MALI-069n §Blocker-1 — bind this background isolate to the current admission
+    // generation and re-validate at every boundary. A confirm/dismiss for a
+    // previous session's transaction must never be applied to a new owner's DB.
+    final ownershipGuard = OwnershipGuard();
     final AppDatabase db;
+    final AdmissionToken admissionToken;
     try {
+      // Capturing the admission token and opening the SECONDARY connection are in
+      // the same guarded block: a locked-device Keychain read (or the admission
+      // check / lease refusal inside openSecondary) simply defers — the action is
+      // already recorded above and replays under its owning session at next open.
+      admissionToken = await ownershipGuard.capture();
       // MALI-069n §6/§Blocker-1 — a bounded SECONDARY connection in the
       // notification background isolate: same key + PRAGMA contract, no
       // concurrent migrations, and a CROSS-ISOLATE shared lease (refused while
-      // file-exclusive maintenance is in progress). Closed in the finally below
-      // (which releases the lease).
+      // file-exclusive maintenance is in progress). Points 1/2 admission checks
+      // run inside openSecondary. Closed in the finally below (releases the lease).
       db = await AppDatabase.openSecondary(
         leaseManager: await AppDatabase.appSupportLeaseManager(),
+        ownershipGuard: ownershipGuard,
+        admissionToken: admissionToken,
       );
     } catch (_) {
-      // الجهاز غالباً مقفول ومفتاح التشفير غير متاح من الـ Keychain —
-      // الإجراء مسجَّل أعلاه ويُطبَّق عند أول فتح للتطبيق بدلاً من فقدانه.
+      // الجهاز غالباً مقفول ومفتاح التشفير غير متاح من الـ Keychain — أو تغيّرت
+      // الملكية (StaleOwnershipException). الإجراء مسجَّل أعلاه ويُطبَّق (مع فحص
+      // ملكية) عند أول فتح للتطبيق بدلاً من فقدانه.
       return;
     }
     try {
+      // Point 3/4 — re-validate immediately before the Drift commit (which is
+      // also the native acknowledgement of the action). If ownership changed,
+      // skip the write entirely; the recorded action replays under its owning
+      // session, never here.
+      if (!await ownershipGuard.isCurrent(admissionToken)) {
+        return;
+      }
       // تحديث محلي فوري: هو المرجع في وضع Drift، ومجرد تحديث تجميلي للمرآة
       // في وضع Supabase حتى لا يظهر التناقض قبل إعادة التطبيق أعلاه.
       if (confirm) {
