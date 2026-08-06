@@ -4,6 +4,7 @@ import '../../data/db/app_database.dart';
 import '../../domain/finance/financial_semantics.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
+import 'restore_journal.dart';
 import 'restore_plan.dart';
 import 'restore_result.dart';
 
@@ -61,7 +62,18 @@ class RestoreBackupUseCase {
   /// an in-transaction verification runs against it before commit, so any
   /// row-count / financial-total / integrity mismatch rolls the WHOLE restore back
   /// and leaves the original database unchanged.
-  Future<void> call(Map<String, dynamic> snapshot, {RestorePlan? plan}) async {
+  Future<void> call(
+    Map<String, dynamic> snapshot, {
+    RestorePlan? plan,
+    RestoreJournal? journal,
+    String? operationId,
+    String? nowIso,
+    // Test-only deterministic fault injection at named transaction-boundary
+    // points (Batch-5 closure §Blocker-3). The callback throws to simulate a
+    // failure; the whole restore must then roll back with the DB unchanged.
+    void Function(String point)? onFaultPoint,
+  }) async {
+    void fault(String point) => onFaultPoint?.call(point);
     final schemaVersion = _schemaVersion(snapshot);
     if (schemaVersion > currentSchemaVersion) {
       // Reject BEFORE touching the DB — the delete/restore transaction below
@@ -95,19 +107,30 @@ class RestoreBackupUseCase {
     await _db.customStatement('PRAGMA foreign_keys = OFF;');
     try {
       await _db.transaction(() async {
+        var deletedCount = 0;
         for (final table in _deleteOrder) {
           // Conditional delete: only empty a table the backup actually carries
           // (back-compat). A v2 backup has no cards/categories/sender_mappings
           // keys, so its restore must NOT wipe the fresh DB's seeded catalog.
           if (!tables.containsKey(table)) continue;
           await _db.customStatement('DELETE FROM $table;');
+          deletedCount++;
+          if (deletedCount == 1) fault('afterFirstDelete');
+          if (deletedCount == 3) fault('afterSeveralDeletes');
         }
+        var insertedTables = 0;
         for (final table in _restoreOrder) {
           final rows = (tables[table] as List<dynamic>?) ?? const [];
+          var rowIndex = 0;
           for (final row in rows.cast<Map<String, dynamic>>()) {
             await _insertRow(table, row);
+            if (insertedTables == 0 && rowIndex == 0) fault('afterFirstInsert');
+            rowIndex++;
           }
+          insertedTables++;
+          if (insertedTables == 2) fault('afterPartialInsert');
         }
+        fault('duringRelationshipReconstruction');
         // Idempotent no-op for a self-consistent v3 snapshot; heals legacy /
         // cross-catalog dangling references so the committed DB is FK-clean.
         await _sanitizeDanglingReferences();
@@ -120,10 +143,19 @@ class RestoreBackupUseCase {
             'البيانات.',
           );
         }
+        fault('beforeVerification');
         // MALI-014/076n §6 — in-transaction verification against the immutable
         // plan. Any mismatch throws BEFORE commit → the whole restore rolls back
         // and the original database is preserved.
-        if (plan != null) await _verifyAgainstPlan(plan);
+        if (plan != null) await _verifyAgainstPlan(plan, fault);
+        fault('afterVerification');
+        // MALI-014 §Blocker-1 — the DURABLE committed marker is written INSIDE
+        // this transaction, so it commits atomically with the restored data and
+        // rolls back with it. A crash after commit is then discoverable at restart.
+        if (journal != null && operationId != null && nowIso != null) {
+          fault('duringJournalCommit');
+          await journal.markCommittedInTransaction(operationId, nowIso);
+        }
       });
     } finally {
       await _db.customStatement('PRAGMA foreign_keys = ON;');
@@ -200,7 +232,8 @@ class RestoreBackupUseCase {
   /// against the immutable plan. Throws [RestoreVerificationException] on any
   /// mismatch so the transaction rolls back before commit. Runs INSIDE the restore
   /// transaction. No data is surfaced — only protocol labels.
-  Future<void> _verifyAgainstPlan(RestorePlan plan) async {
+  Future<void> _verifyAgainstPlan(RestorePlan plan,
+      [void Function(String point)? fault]) async {
     Future<int> count(String table) async {
       final row = await _db
           .customSelect('SELECT COUNT(*) AS c FROM $table;')
@@ -208,9 +241,13 @@ class RestoreBackupUseCase {
       return row.read<int>('c');
     }
 
-    // (1) Required singleton — the single user_settings row must exist.
+    // (1) Required singleton — the single user_settings row must exist — and at
+    // least one (default) account.
     if (await count('user_settings') != 1) {
       throw const RestoreVerificationException('missing_singleton');
+    }
+    if (await count('accounts') < 1) {
+      throw const RestoreVerificationException('missing_default_account');
     }
 
     // (2) Transactions are never sanitized away, so their count must match the
@@ -238,19 +275,31 @@ class RestoreBackupUseCase {
       }
     }
 
-    // (4) Financial fidelity — the canonical net-expense confirmed total computed
-    // over the RESTORED transactions must equal the total computed over the PLAN's
-    // transactions (Phase-4 semantics). A silent value corruption fails here.
-    final restoredTotal = (await _db
-            .customSelect(
-              'SELECT COALESCE(SUM(${FinancialSql.netExpenseSignedAmount()}), 0) AS t '
-              'FROM transactions WHERE ${FinancialSql.confirmedPredicate()};',
-            )
-            .getSingle())
-        .read<double>('t');
-    final planTotal = _planNetExpenseTotal(plan);
-    if ((restoredTotal - planTotal).abs() > 1e-6) {
-      throw const RestoreVerificationException('total_mismatch');
+    fault?.call('duringVerification');
+
+    // (4) Financial fidelity PER CURRENCY — the canonical net-expense confirmed
+    // total computed over the RESTORED transactions, grouped by currency, must
+    // equal the totals computed over the PLAN's transactions (Phase-4 semantics).
+    // A silent value/currency corruption fails here.
+    final restoredByCurrency = <String, double>{};
+    for (final row in await _db
+        .customSelect(
+          'SELECT currency AS cur, '
+          'COALESCE(SUM(${FinancialSql.netExpenseSignedAmount()}), 0) AS t '
+          'FROM transactions WHERE ${FinancialSql.confirmedPredicate()} '
+          'GROUP BY currency;',
+        )
+        .get()) {
+      restoredByCurrency[row.read<String>('cur')] = row.read<double>('t');
+    }
+    final planByCurrency = _planNetExpensePerCurrency(plan);
+    final currencies = {...restoredByCurrency.keys, ...planByCurrency.keys};
+    for (final currency in currencies) {
+      final a = restoredByCurrency[currency] ?? 0.0;
+      final b = planByCurrency[currency] ?? 0.0;
+      if ((a - b).abs() > 1e-6) {
+        throw const RestoreVerificationException('total_mismatch');
+      }
     }
 
     // (5) No SQLCipher key reference may survive the restore.
@@ -272,23 +321,23 @@ class RestoreBackupUseCase {
     }
   }
 
-  /// Canonical net-expense confirmed total over the plan's transaction rows
-  /// (refund subtracts; payment/withdrawal add; confirmed only) — mirrors
-  /// [FinancialSql.netExpenseSignedAmount] + [FinancialSql.confirmedPredicate].
-  double _planNetExpenseTotal(RestorePlan plan) {
-    var total = 0.0;
+  /// Canonical net-expense confirmed total PER CURRENCY over the plan's
+  /// transaction rows (refund subtracts; payment/withdrawal add; confirmed only) —
+  /// mirrors [FinancialSql.netExpenseSignedAmount] + [FinancialSql.confirmedPredicate].
+  Map<String, double> _planNetExpensePerCurrency(RestorePlan plan) {
+    final totals = <String, double>{};
     for (final row in plan.tables['transactions'] ?? const []) {
       if (row['status'] != 'confirmed') continue;
+      final currency = (row['currency'] as String?) ?? '';
       final amount = (row['amount'] as num?)?.toDouble() ?? 0.0;
-      switch (row['type']) {
-        case 'refund':
-          total -= amount;
-        case 'payment':
-        case 'withdrawal':
-          total += amount;
-      }
+      final delta = switch (row['type']) {
+        'refund' => -amount,
+        'payment' || 'withdrawal' => amount,
+        _ => 0.0,
+      };
+      totals[currency] = (totals[currency] ?? 0.0) + delta;
     }
-    return total;
+    return totals;
   }
 
   int _schemaVersion(Map<String, dynamic> snapshot) {
