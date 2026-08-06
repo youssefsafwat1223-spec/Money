@@ -268,9 +268,16 @@ void main() {
       final plan = await planFrom(src, operationId: 'op-replay');
       expect((await service.execute(plan: plan)).outcome, RestoreOutcome.success);
 
-      // Same op id + same fingerprint → idempotent success, no second mutation.
+      // Same op id + same fingerprint before acknowledgement → the DURABLE journal
+      // reports committedPendingAcknowledgement and does NOT re-mutate.
       final again = await service.execute(plan: plan);
-      expect(again.outcome, RestoreOutcome.success);
+      expect(again.outcome, RestoreOutcome.committedPendingAcknowledgement);
+      expect(await count(dst, 'transactions'), 3);
+
+      // After acknowledgement, a replay is a plain idempotent success (no mutation).
+      await service.acknowledge('op-replay');
+      final acked = await service.execute(plan: plan);
+      expect(acked.outcome, RestoreOutcome.success);
       expect(await count(dst, 'transactions'), 3);
 
       // Same op id + DIFFERENT source fingerprint → rejected.
