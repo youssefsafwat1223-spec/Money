@@ -1,0 +1,57 @@
+{
+  "_doc": "Phase-7 Batch-1 — the machine-readable expected-skip/ignored manifest, keyed by stable reason/name patterns (NOT volatile global counts). tools/check_test_skips.mjs enforces it: an unexpected skip, a changed reason, an ignored test without an entry, partial/malformed credentials, or credentials-present-but-skipped all FAIL the gate.",
+  "credentialGroups": {
+    "supabaseServiceRole": ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
+    "supabaseAnon": ["SUPABASE_URL", "SUPABASE_ANON_KEY"]
+  },
+  "node": {
+    "expectedSkips": [
+      {
+        "reasonContains": "migrations 0075+0076",
+        "group": "supabaseServiceRole",
+        "class": "live-external",
+        "finding": "MALI-076n",
+        "removeWhen": "live Supabase creds present AND migrations 0075/0076 + backups bucket deployed",
+        "mustRunWhenPrereq": true
+      },
+      {
+        "reasonContains": "deployed process-ios-sms",
+        "group": "supabaseAnon",
+        "class": "live-external",
+        "finding": "MALI-070n",
+        "removeWhen": "process-ios-sms deployed AND anon creds present",
+        "mustRunWhenPrereq": true
+      },
+      {
+        "reasonContains": "SUPABASE_SERVICE_ROLE_KEY",
+        "group": "supabaseServiceRole",
+        "class": "live-external",
+        "finding": "MALI-024/054n/076n",
+        "removeWhen": "live Supabase creds present",
+        "mustRunWhenPrereq": true
+      }
+    ]
+  },
+  "_resolvedKnownFailuresDoc": "Findings that were once accepted known-failures and are now RESOLVED. If any pattern reappears as a node # SKIP or `not ok`, the checker FAILS (re-quarantine or regression). Empty today: MALI-041's regression + negative self-tests live in the admin auth suite (canonical gate step 7, which fails on regression); no known-failure remains on the node/deno contract surfaces.",
+  "resolvedKnownFailures": [],
+  "deno": {
+    "expectedIgnored": [
+      {
+        "nameContains": "claim_ai_idempotency: claimed",
+        "group": "supabaseServiceRole",
+        "class": "live-external",
+        "finding": "MALI-060n",
+        "removeWhen": "live Postgres creds present",
+        "mustRunWhenPrereq": true
+      },
+      {
+        "nameContains": "concurrent claims resolve to exactly one claimed",
+        "group": "supabaseServiceRole",
+        "class": "live-external",
+        "finding": "MALI-060n",
+        "removeWhen": "live Postgres creds present",
+        "mustRunWhenPrereq": true
+      }
+    ]
+  }
+}
