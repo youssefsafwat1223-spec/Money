@@ -22,23 +22,33 @@ test("ci_gates --self-test proves a failed gate exits non-zero", () => {
 test("the canonical gate wires in the previously CI-invisible mandatory suites", () => {
   const sh = readFileSync(`${root}/tools/ci_gates.sh`, "utf8");
   assert.match(sh, /deno lint/, "deno lint gate");
-  assert.match(sh, /node --test supabase\/tests/, "node contract gate");
+  assert.match(sh, /node --test/, "node test runner");
+  assert.match(sh, /supabase\/tests\/\*\.mjs/, "node contract gate");
+  assert.match(sh, /check_test_skips\.mjs/, "skip/ignore manifest gate");
   assert.match(sh, /npm run --silent test:auth/, "admin authorization gate");
   assert.match(sh, /check_migrations\.sh/, "migration lint gate");
-  // It must be able to report UNAVAILABLE separately from pass.
+  assert.match(sh, /flutter gen-l10n/, "l10n freshness gate");
+  // Reports UNAVAILABLE separately from pass, and a truthful nested summary.
   assert.match(sh, /unavail/);
+  assert.match(sh, /node tests skipped/);
+  assert.match(sh, /deno tests ignored/);
+  assert.match(sh, /CI_GATES_JSON/);
 });
 
-test("the CI workflow invokes the canonical gate (local/CI parity)", () => {
+test("the CI workflow invokes the canonical gate as its only validation step", () => {
   const yml = readFileSync(`${root}/.github/workflows/ci.yml`, "utf8");
   assert.match(yml, /bash tools\/ci_gates\.sh/, "CI runs the canonical gate");
-  // No CI-only shortcut: the freshness + admin + backend gates are present.
-  assert.match(yml, /Generated-code freshness/);
+  assert.match(yml, /Run canonical CI gates/);
+  // No competing CI-only validation step (freshness now lives inside the gate).
+  assert.doesNotMatch(yml, /git diff --exit-code/);
 });
 
 test("the gate cannot print an all-passed banner while a mandatory suite failed", () => {
   const sh = readFileSync(`${root}/tools/ci_gates.sh`, "utf8");
-  // The success banner is guarded by `fail -eq 0`.
   assert.match(sh, /if \[ "\$fail" -eq 0 \]; then/);
   assert.match(sh, /SOME GATES FAILED/);
+  // pass_count is only ever incremented by ok() — skipped/ignored increment their
+  // own counters, never pass_count.
+  assert.match(sh, /ok\(\)\s*\{[^}]*pass_count=/);
+  assert.match(sh, /unavail\(\)\s*\{[^}]*unavail_count=/);
 });

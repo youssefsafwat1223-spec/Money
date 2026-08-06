@@ -41,22 +41,19 @@ jobs:
         working-directory: app
         run: flutter pub get
 
+      # Regenerate the GITIGNORED drift/freezed/json code so the gate's flutter suite
+      # compiles (these files are not committed; l10n freshness is checked in the gate).
       - name: Run build_runner
         working-directory: app
         run: dart run build_runner build --delete-conflicting-outputs
-
-      # Phase-7 B1 — generated-code freshness: committed generated output must match a
-      # fresh build_runner run. A stale artifact fails the gate.
-      - name: Generated-code freshness
-        working-directory: app
-        run: git diff --exit-code || (echo "::error::committed generated code is stale — run build_runner and commit" && exit 1)
 
       - name: Install admin dependencies
         working-directory: admin
         run: npm ci
 
-      # Phase-7 B1 — the SAME canonical gate developers run locally (analyze, full
-      # Flutter suite, deno tests + lint, node contract tests, admin auth, migration
-      # lint). No CI-only subset that omits mandatory tests.
+      # Phase-7 B1 — the SAME canonical gate developers run locally is the ONLY
+      # repository-wide validation step (analyze, full Flutter suite, deno tests +
+      # lint, node contract tests, skip/ignore manifest, admin auth, migration lint,
+      # l10n freshness). No CI-only subset that omits or adds a mandatory step.
       - name: Run canonical CI gates
         run: bash tools/ci_gates.sh
