@@ -36,10 +36,63 @@ test("all admin API handlers invoke the server authorization guard", () => {
   }
 });
 
+// MALI-041 — a quote/whitespace-independent structural contract (was a brittle
+// double-quote string match). It proves the parser-test privileged path (1) verifies
+// authentication, (2) verifies the admin allowlist, (3) does BOTH before the first
+// privileged read — and cannot trust a caller-supplied identity.
+const _first = (source, regex) => {
+  const m = regex.exec(source);
+  return m ? m.index : -1;
+};
+const _reAuth = /auth\s*\.\s*getUser\s*\(/;
+const _reAdmin = /\.\s*from\s*\(\s*['"]admin_users['"]\s*\)/;
+const _reRead = /\.\s*from\s*\(\s*['"]sms_parsers['"]\s*\)/;
+
+// Returns true only when auth → admin allowlist → first privileged read appear in
+// that order. Quote/whitespace/format independent.
+function enforcesAuthThenAdminThenRead(source) {
+  const auth = _first(source, _reAuth);
+  const admin = _first(source, _reAdmin);
+  const read = _first(source, _reRead);
+  if (auth < 0 || admin < 0 || read < 0) return false;
+  return auth < admin && admin < read;
+}
+
 test("parser test verifies JWT and admin allowlist before privileged reads", () => {
   const source = read("../supabase/functions/parser-test/index.ts");
-  const authIndex = source.indexOf("client.auth.getUser(token)");
-  const adminIndex = source.indexOf('.from("admin_users")');
-  const parserIndex = source.indexOf('.from("sms_parsers")');
-  assert.ok(authIndex >= 0 && adminIndex > authIndex && parserIndex > adminIndex);
+  assert.ok(
+    enforcesAuthThenAdminThenRead(source),
+    "auth.getUser → admin_users allowlist → sms_parsers read (in that order)",
+  );
+  // Never trusts a caller-supplied admin identity (no role/header/body admin claim).
+  assert.doesNotMatch(
+    source,
+    /(isAdmin|is_admin|role)\s*[=:]\s*(req|request|body|headers|payload)/i,
+  );
+});
+
+// Negative self-tests: the contract check MUST fail when the security property is
+// broken — so a future regression cannot pass silently.
+test("contract FAILS when the authentication check is removed", () => {
+  const source = read("../supabase/functions/parser-test/index.ts").replace(
+    _reAuth,
+    "noAuth(",
+  );
+  assert.equal(enforcesAuthThenAdminThenRead(source), false);
+});
+
+test("contract FAILS when the admin allowlist check is removed", () => {
+  const source = read("../supabase/functions/parser-test/index.ts").replace(
+    _reAdmin,
+    ".from('not_admin')",
+  );
+  assert.equal(enforcesAuthThenAdminThenRead(source), false);
+});
+
+test("contract FAILS when a privileged read occurs before the checks", () => {
+  const bad =
+    "await client.from('sms_parsers').select('*');\n" +
+    "await client.auth.getUser(token);\n" +
+    "await client.from('admin_users').select('id');";
+  assert.equal(enforcesAuthThenAdminThenRead(bad), false);
 });
