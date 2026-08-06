@@ -358,8 +358,13 @@ class EncryptedBackupService implements BackupService {
         admissionToken: admissionToken,
         afterRestore: _afterRestore,
       );
-      if (!result.isSuccess) {
+      if (!result.isCommitted) {
         throw BackupException(_restoreOutcomeMessage(result.outcome));
+      }
+      // A committed restore (fresh or discovered after a crash/restart) is
+      // authoritative — acknowledge idempotently; it is never destructively replayed.
+      if (result.operationId != null) {
+        await _restoreService.acknowledge(result.operationId!);
       }
       await _storage.write(key: _enabledKey, value: '1');
       if (blob.version >= 3) {
@@ -458,6 +463,7 @@ class EncryptedBackupService implements BackupService {
       case RestoreOutcome.cancelled:
         return 'أُلغيت الاستعادة.';
       case RestoreOutcome.success:
+      case RestoreOutcome.committedPendingAcknowledgement:
       case RestoreOutcome.internalFailure:
         return 'تعذّرت الاستعادة. أعد المحاولة.';
     }
