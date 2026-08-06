@@ -5,6 +5,11 @@ import 'dart:isolate';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/database_lease.dart';
 
+// MALI-069n (Batch-4 closure #4) — the cross-isolate lease under Contract B.
+// Heartbeat/mtime is NO LONGER an authority: liveness = record existence; runtime
+// maintenance never reaps (typed bounded timeout); the only reaping is process-
+// start recovery. Records are immutable + atomic. Deterministic timings.
+
 /// Minimal sequential inbox over a ReceivePort (avoids a package:async dep).
 class _Inbox {
   _Inbox(ReceivePort port) {
@@ -31,18 +36,10 @@ class _Inbox {
   }
 }
 
-// MALI-069n (Batch-4 closure #3) — the cross-isolate database-use lease.
-//   * Blocker 2: renewable heartbeat/fencing — a live operation is never
-//     false-reaped, and only the token owner may remove a file.
-//   * Blocker 3: the shared-acquire vs maintenance-intent race is impossible.
-// Fast, deterministic timings (real timers, temp filesystem state).
-
 DatabaseLeaseManager _manager(Directory dir) => DatabaseLeaseManager(
       leaseDir: '${dir.path}/leases',
       intentPath: '${dir.path}/db.maint',
-      leaseTtl: const Duration(milliseconds: 400),
-      heartbeatInterval: const Duration(milliseconds: 90),
-      settleWindow: const Duration(milliseconds: 60),
+      settleWindow: const Duration(milliseconds: 40),
       pollStep: const Duration(milliseconds: 15),
     );
 
@@ -53,7 +50,8 @@ void main() {
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   });
 
-  group('Blocker 2 — renewable heartbeat / fencing', () {
+  group('no runtime reaping — a live holder is never reaped (heartbeat removed)',
+      () {
     test('two secondaries coexist normally', () async {
       final m = _manager(dir);
       final a = await m.acquireShared();
@@ -64,39 +62,9 @@ void main() {
       expect(m.debugLiveLeaseCount(), 0);
     });
 
-    test('a long secondary operation exceeds the old stale threshold but stays '
-        'protected by its heartbeat (maintenance keeps waiting)', () async {
-      final m = _manager(dir);
-      final lease = await m.acquireShared();
-      // Hold well past leaseTtl (400ms) — the heartbeat must keep it live.
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-      expect(m.debugLiveLeaseCount(), 1, reason: 'heartbeat kept it live');
-      // Maintenance still cannot acquire while this live lease exists.
-      await expectLater(
-        m.acquireExclusive(timeout: const Duration(milliseconds: 200)),
-        throwsA(isA<DatabaseLeaseUnavailable>()),
-      );
-      await lease.release();
-      expect(m.debugLiveLeaseCount(), 0);
-    });
-
-    test('a long maintenance exceeds the old stale threshold but still blocks '
-        'new secondaries', () async {
-      final m = _manager(dir);
-      final exclusive = await m.acquireExclusive();
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-      // Intent heartbeat kept it live → a new secondary is still refused.
-      await expectLater(
-        m.acquireShared(),
-        throwsA(isA<DatabaseLeaseUnavailable>()),
-      );
-      expect(await m.debugIntentLive(), isTrue);
-      await exclusive.release();
-      expect(await m.debugIntentLive(), isFalse);
-    });
-
-    test('maintenance timeout is typed and bounded when a live lease never '
-        'drains', () async {
+    test('a holder that NEVER releases (a blocked/paused isolate) is not reaped; '
+        'maintenance returns a typed bounded timeout; releasing lets it proceed',
+        () async {
       final m = _manager(dir);
       final lease = await m.acquireShared();
       final started = DateTime.now();
@@ -105,56 +73,95 @@ void main() {
         throwsA(isA<DatabaseLeaseUnavailable>()
             .having((e) => e.reason, 'reason', 'timeout')),
       );
-      // Bounded — did not hang far past the timeout.
-      expect(DateTime.now().difference(started).inMilliseconds, lessThan(2000));
+      expect(DateTime.now().difference(started).inMilliseconds, lessThan(3000));
+      expect(m.debugLiveLeaseCount(), 1, reason: 'never reaped');
+      await lease.release();
+      final ok = await m.acquireExclusive(timeout: const Duration(seconds: 2));
+      await ok.release();
+    });
+
+    test('lease age / clock anomalies never authorize deletion (existence, not '
+        'mtime, is liveness)', () async {
+      final m = _manager(dir);
+      final lease = await m.acquireShared();
+      final leaseFile = Directory('${dir.path}/leases')
+          .listSync()
+          .whereType<File>()
+          .firstWhere((f) => f.path.endsWith('.lease'));
+      // Forward jump: pretend the record is ancient. Backward jump: pretend future.
+      leaseFile.setLastModifiedSync(
+          DateTime.now().subtract(const Duration(days: 365)));
+      expect(m.debugLiveLeaseCount(), 1);
+      leaseFile.setLastModifiedSync(
+          DateTime.now().add(const Duration(days: 365)));
+      expect(m.debugLiveLeaseCount(), 1);
+      // Maintenance still refuses to reap and times out.
+      await expectLater(
+        m.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+        throwsA(isA<DatabaseLeaseUnavailable>()),
+      );
       await lease.release();
     });
 
-    test('an old cleanup token cannot remove a newer replacement at the same '
-        'path (fencing)', () async {
+    test('an empty/partial record is treated as live/unknown — never deleted at '
+        'runtime', () async {
+      final m = _manager(dir);
+      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
+      final partial = File('${leaseDir.path}/p.lease')..writeAsStringSync('');
+      // Fencing delete refuses a malformed record.
+      await DatabaseLeaseManager.deleteIfTokenForTest(partial, 'anytoken');
+      expect(partial.existsSync(), isTrue);
+      // Counted as live (existence) → maintenance waits it out → typed timeout.
+      expect(m.debugLiveLeaseCount(), 1);
+      await expectLater(
+        m.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+        throwsA(isA<DatabaseLeaseUnavailable>()),
+      );
+    });
+
+    test('an old cleanup token cannot remove a newer replacement (fencing)',
+        () async {
       final f = File('${dir.path}/db.maint');
-      await f.writeAsString('NEW-token');
-      // A stale holder that still thinks it owns "OLD-token" tries to clean up.
+      await f.writeAsString('NEW-token\n123\ninst');
       await DatabaseLeaseManager.deleteIfTokenForTest(f, 'OLD-token');
-      expect(f.existsSync(), isTrue, reason: 'wrong token must not delete');
-      // Only the true owner removes it.
+      expect(f.existsSync(), isTrue);
       await DatabaseLeaseManager.deleteIfTokenForTest(f, 'NEW-token');
       expect(f.existsSync(), isFalse);
     });
 
-    test('release stops the heartbeat and does not resurrect the file '
-        '(no leaked timer/lease file)', () async {
+    test('release removes the record — no leaked lease file', () async {
       final m = _manager(dir);
       final lease = await m.acquireShared();
       final path = '${dir.path}/leases';
       expect(Directory(path).listSync().whereType<File>().length, 1);
       await lease.release();
-      final after = Directory(path).listSync().whereType<File>().length;
-      expect(after, 0);
-      // Wait > heartbeat: a leaked timer would touch/recreate a file.
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      expect(Directory(path).listSync().whereType<File>().length, 0,
-          reason: 'heartbeat was cancelled — nothing resurrected');
-    });
-
-    test('a crashed holder file (heartbeat stopped) is recovered after ttl',
-        () async {
-      final m = _manager(dir);
-      // Simulate a killed holder: a lease file with a stale mtime, no heartbeat.
-      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
-      final stale = File('${leaseDir.path}/999_0_0.lease');
-      await stale.writeAsString('dead-token');
-      stale.setLastModifiedSync(
-          DateTime.now().subtract(const Duration(seconds: 5)));
-      expect(m.debugLiveLeaseCount(), 0, reason: 'stale is not counted live');
-      // Maintenance recovers past the crashed holder.
-      final exclusive =
-          await m.acquireExclusive(timeout: const Duration(seconds: 2));
-      await exclusive.release();
+      expect(Directory(path).listSync().whereType<File>().length, 0);
     });
   });
 
-  group('Blocker 3 — no shared-acquire vs maintenance-intent race', () {
+  group('runtime never reaps even an ended-instance leftover; startup recovery '
+      'does', () {
+    test('a different-pid leftover blocks runtime maintenance (timeout) but is '
+        'cleared by process-start recovery', () async {
+      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
+      File('${leaseDir.path}/999_0_z.lease')
+          .writeAsStringSync('tok\n424242\nended-inst');
+      final m = _manager(dir); // ownerPid = current pid (differs from 424242)
+      // Runtime maintenance does NOT reap it — even though the pid differs — it
+      // times out (safe).
+      await expectLater(
+        m.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+        throwsA(isA<DatabaseLeaseUnavailable>()),
+      );
+      // Startup recovery (process-lock-gated in production) clears the ended
+      // instance's leftover, then maintenance proceeds.
+      expect(m.recoverEndedInstances(), 1);
+      final ok = await m.acquireExclusive(timeout: const Duration(seconds: 2));
+      await ok.release();
+    });
+  });
+
+  group('shared-acquire vs maintenance-intent race (two-phase)', () {
     test('intent that appears BETWEEN the pre-check and lease creation is caught '
         'by the phase-3 re-check (shared aborts, no lease left)', () async {
       final m = _manager(dir);
@@ -166,10 +173,9 @@ void main() {
         throwsA(isA<DatabaseLeaseUnavailable>()),
       );
       addTearDown(() async => intent?.release());
-      // The aborted secondary left no lease behind.
       final leaseDir = Directory('${dir.path}/leases');
       final leftover = leaseDir.existsSync()
-          ? leaseDir.listSync().whereType<File>().length
+          ? leaseDir.listSync().whereType<File>().where((f) => f.path.endsWith('.lease')).length
           : 0;
       expect(leftover, 0);
     });
@@ -187,7 +193,7 @@ void main() {
       addTearDown(() async => intent?.release());
       final leaseDir = Directory('${dir.path}/leases');
       final leftover = leaseDir.existsSync()
-          ? leaseDir.listSync().whereType<File>().length
+          ? leaseDir.listSync().whereType<File>().where((f) => f.path.endsWith('.lease')).length
           : 0;
       expect(leftover, 0);
     });
@@ -199,7 +205,6 @@ void main() {
       var entered = false;
       final fut = m.acquireExclusive(timeout: const Duration(seconds: 2)).then((ex) {
         entered = true;
-        // Invariant: at the moment exclusivity is granted, zero live leases.
         expect(m.debugLiveLeaseCount(), 0);
         return ex;
       });
@@ -211,8 +216,8 @@ void main() {
       await ex.release();
     });
 
-    test('repeated shared-vs-exclusive race across a real isolate has zero '
-        'overlap', () async {
+    test('repeated shared-vs-exclusive race across a real isolate has zero overlap',
+        () async {
       final m = _manager(dir);
       Directory('${dir.path}/leases').createSync(recursive: true);
       final ctrl = ReceivePort();
@@ -222,9 +227,7 @@ void main() {
         '${dir.path}/db.maint',
       ]);
       final inbox = _Inbox(ctrl);
-      final SendPort stop = await inbox.next() as SendPort; // worker ready
-
-      // Interleave maintenance rounds against the hammering isolate.
+      final SendPort stop = await inbox.next() as SendPort;
       for (var i = 0; i < 14; i++) {
         final ex = await m.acquireExclusive(timeout: const Duration(seconds: 3));
         expect(m.debugLiveLeaseCount(), 0,
@@ -233,9 +236,8 @@ void main() {
         await ex.release();
         await Future<void>.delayed(const Duration(milliseconds: 12));
       }
-
       stop.send('stop');
-      await inbox.next(); // worker acked stop
+      await inbox.next();
       worker.kill(priority: Isolate.immediate);
       ctrl.close();
     });
@@ -251,20 +253,15 @@ void main() {
         '${dir.path}/db.maint',
       ]);
       final inbox = _Inbox(ctrl);
-      final SendPort release = await inbox.next() as SendPort; // "holding"
-
-      // Maintenance cannot proceed while the other isolate holds a shared lease.
+      final SendPort release = await inbox.next() as SendPort;
       await expectLater(
         m.acquireExclusive(timeout: const Duration(milliseconds: 250)),
         throwsA(isA<DatabaseLeaseUnavailable>()),
       );
-
       release.send('release');
-      await inbox.next(); // "released"
-      // Now maintenance succeeds.
+      await inbox.next();
       final ex = await m.acquireExclusive(timeout: const Duration(seconds: 2));
       await ex.release();
-
       worker.kill(priority: Isolate.immediate);
       ctrl.close();
     });
@@ -277,14 +274,10 @@ DatabaseLeaseManager _isolateManager(String leaseDir, String intentPath) =>
     DatabaseLeaseManager(
       leaseDir: leaseDir,
       intentPath: intentPath,
-      leaseTtl: const Duration(milliseconds: 400),
-      heartbeatInterval: const Duration(milliseconds: 90),
-      settleWindow: const Duration(milliseconds: 60),
+      settleWindow: const Duration(milliseconds: 40),
       pollStep: const Duration(milliseconds: 15),
     );
 
-/// Continuously acquire+hold+release shared leases until told to stop. Refusals
-/// during maintenance are expected and retried.
 Future<void> _hammerShared(List<dynamic> args) async {
   final SendPort out = args[0] as SendPort;
   final m = _isolateManager(args[1] as String, args[2] as String);
@@ -309,7 +302,6 @@ Future<void> _hammerShared(List<dynamic> args) async {
   cmd.close();
 }
 
-/// Acquire ONE shared lease, hold it (heartbeat alive), release on command.
 Future<void> _holdShared(List<dynamic> args) async {
   final SendPort out = args[0] as SendPort;
   final m = _isolateManager(args[1] as String, args[2] as String);
@@ -322,5 +314,5 @@ Future<void> _holdShared(List<dynamic> args) async {
       cmd.close();
     }
   });
-  out.send(cmd.sendPort); // "holding"
+  out.send(cmd.sendPort);
 }

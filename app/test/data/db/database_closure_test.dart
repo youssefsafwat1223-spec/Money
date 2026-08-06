@@ -40,9 +40,7 @@ Future<void> _setAdmission(String? uid, String? gen) async {
 DatabaseLeaseManager _lm(Directory dir) => DatabaseLeaseManager(
       leaseDir: '${dir.path}/leases',
       intentPath: '${dir.path}/db.maint',
-      leaseTtl: const Duration(milliseconds: 400),
-      heartbeatInterval: const Duration(milliseconds: 90),
-      settleWindow: const Duration(milliseconds: 60),
+      settleWindow: const Duration(milliseconds: 40),
       pollStep: const Duration(milliseconds: 15),
     );
 
