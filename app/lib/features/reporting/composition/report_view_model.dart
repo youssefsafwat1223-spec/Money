@@ -20,6 +20,7 @@ class ReportViewModel {
     required this.goals,
     required this.insights,
     required this.appendix,
+    this.appendixOmitted = false,
     required this.periodLabel,
   });
 
@@ -37,6 +38,10 @@ class ReportViewModel {
   final List<GoalBarVM> goals;
   final List<InsightRowVM> insights;
   final List<AppendixRowVM> appendix;
+
+  /// MALI-030 — the detailed appendix was omitted because the period exceeds the
+  /// supported row bound; the renderer shows [ReportStrings.appendixOmittedNotice].
+  final bool appendixOmitted;
   final String periodLabel;
 }
 

@@ -62,7 +62,36 @@ class ReportPdfRenderer {
       _goalsObservationsPage(model, fonts, theme, td, base),
       if (model.appendix.isNotEmpty)
         _appendixPage(model, fonts, theme, td, base),
+      // MALI-030 — when the detailed appendix was omitted for size, the report
+      // itself must SAY so (rather than silently having no appendix).
+      if (model.appendixOmitted)
+        _appendixOmittedPage(model, fonts, theme, td, base),
     ];
+  }
+
+  pw.Page _appendixOmittedPage(ReportViewModel m, ReportFontSet fonts,
+      ReportThemeSpec theme, pw.TextDirection td, pw.TextStyle base) {
+    return pw.Page(
+      pageTheme: pw.PageTheme(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(44, 40, 44, 34),
+        textDirection: td,
+        theme: pw.ThemeData.withFont(base: fonts.regular, bold: fonts.bold),
+      ),
+      build: (context) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: <pw.Widget>[
+          _header(m, fonts, theme, base, m.strings.appendixTitle),
+          pw.SizedBox(height: 14),
+          _sectionTitle(theme, base, fonts, m.strings.appendixTitle),
+          pw.SizedBox(height: 10),
+          pw.Text(
+            m.strings.appendixOmittedNotice,
+            style: base.copyWith(fontSize: 10.5, color: theme.textMuted),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Renders a single page to its own PDF. Test-only: lets a test rasterize and

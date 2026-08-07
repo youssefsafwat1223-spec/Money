@@ -100,6 +100,7 @@ class ReportComposer {
       insights:
           _insights(snapshot, fmt, str, comparison, slices, trend, primary, lang),
       appendix: _appendix(snapshot, fmt, str, lang),
+      appendixOmitted: snapshot.appendixOmittedForSize,
     );
   }
 

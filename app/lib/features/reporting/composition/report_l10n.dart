@@ -42,6 +42,7 @@ class ReportStrings {
     required this.goalsTitle,
     required this.observationsTitle,
     required this.appendixTitle,
+    required this.appendixOmittedNotice,
     required this.appendixMore,
     required this.apxDate,
     required this.apxMerchant,
@@ -104,6 +105,10 @@ class ReportStrings {
   final String goalsTitle;
   final String observationsTitle;
   final String appendixTitle;
+
+  /// MALI-030 — shown IN the rendered report when the detailed appendix was omitted
+  /// because the period exceeds the supported row bound (summaries stay complete).
+  final String appendixOmittedNotice;
   final String appendixMore; // "+ {n} more transactions"
   final String apxDate;
   final String apxMerchant;
@@ -171,6 +176,10 @@ class ReportStrings {
     goalsTitle: 'Goal progress',
     observationsTitle: 'Observations',
     appendixTitle: 'Transaction appendix',
+    appendixOmittedNotice:
+        'The detailed transaction appendix was omitted because the selected '
+        'period exceeds the supported 5,000-row appendix limit. Report summaries '
+        'and totals still cover the full selected period.',
     appendixMore: '+ {n} more transactions',
     apxDate: 'Date',
     apxMerchant: 'Merchant',
@@ -237,6 +246,9 @@ class ReportStrings {
     goalsTitle: 'تقدّم الأهداف',
     observationsTitle: 'ملاحظات',
     appendixTitle: 'ملحق العمليات',
+    appendixOmittedNotice:
+        'تم حذف الملحق التفصيلي لأن عدد العمليات تجاوز الحد المدعوم (5000 عملية). '
+        'جميع الملخصات والإجماليات في التقرير ما زالت تشمل الفترة كاملة.',
     appendixMore: '+ {n} عملية أخرى',
     apxDate: 'التاريخ',
     apxMerchant: 'التاجر',
