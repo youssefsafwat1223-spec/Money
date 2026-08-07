@@ -764,6 +764,41 @@ class BackupCrypto {
     );
   }
 
+  /// MALI-030 (B2-B closure) — encrypt PRE-SERIALIZED v3 plaintext bytes. The
+  /// snapshot builder streams the canonical JSON to bytes incrementally (no full
+  /// object graph / no whole JSON String), enforcing the plaintext cap AS it
+  /// serializes; this path just AEAD-seals those bytes (still cap-checked
+  /// defensively). Wire-identical to [encryptEnvelopeV3WithContentKey].
+  Future<EncryptedBackupBlob> encryptEnvelopeV3WithContentKeyFromPlaintext({
+    required List<int> plaintext,
+    required int schemaVersion,
+    required List<int> contentKey,
+    required List<BackupKeySlot> keySlots,
+  }) async {
+    if (plaintext.length > _maxPlaintextBytes) {
+      throw const BackupEnvelopeException(
+        BackupEnvelopeErrorKind.payloadTooLarge,
+      );
+    }
+    final header = defaultV3Header(schemaVersion);
+    final nonce = randomBytes(BackupEnvelopeLimits.nonceLen);
+    final box = await _cipher.encrypt(
+      plaintext,
+      secretKey: SecretKey(contentKey),
+      nonce: nonce,
+      aad: header.aad(),
+    );
+    return EncryptedBackupBlob(
+      version: 3,
+      salt: const [],
+      nonce: nonce,
+      cipherText: box.cipherText,
+      mac: box.mac.bytes,
+      keySlots: keySlots,
+      header: header,
+    );
+  }
+
   /// Decrypt any supported envelope. v3 verifies the authenticated header + slot
   /// AAD; v1/v2 fall back to the legacy path. [secret] is the user's passphrase
   /// OR recovery code (tried against each slot with its own transform). Throws a

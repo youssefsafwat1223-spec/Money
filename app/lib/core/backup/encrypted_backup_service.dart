@@ -158,7 +158,6 @@ class EncryptedBackupService implements BackupService {
       throw const BackupException('النسخ الاحتياطي يحتاج تفعيل جديد.');
     }
 
-    final snapshot = await BackupSnapshotBuilder(_database).build();
     final keyBytes = base64Decode(keyRaw);
 
     // MALI-076n — current installs write the v3 authenticated envelope, reusing
@@ -166,8 +165,15 @@ class EncryptedBackupService implements BackupService {
     // backup). Pre-v3 installs keep their existing format until re-enable.
     final isV3 = await _storage.read(key: _envelopeVersionKey) == '3';
     if (isV3 && slotsRaw != null && slotsRaw.isNotEmpty) {
-      final v3Blob = await _crypto.encryptEnvelopeV3WithContentKey(
-        json: snapshot,
+      // MALI-030 (B2-B closure) — stream the snapshot straight to capped plaintext
+      // bytes (no full object graph / whole JSON String), then AEAD-seal them.
+      final plaintext = await BackupSnapshotBuilder(_database)
+          .buildEncryptedPlaintext(
+        maxBytes: BackupEnvelopeLimits.maxPlaintextBytes,
+      );
+      final v3Blob =
+          await _crypto.encryptEnvelopeV3WithContentKeyFromPlaintext(
+        plaintext: plaintext,
         schemaVersion: BackupSnapshotBuilder.currentSchemaVersion,
         contentKey: keyBytes,
         keySlots: _decodeKeySlots(slotsRaw),
@@ -189,6 +195,9 @@ class EncryptedBackupService implements BackupService {
       return;
     }
 
+    // Legacy (pre-v3) installs only: build the object snapshot lazily here — the
+    // common v3 path above never constructs it (it streams straight to plaintext).
+    final snapshot = await BackupSnapshotBuilder(_database).build();
     final shouldUpgradeLegacyBackup =
         (slotsRaw == null || slotsRaw.isEmpty) && recoveryRaw != null;
     final blob = shouldUpgradeLegacyBackup

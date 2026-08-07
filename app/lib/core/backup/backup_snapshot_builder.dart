@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:drift/drift.dart' show Variable;
 
 import '../../data/db/app_database.dart';
+import 'backup_crypto.dart' show BackupEnvelopeException, BackupEnvelopeErrorKind;
 
 class BackupSnapshotBuilder {
   const BackupSnapshotBuilder(this._db);
@@ -341,7 +345,7 @@ class BackupSnapshotBuilder {
   // MALI-030 — page size for the one usage-scaling backup table (transactions).
   static const int _snapshotPageSize = 2000;
 
-  Future<Map<String, dynamic>> build() async {
+  Future<Map<String, dynamic>> build({DateTime? createdAt}) async {
     final tables = <String, List<Map<String, Object?>>>{};
     // Read every table inside ONE transaction so the snapshot is a single
     // consistent point-in-time view even if writes land mid-build.
@@ -365,15 +369,103 @@ class BackupSnapshotBuilder {
       }
     });
     return {
-      'version': currentSchemaVersion,
-      'schemaVersion': currentSchemaVersion,
-      'createdAt': DateTime.now().toUtc().toIso8601String(),
-      'privacy': {
-        'rawMessageExcluded': true,
-        'serverReadableFinancialData': false,
-      },
+      ..._metaMap(createdAt ?? DateTime.now().toUtc()),
       'tables': tables,
     };
+  }
+
+  /// The non-`tables` header, in the exact key order jsonEncode emits — shared by
+  /// [build] (object path, for tests/compat) and [buildEncryptedPlaintext] (the
+  /// streaming production path) so both produce byte-identical JSON.
+  Map<String, dynamic> _metaMap(DateTime createdAt) => {
+        'version': currentSchemaVersion,
+        'schemaVersion': currentSchemaVersion,
+        'createdAt': createdAt.toUtc().toIso8601String(),
+        'privacy': {
+          'rawMessageExcluded': true,
+          'serverReadableFinancialData': false,
+        },
+      };
+
+  /// MALI-030 (B2-B closure) — the PRODUCTION backup-encryption path: serialize the
+  /// snapshot to canonical v3 JSON plaintext bytes INCREMENTALLY, one DB page at a
+  /// time, WITHOUT ever building the full snapshot object graph or a whole JSON
+  /// String. Only the growing plaintext byte buffer (the one buffer AES-GCM needs)
+  /// and one page of driver rows exist at once. The [maxBytes] budget is checked AS
+  /// bytes accumulate, so an oversized dataset throws typed
+  /// [BackupEnvelopeErrorKind.payloadTooLarge] BEFORE a large String/graph is ever
+  /// allocated — never an OOM. Output is byte-identical to
+  /// `utf8.encode(jsonEncode(build(createdAt)))` (same schema/wire), proven by test.
+  Future<Uint8List> buildEncryptedPlaintext({
+    required int maxBytes,
+    DateTime? createdAt,
+  }) async {
+    final out = BytesBuilder(copy: false);
+    var size = 0;
+    void add(String fragment) {
+      final bytes = utf8.encode(fragment);
+      size += bytes.length;
+      if (size > maxBytes) {
+        throw const BackupEnvelopeException(
+          BackupEnvelopeErrorKind.payloadTooLarge,
+        );
+      }
+      out.add(bytes);
+    }
+
+    final metaJson = jsonEncode(_metaMap(createdAt ?? DateTime.now().toUtc()));
+    // Strip the header's closing '}' and open the tables object in its place.
+    add(metaJson.substring(0, metaJson.length - 1));
+    add(',"tables":{');
+    await _db.transaction(() async {
+      var firstTable = true;
+      for (final entry in _tables.entries) {
+        if (!firstTable) add(',');
+        firstTable = false;
+        add(jsonEncode(entry.key)); // properly-escaped "tableName"
+        add(':[');
+        final columns = entry.value.join(', ');
+        final where = _whereFor(entry.key);
+        var firstRow = true;
+        void writeRow(Map<String, Object?> data) {
+          if (!firstRow) add(',');
+          firstRow = false;
+          add(jsonEncode(data));
+        }
+
+        if (entry.key == 'transactions') {
+          String? cursorId;
+          while (true) {
+            final keyset = cursorId == null
+                ? ''
+                : (where.isEmpty ? ' WHERE id > ?' : ' AND id > ?');
+            final page = await _db.customSelect(
+              'SELECT $columns FROM ${entry.key}$where$keyset ORDER BY id LIMIT ?;',
+              variables: [
+                if (cursorId != null) Variable.withString(cursorId),
+                Variable.withInt(_snapshotPageSize),
+              ],
+            ).get();
+            if (page.isEmpty) break;
+            for (final row in page) {
+              writeRow(row.data);
+            }
+            if (page.length < _snapshotPageSize) break;
+            cursorId = page.last.data['id'] as String?;
+          }
+        } else {
+          final rows = await _db
+              .customSelect('SELECT $columns FROM ${entry.key}$where;')
+              .get();
+          for (final row in rows) {
+            writeRow(row.data);
+          }
+        }
+        add(']');
+      }
+    });
+    add('}}'); // close the tables object and the outer object
+    return out.toBytes();
   }
 
   /// MALI-030 — reads [table] in bounded keyset pages ordered by `id` (its primary
