@@ -10,9 +10,12 @@ import 'portable_csv.dart';
 import 'qirsh_package_codec.dart';
 
 class DriftFinancialExporter {
-  const DriftFinancialExporter(this._db);
+  DriftFinancialExporter(this._db, {int? maxPackageBytes})
+      : _maxPackageBytes = maxPackageBytes ?? maxExportPackageBytes;
 
   final AppDatabase _db;
+  // MALI-030 — the enforced total-export cap; overridable in tests.
+  final int _maxPackageBytes;
 
   // MALI-030 — transactions are exported in bounded keyset pages so at most this
   // many transaction rows are ever held in memory at once (the accumulated output
@@ -91,12 +94,23 @@ class DriftFinancialExporter {
     final csvFiles = <String, Uint8List>{};
     final rowCounts = <String, int>{};
     var recordCount = 0;
+    var totalBytes = 0;
     for (final spec in _tableSpecs) {
       // The transactions table is the only one that scales with usage — page it
       // (bounded row retention). Other tables are small bounded catalogs/config.
+      // The remaining export budget is passed down so the paged big table aborts
+      // MID-BUILD rather than after materializing an over-cap CSV.
       final (bytes, count) = spec.name == 'transactions'
-          ? await _pagedSpecCsv(spec)
+          ? await _pagedSpecCsv(spec, budgetBytes: _maxPackageBytes - totalBytes)
           : await _singleSpecCsv(spec);
+      totalBytes += bytes.length;
+      if (totalBytes > _maxPackageBytes) {
+        // Typed, privacy-safe resource limit — no financial content in the message,
+        // no partial file returned (the caller only writes a file on success).
+        throw const DataPortabilityException(
+          'حجم التصدير تجاوز الحد المسموح (100MB).',
+        );
+      }
       csvFiles['${spec.name}.csv'] = bytes;
       rowCounts[spec.name] = count;
       recordCount += count;
@@ -126,13 +140,30 @@ class DriftFinancialExporter {
 
   /// MALI-030 — pages a spec whose query ends `ORDER BY t.occurred_at, t.id`
   /// (the transactions dump) via keyset, so at most [_exportPageSize] rows are
-  /// held per read instead of the whole table.
-  Future<(Uint8List, int)> _pagedSpecCsv(_ExportTableSpec spec) async {
-    final buffer = StringBuffer();
+  /// held per read. Bytes accumulate in a BytesBuilder and are checked against
+  /// [budgetBytes] AS they grow — an over-cap dataset aborts mid-build with a
+  /// typed [DataPortabilityException] before an unbounded buffer forms.
+  Future<(Uint8List, int)> _pagedSpecCsv(
+    _ExportTableSpec spec, {
+    required int budgetBytes,
+  }) async {
+    final out = BytesBuilder(copy: false);
+    var byteSize = 0;
     var count = 0;
     var firstChunk = true;
     String? cursorOccurredAt;
     String? cursorId;
+    void append(String fragment) {
+      final bytes = utf8.encode(fragment);
+      byteSize += bytes.length;
+      if (byteSize > budgetBytes) {
+        throw const DataPortabilityException(
+          'حجم التصدير تجاوز الحد المسموح (100MB).',
+        );
+      }
+      out.add(bytes);
+    }
+
     while (true) {
       final keyset = cursorOccurredAt == null
           ? ''
@@ -158,8 +189,8 @@ class DriftFinancialExporter {
         rows: rows.map((r) => [for (final h in spec.headers) r.data[h]]),
         includeHeader: firstChunk,
       );
-      if (!firstChunk) buffer.write('\r\n');
-      buffer.write(chunk);
+      if (!firstChunk) append('\r\n');
+      append(chunk);
       firstChunk = false;
       count += rows.length;
       cursorOccurredAt = rows.last.data['occurred_at'] as String?;
@@ -167,13 +198,13 @@ class DriftFinancialExporter {
       if (rows.length < _exportPageSize) break;
     }
     if (count == 0) {
-      buffer.write(encodePortableCsvChunk(
+      append(encodePortableCsvChunk(
         headers: spec.headers,
         rows: const [],
         includeHeader: true,
       ));
     }
-    return (Uint8List.fromList(utf8.encode(buffer.toString())), count);
+    return (out.toBytes(), count);
   }
 
   Uint8List _encodeRows(

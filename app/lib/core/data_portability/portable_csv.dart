@@ -9,6 +9,14 @@ const int maxImportBytes = 25 * 1024 * 1024;
 const int maxExpandedImportBytes = 100 * 1024 * 1024;
 const int maxImportRows = 100000;
 
+/// MALI-030 (B2-B closure) — an EXPORT-specific total-payload cap for the full-data
+/// package/CSV, separate from the import caps and the backup-envelope caps (the ZIP
+/// export path does not invoke envelope enforcement). Checked INCREMENTALLY while
+/// building, so a pathological dataset aborts with a typed resource-limit error
+/// before an unbounded archive is allocated. 100 MiB = the same bound as a
+/// re-importable expanded package (`maxExpandedImportBytes`), sized for real use.
+const int maxExportPackageBytes = 100 * 1024 * 1024;
+
 class PortableCsvDocument {
   const PortableCsvDocument({
     required this.headers,
