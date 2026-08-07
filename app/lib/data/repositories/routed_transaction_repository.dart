@@ -125,6 +125,15 @@ class RoutedTransactionRepository implements TransactionRepository {
       _drift.expenseTotalBetween(from: from, to: to, accountId: accountId);
 
   @override
+  Future<List<TransactionEntity>> largestExpenses(
+          {required DateTime from,
+          required DateTime to,
+          String? accountId,
+          int limit = 10}) =>
+      _drift.largestExpenses(
+          from: from, to: to, accountId: accountId, limit: limit);
+
+  @override
   Future<double> incomeTotalBetween(
           {required DateTime from, required DateTime to, String? accountId}) =>
       _drift.incomeTotalBetween(from: from, to: to, accountId: accountId);

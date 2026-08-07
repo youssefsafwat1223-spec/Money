@@ -142,6 +142,17 @@ abstract class TransactionRepository {
     String? accountId,
   });
 
+  /// أكبر [limit] مصروفات (payment/withdrawal مؤكّدة) داخل النافذة نصف-المفتوحة
+  /// `[from, to)`، مرتّبة تنازليًا بالمبلغ، عبر SQL `ORDER BY ... LIMIT` — لا يُحمّل
+  /// الجدول كاملًا في Dart. يطبّق نفس سياسة استبعاد الحسابات المُعلَّمة
+  /// `exclude_from_totals` في النطاق الكلّي، والملكية الدقيقة لحساب بعينه.
+  Future<List<TransactionEntity>> largestExpenses({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    int limit = 10,
+  });
+
   /// اشتراكات متكررة مُكتشَفة (نفس المتجر بمبلغ متقارب عبر ≥2 أشهر).
   Future<List<RecurringCandidate>> recurringCandidates({String? accountId});
 

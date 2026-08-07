@@ -97,8 +97,7 @@ class ReportSnapshotBuilder {
         from: fromU, to: toU, limit: _merchantLimit, accountId: accountId);
     final latestBalance =
         await _transactions.latestBalanceAfter(accountId: accountId);
-    final largest =
-        await _largestTransactions(range, accountId, accountsInScope);
+    final largest = await _largestTransactions(range, accountId);
     final budgets = await _budgetsFor(now);
     final bills = await _billsFor();
     final goals = await _goalsFor();
@@ -277,34 +276,22 @@ class ReportSnapshotBuilder {
   Future<List<TransactionEntity>> _largestTransactions(
     DateRange range,
     String? accountId,
-    List<ReportAccountRef> accountsInScope,
   ) async {
     final fromU = range.from.toUtc();
     final toU = range.to.toUtc();
     // Exclude flagged accounts only in the combined (all-accounts) view. A
     // single-account report still lists that account's own largest rows even
     // if it is flagged exclude_from_totals — matching the repository totals.
-    final excludedAccountIds = <String>{
-      if (accountId == null)
-        for (final account in accountsInScope)
-          if (account.excludeFromTotals && account.id != null) account.id!,
-    };
-    final all = await _transactions.getAll();
-    final filtered = all
-        .where((t) =>
-            t.status == TransactionStatus.confirmed &&
-            (t.type == TransactionTypeEntity.payment ||
-                t.type == TransactionTypeEntity.withdrawal) &&
-            (t.accountId == null ||
-                !excludedAccountIds.contains(t.accountId)) &&
-            !t.occurredAt.toUtc().isBefore(fromU) &&
-            t.occurredAt.toUtc().isBefore(toU) &&
-            // MALI-074n: exact account ownership — a null-account row is NOT
-            // attributed to a specific account by currency (it appears only in
-            // the all-accounts scope), matching the appendix and totals.
-            (accountId == null || t.accountId == accountId))
-        .toList()
-      ..sort((a, b) => b.amount.compareTo(a.amount));
-    return filtered.take(_largestLimit).toList();
+    // MALI-030 — bounded SQL top-N: only the top [_largestLimit] rows enter Dart
+    // (was: getAll() the WHOLE table, then filter+sort in Dart). The repository
+    // query applies the identical predicate — confirmed payment/withdrawal in
+    // [from, to), the excluded-account policy for the all-accounts scope (the same
+    // the canonical totals use) and exact account ownership (MALI-074n) otherwise.
+    return _transactions.largestExpenses(
+      from: fromU,
+      to: toU,
+      accountId: accountId,
+      limit: _largestLimit,
+    );
   }
 }

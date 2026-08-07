@@ -425,6 +425,40 @@ class SupabaseTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> largestExpenses({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    int limit = 10,
+  }) async {
+    // Interface completeness — reports read from Drift (the routed repo wraps only
+    // the local repo), so this network path is not exercised by report generation.
+    // Bounded server-side ORDER BY amount + LIMIT mirrors the local top-N.
+    final uid = await _requireUserId();
+    try {
+      var query = _getClient()
+          .from('user_transactions')
+          .select()
+          .eq('user_id', uid)
+          .isFilter('deleted_at', null)
+          .eq('transaction_type', 'expense')
+          .gte('occurred_at', from.toUtc().toIso8601String())
+          .lt('occurred_at', to.toUtc().toIso8601String());
+      if (accountId != null) query = query.eq('server_account_id', accountId);
+      final rows = await query
+          .order('amount', ascending: false)
+          .order('occurred_at', ascending: false)
+          .order('id', ascending: false)
+          .limit(limit);
+      return await Future.wait(
+        (rows as List).map((r) => _fromServerRow(r as Map<String, dynamic>)),
+      );
+    } catch (e) {
+      throw mapSupabaseError(e);
+    }
+  }
+
+  @override
   Future<List<TransactionEntity>> getByCard(String last4) async {
     final uid = await _requireUserId();
     try {

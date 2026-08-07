@@ -521,6 +521,43 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> largestExpenses({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    int limit = 10,
+  }) async {
+    // MALI-030 — real bounded top-N: SQL ORDER BY amount + LIMIT so only the top
+    // rows enter Dart (was: load the WHOLE table via getAll() then Dart-sort and
+    // take N). Matches the report's "largest transactions" predicate exactly —
+    // confirmed payment/withdrawal spends in [from, to), the excluded-account
+    // policy for the all-accounts scope (via _includedTotalsAccountClause, the
+    // same the canonical totals use) and exact account ownership otherwise.
+    // Deterministic tie-break (occurred_at DESC, id DESC) mirrors the previous
+    // stable Dart sort over the occurred_at-DESC page order.
+    final accountExclusion = accountId == null
+        ? _includedTotalsAccountClause()
+        : _accountClause(accountId);
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM transactions
+        WHERE status = 'confirmed'
+          AND type IN ('payment', 'withdrawal')
+          AND occurred_at >= ? AND occurred_at < ?$accountExclusion
+        ORDER BY amount DESC, occurred_at DESC, id DESC
+        LIMIT ?;
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(from.toUtc())),
+        Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
+        Variable.withInt(limit),
+      ],
+    ).get();
+    return rows.map(transactionFromRow).toList();
+  }
+
+  @override
   Future<double> expenseTotalBetween({
     required DateTime from,
     required DateTime to,

@@ -61,6 +61,15 @@ class _FakeTransactionRepository implements TransactionRepository {
   final double previousSpend;
 
   @override
+  Future<List<TransactionEntity>> largestExpenses({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    int limit = 10,
+  }) async =>
+      const [];
+
+  @override
   Future<double> categoryExpenseTotalBetween({
     required String categoryId,
     required DateTime from,
