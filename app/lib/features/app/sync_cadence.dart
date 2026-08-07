@@ -153,3 +153,34 @@ class SyncGate {
     return recover;
   }
 }
+
+/// Coalesces the NON-CRITICAL work on app resume (B2-C). Rapid background→
+/// foreground flips (or an OS delivering several resume events) must not re-run
+/// the catalog refresh / native-capture-state sync / export sweep every time.
+/// Safety-critical resume work (auth revalidation, data reconcile, capture
+/// import of NEW shared input, the SyncGate-coalesced sync) is never gated by
+/// this — only the redundant, idempotent refreshes are. Pure + deterministic:
+/// the caller passes `now`, so it is unit-tested with a fake clock.
+class ResumeCoalescer {
+  ResumeCoalescer({this.window = const Duration(seconds: 20)});
+
+  /// Minimum spacing between non-critical resume passes.
+  final Duration window;
+
+  DateTime? _lastRan;
+
+  /// True when non-critical resume work should run now; false when a pass ran
+  /// within [window] (coalesced). The first resume after a [reset] always runs.
+  bool shouldRunNonCritical(DateTime now) {
+    final last = _lastRan;
+    if (last == null || now.difference(last) >= window) {
+      _lastRan = now;
+      return true;
+    }
+    return false;
+  }
+
+  /// Sign-out / owner change: the next owner's first resume must always run its
+  /// non-critical refreshes, so forget the previous owner's timestamp.
+  void reset() => _lastRan = null;
+}

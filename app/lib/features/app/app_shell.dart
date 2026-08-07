@@ -271,6 +271,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     // the poll for the (new) owner only while authenticated; a sign-out leaves it
     // cancelled.
     _syncGate.invalidate();
+    _resumeCoalescer.reset(); // the new owner's first resume must fully refresh
     _syncPollTimer?.cancel();
     if (now == SessionStatus.authenticated && mounted) {
       _scheduleAdaptivePoll();
@@ -295,8 +296,13 @@ class _AppShellState extends ConsumerState<AppShell> {
     // auth-state event ever delivered until something touches the client
     // again — re-check before running any Supabase-primary-dependent work.
     if (!await _revalidateAuthSession()) return;
+    // B2-C — coalesce the NON-CRITICAL, idempotent refreshes so rapid repeated
+    // resumes don't re-run them each time. Safety-critical work below (reconcile,
+    // capture import of NEW shared input, the SyncGate-coalesced sync) always
+    // runs regardless.
+    final runNonCritical = _resumeCoalescer.shouldRunNonCritical(DateTime.now());
     unawaited(_syncRemoteOnboardingCompletion());
-    await syncCatalog(ref);
+    if (runNonCritical) await syncCatalog(ref);
     // Reconciles writes that landed through a connection other than this
     // shell's live `appDatabaseProvider` instance while the app was
     // backgrounded — background notification Confirm/Dismiss actions open
@@ -305,7 +311,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     // docs/STALE_UI_ROOT_CAUSE_REPORT.md.
     await _reconcileDataAfterResume();
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
-    await _syncNativeCaptureState();
+    if (runNonCritical) await _syncNativeCaptureState();
+    // Always: a capture may have arrived while backgrounded — never coalesce it.
     await _consumeSharedInput();
     // Resume is a recovery-eligible trigger (always attempt).
     unawaited(_runLedgerSync(recoveryProbe: true));
@@ -314,10 +321,12 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
     // MALI-065n: bounded-lease sweep of any export temp file a crash orphaned
     // while backgrounded — never touches one still inside its lease (an
-    // in-flight share).
-    unawaited(ref
-        .read(managedExportStoreProvider)
-        .sweep(olderThan: ManagedExportStore.defaultLease));
+    // in-flight share). Housekeeping → coalesced with the other non-critical work.
+    if (runNonCritical) {
+      unawaited(ref
+          .read(managedExportStoreProvider)
+          .sweep(olderThan: ManagedExportStore.defaultLease));
+    }
     _drainCelebrations();
   }
 
@@ -476,6 +485,10 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// each run; sign-out/relogin bumps its generation so old-owner scheduled work
   /// can never execute under a new owner. See sync_cadence.dart (unit-tested).
   final SyncGate _syncGate = SyncGate();
+
+  /// B2-C — coalesces non-critical resume refreshes (catalog / native capture
+  /// state / export sweep) so rapid repeated resumes don't re-run them.
+  final ResumeCoalescer _resumeCoalescer = ResumeCoalescer();
 
   /// Whether the one-shot local→server reconcile has run for the current
   /// session. Re-armed on any session change (see [_handleSessionStatusChange]).

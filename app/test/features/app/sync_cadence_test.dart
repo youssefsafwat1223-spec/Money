@@ -157,4 +157,33 @@ void main() {
       expect(g.admits(gen2), isTrue);
     });
   });
+
+  group('ResumeCoalescer — non-critical resume work', () {
+    final t0 = DateTime.utc(2026, 8, 8, 12);
+
+    test('the first resume runs; a rapid re-resume within the window coalesces',
+        () {
+      final r = ResumeCoalescer(window: const Duration(seconds: 20));
+      expect(r.shouldRunNonCritical(t0), isTrue);
+      expect(r.shouldRunNonCritical(t0.add(const Duration(seconds: 1))), isFalse);
+      expect(r.shouldRunNonCritical(t0.add(const Duration(seconds: 19))), isFalse);
+    });
+
+    test('once the window elapses, the next resume runs again', () {
+      final r = ResumeCoalescer(window: const Duration(seconds: 20));
+      expect(r.shouldRunNonCritical(t0), isTrue);
+      expect(r.shouldRunNonCritical(t0.add(const Duration(seconds: 20))), isTrue);
+      // ...and that pass restarts the window.
+      expect(r.shouldRunNonCritical(t0.add(const Duration(seconds: 25))), isFalse);
+    });
+
+    test('reset (sign-out) makes the new owner\'s first resume run', () {
+      final r = ResumeCoalescer(window: const Duration(seconds: 20));
+      expect(r.shouldRunNonCritical(t0), isTrue);
+      expect(r.shouldRunNonCritical(t0.add(const Duration(seconds: 2))), isFalse);
+      r.reset();
+      expect(r.shouldRunNonCritical(t0.add(const Duration(seconds: 3))), isTrue,
+          reason: 'a fresh owner always refreshes on its first resume');
+    });
+  });
 }
