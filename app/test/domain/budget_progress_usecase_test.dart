@@ -207,6 +207,15 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> getTransactionPage({
+    required int limit,
+    TransactionPageCursor? after,
+    TransactionPageFilter filter = const TransactionPageFilter(),
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<TransactionEntity?> getById(String id) {
     throw UnimplementedError();
   }

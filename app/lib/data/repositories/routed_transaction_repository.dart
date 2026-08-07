@@ -120,6 +120,14 @@ class RoutedTransactionRepository implements TransactionRepository {
       _drift.getPage(offset: offset, limit: limit);
 
   @override
+  Future<List<TransactionEntity>> getTransactionPage({
+    required int limit,
+    TransactionPageCursor? after,
+    TransactionPageFilter filter = const TransactionPageFilter(),
+  }) =>
+      _drift.getTransactionPage(limit: limit, after: after, filter: filter);
+
+  @override
   Future<List<TransactionEntity>> getByCard(String last4) =>
       _drift.getByCard(last4);
 

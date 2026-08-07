@@ -400,6 +400,24 @@ class SupabaseTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> getTransactionPage({
+    required int limit,
+    TransactionPageCursor? after,
+    TransactionPageFilter filter = const TransactionPageFilter(),
+  }) {
+    // B2-C — the keyset-filtered transaction-list page is a Drift-only (S5) path:
+    // the UI reads the list exclusively from Drift (routed → Drift). This legacy
+    // direct-Supabase repository never served the list; its server schema
+    // (transaction_type='expense', server account/category refs) would need a
+    // faithful re-mapping for zero production benefit. Fail loudly rather than
+    // silently return an unfiltered page.
+    throw UnsupportedError(
+      'getTransactionPage is Drift-only; the Supabase repo does not serve the '
+      'filtered transaction list.',
+    );
+  }
+
+  @override
   Future<List<TransactionEntity>> getRecent({
     int limit = 5,
     String? accountId,

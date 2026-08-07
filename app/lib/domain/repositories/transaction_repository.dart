@@ -4,6 +4,44 @@ import '../entities/report_models.dart';
 import '../entities/transaction_entity.dart';
 import '../services/card_account_grouper.dart';
 
+/// The list's kind filter, pushed into SQL (B2-C). Mirrors the transactions
+/// screen's kind chips; kept in the domain so the repository has no dependency
+/// on the feature layer.
+enum TransactionPageKind { all, expenses, income, transfers }
+
+/// Keyset cursor for [TransactionRepository.getTransactionPage] — the last row
+/// of the previous page. Ordering is `occurred_at DESC, id DESC`, so the next
+/// page is everything strictly "older" than this (occurred_at earlier, or equal
+/// occurred_at with a smaller id).
+class TransactionPageCursor {
+  const TransactionPageCursor({required this.occurredAt, required this.id});
+  final DateTime occurredAt;
+  final String id;
+}
+
+/// The full filter state for one transaction-list page, pushed into SQL. A null
+/// field means "no predicate for this dimension"; the notifier maps the screen's
+/// pending-only mode to (no date, no kind) exactly as the old Dart filter did.
+class TransactionPageFilter {
+  const TransactionPageFilter({
+    this.accountId,
+    this.from,
+    this.to,
+    this.kind = TransactionPageKind.all,
+    this.categoryId,
+    this.search,
+    this.pendingOnly = false,
+  });
+
+  final String? accountId;
+  final DateTime? from; // half-open [from, to)
+  final DateTime? to;
+  final TransactionPageKind kind;
+  final String? categoryId;
+  final String? search; // free-text; matched per-field (see the SQL impl)
+  final bool pendingOnly;
+}
+
 abstract class TransactionRepository {
   Future<TransactionEntity?> findDuplicate({
     required double amount,
@@ -93,6 +131,18 @@ abstract class TransactionRepository {
   /// صفحة واحدة من العمليات مرتبة بالأحدث. [offset] صفري و[limit] حد أعلى.
   Future<List<TransactionEntity>> getPage(
       {required int offset, int limit = 500});
+
+  /// B2-C — a keyset-paged, SQL-**filtered** slice of the transaction list.
+  /// Every supported filter (account / date / kind / category / search /
+  /// pending) is pushed into the SQL predicate, so the first visible page never
+  /// loads the full history and never loads-then-discards in Dart. Ordering is
+  /// `occurred_at DESC, id DESC` (stable for equal timestamps). Pass the previous
+  /// page's last row as [after] for the next page — never OFFSET.
+  Future<List<TransactionEntity>> getTransactionPage({
+    required int limit,
+    TransactionPageCursor? after,
+    TransactionPageFilter filter,
+  });
 
   /// صافي المصروفات (payment + withdrawal - refund) خلال فترة نصف-مفتوحة
   /// `[from, to)` — الحد الأعلى غير شامل (MALI-028). لحساب «وفّرت» وعنوان

@@ -532,6 +532,110 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> getTransactionPage({
+    required int limit,
+    TransactionPageCursor? after,
+    TransactionPageFilter filter = const TransactionPageFilter(),
+  }) async {
+    // B2-C — every supported filter pushed into SQL, keyset paged. The predicate
+    // list below matches the transactions screen's Dart filter EXACTLY (see
+    // transactions_providers _viewForLoaded, now removed): pending-only forces
+    // status='pending' and drops the date/kind predicates (the notifier passes
+    // from/to=null, kind=all in that mode); otherwise status!='ignored'.
+    final where = <String>[];
+    final vars = <Variable>[];
+
+    if (filter.pendingOnly) {
+      where.add("t.status = 'pending'");
+    } else {
+      where.add("t.status != 'ignored'");
+    }
+    if (filter.accountId != null) {
+      where.add('t.account_id = ?');
+      vars.add(Variable.withString(filter.accountId!));
+    }
+    if (filter.from != null) {
+      where.add('t.occurred_at >= ?'); // half-open [from, to)
+      vars.add(Variable.withString(dateTimeToSql(filter.from!)));
+    }
+    if (filter.to != null) {
+      where.add('t.occurred_at < ?');
+      vars.add(Variable.withString(dateTimeToSql(filter.to!)));
+    }
+    switch (filter.kind) {
+      case TransactionPageKind.all:
+        break;
+      case TransactionPageKind.expenses:
+        where.add("t.type IN ('payment', 'withdrawal')");
+      case TransactionPageKind.income:
+        where.add("t.type IN ('income', 'refund')");
+      case TransactionPageKind.transfers:
+        where.add("t.type = 'transfer'");
+    }
+    if (filter.categoryId != null) {
+      where.add('t.category_id = ?');
+      vars.add(Variable.withString(filter.categoryId!));
+    }
+
+    // Free-text search: matched PER FIELD (raw_merchant, currency, the 2-dp
+    // amount, the joined category name_ar/key, note) with LIKE. This is a
+    // documented refinement of the old naive whole-haystack `String.contains`
+    // (which could match across a field boundary in the space-joined string);
+    // per-field is the sane, expected semantics. LIKE wildcards in the query are
+    // escaped so the match stays a literal substring. SQLite LOWER is ASCII-only
+    // (Arabic/CJK have no case; only accented-Latin uppercase — rare in merchant
+    // names — differs from Dart toLowerCase).
+    final search = filter.search?.trim().toLowerCase();
+    final needsCategoryJoin = search != null && search.isNotEmpty;
+    if (needsCategoryJoin) {
+      final escaped = search
+          .replaceAll('\\', '\\\\')
+          .replaceAll('%', '\\%')
+          .replaceAll('_', '\\_');
+      final likeParam = '%$escaped%';
+      where.add(
+        "("
+        "LOWER(COALESCE(t.raw_merchant, '')) LIKE ? ESCAPE '\\' "
+        "OR LOWER(COALESCE(t.currency, '')) LIKE ? ESCAPE '\\' "
+        "OR printf('%.2f', t.amount) LIKE ? ESCAPE '\\' "
+        "OR LOWER(COALESCE(c.name_ar, '')) LIKE ? ESCAPE '\\' "
+        "OR LOWER(COALESCE(c.key, '')) LIKE ? ESCAPE '\\' "
+        "OR LOWER(COALESCE(t.note, '')) LIKE ? ESCAPE '\\'"
+        ")",
+      );
+      for (var i = 0; i < 6; i++) {
+        vars.add(Variable.withString(likeParam));
+      }
+    }
+
+    if (after != null) {
+      // Keyset (occurred_at DESC, id DESC): strictly older than the last row.
+      where.add('(t.occurred_at < ? OR (t.occurred_at = ? AND t.id < ?))');
+      final cur = dateTimeToSql(after.occurredAt);
+      vars
+        ..add(Variable.withString(cur))
+        ..add(Variable.withString(cur))
+        ..add(Variable.withString(after.id));
+    }
+
+    vars.add(Variable.withInt(limit));
+    final join = needsCategoryJoin
+        ? 'LEFT JOIN categories c ON c.id = t.category_id'
+        : '';
+    final rows = await _db.customSelect(
+      '''
+        SELECT t.* FROM transactions t
+        $join
+        WHERE ${where.join(' AND ')}
+        ORDER BY t.occurred_at DESC, t.id DESC
+        LIMIT ?;
+      ''',
+      variables: vars,
+    ).get();
+    return rows.map(transactionFromRow).toList();
+  }
+
+  @override
   Future<List<TransactionEntity>> largestExpenses({
     required DateTime from,
     required DateTime to,

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
 
 class TransactionsView {
@@ -192,6 +193,14 @@ class TransactionsListNotifier
   var _loaded = <TransactionEntity>[];
   var _hasMore = true;
   var _loadingMore = false;
+  TransactionPageCursor? _cursor;
+  // B2-C — the effective filter + display context are resolved ONCE per build
+  // (all dimensions are watched below, so build() re-runs on any change and
+  // resets the cursor). loadMore() reuses them, so a page can never be produced
+  // for one filter and appended to another.
+  late TransactionPageFilter _filter;
+  late CategoryCatalog _catalog;
+  late TransactionsDateRange _range;
 
   @override
   Future<TransactionsView> build() async {
@@ -208,8 +217,48 @@ class TransactionsListNotifier
     _loaded = const [];
     _hasMore = true;
     _loadingMore = false;
+    _cursor = null;
+    _catalog = await ref.read(categoryCatalogProvider.future);
+    _range = effectiveTransactionsRange(ref.read(transactionsDateRangeProvider));
+    _filter = await _resolveFilter();
     return _loadNextPage();
   }
+
+  /// Resolve the screen's filter providers into the SQL filter pushed to the
+  /// repository — matching the old in-Dart filter semantics exactly (pending-only
+  /// forces status=pending and drops date+kind; active account = selected ??
+  /// default; no active account ⇒ no account predicate = all-accounts scope).
+  Future<TransactionPageFilter> _resolveFilter() async {
+    final accountRepo = ref.read(accountRepositoryProvider);
+    final range = _range;
+    final kind = ref.read(transactionKindFilterProvider);
+    final categoryId = ref.read(transactionCategoryFilterProvider);
+    final query = ref.read(transactionSearchQueryProvider).trim();
+    final pendingOnly = ref.read(transactionsPendingFilterProvider);
+    final selectedAccountId = ref.read(activeAccountIdProvider);
+    final selectedAccount = selectedAccountId == null
+        ? null
+        : await accountRepo.getById(selectedAccountId);
+    final defaultAccount = await accountRepo.getDefault();
+    final activeAccount = selectedAccount ?? defaultAccount;
+    return TransactionPageFilter(
+      accountId: activeAccount?.id,
+      from: pendingOnly ? null : range.from,
+      to: pendingOnly ? null : range.to,
+      kind: pendingOnly ? TransactionPageKind.all : _mapKind(kind),
+      categoryId: categoryId,
+      search: query.isEmpty ? null : query,
+      pendingOnly: pendingOnly,
+    );
+  }
+
+  static TransactionPageKind _mapKind(TransactionKindFilter kind) =>
+      switch (kind) {
+        TransactionKindFilter.all => TransactionPageKind.all,
+        TransactionKindFilter.expenses => TransactionPageKind.expenses,
+        TransactionKindFilter.income => TransactionPageKind.income,
+        TransactionKindFilter.transfers => TransactionPageKind.transfers,
+      };
 
   Future<void> loadMore() async {
     if (_loadingMore || !_hasMore) return;
@@ -234,83 +283,25 @@ class TransactionsListNotifier
   Future<TransactionsView> _loadNextPage() async {
     _loadingMore = true;
     final txRepo = ref.read(transactionRepositoryProvider);
-    final page = await txRepo.getPage(
-      offset: _loaded.length,
+    // B2-C — keyset page, fully SQL-filtered. No OFFSET, no full-history load,
+    // no load-then-discard-in-Dart. Keyset (occurred_at DESC, id DESC) means a
+    // page never overlaps the previous one, so no de-dup is needed.
+    final page = await txRepo.getTransactionPage(
       limit: transactionsPageSize,
+      after: _cursor,
+      filter: _filter,
     );
-    final existingIds = _loaded.map((t) => t.id).toSet();
-    final newItems = page.where((t) => !existingIds.contains(t.id));
-    _loaded = [..._loaded, ...newItems];
+    _loaded = [..._loaded, ...page];
+    if (page.isNotEmpty) {
+      final last = page.last;
+      _cursor = TransactionPageCursor(occurredAt: last.occurredAt, id: last.id);
+    }
     _hasMore = page.length == transactionsPageSize;
     _loadingMore = false;
-    return _viewForLoaded();
-  }
-
-  Future<TransactionsView> _viewForLoaded() async {
-    final accountRepo = ref.read(accountRepositoryProvider);
-    final catalog = await ref.read(categoryCatalogProvider.future);
-    final range =
-        effectiveTransactionsRange(ref.read(transactionsDateRangeProvider));
-    final kind = ref.read(transactionKindFilterProvider);
-    final categoryId = ref.read(transactionCategoryFilterProvider);
-    final query = ref.read(transactionSearchQueryProvider).trim().toLowerCase();
-    final pendingOnly = ref.read(transactionsPendingFilterProvider);
-    final selectedAccountId = ref.read(activeAccountIdProvider);
-    final selectedAccount = selectedAccountId == null
-        ? null
-        : await accountRepo.getById(selectedAccountId);
-    final defaultAccount = await accountRepo.getDefault();
-    final activeAccount = selectedAccount ?? defaultAccount;
-    final all = _loaded;
-    // MALI-074n: exact account ownership — an unassigned (null-account) row is
-    // NOT shown under a specific account just because its currency matches
-    // (that made one orphan appear under every same-currency account). It
-    // appears only in the all-accounts scope. Matches the header aggregate.
-    final scoped = all.where((tx) {
-      if (activeAccount == null) return true;
-      return tx.accountId == activeAccount.id;
-    });
-    final inRange = scoped.where((tx) {
-      if (pendingOnly) return tx.status == TransactionStatus.pending;
-      final at = tx.occurredAt;
-      // Half-open [from, to) — consistent with the canonical period aggregates.
-      return !at.isBefore(range.from) && at.isBefore(range.to);
-    });
-    final filteredByKind = inRange.where((tx) {
-      if (pendingOnly) return true;
-      return switch (kind) {
-        TransactionKindFilter.all => true,
-        TransactionKindFilter.expenses =>
-          tx.type == TransactionTypeEntity.payment ||
-              tx.type == TransactionTypeEntity.withdrawal,
-        TransactionKindFilter.income =>
-          tx.type == TransactionTypeEntity.income ||
-              tx.type == TransactionTypeEntity.refund,
-        TransactionKindFilter.transfers =>
-          tx.type == TransactionTypeEntity.transfer,
-      };
-    });
-    final filteredByCategory = filteredByKind.where((tx) {
-      if (categoryId == null) return true;
-      return tx.categoryId == categoryId;
-    });
-    final filtered = filteredByCategory.where((tx) {
-      if (query.isEmpty) return true;
-      final category = catalog.byId(tx.categoryId);
-      final haystack = [
-        tx.rawMerchant,
-        tx.currency,
-        tx.amount.toStringAsFixed(2),
-        category?.nameAr,
-        category?.key,
-        tx.note,
-      ].whereType<String>().join(' ').toLowerCase();
-      return haystack.contains(query);
-    }).toList(growable: false);
     return TransactionsView(
-      transactions: filtered,
-      catalog: catalog,
-      range: range,
+      transactions: _loaded,
+      catalog: _catalog,
+      range: _range,
       hasMore: _hasMore,
       isLoadingMore: _loadingMore,
     );
