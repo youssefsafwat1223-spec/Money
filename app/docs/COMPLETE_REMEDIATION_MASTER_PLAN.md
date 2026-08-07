@@ -1004,8 +1004,26 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > **MALI-066n** (partially addressed — the wired suites are now mandatory + contract-
 > proven; per-function test dirs + `verify_ios_packaging.sh` remain). All 4 Deno-lint
 > findings fixed, no semantic change. No production feature behavior changed. See
-> `app/docs/PHASE_7_TEST_AND_CI_CONTRACT.md`. Batches 2–5 not started; not formally
-> closed until this reconciliation is approved.
+> `app/docs/PHASE_7_TEST_AND_CI_CONTRACT.md`. Batch 1 approved + closed.
+>
+> **Status (2026-08-07): Batch 2 (IN PROGRESS) — performance (query/provider/startup/
+> rendering/reporting/background).** Structural budgets (query/rebuild counts, rows,
+> bytes — never wall-clock). **MALI-073n DONE:** evidence-backed hot-path indexes
+> (composite `(account_id, occurred_at)` subsuming single-column account_id + serves
+> `account_id=? ORDER BY occurred_at` without a temp sort; `category_id`), schema v29,
+> version-owned + postflight-verified (EXPLAIN before/after). **MALI-029 partial:**
+> domain-scoped provider invalidation (`tableWriteStream` → `scopedRevisionProvider` /
+> `financialRevisionProvider`; unrelated→0 rebuilds, relevant/display-dep→1, burst→≤2,
+> operational→0) + CaptureSyncService account prefetch (getAll()/row → 1/run). **MALI-038
+> partial:** removed 8.1 MB unreferenced assets + asset-size budget; **font portion
+> pending a product decision** (offline Alexandria not bundleable; switch to vendored
+> IBM Plex Sans Arabic is a visible typeface change). **MALI-030 audited, not yet fixed**
+> (report/export/backup materialize whole table; v3 AES-GCM one-shot is an unavoidable-
+> within-v3 crypto-library residual — no v4 this batch). **Remaining in B2:** the other
+> ~14 pull/backfill batchings + sync cadence; MALI-030 memory; rendering; startup; the
+> font decision. No financial semantics/precision/currency/refund/period/restore behavior
+> changed. CAS false; 0070 inactive; 0068–0076 undeployed; not pushed. See
+> `app/docs/PHASE_7_PERFORMANCE_CONTRACT.md`. Batches 3–5 not started.
 
 - MALI-066n: **P7-B1 partial** — admin auth suite, Deno `_shared` tests + lint, Node contract, skip manifest, migration lint, l10n freshness are now mandatory in the ONE canonical gate (`tools/ci_gates.sh`), contract-proven wired. **Remaining:** wire `verify_ios_packaging.sh` into the gate; run per-Edge-function test dirs beyond `_shared/`.
 - MALI-067n/040/041/042/038: replace source-text tests with behavioral/AST tests; close every test DB; remove Drift warning suppression; randomized/repeated ordering; correct font bundling.
