@@ -165,6 +165,107 @@ final dbRevisionProvider = StreamProvider<int>((ref) {
   return controller.stream;
 });
 
+/// MALI-029 — coalescing shared by every revision provider so a write burst
+/// (startup seed, batch import, sync) collapses to ONE rebuild, matching
+/// [dbRevisionProvider]'s 300ms-quiet / 2s-max-wait behavior.
+StreamController<int> _coalescedRevision(
+  Ref ref,
+  Stream<String> source,
+  bool Function(String table) accept,
+) {
+  var revision = 0;
+  final controller = StreamController<int>();
+  Timer? quiet;
+  Timer? maxWait;
+  void emit() {
+    quiet?.cancel();
+    quiet = null;
+    maxWait?.cancel();
+    maxWait = null;
+    if (!controller.isClosed) controller.add(++revision);
+  }
+
+  void tick() {
+    if (controller.isClosed) return;
+    quiet?.cancel();
+    quiet = Timer(const Duration(milliseconds: 300), emit);
+    maxWait ??= Timer(const Duration(seconds: 2), emit);
+  }
+
+  final sub = source.where(accept).listen((_) => tick());
+  ref.onDispose(() async {
+    quiet?.cancel();
+    maxWait?.cancel();
+    await sub.cancel();
+    await controller.close();
+  });
+  return controller;
+}
+
+/// MALI-029 — a revision that ticks ONLY when a data write targets one of the
+/// comma-joined [tablesKey] tables. Financial screens watch their own domain
+/// instead of the global [dbRevisionProvider], so an unrelated-table write never
+/// rebuilds them. The key MUST be a sorted, comma-joined table list (a stable
+/// family key); use the `k*RevisionTables` constants below. Display dependencies
+/// (e.g. `categories` for transaction rows) are included in each domain so a
+/// dependent write still refreshes — providers never go stale.
+final scopedRevisionProvider = StreamProvider.family<int, String>((ref, tablesKey) {
+  final tables = tablesKey.split(',').toSet();
+  final db = ref.watch(appDatabaseProvider);
+  return _coalescedRevision(ref, db.tableWriteStream, tables.contains).stream;
+});
+
+/// Tables whose writes are pure bookkeeping / background operations and must NOT
+/// rebuild financial screens — the documented sync/notification "flicker" source.
+/// EXCLUSION (not enumeration) is deliberate: a new financial table is included in
+/// [financialRevisionProvider] automatically; only writes we are certain are
+/// non-display are filtered out. Gamification DISPLAY aggregates (achievements,
+/// streaks, xp_levels) are intentionally NOT here — only the engagement OUTBOX is.
+const kOperationalOnlyTables = <String>{
+  'notification_log_events',
+  'ledger_sync_outbox',
+  'planning_sync_outbox',
+  'parked_child_rows',
+  'sync_cursors',
+  'engagement_events',
+  'dedup_hashes',
+  'restore_operations',
+  'financial_cache_health',
+  'financial_import_runs',
+  'catalog_metadata',
+  'pending_merchant_feedback',
+  'sender_bank_mappings',
+  'smart_inbox_items',
+  'suspected_duplicates',
+  'remote_banks',
+  'remote_parsers',
+  'remote_currencies',
+  'remote_countries',
+  'remote_categories',
+  'remote_merchant_keywords',
+  'remote_feature_flags',
+  'remote_announcements',
+  'remote_growth_campaigns',
+};
+
+/// Domain table sets (sorted, comma-joined → stable family keys).
+const kReportsRevisionTables = 'categories,transactions';
+const kBudgetsRevisionTables = 'budgets,categories,transactions';
+const kTransactionsRevisionTables = 'accounts,categories,transactions';
+
+/// A revision for broad financial screens (the dashboard) that ticks on ANY write
+/// except the purely-operational tables — so a notification-log / sync-cursor /
+/// catalog write no longer rebuilds the whole financial UI, while every financial
+/// write (including a brand-new financial table) still refreshes it.
+final financialRevisionProvider = StreamProvider<int>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return _coalescedRevision(
+    ref,
+    db.tableWriteStream,
+    (table) => !kOperationalOnlyTables.contains(table),
+  ).stream;
+});
+
 final metricsClientProvider = Provider<MetricsClient>((ref) {
   return MetricsClient();
 });

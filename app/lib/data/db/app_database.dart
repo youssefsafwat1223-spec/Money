@@ -163,6 +163,12 @@ class AppDatabase extends GeneratedDatabase {
   final DatabaseKeyStore keyStore;
   final bool isEncrypted;
   final _manualRevisionController = StreamController<int>.broadcast();
+  // MALI-029 — table-scoped write signal: emits the TARGET table of every data
+  // write (raw-SQL and Drift-API alike) so providers can subscribe to only the
+  // domains they read, instead of the global manualRevisionStream that rebuilds
+  // every watcher on every write. The target table of single-table DML is
+  // unambiguous (the identifier right after INTO / UPDATE / FROM).
+  final _tableWriteController = StreamController<String>.broadcast();
 
   DatabaseLifecycleState _lifecycle = DatabaseLifecycleState.opening;
 
@@ -637,6 +643,7 @@ class AppDatabase extends GeneratedDatabase {
       await _initFuture;
     } catch (_) {}
     await _manualRevisionController.close();
+    await _tableWriteController.close();
     await executor.close();
     // Release the cross-isolate shared lease so file-exclusive maintenance can
     // proceed once every secondary has closed.
@@ -851,6 +858,23 @@ class AppDatabase extends GeneratedDatabase {
 
   Stream<int> get manualRevisionStream => _manualRevisionController.stream;
 
+  /// MALI-029 — the target table of each data write. Domain-scoped revision
+  /// providers filter this so an unrelated-table write never rebuilds an
+  /// unrelated screen. Table-less/global watchers keep using [manualRevisionStream].
+  Stream<String> get tableWriteStream => _tableWriteController.stream;
+
+  /// Extracts the TARGET table of a single-table DML statement (the table being
+  /// written), or null if it cannot be identified. Subqueries/joins in a WHERE or
+  /// VALUES clause never change the target, so this is reliable for the app's DML.
+  static final RegExp _dmlTargetTable = RegExp(
+    r'^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)'
+    r'''\s+["'`]?([A-Za-z_][A-Za-z0-9_]*)''',
+    caseSensitive: false,
+  );
+
+  static String? targetTableOf(String sql) =>
+      _dmlTargetTable.firstMatch(sql)?.group(1);
+
   @override
   Future<int> customInsert(
     String query, {
@@ -862,7 +886,7 @@ class AppDatabase extends GeneratedDatabase {
       variables: variables,
       updates: updates,
     );
-    _notifyManualRevision();
+    _notifyManualRevision(targetTableOf(query));
     return result;
   }
 
@@ -879,7 +903,7 @@ class AppDatabase extends GeneratedDatabase {
       updates: updates,
       updateKind: updateKind,
     );
-    _notifyManualRevision();
+    _notifyManualRevision(targetTableOf(query));
     return result;
   }
 
@@ -887,13 +911,17 @@ class AppDatabase extends GeneratedDatabase {
   Future<void> customStatement(String statement, [List<dynamic>? args]) async {
     await super.customStatement(statement, args);
     if (_looksLikeDataWrite(statement)) {
-      _notifyManualRevision();
+      _notifyManualRevision(targetTableOf(statement));
     }
   }
 
-  void _notifyManualRevision() {
-    if (_manualRevisionController.isClosed) return;
-    _manualRevisionController.add(++_manualRevision);
+  void _notifyManualRevision([String? table]) {
+    if (!_manualRevisionController.isClosed) {
+      _manualRevisionController.add(++_manualRevision);
+    }
+    if (table != null && !_tableWriteController.isClosed) {
+      _tableWriteController.add(table);
+    }
   }
 
   bool _looksLikeDataWrite(String sql) {

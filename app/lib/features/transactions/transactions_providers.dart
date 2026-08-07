@@ -195,7 +195,10 @@ class TransactionsListNotifier
 
   @override
   Future<TransactionsView> build() async {
-    ref.watch(dbRevisionProvider);
+    // MALI-029 — scoped to the transaction-list domain (rows + their category
+    // labels + account filter), so an unrelated write (goals, notifications, sync
+    // bookkeeping) no longer reloads and re-groups the whole list.
+    ref.watch(scopedRevisionProvider(kTransactionsRevisionTables));
     ref.watch(transactionsDateRangeProvider);
     ref.watch(transactionKindFilterProvider);
     ref.watch(transactionCategoryFilterProvider);

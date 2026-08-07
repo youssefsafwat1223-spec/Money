@@ -291,7 +291,7 @@ Future<_CurrencyAccountState> _ensureCurrencyAccounts({
 }
 
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
-  ref.watch(dbRevisionProvider);
+  ref.watch(financialRevisionProvider);
   final txRepo = ref.watch(transactionRepositoryProvider);
   final goalRepo = ref.watch(goalRepositoryProvider);
   final budgetRepo = ref.watch(budgetRepositoryProvider);

@@ -82,7 +82,7 @@ DateTime _weekStartSaturday(DateTime now) {
 }
 
 final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
-  ref.watch(dbRevisionProvider);
+  ref.watch(scopedRevisionProvider(kReportsRevisionTables));
   final txRepo = ref.watch(transactionRepositoryProvider);
   final accountRepo = ref.watch(accountRepositoryProvider);
   final catalog = await ref.watch(categoryCatalogProvider.future);

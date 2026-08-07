@@ -49,7 +49,7 @@ class BudgetHistoryEntry {
 }
 
 final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
-  ref.watch(dbRevisionProvider);
+  ref.watch(scopedRevisionProvider(kBudgetsRevisionTables));
   final budgetRepo = ref.watch(budgetRepositoryProvider);
   final txRepo = ref.watch(transactionRepositoryProvider);
   final accountRepo = ref.watch(accountRepositoryProvider);
