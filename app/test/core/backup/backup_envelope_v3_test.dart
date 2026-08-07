@@ -1,3 +1,12 @@
+// Phase-7 — the v3 envelope uses a deliberately memory-hard Argon2id KDF (64 MiB,
+// 3 iterations). Under the full parallel test suite's CPU pressure a single derive
+// can exceed the default 30s per-test timeout and flake (a locally-testable test
+// must be deterministic under load — Phase-7 Batch-1 principle). A generous
+// file-wide timeout removes that flakiness. TEST-ONLY: no change to the envelope,
+// KDF parameters, or any crypto/financial behavior.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
