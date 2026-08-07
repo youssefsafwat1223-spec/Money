@@ -95,6 +95,49 @@ void main() {
     });
   });
 
+  group('scopedRevisionProvider (transactions domain = '
+      '{accounts, categories, transactions}) — B2-C transaction screen', () {
+    test('an OPERATIONAL write (sync cursor, notification log, outbox) → 0',
+        () async {
+      final ticks = ticksOf(scopedRevisionProvider(kTransactionsRevisionTables));
+      await settle();
+      await write('sync_cursors');
+      await write('notification_log_events');
+      await write('ledger_sync_outbox');
+      await settle();
+      expect(ticks(), 0,
+          reason: 'the list + header total must not requery on bookkeeping');
+    });
+
+    test('a transactions write rebuilds once', () async {
+      final ticks = ticksOf(scopedRevisionProvider(kTransactionsRevisionTables));
+      await settle();
+      await write('transactions');
+      await settle();
+      expect(ticks(), 1);
+    });
+
+    test('an accounts write (active/default account) rebuilds once', () async {
+      final ticks = ticksOf(scopedRevisionProvider(kTransactionsRevisionTables));
+      await settle();
+      await write('accounts');
+      await settle();
+      expect(ticks(), 1, reason: 'account scope change affects the list total');
+    });
+
+    test('a 100-transaction burst coalesces to a bounded number of rebuilds',
+        () async {
+      final ticks = ticksOf(scopedRevisionProvider(kTransactionsRevisionTables));
+      await settle();
+      for (var i = 0; i < 100; i++) {
+        await write('transactions');
+      }
+      await settle();
+      expect(ticks(), lessThanOrEqualTo(2));
+      expect(ticks(), greaterThanOrEqualTo(1));
+    });
+  });
+
   group('financialRevisionProvider (broad; excludes operational tables)', () {
     test('purely-operational writes produce zero financial rebuilds', () async {
       final ticks = ticksOf(financialRevisionProvider);

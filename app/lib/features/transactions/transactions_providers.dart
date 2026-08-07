@@ -6,20 +6,55 @@ import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
 
+/// B2-C — one date section of the transaction list, grouped by LOCAL calendar
+/// day. Precomputed in the provider layer (see [TransactionsView]); the widget
+/// formats [day] into a today/yesterday/per-day label once per section.
+class TransactionDaySection {
+  const TransactionDaySection({required this.day, required this.transactions});
+  final DateTime day; // local calendar-day midnight
+  final List<TransactionEntity> transactions;
+}
+
 class TransactionsView {
-  const TransactionsView({
+  TransactionsView({
     required this.transactions,
     required this.catalog,
     required this.range,
     this.hasMore = false,
     this.isLoadingMore = false,
-  });
+  }) : sections = _groupByDay(transactions);
 
   final List<TransactionEntity> transactions;
   final CategoryCatalog catalog;
   final TransactionsDateRange range;
   final bool hasMore;
   final bool isLoadingMore;
+
+  /// Date-section grouping precomputed ONCE here (provider layer) instead of
+  /// re-grouping every row inside the widget build() on every rebuild. The list
+  /// is already ordered occurred_at DESC, so a single pass yields ordered
+  /// sections. Labels are still formatted per section in build() (O(sections)),
+  /// keeping them locale-correct and updating across midnight.
+  final List<TransactionDaySection> sections;
+
+  static List<TransactionDaySection> _groupByDay(
+    List<TransactionEntity> txns,
+  ) {
+    final out = <TransactionDaySection>[];
+    DateTime? currentDay;
+    List<TransactionEntity>? bucket;
+    for (final tx in txns) {
+      final local = tx.occurredAt.toLocal();
+      final day = DateTime(local.year, local.month, local.day);
+      if (bucket == null || day != currentDay) {
+        currentDay = day;
+        bucket = <TransactionEntity>[];
+        out.add(TransactionDaySection(day: day, transactions: bucket));
+      }
+      bucket.add(tx);
+    }
+    return out;
+  }
 
   /// Count of pending rows in the currently-loaded/visible list — a UX
   /// affordance for the "قيد المراجعة" chip and the confirm-all action, which
@@ -373,7 +408,10 @@ class TransactionsPeriodTotal {
 
 final transactionsPeriodTotalProvider =
     FutureProvider<TransactionsPeriodTotal>((ref) async {
-  ref.watch(dbRevisionProvider);
+  // B2-C — scope to the transaction domain (accounts/categories/transactions),
+  // matching the list, so an unrelated OPERATIONAL write (sync cursor,
+  // notification log, outbox) no longer recomputes the header total.
+  ref.watch(scopedRevisionProvider(kTransactionsRevisionTables));
   final range =
       effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final txRepo = ref.watch(transactionRepositoryProvider);
@@ -414,7 +452,10 @@ final transactionsPeriodTotalProvider =
 });
 
 final billsViewProvider = FutureProvider<BillsView>((ref) async {
-  ref.watch(dbRevisionProvider);
+  // B2-C — bills depend on subscriptions/transactions/accounts, all financial;
+  // exclude-operational so a sync/notification write never rebuilds the bills
+  // tab.
+  ref.watch(financialRevisionProvider);
   final range =
       effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
   final billRepo = ref.watch(billRepositoryProvider);
@@ -457,7 +498,9 @@ final transactionByIdProvider =
   // React to DB changes without depending on the heavy list provider,
   // which rebuilds on every filter/range/search change and causes
   // unnecessary cascading refreshes of this single-record lookup.
-  ref.watch(dbRevisionProvider);
+  // B2-C — scope to the transaction domain so an operational write doesn't
+  // re-fetch a single transaction's detail.
+  ref.watch(scopedRevisionProvider(kTransactionsRevisionTables));
   return ref.watch(transactionRepositoryProvider).getById(id);
 });
 

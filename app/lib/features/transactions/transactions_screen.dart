@@ -79,13 +79,9 @@ class TransactionsScreen extends ConsumerWidget {
         loading: () => const FirstLoadPlaceholder(cardCount: 6),
         error: (e, _) => const Center(child: Text('حدث خطأ')),
         data: (view) {
-          final groups = <String, List<TransactionEntity>>{};
-          for (final tx in view.transactions) {
-            final label = Formatters.dateGroupLabel(tx.occurredAt, context);
-            groups.putIfAbsent(label, () => []).add(tx);
-          }
-          // One card per day group (label above, that day's rows inside).
-          final dayGroups = groups.entries.toList();
+          // B2-C — date-section grouping is precomputed once in the provider
+          // (view.sections), not re-grouped over every row on every build here.
+          final sections = view.sections;
           Widget txRow(TransactionEntity tx) {
             final category = view.catalog.byId(tx.categoryId);
             final title = tx.rawMerchant ?? category?.nameAr ?? 'عملية';
@@ -285,7 +281,7 @@ class TransactionsScreen extends ConsumerWidget {
                           itemCount: 4 +
                               (view.transactions.isEmpty
                                   ? 1
-                                  : dayGroups.length) +
+                                  : sections.length) +
                               (view.isLoadingMore ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index == 0) {
@@ -307,21 +303,24 @@ class TransactionsScreen extends ConsumerWidget {
                                     'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
                               );
                             }
-                            if (itemIndex >= dayGroups.length) {
+                            if (itemIndex >= sections.length) {
                               return const Padding(
                                 padding: EdgeInsets.all(AppSpacing.cardPadding),
                                 child:
                                     Center(child: CircularProgressIndicator()),
                               );
                             }
-                            final group = dayGroups[itemIndex];
+                            final section = sections[itemIndex];
                             return Padding(
                               padding:
                                   const EdgeInsets.only(bottom: AppSpacing.s4),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  _DateHeader(label: group.key),
+                                  _DateHeader(
+                                    label: Formatters.dateGroupLabel(
+                                        section.day, context),
+                                  ),
                                   const SizedBox(height: AppSpacing.s2),
                                   MaliCard(
                                     style: MaliSurfaceStyle.floating,
@@ -329,7 +328,8 @@ class TransactionsScreen extends ConsumerWidget {
                                         const EdgeInsets.symmetric(vertical: 4),
                                     child: Column(
                                       children: [
-                                        for (final tx in group.value) txRow(tx),
+                                        for (final tx in section.transactions)
+                                          txRow(tx),
                                       ],
                                     ),
                                   ),

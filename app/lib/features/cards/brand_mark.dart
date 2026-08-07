@@ -98,30 +98,95 @@ class BrandMark extends ConsumerWidget {
   static void registerAssetSlugs(Iterable<String> slugs) {
     _assetSlugs = slugs.map((s) => s.toLowerCase()).toList()
       ..sort((a, b) => b.length.compareTo(a.length));
+    _stableCache.clear(); // asset slugs feed _resolveSlug → invalidate the index
+  }
+
+  // B2-C — the brand catalogs (`_brandSvgs`, `_assetSlugs`, `_merchantDomains`,
+  // `_brands`) are all fixed after startup, but matched by substring `.contains`,
+  // so the resolution can't be a plain O(1) hash on the merchant name. Instead we
+  // MEMOISE the whole stable resolution per merchant name: the first occurrence
+  // scans the catalogs once, every later row with the same name is an O(1) map
+  // hit. A transaction list has far fewer distinct merchants than rows, so this
+  // turns the old O(rows × catalog) (scanned 2–3× per row across
+  // _resolveSlug/logoDevUrlFor/hasBrand/build) into O(distinct merchants ×
+  // catalog). Cleared when the asset catalog is (re)registered.
+  static final Map<String, _StableBrand> _stableCache = {};
+  static final RegExp _nonAlnum = RegExp('[^A-Z0-9]');
+
+  /// Test hook: number of catalog computations (cache misses) since the last
+  /// reset — proves repeated names do NOT re-scan the catalog.
+  static int debugStableComputeCount = 0;
+
+  static void debugResetBrandCache() {
+    _stableCache.clear();
+    debugStableComputeCount = 0;
+  }
+
+  static _StableBrand _stable(String name) {
+    final cached = _stableCache[name];
+    if (cached != null) return cached;
+    debugStableComputeCount++;
+    final upper = name.toUpperCase();
+    // 1) bundled SVG slug — aggregators (bare payment gateways) never get one.
+    String? slug;
+    if (!PaymentAggregators.isAggregator(name)) {
+      for (final entry in _brandSvgs.entries) {
+        if (upper.contains(entry.key)) {
+          slug = entry.value;
+          break;
+        }
+      }
+      if (slug == null) {
+        final normalized = upper.replaceAll(_nonAlnum, '');
+        for (final s in _assetSlugs) {
+          if (s.length >= 4 && normalized.contains(s.toUpperCase())) {
+            slug = s;
+            break;
+          }
+        }
+      }
+    }
+    // 2) logo.dev domain (matched regardless of aggregator status, as before).
+    String? logoDevUrl;
+    for (final entry in _merchantDomains.entries) {
+      if (upper.contains(entry.key)) {
+        logoDevUrl = 'https://img.logo.dev/${entry.value}'
+            '?token=$_logoDevToken&size=128&format=png';
+        break;
+      }
+    }
+    // 3) coloured-letter fallback match.
+    Color? letterColor;
+    String? letterLabel;
+    for (final entry in _brands.entries) {
+      if (upper.contains(entry.key.toUpperCase())) {
+        letterColor = entry.value.$1;
+        letterLabel = entry.value.$2;
+        break;
+      }
+    }
+    final resolved = _StableBrand(
+      slug: slug,
+      logoDevUrl: logoDevUrl,
+      letterColor: letterColor,
+      letterLabel: letterLabel,
+    );
+    _stableCache[name] = resolved;
+    return resolved;
   }
 
   /// يحدّد slug الشعار المناسب لاسم التاجر: الأسماء الصريحة (متعددة الكلمات/
   /// القصيرة) أولاً، ثم مطابقة تلقائية مع الملفات المرفقة (≥4 أحرف لتفادي
-  /// التطابقات الخاطئة).
-  static String? _resolveSlug(String name) {
-    // A bare payment gateway (e.g. "Fawry") is not the real merchant — never
-    // show its logo; fall back to the category avatar.
-    if (PaymentAggregators.isAggregator(name)) return null;
-    final upper = name.toUpperCase();
-    for (final entry in _brandSvgs.entries) {
-      if (upper.contains(entry.key)) return entry.value;
-    }
-    final normalized = upper.replaceAll(RegExp('[^A-Z0-9]'), '');
-    for (final slug in _assetSlugs) {
-      if (slug.length >= 4 && normalized.contains(slug.toUpperCase())) {
-        return slug;
-      }
-    }
-    return null;
-  }
+  /// التطابقات الخاطئة). (B2-C: memoised via [_stable].)
+  static String? _resolveSlug(String name) => _stable(name).slug;
 
   /// يرجّع رابط شعار العلامة من خريطة (keyword عريض → URL) اللي بتيجي من الـ
   /// admin/DB، بمطابقة اسم التاجر بالاحتواء. null لو مفيش تطابق.
+  ///
+  /// NOT memoised: [logos] is the admin/DB catalog which can change on a catalog
+  /// refresh (and is typically empty or very small). The O(rows × catalog)
+  /// hotspot was the ~200-entry bundled `_merchantDomains` + asset slugs, which
+  /// are now memoised via [_stable].
   static String? logoFor(String name, Map<String, String> logos) {
     if (logos.isEmpty) return null;
     final upper = name.toUpperCase();
@@ -332,28 +397,13 @@ class BrandMark extends ConsumerWidget {
   };
 
   /// يبني رابط شعار logo.dev لاسم التاجر لو ليه دومين معروف، وإلا null.
-  static String? logoDevUrlFor(String name) {
-    final upper = name.toUpperCase();
-    for (final entry in _merchantDomains.entries) {
-      if (upper.contains(entry.key)) {
-        return 'https://img.logo.dev/${entry.value}'
-            '?token=$_logoDevToken&size=128&format=png';
-      }
-    }
-    return null;
-  }
+  /// (B2-C: memoised via [_stable].)
+  static String? logoDevUrlFor(String name) => _stable(name).logoDevUrl;
 
   /// هل [name] علامة معروفة (شعار حقيقي أو مربّع ملوّن مميّز)؟ تُستخدم لتقرّر
-  /// إظهار شعار العلامة بدل أيقونة التصنيف في صف العملية.
-  static bool hasBrand(String name) {
-    if (_resolveSlug(name) != null) return true;
-    if (logoDevUrlFor(name) != null) return true;
-    final upper = name.toUpperCase();
-    for (final key in _brands.keys) {
-      if (upper.contains(key.toUpperCase())) return true;
-    }
-    return false;
-  }
+  /// إظهار شعار العلامة بدل أيقونة التصنيف في صف العملية. (B2-C: memoised — a
+  /// single map hit instead of three catalog scans.)
+  static bool hasBrand(String name) => _stable(name).hasBrand;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -421,18 +471,14 @@ class BrandMark extends ConsumerWidget {
   }
 
   Widget _letterMark() {
-    final upper = name.toUpperCase();
-    Color color = const Color(0xFF0A2540);
-    String label = name.isNotEmpty ? name.characters.first : '?';
-    for (final entry in _brands.entries) {
-      if (upper.contains(entry.key.toUpperCase())) {
-        color = entry.value.$1;
-        label = entry.value.$2.isEmpty
-            ? (name.isNotEmpty ? name.characters.first : '?')
-            : entry.value.$2;
-        break;
-      }
-    }
+    // B2-C — the _brands match is memoised in _stable; the first-character
+    // fallback still derives from this instance's name.
+    final resolved = _stable(name);
+    final firstChar = name.isNotEmpty ? name.characters.first : '?';
+    final Color color = resolved.letterColor ?? const Color(0xFF0A2540);
+    final String label = (resolved.letterLabel == null)
+        ? firstChar
+        : (resolved.letterLabel!.isEmpty ? firstChar : resolved.letterLabel!);
 
     return Container(
       width: size,
@@ -452,4 +498,24 @@ class BrandMark extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// The memoised, stable-catalog resolution for one merchant name (B2-C). Built
+/// once per distinct name; a coloured-letter match sets [letterColor] (and
+/// [letterLabel]: empty string = "use the name's first character").
+class _StableBrand {
+  const _StableBrand({
+    this.slug,
+    this.logoDevUrl,
+    this.letterColor,
+    this.letterLabel,
+  });
+
+  final String? slug;
+  final String? logoDevUrl;
+  final Color? letterColor;
+  final String? letterLabel;
+
+  bool get hasBrand =>
+      slug != null || logoDevUrl != null || letterColor != null;
 }
