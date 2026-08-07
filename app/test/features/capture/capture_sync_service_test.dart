@@ -14,6 +14,7 @@ import 'package:money_companion/data/repositories/drift_user_settings_repository
 import 'package:money_companion/data/repositories/supabase_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/features/capture/services/capture_backend_client.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
@@ -150,6 +151,37 @@ void main() {
       loadInstallId: () async => 'install-id',
     );
   }
+
+  test('MALI-029: a batch of captures prefetches accounts ONCE, not per row',
+      () async {
+    final counting = _CountingAccountRepository(DriftAccountRepository(db));
+    final client = _FakeCaptureBackendClient([
+      for (var i = 0; i < 8; i++)
+        _capture(
+          payloadId: 'batch-$i',
+          status: 'processed',
+          currency: i.isEven ? 'SAR' : 'EGP',
+        ),
+    ]);
+    final svc = CaptureSyncService(
+      settingsRepository: settingsRepository,
+      transactionRepository: DriftTransactionRepository(db),
+      dedupStore: DriftDedupStore(db),
+      suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
+      registrationService: _FakeRegistrationService(),
+      accountRepository: counting,
+      client: client,
+      backendConfigured: true,
+      loadInstallId: () async => 'install-id',
+    );
+
+    await svc.sync();
+
+    // 8 captures across 2 currencies → the accounts table is read ONCE for the
+    // whole run (was one getAll() per captured row before batching).
+    expect(counting.getAllCalls, 1,
+        reason: 'accounts prefetched once per sync run, not per capture');
+  });
 
   test('needs_review capture records its transaction id', () async {
     final client = _FakeCaptureBackendClient([
@@ -573,4 +605,31 @@ ProcessedCaptureDto _capture({
     sanitizedText: 'Paid $currency 42 at Coffee',
     createdAt: DateTime.utc(2026, 7, 5, 10),
   );
+}
+
+/// Counts getAll() calls to prove MALI-029 pull-batching: accounts are prefetched
+/// once per sync run, not reloaded per captured row.
+class _CountingAccountRepository implements AccountRepository {
+  _CountingAccountRepository(this._inner);
+  final AccountRepository _inner;
+  int getAllCalls = 0;
+
+  @override
+  Future<List<AccountEntity>> getAll() {
+    getAllCalls++;
+    return _inner.getAll();
+  }
+
+  @override
+  Future<AccountEntity?> getById(String id) => _inner.getById(id);
+  @override
+  Future<AccountEntity?> getDefault() => _inner.getDefault();
+  @override
+  Future<AccountEntity> create(AccountEntity account) => _inner.create(account);
+  @override
+  Future<AccountEntity> update(AccountEntity account) => _inner.update(account);
+  @override
+  Future<void> delete(String id) => _inner.delete(id);
+  @override
+  Future<void> setDefault(String id) => _inner.setDefault(id);
 }

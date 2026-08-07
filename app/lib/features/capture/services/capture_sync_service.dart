@@ -72,10 +72,26 @@ class CaptureSyncService {
   // قبل أن يُسجَّل أيّ منهما كمستورد — فتُستورد العملية مرّتين.
   Future<CaptureSyncResult>? _inFlightSync;
 
+  // MALI-029 (pull batching) — a currency→account map prefetched ONCE per sync
+  // run instead of reloading the whole accounts table for every captured row
+  // (`getAll()` was O(captures) full-table scans). Populated at the start of
+  // _syncOnce and cleared when it finishes; sync() is single-flight, so there is
+  // no concurrent run to share it. First-match-per-currency mirrors the previous
+  // linear-scan behavior; a create-on-miss updates the map so later rows in the
+  // same batch reuse the new account.
+  Map<String, AccountEntity>? _currencyAccountCache;
+  // Running total of accounts during a sync run, so a create-on-miss keeps the
+  // exact isDefault (`total == 0`) and sortOrder (`total`) the per-row getAll()
+  // path produced.
+  int _currencyAccountTotal = 0;
+
   Future<CaptureSyncResult> sync() {
     final pending = _inFlightSync;
     if (pending != null) return pending;
-    final run = _syncOnce().whenComplete(() => _inFlightSync = null);
+    final run = _syncOnce().whenComplete(() {
+      _inFlightSync = null;
+      _currencyAccountCache = null;
+    });
     _inFlightSync = run;
     return run;
   }
@@ -111,6 +127,10 @@ class CaptureSyncService {
       installId: installId,
       deviceSecret: secret,
     );
+
+    // MALI-029 — prefetch accounts once (first-match-per-currency), reused for
+    // every capture in this batch instead of a full accounts reload per row.
+    _currencyAccountCache = await _buildCurrencyAccountCache();
 
     final imported = <String>{};
     final needsReviewTransactionIds = <String>[];
@@ -393,19 +413,30 @@ class CaptureSyncService {
 
   static String _payloadHash(String payloadId) => 'capture_payload:$payloadId';
 
-  Future<AccountEntity?> _accountForCurrency(String currency) async {
-    final normalized = currency.trim().toUpperCase();
-    if (normalized.isEmpty) return null;
+  /// Prefetches the current accounts once per sync run into a first-match-per-
+  /// currency map (mirroring the previous linear scan) and records the total for
+  /// create-on-miss bookkeeping.
+  Future<Map<String, AccountEntity>> _buildCurrencyAccountCache() async {
     final repository = _accountRepository;
-    if (repository == null) return null;
-
-    final accounts = await repository.getAll();
-    for (final account in accounts) {
-      if (account.currency.trim().toUpperCase() == normalized) {
-        return account;
-      }
+    if (repository == null) {
+      _currencyAccountTotal = 0;
+      return {};
     }
+    final accounts = await repository.getAll();
+    _currencyAccountTotal = accounts.length;
+    final cache = <String, AccountEntity>{};
+    for (final account in accounts) {
+      cache.putIfAbsent(account.currency.trim().toUpperCase(), () => account);
+    }
+    return cache;
+  }
 
+  Future<AccountEntity> _createAccountForCurrency(
+    AccountRepository repository,
+    String normalized, {
+    required bool isDefault,
+    required int sortOrder,
+  }) {
     final now = DateTime.now().toUtc();
     return repository.create(
       AccountEntity(
@@ -415,11 +446,48 @@ class CaptureSyncService {
         type: AccountType.bank,
         initialBalance: null,
         currentBalance: null,
-        isDefault: accounts.isEmpty,
-        sortOrder: accounts.length,
+        isDefault: isDefault,
+        sortOrder: sortOrder,
         createdAt: now,
         updatedAt: now,
       ),
+    );
+  }
+
+  Future<AccountEntity?> _accountForCurrency(String currency) async {
+    final normalized = currency.trim().toUpperCase();
+    if (normalized.isEmpty) return null;
+    final repository = _accountRepository;
+    if (repository == null) return null;
+
+    // Fast path: the run-scoped cache (one getAll() for the whole batch).
+    final cache = _currencyAccountCache;
+    if (cache != null) {
+      final hit = cache[normalized];
+      if (hit != null) return hit;
+      final created = await _createAccountForCurrency(
+        repository,
+        normalized,
+        isDefault: _currencyAccountTotal == 0,
+        sortOrder: _currencyAccountTotal,
+      );
+      _currencyAccountTotal++;
+      cache[normalized] = created;
+      return created;
+    }
+
+    // Fallback (no active sync run): the original per-call behavior.
+    final accounts = await repository.getAll();
+    for (final account in accounts) {
+      if (account.currency.trim().toUpperCase() == normalized) {
+        return account;
+      }
+    }
+    return _createAccountForCurrency(
+      repository,
+      normalized,
+      isDefault: accounts.isEmpty,
+      sortOrder: accounts.length,
     );
   }
 
