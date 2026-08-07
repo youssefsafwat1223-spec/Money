@@ -11,8 +11,8 @@ void main() {
 
     test('doubles per consecutive idle poll, capped at max', () {
       final c = SyncCadence(
-        base: Duration(seconds: 30),
-        max: Duration(seconds: 300),
+        base: const Duration(seconds: 30),
+        max: const Duration(seconds: 300),
       );
       c.recordIdlePoll(); // 1 → x2
       expect(c.nextDelay(), const Duration(seconds: 60));
