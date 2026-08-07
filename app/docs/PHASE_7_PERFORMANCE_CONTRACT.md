@@ -145,24 +145,57 @@ maxPlaintextBytes` = 48 MiB enforced BEFORE encryption** → typed
 `BackupEnvelopeErrorKind.payloadTooLarge`; existing 64 MiB ciphertext / 96 MiB envelope
 caps retained.
 
-**v3 one-shot residual (honest characterization, NOT device-external):**
-`encryptEnvelopeV3` serialises the snapshot with `_serializedPlaintextChecked` (which
-enforces the 48 MiB cap) then calls `AesGcm.encrypt` ONCE. `package:cryptography`'s
-AES-GCM has no streaming API, so exactly ONE full plaintext buffer plus its ciphertext
-(+16-byte MAC) must coexist for that call — an irreducible **crypto-library/format
-constraint** (streaming needs a new envelope format, which is out of scope: no v4). It
-is bounded by the enforced 48 MiB plaintext / 64 MiB ciphertext caps, fed by the
-reduced-copy paged snapshot builder, and the codec is pure in-memory (**no plaintext is
-staged to disk**; v3 authentication unchanged).
+### B2-B closure — corrected memory-lifetime accounting
 
-**Section 10 (remote upload handoff) — briefly reviewed:** the envelope is serialised
-once via `v3Blob.toBytes()`; the production backup service is a stub unless Supabase is
-configured. A deeper cloud-upload audit (hashing without an extra blob copy, retry
-reusing the immutable blob) remains a smaller follow-up.
+The earlier "1 copy" note was about avoiding a `Map.from` double-copy INSIDE `build()`;
+it did NOT bound total generation memory, because the production path was
+`build()` (whole snapshot Map) → `jsonEncode` (whole JSON String) → `utf8.encode`
+(plaintext) → encrypt — **all four coexisting** for a 10k backup. Corrected:
+
+**Production backup path (streaming — `buildEncryptedPlaintext` → encrypt-from-bytes):**
+
+```
+DB page (≤2000 rows)          ← released after each page is serialized
+  → jsonEncode per row/table  ← small, transient
+  → utf8 bytes appended to BytesBuilder (size-capped as it grows)
+  → [whole plaintext bytes]   ← the ONE unavoidable full buffer (AES-GCM is one-shot)
+  → AesGcm.encrypt            ← plaintext + ciphertext (+16B MAC) coexist here only
+  → ciphertext → v3 envelope base64/JSON → toBytes() (once)
+  → publish(immutable blob)   ← sha256/size over existing bytes, no clone
+```
+
+**Simultaneously alive for a 10,000-row backup (after closure):** one DB page + the
+growing/whole plaintext byte buffer + (at the encrypt call) its ciphertext. There is
+**NO** longer a complete snapshot object graph AND a whole JSON String alive alongside
+the plaintext — proven byte-identical to `utf8.encode(jsonEncode(build()))` yet built
+without them. The plaintext cap is enforced **during** accumulation (before a large
+buffer exists) → typed `payloadTooLarge`, never OOM. Pure in-memory (no plaintext to
+disk); v3 wire/auth unchanged; the legacy pre-v3 path still builds the object snapshot
+lazily (old installs only).
+
+**v3 one-shot residual (irreducible, NOT device-external):** exactly ONE full plaintext
+buffer + its ciphertext (+16-byte MAC) at the single `AesGcm.encrypt` call —
+`package:cryptography` has no streaming API (streaming needs a new envelope = out of
+scope: no v4). Bounded by 48 MiB plaintext / 64 MiB ciphertext caps.
+
+**Full-data export (Blocker 4):** the transactions table is CSV-paged (bounded row
+objects); other tables are small bounded catalogs. The zip archive inherently needs all
+per-table CSV byte arrays present to encode the final package — that multi-CSV + archive
++ zip coexistence is a **zip-format constraint** on the final artefact, not extra
+retained domain objects. Enforced total bound: the envelope/blob caps.
+
+**Remote upload handoff (Blocker 5 — audited, application code clean):** `publish` takes
+the immutable `Uint8List`; `sha256Hex(blob)` hashes the existing bytes (no clone);
+byte-count uses `.length`; `putObject(blob)` passes by reference; retry reuses the same
+blob (no per-attempt clone); `toBytes()` runs once. Only Supabase's client may copy
+internally — a library boundary, not application-controlled.
 
 **Status:** *MALI-030 code complete — locally verified for bounded report/export/
 snapshot database processing; the v3 authenticated encryption remains a bounded one-shot
-in-memory operation under enforced payload caps.*
+in-memory operation under enforced payload caps.* The only dataset-sized application
+buffers are those inherent to the serialized v3 plaintext/ciphertext and the final
+export zip — no complete snapshot object graph + whole JSON String remain alongside the
+plaintext. Native heap/profile numbers stay external.
 
 ## 6. Transaction-list / dashboard rendering (NOT yet done)
 
