@@ -17,7 +17,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 28;
+const int _targetSchemaVersion = 29;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -532,6 +532,12 @@ class AppDatabase extends GeneratedDatabase {
   /// idempotent [_runCompatibilityMigrations] repairs (retrofitting 27 discrete
   /// snapshots would be riskier than the proven idempotent repairs). New schema
   /// work must register a step here instead of extending the flat repair list.
+  // v28 → v29 (MALI-073n, Phase-7 B2) adds the additive account/category hot-path
+  // indexes. Because `account_id` is ensured by _runCompatibilityMigrations (which
+  // runs AFTER this versioned-registry phase), the indexes are created there,
+  // idempotently, and their presence is asserted by the postflight
+  // _verifyMigrationIntegrity BEFORE the user_version bump commits. The registry
+  // itself stays empty (no forward step can precede its own column dependency).
   static const List<_SchemaMigration> _versionedMigrations = [];
 
   Future<void> _applyVersionedMigrations(int fromVersion) async {
@@ -569,6 +575,25 @@ class AppDatabase extends GeneratedDatabase {
       if (!present) {
         throw MigrationIntegrityException(
           'post-migration schema check failed: missing table "$table"',
+        );
+      }
+    }
+    // MALI-073n (v29) — the hot-path indexes are part of the schema contract from
+    // v29 on; assert both exist before the version bump commits (a failure rolls
+    // the whole migration back rather than stamping a half-applied v29).
+    const requiredIndexes = [
+      'idx_transactions_account_occurred',
+      'idx_transactions_category_id',
+    ];
+    for (final index in requiredIndexes) {
+      final present = (await customSelect(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?;",
+        variables: [Variable.withString(index)],
+      ).get())
+          .isNotEmpty;
+      if (!present) {
+        throw MigrationIntegrityException(
+          'post-migration schema check failed: missing index "$index"',
         );
       }
     }
@@ -1045,6 +1070,10 @@ class AppDatabase extends GeneratedDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_transactions_merchant_amount ON transactions(merchant_id, amount);',
     );
+    // NOTE: the account_id/category_id hot-path indexes (MALI-073n) are created in
+    // _runCompatibilityMigrations, AFTER the `account_id` column is ensured there —
+    // account_id is not part of this original CREATE TABLE, so its index cannot be
+    // built at this point.
     // MALI-027: idx_transactions_duplicate_exact indexes `comparison_timestamp`,
     // which a legacy `transactions` table does NOT have yet (it is added later by
     // _runCompatibilityMigrations via ADD COLUMN). Creating it here would fail on
@@ -1496,6 +1525,23 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn('user_settings', 'sync_status', 'TEXT NULL');
     // v2: ربط المعاملات/الاشتراكات بالحساب (multi-currency accounts).
     await _ensureColumn('transactions', 'account_id', 'TEXT NULL');
+    // MALI-073n (schema v29) — account/category hot-path indexes, evidence-backed
+    // by EXPLAIN QUERY PLAN (test/performance/query_plan_test.dart). Created here
+    // (not in _createSchema) because account_id is ensured just above. The account
+    // index is COMPOSITE (account_id, occurred_at): it subsumes a single-column
+    // account_id index AND serves `WHERE account_id = ? ORDER BY occurred_at DESC`
+    // (account detail / latest-balance / recent list) without a temp-B-tree sort.
+    // category_id is single-column for `WHERE category_id = ?` + `GROUP BY
+    // category_id`. Additive read accelerators only — no financial semantics,
+    // precision or types change. Presence asserted by _verifyMigrationIntegrity.
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transactions_account_occurred '
+      'ON transactions(account_id, occurred_at);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transactions_category_id '
+      'ON transactions(category_id);',
+    );
     await _ensureColumn('subscriptions', 'account_id', 'TEXT NULL');
     await _ensureColumn(
         'budgets', 'show_on_header', 'INTEGER NOT NULL DEFAULT 0');
