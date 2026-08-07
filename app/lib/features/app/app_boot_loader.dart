@@ -16,6 +16,17 @@ import '../../core/theme/app_typography.dart';
 /// defaults behind a second loader.
 final ValueNotifier<bool> appDataRestoring = ValueNotifier<bool>(false);
 
+/// B2-C — the explicit "first usable local financial state" milestone. Flipped
+/// true by the bootstrap the moment the SAFETY-CRITICAL phase is done: DB key +
+/// encrypted DB open + required migration/repair + process/owner liveness +
+/// admission (owner-conflict) resolved + seed — i.e. repositories can run a real
+/// owner-scoped query. It does NOT wait for network (remote feature/config
+/// refresh, remote-backup metadata), analytics, or non-critical
+/// diagnostics/cleanup — those run in the deferred phase AFTER this flips. The
+/// financial UI is only shown once the local DB is genuinely the current owner's,
+/// never previous-user cached data (that is the [appDataRestoring] gate's job).
+final ValueNotifier<bool> localFinancialUiUsable = ValueNotifier<bool>(false);
+
 /// The one branded loading view (logo + slim accent spinner). Matches
 /// `StartupLoadingScreen._LoadingBody` exactly so the cold-start screen and the
 /// restore overlay are indistinguishable.

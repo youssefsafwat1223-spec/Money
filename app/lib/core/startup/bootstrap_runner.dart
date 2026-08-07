@@ -18,6 +18,7 @@ import '../../features/capture/services/capture_device_registration_service.dart
 import '../../features/capture/services/native_capture_bridge.dart';
 import '../../features/capture/services/pending_notification_actions.dart';
 import '../../features/capture/services/local_notification_service.dart';
+import '../../features/app/app_boot_loader.dart';
 import '../../features/capture/services/notification_log_service.dart';
 import '../../features/cards/brand_mark.dart';
 import '../../features/planning_sync/services/outbox_queue_factory.dart';
@@ -143,16 +144,14 @@ class BootstrapRunner {
       await _registerBrandLogos();
     });
 
+    // B2-C — LOCAL feature-flag init only (cached flags; makes `featureFlags`
+    // usable and thus critical). The NETWORK override refresh is deferred: the
+    // post-frame `syncCatalog` re-runs this with overrides, so the first frame
+    // never blocks on a remote flag fetch (§12: no remote config on the critical
+    // path).
     await _step(
       'feature_flags_init',
-      () => initFeatureFlagService(database),
-    );
-
-    // MALI-065n: on a fresh process no export share can be in flight, so any
-    // file left in the managed export dir is a crash orphan — reclaim them all.
-    await _step(
-      'export_temp_sweep',
-      () => ManagedExportStore().sweep(),
+      () => initFeatureFlagService(database, applyRemoteOverrides: false),
     );
 
     await _step('capture_registration', () async {
@@ -259,12 +258,35 @@ class BootstrapRunner {
           .seedInitialConfirmation(initialCaptureTransactionId);
     }
 
+    // B2-C — the safety-critical phase (config, DB open, liveness, admission/
+    // owner-conflict, seed, local flags, owner-safe backfills) is complete: the
+    // local financial UI is usable. Flip the milestone, then run the deferred,
+    // non-critical, off-the-first-frame work (housekeeping only) WITHOUT gating
+    // the return.
+    localFinancialUiUsable.value = true;
+    unawaited(_runDeferredStartupWork());
+
     if (kDebugMode) {
       debugPrint(
         '[Bootstrap] done — session=${AppSession.instance.status.name}',
       );
     }
     return database;
+  }
+
+  /// B2-C — deferred, non-critical startup housekeeping that must NOT gate the
+  /// first financial frame. Owner-independent (temp files only, so no admission
+  /// guard is needed), idempotent, and best-effort: a failure here can never
+  /// turn a usable local DB into a fatal startup error. Runs outside the 30s
+  /// bootstrap timeout.
+  Future<void> _runDeferredStartupWork() async {
+    // MALI-065n: on a fresh process no export share can be in flight, so any
+    // file left in the managed export dir is a crash orphan — reclaim them all.
+    try {
+      await ManagedExportStore().sweep();
+    } catch (_) {
+      // Housekeeping only; never surface as a startup failure.
+    }
   }
 
   void _assertRuntimeConfig() {

@@ -312,6 +312,14 @@ FeatureFlagService? _featureFlagInstance;
 Future<FeatureFlagService> initFeatureFlagService(
   AppDatabase db, {
   String? installIdOverride,
+  // B2-C startup: the LOCAL init (cached flags) is what makes `featureFlags`
+  // usable and MUST stay on the critical path (the getter throws otherwise). The
+  // remote [applyUserOverrides] is a NETWORK refresh — bootstrap passes false so
+  // it does not gate the first financial frame; the post-frame `syncCatalog`
+  // already re-runs this with overrides applied. A fresh install renders with
+  // safe default/cached flags for the first frame, then the post-frame refresh
+  // lands the server values.
+  bool applyRemoteOverrides = true,
 }) async {
   final id = installIdOverride ?? await InstallId.get();
   final service = FeatureFlagService(
@@ -319,7 +327,7 @@ Future<FeatureFlagService> initFeatureFlagService(
     installId: id,
   );
   await service.init();
-  if (SupabaseConfig.isConfigured) {
+  if (applyRemoteOverrides && SupabaseConfig.isConfigured) {
     final client = supabase.Supabase.instance.client;
     await service.applyUserOverrides(client, client.auth.currentUser?.id);
   }
