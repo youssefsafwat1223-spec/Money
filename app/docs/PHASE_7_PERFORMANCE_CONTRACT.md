@@ -306,28 +306,99 @@ in-memory operation under enforced payload caps.* No complete snapshot object gr
 whole JSON String remain alongside the plaintext; the export has its own enforced cap.
 Native heap/profile numbers stay external.
 
-## 6. Transaction-list / dashboard rendering (NOT yet done)
+## 6. Transaction-list / dashboard rendering + search (B2-C DONE ✓)
 
-**Done ✓:** search is now **debounced** (250ms) — a keystroke burst no longer re-fetches
-page 1 + re-filters + re-groups on every character (compile-verified; a widget-level
-rapid-search test is an outstanding follow-up as the field is private).
+### Keyset pagination + SQL filter push-down
+The list previously loaded 500 UNFILTERED rows per page (OFFSET) and applied
+account/date/kind/category/search filters in Dart over the accumulated list —
+load-then-discard, hasMore reflecting the unfiltered page. Now
+`getTransactionPage({limit, after, filter})` pushes EVERY supported filter into SQL
+(account · half-open date · kind · category · pending · per-field escaped-LIKE search
+over merchant/currency/2-dp-amount/joined category name_ar+key/note) and keyset-pages by
+`occurred_at DESC, id DESC` (stable for equal timestamps, uses the v29
+`(account_id, occurred_at)` index when an account is active). No OFFSET, no full-history
+preload, no Dart discard. The notifier resolves the filter + display context ONCE per
+build (all dimensions watched → the keyset cursor resets on any change) and drops an
+in-flight `loadMore` page whose generation was superseded (a page for the old filter can
+never append to a newer result). The dormant Supabase repo throws (list is Drift-only in
+S5). Documented refinement: search matches PER FIELD (was a naive whole-haystack
+`String.contains`); SQLite `LOWER` is ASCII-only.
+Evidence (`transaction_page_filter_test`): unfiltered/equal-timestamp keyset stability,
+each filter + combined, pending-only, ignored-excluded, per-field+escaped search,
+empty/partial page, and **10k rows → first page = 50 rows in ONE SELECT** with a
+no-overlap next page (never loads the full history).
 
-**Remaining (audited, not yet done):** move day-grouping + brand-mark resolution
-(~228-entry scans/row) out of `build()` (cached per-tx); push the date/account filter
-into `getPage` (uses the new `idx_transactions_account_occurred`) so a narrow filter
-stops paging the whole table client-side; replace the two dashboard `getAll()` folds
-with bounded/SQL queries; rebuild-count + pagination tests. Formatting is already
-memoized. No visual redesign; Phase-4 totals unchanged.
+### Search debounce (production/widget-level)
+250ms debounce (accepted core) now proven at the widget level (`TransactionSearchField`
+made public): rapid `a→ab→abc` settles to ONE trigger; clear cancels the pending search;
+dispose-before-fire writes nothing; slow typing yields each settled term; the notifier
+drops a stale in-flight page after a filter change. (`search_debounce_test`).
 
-## 7. Startup / resume (NOT yet done)
+### Build-time work removed
+- **Date-section grouping** moved OUT of `build()`: `TransactionsView` precomputes ordered
+  day sections (by local calendar day) once in the provider layer; `build()` formats each
+  section's today/yesterday/per-day label once (O(sections)) — was a full O(rows) re-group
+  on every rebuild. (`day_grouping_test`.)
+- **Brand-mark lookup** was O(rows × catalog): `_resolveSlug`/`logoDevUrlFor`/`hasBrand`/
+  `BrandMark.build` scanned the ~200-entry `_merchantDomains` + `_brandSvgs` + asset slugs
+  by substring `.contains`, 2–3× per row, recompiling a RegExp each call. The catalogs are
+  fixed after startup but matched by substring, so the WHOLE stable resolution is memoised
+  per merchant name (`_StableBrand`): first occurrence scans once, every later row is an
+  O(1) map hit → **O(distinct merchants × catalog)**; regex precompiled; cache cleared on
+  `registerAssetSlugs`. Semantics identical. (`brand_mark_index_test`: repeats → 1 scan,
+  distinct → O(distinct), semantics-identical, catalog-refresh invalidation.)
 
-Stage inventory captured (`bootstrap_runner.dart`): DB open + migrations + repairs +
-ownership admission + liveness reaping are REQUIRED (stay on the critical path).
-Deferrable-after-first-frame: metrics `app_open`, export-temp sweep, key-ref cleanup,
-goal autosaves, card backfill, brand-logo asset scan. `SeedLoader.seedIfEmpty` and
-`initFeatureFlagService` run 2–3× on the critical path (coalesce). **Target:** defer the
-clearly-non-critical stages and coalesce the duplicates WITHOUT moving any required
-safety work after data display; no financial data before ownership admission.
+### Rebuild scope
+Transaction-screen header total + single-transaction detail now watch
+`scopedRevisionProvider(kTransactionsRevisionTables)` and the bills tab watches
+`financialRevisionProvider` (exclude-operational) — an operational (sync/notification/
+outbox) write no longer recomputes them (the list already was scoped). The dashboard
+already used `financialRevisionProvider`. (`scoped_invalidation_test` extended: transactions
+domain — operational → 0, transactions/accounts → 1, 100-burst coalesced.)
+
+### getAll() folds
+- `recentExpensesSectionProvider` (home "today's expenses") no longer loads+sorts the whole
+  table — a bounded `getTransactionPage` with account + half-open today window + expense
+  kind (returns rows, no amount fold; instant comparison preserves the old window exactly).
+- **Deferred / kept:** `budgets_providers` per-period line-item lists fold `getAll()`
+  (O(budgets×periods×rows)) — the per-period TOTALS already use canonical repo math; the
+  line-item fold is financial-consumption-sensitive and left for a targeted follow-up. The
+  `cards_providers` picker + `dashboard_providers` currency-account bootstrap load the full
+  list for pure presentation/bootstrap; their financial totals are already canonical.
+
+## 7. Startup / resume (B2-C DONE ✓)
+
+**Startup stage classification** (`bootstrap_runner.dart`).
+*Safety-critical — stay blocking:* runtime-config gate, `supabase_init` (SDK),
+`session_restore` (identity), `notifications_init` (harvests the cold-start tap),
+`database_process_liveness` (advisory lock + reap), `database_open`, `has_local_data`,
+`seed_catalog` (first-run seed), LOCAL `feature_flags_init` (the `featureFlags` getter
+throws if never initialised), `capture_registration` incl. owner-conflict resolution;
+and the owner-sensitive DB mutations (`db_key_ref_cleanup`, `goal_autosaves`,
+`card_backfill`, `sender_bank_sync`) stay on the critical path where the owner is already
+resolved and no sign-out can interleave.
+*Deferred off the first-frame path:* the feature-flag **network override refresh**
+(`applyUserOverrides` — the post-frame `syncCatalog` already re-runs it, so the first
+frame never blocks on a remote flag fetch), and `export_temp_sweep` (crash-orphan
+housekeeping, owner-independent, already deferred on resume). Deferred work is unawaited,
+best-effort, and outside the 30s bootstrap timeout — a failure can never fault a usable
+local DB.
+**`localFinancialUiUsable` milestone** (`app_boot_loader.dart`): flips true the moment the
+safety-critical phase completes (DB key/open, liveness, admission/owner-conflict, seed,
+local flags) — it does NOT wait for network/backup-metadata/analytics; previous-user
+cached data is never shown (the `appDataRestoring` gate). (`startup_deferral_test`.)
+
+**Resume** (`_onResume`). Non-critical idempotent refreshes (catalog, native-capture-state,
+export sweep) are coalesced by a pure `ResumeCoalescer` (20s window) so rapid repeated
+resumes don't re-run them; sign-out resets it so the new owner's first resume fully
+refreshes. Never coalesced: auth revalidation, data reconcile, `_consumeSharedInput` (a
+capture may have arrived while backgrounded), the SyncGate-coalesced sync, notification
+drain, engagement (each already in-flight-guarded). Migration/DB/admission are
+bootstrap-only and do not re-run on resume. (`sync_cadence_test` — ResumeCoalescer.)
+**Lifecycle cancellation (§14):** app_shell `dispose` cancels every timer/subscription/
+native handler; the search field cancels its debounce on dispose/submit/clear; the cadence
+primitives (SyncGate/ResumeCoalescer) hold no timers. No `setState`-after-dispose, no stale
+page/search result (generation guard), no duplicate recurring timer.
 
 ## 8. Font & asset contract
 
@@ -349,6 +420,20 @@ the repo); (C) defer. `test/core/theme/app_typography_test.dart` pins the curren
 - no full-table SCAN for the audited account/category hot-path queries (§1);
 - scoped-provider rebuilds: unrelated → 0, relevant → exactly 1, 100-write burst → ≤ 2 (§2);
 - CaptureSyncService: 1 accounts read per sync run, not per row (§3);
+- pull-batching lookups scale O(distinct keys + chunks), not O(rows) (§3, MALI-029);
+- **B2-C list/render (structural, never wall-clock):**
+  - transaction first page ≤ `transactionsPageSize` (500) rows; first page = ONE keyset
+    SELECT; next page = one SELECT, no overlap (proven at 10k);
+  - filters (account/date/kind/category/pending/search) applied in SQL — never
+    load-then-discard in Dart;
+  - rapid typing → ≤ 1 DB search per SETTLED term (debounce), not per keystroke;
+  - brand-mark: repeated merchant names → 0 additional catalog scans (memoised); large row
+    counts never trigger O(rows × catalog);
+  - date-section grouping computed once per page in the provider, not per widget build;
+  - operational (sync/notification/outbox) write → 0 transaction-screen/dashboard financial
+    recompute;
+- **B2-C startup/resume:** the network feature-flag override + export sweep do NOT gate the
+  first financial frame; non-critical resume refreshes coalesce within a 20s window;
 - no single packaged asset > 1 MiB; assets/ total ≤ ~11 MiB (§8).
 
 ## 10. Remaining external / device verification

@@ -1023,7 +1023,18 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > + coalescing + offline/ownership `SyncGate` (outbox-derived reachability, admission
 > generation). No unexplained active O(rows) FK-resolution loop remains (push=network-bound
 > per-item; smart-inbox pull self-lookup + import fuzzy dedup = intentional non-FK;
-> backfills=migration-only; financial_cache_repair=MALI-034 dormant). **MALI-038
+> backfills=migration-only; financial_cache_repair=MALI-034 dormant). **B2-A APPROVED
+> 2026-08-08.** **B2-C DONE** (rendering/pagination/search/startup/resume): keyset
+> pagination + full SQL filter push-down (`getTransactionPage`; 10k→first page 50 rows/1
+> SELECT; cursor reset on filter change + stale-page generation guard); 250ms search
+> debounce proven at widget level; date-grouping moved to the provider; brand-mark
+> O(rows×catalog)→O(distinct) memoised; transaction/dashboard financial providers
+> domain-scoped (operational write→0 recompute); home "today" full-load→bounded query;
+> startup defers the network feature-flag override + export sweep off the first frame +
+> `localFinancialUiUsable` milestone; resume coalesces non-critical refreshes. Deferred:
+> budgets per-period line-item fold + cards/dashboard presentation `getAll()` (totals
+> already canonical). No financial semantics/sync-authority/backup-envelope change; CAS/
+> 0070 inactive; not pushed. **MALI-038
 > partial:** removed 8.1 MB unreferenced assets + asset-size budget; **font portion
 > pending a product decision** (offline Alexandria not bundleable; switch to vendored
 > IBM Plex Sans Arabic is a visible typeface change). MALI-030 CODE COMPLETE (B2-B + closure): streaming backup plaintext (no full object graph/JSON String), truthful appendix omission rendered in the PDF (ar/en), enforced 100 MiB export cap, 48 MiB plaintext cap; irreducible bounded buffers = v3 plaintext/ciphertext + export ZIP (none device-only). **B2-B DONE (MALI-030):** report largest→SQL top-N, appendix keyset-paged+capped, CSV/full-export paged, backup snapshot paged + copy dropped, pre-encryption 48 MiB plaintext cap; v3 one-shot residual is a bounded crypto-library constraint (not device-external). **Remaining in B2:** the other
