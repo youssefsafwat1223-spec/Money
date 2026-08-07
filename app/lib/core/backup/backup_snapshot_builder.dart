@@ -1,3 +1,5 @@
+import 'package:drift/drift.dart' show Variable;
+
 import '../../data/db/app_database.dart';
 
 class BackupSnapshotBuilder {
@@ -336,6 +338,9 @@ class BackupSnapshotBuilder {
   /// column (e.g. the deprecated db_encryption_key_ref) is dropped on the way in.
   static const Map<String, List<String>> restorableColumns = _tables;
 
+  // MALI-030 — page size for the one usage-scaling backup table (transactions).
+  static const int _snapshotPageSize = 2000;
+
   Future<Map<String, dynamic>> build() async {
     final tables = <String, List<Map<String, Object?>>>{};
     // Read every table inside ONE transaction so the snapshot is a single
@@ -344,13 +349,19 @@ class BackupSnapshotBuilder {
       for (final entry in _tables.entries) {
         final columns = entry.value.join(', ');
         final where = _whereFor(entry.key);
-        final rows = await _db
-            .customSelect(
-              'SELECT $columns FROM ${entry.key}$where;',
-            )
-            .get();
-        tables[entry.key] =
-            rows.map((row) => Map<String, Object?>.from(row.data)).toList();
+        // MALI-030 — the transactions table scales with usage: read it in bounded
+        // keyset pages so only [_snapshotPageSize] driver rows exist at once. Other
+        // tables are small bounded catalogs/config. In BOTH cases the row maps are
+        // taken directly (QueryRow.data is already a distinct map) instead of an
+        // extra Map.from copy — the snapshot no longer holds two full copies.
+        if (entry.key == 'transactions') {
+          tables[entry.key] = await _pagedTableRows(entry.key, columns, where);
+        } else {
+          final rows = await _db
+              .customSelect('SELECT $columns FROM ${entry.key}$where;')
+              .get();
+          tables[entry.key] = [for (final row in rows) row.data];
+        }
       }
     });
     return {
@@ -363,6 +374,34 @@ class BackupSnapshotBuilder {
       },
       'tables': tables,
     };
+  }
+
+  /// MALI-030 — reads [table] in bounded keyset pages ordered by `id` (its primary
+  /// key), so at most [_snapshotPageSize] driver rows exist at once. The [columns]
+  /// allowlist already includes `id`. Row maps are taken directly (no extra copy).
+  Future<List<Map<String, Object?>>> _pagedTableRows(
+      String table, String columns, String where) async {
+    final rows = <Map<String, Object?>>[];
+    String? cursorId;
+    while (true) {
+      final keyset = cursorId == null
+          ? ''
+          : (where.isEmpty ? ' WHERE id > ?' : ' AND id > ?');
+      final page = await _db.customSelect(
+        'SELECT $columns FROM $table$where$keyset ORDER BY id LIMIT ?;',
+        variables: [
+          if (cursorId != null) Variable.withString(cursorId),
+          Variable.withInt(_snapshotPageSize),
+        ],
+      ).get();
+      if (page.isEmpty) break;
+      for (final row in page) {
+        rows.add(row.data);
+      }
+      if (page.length < _snapshotPageSize) break;
+      cursorId = page.last.data['id'] as String?;
+    }
+    return rows;
   }
 
   static String _whereFor(String table) {
