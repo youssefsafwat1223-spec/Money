@@ -59,6 +59,12 @@ class BackupEnvelopeLimits {
   static const int maxCipherTextBytes = 64 * 1024 * 1024; // 64 MiB
   static const int maxSlots = 8;
   static const int maxEnvelopeChars = 96 * 1024 * 1024; // bound the raw blob
+  // MALI-030 — cap the PLAINTEXT before the one-shot AES-GCM stage, which is the
+  // moment plaintext + ciphertext (+ MAC) coexist. Stricter than the ciphertext
+  // cap (ciphertext ≈ plaintext + 16-byte tag) so an oversized snapshot is
+  // rejected with a typed payloadTooLarge BEFORE the doubling allocation, never an
+  // OOM crash. 48 MiB of financial JSON is already a very large local dataset.
+  static const int maxPlaintextBytes = 48 * 1024 * 1024; // 48 MiB
 }
 
 /// The v3 authenticated header. Its [aad] bytes are fed as AES-GCM additional
@@ -387,6 +393,7 @@ class BackupCrypto {
     Argon2id? kdf,
     AesGcm? cipher,
     Random? random,
+    int? maxPlaintextBytes,
   })  : _kdf = kdf ??
             Argon2id(
               memory: 64 * 1024,
@@ -395,10 +402,14 @@ class BackupCrypto {
               hashLength: 32,
             ),
         _cipher = cipher ?? AesGcm.with256bits(),
-        _random = random ?? Random.secure();
+        _random = random ?? Random.secure(),
+        _maxPlaintextBytes =
+            maxPlaintextBytes ?? BackupEnvelopeLimits.maxPlaintextBytes;
 
   final Argon2id _kdf;
   final AesGcm _cipher;
+  // MALI-030 — the enforced pre-encryption plaintext cap; overridable in tests.
+  final int _maxPlaintextBytes;
   final Random _random;
 
   List<int> randomBytes(int length) =>
@@ -641,6 +652,21 @@ class BackupCrypto {
     );
   }
 
+  /// MALI-030 — serialize the snapshot to plaintext bytes and REJECT an oversized
+  /// payload (typed [BackupEnvelopeErrorKind.payloadTooLarge]) BEFORE the one-shot
+  /// AES-GCM stage where plaintext + ciphertext coexist, so a pathological dataset
+  /// fails safely instead of OOM-crashing. This is the single unavoidable full
+  /// plaintext buffer for the v3 format (no streaming without a new envelope).
+  List<int> _serializedPlaintextChecked(Map<String, dynamic> json) {
+    final plaintext = utf8.encode(jsonEncode(json));
+    if (plaintext.length > _maxPlaintextBytes) {
+      throw const BackupEnvelopeException(
+        BackupEnvelopeErrorKind.payloadTooLarge,
+      );
+    }
+    return plaintext;
+  }
+
   /// Encrypt [json] into a CURRENT (v3) authenticated envelope. A fresh random
   /// content key encrypts the payload (AAD = authenticated header); the content
   /// key is AEAD-wrapped by a password slot and, if provided, a recovery slot.
@@ -654,7 +680,7 @@ class BackupCrypto {
     final contentKey = randomBytes(32);
     final nonce = randomBytes(BackupEnvelopeLimits.nonceLen);
     final box = await _cipher.encrypt(
-      utf8.encode(jsonEncode(json)),
+      _serializedPlaintextChecked(json),
       secretKey: SecretKey(contentKey),
       nonce: nonce,
       aad: header.aad(),
@@ -722,7 +748,7 @@ class BackupCrypto {
     final header = defaultV3Header(schemaVersion);
     final nonce = randomBytes(BackupEnvelopeLimits.nonceLen);
     final box = await _cipher.encrypt(
-      utf8.encode(jsonEncode(json)),
+      _serializedPlaintextChecked(json),
       secretKey: SecretKey(contentKey),
       nonce: nonce,
       aad: header.aad(),
