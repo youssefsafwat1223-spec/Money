@@ -1011,10 +1011,19 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > bytes — never wall-clock). **MALI-073n DONE:** evidence-backed hot-path indexes
 > (composite `(account_id, occurred_at)` subsuming single-column account_id + serves
 > `account_id=? ORDER BY occurred_at` without a temp sort; `category_id`), schema v29,
-> version-owned + postflight-verified (EXPLAIN before/after). **MALI-029 partial:**
+> version-owned + postflight-verified (EXPLAIN before/after). **MALI-029 B2-A DONE:**
 > domain-scoped provider invalidation (`tableWriteStream` → `scopedRevisionProvider` /
 > `financialRevisionProvider`; unrelated→0 rebuilds, relevant/display-dep→1, burst→≤2,
-> operational→0) + CaptureSyncService account prefetch (getAll()/row → 1/run). **MALI-038
+> operational→0) + **pull-batching complete for every production-reachable path** via a
+> central bounded-ID chunk primitive (`bounded_lookup.dart`, chunk=500, bound-vars only):
+> AccountsPull 3/5, PlanningPull subs 4/6 + budgets 5/7, PlanningChildSync 6/10 SELECTs
+> @100/@1,000 rows (O(distinct+chunks), not O(rows)); shared `saveTransaction`
+> `resolvedCategoryId` fast path (0 category SELECTs, fail-closed via FK, type-forcing
+> kept); prior accepted CaptureSync/LedgerSync/SenderBankMapping. Cadence: adaptive backoff
+> + coalescing + offline/ownership `SyncGate` (outbox-derived reachability, admission
+> generation). No unexplained active O(rows) FK-resolution loop remains (push=network-bound
+> per-item; smart-inbox pull self-lookup + import fuzzy dedup = intentional non-FK;
+> backfills=migration-only; financial_cache_repair=MALI-034 dormant). **MALI-038
 > partial:** removed 8.1 MB unreferenced assets + asset-size budget; **font portion
 > pending a product decision** (offline Alexandria not bundleable; switch to vendored
 > IBM Plex Sans Arabic is a visible typeface change). MALI-030 CODE COMPLETE (B2-B + closure): streaming backup plaintext (no full object graph/JSON String), truthful appendix omission rendered in the PDF (ar/en), enforced 100 MiB export cap, 48 MiB plaintext cap; irreducible bounded buffers = v3 plaintext/ciphertext + export ZIP (none device-only). **B2-B DONE (MALI-030):** report largest→SQL top-N, appendix keyset-paged+capped, CSV/full-export paged, backup snapshot paged + copy dropped, pre-encryption 48 MiB plaintext cap; v3 one-shot residual is a bounded crypto-library constraint (not device-external). **Remaining in B2:** the other

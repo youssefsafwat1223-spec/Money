@@ -78,33 +78,86 @@ Non-migrated providers keep the global `dbRevisionProvider` (unchanged; the safe
 default). The cross-connection reconcile path (background notification actions) is
 untouched.
 
-## 3. MALI-029 — pull batching (PARTIAL — 2 services measured + fixed)
+## 3. MALI-029 — pull batching (B2-A DONE ✓ — every production-reachable path)
 
 Only **production-reachable** services (invoked by `_runLedgerSyncBody` or bootstrap)
 are in scope; dormant/legacy paths are deferred to Batch-3/MALI-034, not optimized.
 
-**Done ✓ (measured):**
-- `CaptureSyncService` — reloaded the ENTIRE accounts table per captured row; now
-  prefetched ONCE per run (first-match-per-currency, create-on-miss preserves
-  `isDefault`/`sortOrder`). Proven: 8 captures / 2 currencies → **1** accounts read.
-- `LedgerSyncService.pull()` — resolved local account (`server_id→id` + existence) and
-  category (`key→id`) with a SELECT PER ROW; now primed ONCE per pull into snapshot maps
-  (a ledger pull only writes transactions and runs single-flight after the accounts
-  pull, so the snapshot is valid for every page; null-cache fallback preserved). Proven:
-  25 rows sharing one account → accounts read **once** (was ~25). All CAS/tombstone/
-  conflict/flicker-guard semantics preserved (17 existing tests green).
+### Central bounded-ID chunk primitive
+`lib/data/db/bounded_lookup.dart` is the single owner of the safe IN-list chunk size
+and the chunk/bind contract. **`kSqliteMaxLookupChunk = 500`** — conservative under the
+lowest `SQLITE_MAX_VARIABLE_NUMBER` we target (999; no assumption of the raised 32766
+limit), >49% headroom for the caller's own owner/cursor bindings, and above the 200-row
+page size (so production pages resolve in one chunk while migration/backfill paths that
+pass more still chunk safely). `chunkForLookup` (deterministic, dedup-before-chunk,
+empty→no query) + `selectByIdChunks`/`lookupRowsById` (one bounded SELECT per chunk,
+**bound variables only** — never an interpolated ID list, explicit owner scoping via
+trailing bound vars). 15 tests: empty / 1 / 2 / exact boundary / boundary+1 / 1,000+ /
+1,001 / duplicates / owner-scoping / no-query-on-empty / chunk-size invariant.
 
-**Known repo-layer redundancy (documented, not yet fixed):** the shared
-`DriftTransactionRepository.saveTransaction` re-resolves the category key per insert
-(`_categoryIdByKey`, with type-based normalization). LedgerSync passes the resolved
-ACCOUNT id (so accounts are bounded) but the KEY for categories; bounding this needs a
-repo API change (shared by many callers) — deferred, not changed at the service layer.
+### Query-count evidence (measured; a batched write is one `customStatement`, so the
+### SELECT count is the lookup surface)
 
-**Remaining production-reachable (audited, not yet done):** SenderBankMapping
-one-row-at-a-time upsert (sink already takes a List; per-row error isolation is a
-tradeoff to preserve), PlanningPull `_ensureMerchant`/category per row, accounts/planning
-pull per-row lookups, planning-child pulls. Each to be measured + fixed with query-count
-tests at 100/1k/mixed/idempotent before claiming done.
+| Path (single page) | Distinct keys | Before (per row) | After @100 | After @1,000 | Property |
+|---|---|---:|---:|---:|---|
+| AccountsPull | — (identity) | `_findLocalId` (1–2) + meta (1) ⇒ ~2–3/row | **3** | **5** | O(chunks) |
+| PlanningPull subscriptions | 5 merchants | `_findLocalId`+meta+`_ensureMerchant` ⇒ ~4–7/row | **4** | **6** | O(distinct+chunks) |
+| PlanningPull budgets | 6 categories | `_findLocalId`+meta+`_localBudgetCategoryId` ⇒ ~3–5/row | **5** | **7** | O(distinct+chunks) |
+| PlanningChildSync goal-contribs | 4 goals | `_localId`+`_childLocalId`+`_preservePending` ⇒ ~3/row | **6** | **10** | O(distinct+chunks) |
+| saveTransaction category (fast path) | K categories | `_categoryIdByKey` ⇒ 1/row | **0** cat-SELECTs | **0** cat-SELECTs | O(1) — caller pre-resolves |
+| CaptureSync accounts (accepted) | per currency | full accounts table/row | 1 read/run | 1 read/run | O(1)/run |
+| LedgerSync account/category (accepted) | 1 account | SELECT/row | 1 read/pull | 1 read/pull | O(1)/pull |
+| SenderBankMapping (accepted) | — | 1 upsert/row | 1 batched upsert | 1 batched upsert | O(1) + per-row fallback |
+
+10× the rows adds only the extra chunk per bounded lookup (1,000 distinct ids = 2 chunks
+at size 500) — never O(rows). Tests: `accounts_pull_query_count_test`,
+`planning_pull_query_count_test`, `planning_child_query_count_test`,
+`save_transaction_category_boundary_test`.
+
+### Per-service resolution model (all page/batch-scoped — never an instance/static field,
+### so a same-UID relogin under a new admission generation can't reuse stale map state)
+- **AccountsPull** — two bounded lookups (`server_id IN …`, `id IN …`) build a
+  `_AccountIdentityIndex` (server-id-first → local-id, exactly like `_findLocalId`)
+  carrying id + sync_status + server_updated_at, kept live on write for duplicate
+  local_id safety. `_ensureOneDefaultAccount` runs once per page (was per-tombstone).
+- **PlanningPull** — a `_PlanningPageContext` with: identity index (as above);
+  merchant resolver (existing-by-id + existing-by-normalized-name prefetched, new
+  merchant created once and memoised by normalized name); category resolver
+  (key→id + server_id→id maps + one shared 'other' fallback; prefers the canonical
+  key — the old `key OR server_id` had undefined precedence). Settings singleton path
+  keeps its own lookup (no identity map).
+- **PlanningChildSync** — a per-batch `_ChildResolveScope`: parent local ids per parent
+  table (`server_id IN …`), child identity + sync_status (`_ChildIndex`), and plan-link
+  pending status keyed by the resolved (plan_id, transaction_id) pair. Built in BOTH
+  `_pullTable` (page) and `_drainParked` (batch); each parked row still applied in its
+  own transaction (isolation). Missing-parent → durable park, terminal after
+  `_kParkedChildMaxAttempts` — unchanged.
+- **saveTransaction category boundary** — an optional `resolvedCategoryId` on the
+  repository interface (Option B: a validated id from a caller that already batch-resolved
+  the category). Used directly ONLY when the type does not override the key (income/
+  transfer/withdrawal still force their category); fail-closed via the enforced FK
+  (`transactions.category_id` → `categories(id)`, PRAGMA foreign_keys=ON — a bogus id
+  throws, storing nothing); unknown key still → null category. Bulk callers wired:
+  ledger pull (primed key→id snapshot) and CSV import (once-fetched category list).
+
+### Final production-reachable inventory & remaining per-row SQL (classified)
+| Service | Reachable | Old lookup | Final lookup | Class |
+|---|---|---|---|---|
+| AccountsPull | ✓ pull | per-row identity | bounded identity index | **fixed** |
+| PlanningPull | ✓ pull | per-row identity + merchant + category | page context | **fixed** |
+| PlanningChildSync | ✓ pull | per-row parent + child + pending | batch scope | **fixed** |
+| saveTransaction | ✓ import/ledger | `_categoryIdByKey`/insert | resolved id fast path | **fixed** |
+| CaptureSync / LedgerSync / SenderBankMapping | ✓ | (accepted earlier) | prefetch/prime/batch | **fixed** |
+| accounts_push / planning_push / ledger_push / notification_log / smart_inbox push | ✓ push | 1 local SELECT/item + RPC | unchanged | **intentional — network-bound per-item** (SELECT dwarfed by the RPC round-trip) |
+| smart_inbox **pull** self-lookup | ✓ pull | 1 self-row SELECT by server_id/row | unchanged | **intentional — self-row merge** (same accepted pattern as LedgerSync's retained `_findLocalId`; not FK resolution) |
+| CSV import `findSuspiciousDuplicate` | ✓ import | 1 fuzzy-dedup SELECT/row | unchanged | **intentional — content-based dedup** (amount/currency/merchant/time window; not FK resolution) |
+| gamification / catalog per-row loops | ✓ | 1 SELECT/item | unchanged | **false positive — bounded to fixed catalogs** (O(1)) |
+| accounts_backfill / planning_primary_backfill | one-shot | per-row `_serverId` + network | unchanged | **migration-only** (StartupSyncReconcile chain; documented separately) |
+| financial_cache_repair | dormant | — | unchanged | **MALI-034** (Supabase-primary/cache-repair architecture; inactive in Drift-only S5) |
+
+**No unexplained active O(rows) FK-resolution lookup loop remains** in any
+production-reachable pull/import path. The two remaining active per-row SELECTs
+(smart-inbox self-row merge; import fuzzy dedup) are non-FK and intentionally per-item.
 
 ## 4. Background-work cadence (DONE ✓)
 
@@ -114,10 +167,33 @@ interval on consecutive idle polls (30s → ×2 → up to a 5-min cap) and reset
 local activity (`SyncWakeup`), app resume, or a user trigger — so an idle/offline app
 stops polling (and burning per-item outbox retries) every 30s. `SyncCoalescer` turns
 overlapping run requests into at most ONE pending follow-up (the old re-entry guard
-DROPPED them). 7 deterministic tests (`sync_cadence_test.dart`). Sync AUTHORITY,
-ordering and conflict semantics unchanged; server revision CAS stays OFF. **Remaining:**
-true reachability-based offline detection (would need a connectivity source) and skipping
-the full fan-out when no cursor/domain changed — the adaptive backoff approximates both.
+DROPPED them).
+
+**Offline- and ownership-aware gate (B2-A DONE ✓) — `SyncGate` (pure, unit-tested).**
+The app has NO platform connectivity source, so offline is inferred from the outbox's own
+network-stall signal — `_networkStalledOutbox()` reads whether a financial outbox
+(`ledger_sync_outbox`/`planning_sync_outbox`) still holds `status='pending'` rows whose
+last `failure_class='transientNetwork'` (a cheap, no-network read the push services
+already populate; server 5xx / auth / rate-limit are deliberately NOT treated as offline).
+Contract:
+- **Offline:** a background/local-activity trigger does NOT run (no doomed remote work, no
+  burned outbox retry) and coalesces exactly ONE pending intent; repeated triggers never
+  stack. Manual and recovery probes always run.
+- **Recovery:** the periodic poll is the sole auto-recovery probe (runs even while
+  offline); the first attempt to reach the network flips online — exactly one recovery,
+  never one-per-missed-timer. Cold-start/resume are recovery probes; local activity is a
+  gated background trigger.
+- **Sign-out / ownership:** `invalidate()` bumps the admission generation and drops the
+  pending intent; `_handleSessionStatusChange` cancels the old owner's poll timer; a run
+  captures its generation and aborts if the owner changed mid-run; a same-UID relogin gets
+  a fresh generation, so old scheduled work can never execute under the new owner.
+
+15 deterministic tests (`sync_cadence_test.dart` — cadence, coalescer, and 8 SyncGate
+cases). Sync AUTHORITY, ordering, revision and conflict semantics unchanged; server
+revision CAS stays OFF. **Residual (out of B2-A scope):** while offline the periodic
+recovery probe still runs the full push body (bounded by per-item exponential backoff);
+a pull-only probe that fully suppresses offline push retries is a future refinement gated
+on a real connectivity source.
 
 ## 5. MALI-030 — report / export / backup memory (DONE ✓, v3 residual characterized)
 
