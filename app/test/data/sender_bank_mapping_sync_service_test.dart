@@ -162,6 +162,35 @@ void main() {
           .getSingle())
       .read<int>('n');
 
+  group('MALI-029 push batching', () {
+    test('N pending mappings push in ONE upsert (not one per row)', () async {
+      for (var i = 0; i < 25; i++) {
+        await seedLocal('snd$i');
+      }
+      final (pushed, failed) = await service().push();
+      expect(pushed, 25);
+      expect(failed, 0);
+      expect(server.upsertCalls, 1,
+          reason: '25 mappings → one batched upsert, not 25');
+      expect(await localCount("sync_status = 'synced'"), 25);
+    });
+
+    test('on batch failure it falls back to the per-row path (isolation)',
+        () async {
+      server.failUpsertWith = StateError('server down');
+      for (var i = 0; i < 3; i++) {
+        await seedLocal('bad$i');
+      }
+      final (pushed, failed) = await service().push();
+      expect(pushed, 0);
+      expect(failed, 3);
+      // 1 failed batch attempt + 3 per-row attempts → the fallback path ran.
+      expect(server.upsertCalls, greaterThan(1),
+          reason: 'batch failure must fall back to per-row, not drop the work');
+      expect(await localCount("sync_status = 'failed'"), 3);
+    });
+  });
+
   group('keyset pagination', () {
     test('more mappings than one page are all pulled (cursor advances)',
         () async {

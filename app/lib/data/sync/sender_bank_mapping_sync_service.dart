@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show QueryRow;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -141,25 +142,60 @@ class SenderBankMappingSyncService {
       "AND (deleted_at IS NOT NULL OR status IN ('confirmed', 'rejected'));",
     ).get();
 
+    if (pending.isEmpty) return (0, 0);
+
+    // MALI-029 — ONE batched upsert for the whole pending set (the remote sink
+    // accepts a List) instead of a network round-trip per mapping, and the
+    // synced-marking is committed in ONE transaction instead of one per row. The
+    // server-authoritative updated_at is mapped back by the natural key
+    // (normalized_sender_id). A batch loses per-item error isolation, so on ANY
+    // batch failure we fall back to the accepted per-row path — one bad mapping
+    // never fails the rest, and the natural-key duplicate is still resolved by the
+    // upsert itself (no error).
+    try {
+      final serverRows = [for (final row in pending) _toServerRow(row, userId)];
+      final stored = await _remoteStore.upsert(serverRows);
+      final updatedByKey = <String, String?>{
+        for (final s in stored)
+          if (s['normalized_sender_id'] != null)
+            s['normalized_sender_id'] as String: s['updated_at'] as String?,
+      };
+      await _db.transaction(() async {
+        for (final row in pending) {
+          await _markSynced(
+            row.read<String>('id'),
+            updatedByKey[row.read<String>('normalized_sender_id')],
+          );
+        }
+      });
+      if (kDebugMode) {
+        debugPrint('[SenderMappingSync] push: pushed=${pending.length} '
+            'failed=0 (batched)');
+      }
+      return (pending.length, 0);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SenderMappingSync] batch push failed, per-row fallback: $e');
+      }
+      return _pushPerRow(pending, userId);
+    }
+  }
+
+  /// Accepted per-row path (isolates a single bad mapping) — used as the fallback
+  /// when the batched upsert fails.
+  Future<(int, int)> _pushPerRow(
+      List<QueryRow> pending, String userId) async {
     var pushed = 0;
     var failed = 0;
     for (final row in pending) {
       final id = row.read<String>('id');
       try {
         final stored = await _remoteStore.upsert([_toServerRow(row, userId)]);
-        // A duplicate on the natural key is resolved by the upsert itself (no
-        // error), so reaching here means success. Store the server-authoritative
-        // updated_at as the base for the next conflict compare.
-        final serverUpdatedAt = stored.isEmpty
-            ? null
-            : stored.first['updated_at'] as String?;
+        final serverUpdatedAt =
+            stored.isEmpty ? null : stored.first['updated_at'] as String?;
         await _markSynced(id, serverUpdatedAt);
         pushed++;
       } catch (e) {
-        // Typed classification. Any error that reaches here — an UNRELATED
-        // unique-constraint violation, validation, auth, server, unsupported
-        // schema or network — must NOT falsely mark the item synced. Keep it
-        // for a bounded retry; the natural-key duplicate never lands here.
         final failureClass = classifyOutboxError(e);
         await _markFailed(id);
         failed++;
