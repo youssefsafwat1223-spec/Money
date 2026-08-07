@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/async_reload_safe.dart';
@@ -508,6 +510,10 @@ class _TransactionSearchField extends ConsumerStatefulWidget {
 class _TransactionSearchFieldState
     extends ConsumerState<_TransactionSearchField> {
   late final TextEditingController _controller;
+  // MALI-029 / rendering — debounce the search so a burst of keystrokes does not
+  // re-fetch page 1 + re-filter + re-group the whole list on every character; the
+  // field text updates instantly, only the filter query is debounced.
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -517,8 +523,18 @@ class _TransactionSearchFieldState
     );
   }
 
+  void _onQueryChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        ref.read(transactionSearchQueryProvider.notifier).state = value;
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -530,8 +546,7 @@ class _TransactionSearchFieldState
     return TextField(
       controller: _controller,
       textInputAction: TextInputAction.search,
-      onChanged: (value) =>
-          ref.read(transactionSearchQueryProvider.notifier).state = value,
+      onChanged: _onQueryChanged,
       decoration: InputDecoration(
         isDense: true,
         contentPadding:
@@ -549,6 +564,7 @@ class _TransactionSearchFieldState
                 padding: EdgeInsets.zero,
                 iconSize: 20,
                 onPressed: () {
+                  _searchDebounce?.cancel();
                   _controller.clear();
                   ref.read(transactionSearchQueryProvider.notifier).state = '';
                 },
