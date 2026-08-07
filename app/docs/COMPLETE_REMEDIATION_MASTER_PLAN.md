@@ -1017,9 +1017,7 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > operational→0) + CaptureSyncService account prefetch (getAll()/row → 1/run). **MALI-038
 > partial:** removed 8.1 MB unreferenced assets + asset-size budget; **font portion
 > pending a product decision** (offline Alexandria not bundleable; switch to vendored
-> IBM Plex Sans Arabic is a visible typeface change). **MALI-030 audited, not yet fixed**
-> (report/export/backup materialize whole table; v3 AES-GCM one-shot is an unavoidable-
-> within-v3 crypto-library residual — no v4 this batch). **B2-B DONE (MALI-030):** report largest→SQL top-N, appendix keyset-paged+capped, CSV/full-export paged, backup snapshot paged + copy dropped, pre-encryption 48 MiB plaintext cap; v3 one-shot residual is a bounded crypto-library constraint (not device-external). **Remaining in B2:** the other
+> IBM Plex Sans Arabic is a visible typeface change). MALI-030 CODE COMPLETE (B2-B + closure): streaming backup plaintext (no full object graph/JSON String), truthful appendix omission rendered in the PDF (ar/en), enforced 100 MiB export cap, 48 MiB plaintext cap; irreducible bounded buffers = v3 plaintext/ciphertext + export ZIP (none device-only). **B2-B DONE (MALI-030):** report largest→SQL top-N, appendix keyset-paged+capped, CSV/full-export paged, backup snapshot paged + copy dropped, pre-encryption 48 MiB plaintext cap; v3 one-shot residual is a bounded crypto-library constraint (not device-external). **Remaining in B2:** the other
 > ~14 pull/backfill batchings + sync cadence; MALI-030 memory; rendering; startup; the
 > font decision. No financial semantics/precision/currency/refund/period/restore behavior
 > changed. CAS false; 0070 inactive; 0068–0076 undeployed; not pushed. See

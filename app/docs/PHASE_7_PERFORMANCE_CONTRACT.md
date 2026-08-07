@@ -190,12 +190,45 @@ byte-count uses `.length`; `putObject(blob)` passes by reference; retry reuses t
 blob (no per-attempt clone); `toBytes()` runs once. Only Supabase's client may copy
 internally — a library boundary, not application-controlled.
 
+### Final closure — the two remaining production contracts
+
+**Appendix policy (exact):** ≤ 5000 confirmed in-period rows → complete detailed
+appendix. > 5000 → the detailed appendix is OMITTED (never a silent `take(5000)`):
+`ReportDataSnapshot.appendixOmittedForSize=true`, `appendixTransactions` empty, and the
+rendered PDF emits an explicit **omission page** with a localized notice (Arabic +
+English, `ReportStrings.appendixOmittedNotice`) stating the appendix was omitted for
+exceeding the 5000-row limit and that summaries/totals still cover the full period. No
+transaction values / account / merchant / private IDs in the notice. Accumulation while
+detecting overflow is bounded (≤ cap + one page). Proven: 4999/5000 → present;
+5001/8000 → omitted; ar + en notice rendered end-to-end.
+
+**Full-data export — its OWN enforced cap (separate lifetime from the backup path):**
+
+```
+DB page (≤1000 rows)  ← released per page
+  → CSV chunk bytes appended to a BytesBuilder, running total checked vs
+    maxExportPackageBytes (100 MiB) AS it grows  → typed DataPortabilityException
+    mid-build if exceeded (no partial ExportedFile returned)
+  → per-table CSV byte arrays  → Archive → [final ZIP bytes]  ← the zip library's
+    one irreducible whole artefact
+```
+
+The ZIP export does NOT invoke the backup-envelope caps — it now has its own
+`maxExportPackageBytes` = 100 MiB, enforced incrementally in `_pagedSpecCsv` (per page)
+and across tables in `exportFinancialPackage`. Over-cap → typed resource-limit error,
+no partial file, no DB mutation, no financial content in the message. Proven: 10k
+succeeds page-bounded (every row once); over-cap aborts mid-build and returns nothing.
+
+**Irreducible whole buffers (documented separately, none device-only):**
+1. bounded v3 plaintext bytes (≤ 48 MiB, one-shot AES-GCM input);
+2. bounded AES-GCM ciphertext (≤ 64 MiB);
+3. the bounded final ZIP/export artefact (≤ 100 MiB) where the zip library requires it.
+
 **Status:** *MALI-030 code complete — locally verified for bounded report/export/
-snapshot database processing; the v3 authenticated encryption remains a bounded one-shot
-in-memory operation under enforced payload caps.* The only dataset-sized application
-buffers are those inherent to the serialized v3 plaintext/ciphertext and the final
-export zip — no complete snapshot object graph + whole JSON String remain alongside the
-plaintext. Native heap/profile numbers stay external.
+snapshot database processing; v3 authenticated encryption remains a bounded one-shot
+in-memory operation under enforced payload caps.* No complete snapshot object graph +
+whole JSON String remain alongside the plaintext; the export has its own enforced cap.
+Native heap/profile numbers stay external.
 
 ## 6. Transaction-list / dashboard rendering (NOT yet done)
 
