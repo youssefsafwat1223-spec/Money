@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart' show QueryRow;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/bounded_lookup.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/sync_cursor.dart';
 
@@ -111,12 +113,19 @@ class AccountsPullService {
           var pageUpdated = 0;
           var pageConflicts = 0;
           var pageTombstoned = 0;
+          var anyTombstone = false;
+          // MALI-029: resolve the whole page's server/local identity + meta in
+          // two bounded lookups instead of a _findLocalId + meta SELECT per row.
+          final identity = await _prefetchIdentity(rows);
           for (final row in rows) {
             if (row['deleted_at'] != null) {
-              if (await _processTombstone(row)) pageTombstoned++;
+              if (await _processTombstone(row, identity)) {
+                pageTombstoned++;
+                anyTombstone = true;
+              }
               continue;
             }
-            final outcome = await _processRow(row);
+            final outcome = await _processRow(row, identity);
             switch (outcome) {
               case _AccountPullOutcome.imported:
                 pageImported++;
@@ -128,6 +137,9 @@ class AccountsPullService {
                 break;
             }
           }
+          // A tombstone clears is_default on its row; guarantee one default
+          // survives the page's deletions with a single check (was per-row).
+          if (anyTombstone) await _ensureOneDefaultAccount();
           await writeSyncCursor(_db, _cursorKey, nextCursor);
           return (
             imported: pageImported,
@@ -161,26 +173,22 @@ class AccountsPullService {
     );
   }
 
-  Future<_AccountPullOutcome> _processRow(Map<String, dynamic> row) async {
+  Future<_AccountPullOutcome> _processRow(
+    Map<String, dynamic> row,
+    _AccountIdentityIndex identity,
+  ) async {
     final serverId = row['id'] as String?;
     if (serverId == null) return _AccountPullOutcome.skipped;
 
-    final localId = await _findLocalId(serverId, row['local_id'] as String?);
+    final existing = identity.resolve(serverId, row['local_id'] as String?);
     final serverUpdatedAt = row['updated_at'] as String?;
     // MALI-022 / 0068 — server revision (CAS base); null when 0068 is absent.
     final serverRevision = (row['revision'] as num?)?.toInt();
     final now = dateTimeToSql(DateTime.now().toUtc());
 
-    if (localId != null) {
-      final meta = await _db
-          .customSelect(
-            'SELECT sync_status, server_id, server_updated_at FROM accounts '
-            'WHERE id = ${sqlString(localId)} LIMIT 1;',
-          )
-          .getSingleOrNull();
-      if (meta == null) return _AccountPullOutcome.skipped;
-
-      final syncStatus = meta.readNullable<String>('sync_status');
+    if (existing != null) {
+      final localId = existing.id;
+      final syncStatus = existing.syncStatus;
       if (syncStatus == 'conflict') return _AccountPullOutcome.conflict;
       if (syncStatus == 'pending') {
         await _markConflict(localId);
@@ -191,8 +199,8 @@ class AccountsPullService {
       // account each pull cycle, which would tick dbRevisionProvider and
       // flicker every screen. Only write when the server row actually moved.
       if (syncStatus == 'synced' &&
-          meta.readNullable<String>('server_id') == serverId &&
-          meta.readNullable<String>('server_updated_at') == serverUpdatedAt) {
+          existing.serverId == serverId &&
+          existing.serverUpdatedAt == serverUpdatedAt) {
         return _AccountPullOutcome.skipped;
       }
 
@@ -221,6 +229,13 @@ class AccountsPullService {
             deleted_at = NULL
         WHERE id = ${sqlString(localId)};
       ''');
+      // Keep the page index consistent if a later row in this same page
+      // resolves to the row we just wrote (e.g. a duplicate local_id).
+      identity.remember(
+        id: localId,
+        serverId: serverId,
+        serverUpdatedAt: serverUpdatedAt,
+      );
       return _AccountPullOutcome.updated;
     }
 
@@ -259,28 +274,31 @@ class AccountsPullService {
         NULL
       );
     ''');
+    identity.remember(
+      id: importedId,
+      serverId: serverId,
+      serverUpdatedAt: serverUpdatedAt,
+    );
     return _AccountPullOutcome.imported;
   }
 
-  Future<bool> _processTombstone(Map<String, dynamic> row) async {
+  Future<bool> _processTombstone(
+    Map<String, dynamic> row,
+    _AccountIdentityIndex identity,
+  ) async {
     final serverId = row['id'] as String?;
     if (serverId == null) return false;
-    final localId = await _findLocalId(serverId, row['local_id'] as String?);
-    if (localId == null) return false;
+    final existing = identity.resolve(serverId, row['local_id'] as String?);
+    if (existing == null) return false;
 
-    final meta = await _db
-        .customSelect(
-          'SELECT sync_status FROM accounts WHERE id = ${sqlString(localId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    if (meta == null) return false;
-    final status = meta.readNullable<String>('sync_status');
+    final status = existing.syncStatus;
     if (status == 'conflict') return false;
     if (status == 'pending') {
-      await _markConflict(localId);
+      await _markConflict(existing.id);
       return false;
     }
 
+    final localId = existing.id;
     final now = dateTimeToSql(DateTime.now().toUtc());
     final deletedAt = _dateString(row['deleted_at']) ?? now;
     await _db.customStatement('''
@@ -294,25 +312,50 @@ class AccountsPullService {
           is_default = 0
       WHERE id = ${sqlString(localId)};
     ''');
-    await _ensureOneDefaultAccount();
+    // The single _ensureOneDefaultAccount() runs once after the page (pull()).
+    identity.remember(
+      id: localId,
+      serverId: serverId,
+      serverUpdatedAt: row['updated_at'] as String?,
+    );
     return true;
   }
 
-  Future<String?> _findLocalId(String serverId, String? localId) async {
-    final byServer = await _db
-        .customSelect(
-          'SELECT id FROM accounts WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    if (byServer != null) return byServer.read<String>('id');
-
-    if (localId == null) return null;
-    final byLocal = await _db
-        .customSelect(
-          'SELECT id FROM accounts WHERE id = ${sqlString(localId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    return byLocal?.read<String>('id');
+  /// Resolves the whole page's server/local identity and sync-meta in two
+  /// bounded lookups (server_id IN …, id IN …) — replacing the per-row
+  /// `_findLocalId` (up to 2 SELECTs) + meta SELECT. The result is server-id
+  /// first, then local-id, exactly as the old per-row resolution ordered them.
+  Future<_AccountIdentityIndex> _prefetchIdentity(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final serverIds = <String>{};
+    final localIds = <String>{};
+    for (final row in rows) {
+      final sid = row['id'] as String?;
+      if (sid != null) serverIds.add(sid);
+      final lid = row['local_id'] as String?;
+      if (lid != null) localIds.add(lid);
+    }
+    final index = _AccountIdentityIndex();
+    const columns =
+        'SELECT id, server_id, sync_status, server_updated_at FROM accounts';
+    final byServerRows = await selectByIdChunks(
+      _db,
+      serverIds,
+      sql: (ph) => '$columns WHERE server_id IN ($ph);',
+    );
+    for (final r in byServerRows) {
+      index._add(_AccountMeta.fromRow(r));
+    }
+    final byLocalRows = await selectByIdChunks(
+      _db,
+      localIds,
+      sql: (ph) => '$columns WHERE id IN ($ph);',
+    );
+    for (final r in byLocalRows) {
+      index._add(_AccountMeta.fromRow(r));
+    }
+    return index;
   }
 
   Future<void> _markConflict(String localId) async {
@@ -359,3 +402,66 @@ class AccountsPullService {
 }
 
 enum _AccountPullOutcome { imported, updated, conflict, skipped }
+
+/// One account row's identity + sync-meta, as prefetched for a pull page.
+class _AccountMeta {
+  const _AccountMeta({
+    required this.id,
+    required this.serverId,
+    required this.syncStatus,
+    required this.serverUpdatedAt,
+  });
+
+  factory _AccountMeta.fromRow(QueryRow row) => _AccountMeta(
+        id: row.read<String>('id'),
+        serverId: row.readNullable<String>('server_id'),
+        syncStatus: row.readNullable<String>('sync_status'),
+        serverUpdatedAt: row.readNullable<String>('server_updated_at'),
+      );
+
+  final String id;
+  final String? serverId;
+  final String? syncStatus;
+  final String? serverUpdatedAt;
+}
+
+/// Page-scoped resolver: server_id → meta and local id → meta. Rebuilt per page
+/// (never an instance/static field), so a same-UID relogin with a new admission
+/// generation always resolves against the freshly-committed local state and can
+/// never reuse a stale cross-page/cross-owner map.
+class _AccountIdentityIndex {
+  final Map<String, _AccountMeta> _byServer = {};
+  final Map<String, _AccountMeta> _byLocal = {};
+
+  void _add(_AccountMeta meta) {
+    _byLocal[meta.id] = meta;
+    final serverId = meta.serverId;
+    if (serverId != null) _byServer.putIfAbsent(serverId, () => meta);
+  }
+
+  /// server_id first, then local id — identical to the old `_findLocalId`.
+  _AccountMeta? resolve(String serverId, String? localId) {
+    final byServer = _byServer[serverId];
+    if (byServer != null) return byServer;
+    if (localId == null) return null;
+    return _byLocal[localId];
+  }
+
+  /// After a write, refresh the index so a later same-page row that resolves to
+  /// this account (e.g. a duplicate local_id) sees the just-committed synced
+  /// state — keeping the batched path bit-identical to the old per-row re-read.
+  void remember({
+    required String id,
+    required String serverId,
+    required String? serverUpdatedAt,
+  }) {
+    final meta = _AccountMeta(
+      id: id,
+      serverId: serverId,
+      syncStatus: 'synced',
+      serverUpdatedAt: serverUpdatedAt,
+    );
+    _byLocal[id] = meta;
+    _byServer[serverId] = meta;
+  }
+}
