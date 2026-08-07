@@ -1,9 +1,11 @@
+import 'package:drift/drift.dart' show QueryRow;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/bounded_lookup.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/budget_entity.dart';
@@ -137,14 +139,21 @@ class PlanningPullService {
             var pageUpdated = 0;
             var pageConflicts = 0;
             var pageTombstoned = 0;
+            // MALI-029: resolve the whole page's identity + merchant/category
+            // keys in a handful of bounded lookups instead of per-row SELECTs.
+            final ctx = await _buildPageContext(
+              entityType,
+              _localTable[entityType],
+              rows,
+            );
             for (final row in rows) {
               if (row['deleted_at'] != null) {
-                if (await _processTombstone(entityType, row)) {
+                if (await _processTombstone(entityType, row, ctx)) {
                   pageTombstoned++;
                 }
                 continue;
               }
-              final outcome = await _processRow(entityType, row);
+              final outcome = await _processRow(entityType, row, ctx);
               switch (outcome) {
                 case _PlanningPullOutcome.imported:
                   pageImported++;
@@ -193,6 +202,7 @@ class PlanningPullService {
   Future<_PlanningPullOutcome> _processRow(
     String entityType,
     Map<String, dynamic> row,
+    _PlanningPageContext ctx,
   ) async {
     // الإعدادات singleton: يوجد صف واحد محلي دائمًا — نحدّثه ولا نُدرج صفًا ثانيًا.
     if (entityType == PlanningOutboxQueue.settingsEntityType) {
@@ -204,20 +214,10 @@ class PlanningPullService {
       return _PlanningPullOutcome.skipped;
     }
 
-    final localId = await _findLocalId(
-      localTable,
-      serverId,
-      row['local_id'] as String?,
-    );
-    if (localId != null) {
-      final meta = await _db
-          .customSelect(
-            'SELECT sync_status, server_id, server_updated_at FROM $localTable '
-            'WHERE id = ${sqlString(localId)} LIMIT 1;',
-          )
-          .getSingleOrNull();
-      if (meta == null) return _PlanningPullOutcome.skipped;
-      final status = meta.readNullable<String>('sync_status');
+    final existing = ctx.identity.resolve(serverId, row['local_id'] as String?);
+    if (existing != null) {
+      final localId = existing.id;
+      final status = existing.syncStatus;
       if (status == 'conflict') return _PlanningPullOutcome.conflict;
       if (status == 'pending') {
         // MALI-022: a pending local edit is a real conflict ONLY if the server
@@ -225,7 +225,7 @@ class PlanningPullService {
         // local edit is the only edit and will push cleanly — don't false-flag
         // it (the old code conflicted every pending row unconditionally). Never
         // clobber the base token on a pending row.
-        final base = meta.readNullable<String>('server_updated_at');
+        final base = existing.serverUpdatedAt;
         final serverMoved = base != _dateString(row['updated_at']);
         if (serverMoved) {
           await _markConflict(localTable, localId);
@@ -237,18 +237,29 @@ class PlanningPullService {
       // every planning row each cycle (which ticks dbRevisionProvider and
       // flickers the UI). Only write when the server row actually moved.
       if (status == 'synced' &&
-          meta.readNullable<String>('server_id') == serverId &&
-          meta.readNullable<String>('server_updated_at') ==
-              _dateString(row['updated_at'])) {
+          existing.serverId == serverId &&
+          existing.serverUpdatedAt == _dateString(row['updated_at'])) {
         return _PlanningPullOutcome.skipped;
       }
-      await _updateLocal(entityType, localTable, localId, row);
+      await _updateLocal(entityType, localTable, localId, row, ctx);
       await _applyServerRevision(localTable, serverId, row);
+      ctx.identity.remember(
+        id: localId,
+        serverId: serverId,
+        serverUpdatedAt: _dateString(row['updated_at']),
+      );
       return _PlanningPullOutcome.updated;
     }
 
-    await _insertLocal(entityType, row);
+    final insertedId = await _insertLocal(entityType, row, ctx);
     await _applyServerRevision(localTable, serverId, row);
+    if (insertedId != null) {
+      ctx.identity.remember(
+        id: insertedId,
+        serverId: serverId,
+        serverUpdatedAt: _dateString(row['updated_at']),
+      );
+    }
     return _PlanningPullOutcome.imported;
   }
 
@@ -272,18 +283,16 @@ class PlanningPullService {
   Future<bool> _processTombstone(
     String entityType,
     Map<String, dynamic> row,
+    _PlanningPageContext ctx,
   ) async {
     final serverId = row['id'] as String?;
     final localTable = _localTable[entityType];
     if (serverId == null || localTable == null) return false;
-    final localId = await _findLocalId(
-      localTable,
-      serverId,
-      row['local_id'] as String?,
-    );
-    if (localId == null) return false;
+    final existing = ctx.identity.resolve(serverId, row['local_id'] as String?);
+    if (existing == null) return false;
 
-    final status = await _syncStatus(localTable, localId);
+    final localId = existing.id;
+    final status = existing.syncStatus;
     if (status == 'conflict') return false;
     if (status == 'pending') {
       await _markConflict(localTable, localId);
@@ -302,16 +311,25 @@ class PlanningPullService {
       WHERE id = ${sqlString(localId)};
     ''');
     await _applyServerRevision(localTable, serverId, row);
+    ctx.identity.remember(
+      id: localId,
+      serverId: serverId,
+      serverUpdatedAt: _dateString(row['updated_at']),
+    );
     return true;
   }
 
-  Future<void> _insertLocal(String entityType, Map<String, dynamic> row) async {
+  Future<String?> _insertLocal(
+    String entityType,
+    Map<String, dynamic> row,
+    _PlanningPageContext ctx,
+  ) async {
     final id = row['local_id'] as String? ?? IdGenerator.next();
     switch (entityType) {
       case PlanningOutboxQueue.budgetsEntityType:
-        await _insertBudget(id, row);
+        await _insertBudget(id, row, ctx);
       case PlanningOutboxQueue.subscriptionsEntityType:
-        await _insertSubscription(id, row);
+        await _insertSubscription(id, row, ctx);
       case PlanningOutboxQueue.goalsEntityType:
         await _insertGoal(id, row);
       case PlanningOutboxQueue.plansEntityType:
@@ -321,6 +339,7 @@ class PlanningPullService {
       case PlanningOutboxQueue.categoriesEntityType:
         await _insertCategory(id, row);
     }
+    return id;
   }
 
   Future<void> _updateLocal(
@@ -328,12 +347,13 @@ class PlanningPullService {
     String table,
     String id,
     Map<String, dynamic> row,
+    _PlanningPageContext ctx,
   ) async {
     switch (entityType) {
       case PlanningOutboxQueue.budgetsEntityType:
-        await _updateBudget(id, row);
+        await _updateBudget(id, row, ctx);
       case PlanningOutboxQueue.subscriptionsEntityType:
-        await _updateSubscription(id, row);
+        await _updateSubscription(id, row, ctx);
       case PlanningOutboxQueue.goalsEntityType:
         await _updateGoal(id, row);
       case PlanningOutboxQueue.plansEntityType:
@@ -345,9 +365,13 @@ class PlanningPullService {
     }
   }
 
-  Future<void> _insertBudget(String id, Map<String, dynamic> row) async {
+  Future<void> _insertBudget(
+    String id,
+    Map<String, dynamic> row,
+    _PlanningPageContext ctx,
+  ) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    final categoryId = await _localBudgetCategoryId(row);
+    final categoryId = ctx.categories.resolve(row);
     await _db.customStatement('''
       INSERT OR IGNORE INTO budgets(
         id, category_id, amount, period, start_date, is_active,
@@ -373,8 +397,12 @@ class PlanningPullService {
     ''');
   }
 
-  Future<void> _updateBudget(String id, Map<String, dynamic> row) async {
-    final categoryId = await _localBudgetCategoryId(row);
+  Future<void> _updateBudget(
+    String id,
+    Map<String, dynamic> row,
+    _PlanningPageContext ctx,
+  ) async {
+    final categoryId = ctx.categories.resolve(row);
     await _db.customStatement('''
       UPDATE budgets
       SET category_id = ${sqlString(categoryId)},
@@ -393,36 +421,6 @@ class PlanningPullService {
           deleted_at = NULL
       WHERE id = ${sqlString(id)};
     ''');
-  }
-
-  Future<String> _localBudgetCategoryId(Map<String, dynamic> row) async {
-    final categoryKey = row['category_id'] as String?;
-    if (categoryKey == null ||
-        categoryKey == BudgetEntity.allExpensesCategoryKey ||
-        categoryKey == BudgetEntity.allExpensesCategoryId) {
-      return BudgetEntity.allExpensesCategoryId;
-    }
-
-    final userCategoryServerId = row['user_category_id'] as String?;
-    final serverIdPredicate = userCategoryServerId == null
-        ? ''
-        : ' OR server_id = ${sqlString(userCategoryServerId)}';
-    final match = await _db.customSelect(
-      '''
-        SELECT id FROM categories
-        WHERE key = ${sqlString(categoryKey)}
-           $serverIdPredicate
-        LIMIT 1;
-      ''',
-    ).getSingleOrNull();
-    if (match != null) return match.read<String>('id');
-
-    final fallback = await _db
-        .customSelect(
-          "SELECT id FROM categories WHERE key = 'other' LIMIT 1;",
-        )
-        .getSingleOrNull();
-    return fallback?.read<String>('id') ?? BudgetEntity.allExpensesCategoryId;
   }
 
   Future<void> _insertCard(String id, Map<String, dynamic> row) async {
@@ -571,9 +569,13 @@ class PlanningPullService {
     ''');
   }
 
-  Future<void> _insertSubscription(String id, Map<String, dynamic> row) async {
+  Future<void> _insertSubscription(
+    String id,
+    Map<String, dynamic> row,
+    _PlanningPageContext ctx,
+  ) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    final merchantId = await _ensureMerchant(
+    final merchantId = await ctx.merchants.resolve(
         row['merchant_id'] as String?, row['name'] as String? ?? 'فاتورة');
     await _db.customStatement('''
       INSERT OR IGNORE INTO subscriptions(
@@ -613,8 +615,12 @@ class PlanningPullService {
     ''');
   }
 
-  Future<void> _updateSubscription(String id, Map<String, dynamic> row) async {
-    final merchantId = await _ensureMerchant(
+  Future<void> _updateSubscription(
+    String id,
+    Map<String, dynamic> row,
+    _PlanningPageContext ctx,
+  ) async {
+    final merchantId = await ctx.merchants.resolve(
         row['merchant_id'] as String?, row['name'] as String? ?? 'فاتورة');
     await _db.customStatement('''
       UPDATE subscriptions
@@ -748,36 +754,6 @@ class PlanningPullService {
     ''');
   }
 
-  Future<String?> _findLocalId(
-    String table,
-    String serverId,
-    String? localId,
-  ) async {
-    final byServer = await _db
-        .customSelect(
-          'SELECT id FROM $table WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    if (byServer != null) return byServer.read<String>('id');
-
-    if (localId == null) return null;
-    final byLocal = await _db
-        .customSelect(
-          'SELECT id FROM $table WHERE id = ${sqlString(localId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    return byLocal?.read<String>('id');
-  }
-
-  Future<String?> _syncStatus(String table, String localId) async {
-    final row = await _db
-        .customSelect(
-          'SELECT sync_status FROM $table WHERE id = ${sqlString(localId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    return row?.readNullable<String>('sync_status');
-  }
-
   Future<void> _markConflict(String table, String localId) async {
     await _db.customStatement('''
       UPDATE $table
@@ -786,31 +762,117 @@ class PlanningPullService {
     ''');
   }
 
-  Future<String> _ensureMerchant(String? merchantId, String name) async {
-    if (merchantId != null && merchantId.isNotEmpty) {
-      final existing = await _db
-          .customSelect(
-            'SELECT id FROM merchants WHERE id = ${sqlString(merchantId)} LIMIT 1;',
-          )
-          .getSingleOrNull();
-      if (existing != null) return merchantId;
-    }
-    final normalized = AppDatabase.normalizeMerchant(name);
-    final existing = await _db
-        .customSelect(
-          'SELECT id FROM merchants WHERE normalized_name = ${sqlString(normalized)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    if (existing != null) return existing.read<String>('id');
+  /// MALI-029: resolve one pull page's identity + (merchant | category) keys in
+  /// a handful of bounded lookups instead of per-row SELECTs. Merchants are only
+  /// primed for subscription pages; categories only for budget pages — other
+  /// entity types get no-op resolvers that are never consulted.
+  Future<_PlanningPageContext> _buildPageContext(
+    String entityType,
+    String? localTable,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final identity = await _prefetchIdentity(localTable, rows);
+    final merchants =
+        entityType == PlanningOutboxQueue.subscriptionsEntityType
+            ? await _prefetchMerchants(rows)
+            : _PlanningMerchantResolver.empty(_db);
+    final categories = entityType == PlanningOutboxQueue.budgetsEntityType
+        ? await _prefetchCategories(rows)
+        : const _PlanningCategoryResolver.empty();
+    return _PlanningPageContext(
+      identity: identity,
+      merchants: merchants,
+      categories: categories,
+    );
+  }
 
-    final id =
-        merchantId?.isNotEmpty == true ? merchantId! : IdGenerator.next();
-    final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customStatement('''
-      INSERT OR IGNORE INTO merchants(id, raw_name, normalized_name, first_seen_at, last_seen_at)
-      VALUES (${sqlString(id)}, ${sqlString(name)}, ${sqlString(normalized)}, ${sqlString(now)}, ${sqlString(now)});
-    ''');
-    return id;
+  Future<_PlanningIdentityIndex> _prefetchIdentity(
+    String? localTable,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final index = _PlanningIdentityIndex();
+    if (localTable == null) return index; // settings singleton — no identity map
+    final serverIds = <String>{};
+    final localIds = <String>{};
+    for (final row in rows) {
+      final sid = row['id'] as String?;
+      if (sid != null) serverIds.add(sid);
+      final lid = row['local_id'] as String?;
+      if (lid != null) localIds.add(lid);
+    }
+    // $localTable is a fixed internal table name from _localTable, never user
+    // input — same as every other `FROM $localTable` in this file. The IDs are
+    // bound variables via the chunk primitive, never interpolated.
+    final cols =
+        'SELECT id, server_id, sync_status, server_updated_at FROM $localTable';
+    for (final r in await selectByIdChunks(_db, serverIds,
+        sql: (ph) => '$cols WHERE server_id IN ($ph);')) {
+      index._add(_PlanningMeta.fromRow(r));
+    }
+    for (final r in await selectByIdChunks(_db, localIds,
+        sql: (ph) => '$cols WHERE id IN ($ph);')) {
+      index._add(_PlanningMeta.fromRow(r));
+    }
+    return index;
+  }
+
+  Future<_PlanningMerchantResolver> _prefetchMerchants(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final merchantIds = <String>{};
+    final normNames = <String>{};
+    for (final row in rows) {
+      final mid = row['merchant_id'] as String?;
+      if (mid != null && mid.isNotEmpty) merchantIds.add(mid);
+      final name = row['name'] as String? ?? 'فاتورة';
+      normNames.add(AppDatabase.normalizeMerchant(name));
+    }
+    final existingIds = <String>{};
+    for (final r in await selectByIdChunks(_db, merchantIds,
+        sql: (ph) => 'SELECT id FROM merchants WHERE id IN ($ph);')) {
+      existingIds.add(r.read<String>('id'));
+    }
+    final byNorm = <String, String>{};
+    for (final r in await selectByIdChunks(_db, normNames,
+        sql: (ph) =>
+            'SELECT id, normalized_name FROM merchants '
+            'WHERE normalized_name IN ($ph);')) {
+      byNorm[r.read<String>('normalized_name')] = r.read<String>('id');
+    }
+    return _PlanningMerchantResolver(_db, existingIds, byNorm);
+  }
+
+  Future<_PlanningCategoryResolver> _prefetchCategories(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final keys = <String>{};
+    final serverIds = <String>{};
+    for (final row in rows) {
+      final key = row['category_id'] as String?;
+      if (key != null &&
+          key != BudgetEntity.allExpensesCategoryKey &&
+          key != BudgetEntity.allExpensesCategoryId) {
+        keys.add(key);
+      }
+      final scid = row['user_category_id'] as String?;
+      if (scid != null) serverIds.add(scid);
+    }
+    final byKey = <String, String>{};
+    for (final r in await selectByIdChunks(_db, keys,
+        sql: (ph) => 'SELECT id, key FROM categories WHERE key IN ($ph);')) {
+      byKey[r.read<String>('key')] = r.read<String>('id');
+    }
+    final byServer = <String, String>{};
+    for (final r in await selectByIdChunks(_db, serverIds,
+        sql: (ph) =>
+            'SELECT id, server_id FROM categories WHERE server_id IN ($ph);')) {
+      final sid = r.readNullable<String>('server_id');
+      if (sid != null) byServer[sid] = r.read<String>('id');
+    }
+    final otherRow = await _db
+        .customSelect("SELECT id FROM categories WHERE key = 'other' LIMIT 1;")
+        .getSingleOrNull();
+    return _PlanningCategoryResolver(byKey, byServer, otherRow?.read<String>('id'));
   }
 
   String? _dateString(Object? value) {
@@ -828,3 +890,150 @@ class PlanningPullService {
 }
 
 enum _PlanningPullOutcome { imported, updated, conflict, skipped }
+
+/// Per-page resolvers for one planning entity type, built once from a handful of
+/// bounded lookups. Page-scoped (never an instance/static field), so a same-UID
+/// relogin under a new admission generation always resolves against freshly
+/// committed local state and can never reuse a stale cross-owner map.
+class _PlanningPageContext {
+  const _PlanningPageContext({
+    required this.identity,
+    required this.merchants,
+    required this.categories,
+  });
+
+  final _PlanningIdentityIndex identity;
+  final _PlanningMerchantResolver merchants;
+  final _PlanningCategoryResolver categories;
+}
+
+/// One local row's identity + sync-meta for a pull page.
+class _PlanningMeta {
+  const _PlanningMeta({
+    required this.id,
+    required this.serverId,
+    required this.syncStatus,
+    required this.serverUpdatedAt,
+  });
+
+  factory _PlanningMeta.fromRow(QueryRow row) => _PlanningMeta(
+        id: row.read<String>('id'),
+        serverId: row.readNullable<String>('server_id'),
+        syncStatus: row.readNullable<String>('sync_status'),
+        serverUpdatedAt: row.readNullable<String>('server_updated_at'),
+      );
+
+  final String id;
+  final String? serverId;
+  final String? syncStatus;
+  final String? serverUpdatedAt;
+}
+
+/// server_id → meta and local id → meta for one page — replaces `_findLocalId`
+/// (up to 2 SELECTs) + the meta SELECT, resolving server-id-first then local-id.
+class _PlanningIdentityIndex {
+  final Map<String, _PlanningMeta> _byServer = {};
+  final Map<String, _PlanningMeta> _byLocal = {};
+
+  void _add(_PlanningMeta meta) {
+    _byLocal[meta.id] = meta;
+    final serverId = meta.serverId;
+    if (serverId != null) _byServer.putIfAbsent(serverId, () => meta);
+  }
+
+  _PlanningMeta? resolve(String serverId, String? localId) {
+    final byServer = _byServer[serverId];
+    if (byServer != null) return byServer;
+    if (localId == null) return null;
+    return _byLocal[localId];
+  }
+
+  /// Keep the index consistent after a write so a later same-page row that
+  /// resolves to this row (e.g. a duplicate local_id) stays bit-identical to the
+  /// old per-row re-read.
+  void remember({
+    required String id,
+    required String serverId,
+    required String? serverUpdatedAt,
+  }) {
+    final meta = _PlanningMeta(
+      id: id,
+      serverId: serverId,
+      syncStatus: 'synced',
+      serverUpdatedAt: serverUpdatedAt,
+    );
+    _byLocal[id] = meta;
+    _byServer[serverId] = meta;
+  }
+}
+
+/// Batches subscription merchant resolution: existing-by-id + existing-by-
+/// normalized-name are prefetched once per page; a genuinely new merchant is
+/// created once and memoised by normalized name (so repeated merchant values in
+/// a page resolve to one row, exactly as the old per-row `_ensureMerchant`).
+class _PlanningMerchantResolver {
+  _PlanningMerchantResolver(this._db, this._existingIds, this._byNorm);
+  _PlanningMerchantResolver.empty(this._db)
+      : _existingIds = <String>{},
+        _byNorm = <String, String>{};
+
+  final AppDatabase _db;
+  final Set<String> _existingIds;
+  final Map<String, String> _byNorm;
+
+  Future<String> resolve(String? merchantId, String name) async {
+    if (merchantId != null &&
+        merchantId.isNotEmpty &&
+        _existingIds.contains(merchantId)) {
+      return merchantId;
+    }
+    final normalized = AppDatabase.normalizeMerchant(name);
+    final existing = _byNorm[normalized];
+    if (existing != null) return existing;
+
+    final id =
+        merchantId?.isNotEmpty == true ? merchantId! : IdGenerator.next();
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.customStatement('''
+      INSERT OR IGNORE INTO merchants(id, raw_name, normalized_name, first_seen_at, last_seen_at)
+      VALUES (${sqlString(id)}, ${sqlString(name)}, ${sqlString(normalized)}, ${sqlString(now)}, ${sqlString(now)});
+    ''');
+    _byNorm[normalized] = id;
+    _existingIds.add(id);
+    return id;
+  }
+}
+
+/// Batches budget category resolution from prefetched key → id and server_id →
+/// id maps plus the shared `'other'` fallback. Prefers the canonical category
+/// key over the server-id match (the key is the stable identity per CLAUDE.md);
+/// the old per-row `key = ? OR server_id = ?` had undefined precedence but the
+/// two point at the same category in every realistic case.
+class _PlanningCategoryResolver {
+  const _PlanningCategoryResolver(this._byKey, this._byServer, this._otherId);
+  const _PlanningCategoryResolver.empty()
+      : _byKey = const {},
+        _byServer = const {},
+        _otherId = null;
+
+  final Map<String, String> _byKey;
+  final Map<String, String> _byServer;
+  final String? _otherId;
+
+  String resolve(Map<String, dynamic> row) {
+    final key = row['category_id'] as String?;
+    if (key == null ||
+        key == BudgetEntity.allExpensesCategoryKey ||
+        key == BudgetEntity.allExpensesCategoryId) {
+      return BudgetEntity.allExpensesCategoryId;
+    }
+    final byKey = _byKey[key];
+    if (byKey != null) return byKey;
+    final scid = row['user_category_id'] as String?;
+    if (scid != null) {
+      final byServer = _byServer[scid];
+      if (byServer != null) return byServer;
+    }
+    return _otherId ?? BudgetEntity.allExpensesCategoryId;
+  }
+}
