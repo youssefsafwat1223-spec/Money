@@ -106,9 +106,10 @@ class ReportSnapshotBuilder {
     final budgets = await _budgetsFor(now);
     final bills = await _billsFor();
     final goals = await _goalsFor();
-    final appendix = request.content.includeTransactionDetails
+    final appendixResult = request.content.includeTransactionDetails
         ? await _appendixFor(range, accountId)
-        : const <TransactionEntity>[];
+        : (rows: const <TransactionEntity>[], omitted: false);
+    final appendix = appendixResult.rows;
 
     return ReportDataSnapshot(
       capturedAt: now,
@@ -134,6 +135,8 @@ class ReportSnapshotBuilder {
       bills: List.unmodifiable(bills),
       goals: List.unmodifiable(goals),
       appendixTransactions: List.unmodifiable(appendix),
+      appendixOmittedForSize: appendixResult.omitted,
+      appendixRowLimit: appendixResult.omitted ? _appendixMaxRows : 0,
       baseCurrency: baseCurrency,
     );
   }
@@ -154,20 +157,23 @@ class ReportSnapshotBuilder {
   /// Mirrors the totals' scope so appendix rows net to the displayed totals
   /// (MALI-063n): half-open `[from, to)`, and — in the combined (all-accounts)
   /// view — the excluded-from-totals account policy (null-account rows stay in).
-  Future<List<TransactionEntity>> _appendixFor(
+  /// Result of building the appendix: the rows (≤ [_appendixMaxRows]) OR an
+  /// explicit omission when the period exceeds that bound — NEVER a silent
+  /// truncation that would make the report look complete while dropping rows.
+  Future<({List<TransactionEntity> rows, bool omitted})> _appendixFor(
       DateRange range, String? accountId) async {
     final fromU = range.from.toUtc();
     final toU = range.to.toUtc();
     // MALI-030 — page the appendix via KEYSET (occurred_at DESC, id DESC): each DB
-    // read retains at most [_appendixPageSize] rows, and the accumulated appendix
-    // is hard-capped at [_appendixMaxRows] (most-recent-first) so a pathologically
-    // large history can never load the whole table or OOM. The repository query
-    // applies the same confirmed / half-open / excluded-account / ownership policy
-    // the totals use.
+    // read retains at most [_appendixPageSize] rows. If the period has MORE than
+    // [_appendixMaxRows] confirmed transactions, the detailed appendix is OMITTED
+    // (empty + omitted:true) so the caller can state so truthfully — the summary
+    // and aggregates stay complete. Same confirmed / half-open / excluded-account
+    // / ownership policy the totals use.
     final rows = <TransactionEntity>[];
     DateTime? cursorOccurredAt;
     String? cursorId;
-    while (rows.length < _appendixMaxRows) {
+    while (true) {
       final page = await _transactions.confirmedInRangePage(
         from: fromU,
         to: toU,
@@ -178,14 +184,16 @@ class ReportSnapshotBuilder {
       );
       if (page.isEmpty) break;
       rows.addAll(page);
+      // Overflow: strictly MORE than the bound exists → omit truthfully. Bounded
+      // accumulation (≤ cap + one page) — never the whole table.
+      if (rows.length > _appendixMaxRows) {
+        return (rows: const <TransactionEntity>[], omitted: true);
+      }
       if (page.length < _appendixPageSize) break; // last page reached
       cursorOccurredAt = page.last.occurredAt;
       cursorId = page.last.id;
     }
-    if (rows.length > _appendixMaxRows) {
-      rows.removeRange(_appendixMaxRows, rows.length);
-    }
-    return rows;
+    return (rows: rows, omitted: false);
   }
 
   Future<List<ReportBudgetLite>> _budgetsFor(DateTime now) async {

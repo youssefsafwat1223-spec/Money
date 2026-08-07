@@ -151,6 +151,8 @@ class ReportDataSnapshot {
     this.bills = const <ReportBillLite>[],
     this.goals = const <ReportGoalLite>[],
     this.appendixTransactions = const <TransactionEntity>[],
+    this.appendixOmittedForSize = false,
+    this.appendixRowLimit = 0,
     this.baseCurrency,
   });
 
@@ -210,6 +212,15 @@ class ReportDataSnapshot {
   /// In-period transactions for the optional appendix (only when
   /// `includeTransactionDetails` is set), newest first.
   final List<TransactionEntity> appendixTransactions;
+
+  /// MALI-030 — true when the detailed appendix was OMITTED because the period has
+  /// more than [appendixRowLimit] confirmed transactions. The report is NOT
+  /// silently truncated: [appendixTransactions] is empty and the summary/aggregates
+  /// remain complete and correct. Renderers must state the appendix was omitted.
+  final bool appendixOmittedForSize;
+
+  /// The detailed-appendix row bound that was exceeded (0 when not applicable).
+  final int appendixRowLimit;
 
   /// The user's base display currency (default/active account, mirroring
   /// `baseCurrencyProvider`). Used as the report's primary currency when it is
