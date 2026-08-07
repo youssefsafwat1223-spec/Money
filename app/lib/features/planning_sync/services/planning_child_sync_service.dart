@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/bounded_lookup.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/sync_cursor.dart';
 import 'planning_outbox_queue.dart';
@@ -341,23 +342,29 @@ class PlanningChildSyncService {
     if (_isEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
       // Drain BEFORE the cursor loop so children parked on earlier cycles are
       // re-attempted now that their parents (pulled earlier this cycle) exist.
-      await _drainParked('goal_contributions', _pullGoalContribution);
+      await _drainParked(
+          'goal_contributions', _pullGoalContribution, _scopeForGoalContributions);
       await _pullTable(
         'user_goal_contributions',
         'goal_contributions',
         _pullGoalContribution,
+        _scopeForGoalContributions,
       );
     }
     if (_isEnabled(PlanningOutboxQueue.billPaymentsEntityType)) {
-      await _drainParked('bill_payments', _pullBillPayment);
-      await _pullTable('user_bill_payments', 'bill_payments', _pullBillPayment);
+      await _drainParked(
+          'bill_payments', _pullBillPayment, _scopeForBillPayments);
+      await _pullTable('user_bill_payments', 'bill_payments', _pullBillPayment,
+          _scopeForBillPayments);
     }
     if (_isEnabled(PlanningOutboxQueue.planLinksEntityType)) {
-      await _drainParked('plan_transaction_links', _pullPlanLink);
+      await _drainParked(
+          'plan_transaction_links', _pullPlanLink, _scopeForPlanLinks);
       await _pullTable(
         'user_plan_transaction_links',
         'plan_transaction_links',
         _pullPlanLink,
+        _scopeForPlanLinks,
       );
     }
   }
@@ -365,7 +372,8 @@ class PlanningChildSyncService {
   Future<void> _pullTable(
     String table,
     String localTable,
-    Future<_ChildApplyOutcome> Function(Map<String, dynamic>) apply,
+    _ChildApply apply,
+    _ChildScopeBuilder buildScope,
   ) async {
     try {
       final cursorKey = 'planning_child_${table.substring(5)}';
@@ -380,8 +388,13 @@ class PlanningChildSyncService {
 
         final nextCursor = SyncCursor.fromServerRow(rows.last);
         await _db.transaction(() async {
+          // MALI-029: resolve the whole page's parent/child/pending keys in a
+          // handful of bounded lookups instead of per-row SELECTs. Children
+          // never parent children, so applying one row cannot change another
+          // row's parent existence — a page-built scope stays valid.
+          final scope = await buildScope(rows);
           for (final row in rows) {
-            final outcome = await apply(row);
+            final outcome = await apply(row, scope);
             // MALI-051n: a missing-parent row is durably PARKED before the
             // cursor advances past it, so it can never be permanently skipped.
             if (outcome == _ChildApplyOutcome.missingParent) {
@@ -407,7 +420,8 @@ class PlanningChildSyncService {
   /// terminal after [_kParkedChildMaxAttempts] so they never loop forever.
   Future<void> _drainParked(
     String localTable,
-    Future<_ChildApplyOutcome> Function(Map<String, dynamic>) apply,
+    _ChildApply apply,
+    _ChildScopeBuilder buildScope,
   ) async {
     final parked = await () async {
       try {
@@ -422,27 +436,35 @@ class PlanningChildSyncService {
       }
     }();
     if (parked == null) return;
+    // Decode the whole parked batch up front (corrupt rows → terminal) so the
+    // resolve scope can be built once for the batch (MALI-029). Each row is
+    // still applied in ITS OWN transaction so one bad child never forces
+    // unrelated valid children to reprocess (Phase-3 isolation contract).
+    final decoded = <({String serverId, int attempts, Map<String, dynamic> row})>[];
     for (final p in parked) {
       final serverId = p.read<String>('server_id');
       final attempts = p.read<int>('attempt_count');
-      Map<String, dynamic> row;
       try {
-        row = jsonDecode(p.read<String>('row_json')) as Map<String, dynamic>;
+        final row = jsonDecode(p.read<String>('row_json')) as Map<String, dynamic>;
+        decoded.add((serverId: serverId, attempts: attempts, row: row));
       } catch (_) {
         await _markParkedTerminal(localTable, serverId); // corrupt → terminal
-        continue;
       }
+    }
+    if (decoded.isEmpty) return;
+    final scope = await buildScope([for (final d in decoded) d.row]);
+    for (final d in decoded) {
       try {
         await _db.transaction(() async {
-          final outcome = await apply(row);
+          final outcome = await apply(d.row, scope);
           if (outcome == _ChildApplyOutcome.missingParent) {
-            if (attempts + 1 >= _kParkedChildMaxAttempts) {
-              await _markParkedTerminal(localTable, serverId);
+            if (d.attempts + 1 >= _kParkedChildMaxAttempts) {
+              await _markParkedTerminal(localTable, d.serverId);
             } else {
-              await _bumpParked(localTable, serverId, attempts + 1);
+              await _bumpParked(localTable, d.serverId, d.attempts + 1);
             }
           } else {
-            await _unparkChild(localTable, serverId);
+            await _unparkChild(localTable, d.serverId);
           }
         });
       } catch (error) {
@@ -499,15 +521,16 @@ class PlanningChildSyncService {
 
   Future<_ChildApplyOutcome> _pullGoalContribution(
     Map<String, dynamic> row,
+    _ChildResolveScope scope,
   ) async {
-    final goalLocal = await _localId('goals', row['goal_id'] as String?);
+    final goalLocal = scope.parentLocalId('goals', row['goal_id'] as String?);
     if (goalLocal == null) return _ChildApplyOutcome.missingParent;
-    final localId = await _childLocalId(
-      'goal_contributions',
+    final localId = scope.childLocalId(
       row['id'] as String,
       row['local_id'] as String?,
     );
-    if (await _preservePending('goal_contributions', localId)) {
+    if (await _preservePendingWithStatus(
+        'goal_contributions', localId, scope.childStatus(localId))) {
       return _ChildApplyOutcome.preservedPending;
     }
     final now = dateTimeToSql(DateTime.now().toUtc());
@@ -530,24 +553,28 @@ class PlanningChildSyncService {
         server_updated_at=excluded.server_updated_at,
         sync_status='synced', deleted_at=excluded.deleted_at;
     ''');
+    scope.rememberChild(row['id'] as String, localId);
     return _ChildApplyOutcome.applied;
   }
 
-  Future<_ChildApplyOutcome> _pullBillPayment(Map<String, dynamic> row) async {
+  Future<_ChildApplyOutcome> _pullBillPayment(
+    Map<String, dynamic> row,
+    _ChildResolveScope scope,
+  ) async {
     final billLocal =
-        await _localId('subscriptions', row['subscription_id'] as String?);
+        scope.parentLocalId('subscriptions', row['subscription_id'] as String?);
     if (billLocal == null) return _ChildApplyOutcome.missingParent;
     final transactionLocal =
-        await _localId('transactions', row['transaction_id'] as String?);
+        scope.parentLocalId('transactions', row['transaction_id'] as String?);
     if (row['transaction_id'] != null && transactionLocal == null) {
       return _ChildApplyOutcome.missingParent;
     }
-    final localId = await _childLocalId(
-      'bill_payments',
+    final localId = scope.childLocalId(
       row['id'] as String,
       row['local_id'] as String?,
     );
-    if (await _preservePending('bill_payments', localId)) {
+    if (await _preservePendingWithStatus(
+        'bill_payments', localId, scope.childStatus(localId))) {
       return _ChildApplyOutcome.preservedPending;
     }
     final now = dateTimeToSql(DateTime.now().toUtc());
@@ -579,22 +606,21 @@ class PlanningChildSyncService {
         server_updated_at=excluded.server_updated_at,
         sync_status='synced', deleted_at=excluded.deleted_at;
     ''');
+    scope.rememberChild(row['id'] as String, localId);
     return _ChildApplyOutcome.applied;
   }
 
-  Future<_ChildApplyOutcome> _pullPlanLink(Map<String, dynamic> row) async {
-    final planLocal = await _localId('plans', row['plan_id'] as String?);
+  Future<_ChildApplyOutcome> _pullPlanLink(
+    Map<String, dynamic> row,
+    _ChildResolveScope scope,
+  ) async {
+    final planLocal = scope.parentLocalId('plans', row['plan_id'] as String?);
     final transactionLocal =
-        await _localId('transactions', row['transaction_id'] as String?);
+        scope.parentLocalId('transactions', row['transaction_id'] as String?);
     if (planLocal == null || transactionLocal == null) {
       return _ChildApplyOutcome.missingParent;
     }
-    final status = await _db.customSelect('''
-      SELECT sync_status FROM plan_transaction_links
-      WHERE plan_id = ${sqlString(planLocal)}
-        AND transaction_id = ${sqlString(transactionLocal)} LIMIT 1;
-    ''').getSingleOrNull();
-    if (status?.readNullable<String>('sync_status') == 'pending') {
+    if (scope.planLinkStatus(planLocal, transactionLocal) == 'pending') {
       await _db.customStatement('''
         UPDATE plan_transaction_links SET sync_status = 'conflict'
         WHERE plan_id = ${sqlString(planLocal)}
@@ -621,13 +647,15 @@ class PlanningChildSyncService {
     return _ChildApplyOutcome.applied;
   }
 
-  Future<bool> _preservePending(String table, String localId) async {
-    final row = await _db
-        .customSelect(
-          'SELECT sync_status FROM $table WHERE id = ${sqlString(localId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    final status = row?.readNullable<String>('sync_status');
+  /// [status] is the child row's prefetched sync_status (MALI-029) — resolved
+  /// from the batch scope instead of a per-row SELECT. A local pending edit is
+  /// preserved (and flagged conflict) exactly as before; a null/unknown status
+  /// (the common brand-new-child case) proceeds to the upsert.
+  Future<bool> _preservePendingWithStatus(
+    String table,
+    String localId,
+    String? status,
+  ) async {
     if (status == 'conflict') return true;
     if (status != 'pending') return false;
     await _db.customStatement(
@@ -646,25 +674,115 @@ class PlanningChildSyncService {
     return row?.readNullable<String>('server_id');
   }
 
-  Future<String?> _localId(String table, String? serverId) async {
-    if (serverId == null) return null;
-    final row = await _db
-        .customSelect(
-          'SELECT id FROM $table WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
-    return row?.readNullable<String>('id');
+  // ── MALI-029 batch parent/child resolution ────────────────────────────────
+  // Each scope builder resolves one child batch's parent local ids + child
+  // identity/pending status in a handful of bounded lookups (central chunk
+  // primitive). Built fresh per batch — never an instance/static field — so a
+  // sign-out/relogin under a new admission generation always resolves against
+  // freshly-committed local state.
+
+  Future<Map<String, String>> _prefetchParentLocals(
+    String parentTable,
+    Iterable<String?> serverIds,
+  ) async {
+    final ids = <String>{
+      for (final s in serverIds)
+        if (s != null && s.isNotEmpty) s,
+    };
+    final map = <String, String>{};
+    for (final r in await selectByIdChunks(_db, ids,
+        sql: (ph) =>
+            'SELECT server_id, id FROM $parentTable WHERE server_id IN ($ph);')) {
+      map[r.read<String>('server_id')] = r.read<String>('id');
+    }
+    return map;
   }
 
-  Future<String> _childLocalId(
-    String table,
-    String serverId,
-    String? preferred,
+  Future<_ChildIndex> _prefetchChildIndex(
+    String childTable,
+    List<Map<String, dynamic>> rows,
   ) async {
-    final byServer = await _localId(table, serverId);
-    if (byServer != null) return byServer;
-    if (preferred != null && preferred.isNotEmpty) return preferred;
-    return serverId;
+    final serverIds = <String>{};
+    final localCandidates = <String>{};
+    for (final row in rows) {
+      final sid = row['id'] as String?;
+      if (sid != null) {
+        serverIds.add(sid);
+        localCandidates.add(sid); // serverId is _childLocalId's final fallback
+      }
+      final lid = row['local_id'] as String?;
+      if (lid != null && lid.isNotEmpty) localCandidates.add(lid);
+    }
+    final index = _ChildIndex();
+    const cols = 'SELECT id, server_id, sync_status FROM';
+    for (final r in await selectByIdChunks(_db, serverIds,
+        sql: (ph) => '$cols $childTable WHERE server_id IN ($ph);')) {
+      index.addExisting(r.read<String>('id'), r.readNullable<String>('server_id'),
+          r.readNullable<String>('sync_status'));
+    }
+    for (final r in await selectByIdChunks(_db, localCandidates,
+        sql: (ph) => '$cols $childTable WHERE id IN ($ph);')) {
+      index.addExisting(r.read<String>('id'), r.readNullable<String>('server_id'),
+          r.readNullable<String>('sync_status'));
+    }
+    return index;
+  }
+
+  Future<_ChildResolveScope> _scopeForGoalContributions(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final goals = await _prefetchParentLocals(
+        'goals', rows.map((r) => r['goal_id'] as String?));
+    final child = await _prefetchChildIndex('goal_contributions', rows);
+    return _ChildResolveScope(
+      parentLocalByServer: {'goals': goals},
+      child: child,
+    );
+  }
+
+  Future<_ChildResolveScope> _scopeForBillPayments(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final subs = await _prefetchParentLocals(
+        'subscriptions', rows.map((r) => r['subscription_id'] as String?));
+    final txns = await _prefetchParentLocals(
+        'transactions', rows.map((r) => r['transaction_id'] as String?));
+    final child = await _prefetchChildIndex('bill_payments', rows);
+    return _ChildResolveScope(
+      parentLocalByServer: {'subscriptions': subs, 'transactions': txns},
+      child: child,
+    );
+  }
+
+  Future<_ChildResolveScope> _scopeForPlanLinks(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final plans = await _prefetchParentLocals(
+        'plans', rows.map((r) => r['plan_id'] as String?));
+    final txns = await _prefetchParentLocals(
+        'transactions', rows.map((r) => r['transaction_id'] as String?));
+    // Plan links key their pending check by the resolved (plan_id,
+    // transaction_id) LOCAL pair, so prefetch existing links by transaction
+    // local id (few links per transaction) and index them by the pair.
+    final txnLocals = <String>{};
+    for (final row in rows) {
+      final planLocal = plans[row['plan_id'] as String?];
+      final txnLocal = txns[row['transaction_id'] as String?];
+      if (planLocal != null && txnLocal != null) txnLocals.add(txnLocal);
+    }
+    final planLinkStatus = <String, String?>{};
+    for (final r in await selectByIdChunks(_db, txnLocals,
+        sql: (ph) => 'SELECT plan_id, transaction_id, sync_status '
+            'FROM plan_transaction_links WHERE transaction_id IN ($ph);')) {
+      planLinkStatus['${r.read<String>('plan_id')}|'
+          '${r.read<String>('transaction_id')}'] =
+          r.readNullable<String>('sync_status');
+    }
+    return _ChildResolveScope(
+      parentLocalByServer: {'plans': plans, 'transactions': txns},
+      child: _ChildIndex(),
+      planLinkStatusByPair: planLinkStatus,
+    );
   }
 
   Future<void> _markChildSynced(
@@ -709,5 +827,78 @@ class PlanningChildSyncService {
       WHERE plan_id = ${sqlString(planId)}
         AND transaction_id = ${sqlString(transactionId)};
     ''');
+  }
+}
+
+typedef _ChildApply = Future<_ChildApplyOutcome> Function(
+  Map<String, dynamic> row,
+  _ChildResolveScope scope,
+);
+
+typedef _ChildScopeBuilder = Future<_ChildResolveScope> Function(
+  List<Map<String, dynamic>> rows,
+);
+
+/// One child batch's prefetched resolution: parent local ids (per parent table),
+/// child identity + pending status, and — for plan links — pending status keyed
+/// by the resolved (plan_id, transaction_id) local pair.
+class _ChildResolveScope {
+  _ChildResolveScope({
+    required Map<String, Map<String, String>> parentLocalByServer,
+    required _ChildIndex child,
+    Map<String, String?> planLinkStatusByPair = const {},
+  })  : _parent = parentLocalByServer,
+        _child = child,
+        _planLinkStatus = planLinkStatusByPair;
+
+  final Map<String, Map<String, String>> _parent;
+  final _ChildIndex _child;
+  final Map<String, String?> _planLinkStatus;
+
+  /// Local id of a parent by its server id — null when the parent hasn't synced
+  /// yet (→ the child is durably parked), exactly like the old `_localId`.
+  String? parentLocalId(String table, String? serverId) {
+    if (serverId == null || serverId.isEmpty) return null;
+    return _parent[table]?[serverId];
+  }
+
+  String childLocalId(String serverId, String? preferred) =>
+      _child.localId(serverId, preferred);
+
+  String? childStatus(String localId) => _child.status(localId);
+
+  void rememberChild(String serverId, String localId) =>
+      _child.remember(serverId, localId);
+
+  String? planLinkStatus(String planLocal, String txnLocal) =>
+      _planLinkStatus['$planLocal|$txnLocal'];
+}
+
+/// Child-table identity: server_id → existing local id, and local id →
+/// sync_status. `localId` mirrors the old `_childLocalId` (server match, else the
+/// preferred local_id, else the server id as the local id).
+class _ChildIndex {
+  final Map<String, String> _idByServer = {};
+  final Map<String, String?> _statusById = {};
+
+  void addExisting(String id, String? serverId, String? status) {
+    _statusById[id] = status;
+    if (serverId != null) _idByServer.putIfAbsent(serverId, () => id);
+  }
+
+  String localId(String serverId, String? preferred) {
+    final byServer = _idByServer[serverId];
+    if (byServer != null) return byServer;
+    if (preferred != null && preferred.isNotEmpty) return preferred;
+    return serverId;
+  }
+
+  String? status(String localId) => _statusById[localId];
+
+  /// After a successful upsert the child row exists as `synced`; keep the index
+  /// consistent for any later same-batch row that resolves to it.
+  void remember(String serverId, String localId) {
+    _idByServer[serverId] = localId;
+    _statusById[localId] = 'synced';
   }
 }
