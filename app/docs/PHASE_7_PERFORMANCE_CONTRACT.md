@@ -119,27 +119,50 @@ ordering and conflict semantics unchanged; server revision CAS stays OFF. **Rema
 true reachability-based offline detection (would need a connectivity source) and skipping
 the full fan-out when no cursor/domain changed — the adaptive backoff approximates both.
 
-## 5. MALI-030 — report / export / backup memory (NOT yet done)
+## 5. MALI-030 — report / export / backup memory (DONE ✓, v3 residual characterized)
 
-Audited hotspots (all materialize the entire transaction set in Dart):
-`report_snapshot_builder.dart` `_largestTransactions` (loads the whole table to take
-the top 10 — should be `ORDER BY amount DESC LIMIT 10` in SQL) and `_appendixFor`
-(details-on); both CSV exporters (`drift_financial_exporter.dart`, no streaming; the
-package exporter even re-decodes each CSV to count rows); `backup_snapshot_builder.dart`
-(all tables/rows into one nested map). Headline totals are ALREADY canonical SQL
-aggregates (safe).
+Every avoidable full-dataset materialization is removed or hard-capped; the only
+remaining one-shot buffer is the v3 AEAD residual, characterized below.
 
-**v3 crypto residual (classification):** `encryptEnvelopeV3` is one-shot
-`AesGcm.encrypt(utf8.encode(jsonEncode(json)))` — the `cryptography` package's AES-GCM
-takes the whole plaintext at once; it cannot stream without a NEW envelope format
-(forbidden this batch — no v4). So a bounded but real one-shot plaintext + ciphertext
-residual is **unavoidable within v3**, capped by the existing 64 MiB ciphertext /
-96 MiB blob limits. This residual is honestly a **crypto-library constraint**, NOT a
-device-only concern. **Target:** page the pre/post-encryption reads and eliminate the
-duplicate full copies (snapshot map → JSON string → bytes → ciphertext → envelope
-bytes = 4–5 copies today) so peak memory is bounded independent of row count APART from
-the single unavoidable one-shot crypto buffer; typed `payloadTooLarge` before OOM; never
-stage plaintext to disk; never weaken v3 auth.
+| path | before | after |
+|---|---|---|
+| report `_largestTransactions` | `getAll()` whole table → Dart sort → take 10 | `largestExpenses(...)` SQL `ORDER BY amount DESC LIMIT N` — only N rows enter Dart |
+| report `_appendixFor` | `getAll()` whole table → Dart filter/sort | keyset pages (`confirmedInRangePage`, 500/page) + hard cap `_appendixMaxRows`=5000 |
+| report headline / category / merchant / daily | already canonical SQL aggregates | unchanged |
+| CSV `exportTransactionsCsv` | `.get()` whole table → one row list | keyset pages (1000/page), per-page CSV chunk appended + released |
+| full export `exportFinancialPackage` | `.get()` every table; codec RE-DECODES each CSV to count | transactions table paged; precomputed `rowCounts` passed (no re-decode) |
+| `backup_snapshot_builder.build()` | `.get()` every table + `Map.from(row.data)` (2 full copies) | transactions paged (2000/page) + `row.data` taken directly (1 copy) |
+
+**Structural results (10k synthetic):** top-N returns exactly N (not 10k); appendix/
+CSV/backup transactions read in bounded pages (≤ page size each), every row emitted
+exactly once, stable order preserved; export/import + backup/restore round-trips
+unchanged. Retained transaction DOMAIN objects are bounded per page; the final CSV/zip/
+snapshot bytes are each artefact's own output contract, not extra retained models.
+
+**Resource caps (typed, fail-safe — no OOM, no partial write, no DB mutation, no temp
+files):** appendix ≤ 5000 rows; snapshot/CSV/export paged; **`BackupEnvelopeLimits.
+maxPlaintextBytes` = 48 MiB enforced BEFORE encryption** → typed
+`BackupEnvelopeErrorKind.payloadTooLarge`; existing 64 MiB ciphertext / 96 MiB envelope
+caps retained.
+
+**v3 one-shot residual (honest characterization, NOT device-external):**
+`encryptEnvelopeV3` serialises the snapshot with `_serializedPlaintextChecked` (which
+enforces the 48 MiB cap) then calls `AesGcm.encrypt` ONCE. `package:cryptography`'s
+AES-GCM has no streaming API, so exactly ONE full plaintext buffer plus its ciphertext
+(+16-byte MAC) must coexist for that call — an irreducible **crypto-library/format
+constraint** (streaming needs a new envelope format, which is out of scope: no v4). It
+is bounded by the enforced 48 MiB plaintext / 64 MiB ciphertext caps, fed by the
+reduced-copy paged snapshot builder, and the codec is pure in-memory (**no plaintext is
+staged to disk**; v3 authentication unchanged).
+
+**Section 10 (remote upload handoff) — briefly reviewed:** the envelope is serialised
+once via `v3Blob.toBytes()`; the production backup service is a stub unless Supabase is
+configured. A deeper cloud-upload audit (hashing without an extra blob copy, retry
+reusing the immutable blob) remains a smaller follow-up.
+
+**Status:** *MALI-030 code complete — locally verified for bounded report/export/
+snapshot database processing; the v3 authenticated encryption remains a bounded one-shot
+in-memory operation under enforced payload caps.*
 
 ## 6. Transaction-list / dashboard rendering (NOT yet done)
 
