@@ -77,3 +77,79 @@ class SyncCoalescer {
     return false;
   }
 }
+
+/// Offline- and ownership-aware gate for background sync (MALI-029 cadence). Pure
+/// and deterministic — no clock/random/connectivity of its own — so the full
+/// offline → recovery → sign-out/ownership contract is unit-tested with an
+/// injected connectivity signal and a fake clock at the call site.
+///
+/// The app has no platform connectivity source, so "offline" is inferred from
+/// the sync run itself: a completed attempt whose push outbox is left
+/// network-stalled reports `reachedNetwork: false`. This ONLY paces/gates
+/// triggering; it never changes sync authority, ordering, revision, or conflict
+/// semantics.
+class SyncGate {
+  int _generation = 0;
+  bool _online = true;
+  bool _pendingIntent = false;
+
+  /// The current owner generation. Any run/intent captured under a prior
+  /// generation is stale (a different — or signed-out — owner).
+  int get generation => _generation;
+
+  /// Whether the gate currently believes the network is reachable.
+  bool get isOnline => _online;
+
+  /// Whether a single coalesced sync intent is queued (offline or a suppressed
+  /// local-activity trigger) awaiting the next admissible run.
+  bool get hasPendingIntent => _pendingIntent;
+
+  /// Sign-out / owner change: bump the generation so any run/intent captured
+  /// under the old generation is no longer admitted, drop the queued intent so
+  /// old-owner work can never execute under a new owner, and reset to optimistic
+  /// online (a fresh owner must not inherit the previous owner's offline state).
+  /// Returns the new generation.
+  int invalidate() {
+    _pendingIntent = false;
+    _online = true;
+    return ++_generation;
+  }
+
+  /// A run/intent captured at [generation] is admitted only while its generation
+  /// is still current — the guard that stops an old-owner (or pre-sign-out) run
+  /// from writing under a new owner.
+  bool admits(int generation) => generation == _generation;
+
+  /// Whether a trigger should run the sync body now.
+  /// - [manual] (user/manual) always runs — priority over backoff/offline.
+  /// - [recoveryProbe] (resume/periodic poll) always runs so connectivity can be
+  ///   re-detected; it is the sole auto-recovery path while offline.
+  /// - a plain background trigger (e.g. a local-activity wakeup) runs while
+  ///   online; while offline it does NOT run (no doomed remote work / retry
+  ///   burn) and instead coalesces exactly ONE pending intent.
+  bool shouldRun({bool manual = false, bool recoveryProbe = false}) {
+    if (manual || recoveryProbe || _online) {
+      _pendingIntent = false;
+      return true;
+    }
+    _pendingIntent = true;
+    return false;
+  }
+
+  /// Record a completed attempt's reachability.
+  /// - not reached → go offline and keep exactly one pending intent so the work
+  ///   is retried once connectivity returns (never one-per-missed-timer).
+  /// - reached → go online; returns true exactly once when a pending intent was
+  ///   waiting (queued while offline) so the caller fires a single recovery sync.
+  bool recordReachability({required bool reachedNetwork}) {
+    if (!reachedNetwork) {
+      _online = false;
+      _pendingIntent = true;
+      return false;
+    }
+    final recover = _pendingIntent;
+    _online = true;
+    _pendingIntent = false;
+    return recover;
+  }
+}

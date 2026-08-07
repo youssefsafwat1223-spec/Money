@@ -157,9 +157,12 @@ class _AppShellState extends ConsumerState<AppShell> {
       // is responsive; the 750ms debounce coalesces rapid local commits.
       _syncCadence.recordActivity();
       _syncDebounceTimer?.cancel();
+      // Local activity is a background trigger: gated by the offline gate so a
+      // burst of offline edits coalesces into one pending intent rather than
+      // each firing a doomed sync.
       _syncDebounceTimer = Timer(
         const Duration(milliseconds: 750),
-        _runLedgerSync,
+        () => _runLedgerSync(),
       );
       _scheduleAdaptivePoll();
     });
@@ -204,7 +207,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       await _syncNativeCaptureState();
       unawaited(_linkCaptureDeviceToUser());
       await _consumeSharedInput();
-      unawaited(_runLedgerSync());
+      // Cold start is a recovery-eligible trigger (always attempt).
+      unawaited(_runLedgerSync(recoveryProbe: true));
       await _drainPendingNotificationRoutes();
       await _syncEngagement();
       unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
@@ -260,6 +264,17 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Any session change (sign-in or sign-out) re-arms the one-shot reconcile
     // so a freshly signed-in identity backfills its own local data once.
     _didReconcile = false;
+    // MALI-029 ownership: bump the admission generation so any in-flight or
+    // queued sync run captured under the previous owner is no longer admitted,
+    // and cancel the old owner's poll timer. A same-UID relogin gets a fresh
+    // generation too, so stale scheduled work can never execute under it. Re-arm
+    // the poll for the (new) owner only while authenticated; a sign-out leaves it
+    // cancelled.
+    _syncGate.invalidate();
+    _syncPollTimer?.cancel();
+    if (now == SessionStatus.authenticated && mounted) {
+      _scheduleAdaptivePoll();
+    }
     if (wasAuthenticated && now != SessionStatus.authenticated) {
       if (!mounted) return;
       _invalidateFinancialProviders();
@@ -292,7 +307,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
     await _syncNativeCaptureState();
     await _consumeSharedInput();
-    unawaited(_runLedgerSync());
+    // Resume is a recovery-eligible trigger (always attempt).
+    unawaited(_runLedgerSync(recoveryProbe: true));
     await _drainPendingNotificationRoutes();
     await _syncEngagement();
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
@@ -455,6 +471,12 @@ class _AppShellState extends ConsumerState<AppShell> {
   final SyncCadence _syncCadence = SyncCadence();
   final SyncCoalescer _syncCoalescer = SyncCoalescer();
 
+  /// MALI-029 offline/ownership gate. Since there is no platform connectivity
+  /// source, reachability is inferred from the outbox network-stall signal after
+  /// each run; sign-out/relogin bumps its generation so old-owner scheduled work
+  /// can never execute under a new owner. See sync_cadence.dart (unit-tested).
+  final SyncGate _syncGate = SyncGate();
+
   /// Whether the one-shot local→server reconcile has run for the current
   /// session. Re-armed on any session change (see [_handleSessionStatusChange]).
   bool _didReconcile = false;
@@ -540,28 +562,74 @@ class _AppShellState extends ConsumerState<AppShell> {
     _syncPollTimer?.cancel();
     _syncPollTimer = Timer(_syncCadence.nextDelay(), () {
       _syncCadence.recordIdlePoll();
-      unawaited(_runLedgerSync());
+      // The periodic poll is the sole auto-recovery probe: it runs even while the
+      // gate believes we are offline, so a returned connection is re-detected.
+      unawaited(_runLedgerSync(recoveryProbe: true));
       if (mounted) _scheduleAdaptivePoll();
     });
   }
 
-  Future<void> _runLedgerSync() async {
+  Future<void> _runLedgerSync(
+      {bool recoveryProbe = false, bool manual = false}) async {
+    // MALI-029 offline gate: a plain background/local-activity trigger while
+    // offline is coalesced into ONE pending intent instead of firing a doomed
+    // remote sync that would burn outbox retries. Manual (user) and recovery
+    // probes (resume/periodic poll) always run so connectivity can be detected.
+    if (!_syncGate.shouldRun(manual: manual, recoveryProbe: recoveryProbe)) {
+      return;
+    }
     // Coalesce: if a run is already in flight, remember the request and let the
     // in-flight run fire exactly one follow-up when it finishes (never a queue of
     // duplicate concurrent syncs, never a dropped request).
     if (!_syncCoalescer.requestRun()) return;
+    final gen = _syncGate.generation;
     do {
       try {
-        await _runLedgerSyncBody();
+        await _runLedgerSyncBody(gen);
       } finally {
         // First completed round after sign-in: the pull has landed — reveal the
         // real data in one shot instead of defaults morphing under the user.
         _closeRestoreGate();
       }
     } while (_syncCoalescer.finishRun());
+    // Infer reachability from the outbox's own network-stall signal (there is no
+    // platform connectivity source) so the gate can go offline / recover. Skip
+    // when the owner changed mid-run — the reading would belong to a new owner.
+    if (_syncGate.admits(gen)) {
+      final reached = !await _networkStalledOutbox();
+      _syncGate.recordReachability(reachedNetwork: reached);
+    }
   }
 
-  Future<void> _runLedgerSyncBody() async {
+  /// Cheap, no-network reachability signal: true when a financial outbox still
+  /// holds pending items whose last push failed with a transient NETWORK error —
+  /// i.e. the push services just experienced "offline". Server 5xx / auth / rate
+  /// limit map to other failure classes and are deliberately NOT treated as
+  /// offline.
+  Future<bool> _networkStalledOutbox() async {
+    try {
+      final db = ref.read(appDatabaseProvider);
+      for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+        final row = await db
+            .customSelect(
+              "SELECT 1 AS x FROM $table WHERE status = 'pending' "
+              "AND failure_class = 'transientNetwork' LIMIT 1;",
+            )
+            .getSingleOrNull();
+        if (row != null) return true;
+      }
+    } catch (_) {
+      // A read failure must not wedge the gate offline — assume reachable.
+    }
+    return false;
+  }
+
+  Future<void> _runLedgerSyncBody(int gen) async {
+    // MALI-029 ownership guard: if the owner changed (sign-out / relogin) since
+    // this run was scheduled, abort before doing any work — old-owner sync must
+    // not write or refresh under a new owner. Sub-services also fail-safe (no
+    // auth user id after sign-out); this is the belt-and-braces entry check.
+    if (!_syncGate.admits(gen)) return;
     // Reconcile local accounts/transactions that never reached Supabase BEFORE
     // the normal push/pull, so back-filled rows are marked synced and the
     // outbox path takes over cleanly. One-shot per session; the service guards

@@ -72,4 +72,89 @@ void main() {
       expect(co.finishRun(), isFalse);
     });
   });
+
+  group('SyncGate — offline / recovery', () {
+    test('starts online: background triggers run', () {
+      final g = SyncGate();
+      expect(g.isOnline, isTrue);
+      expect(g.shouldRun(), isTrue);
+      expect(g.hasPendingIntent, isFalse);
+    });
+
+    test('an offline attempt suppresses later background triggers + coalesces '
+        'ONE pending intent', () {
+      final g = SyncGate();
+      // A completed attempt that could not reach the server → offline.
+      g.recordReachability(reachedNetwork: false);
+      expect(g.isOnline, isFalse);
+      expect(g.hasPendingIntent, isTrue);
+
+      // Repeated local-activity/background triggers while offline do NOT run and
+      // do NOT stack up — exactly one pending intent, no retry burn.
+      expect(g.shouldRun(), isFalse);
+      expect(g.shouldRun(), isFalse);
+      expect(g.shouldRun(), isFalse);
+      expect(g.hasPendingIntent, isTrue);
+    });
+
+    test('manual + recovery-probe triggers always run, even offline', () {
+      final g = SyncGate();
+      g.recordReachability(reachedNetwork: false);
+      expect(g.shouldRun(manual: true), isTrue); // user priority
+      g.recordReachability(reachedNetwork: false);
+      expect(g.shouldRun(recoveryProbe: true), isTrue); // resume/periodic probe
+    });
+
+    test('reaching the network after offline fires exactly ONE recovery', () {
+      final g = SyncGate();
+      g.recordReachability(reachedNetwork: false); // offline, intent queued
+      // The probe run reaches the network → recovery fires once...
+      expect(g.recordReachability(reachedNetwork: true), isTrue);
+      expect(g.isOnline, isTrue);
+      expect(g.hasPendingIntent, isFalse);
+      // ...and not again on the next reachable attempt.
+      expect(g.recordReachability(reachedNetwork: true), isFalse);
+    });
+
+    test('empty online attempts never fabricate a recovery', () {
+      final g = SyncGate();
+      expect(g.recordReachability(reachedNetwork: true), isFalse);
+      expect(g.recordReachability(reachedNetwork: true), isFalse);
+    });
+  });
+
+  group('SyncGate — sign-out / ownership', () {
+    test('invalidate bumps the generation and drops the pending intent', () {
+      final g = SyncGate();
+      final gen0 = g.generation;
+      g.recordReachability(reachedNetwork: false); // queue an offline intent
+      expect(g.hasPendingIntent, isTrue);
+
+      final gen1 = g.invalidate();
+      expect(gen1, greaterThan(gen0));
+      expect(g.hasPendingIntent, isFalse, reason: 'old intent dropped');
+      expect(g.isOnline, isTrue, reason: 'fresh owner starts optimistic');
+    });
+
+    test('a run captured under the old generation is no longer admitted', () {
+      final g = SyncGate();
+      final captured = g.generation; // a run/timer captured this owner gen
+      expect(g.admits(captured), isTrue);
+
+      g.invalidate(); // sign-out / owner change
+      expect(g.admits(captured), isFalse,
+          reason: 'old-owner run cannot execute under the new owner');
+    });
+
+    test('same-UID relogin (new admission generation) invalidates old work', () {
+      final g = SyncGate();
+      final gen0 = g.generation;
+      // sign-out then sign back in as the SAME uid → a new admission generation.
+      g.invalidate();
+      final gen2 = g.invalidate();
+      expect(gen2, greaterThan(gen0));
+      expect(g.admits(gen0), isFalse);
+      expect(g.admits(gen2), isTrue);
+    });
+  });
 }
