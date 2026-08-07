@@ -289,7 +289,7 @@ class TransactionsScreen extends ConsumerWidget {
                               (view.isLoadingMore ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index == 0) {
-                              return const _TransactionSearchField();
+                              return const TransactionSearchField();
                             }
                             if (index == 1) {
                               return const SizedBox(height: AppSpacing.s2);
@@ -499,16 +499,16 @@ class _ActiveAccountPicker extends ConsumerWidget {
   }
 }
 
-class _TransactionSearchField extends ConsumerStatefulWidget {
-  const _TransactionSearchField();
+class TransactionSearchField extends ConsumerStatefulWidget {
+  const TransactionSearchField({super.key});
 
   @override
-  ConsumerState<_TransactionSearchField> createState() =>
-      _TransactionSearchFieldState();
+  ConsumerState<TransactionSearchField> createState() =>
+      TransactionSearchFieldState();
 }
 
-class _TransactionSearchFieldState
-    extends ConsumerState<_TransactionSearchField> {
+class TransactionSearchFieldState
+    extends ConsumerState<TransactionSearchField> {
   late final TextEditingController _controller;
   // MALI-029 / rendering — debounce the search so a burst of keystrokes does not
   // re-fetch page 1 + re-filter + re-group the whole list on every character; the

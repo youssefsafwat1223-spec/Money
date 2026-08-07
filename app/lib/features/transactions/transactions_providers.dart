@@ -194,6 +194,11 @@ class TransactionsListNotifier
   var _hasMore = true;
   var _loadingMore = false;
   TransactionPageCursor? _cursor;
+  // B2-C — bumped on every build (any filter/search/owner change). An in-flight
+  // loadMore captures the generation and drops its page if a newer build has
+  // superseded it, so a page fetched under an old filter can never overwrite the
+  // newer result ("stale result cannot overwrite a newer one").
+  var _buildGen = 0;
   // B2-C — the effective filter + display context are resolved ONCE per build
   // (all dimensions are watched below, so build() re-runs on any change and
   // resets the cursor). loadMore() reuses them, so a page can never be produced
@@ -218,6 +223,7 @@ class TransactionsListNotifier
     _hasMore = true;
     _loadingMore = false;
     _cursor = null;
+    _buildGen++;
     _catalog = await ref.read(categoryCatalogProvider.future);
     _range = effectiveTransactionsRange(ref.read(transactionsDateRangeProvider));
     _filter = await _resolveFilter();
@@ -262,6 +268,7 @@ class TransactionsListNotifier
 
   Future<void> loadMore() async {
     if (_loadingMore || !_hasMore) return;
+    final gen = _buildGen;
     final current = state.valueOrNull;
     if (current != null) {
       state = AsyncData(TransactionsView(
@@ -272,10 +279,39 @@ class TransactionsListNotifier
         isLoadingMore: true,
       ));
     }
+    _loadingMore = true;
+    final txRepo = ref.read(transactionRepositoryProvider);
+    // B2-C — keyset page, fully SQL-filtered. No OFFSET, no full-history load,
+    // no load-then-discard-in-Dart. Keyset (occurred_at DESC, id DESC) means a
+    // page never overlaps the previous one, so no de-dup is needed.
     try {
-      final view = await _loadNextPage();
-      state = AsyncData(view);
+      final page = await txRepo.getTransactionPage(
+        limit: transactionsPageSize,
+        after: _cursor,
+        filter: _filter,
+      );
+      // A newer build (filter/search/owner change) superseded this page while it
+      // was in flight — drop it so it can't append to (or overwrite) the newer
+      // result. The newer build already owns _loaded/_cursor/state.
+      if (gen != _buildGen) return;
+      _loaded = [..._loaded, ...page];
+      if (page.isNotEmpty) {
+        final last = page.last;
+        _cursor =
+            TransactionPageCursor(occurredAt: last.occurredAt, id: last.id);
+      }
+      _hasMore = page.length == transactionsPageSize;
+      _loadingMore = false;
+      state = AsyncData(TransactionsView(
+        transactions: _loaded,
+        catalog: _catalog,
+        range: _range,
+        hasMore: _hasMore,
+        isLoadingMore: _loadingMore,
+      ));
     } catch (error, stackTrace) {
+      if (gen != _buildGen) return;
+      _loadingMore = false;
       state = AsyncError(error, stackTrace);
     }
   }
@@ -283,9 +319,6 @@ class TransactionsListNotifier
   Future<TransactionsView> _loadNextPage() async {
     _loadingMore = true;
     final txRepo = ref.read(transactionRepositoryProvider);
-    // B2-C — keyset page, fully SQL-filtered. No OFFSET, no full-history load,
-    // no load-then-discard-in-Dart. Keyset (occurred_at DESC, id DESC) means a
-    // page never overlaps the previous one, so no de-dup is needed.
     final page = await txRepo.getTransactionPage(
       limit: transactionsPageSize,
       after: _cursor,
