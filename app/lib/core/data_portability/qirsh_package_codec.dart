@@ -41,6 +41,9 @@ Uint8List encodeQirshPackage({
   required String packageId,
   required DateTime exportedAt,
   required Map<String, Uint8List> csvFiles,
+  // MALI-030 — the exporter already knows each table's row count from writing it;
+  // passing it here avoids RE-DECODING every CSV back into row maps just to count.
+  Map<String, int>? rowCounts,
 }) {
   final checksums = <String, String>{};
   final counts = <String, int>{};
@@ -51,7 +54,9 @@ Uint8List encodeQirshPackage({
       throw DataPortabilityException('ملف $fileName مفقود من التصدير.');
     }
     checksums[fileName] = sha256.convert(bytes).toString();
-    counts[table] = decodePortableCsv(bytes).rows.length;
+    counts[table] = rowCounts != null && rowCounts.containsKey(table)
+        ? rowCounts[table]!
+        : decodePortableCsv(bytes).rows.length;
   }
   final manifest = utf8.encode(jsonEncode({
     'format': 'qirsh-financial-data',

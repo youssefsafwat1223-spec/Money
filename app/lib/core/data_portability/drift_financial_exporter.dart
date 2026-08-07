@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
+
+import 'package:drift/drift.dart' show Variable;
 
 import '../../data/db/app_database.dart';
 import '../../core/utils/id_generator.dart';
@@ -11,61 +14,99 @@ class DriftFinancialExporter {
 
   final AppDatabase _db;
 
+  // MALI-030 — transactions are exported in bounded keyset pages so at most this
+  // many transaction rows are ever held in memory at once (the accumulated output
+  // text is the export's own byte contract, not retained domain objects).
+  static const int _exportPageSize = 1000;
+
   Future<ExportedFile> exportTransactionsCsv() async {
-    final rows = await _db.customSelect('''
-      SELECT
-        t.id AS record_id,
-        t.occurred_at,
-        t.amount,
-        t.currency,
-        COALESCE(t.direction, 'unknown') AS direction,
-        t.type,
-        t.source,
-        t.status,
-        t.raw_merchant AS merchant,
-        c.key AS category_key,
-        c.name_ar AS category,
-        a.name AS account,
-        t.card_last4,
-        t.balance_after,
-        t.foreign_amount,
-        t.foreign_currency,
-        t.note
+    const columns = '''
+        t.id AS record_id, t.occurred_at, t.amount, t.currency,
+        COALESCE(t.direction, 'unknown') AS direction, t.type, t.source, t.status,
+        t.raw_merchant AS merchant, c.key AS category_key, c.name_ar AS category,
+        a.name AS account, t.card_last4, t.balance_after, t.foreign_amount,
+        t.foreign_currency, t.note''';
+    const fromJoin = '''
       FROM transactions t
       LEFT JOIN accounts a ON a.id = t.account_id
-      LEFT JOIN categories c ON c.id = t.category_id
-      WHERE t.status != 'ignored'
-      ORDER BY t.occurred_at ASC, t.id ASC;
-    ''').get();
-    final headers = rows.isEmpty
-        ? _transactionExportHeaders
-        : rows.first.data.keys.toList(growable: false);
-    final bytes = _encodeRows(headers, rows.map((row) => row.data));
+      LEFT JOIN categories c ON c.id = t.category_id''';
+
+    // Keyset page (occurred_at ASC, id ASC): only [_exportPageSize] rows are held
+    // per read; each page is CSV-encoded and appended, then released. The growing
+    // output text is the CSV file itself (the export's byte contract).
+    final buffer = StringBuffer();
+    var recordCount = 0;
+    var firstChunk = true;
+    String? cursorOccurredAt;
+    String? cursorId;
+    while (true) {
+      final keyset = cursorOccurredAt == null
+          ? ''
+          : ' AND (t.occurred_at > ? OR (t.occurred_at = ? AND t.id > ?))';
+      final rows = await _db.customSelect(
+        'SELECT $columns $fromJoin '
+        "WHERE t.status != 'ignored'$keyset "
+        'ORDER BY t.occurred_at ASC, t.id ASC LIMIT ?;',
+        variables: [
+          if (cursorOccurredAt != null) ...[
+            Variable.withString(cursorOccurredAt),
+            Variable.withString(cursorOccurredAt),
+            Variable.withString(cursorId!),
+          ],
+          Variable.withInt(_exportPageSize),
+        ],
+      ).get();
+      if (rows.isEmpty) break;
+      final headers = rows.first.data.keys.toList(growable: false);
+      final chunk = encodePortableCsvChunk(
+        headers: headers,
+        rows: rows.map((r) => [for (final h in headers) r.data[h]]),
+        includeHeader: firstChunk,
+      );
+      if (!firstChunk) buffer.write('\r\n');
+      buffer.write(chunk);
+      firstChunk = false;
+      recordCount += rows.length;
+      cursorOccurredAt = rows.last.data['occurred_at'] as String?;
+      cursorId = rows.last.data['record_id'] as String?;
+      if (rows.length < _exportPageSize) break;
+    }
+    if (recordCount == 0) {
+      buffer.write(encodePortableCsvChunk(
+        headers: _transactionExportHeaders,
+        rows: const [],
+        includeHeader: true,
+      ));
+    }
+    final bytes = Uint8List.fromList(utf8.encode(buffer.toString()));
     return ExportedFile(
       name: 'qirsh-transactions-${_dateStamp()}.csv',
       mimeType: 'text/csv',
       bytes: bytes,
-      recordCount: rows.length,
+      recordCount: recordCount,
     );
   }
 
   Future<ExportedFile> exportFinancialPackage() async {
     final csvFiles = <String, Uint8List>{};
+    final rowCounts = <String, int>{};
     var recordCount = 0;
     for (final spec in _tableSpecs) {
-      final rows = await _db.customSelect(spec.sql).get();
-      final headers = rows.isEmpty
-          ? spec.headers
-          : rows.first.data.keys.toList(growable: false);
-      csvFiles['${spec.name}.csv'] =
-          _encodeRows(headers, rows.map((row) => row.data));
-      recordCount += rows.length;
+      // The transactions table is the only one that scales with usage — page it
+      // (bounded row retention). Other tables are small bounded catalogs/config.
+      final (bytes, count) = spec.name == 'transactions'
+          ? await _pagedSpecCsv(spec)
+          : await _singleSpecCsv(spec);
+      csvFiles['${spec.name}.csv'] = bytes;
+      rowCounts[spec.name] = count;
+      recordCount += count;
     }
     final now = DateTime.now().toUtc();
     final bytes = encodeQirshPackage(
       packageId: IdGenerator.next(),
       exportedAt: now,
       csvFiles: csvFiles,
+      rowCounts: rowCounts, // avoids re-decoding every CSV to count rows
     );
     return ExportedFile(
       name: 'qirsh-data-${_dateStamp(now)}.zip',
@@ -73,6 +114,66 @@ class DriftFinancialExporter {
       bytes: bytes,
       recordCount: recordCount,
     );
+  }
+
+  Future<(Uint8List, int)> _singleSpecCsv(_ExportTableSpec spec) async {
+    final rows = await _db.customSelect(spec.sql).get();
+    final headers = rows.isEmpty
+        ? spec.headers
+        : rows.first.data.keys.toList(growable: false);
+    return (_encodeRows(headers, rows.map((row) => row.data)), rows.length);
+  }
+
+  /// MALI-030 — pages a spec whose query ends `ORDER BY t.occurred_at, t.id`
+  /// (the transactions dump) via keyset, so at most [_exportPageSize] rows are
+  /// held per read instead of the whole table.
+  Future<(Uint8List, int)> _pagedSpecCsv(_ExportTableSpec spec) async {
+    final buffer = StringBuffer();
+    var count = 0;
+    var firstChunk = true;
+    String? cursorOccurredAt;
+    String? cursorId;
+    while (true) {
+      final keyset = cursorOccurredAt == null
+          ? ''
+          : ' AND (t.occurred_at > ? OR (t.occurred_at = ? AND t.id > ?))';
+      final sql = spec.sql.replaceFirst(
+        'ORDER BY t.occurred_at, t.id',
+        '$keyset ORDER BY t.occurred_at, t.id LIMIT ?',
+      );
+      final rows = await _db.customSelect(
+        sql,
+        variables: [
+          if (cursorOccurredAt != null) ...[
+            Variable.withString(cursorOccurredAt),
+            Variable.withString(cursorOccurredAt),
+            Variable.withString(cursorId!),
+          ],
+          Variable.withInt(_exportPageSize),
+        ],
+      ).get();
+      if (rows.isEmpty) break;
+      final chunk = encodePortableCsvChunk(
+        headers: spec.headers,
+        rows: rows.map((r) => [for (final h in spec.headers) r.data[h]]),
+        includeHeader: firstChunk,
+      );
+      if (!firstChunk) buffer.write('\r\n');
+      buffer.write(chunk);
+      firstChunk = false;
+      count += rows.length;
+      cursorOccurredAt = rows.last.data['occurred_at'] as String?;
+      cursorId = rows.last.data['record_id'] as String?;
+      if (rows.length < _exportPageSize) break;
+    }
+    if (count == 0) {
+      buffer.write(encodePortableCsvChunk(
+        headers: spec.headers,
+        rows: const [],
+        includeHeader: true,
+      ));
+    }
+    return (Uint8List.fromList(utf8.encode(buffer.toString())), count);
   }
 
   Uint8List _encodeRows(

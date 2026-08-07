@@ -31,6 +31,22 @@ Uint8List encodePortableCsv(
   return Uint8List.fromList(utf8.encode(encoded));
 }
 
+/// MALI-030 — encodes ONE bounded chunk of rows for a paged/streamed export, so no
+/// full row list is ever held. [includeHeader] (first chunk only) prepends the BOM
+/// + header row. Chunks join with `\r\n` (`Csv.encode` emits no trailing
+/// delimiter), preserving exact CSV escaping and UTF-8/RTL content per chunk.
+String encodePortableCsvChunk({
+  required List<String> headers,
+  required Iterable<List<Object?>> rows,
+  required bool includeHeader,
+}) {
+  final data = <List<dynamic>>[
+    if (includeHeader) headers,
+    for (final row in rows) [for (final value in row) _safeCell(value)],
+  ];
+  return Csv(addBom: includeHeader, lineDelimiter: '\r\n').encode(data);
+}
+
 PortableCsvDocument decodePortableCsv(Uint8List bytes) {
   if (bytes.length > maxImportBytes) {
     throw const DataPortabilityException('حجم ملف CSV أكبر من 25MB.');
