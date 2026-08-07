@@ -970,6 +970,11 @@ class SupabaseTransactionRepository implements TransactionRepository {
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
+    // MALI-029: the batch fast-path id is a LOCAL categories.id and is only
+    // meaningful to the Drift repo. This legacy direct-Supabase path resolves
+    // server-side category refs from the stable key, so it ignores the local id
+    // and keeps using [categoryKey]. In S5 (Drift-only) this path is inactive.
+    String? resolvedCategoryId,
   }) async {
     final uid = await _requireUserId();
     // clientRequestId يُولَّد مرّة واحدة قبل أول طلب (نفس transaction.id إن

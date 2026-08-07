@@ -149,6 +149,7 @@ class DriftTransactionRepository implements TransactionRepository {
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
+    String? resolvedCategoryId,
   }) async {
     return _db.transaction(() async {
       final normalizedCategoryKey =
@@ -162,9 +163,19 @@ class DriftTransactionRepository implements TransactionRepository {
           normalizedMerchant == null || normalizedMerchant.isEmpty
               ? null
               : await _resolveOrCreateMerchantId(normalizedMerchant);
-      final categoryId = normalizedCategoryKey == null
-          ? null
-          : await _categoryIdByKey(normalizedCategoryKey);
+      // MALI-029: a bulk caller that already batch-resolved the category id
+      // passes it straight through — no per-row `_categoryIdByKey` SELECT. The
+      // enforced FK on category_id keeps it fail-closed for a bad id. The fast
+      // path is used ONLY when the type does not override the key (transfer /
+      // withdrawal / income force 'transfers'/'cash'/'income' regardless of the
+      // caller's key, so the caller's resolved id must NOT win there). A null
+      // resolved id falls back to the validating key resolution unchanged.
+      final categoryId =
+          (resolvedCategoryId != null && normalizedCategoryKey == categoryKey)
+              ? resolvedCategoryId
+              : (normalizedCategoryKey == null
+                  ? null
+                  : await _categoryIdByKey(normalizedCategoryKey));
       final accountId = transaction.accountId ?? await _defaultAccountId();
 
       await _db.customStatement('''

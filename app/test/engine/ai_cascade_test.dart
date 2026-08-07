@@ -57,6 +57,7 @@ class _StubTransactionRepo implements TransactionRepository {
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
+    String? resolvedCategoryId,
   }) async =>
       transaction;
 
@@ -81,6 +82,7 @@ class _CapturingTransactionRepo extends _StubTransactionRepo {
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
+    String? resolvedCategoryId,
   }) async {
     onSave(transaction);
     onSaveCategory?.call(categoryKey);
@@ -174,6 +176,7 @@ class _StoringTransactionRepo implements TransactionRepository {
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     String? categoryKey,
+    String? resolvedCategoryId,
   }) async {
     saveCount++;
     byId[transaction.id] = transaction;

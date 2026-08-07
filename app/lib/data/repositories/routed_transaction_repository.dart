@@ -42,9 +42,13 @@ class RoutedTransactionRepository implements TransactionRepository {
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
+    String? resolvedCategoryId,
   }) =>
       _drift.saveTransaction(
-          transaction: transaction, categoryKey: categoryKey);
+        transaction: transaction,
+        categoryKey: categoryKey,
+        resolvedCategoryId: resolvedCategoryId,
+      );
 
   @override
   Future<TransactionEntity?> getById(String id) => _drift.getById(id);

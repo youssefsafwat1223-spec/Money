@@ -19,9 +19,24 @@ abstract class TransactionRepository {
     required DateTime comparisonTimestamp,
   });
 
+  /// [categoryKey] is the stable category key to resolve+validate to a local
+  /// category id (unknown key → null category, i.e. fails closed to
+  /// uncategorised — the DB has NOT NULL FKs elsewhere but transactions allow a
+  /// null category).
+  ///
+  /// [resolvedCategoryId] (MALI-029) is a fast path for BULK callers that have
+  /// ALREADY resolved the category id against `categories` in one batch (ledger
+  /// pull's primed key→id map; import's prefetched category list). When non-null
+  /// it is used directly instead of re-resolving [categoryKey] per row. It is
+  /// still fail-closed: `transactions.category_id` has an enforced FK to
+  /// `categories(id)` (PRAGMA foreign_keys=ON), so a non-existent id makes the
+  /// INSERT throw rather than store a dangling reference. A null value falls back
+  /// to the [categoryKey] resolution, so manual/single-entry callers are
+  /// unchanged.
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
+    String? resolvedCategoryId,
   });
 
   Future<TransactionEntity?> getById(String id);

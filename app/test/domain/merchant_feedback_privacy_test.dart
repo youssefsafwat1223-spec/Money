@@ -73,6 +73,7 @@ class _StubTransactionRepo implements TransactionRepository {
   Future<TransactionEntity> saveTransaction({
     required TransactionEntity transaction,
     required String? categoryKey,
+    String? resolvedCategoryId,
   }) async =>
       transaction;
 

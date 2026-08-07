@@ -364,6 +364,12 @@ class LedgerSyncService implements LedgerPullAdapter {
       // Server stores the stable category KEY; saveTransaction resolves it
       // back to the local category id, so a pulled row keeps its category.
       categoryKey: row['category_id'] as String?,
+      // MALI-029: reuse the pull's primed key→id snapshot so the shared
+      // saveTransaction doesn't re-run `_categoryIdByKey` per imported row. Null
+      // (key not in the local snapshot) falls back to the validating key path,
+      // which seeds a known category exactly as before.
+      resolvedCategoryId:
+          await _localCategoryIdForKey(row['category_id'] as String?),
     );
 
     await _db.customStatement('''

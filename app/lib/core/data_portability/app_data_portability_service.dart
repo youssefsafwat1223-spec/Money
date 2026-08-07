@@ -352,6 +352,10 @@ class AppDataPortabilityService implements DataPortabilityService {
             comparisonTimestamp: record.occurredAt,
           ),
           categoryKey: category?.key,
+          // MALI-029: `_resolveCategory` already found this category in the
+          // once-fetched `categories` list — pass its id so saveTransaction does
+          // not re-run a per-row `_categoryIdByKey` SELECT.
+          resolvedCategoryId: category?.id,
         );
         imported += 1;
       } catch (_) {
