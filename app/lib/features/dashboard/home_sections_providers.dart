@@ -9,6 +9,7 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/finance/financial_period.dart';
 import '../budgets/budgets_providers.dart';
 import '../goals/goals_providers.dart';
@@ -90,27 +91,30 @@ final recentExpensesSectionProvider =
   final startToday = RiyadhTime.startOfDay(now);
   final endToday = RiyadhTime.endOfDay(now);
 
-  final all = await txRepo.getAll();
-  final validExpenses = all.where((tx) {
-    if (tx.status == TransactionStatus.ignored) return false;
-    final isExpense = tx.type == TransactionTypeEntity.payment ||
-        tx.type == TransactionTypeEntity.withdrawal;
-    if (!isExpense) return false;
-    if (accountId != null && tx.accountId != accountId) return false;
-    return true;
-  }).toList();
-  validExpenses.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
-
-  final todayExpenses = validExpenses.where((tx) {
-    final occurredAt = tx.occurredAt.toLocal();
-    return !occurredAt.isBefore(startToday) && occurredAt.isBefore(endToday);
-  }).toList();
+  // B2-C — push account + half-open today window + expense kind + (status !=
+  // ignored) into SQL instead of loading & sorting the WHOLE table to keep one
+  // day. Bounded to a single day, so a generous single page never truncates.
+  // (`isBefore` compares instants, so the old `.toLocal()` window and this
+  // UTC-stored `occurred_at` predicate are identical.)
+  final todayExpenses = await txRepo.getTransactionPage(
+    limit: _todayExpensesPageLimit,
+    filter: TransactionPageFilter(
+      accountId: accountId,
+      from: startToday,
+      to: endToday,
+      kind: TransactionPageKind.expenses,
+    ),
+  );
 
   return RecentExpensesState(
     hasExpensesToday: todayExpenses.isNotEmpty,
     transactions: todayExpenses,
   );
 });
+
+/// A day of expenses never approaches this; a bounded single page replaces the
+/// old full-table load.
+const int _todayExpensesPageLimit = 500;
 
 final todayExpensesProvider =
     FutureProvider<List<TransactionEntity>>((ref) async {
