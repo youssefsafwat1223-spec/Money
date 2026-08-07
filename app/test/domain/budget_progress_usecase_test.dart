@@ -70,6 +70,17 @@ class _FakeTransactionRepository implements TransactionRepository {
       const [];
 
   @override
+  Future<List<TransactionEntity>> confirmedInRangePage({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  }) async =>
+      const [];
+
+  @override
   Future<double> categoryExpenseTotalBetween({
     required String categoryId,
     required DateTime from,

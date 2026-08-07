@@ -459,6 +459,42 @@ class SupabaseTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> confirmedInRangePage({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  }) async {
+    // Interface completeness — the report appendix reads from Drift (the routed
+    // repo wraps only the local repo). Bounded server keyset page mirrors it.
+    final uid = await _requireUserId();
+    try {
+      var query = _getClient()
+          .from('user_transactions')
+          .select()
+          .eq('user_id', uid)
+          .isFilter('deleted_at', null)
+          .gte('occurred_at', from.toUtc().toIso8601String())
+          .lt('occurred_at', to.toUtc().toIso8601String());
+      if (accountId != null) query = query.eq('server_account_id', accountId);
+      if (beforeOccurredAt != null && beforeId != null) {
+        query = query.lt('occurred_at', beforeOccurredAt.toUtc().toIso8601String());
+      }
+      final rows = await query
+          .order('occurred_at', ascending: false)
+          .order('id', ascending: false)
+          .limit(limit);
+      return await Future.wait(
+        (rows as List).map((r) => _fromServerRow(r as Map<String, dynamic>)),
+      );
+    } catch (e) {
+      throw mapSupabaseError(e);
+    }
+  }
+
+  @override
   Future<List<TransactionEntity>> getByCard(String last4) async {
     final uid = await _requireUserId();
     try {

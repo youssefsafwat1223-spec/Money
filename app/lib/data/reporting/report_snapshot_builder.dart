@@ -55,6 +55,11 @@ class ReportSnapshotBuilder {
 
   static const int _largestLimit = 10;
   static const int _merchantLimit = 10;
+  // MALI-030 — the appendix is read in bounded keyset pages (never the whole
+  // table at once) and hard-capped: a report shows at most [_appendixMaxRows] of
+  // the most recent confirmed transactions (documented in PHASE_7 perf contract).
+  static const int _appendixPageSize = 500;
+  static const int _appendixMaxRows = 5000;
 
   Future<ReportDataSnapshot> build(ReportRequest request) async {
     final now = _clock();
@@ -102,7 +107,7 @@ class ReportSnapshotBuilder {
     final bills = await _billsFor();
     final goals = await _goalsFor();
     final appendix = request.content.includeTransactionDetails
-        ? await _appendixFor(range, accountId, accountsInScope)
+        ? await _appendixFor(range, accountId)
         : const <TransactionEntity>[];
 
     return ReportDataSnapshot(
@@ -150,25 +155,36 @@ class ReportSnapshotBuilder {
   /// (MALI-063n): half-open `[from, to)`, and — in the combined (all-accounts)
   /// view — the excluded-from-totals account policy (null-account rows stay in).
   Future<List<TransactionEntity>> _appendixFor(
-      DateRange range, String? accountId, List<ReportAccountRef> scope) async {
+      DateRange range, String? accountId) async {
     final fromU = range.from.toUtc();
     final toU = range.to.toUtc();
-    final excludedAccountIds = <String>{
-      if (accountId == null)
-        for (final account in scope)
-          if (account.excludeFromTotals && account.id != null) account.id!,
-    };
-    final all = await _transactions.getAll();
-    final rows = all
-        .where((t) =>
-            t.status == TransactionStatus.confirmed &&
-            !t.occurredAt.toUtc().isBefore(fromU) &&
-            t.occurredAt.toUtc().isBefore(toU) &&
-            (accountId == null || t.accountId == accountId) &&
-            (t.accountId == null ||
-                !excludedAccountIds.contains(t.accountId)))
-        .toList()
-      ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    // MALI-030 — page the appendix via KEYSET (occurred_at DESC, id DESC): each DB
+    // read retains at most [_appendixPageSize] rows, and the accumulated appendix
+    // is hard-capped at [_appendixMaxRows] (most-recent-first) so a pathologically
+    // large history can never load the whole table or OOM. The repository query
+    // applies the same confirmed / half-open / excluded-account / ownership policy
+    // the totals use.
+    final rows = <TransactionEntity>[];
+    DateTime? cursorOccurredAt;
+    String? cursorId;
+    while (rows.length < _appendixMaxRows) {
+      final page = await _transactions.confirmedInRangePage(
+        from: fromU,
+        to: toU,
+        accountId: accountId,
+        beforeOccurredAt: cursorOccurredAt,
+        beforeId: cursorId,
+        limit: _appendixPageSize,
+      );
+      if (page.isEmpty) break;
+      rows.addAll(page);
+      if (page.length < _appendixPageSize) break; // last page reached
+      cursorOccurredAt = page.last.occurredAt;
+      cursorId = page.last.id;
+    }
+    if (rows.length > _appendixMaxRows) {
+      rows.removeRange(_appendixMaxRows, rows.length);
+    }
     return rows;
   }
 

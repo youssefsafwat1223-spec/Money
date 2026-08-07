@@ -134,6 +134,22 @@ class RoutedTransactionRepository implements TransactionRepository {
           from: from, to: to, accountId: accountId, limit: limit);
 
   @override
+  Future<List<TransactionEntity>> confirmedInRangePage(
+          {required DateTime from,
+          required DateTime to,
+          String? accountId,
+          DateTime? beforeOccurredAt,
+          String? beforeId,
+          int limit = 500}) =>
+      _drift.confirmedInRangePage(
+          from: from,
+          to: to,
+          accountId: accountId,
+          beforeOccurredAt: beforeOccurredAt,
+          beforeId: beforeId,
+          limit: limit);
+
+  @override
   Future<double> incomeTotalBetween(
           {required DateTime from, required DateTime to, String? accountId}) =>
       _drift.incomeTotalBetween(from: from, to: to, accountId: accountId);

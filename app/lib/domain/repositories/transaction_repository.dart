@@ -153,6 +153,19 @@ abstract class TransactionRepository {
     int limit = 10,
   });
 
+  /// صفحة KEYSET من العمليات المؤكّدة داخل `[from, to)` مرتّبة `(occurred_at DESC,
+  /// id DESC)`. عند تمرير مؤشّر `(before*)` تُعيد ما بعده فقط — بلا `OFFSET` — فلا
+  /// تكرار أو فقدان صف بين الصفحات، وتبقى ذاكرة كل صفحة محدودة بـ [limit]. نفس
+  /// سياسة استبعاد الحسابات الكلّية/ملكية حساب بعينه كالمجاميع. للملحق (appendix).
+  Future<List<TransactionEntity>> confirmedInRangePage({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  });
+
   /// اشتراكات متكررة مُكتشَفة (نفس المتجر بمبلغ متقارب عبر ≥2 أشهر).
   Future<List<RecurringCandidate>> recurringCandidates({String? accountId});
 

@@ -558,6 +558,49 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<List<TransactionEntity>> confirmedInRangePage({
+    required DateTime from,
+    required DateTime to,
+    String? accountId,
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  }) async {
+    // MALI-030 — keyset page for the report appendix: bounded [limit] rows per
+    // read (never the whole table), ordered (occurred_at DESC, id DESC). The
+    // cursor advances by the last row so pages never overlap or gap, with NO
+    // OFFSET. Same excluded-account/ownership policy as the totals.
+    final accountExclusion = accountId == null
+        ? _includedTotalsAccountClause()
+        : _accountClause(accountId);
+    final hasCursor = beforeOccurredAt != null && beforeId != null;
+    final keyset = hasCursor
+        ? ' AND (occurred_at < ? OR (occurred_at = ? AND id < ?))'
+        : '';
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM transactions
+        WHERE status = 'confirmed'
+          AND occurred_at >= ? AND occurred_at < ?$accountExclusion$keyset
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT ?;
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(from.toUtc())),
+        Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
+        if (hasCursor) ...[
+          Variable.withString(dateTimeToSql(beforeOccurredAt.toUtc())),
+          Variable.withString(dateTimeToSql(beforeOccurredAt.toUtc())),
+          Variable.withString(beforeId),
+        ],
+        Variable.withInt(limit),
+      ],
+    ).get();
+    return rows.map(transactionFromRow).toList();
+  }
+
+  @override
   Future<double> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
