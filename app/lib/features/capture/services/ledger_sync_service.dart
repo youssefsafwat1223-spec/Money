@@ -99,6 +99,46 @@ class LedgerSyncService implements LedgerPullAdapter {
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
 
+  // MALI-029 (pull batching) — resolution snapshots primed ONCE per pull instead
+  // of a SELECT per row. A ledger pull only WRITES transactions; it never creates
+  // accounts/categories (accounts are pulled earlier in the same single-flight
+  // pump), so a start-of-pull snapshot is valid for every page. Cleared when pull
+  // finishes; a null cache falls back to the original per-call SELECT.
+  Map<String, String>? _accountServerToLocal; // accounts.server_id → accounts.id
+  Set<String>? _localAccountIds; // non-deleted accounts.id
+  Map<String, String>? _categoryKeyToLocal; // categories.key → categories.id
+
+  Future<void> _primeResolutionCaches() async {
+    final accounts = await _db
+        .customSelect(
+          'SELECT id, server_id FROM accounts WHERE deleted_at IS NULL;',
+        )
+        .get();
+    final serverToLocal = <String, String>{};
+    final ids = <String>{};
+    for (final a in accounts) {
+      final id = a.read<String>('id');
+      ids.add(id);
+      final serverId = a.readNullable<String>('server_id');
+      if (serverId != null) serverToLocal[serverId] = id;
+    }
+    final categories =
+        await _db.customSelect('SELECT id, key FROM categories;').get();
+    final keyToLocal = <String, String>{
+      for (final c in categories)
+        c.read<String>('key'): c.read<String>('id'),
+    };
+    _accountServerToLocal = serverToLocal;
+    _localAccountIds = ids;
+    _categoryKeyToLocal = keyToLocal;
+  }
+
+  void _clearResolutionCaches() {
+    _accountServerToLocal = null;
+    _localAccountIds = null;
+    _categoryKeyToLocal = null;
+  }
+
   static const _cursorKey = 'ledger_transactions';
 
   @override
@@ -114,6 +154,8 @@ class LedgerSyncService implements LedgerPullAdapter {
     int tombstoned = 0;
 
     try {
+      // Prime the account/category resolution snapshots once for the whole pull.
+      await _primeResolutionCaches();
       var cursor = await readSyncCursor(_db, _cursorKey);
       while (true) {
         final rows = await _remoteSource.fetchRows(
@@ -162,6 +204,8 @@ class LedgerSyncService implements LedgerPullAdapter {
       }
     } catch (e) {
       if (kDebugMode) debugPrint('[LedgerSync] pull error: $e');
+    } finally {
+      _clearResolutionCaches();
     }
 
     if (kDebugMode) {
@@ -456,14 +500,20 @@ class LedgerSyncService implements LedgerPullAdapter {
   Future<String?> _resolveLocalAccountId(Map<String, dynamic> row) async {
     final serverAccountId = row['server_account_id'] as String?;
     if (serverAccountId != null) {
-      final match = await _db
-          .customSelect(
-            'SELECT id FROM accounts '
-            'WHERE server_id = ${sqlString(serverAccountId)} '
-            'AND deleted_at IS NULL LIMIT 1;',
-          )
-          .getSingleOrNull();
-      if (match != null) return match.read<String>('id');
+      final cache = _accountServerToLocal;
+      if (cache != null) {
+        final hit = cache[serverAccountId];
+        if (hit != null) return hit;
+      } else {
+        final match = await _db
+            .customSelect(
+              'SELECT id FROM accounts '
+              'WHERE server_id = ${sqlString(serverAccountId)} '
+              'AND deleted_at IS NULL LIMIT 1;',
+            )
+            .getSingleOrNull();
+        if (match != null) return match.read<String>('id');
+      }
     }
     final localAccountId = row['local_account_id'] as String?;
     if (localAccountId != null && await _localAccountExists(localAccountId)) {
@@ -476,6 +526,8 @@ class LedgerSyncService implements LedgerPullAdapter {
   /// (categories are keyed by stable strings across devices).
   Future<String?> _localCategoryIdForKey(String? key) async {
     if (key == null || key.isEmpty) return null;
+    final cache = _categoryKeyToLocal;
+    if (cache != null) return cache[key];
     final row = await _db
         .customSelect(
           'SELECT id FROM categories WHERE key = ${sqlString(key)} LIMIT 1;',
@@ -485,6 +537,8 @@ class LedgerSyncService implements LedgerPullAdapter {
   }
 
   Future<bool> _localAccountExists(String id) async {
+    final cache = _localAccountIds;
+    if (cache != null) return cache.contains(id);
     final row = await _db
         .customSelect(
           'SELECT 1 AS x FROM accounts '

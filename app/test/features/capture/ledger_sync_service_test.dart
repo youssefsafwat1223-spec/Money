@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,6 +16,22 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
   @override
   Future<String?> readStoredKey() async => 'test-key';
+}
+
+/// Counts SELECTs against accounts/categories to prove MALI-029 resolution
+/// prefetch: a ledger pull resolves those stable sets ONCE, not per remote row.
+class _ResolutionSelectCounter extends QueryInterceptor {
+  int accountSelects = 0;
+  int categorySelects = 0;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+      QueryExecutor executor, String statement, List<Object?> args) {
+    final low = statement.toLowerCase();
+    if (low.contains('from accounts')) accountSelects++;
+    if (low.contains('from categories')) categorySelects++;
+    return super.runSelect(executor, statement, args);
+  }
 }
 
 class _MockRemoteSource implements LedgerRemoteSource {
@@ -105,6 +122,56 @@ void main() {
 
   tearDown(() async {
     await db.close();
+  });
+
+  test('MALI-029: account/category resolution is prefetched once, not per row',
+      () async {
+    final counter = _ResolutionSelectCounter();
+    final cdb = await AppDatabase.open(
+      executor: NativeDatabase.memory().interceptWith(counter),
+      keyStore: _MemoryKeyStore(),
+    );
+    addTearDown(cdb.close);
+    await cdb.customStatement(
+      "INSERT INTO accounts(id, name, currency, type, created_at, updated_at, "
+      "server_id) VALUES ('a1', 'A', 'SAR', 'bank', '2026-01-01', "
+      "'2026-01-01', 'srv-acct');",
+    );
+    await cdb.customStatement(
+      "INSERT INTO categories(id, key, name_ar, icon, color, is_income, "
+      "sort_order) VALUES ('c1', 'cat_food', 'طعام', 'x', '#111', 0, 0);",
+    );
+    final r = _MockRemoteSource();
+    r.activeRows = [
+      for (var i = 0; i < 25; i++)
+        {
+          ..._serverRow(
+            id: 'srv-$i',
+            updatedAt:
+                '2026-01-01T10:${(i ~/ 60).toString().padLeft(2, '0')}:'
+                '${(i % 60).toString().padLeft(2, '0')}.000Z',
+          ),
+          'server_account_id': 'srv-acct',
+          'category_id': 'cat_food',
+        },
+    ];
+    // Measure only the pull (not open/seed).
+    counter.accountSelects = 0;
+    counter.categorySelects = 0;
+
+    final result = await _makeSvc(cdb, r).pull();
+
+    expect(result.imported, 25);
+    // 25 rows all reference the same account → LedgerSync resolves accounts ONCE
+    // for the whole pull (prefetch), never once per row (was ~25). LedgerSync
+    // passes the resolved account id to the repo, so the repo does not re-resolve.
+    expect(counter.accountSelects, lessThanOrEqualTo(2),
+        reason: 'accounts resolved once per pull, not per row (was ~25)');
+    // NOTE: category resolution for NEW imports still happens inside the shared
+    // repo's saveTransaction (`_categoryIdByKey`, with type-based key
+    // normalization) — a repo-layer redundancy that is out of scope for this
+    // service-level fix (documented in PHASE_7_PERFORMANCE_CONTRACT). LedgerSync's
+    // OWN category resolution (the update/repair path) IS cached.
   });
 
   test('does nothing when ledger_pull_sync flag is OFF', () async {
