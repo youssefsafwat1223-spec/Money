@@ -78,35 +78,46 @@ Non-migrated providers keep the global `dbRevisionProvider` (unchanged; the safe
 default). The cross-connection reconcile path (background notification actions) is
 untouched.
 
-## 3. MALI-029 — pull batching (PARTIAL)
+## 3. MALI-029 — pull batching (PARTIAL — 2 services measured + fixed)
 
-**Done ✓** — `CaptureSyncService` reloaded the ENTIRE accounts table
-(`repository.getAll()`) for EVERY captured row. Now prefetched ONCE per run into a
-first-match-per-currency map (create-on-miss preserves exact `isDefault`/`sortOrder`);
-run-scoped, cleared on completion; single-flight guarded. Proven: 8 captures across 2
-currencies read the accounts table **once**
-(`test/features/capture/capture_sync_service_test.dart`).
+Only **production-reachable** services (invoked by `_runLedgerSyncBody` or bootstrap)
+are in scope; dormant/legacy paths are deferred to Batch-3/MALI-034, not optimized.
 
-**Budget (target for remaining services):** for an N-row pull/import, query count
-grows by BATCHES, not linearly (`WHERE id IN (...)` chunked prefetch, batched upserts
-in bounded transactions, one revision emission per committed batch), preserving every
-Phase-3 invariant (cursor-in-txn, per-row CAS, conflict marking, tombstones,
-idempotency keys, dead-letter/backoff, parked rows, ownership, flicker guards).
+**Done ✓ (measured):**
+- `CaptureSyncService` — reloaded the ENTIRE accounts table per captured row; now
+  prefetched ONCE per run (first-match-per-currency, create-on-miss preserves
+  `isDefault`/`sortOrder`). Proven: 8 captures / 2 currencies → **1** accounts read.
+- `LedgerSyncService.pull()` — resolved local account (`server_id→id` + existence) and
+  category (`key→id`) with a SELECT PER ROW; now primed ONCE per pull into snapshot maps
+  (a ledger pull only writes transactions and runs single-flight after the accounts
+  pull, so the snapshot is valid for every page; null-cache fallback preserved). Proven:
+  25 rows sharing one account → accounts read **once** (was ~25). All CAS/tombstone/
+  conflict/flicker-guard semantics preserved (17 existing tests green).
 
-**Remaining (not yet done):** LedgerSyncService (~5–6 SQL/row), SenderBankMapping
-one-row-at-a-time upsert (the sink already takes a List), PlanningPull `_ensureMerchant`
-per subscription row, the backfills, accounts/planning pull per-row lookups. Query-count
-tests at 100/1k/mixed/child/idempotent sizes to be added with each.
+**Known repo-layer redundancy (documented, not yet fixed):** the shared
+`DriftTransactionRepository.saveTransaction` re-resolves the category key per insert
+(`_categoryIdByKey`, with type-based normalization). LedgerSync passes the resolved
+ACCOUNT id (so accounts are bounded) but the KEY for categories; bounding this needs a
+repo API change (shared by many callers) — deferred, not changed at the service layer.
 
-## 4. Background-work cadence (NOT yet done)
+**Remaining production-reachable (audited, not yet done):** SenderBankMapping
+one-row-at-a-time upsert (sink already takes a List; per-row error isolation is a
+tradeoff to preserve), PlanningPull `_ensureMerchant`/category per row, accounts/planning
+pull per-row lookups, planning-child pulls. Each to be measured + fixed with query-count
+tests at 100/1k/mixed/idempotent before claiming done.
 
-Current: fixed 30s `Timer.periodic`; a 750ms event debounce; a re-entry guard exists.
-No offline pause, no adaptive backoff after empty syncs, ~15–18 "anything-new?" round-
-trips per idle tick, and offline burns per-item retry budget toward dead-letter.
-**Target:** pause honestly when offline (do not consume retry attempts), bounded
-adaptive delay after empty syncs, skip a full snapshot when no cursor/domain changed,
-coarse secret-free instrumentation (trigger reason / batch count / duration bucket /
-retry class). Sync AUTHORITY is not redesigned.
+## 4. Background-work cadence (DONE ✓)
+
+The fixed 30s `Timer.periodic` is replaced by a self-rescheduling **adaptive** poll:
+`SyncCadence` (pure, unit-tested — `lib/features/app/sync_cadence.dart`) widens the
+interval on consecutive idle polls (30s → ×2 → up to a 5-min cap) and resets to base on
+local activity (`SyncWakeup`), app resume, or a user trigger — so an idle/offline app
+stops polling (and burning per-item outbox retries) every 30s. `SyncCoalescer` turns
+overlapping run requests into at most ONE pending follow-up (the old re-entry guard
+DROPPED them). 7 deterministic tests (`sync_cadence_test.dart`). Sync AUTHORITY,
+ordering and conflict semantics unchanged; server revision CAS stays OFF. **Remaining:**
+true reachability-based offline detection (would need a connectivity source) and skipping
+the full fan-out when no cursor/domain changed — the adaptive backoff approximates both.
 
 ## 5. MALI-030 — report / export / backup memory (NOT yet done)
 
@@ -132,15 +143,16 @@ stage plaintext to disk; never weaken v3 auth.
 
 ## 6. Transaction-list / dashboard rendering (NOT yet done)
 
-Audited: the list is virtualized at day-group granularity but grouping + brand-mark
-resolution (~228-entry scans/row) run in `build()`; search has no debounce (every
-keystroke re-fetches page 1 + re-filters + re-groups); `getPage` ignores the active
-filter (500-row all-time paging + Dart filtering); two dashboard providers fold
-`getAll()`. Formatting IS already memoized. **Target:** move grouping/brand-resolution
-out of `build()` (cached per-tx), debounce search, push the date/account filter into
-`getPage` (uses the new `idx_transactions_account_occurred`), replace the `getAll()`
-folds with bounded/SQL queries; rebuild-count + pagination tests. No visual redesign;
-Phase-4 totals unchanged.
+**Done ✓:** search is now **debounced** (250ms) — a keystroke burst no longer re-fetches
+page 1 + re-filters + re-groups on every character (compile-verified; a widget-level
+rapid-search test is an outstanding follow-up as the field is private).
+
+**Remaining (audited, not yet done):** move day-grouping + brand-mark resolution
+(~228-entry scans/row) out of `build()` (cached per-tx); push the date/account filter
+into `getPage` (uses the new `idx_transactions_account_occurred`) so a narrow filter
+stops paging the whole table client-side; replace the two dashboard `getAll()` folds
+with bounded/SQL queries; rebuild-count + pagination tests. Formatting is already
+memoized. No visual redesign; Phase-4 totals unchanged.
 
 ## 7. Startup / resume (NOT yet done)
 
