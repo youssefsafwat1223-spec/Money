@@ -9,6 +9,7 @@
 // categories perform ZERO per-row category SELECTs on the fast path.
 import 'package:drift/drift.dart' show Variable;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 
@@ -38,15 +39,15 @@ TransactionEntity _txn(
   );
 }
 
-Future<String> _categoryId(dynamic db, String key) async {
+Future<String> _categoryId(AppDatabase db, String key) async {
   final row = await db
       .customSelect('SELECT id FROM categories WHERE key = ? LIMIT 1;',
           variables: [Variable.withString(key)])
       .getSingleOrNull();
-  return row!.read<String>('id') as String;
+  return row!.read<String>('id');
 }
 
-Future<String?> _txnCategory(dynamic db, String id) async {
+Future<String?> _txnCategory(AppDatabase db, String id) async {
   final row = await db
       .customSelect('SELECT category_id FROM transactions WHERE id = ? LIMIT 1;',
           variables: [Variable.withString(id)])

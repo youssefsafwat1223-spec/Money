@@ -5,7 +5,6 @@
 // with the SAME (small, constant) number of SELECTs. Writes (one per changed
 // row) are the only per-row cost and are unavoidable.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_pull_service.dart';
 

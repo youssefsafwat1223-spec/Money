@@ -5,7 +5,6 @@
 // and 1,000 goal-contribution rows that all reference a small set of goals
 // resolve with the same handful of SELECTs.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
