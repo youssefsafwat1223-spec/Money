@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import 'sync_cadence.dart';
 import '../../core/diagnostics/duplicate_trace_service.dart';
 import '../../core/exporting/export_providers.dart';
 import '../../core/exporting/managed_export_store.dart';
@@ -152,18 +153,22 @@ class _AppShellState extends ConsumerState<AppShell> {
       _openBankDiscoverySheet,
     );
     _syncWakeupSubscription = SyncWakeup.events.listen((_) {
+      // Local activity → return the poll cadence to its base interval so the app
+      // is responsive; the 750ms debounce coalesces rapid local commits.
+      _syncCadence.recordActivity();
       _syncDebounceTimer?.cancel();
       _syncDebounceTimer = Timer(
         const Duration(milliseconds: 750),
         _runLedgerSync,
       );
+      _scheduleAdaptivePoll();
     });
-    // Pull remote changes made on another device and retry offline outbox
-    // items after connectivity returns without requiring a lifecycle event.
-    _syncPollTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => unawaited(_runLedgerSync()),
-    );
+    // Pull remote changes made on another device and retry offline outbox items.
+    // ADAPTIVE cadence (MALI-029): a self-rescheduling timer that widens the
+    // interval after consecutive idle polls (30s → up to 5min) so an idle/offline
+    // app stops polling — and burning outbox retries — every 30s; local activity
+    // or a lifecycle resume resets it to the base interval.
+    _scheduleAdaptivePoll();
     NativeCaptureBridge.setPendingMessagesHandler(() async {
       if (!mounted) return;
       await _consumeSharedInput();
@@ -268,6 +273,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _onResume() async {
+    // Resume = the user is back → reset the poll cadence to its base interval.
+    _syncCadence.recordActivity();
+    _scheduleAdaptivePoll();
     // A refresh token can be revoked/expire while backgrounded with no
     // auth-state event ever delivered until something touches the client
     // again — re-check before running any Supabase-primary-dependent work.
@@ -441,7 +449,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
-  bool _isRunningLedgerSync = false;
+  // MALI-029 cadence — adaptive backoff when idle/offline + coalescing of
+  // overlapping run requests (a request during a run fires exactly one follow-up
+  // instead of being dropped). See sync_cadence.dart (unit-tested).
+  final SyncCadence _syncCadence = SyncCadence();
+  final SyncCoalescer _syncCoalescer = SyncCoalescer();
 
   /// Whether the one-shot local→server reconcile has run for the current
   /// session. Re-armed on any session change (see [_handleSessionStatusChange]).
@@ -521,17 +533,32 @@ class _AppShellState extends ConsumerState<AppShell> {
     });
   }
 
+  /// Schedules the next background poll using the adaptive [SyncCadence] delay,
+  /// rescheduling itself after each fire. Each fire counts as an idle poll
+  /// (widening the next interval); a wakeup/resume resets the cadence to base.
+  void _scheduleAdaptivePoll() {
+    _syncPollTimer?.cancel();
+    _syncPollTimer = Timer(_syncCadence.nextDelay(), () {
+      _syncCadence.recordIdlePoll();
+      unawaited(_runLedgerSync());
+      if (mounted) _scheduleAdaptivePoll();
+    });
+  }
+
   Future<void> _runLedgerSync() async {
-    if (_isRunningLedgerSync) return;
-    _isRunningLedgerSync = true;
-    try {
-      await _runLedgerSyncBody();
-    } finally {
-      _isRunningLedgerSync = false;
-      // First completed round after sign-in: the pull has landed — reveal the
-      // real data in one shot instead of defaults morphing under the user.
-      _closeRestoreGate();
-    }
+    // Coalesce: if a run is already in flight, remember the request and let the
+    // in-flight run fire exactly one follow-up when it finishes (never a queue of
+    // duplicate concurrent syncs, never a dropped request).
+    if (!_syncCoalescer.requestRun()) return;
+    do {
+      try {
+        await _runLedgerSyncBody();
+      } finally {
+        // First completed round after sign-in: the pull has landed — reveal the
+        // real data in one shot instead of defaults morphing under the user.
+        _closeRestoreGate();
+      }
+    } while (_syncCoalescer.finishRun());
   }
 
   Future<void> _runLedgerSyncBody() async {
