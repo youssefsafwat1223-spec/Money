@@ -1033,8 +1033,13 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > startup defers the network feature-flag override + export sweep off the first frame +
 > `localFinancialUiUsable` milestone; resume coalesces non-critical refreshes. Deferred:
 > budgets per-period line-item fold + cards/dashboard presentation `getAll()` (totals
-> already canonical). No financial semantics/sync-authority/backup-envelope change; CAS/
-> 0070 inactive; not pushed. **MALI-038
+> already canonical). **B2-C closure reconciliation DONE:** no whole-ledger getAll() on any
+> render/provider path (budgets/dashboard/cards/plan/bill/capture-health all bounded;
+> export = non-render/MALI-030); startup local/remote boundary proven (app_open metric
+> deferred; localFinancialUiUsable waits on no remote HTTP but local owner-conflict);
+> search fold consistent (SQLite LOWER both sides) + parity matrix. B2-C = Code complete ·
+> LV (device frame/startup/jank/memory/battery profiling external). No financial semantics/
+> sync-authority/backup-envelope change; CAS/0070 inactive; not pushed. **MALI-038
 > partial:** removed 8.1 MB unreferenced assets + asset-size budget; **font portion
 > pending a product decision** (offline Alexandria not bundleable; switch to vendored
 > IBM Plex Sans Arabic is a visible typeface change). MALI-030 CODE COMPLETE (B2-B + closure): streaming backup plaintext (no full object graph/JSON String), truthful appendix omission rendered in the PDF (ar/en), enforced 100 MiB export cap, 48 MiB plaintext cap; irreducible bounded buffers = v3 plaintext/ciphertext + export ZIP (none device-only). **B2-B DONE (MALI-030):** report largest→SQL top-N, appendix keyset-paged+capped, CSV/full-export paged, backup snapshot paged + copy dropped, pre-encryption 48 MiB plaintext cap; v3 one-shot residual is a bounded crypto-library constraint (not device-external). **Remaining in B2:** the other

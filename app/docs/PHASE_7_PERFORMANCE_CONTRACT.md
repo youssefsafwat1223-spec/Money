@@ -356,15 +356,27 @@ outbox) write no longer recomputes them (the list already was scoped). The dashb
 already used `financialRevisionProvider`. (`scoped_invalidation_test` extended: transactions
 domain — operational → 0, transactions/accounts → 1, 100-burst coalesced.)
 
-### getAll() folds
-- `recentExpensesSectionProvider` (home "today's expenses") no longer loads+sorts the whole
-  table — a bounded `getTransactionPage` with account + half-open today window + expense
-  kind (returns rows, no amount fold; instant comparison preserves the old window exactly).
-- **Deferred / kept:** `budgets_providers` per-period line-item lists fold `getAll()`
-  (O(budgets×periods×rows)) — the per-period TOTALS already use canonical repo math; the
-  line-item fold is financial-consumption-sensitive and left for a targeted follow-up. The
-  `cards_providers` picker + `dashboard_providers` currency-account bootstrap load the full
-  list for pure presentation/bootstrap; their financial totals are already canonical.
+### getAll() policy + residual classification (B2-C closure)
+**Policy:** `getAll()` on the transaction repository may remain ONLY where the result is
+naturally bounded by entity cardinality (never ledger-size). **No active whole-ledger
+`getAll()` remains on a rendering/provider path.** Bounded primitives added:
+`distinctCurrencies()`, `transactionsWithoutAccount({keyset})`, `latestBankCaptureAt()`.
+
+| Path | Was | Now | Class |
+|---|---|---|---|
+| home "today's expenses" | getAll + sort | bounded `getTransactionPage` (account + half-open today + expense kind) | fixed |
+| budgets history line-items | getAll folded per (budget × period) | keyset drain bounded to the UNION of the period windows; per-period canonical filter unchanged | fixed |
+| dashboard currency/account bootstrap | getAll (currencies + backfill + 3 pending) | `distinctCurrencies()` + null-account keyset drain (empty post-backfill) + bounded pending query | fixed |
+| cards link picker | getAll + Dart search | bounded, debounced, SQL-search page (`pickTransactionsProvider`) | fixed |
+| plan-link picker | getAll + `.take(40)` | bounded recent-expenses page (kind in SQL) + Dart filter | fixed |
+| bill-details transactions | getAll + `_matchesBill` | bounded recent-expenses page (account+kind) + exact Dart match | fixed |
+| capture-health latest capture | getAll + Dart max | `latestBankCaptureAt()` aggregate | fixed |
+| `billRepo.getAll()`, `accountRepo.getAll()` | — | unchanged | bounded user catalog (bills/accounts) — kept |
+| `AppDataPortabilityService.exportTransactionsCsv` | getAll | unchanged | **export operation**, not a rendering path — loading all IS the payload; memory is MALI-030's (closed) |
+
+Evidence (`provider_large_ledger_test` + the `selectRows` harness): with 10k unrelated old
+rows, budgets/dashboard/cards providers return < 2000 ROWS (never ~10k); budgets
+current-period list = the in-window rows only.
 
 ## 7. Startup / resume (B2-C DONE ✓)
 
@@ -387,6 +399,41 @@ local DB.
 safety-critical phase completes (DB key/open, liveness, admission/owner-conflict, seed,
 local flags) — it does NOT wait for network/backup-metadata/analytics; previous-user
 cached data is never shown (the `appDataRestoring` gate). (`startup_deferral_test`.)
+
+**Startup local/remote boundary matrix (B2-C closure).** `localFinancialUiUsable` waits on
+NO remote HTTP call except the local owner-conflict check (which prevents cross-owner
+exposure — the one kind §12 allows to block):
+
+| Stage | Local / remote | Blocks milestone? | Owner-sensitive? | Failure behaviour |
+|---|---|---|---|---|
+| runtime-config gate | local | yes | no | throws → startup error |
+| `supabase_init` | SDK init: local session restore + **background** refresh (no blocking round-trip) | yes | yes (identity) | throws → startup error |
+| `app_open` metric | **remote RPC** | **no — deferred (unawaited)** | no | swallowed (best-effort) |
+| `session_restore` | local (secure storage + auth listener) | yes | yes | throws → startup error |
+| `notifications_init` | local native channel | yes | no | throws → startup error |
+| `database_process_liveness` | local (OS lock + local reap) | yes | yes | throws → startup error |
+| `database_open` | local SQLite (SQLCipher) | yes | yes | throws → reset/retry |
+| `seed_catalog` | local (seed + asset scan) | yes | no | throws → startup error |
+| LOCAL `feature_flags_init` | local (cached flags) | yes | no | throws → startup error |
+| owner-conflict resolution | **local** (stored owner vs locally-cached session) | yes | **yes** | throws → startup error |
+| feature-flag remote override | remote | **no — post-frame `syncCatalog`** | no | retried post-frame |
+| device registration / sender-bank sync | remote | **no — unawaited** | no | retried in background |
+| `export_temp_sweep` | local housekeeping | **no — deferred** | no | swallowed |
+
+A genuine safety-critical failure blocks the milestone: the flip is the LAST statement after
+the critical phase, so any thrown critical step is surfaced as a startup error and the
+milestone is never reached. (`startup_deferral_test`: app_open no-op offline; secure key +
+encrypted DB + migrations (`user_version`=29) + owner-scoped query all succeed with NO
+network. Full native-channel bootstrap cold-start offline run remains device/external.)
+
+### Search semantic contract (B2-C closure)
+Search is per-field escaped `LIKE` with SQLite `LOWER` on BOTH the column and the query
+(consistent ASCII fold): ASCII case-insensitive in both directions; Arabic matches exactly
+(no case); `%`/`_` are literal (escaped); the term is trimmed. Fields: raw_merchant,
+currency, 2-dp amount (`printf`), joined category name_ar + key, note. Documented limit:
+`LOWER` is ASCII-only, so a non-ASCII-Latin letter (é/ñ/…) must be typed in its own case
+(rare in an Arabic-first app; no FTS/schema change). (`transaction_page_filter_test` parity
+matrix.)
 
 **Resume** (`_onResume`). Non-critical idempotent refreshes (catalog, native-capture-state,
 export sweep) are coalesced by a pure `ResumeCoalescer` (20s window) so rapid repeated
