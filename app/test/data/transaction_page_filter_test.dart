@@ -245,6 +245,74 @@ void main() {
     expect(await search('50%'), {'pct'});
   });
 
+  group('search semantic parity (Blocker 3)', () {
+    setUp(() async {
+      await _seed(db, id: 'ar', occurredAt: base, merchant: 'قهوة العربية');
+      await _seed(db, id: 'sb', occurredAt: base, merchant: 'Starbucks',
+          currency: 'EGP', amount: 12.50, note: 'morning');
+      await _seed(db, id: 'low', occurredAt: base, merchant: 'noon store');
+      await _seed(db, id: 'pct', occurredAt: base, note: 'save 50% off');
+      await _seed(db, id: 'usc', occurredAt: base, note: 'plan_a alpha');
+      await _seed(db, id: 'usb', occurredAt: base, note: 'planXa beta');
+      await _seed(db, id: 'shop', occurredAt: base, category: 'cat-shop',
+          merchant: 'mall');
+    });
+
+    Future<Set<String>> search(String q) async =>
+        (await repo.getTransactionPage(
+                limit: 50, filter: TransactionPageFilter(search: q)))
+            .map((t) => t.id)
+            .toSet();
+
+    test('Arabic merchant matches exactly (no case-fold needed)', () async {
+      expect(await search('قهوة'), {'ar'});
+    });
+
+    test('English merchant is case-insensitive BOTH directions', () async {
+      expect(await search('starbucks'), {'sb'}); // lower query → mixed merchant
+      expect(await search('STARBUCKS'), {'sb'}); // upper query → mixed merchant
+      expect(await search('NOON'), {'low'}); // upper query → lower merchant
+    });
+
+    test('category Arabic name and stable key both match', () async {
+      // cat-food name_ar = 'مطاعم', key = 'test_food'; all cat-food rows match.
+      final byName = await search('مطاعم');
+      expect(byName, containsAll({'ar', 'sb', 'low', 'pct', 'usc', 'usb'}));
+      expect(byName, isNot(contains('shop'))); // shop is cat-shop
+      expect(await search('test_shop'), {'shop'}); // category key
+    });
+
+    test('note, currency and 2-dp amount match', () async {
+      expect(await search('morning'), {'sb'}); // note
+      expect(await search('egp'), {'sb'}); // currency, case-insensitive
+      expect(await search('12.50'), {'sb'}); // printf 2-dp amount
+    });
+
+    test('% and _ are literal (escaped), not wildcards', () async {
+      // '%' matches only the note containing a literal '%'.
+      expect(await search('50%'), {'pct'});
+      // '_' matches the literal underscore, NOT any single character.
+      expect(await search('plan_a'), {'usc'});
+      expect(await search('plan_a'), isNot(contains('usb'))); // 'planXa' excluded
+    });
+
+    test('leading/trailing spaces are trimmed', () async {
+      expect(await search('  starbucks  '), {'sb'});
+    });
+
+    test('filter + search combine (account + term)', () async {
+      await _seed(db, id: 'other-acc', occurredAt: base,
+          account: 'acc-2', merchant: 'Starbucks');
+      final page = await repo.getTransactionPage(
+        limit: 50,
+        filter: const TransactionPageFilter(
+            accountId: 'acc-1', search: 'starbucks'),
+      );
+      // Only the acc-1 Starbucks row, not the acc-2 one.
+      expect(page.map((t) => t.id).toSet(), {'sb'});
+    });
+  });
+
   test('empty result + final partial page', () async {
     await _seed(db, id: 'only', occurredAt: base);
     final none = await repo.getTransactionPage(

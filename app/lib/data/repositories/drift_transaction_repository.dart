@@ -637,7 +637,15 @@ class DriftTransactionRepository implements TransactionRepository {
     // escaped so the match stays a literal substring. SQLite LOWER is ASCII-only
     // (Arabic/CJK have no case; only accented-Latin uppercase — rare in merchant
     // names — differs from Dart toLowerCase).
-    final search = filter.search?.trim().toLowerCase();
+    // B2-C search case-fold contract: fold BOTH the column and the query with
+    // SQLite's LOWER so the two are consistent. Do NOT Dart-`.toLowerCase()` the
+    // query (that folded the query with Unicode rules while the column folded
+    // with ASCII rules — the two diverged for a non-ASCII-Latin uppercase letter
+    // like 'É'). Now both use ASCII LOWER: ASCII case-insensitivity is guaranteed
+    // in BOTH directions; Arabic (no case) matches exactly; a non-ASCII-Latin
+    // letter must be typed in its own case (documented ASCII-only fold). LOWER
+    // leaves the '\' escape char and the %/_ wildcards untouched.
+    final search = filter.search?.trim();
     final needsCategoryJoin = search != null && search.isNotEmpty;
     if (needsCategoryJoin) {
       final escaped = search
@@ -647,12 +655,12 @@ class DriftTransactionRepository implements TransactionRepository {
       final likeParam = '%$escaped%';
       where.add(
         "("
-        "LOWER(COALESCE(t.raw_merchant, '')) LIKE ? ESCAPE '\\' "
-        "OR LOWER(COALESCE(t.currency, '')) LIKE ? ESCAPE '\\' "
-        "OR printf('%.2f', t.amount) LIKE ? ESCAPE '\\' "
-        "OR LOWER(COALESCE(c.name_ar, '')) LIKE ? ESCAPE '\\' "
-        "OR LOWER(COALESCE(c.key, '')) LIKE ? ESCAPE '\\' "
-        "OR LOWER(COALESCE(t.note, '')) LIKE ? ESCAPE '\\'"
+        "LOWER(COALESCE(t.raw_merchant, '')) LIKE LOWER(?) ESCAPE '\\' "
+        "OR LOWER(COALESCE(t.currency, '')) LIKE LOWER(?) ESCAPE '\\' "
+        "OR printf('%.2f', t.amount) LIKE LOWER(?) ESCAPE '\\' "
+        "OR LOWER(COALESCE(c.name_ar, '')) LIKE LOWER(?) ESCAPE '\\' "
+        "OR LOWER(COALESCE(c.key, '')) LIKE LOWER(?) ESCAPE '\\' "
+        "OR LOWER(COALESCE(t.note, '')) LIKE LOWER(?) ESCAPE '\\'"
         ")",
       );
       for (var i = 0; i < 6; i++) {
