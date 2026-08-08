@@ -96,13 +96,21 @@ class BootstrapRunner {
 
     if (SupabaseConfig.isConfigured && !_supabaseInitialized) {
       await _step('supabase_init', () async {
+        // SDK init restores the persisted session from LOCAL storage and
+        // refreshes the token in the background — it does not block the first
+        // frame on a network round-trip. Required before session binding (owner
+        // identity), so it stays on the critical path.
         await Supabase.initialize(
           url: SupabaseConfig.url,
           anonKey: SupabaseConfig.anonKey,
         );
-        await MetricsClient().logEvent('app_open');
         _supabaseInitialized = true;
       });
+      // B2-C — the `app_open` metric is a REMOTE, best-effort telemetry RPC. Fire
+      // it off the critical path so the first financial frame never waits on it
+      // (nor on its offline timeout). logEvent already no-ops when there is no
+      // authenticated session and swallows its own errors.
+      unawaited(MetricsClient().logEvent('app_open'));
     }
 
     await _step('session_restore', () async {
