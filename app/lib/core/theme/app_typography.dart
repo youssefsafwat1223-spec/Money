@@ -1,7 +1,6 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// الطباعة — Arabic-first premium typography for Qirsh.
 class AppTypography {
@@ -9,9 +8,19 @@ class AppTypography {
 
   static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];
 
-  /// Canonical app text style. Alexandria supplies both the Arabic and Latin
-  /// glyphs (a modern geometric Arabic-first family); IBM Plex Sans is kept as
-  /// a Latin fallback safety net for any glyph Alexandria lacks.
+  /// The BUNDLED font family (pubspec `fonts:`) — no runtime GoogleFonts fetch,
+  /// so the intended typography renders on the first offline launch.
+  static const String fontFamily = 'Alexandria';
+
+  /// Bundled Latin/Arabic fallback for the rare glyph Alexandria lacks (replaces
+  /// the old runtime `GoogleFonts.ibmPlexSans()` fallback, which failed offline).
+  static const List<String> _fontFallback = ['IBMPlexSansArabic'];
+
+  /// Canonical app text style. Alexandria (bundled) supplies both the Arabic and
+  /// Latin glyphs; IBM Plex Sans Arabic (bundled) is the fallback safety net.
+  /// This is a plain [TextStyle] over the bundled family — identical size /
+  /// weight / height / letter-spacing / colour / shadows / tabular figures as
+  /// before, only the font source changed (runtime fetch → bundled).
   static TextStyle custom({
     required double size,
     required FontWeight weight,
@@ -21,7 +30,9 @@ class AppTypography {
     Color? color,
     List<Shadow>? shadows,
   }) {
-    return GoogleFonts.alexandria(
+    return TextStyle(
+      fontFamily: fontFamily,
+      fontFamilyFallback: _fontFallback,
       fontSize: size,
       fontWeight: weight,
       height: height,
@@ -29,10 +40,6 @@ class AppTypography {
       color: color,
       shadows: shadows,
       fontFeatures: tabular ? _tabular : null,
-    ).copyWith(
-      fontFamilyFallback: [
-        GoogleFonts.ibmPlexSans().fontFamily!,
-      ],
     );
   }
 
