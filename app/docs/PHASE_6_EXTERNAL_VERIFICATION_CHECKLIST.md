@@ -54,6 +54,23 @@ Each row: **prerequisite · steps · expected · evidence · rollback · owner/s
 | Ownership isolation | 2 accounts, 1 device | A signs out, B signs in | B never sees A's data; A's background jobs rejected | DB state | — | pending |
 | Fallback timing | — | offline then online | bounded retry; truthful state | logs | — | pending |
 
+## E. Phase-7 Batch-2 performance / typography (device · profile — external)
+
+None of these have a controlled device/profile measurement in this environment; keep all
+`pending` until real evidence exists.
+
+| Check | Prereq | Steps | Expected | Evidence | Status |
+|---|---|---|---|---|---|
+| iOS first-usable time | signed iOS build | cold launch | `localFinancialUiUsable` reached quickly, offline-first | trace | pending |
+| Android first-usable time | Android SDK build | cold launch | usable quickly | trace | pending |
+| Frame jank / scroll | device | scroll a 10k transaction list | no sustained jank (keyset paging) | profile trace | pending |
+| Peak memory (report/export/backup) | device | export/backup large data | bounded per MALI-030 contract | memory trace | pending |
+| Background battery | device | background sync over time | acceptable impact (SyncGate/backoff) | battery log | pending |
+| Real-network sync cadence | device + network | offline↔online cycles | cadence/coalescing/recovery as designed | logs | pending |
+| Packaged IPA size | iOS signing (Xcode) | build IPA | within budget; 4 Alexandria TTFs packaged | IPA | pending |
+| Packaged APK/AAB size | Android SDK | build APK/AAB | within budget; fonts packaged | APK/AAB | pending |
+| Alexandria device rendering | device | render Arabic + English UI | bundled Alexandria + IBM Plex fallback; correct RTL / text metrics; no runtime fetch | screenshots | pending |
+
 ## Notes
 
 - Do **not** deploy 0068–0076 to production from this checklist; staging only, and

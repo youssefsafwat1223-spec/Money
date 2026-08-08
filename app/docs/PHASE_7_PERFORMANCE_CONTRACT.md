@@ -447,20 +447,34 @@ native handler; the search field cancels its debounce on dispose/submit/clear; t
 primitives (SyncGate/ResumeCoalescer) hold no timers. No `setState`-after-dispose, no stale
 page/search result (generation guard), no duplicate recurring timer.
 
-## 8. Font & asset contract
+## 8. Font & asset contract (B2-D DONE ✓ — Alexandria bundled)
 
-**Assets (DONE ✓):** removed 8.1 MB of unreferenced assets (assets/ 16.7 MB → 8.6 MB);
-`test/performance/asset_budget_test.dart` enforces ≤ 1 MiB/file and ~11 MiB total.
+**Assets:** removed 8.1 MB of unreferenced assets (assets/ 16.7 MB → 7.8 MB pre-fonts);
+`test/performance/asset_budget_test.dart` enforces ≤ 1 MiB/file and ≤ 11 MiB total.
 
-**Fonts (PENDING a product decision):** production typography uses
-`GoogleFonts.alexandria()` + `GoogleFonts.ibmPlexSans()` with runtime network fetching
-ON — so an offline cold start does NOT get the intended fonts (platform fallback). The
-bundled TTFs are IBM Plex Sans Arabic (used only by the PDF path); Alexandria is not
-bundled and cannot be fetched offline. Options: (A) bundle & switch to the already-
-vendored IBM Plex Sans Arabic family + disable runtime fetching — offline-correct but a
-visible typeface change; (B) obtain & bundle Alexandria TTFs (files not available in
-the repo); (C) defer. `test/core/theme/app_typography_test.dart` pins the current
-`GoogleFonts.*` source and will need updating with the chosen option.
+**Fonts (B2-D):** the user-supplied **SIL-OFL-1.1 Alexandria** TTFs are now **bundled** and
+registered as ONE `Alexandria` family (`Regular→400, Medium→500, SemiBold→600, Bold→700`)
+in `pubspec.yaml`; verified family='Alexandria', `OS/2.usWeightClass` = 400/500/600/700,
+valid TrueType. `AppTypography.custom()` — the single choke point every named style +
+`textTheme` flows through — is now a plain `TextStyle(fontFamily:'Alexandria', …)` with a
+**bundled** `IBMPlexSansArabic` fallback (the same TTFs the PDF ships), replacing the old
+runtime `GoogleFonts.alexandria()`/`ibmPlexSans()` (the fallback previously FAILED offline).
+The **`google_fonts` dependency was removed** — no production typography fetches over the
+network, so the first offline cold start renders the intended fonts. Size / weight / height
+/ letter-spacing / colour / shadows / tabular-figures are unchanged (no visual redesign).
+The PDF renderer (`report_fonts.dart`) already loaded IBM Plex TTF bytes directly — unchanged.
+
+**Asset budget reconciliation:** bundled fonts total ~1.63 MiB (Alexandria ~673 KiB + IBM
+Plex Sans Arabic ~948 KiB); assets/ moved **7.81 MiB → ~8.47 MiB**; largest single asset
+still ~801 KiB. The 11 MiB ceiling is **unchanged** (still ~2.5 MiB / ≈23% margin).
+
+**Verified:** `FontManifest.json` (Flutter-generated bundle) lists Alexandria + the fallback
+with the four weight→asset mappings and the four Alexandria TTFs packaged. Behavioral tests
+(`app_typography_test`): pubspec weight mapping, `fontFamily=='Alexandria'`, weight
+preserved, named-style metrics, offline Arabic+English render, RTL/overflow at 320px×1.25.
+`asset_budget_test`: all four weights packaged + reconciled budget. **External:** packaged
+IPA/APK size and real-device Alexandria rendering/text-metrics (the local `flutter build
+bundle` for a device target needs the Android SDK / iOS signing — unavailable here).
 
 ## 9. Performance budgets (enforced today)
 
@@ -488,3 +502,45 @@ the repo); (C) defer. `test/core/theme/app_typography_test.dart` pins the curren
 Wall-clock cold/warm startup, dashboard first-usable, list scroll jank, report/export
 peak memory, packaged IPA size — all device/profile measurements, external. See
 `PHASE_6_EXTERNAL_VERIFICATION_CHECKLIST.md`.
+
+## 11. Phase-7 Batch-2 final reconciliation (B2-D)
+
+**Final local statuses (all four Batch-2 findings):**
+- **MALI-073n — Code complete · locally verified.** Schema **v29**, index-only migration
+  (composite `(account_id, occurred_at)` + `category_id`), version-owned + postflight-verified;
+  EXPLAIN-QUERY-PLAN before/after evidence; clean-install / v28-upgrade / idempotent-reopen /
+  rollback covered.
+- **MALI-029 — Code complete · locally verified** (physical-device battery/background timing +
+  real-network cadence profiling external). Domain-scoped invalidation; bounded pull FK
+  resolution (O(distinct keys + chunks)); SyncGate + coalescing; offline behaviour;
+  owner-generation invalidation; transaction rendering/provider improvements (B2-C).
+- **MALI-030 — Code complete · locally verified** for bounded report/export/snapshot DB
+  processing; v3 authenticated encryption remains a bounded one-shot in-memory op under
+  enforced payload caps. SQL top-N; appendix paging + visible omission notice; CSV/export
+  paging; 100 MiB export cap; incremental backup serialization; 48 MiB plaintext cap.
+- **MALI-038 — Code complete · locally verified** (packaged IPA/APK size + real-device
+  typography/layout external). Bundled SIL-OFL Alexandria (no runtime GoogleFonts fetch) +
+  reconciled asset budget.
+
+### §12 — Batch-2 before → final structural table
+| Metric | Before | Final |
+|---|---|---|
+| transaction first-page rows | up to 500 UNFILTERED | ≤ 500, fully SQL-filtered |
+| first-page query count | 1 (unfiltered) + Dart filtering | **1 keyset SELECT** (filtered) |
+| provider invalidations (unrelated write) | global tick → recompute | **0** (domain-scoped) |
+| pull FK-resolution queries | O(rows) per-row SELECTs | **O(distinct keys + chunks)** |
+| sync cadence | fixed 30s poll | adaptive backoff + coalescing + offline SyncGate |
+| report largest-transactions | load all → Dart sort | **SQL ORDER BY + LIMIT (top-N)** |
+| appendix memory | full materialization | keyset-paged + hard cap + visible omission notice |
+| CSV / export memory | full in-memory build | paged + enforced 100 MiB cap |
+| backup serialization | full object graph + JSON string | **streamed/paged**, 48 MiB plaintext cap |
+| startup remote dependency (first frame) | GoogleFonts fetch + app_open RPC + flag override | **none** (all deferred/bundled) |
+| brand lookup complexity | O(rows × catalog) | **O(distinct merchants)** (memoised) |
+| runtime font-network dependency | GoogleFonts.alexandria + ibmPlexSans | **none** — bundled Alexandria |
+| asset size (assets/) | 16.7 MiB → 7.81 MiB (pre-fonts) | ~8.47 MiB (with bundled fonts); ≤ 11 MiB budget |
+
+### §13 — External evidence matrix (pending, no controlled measurement here)
+real iOS first-usable time · real Android first-usable time · frame-jank/profile traces ·
+real-device peak memory · background battery impact · real-network sync cadence · packaged
+IPA size · packaged APK/AAB size · real-device Alexandria rendering/text-metrics. Added to
+`PHASE_6_EXTERNAL_VERIFICATION_CHECKLIST.md`; none claimed complete without device evidence.

@@ -1040,9 +1040,14 @@ fixed under MALI-001. Approved MALI-059n decision implemented in full.
 > search fold consistent (SQLite LOWER both sides) + parity matrix. B2-C = Code complete ·
 > LV (device frame/startup/jank/memory/battery profiling external). No financial semantics/
 > sync-authority/backup-envelope change; CAS/0070 inactive; not pushed. **MALI-038
-> partial:** removed 8.1 MB unreferenced assets + asset-size budget; **font portion
-> pending a product decision** (offline Alexandria not bundleable; switch to vendored
-> IBM Plex Sans Arabic is a visible typeface change). MALI-030 CODE COMPLETE (B2-B + closure): streaming backup plaintext (no full object graph/JSON String), truthful appendix omission rendered in the PDF (ar/en), enforced 100 MiB export cap, 48 MiB plaintext cap; irreducible bounded buffers = v3 plaintext/ciphertext + export ZIP (none device-only). **B2-B DONE (MALI-030):** report largest→SQL top-N, appendix keyset-paged+capped, CSV/full-export paged, backup snapshot paged + copy dropped, pre-encryption 48 MiB plaintext cap; v3 one-shot residual is a bounded crypto-library constraint (not device-external). **Remaining in B2:** the other
+> B2-D DONE:** user-supplied SIL-OFL Alexandria TTFs bundled + registered (ONE family,
+> 400/500/600/700) with a bundled IBMPlexSansArabic fallback; `AppTypography.custom()` →
+> `TextStyle(fontFamily:'Alexandria')` (metrics unchanged); **google_fonts removed** →
+> no runtime font fetch (offline-correct); FontManifest verified; brittle source-text
+> font test replaced with behavioral contracts; asset budget reconciled (≤11 MiB, ~2.5
+> MiB margin). MALI-038 = Code complete · LV (packaged IPA/APK size + device typography
+> external). **Batch-2 (B2-A/B/C/D) reconciled** — see PHASE_7_PERFORMANCE_CONTRACT §11.
+> MALI-030 CODE COMPLETE (B2-B + closure): streaming backup plaintext (no full object graph/JSON String), truthful appendix omission rendered in the PDF (ar/en), enforced 100 MiB export cap, 48 MiB plaintext cap; irreducible bounded buffers = v3 plaintext/ciphertext + export ZIP (none device-only). **B2-B DONE (MALI-030):** report largest→SQL top-N, appendix keyset-paged+capped, CSV/full-export paged, backup snapshot paged + copy dropped, pre-encryption 48 MiB plaintext cap; v3 one-shot residual is a bounded crypto-library constraint (not device-external). **Remaining in B2:** the other
 > ~14 pull/backfill batchings + sync cadence; MALI-030 memory; rendering; startup; the
 > font decision. No financial semantics/precision/currency/refund/period/restore behavior
 > changed. CAS false; 0070 inactive; 0068–0076 undeployed; not pushed. See
