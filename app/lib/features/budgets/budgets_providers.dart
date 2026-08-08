@@ -8,6 +8,7 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/budget_period.dart';
+import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/reporting/date_range.dart';
 import '../common/category_catalog.dart';
 import '../transactions/transactions_providers.dart';
@@ -124,16 +125,28 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
   }
 
   final snapshot = await buildSnapshot(budgets, fallbackAccountId: accountId);
-  final allTransactions = await txRepo.getAll();
   final accounts = await accountRepo.getAll();
   final excludedAccountIds = <String>{
     for (final account in accounts)
       if (account.excludeFromTotals) account.id,
   };
-  final historyEntries = <BudgetHistoryEntry>[];
   final now = DateTime.now();
   final historyFrom = _dateOnly(range.from);
   final historyTo = range.to.isAfter(now) ? now : range.to;
+
+  // B2-C — bound the line-item transaction load to the UNION of the actual
+  // budget-period windows instead of the whole ledger (`getAll()`). Pass 1
+  // computes every (budget, period) window and the min/max instants they span
+  // (a week/month/year period can start before `historyFrom` and end after it),
+  // then a range-scoped keyset drain loads ONLY those transactions. The
+  // per-period Dart filter (`_budgetTransactionsForPeriod`) is UNCHANGED — same
+  // canonical confirmed/refund/status/scope/exclusion semantics — and every
+  // period window ⊆ [loadFrom, loadTo], so the result is identical to the old
+  // full-ledger fold while a 10k ledger with a small period never materialises.
+  final plannedPeriods =
+      <({BudgetEntity budget, _BudgetPeriodWindow period})>[];
+  DateTime? loadFrom;
+  DateTime? loadTo;
   for (final budget in allActiveBudgets) {
     for (final period in _budgetPeriodsInRange(
       budget,
@@ -141,25 +154,47 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
       to: historyTo,
       now: now,
     )) {
-      final entry = await buildEntry(
-        budget,
-        from: period.start,
-        to: period.end,
-      );
-      historyEntries.add(
-        BudgetHistoryEntry(
-          progress: entry,
-          isCurrent: period.isCurrent,
-          transactions: _budgetTransactionsForPeriod(
-            allTransactions,
-            budget: budget,
-            from: period.start,
-            to: period.end,
-            excludedAccountIds: excludedAccountIds,
-          ),
-        ),
-      );
+      plannedPeriods.add((budget: budget, period: period));
+      if (loadFrom == null || period.start.isBefore(loadFrom)) {
+        loadFrom = period.start;
+      }
+      if (loadTo == null || period.end.isAfter(loadTo)) {
+        loadTo = period.end;
+      }
     }
+  }
+  final rangeTransactions = (loadFrom == null || loadTo == null)
+      ? const <TransactionEntity>[]
+      : await _drainTransactionsInRange(
+          txRepo,
+          from: loadFrom,
+          // +1ms so a row exactly at the max period-end is loaded; the
+          // per-period `< end` filter still applies the exact half-open cut.
+          to: loadTo.add(const Duration(milliseconds: 1)),
+        );
+
+  final historyEntries = <BudgetHistoryEntry>[];
+  for (final planned in plannedPeriods) {
+    final budget = planned.budget;
+    final period = planned.period;
+    final entry = await buildEntry(
+      budget,
+      from: period.start,
+      to: period.end,
+    );
+    historyEntries.add(
+      BudgetHistoryEntry(
+        progress: entry,
+        isCurrent: period.isCurrent,
+        transactions: _budgetTransactionsForPeriod(
+          rangeTransactions,
+          budget: budget,
+          from: period.start,
+          to: period.end,
+          excludedAccountIds: excludedAccountIds,
+        ),
+      ),
+    );
   }
   historyEntries.sort((a, b) {
     final dateCompare =
@@ -180,6 +215,33 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
     accounts: accounts,
   );
 });
+
+/// B2-C — drains all non-ignored transactions in the half-open `[from, to)`
+/// window via bounded keyset pages (never `getAll()`). The caller's per-period
+/// filter re-applies the exact confirmed/type/scope predicate, so this may
+/// safely over-fetch pending/other rows within the window; it must never load
+/// unrelated history outside it.
+Future<List<TransactionEntity>> _drainTransactionsInRange(
+  TransactionRepository repo, {
+  required DateTime from,
+  required DateTime to,
+}) async {
+  const pageSize = 500;
+  final out = <TransactionEntity>[];
+  TransactionPageCursor? cursor;
+  while (true) {
+    final page = await repo.getTransactionPage(
+      limit: pageSize,
+      after: cursor,
+      filter: TransactionPageFilter(from: from, to: to),
+    );
+    out.addAll(page);
+    if (page.length < pageSize) break;
+    final last = page.last;
+    cursor = TransactionPageCursor(occurredAt: last.occurredAt, id: last.id);
+  }
+  return out;
+}
 
 /// MALI-062n tail — the per-period budget transaction list must represent the
 /// SAME metric as its net total. It therefore mirrors the canonical

@@ -4,6 +4,7 @@ import '../../core/di/app_providers.dart';
 import '../../domain/entities/card_entity.dart';
 import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/services/card_account_grouper.dart';
 
 /// البطاقات الحقيقية (المُدارة) لحساب محدد — من جدول cards.
@@ -45,9 +46,18 @@ final cardTransactionsProvider =
   return ref.watch(transactionRepositoryProvider).getByCard(last4);
 });
 
-/// كل العمليات — لاختيار عملية موجودة وربطها ببطاقة.
-final allTransactionsForPickProvider =
-    FutureProvider<List<TransactionEntity>>((ref) async {
+/// B2-C — bounded, search-driven candidates for the card-linking picker (was an
+/// unbounded `getAll()` over the whole ledger on a UI path). The [query] is
+/// pushed into SQL, so a match anywhere in the ledger is found within the
+/// bounded page and the load never scales with ledger size. autoDispose family
+/// so each settled search term is cached and cleaned up.
+final pickTransactionsProvider = FutureProvider.autoDispose
+    .family<List<TransactionEntity>, String>((ref, query) async {
   ref.watch(appSessionRevisionProvider);
-  return ref.watch(transactionRepositoryProvider).getAll();
+  final trimmed = query.trim();
+  return ref.read(transactionRepositoryProvider).getTransactionPage(
+        limit: 500,
+        filter:
+            TransactionPageFilter(search: trimmed.isEmpty ? null : trimmed),
+      );
 });

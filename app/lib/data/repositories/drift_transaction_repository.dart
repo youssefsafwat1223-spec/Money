@@ -532,6 +532,58 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<DateTime?> latestBankCaptureAt() async {
+    final row = await _db
+        .customSelect(
+          "SELECT MAX(COALESCE(sms_received_at, created_at)) AS latest "
+          "FROM transactions WHERE source = 'bank';",
+        )
+        .getSingleOrNull();
+    final latest = row?.readNullable<String>('latest');
+    return latest == null ? null : DateTime.tryParse(latest)?.toUtc();
+  }
+
+  @override
+  Future<List<String>> distinctCurrencies() async {
+    final rows = await _db
+        .customSelect(
+          "SELECT DISTINCT currency FROM transactions "
+          "WHERE currency IS NOT NULL AND currency != '';",
+        )
+        .get();
+    return rows.map((r) => r.read<String>('currency')).toList();
+  }
+
+  @override
+  Future<List<TransactionEntity>> transactionsWithoutAccount({
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  }) async {
+    final hasCursor = beforeOccurredAt != null && beforeId != null;
+    final vars = <Variable>[];
+    if (hasCursor) {
+      final cur = dateTimeToSql(beforeOccurredAt);
+      vars
+        ..add(Variable.withString(cur))
+        ..add(Variable.withString(cur))
+        ..add(Variable.withString(beforeId));
+    }
+    vars.add(Variable.withInt(limit));
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM transactions
+        WHERE account_id IS NULL
+          ${hasCursor ? 'AND (occurred_at < ? OR (occurred_at = ? AND id < ?))' : ''}
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT ?;
+      ''',
+      variables: vars,
+    ).get();
+    return rows.map(transactionFromRow).toList();
+  }
+
+  @override
   Future<List<TransactionEntity>> getTransactionPage({
     required int limit,
     TransactionPageCursor? after,

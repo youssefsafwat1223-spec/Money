@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -403,39 +405,45 @@ class _AttachExistingSheet extends ConsumerStatefulWidget {
 
 class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
   final _search = TextEditingController();
+  // B2-C — the query drives a bounded SQL search (pickTransactionsProvider), so
+  // debounce it exactly like the main list: a keystroke burst runs one search,
+  // not one DB query per character.
   String _query = '';
+  Timer? _searchDebounce;
+
+  void _onQueryChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _query = value);
+    });
+  }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     super.dispose();
   }
 
-  List<TransactionEntity> _filtered(List<TransactionEntity> all) {
+  /// The SQL query already applied the search; only the display order remains —
+  /// transactions NOT linked to this card appear first.
+  List<TransactionEntity> _sortForCard(List<TransactionEntity> items) {
     final last4 = widget.last4;
-    final q = _query.trim().toLowerCase();
-    final items = all.where((tx) {
-      if (q.isEmpty) return true;
-      final merchant = (tx.rawMerchant ?? '').toLowerCase();
-      final amount = Formatters.amount(tx.amount).toLowerCase();
-      return merchant.contains(q) || amount.contains(q);
-    }).toList()
-      // غير المربوطة بنفس البطاقة تظهر أولاً.
-      ..sort((a, b) {
+    final sorted = [...items]..sort((a, b) {
         final aOwn = a.cardLast4 == last4 ? 1 : 0;
         final bOwn = b.cardLast4 == last4 ? 1 : 0;
         return aOwn.compareTo(bOwn);
       });
-    return items;
+    return sorted;
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final last4 = widget.last4;
-    final async = ref.watch(allTransactionsForPickProvider);
-    final all = async.valueOrNull ?? const <TransactionEntity>[];
-    final items = _filtered(all);
+    final async = ref.watch(pickTransactionsProvider(_query));
+    final items =
+        _sortForCard(async.valueOrNull ?? const <TransactionEntity>[]);
 
     return DraggableScrollableSheet(
       expand: false,
@@ -473,7 +481,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                     TextField(
                       controller: _search,
                       style: AppTypography.body(c.textMain),
-                      onChanged: (v) => setState(() => _query = v),
+                      onChanged: _onQueryChanged,
                       decoration: InputDecoration(
                         isDense: true,
                         hintText: 'ابحث بالاسم أو المبلغ',
@@ -536,7 +544,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                                         ref.invalidate(
                                             accountCardGroupsProvider);
                                         ref.invalidate(
-                                            allTransactionsForPickProvider);
+                                            pickTransactionsProvider);
                                         ref.invalidate(
                                             cardTransactionsProvider(last4));
                                         if (context.mounted) {

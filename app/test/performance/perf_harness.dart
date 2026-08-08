@@ -30,12 +30,18 @@ class StatementCounter extends QueryInterceptor {
   int customs = 0;
   int batched = 0;
   int batchedRows = 0;
+  // B2-C — total ROWS returned across all SELECTs. `selects` counts statements
+  // (a whole-ledger getAll is ONE statement returning N rows), so proving a
+  // provider does not materialize the whole ledger needs the row count, not the
+  // statement count.
+  int selectRows = 0;
 
   /// Total individual statements (a batch counts as 1 — that is the point).
   int get total => selects + inserts + updates + deletes + customs + batched;
 
   void reset() {
     selects = inserts = updates = deletes = customs = batched = batchedRows = 0;
+    selectRows = 0;
   }
 
   Map<String, int> snapshot() => {
@@ -46,14 +52,17 @@ class StatementCounter extends QueryInterceptor {
         'custom': customs,
         'batched': batched,
         'batchedRows': batchedRows,
+        'selectRows': selectRows,
         'total': total,
       };
 
   @override
   Future<List<Map<String, Object?>>> runSelect(
-      QueryExecutor executor, String statement, List<Object?> args) {
+      QueryExecutor executor, String statement, List<Object?> args) async {
     selects++;
-    return super.runSelect(executor, statement, args);
+    final rows = await super.runSelect(executor, statement, args);
+    selectRows += rows.length;
+    return rows;
   }
 
   @override

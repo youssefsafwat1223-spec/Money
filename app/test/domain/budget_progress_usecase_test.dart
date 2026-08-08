@@ -216,6 +216,25 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<DateTime?> latestBankCaptureAt() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<String>> distinctCurrencies() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<TransactionEntity>> transactionsWithoutAccount({
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<TransactionEntity?> getById(String id) {
     throw UnimplementedError();
   }

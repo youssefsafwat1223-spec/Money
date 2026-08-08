@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/supporting_entities.dart';
-import '../../domain/entities/transaction_entity.dart';
 import '../capture/services/native_capture_bridge.dart';
 
 const captureHealthNudgeThreshold = Duration(days: 7);
@@ -49,15 +48,10 @@ final notificationPreferencesProvider =
 final captureHealthStatusProvider =
     FutureProvider<CaptureHealthStatus>((ref) async {
   ref.watch(dbRevisionProvider);
-  final transactions = await ref.watch(transactionRepositoryProvider).getAll();
-  DateTime? latestCaptureAt;
-  for (final transaction in transactions) {
-    if (transaction.source != TransactionSourceEntity.bank) continue;
-    final capturedAt = transaction.smsReceivedAt ?? transaction.createdAt;
-    if (latestCaptureAt == null || capturedAt.isAfter(latestCaptureAt)) {
-      latestCaptureAt = capturedAt;
-    }
-  }
+  // B2-C — bounded aggregate (MAX over bank captures) instead of loading the
+  // whole ledger to compute one timestamp.
+  final latestCaptureAt =
+      await ref.watch(transactionRepositoryProvider).latestBankCaptureAt();
   return CaptureHealthStatus(
     lastCaptureAt: latestCaptureAt,
     now: DateTime.now().toUtc(),

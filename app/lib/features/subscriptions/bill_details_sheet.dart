@@ -11,6 +11,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/bill_metrics.dart';
 import '../../engine/categorization/category.dart';
@@ -736,7 +737,17 @@ Future<List<TransactionEntity>> _loadBillTransactions(
   WidgetRef ref,
   BillEntity bill,
 ) async {
-  final all = await ref.read(transactionRepositoryProvider).getAll();
+  // B2-C — bounded recent-expenses page (account + kind pushed to SQL) instead
+  // of the whole ledger; `_matchesBill` re-applies the exact confirmed/currency
+  // predicate. A bill's payment history within the recent page is shown (a
+  // subscription's history rarely exceeds this bound).
+  final all = await ref.read(transactionRepositoryProvider).getTransactionPage(
+        limit: 500,
+        filter: TransactionPageFilter(
+          accountId: bill.accountId,
+          kind: TransactionPageKind.expenses,
+        ),
+      );
   final transactions = all.where((tx) => _matchesBill(tx, bill)).toList();
   transactions.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
   return transactions;

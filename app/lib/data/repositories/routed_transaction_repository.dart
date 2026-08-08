@@ -120,6 +120,24 @@ class RoutedTransactionRepository implements TransactionRepository {
       _drift.getPage(offset: offset, limit: limit);
 
   @override
+  Future<DateTime?> latestBankCaptureAt() => _drift.latestBankCaptureAt();
+
+  @override
+  Future<List<String>> distinctCurrencies() => _drift.distinctCurrencies();
+
+  @override
+  Future<List<TransactionEntity>> transactionsWithoutAccount({
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  }) =>
+      _drift.transactionsWithoutAccount(
+        beforeOccurredAt: beforeOccurredAt,
+        beforeId: beforeId,
+        limit: limit,
+      );
+
+  @override
   Future<List<TransactionEntity>> getTransactionPage({
     required int limit,
     TransactionPageCursor? after,

@@ -11,6 +11,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../common/app_card.dart';
 import '../common/app_empty_state.dart';
@@ -439,7 +440,14 @@ Future<void> _showLinkTransactionSheet(
           scrollable: true,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
           body: FutureBuilder<List<TransactionEntity>>(
-            future: ref.read(transactionRepositoryProvider).getAll(),
+            // B2-C — bounded recent-expenses page (kind pushed to SQL) instead of
+            // the whole ledger; the picker shows the 40 most-recent confirmed,
+            // not-yet-linked expenses.
+            future: ref.read(transactionRepositoryProvider).getTransactionPage(
+                  limit: 500,
+                  filter: const TransactionPageFilter(
+                      kind: TransactionPageKind.expenses),
+                ),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
@@ -447,9 +455,7 @@ Future<void> _showLinkTransactionSheet(
               final transactions = snapshot.data!
                   .where((tx) =>
                       !linkedIds.contains(tx.id) &&
-                      tx.status == TransactionStatus.confirmed &&
-                      (tx.type == TransactionTypeEntity.payment ||
-                          tx.type == TransactionTypeEntity.withdrawal))
+                      tx.status == TransactionStatus.confirmed)
                   .take(40)
                   .toList(growable: false);
               if (transactions.isEmpty) {

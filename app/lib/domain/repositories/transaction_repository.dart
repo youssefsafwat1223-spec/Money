@@ -132,6 +132,28 @@ abstract class TransactionRepository {
   Future<List<TransactionEntity>> getPage(
       {required int offset, int limit = 500});
 
+  /// B2-C — the instant of the most recent BANK-source capture
+  /// (`MAX(COALESCE(sms_received_at, created_at))` where `source = 'bank'`), or
+  /// null if there are none. A bounded aggregate for the capture-health provider
+  /// (was a whole-ledger `getAll()` + Dart max).
+  Future<DateTime?> latestBankCaptureAt();
+
+  /// B2-C — the distinct non-empty currencies present across ALL transactions
+  /// (bounded: the result is the small set of currencies, never the ledger). Used
+  /// to ensure a per-currency account exists without loading every transaction.
+  Future<List<String>> distinctCurrencies();
+
+  /// B2-C — a keyset page of transactions with NO account assigned, newest first
+  /// (`occurred_at DESC, id DESC`). Used by the dashboard's account backfill so it
+  /// touches only the (normally empty, post-backfill) null-account set instead of
+  /// the whole ledger. Pass the previous page's last row via [beforeOccurredAt]/
+  /// [beforeId] for the next page.
+  Future<List<TransactionEntity>> transactionsWithoutAccount({
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  });
+
   /// B2-C — a keyset-paged, SQL-**filtered** slice of the transaction list.
   /// Every supported filter (account / date / kind / category / search /
   /// pending) is pushed into the SQL predicate, so the first visible page never

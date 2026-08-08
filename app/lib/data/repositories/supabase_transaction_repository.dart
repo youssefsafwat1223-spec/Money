@@ -400,6 +400,29 @@ class SupabaseTransactionRepository implements TransactionRepository {
   }
 
   @override
+  Future<DateTime?> latestBankCaptureAt() {
+    // B2-C — Drift-only (S5): the capture-health provider reads from Drift.
+    throw UnsupportedError('latestBankCaptureAt is Drift-only.');
+  }
+
+  @override
+  Future<List<String>> distinctCurrencies() {
+    // B2-C — Drift-only (S5): the dashboard's currency-account bootstrap reads
+    // from Drift. Never reached via the routed repo in production.
+    throw UnsupportedError('distinctCurrencies is Drift-only.');
+  }
+
+  @override
+  Future<List<TransactionEntity>> transactionsWithoutAccount({
+    DateTime? beforeOccurredAt,
+    String? beforeId,
+    int limit = 500,
+  }) {
+    // B2-C — Drift-only (S5): the dashboard account backfill reads from Drift.
+    throw UnsupportedError('transactionsWithoutAccount is Drift-only.');
+  }
+
+  @override
   Future<List<TransactionEntity>> getTransactionPage({
     required int limit,
     TransactionPageCursor? after,

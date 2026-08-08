@@ -185,27 +185,20 @@ class DashboardData {
 /// الحساب المختار في الـ dashboard (null = الحساب الافتراضي الحالي).
 final dashboardAccountProvider = activeAccountIdProvider;
 
-class _CurrencyAccountState {
-  const _CurrencyAccountState({
-    required this.accounts,
-    required this.transactions,
-  });
-
-  final List<AccountEntity> accounts;
-  final List<TransactionEntity> transactions;
-}
-
 String _normalizeCurrency(String currency) => currency.trim().toUpperCase();
 
-Future<_CurrencyAccountState> _ensureCurrencyAccounts({
+/// B2-C — ensures a per-currency account exists and backfills null-account
+/// transactions WITHOUT loading the whole ledger. [presentCurrencies] is the
+/// bounded distinct-currency set (all-time); the backfill drains only the
+/// null-account rows (normally empty after the first pass). Returns the accounts.
+Future<List<AccountEntity>> _ensureCurrencyAccounts({
   required AccountRepository accountRepo,
   required TransactionRepository txRepo,
   required List<AccountEntity> initialAccounts,
-  required List<TransactionEntity> initialTransactions,
+  required List<String> presentCurrencies,
   required String fallbackCurrency,
 }) async {
   var accounts = List<AccountEntity>.of(initialAccounts);
-  var transactions = List<TransactionEntity>.of(initialTransactions);
   final byCurrency = <String, AccountEntity>{
     for (final account in accounts)
       _normalizeCurrency(account.currency): account,
@@ -237,57 +230,52 @@ Future<_CurrencyAccountState> _ensureCurrencyAccounts({
     await createAccount(baseCurrency);
   }
 
-  final transactionCurrencies = {
-    for (final tx in transactions)
-      if (_normalizeCurrency(tx.currency).isNotEmpty)
-        _normalizeCurrency(tx.currency),
-  };
-  for (final currency in transactionCurrencies) {
-    if (!byCurrency.containsKey(currency)) {
+  for (final raw in presentCurrencies) {
+    final currency = _normalizeCurrency(raw);
+    if (currency.isNotEmpty && !byCurrency.containsKey(currency)) {
       await createAccount(currency);
     }
   }
 
-  var changed = false;
-  transactions = [
-    for (final tx in transactions)
-      if (tx.accountId == null &&
-          byCurrency.containsKey(_normalizeCurrency(tx.currency)))
-        () {
-          final account = byCurrency[_normalizeCurrency(tx.currency)]!;
-          changed = true;
-          return tx.copyWith(accountId: account.id);
-        }()
-      else
-        tx,
-  ];
-
-  if (changed) {
-    for (final tx in transactions) {
-      if (tx.accountId == null) continue;
-      final original =
-          initialTransactions.firstWhere((item) => item.id == tx.id);
-      if (original.accountId == null && original.accountId != tx.accountId) {
-        try {
-          await txRepo.updateAccount(
-              transactionId: tx.id, accountId: tx.accountId!);
-        } on RepoException catch (e) {
-          // مصالحة في الخلفية بلا واجهة مستخدم — نسجّل ونكمل الباقي بدل
-          // فشل حساب الـ dashboard كله بسبب صف واحد.
-          if (kDebugMode) {
-            debugPrint(
-              '[Dashboard] account reconciliation skipped: ${e.runtimeType}',
-            );
-          }
+  // Backfill ONLY null-account transactions via a bounded keyset drain (the
+  // null-account set shrinks to empty after the first pass — never the whole
+  // ledger). A row whose currency has no account (e.g. blank currency) is left
+  // as-is, exactly as before. Advancing past a processed page never re-fetches
+  // or skips: updated rows leave the null-account set, un-updated ones fall
+  // before the cursor and are retried on a later dashboard load (best-effort).
+  DateTime? beforeOccurredAt;
+  String? beforeId;
+  const pageSize = 500;
+  while (true) {
+    final page = await txRepo.transactionsWithoutAccount(
+      beforeOccurredAt: beforeOccurredAt,
+      beforeId: beforeId,
+      limit: pageSize,
+    );
+    if (page.isEmpty) break;
+    for (final tx in page) {
+      final account = byCurrency[_normalizeCurrency(tx.currency)];
+      if (account == null) continue;
+      try {
+        await txRepo.updateAccount(
+            transactionId: tx.id, accountId: account.id);
+      } on RepoException catch (e) {
+        // مصالحة في الخلفية بلا واجهة مستخدم — نسجّل ونكمل الباقي بدل
+        // فشل حساب الـ dashboard كله بسبب صف واحد.
+        if (kDebugMode) {
+          debugPrint(
+            '[Dashboard] account reconciliation skipped: ${e.runtimeType}',
+          );
         }
       }
     }
+    if (page.length < pageSize) break;
+    final last = page.last;
+    beforeOccurredAt = last.occurredAt;
+    beforeId = last.id;
   }
 
-  return _CurrencyAccountState(
-    accounts: accounts,
-    transactions: transactions,
-  );
+  return accounts;
 }
 
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
@@ -306,21 +294,20 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // repositories are active.
   final settingsFuture = userSettingsRepo.getSettings();
   final initialAccountsFuture = accountRepo.getAll();
-  final initialTransactionsFuture = txRepo.getAll();
-  final (settings, initialAccounts, initialTransactions) = await (
+  // B2-C — the bounded distinct-currency set, not the whole ledger.
+  final presentCurrenciesFuture = txRepo.distinctCurrencies();
+  final (settings, initialAccounts, presentCurrencies) = await (
     settingsFuture,
     initialAccountsFuture,
-    initialTransactionsFuture,
+    presentCurrenciesFuture,
   ).wait;
-  final currencyAccountState = await _ensureCurrencyAccounts(
+  final accounts = await _ensureCurrencyAccounts(
     accountRepo: accountRepo,
     txRepo: txRepo,
     initialAccounts: initialAccounts,
-    initialTransactions: initialTransactions,
+    presentCurrencies: presentCurrencies,
     fallbackCurrency: settings.currency,
   );
-  final accounts = currencyAccountState.accounts;
-  final allTransactions = currencyAccountState.transactions;
   final selectedAccountId = ref.watch(dashboardAccountProvider);
   AccountEntity? selectedAccount;
   AccountEntity? defaultAccount;
@@ -400,12 +387,13 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // started above alongside everything else).
   final (rangeExpense, rangeIncome, balance) =
       await (rangeExpenseFuture, rangeIncomeFuture, balanceFuture).wait;
-  final pendingReview = allTransactions
-      .where((tx) =>
-          tx.status == TransactionStatus.pending &&
-          (accountId == null || tx.accountId == accountId))
-      .take(3)
-      .toList(growable: false);
+  // B2-C — the 3 most-recent pending rows via a bounded SQL query (was a
+  // .where(...).take(3) over the whole ledger). Same scope: pending status,
+  // active-account (or all when none).
+  final pendingReview = await txRepo.getTransactionPage(
+    limit: 3,
+    filter: TransactionPageFilter(pendingOnly: true, accountId: accountId),
+  );
   final pendingReviewTotal =
       pendingReview.fold<double>(0, (sum, tx) => sum + tx.amount);
   final saved = prevMonthExpenses - thisMonthExpenses;
