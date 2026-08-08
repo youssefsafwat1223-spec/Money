@@ -3,20 +3,103 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/theme/app_typography.dart';
 
 void main() {
-  test('centralized typography uses Alexandria (IBM Plex Sans fallback)', () {
-    final source = File(
-      'lib/core/theme/app_typography.dart',
-    ).readAsStringSync();
+  // B2-D — BEHAVIORAL/structural font contract (replaces the old source-text
+  // test that asserted the literal `GoogleFonts.alexandria` spelling and thereby
+  // cemented the runtime-fetch anti-pattern). These check the rendered/declared
+  // font CONFIGURATION, so a formatting-only refactor cannot fail the contract.
+  group('Alexandria bundled font contract', () {
+    test('pubspec registers ONE Alexandria family with the 400/500/600/700 '
+        'weight→file mapping and no runtime google_fonts', () {
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      expect(pubspec, contains('family: Alexandria'));
+      for (final pair in const [
+        (400, 'Alexandria-Regular.ttf'),
+        (500, 'Alexandria-Medium.ttf'),
+        (600, 'Alexandria-SemiBold.ttf'),
+        (700, 'Alexandria-Bold.ttf'),
+      ]) {
+        expect(pubspec, contains('asset: assets/fonts/${pair.$2}'),
+            reason: 'weight ${pair.$1} asset declared');
+        expect(pubspec, contains('weight: ${pair.$1}'));
+      }
+      // The bundled Latin/Arabic fallback family is registered too.
+      expect(pubspec, contains('family: IBMPlexSansArabic'));
+      // No runtime GoogleFonts dependency remains — nothing can fetch at runtime.
+      expect(pubspec, isNot(contains('google_fonts:')));
+    });
 
-    // Primary Arabic-first family is Alexandria; IBM Plex Sans stays as the
-    // Latin fallback safety net.
-    expect(source, contains('GoogleFonts.alexandria'));
-    expect(source, contains('GoogleFonts.ibmPlexSans'));
-    expect(source, contains('double letterSpacing = 0'));
-    expect(source, contains('FontFeature.tabularFigures()'));
-    expect(source, isNot(contains('GoogleFonts.inter')));
+    test('custom() uses the bundled Alexandria family + bundled fallback', () {
+      final s =
+          AppTypography.custom(size: 16, weight: FontWeight.w400, height: 1.5);
+      expect(s.fontFamily, 'Alexandria');
+      expect(s.fontFamilyFallback, contains('IBMPlexSansArabic'));
+    });
+
+    test('every requested weight is preserved on the Alexandria family', () {
+      // Weight resolution to the matching bundled TTF is Flutter-engine work
+      // driven by the pubspec mapping above; at the style layer the requested
+      // FontWeight is carried through unchanged for all four mapped weights.
+      for (final w in const [
+        FontWeight.w400,
+        FontWeight.w500,
+        FontWeight.w600,
+        FontWeight.w700,
+      ]) {
+        final s = AppTypography.custom(size: 16, weight: w, height: 1.5);
+        expect(s.fontFamily, 'Alexandria');
+        expect(s.fontWeight, w);
+      }
+    });
+
+    test('named styles keep their exact size/weight/height/features', () {
+      const c = Color(0xFF000000);
+      final body = AppTypography.body(c);
+      expect((body.fontFamily, body.fontSize, body.fontWeight, body.height),
+          ('Alexandria', 16.0, FontWeight.w400, 1.50));
+      final t2 = AppTypography.title2(c);
+      expect((t2.fontFamily, t2.fontSize, t2.fontWeight, t2.height),
+          ('Alexandria', 20.0, FontWeight.w700, 1.24));
+      final hero = AppTypography.amountHero(c);
+      expect(hero.fontFamily, 'Alexandria');
+      expect(hero.fontSize, 40);
+      expect(hero.fontFeatures, contains(const FontFeature.tabularFigures()));
+    });
+
+    test('textTheme maps Material slots to Alexandria with expected metrics', () {
+      final theme = AppTypography.textTheme(const Color(0xFF111111));
+      expect(theme.bodyLarge!.fontFamily, 'Alexandria');
+      expect(theme.bodyLarge!.fontSize, 16);
+      expect(theme.headlineMedium!.fontFamily, 'Alexandria'); // title2
+      expect(theme.headlineMedium!.fontSize, 20);
+      expect(theme.headlineMedium!.fontWeight, FontWeight.w700);
+    });
+
+    testWidgets('offline: Arabic + English render with Alexandria, no network',
+        (tester) async {
+      // No google_fonts import remains in the typography path, so no runtime
+      // fetch is even possible — a bundled family renders on a cold offline
+      // launch. Both scripts resolve without exception.
+      await tester.pumpWidget(MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(
+            body: Column(children: [
+              Text('مصروفات اليوم',
+                  style: AppTypography.body(const Color(0xFF000000))),
+              Text('Balance 1,250.00 EGP',
+                  style: AppTypography.amountSmall(const Color(0xFF000000))),
+            ]),
+          ),
+        ),
+      ));
+      expect(tester.takeException(), isNull);
+      expect(tester.widget<Text>(find.text('مصروفات اليوم')).style!.fontFamily,
+          'Alexandria');
+      expect(find.text('Balance 1,250.00 EGP'), findsOneWidget);
+    });
   });
 
   for (final brightness in Brightness.values) {
