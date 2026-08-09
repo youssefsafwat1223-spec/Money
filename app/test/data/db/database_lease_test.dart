@@ -226,6 +226,11 @@ void main() {
         '${dir.path}/leases',
         '${dir.path}/db.maint',
       ]);
+      // §5 harness hygiene: guarantee the CPU-hammer isolate is killed even if the
+      // test throws before its inline stop/kill below. A leaked hammer (a tight
+      // acquire/release loop) would burn a core and starve any Argon2 derivation
+      // sharing this flutter_tester process. Isolate.kill is idempotent.
+      addTearDown(() => worker.kill(priority: Isolate.immediate));
       final inbox = _Inbox(ctrl);
       final SendPort stop = await inbox.next() as SendPort;
       for (var i = 0; i < 14; i++) {
@@ -252,6 +257,9 @@ void main() {
         '${dir.path}/leases',
         '${dir.path}/db.maint',
       ]);
+      // §5 harness hygiene: defensive kill on the throw-path (idempotent with the
+      // inline kill below), so the cross-isolate lease holder never leaks.
+      addTearDown(() => worker.kill(priority: Isolate.immediate));
       final inbox = _Inbox(ctrl);
       final SendPort release = await inbox.next() as SendPort;
       await expectLater(
