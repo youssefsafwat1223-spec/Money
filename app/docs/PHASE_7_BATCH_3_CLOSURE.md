@@ -149,7 +149,31 @@ recommended; not wired into the mandatory gate (kept first-attempt-green).
 
 ## Batch-3 closure gate
 
-<!-- filled after the authoritative Batch-3 gate run -->
+Canonical `tools/ci_gates.sh` run **once** from the committed clean tree
+`ac3258aa`, **first attempt green**:
+
+```
+mandatory gates passed : 11
+mandatory gates failed : 0
+tools unavailable      : 0
+skip/ignore manifest   : satisfied
+ALL LOCAL GATES PASSED
+```
+
+- flutter test bulk (crypto excluded): **1583 passed** (incl. the new mid-run
+  backfill fail-closed test).
+- flutter test crypto (serialized Argon2, `--concurrency=1`): **24 passed**.
+- architecture guard **6/6** (schema=29; no `*_supabase_primary`; no
+  `FinancialCacheRepairService`; no legacy Supabase financial repo; no `Routed*`;
+  no `dontWarnAboutMultipleDatabases`).
+
+**Bookkeeping:** executable Batch-3 closure verified at `ac3258aa`;
+documentation-only closure record at the commit that adds this section.
+
+**Status:** Phase 7 / Batch 3 — Code complete — locally verified; financial
+authority, database lifecycle ownership, legacy recovery, and architecture
+boundaries are reconciled and guarded. Not pushed. Batch 4 and MALI-026 NOT
+started.
 
 ## Invariants preserved
 
