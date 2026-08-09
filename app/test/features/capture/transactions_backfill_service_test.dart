@@ -179,6 +179,64 @@ void main() {
     expect(report.total, 0);
   });
 
+  // MALI-040 / Batch-3 §3 — MID-RUN stale-owner safety. The backfill captures
+  // the uid once and asserts local-data ownership at PREFLIGHT; it does not
+  // re-check per row. The mid-run window (an account switch AFTER preflight, while
+  // the loop is pushing) is closed by the SERVER: every target table's RLS is
+  // `WITH CHECK (user_id = auth.uid())`, so a push whose owner no longer matches
+  // the auth token is rejected — and the client fails CLOSED (throws, no local
+  // server_id stamped), leaving the row a backfill candidate for the next cycle
+  // under the then-current owner. This proves that fail-closed contract.
+  test(
+      'mid-run server rejection (RLS refusing a stale-owner write) fails closed '
+      '— the local row stays unsynced, never half-committed', () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    // Accounts gate satisfied so the transaction upload loop actually runs.
+    await db.customStatement("UPDATE accounts SET server_id = 'srv-acct';");
+    await _seedOneTransaction(db); // server_id NULL — a backfill candidate
+
+    SupabaseClient rejectingClient() {
+      final http = MockClient((request) async {
+        if (request.method == 'GET') {
+          // No existing server row for this client_request_id.
+          return Response('null', 200,
+              headers: const {'content-type': 'application/json'});
+        }
+        // The write is rejected exactly as RLS rejects a user_id != auth.uid()
+        // insert (Postgres 42501 / insufficient_privilege).
+        return Response(
+          jsonEncode({
+            'code': '42501',
+            'message': 'new row violates row-level security policy',
+          }),
+          403,
+          headers: const {'content-type': 'application/json'},
+        );
+      });
+      return SupabaseClient('https://example.supabase.co', 'public-anon-key',
+          httpClient: http);
+    }
+
+    final service = TransactionsBackfillService(
+      db: db,
+      getAuthUserId: () async => 'user-a',
+      getLocalDataOwnerUid: () async => 'user-a',
+      getClient: rejectingClient,
+    );
+
+    await expectLater(service.run(), throwsA(isA<RepoException>()));
+
+    final row = await db
+        .customSelect(
+          "SELECT server_id, sync_status FROM transactions WHERE id = 't1';",
+        )
+        .getSingle();
+    expect(row.readNullable<String>('server_id'), isNull,
+        reason: 'a rejected write must not stamp a server_id (fail-closed)');
+    expect(row.readNullable<String>('sync_status'), isNot('synced'));
+  });
+
   // The exact scenario from the release-blocker report: User A creates local
   // data, signs out (which must wipe it), User B signs in, and a backfill run
   // triggered by User B (e.g. restoring a backup) must upload zero of User
