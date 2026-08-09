@@ -84,6 +84,26 @@ parameters. No schema, flag-runtime, migration, or wire-format change.
 
 ## Closure gate
 
-Canonical `tools/ci_gates.sh` run once from the committed clean tree — result
-recorded in the closure commit / status ledger. Final MALI-034 status is only
-asserted after a first-attempt-green gate on the committed tree.
+Canonical `tools/ci_gates.sh` run **once** from the committed clean tree
+`a72f1b11`, **first attempt green**:
+
+```
+mandatory gates passed : 11
+mandatory gates failed : 0
+tools unavailable      : 0
+node tests skipped     : 27  (credentials absent — see manifest)
+deno tests ignored     : 2   (live-Postgres — see manifest)
+skip/ignore manifest   : satisfied
+ALL LOCAL GATES PASSED
+```
+
+- flutter test bulk (production-cost crypto excluded): **1579 passed**
+- flutter test crypto (serialized production-cost Argon2, `--concurrency=1`): **24 passed**
+- MALI-034 architecture guard: **5/5** (schema 29, no `*_supabase_primary`
+  selectors, no `FinancialCacheRepairService` wiring, no legacy Supabase repo
+  wiring, no `Routed*` wrappers)
+
+Zero-runtime-reachability is proven and enforced, and the committed-tree gate is
+first-attempt green. **MALI-034 is closed** on branch `feat/phase1-data-integrity`
+(not pushed). The broader MALI-040 DB/executor test-ownership work remains open
+and was intentionally kept out of this stack.
