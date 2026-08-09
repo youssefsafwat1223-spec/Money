@@ -19,12 +19,14 @@ class LedgerSyncResult {
     this.updated = 0,
     this.conflicts = 0,
     this.tombstoned = 0,
+    this.status = SyncPullStatus.deferred,
   });
 
   final int imported;
   final int updated;
   final int conflicts;
   final int tombstoned;
+  final SyncPullStatus status;
 }
 
 /// Injectable remote source — real impl calls Supabase; test impl returns
@@ -142,27 +144,37 @@ class LedgerSyncService implements LedgerPullAdapter {
   static const _cursorKey = 'ledger_transactions';
 
   @override
-  Future<LedgerSyncResult> pull() async {
+  Future<LedgerSyncResult> pull({
+    SyncCursor? from,
+    bool Function()? isAdmitted,
+  }) async {
     if (!_isPullEnabled()) return const LedgerSyncResult();
 
     final userId = await _getAuthUserId();
     if (userId == null) return const LedgerSyncResult();
+    final admitted = isAdmitted ?? alwaysAdmitted;
 
     int imported = 0;
     int updated = 0;
     int conflicts = 0;
     int tombstoned = 0;
 
+    var reachedEof = false;
     try {
       // Prime the account/category resolution snapshots once for the whole pull.
       await _primeResolutionCaches();
-      var cursor = await readSyncCursor(_db, _cursorKey);
+      var cursor = from ?? await readSyncCursor(_db, _cursorKey);
       while (true) {
+        if (!admitted()) break;
         final rows = await _remoteSource.fetchRows(
           after: cursor,
           limit: _pageSize,
         );
-        if (rows.isEmpty) break;
+        if (!admitted()) break;
+        if (rows.isEmpty) {
+          reachedEof = true;
+          break;
+        }
 
         final nextCursor = SyncCursor.fromServerRow(rows.last);
         final pageResult = await _db.transaction(() async {
@@ -187,6 +199,7 @@ class LedgerSyncService implements LedgerPullAdapter {
                 break;
             }
           }
+          if (!admitted()) throw const ReconcilePullCancelled();
           await writeSyncCursor(_db, _cursorKey, nextCursor);
           return (
             imported: pageImported,
@@ -200,13 +213,21 @@ class LedgerSyncService implements LedgerPullAdapter {
         conflicts += pageResult.conflicts;
         tombstoned += pageResult.tombstoned;
         cursor = nextCursor;
-        if (rows.length < _pageSize) break;
+        if (rows.length < _pageSize) {
+          reachedEof = true;
+          break;
+        }
       }
+    } on ReconcilePullCancelled {
+      // Lifecycle/ownership cancellation, not a transport failure.
+      if (kDebugMode) debugPrint('[LedgerSync] reconciliation cancelled');
     } catch (e) {
       if (kDebugMode) debugPrint('[LedgerSync] pull error: $e');
     } finally {
       _clearResolutionCaches();
     }
+    final status =
+        reachedEof ? SyncPullStatus.completed : SyncPullStatus.failed;
 
     if (kDebugMode) {
       debugPrint(
@@ -219,6 +240,7 @@ class LedgerSyncService implements LedgerPullAdapter {
       updated: updated,
       conflicts: conflicts,
       tombstoned: tombstoned,
+      status: status,
     );
   }
 

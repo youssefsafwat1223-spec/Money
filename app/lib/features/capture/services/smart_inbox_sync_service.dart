@@ -14,11 +14,13 @@ class SmartInboxSyncResult {
     this.imported = 0,
     this.updated = 0,
     this.tombstoned = 0,
+    this.status = SyncPullStatus.deferred,
   });
 
   final int imported;
   final int updated;
   final int tombstoned;
+  final SyncPullStatus status;
 }
 
 /// Injectable remote source — real impl calls Supabase; test impl returns
@@ -139,24 +141,34 @@ class SmartInboxSyncService {
     return pushed;
   }
 
-  Future<SmartInboxSyncResult> pull() async {
+  Future<SmartInboxSyncResult> pull({
+    SyncCursor? from,
+    bool Function()? isAdmitted,
+  }) async {
     if (!_isPullEnabled()) return const SmartInboxSyncResult();
 
     final userId = await _getAuthUserId();
     if (userId == null) return const SmartInboxSyncResult();
+    final admitted = isAdmitted ?? alwaysAdmitted;
 
     int imported = 0;
     int updated = 0;
     int tombstoned = 0;
 
+    var reachedEof = false;
     try {
-      var cursor = await readSyncCursor(_db, _cursorKey);
+      var cursor = from ?? await readSyncCursor(_db, _cursorKey);
       while (true) {
+        if (!admitted()) break;
         final rows = await _remoteSource.fetchRows(
           after: cursor,
           limit: _pageSize,
         );
-        if (rows.isEmpty) break;
+        if (!admitted()) break;
+        if (rows.isEmpty) {
+          reachedEof = true;
+          break;
+        }
 
         final nextCursor = SyncCursor.fromServerRow(rows.last);
         final pageResult = await _db.transaction(() async {
@@ -178,6 +190,7 @@ class SmartInboxSyncService {
                 break;
             }
           }
+          if (!admitted()) throw const ReconcilePullCancelled();
           await writeSyncCursor(_db, _cursorKey, nextCursor);
           return (
             imported: pageImported,
@@ -189,11 +202,19 @@ class SmartInboxSyncService {
         updated += pageResult.updated;
         tombstoned += pageResult.tombstoned;
         cursor = nextCursor;
-        if (rows.length < _pageSize) break;
+        if (rows.length < _pageSize) {
+          reachedEof = true;
+          break;
+        }
       }
+    } on ReconcilePullCancelled {
+      // Lifecycle/ownership cancellation, not a transport failure.
+      if (kDebugMode) debugPrint('[SmartInboxSync] reconciliation cancelled');
     } catch (e) {
       if (kDebugMode) debugPrint('[SmartInboxSync] pull error: $e');
     }
+    final status =
+        reachedEof ? SyncPullStatus.completed : SyncPullStatus.failed;
 
     if (kDebugMode) {
       debugPrint(
@@ -205,6 +226,7 @@ class SmartInboxSyncService {
       imported: imported,
       updated: updated,
       tombstoned: tombstoned,
+      status: status,
     );
   }
 

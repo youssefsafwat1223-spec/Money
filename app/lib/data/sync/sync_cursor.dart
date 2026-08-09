@@ -3,6 +3,39 @@ import '../db/sql_value_codec.dart';
 
 const syncCursorEpoch = '1970-01-01T00:00:00.000Z';
 
+/// Completion boundary of one pull pass. Batch-3: the legacy financial-cache
+/// reconciler may only clear a dirty marker on [completed] — a pull that
+/// [deferred] (feature/auth unavailable) or [failed] (network/page error, a
+/// partial pass) must leave the marker set. "No exception thrown" is NOT
+/// completion, because a pull swallows errors and returns a partial result.
+enum SyncPullStatus {
+  /// The paginated pull reached server EOF and its merge committed.
+  completed,
+
+  /// Not attempted this session (feature disabled / no authenticated user).
+  /// The persisted cursor was not touched.
+  deferred,
+
+  /// Attempted but did not reach EOF (network/page/parse error) — partial.
+  failed,
+}
+
+/// Default admission predicate for a normal (non-reconciliation) pull — always
+/// admitted. Batch-3: a reconciliation-triggered full pull instead passes a real
+/// admission-generation guard so an owner change (sign-out / relogin) mid-pull
+/// stops it at the next page boundary.
+bool alwaysAdmitted() => true;
+
+/// Thrown inside a pull's page transaction when admission is lost before the
+/// cursor is persisted — rolls back that page (applied rows AND cursor advance)
+/// atomically so a stale generation neither applies data nor moves the cursor.
+class ReconcilePullCancelled implements Exception {
+  const ReconcilePullCancelled();
+
+  @override
+  String toString() => 'ReconcilePullCancelled';
+}
+
 /// مفتاح pagination حصري مرتب حسب `(updated_at, id)`.
 class SyncCursor {
   const SyncCursor({

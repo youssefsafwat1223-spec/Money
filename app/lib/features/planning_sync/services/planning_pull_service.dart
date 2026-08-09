@@ -17,12 +17,20 @@ class PlanningPullResult {
     this.updated = 0,
     this.conflicts = 0,
     this.tombstoned = 0,
+    this.completedEntities = const {},
   });
 
   final int imported;
   final int updated;
   final int conflicts;
   final int tombstoned;
+
+  /// Planning is pulled per entity type, each with its own cursor. This is the
+  /// set of entity types whose paginated pull reached server EOF this pass —
+  /// the Batch-3 reconciler clears a planning dirty marker only for an entity
+  /// present here (an entity that errored mid-page is absent, so its marker
+  /// survives).
+  final Set<String> completedEntities;
 }
 
 abstract class PlanningRemoteSource {
@@ -108,14 +116,23 @@ class PlanningPullService {
     }
   }
 
-  Future<PlanningPullResult> pull() async {
+  /// [fromEpochEntities] names the planning entity types to force from epoch for
+  /// a reconciliation full re-pull; each has its own independent `planning_<e>`
+  /// cursor, so entities NOT named keep their normal incremental cursor and are
+  /// untouched. [isAdmitted] is checked at every page boundary (per entity).
+  Future<PlanningPullResult> pull({
+    Set<String>? fromEpochEntities,
+    bool Function()? isAdmitted,
+  }) async {
     final userId = await _getAuthUserId();
     if (userId == null) return const PlanningPullResult();
+    final admitted = isAdmitted ?? alwaysAdmitted;
 
     var imported = 0;
     var updated = 0;
     var conflicts = 0;
     var tombstoned = 0;
+    final completedEntities = <String>{};
 
     for (final entry in _entityTable.entries) {
       final entityType = entry.key;
@@ -124,14 +141,22 @@ class PlanningPullService {
 
       try {
         final cursorKey = 'planning_$entityType';
-        var cursor = await readSyncCursor(_db, cursorKey);
+        var cursor = (fromEpochEntities?.contains(entityType) ?? false)
+            ? const SyncCursor.epoch()
+            : await readSyncCursor(_db, cursorKey);
+        var entityReachedEof = false;
         while (true) {
+          if (!admitted()) break;
           final rows = await _remoteSource.fetchRows(
             remoteTable,
             after: cursor,
             limit: _pageSize,
           );
-          if (rows.isEmpty) break;
+          if (!admitted()) break;
+          if (rows.isEmpty) {
+            entityReachedEof = true;
+            break;
+          }
 
           final nextCursor = SyncCursor.fromServerRow(rows.last);
           final pageResult = await _db.transaction(() async {
@@ -165,6 +190,7 @@ class PlanningPullService {
                   break;
               }
             }
+            if (!admitted()) throw const ReconcilePullCancelled();
             await writeSyncCursor(_db, cursorKey, nextCursor);
             return (
               imported: pageImported,
@@ -178,7 +204,16 @@ class PlanningPullService {
           conflicts += pageResult.conflicts;
           tombstoned += pageResult.tombstoned;
           cursor = nextCursor;
-          if (rows.length < _pageSize) break;
+          if (rows.length < _pageSize) {
+            entityReachedEof = true;
+            break;
+          }
+        }
+        if (entityReachedEof) completedEntities.add(entityType);
+      } on ReconcilePullCancelled {
+        // Lifecycle/ownership cancellation for this entity — not transport.
+        if (kDebugMode) {
+          debugPrint('[PlanningPull] $entityType reconciliation cancelled');
         }
       } catch (e) {
         if (kDebugMode) debugPrint('[PlanningPull] $entityType pull: $e');
@@ -196,6 +231,7 @@ class PlanningPullService {
       updated: updated,
       conflicts: conflicts,
       tombstoned: tombstoned,
+      completedEntities: completedEntities,
     );
   }
 

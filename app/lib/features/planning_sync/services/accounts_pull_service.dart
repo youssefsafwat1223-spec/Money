@@ -17,12 +17,14 @@ class AccountsPullResult {
     this.updated = 0,
     this.conflicts = 0,
     this.tombstoned = 0,
+    this.status = SyncPullStatus.deferred,
   });
 
   final int imported;
   final int updated;
   final int conflicts;
   final int tombstoned;
+  final SyncPullStatus status;
 }
 
 abstract class AccountsRemoteSource {
@@ -88,24 +90,40 @@ class AccountsPullService {
     }
   }
 
-  Future<AccountsPullResult> pull() async {
+  /// [from] overrides the starting cursor for a reconciliation full re-pull
+  /// (epoch) WITHOUT destructively resetting the persisted cursor first — the
+  /// persisted cursor only advances as pages actually apply, so a deferred pull
+  /// (feature/auth off) leaves it untouched. [isAdmitted] is checked at every
+  /// page boundary; when it turns false the pull stops without applying more
+  /// rows or advancing the cursor, and reports [SyncPullStatus.failed].
+  Future<AccountsPullResult> pull({
+    SyncCursor? from,
+    bool Function()? isAdmitted,
+  }) async {
     if (!_isEnabled()) return const AccountsPullResult();
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPullResult();
+    final admitted = isAdmitted ?? alwaysAdmitted;
 
     int imported = 0;
     int updated = 0;
     int conflicts = 0;
     int tombstoned = 0;
+    var reachedEof = false;
 
     try {
-      var cursor = await readSyncCursor(_db, _cursorKey);
+      var cursor = from ?? await readSyncCursor(_db, _cursorKey);
       while (true) {
+        if (!admitted()) break;
         final rows = await _remoteSource.fetchRows(
           after: cursor,
           limit: _pageSize,
         );
-        if (rows.isEmpty) break;
+        if (!admitted()) break;
+        if (rows.isEmpty) {
+          reachedEof = true;
+          break;
+        }
 
         final nextCursor = SyncCursor.fromServerRow(rows.last);
         final pageResult = await _db.transaction(() async {
@@ -140,6 +158,7 @@ class AccountsPullService {
           // A tombstone clears is_default on its row; guarantee one default
           // survives the page's deletions with a single check (was per-row).
           if (anyTombstone) await _ensureOneDefaultAccount();
+          if (!admitted()) throw const ReconcilePullCancelled();
           await writeSyncCursor(_db, _cursorKey, nextCursor);
           return (
             imported: pageImported,
@@ -153,16 +172,25 @@ class AccountsPullService {
         conflicts += pageResult.conflicts;
         tombstoned += pageResult.tombstoned;
         cursor = nextCursor;
-        if (rows.length < _pageSize) break;
+        if (rows.length < _pageSize) {
+          reachedEof = true;
+          break;
+        }
       }
+    } on ReconcilePullCancelled {
+      // Lifecycle/ownership cancellation, not a transport failure: no retry,
+      // no backoff, no remote-failure diagnostic. Leaves the pull non-completed.
+      if (kDebugMode) debugPrint('[AccountsPull] reconciliation cancelled');
     } catch (e) {
       if (kDebugMode) debugPrint('[AccountsPull] pull error: $e');
     }
 
+    final status =
+        reachedEof ? SyncPullStatus.completed : SyncPullStatus.failed;
     if (kDebugMode) {
       debugPrint(
         '[AccountsPull] done: imported=$imported updated=$updated '
-        'conflicts=$conflicts tombstoned=$tombstoned',
+        'conflicts=$conflicts tombstoned=$tombstoned status=${status.name}',
       );
     }
     return AccountsPullResult(
@@ -170,6 +198,7 @@ class AccountsPullService {
       updated: updated,
       conflicts: conflicts,
       tombstoned: tombstoned,
+      status: status,
     );
   }
 

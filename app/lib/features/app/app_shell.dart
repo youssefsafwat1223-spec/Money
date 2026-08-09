@@ -14,6 +14,9 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
 import 'sync_cadence.dart';
+import '../../data/db/financial_cache_reconcile_map.dart';
+import '../../data/db/legacy_financial_cache_reconciler.dart';
+import 'legacy_reconcile_domains.dart';
 import '../../core/diagnostics/duplicate_trace_service.dart';
 import '../../core/exporting/export_providers.dart';
 import '../../core/exporting/managed_export_store.dart';
@@ -357,19 +360,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     await AppSession.instance.handleAuthRequiredFailure();
   }
 
-  Future<bool> _repairDirtyFinancialCaches() async {
-    try {
-      return await ref.read(financialCacheRepairServiceProvider).repairDirty();
-    } catch (error) {
-      // Keep the dirty marker intact. Routed repositories will fail closed
-      // instead of trusting Drift until a later online repair succeeds.
-      if (kDebugMode) {
-        debugPrint('[FinancialCache] repair pending: ${error.runtimeType}');
-      }
-      return false;
-    }
-  }
-
   /// Financial-data providers that may hold stale results after a write that
   /// bypassed this shell's live `dbRevisionProvider` connection (background
   /// notification actions, a repaired dirty mirror, or a session change).
@@ -423,23 +413,21 @@ class _AppShellState extends ConsumerState<AppShell> {
       // confirm/delete that already landed via the background path).
       final drainedActions = await _drainPendingNotificationActions();
       if (!mounted) return;
-      // B. Repair any Supabase-mirror cache marked dirty by a failed local
-      // write — this itself writes through the live AppDatabase connection,
-      // so it also ticks dbRevisionProvider for anything that watches it.
-      final repairedCache = await _repairDirtyFinancialCaches();
-      if (!mounted) return;
+      // B. (MALI-034) The recurring Supabase-authoritative cache repair was
+      // retired; a legacy dirty marker is now reconciled IN-SLOT during the
+      // normal push/pull sync body (see _runLedgerSyncBody), which writes
+      // through the live AppDatabase connection and ticks dbRevisionProvider.
       // C. Explicit invalidation as a safety net for writes that landed
       // through a connection dbRevisionProvider can't observe — only when
-      // A or B actually found something (see doc comment above).
-      final needsInvalidation = drainedActions || repairedCache;
+      // A actually found something (see doc comment above).
+      final needsInvalidation = drainedActions;
       if (needsInvalidation) {
         _invalidateFinancialProviders();
       }
       if (kDebugMode) {
         final ms = DateTime.now().difference(start).inMilliseconds;
         debugPrint('[Reconcile] success (${ms}ms) drainedActions='
-            '$drainedActions repairedCache=$repairedCache '
-            'invalidated=$needsInvalidation');
+            '$drainedActions invalidated=$needsInvalidation');
       }
     } catch (error, stackTrace) {
       if (kDebugMode) {
@@ -652,18 +640,43 @@ class _AppShellState extends ConsumerState<AppShell> {
       final outcome = await ref.read(startupSyncReconcileServiceProvider).run();
       if (outcome != ReconcileOutcome.failed) _didReconcile = true;
     }
+    // MALI-034: in-slot legacy financial-cache reconciliation, built once with
+    // THIS run's admission generation. A domain carrying a legacy dirty marker is
+    // re-pulled from epoch at its normal post-push pull slot (replacing the
+    // incremental pull) and its marker cleared on completion; otherwise the
+    // normal incremental pull runs. A `cancelled` outcome (owner changed mid-run)
+    // aborts the rest of this body before any later owner-sensitive phase. This
+    // replaces the retired recurring FinancialCacheRepairService cycle.
+    final reconciler = LegacyFinancialCacheReconciler(
+      db: ref.read(appDatabaseProvider),
+      generation: gen,
+      isAdmitted: _syncGate.admits,
+    );
+    if (kDebugMode) {
+      final unsupported =
+          await unsupportedDirtyMarkers(ref.read(appDatabaseProvider));
+      if (unsupported.isNotEmpty) {
+        debugPrint(
+            '[FinancialCache] unsupported dirty markers remain: $unsupported');
+      }
+    }
     final planning = ref.read(planningSyncEngineProvider);
+    var cancelled = false;
     try {
-      await planning.syncParents();
+      final parents = await planning.syncParents(reconciler: reconciler);
+      cancelled = parents.cancelled;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[PlanningSync] parent sync skipped: ${error.runtimeType}');
       }
     }
+    if (cancelled) return;
     // S5 reads are Drift-only. Background workers are a signed-in capability
     // and never depend on obsolete *_supabase_primary routing flags.
     try {
-      await ref.read(ledgerSyncEngineProvider).sync();
+      final ledger =
+          await ref.read(ledgerSyncEngineProvider).sync(reconciler: reconciler);
+      if (ledger == ReconcileDomainResult.cancelled) return;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[LedgerEngine] sync skipped: ${error.runtimeType}');
@@ -674,7 +687,14 @@ class _AppShellState extends ConsumerState<AppShell> {
     try {
       final smartInbox = ref.read(smartInboxSyncServiceProvider);
       await smartInbox.push();
-      await smartInbox.pull();
+      final inbox = await reconcileOrPull(
+        reconciler: reconciler,
+        domain: smartInboxReconcileDomain(smartInbox),
+        normalPull: (admitted) async {
+          await smartInbox.pull(isAdmitted: admitted);
+        },
+      );
+      if (inbox == ReconcileDomainResult.cancelled) return;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[SmartInboxSync] sync skipped: ${error.runtimeType}');

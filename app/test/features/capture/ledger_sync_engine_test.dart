@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/capture/services/ledger_push_service.dart';
 import 'package:money_companion/features/capture/services/ledger_sync_engine.dart';
 import 'package:money_companion/features/capture/services/ledger_sync_service.dart';
@@ -37,7 +38,7 @@ class _StubPull implements LedgerPullAdapter {
   bool called = false;
 
   @override
-  Future<LedgerSyncResult> pull() async {
+  Future<LedgerSyncResult> pull({SyncCursor? from, bool Function()? isAdmitted}) async {
     called = true;
     if (_throws) throw Exception('pull error');
     return _result;
@@ -62,7 +63,7 @@ class _OrderedPull implements LedgerPullAdapter {
   final List<String> _log;
 
   @override
-  Future<LedgerSyncResult> pull() async {
+  Future<LedgerSyncResult> pull({SyncCursor? from, bool Function()? isAdmitted}) async {
     _log.add('pull');
     return const LedgerSyncResult();
   }

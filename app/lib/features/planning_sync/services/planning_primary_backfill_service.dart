@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/entities/budget_entity.dart';
@@ -27,22 +28,43 @@ class PlanningPrimaryBackfillService {
     required AppDatabase db,
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
+    Future<String?> Function()? getLocalDataOwnerUid,
   })  : _db = db,
         _client = getClient ?? (() => Supabase.instance.client),
-        _getAuthUserId = getAuthUserId ?? _defaultUserId;
+        _getAuthUserId = getAuthUserId ?? _defaultUserId,
+        _getLocalDataOwnerUid =
+            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
 
   final AppDatabase _db;
   final SupabaseClient Function() _client;
   final Future<String?> Function() _getAuthUserId;
+  final Future<String?> Function() _getLocalDataOwnerUid;
 
   static Future<String?> _defaultUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
     return Supabase.instance.client.auth.currentUser?.id;
   }
 
+  /// دفاع في العمق: يرفض ترحيل بيانات التخطيط إن كانت البيانات المحلية مسجَّلة
+  /// كملك لهوية Supabase مختلفة عن الهوية الحالية — يمنع رفع بيانات مستخدم سابق
+  /// تحت هوية المستخدم الحالي. مطابق لعقد AccountsBackfillService/
+  /// TransactionsBackfillService؛ `null` (بيانات قديمة قبل تسجيل الملكية) مسموح
+  /// به عمداً حسب سياسة الترحيل المقبولة. يجب أن يسبق أي نداء شبكي.
+  Future<void> _assertLocalDataOwnership(String uid) async {
+    final ownerUid = await _getLocalDataOwnerUid();
+    if (ownerUid != null && ownerUid != uid) {
+      throw const ValidationRepoException(
+        'Local planning data is recorded as owned by a different signed-in '
+        'identity than the one currently authenticated — refusing to upload '
+        'it to avoid cross-account data leakage.',
+      );
+    }
+  }
+
   Future<PlanningBackfillReport> run({Set<String>? onlyEntities}) async {
     final uid = await _getAuthUserId();
     if (uid == null) throw const AuthRepoException();
+    await _assertLocalDataOwnership(uid);
     final created = <String, int>{};
     final matched = <String, int>{};
     final failures = <String>[];

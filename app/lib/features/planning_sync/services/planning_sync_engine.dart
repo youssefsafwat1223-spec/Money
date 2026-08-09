@@ -1,12 +1,31 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/sync/conflict_resolver.dart';
+import '../../../data/db/legacy_financial_cache_reconciler.dart';
+import '../../app/legacy_reconcile_domains.dart';
 import 'accounts_pull_service.dart';
 import 'accounts_push_service.dart';
 import 'planning_pull_service.dart';
 import 'planning_push_service.dart';
 import 'planning_child_sync_service.dart';
 import 'planning_startup_registration_service.dart';
+
+/// Structured outcome of the planning parent phase, so the sync body drives
+/// control flow from explicit results (not inferred generation checks): the
+/// accounts and planning in-slot outcomes, and whether the phase was cancelled.
+class SyncParentsOutcome {
+  const SyncParentsOutcome({
+    required this.accounts,
+    required this.planning,
+  });
+
+  final ReconcileDomainResult accounts;
+  final ReconcileDomainResult planning;
+
+  bool get cancelled =>
+      accounts == ReconcileDomainResult.cancelled ||
+      planning == ReconcileDomainResult.cancelled;
+}
 
 class PlanningSyncEngine {
   const PlanningSyncEngine({
@@ -33,23 +52,43 @@ class PlanningSyncEngine {
   final PlanningStartupRegistrationService _startupRegistration;
   final UniversalConflictResolver _conflictResolver;
 
-  Future<void> sync() async {
-    await syncParents();
+  Future<void> sync({LegacyFinancialCacheReconciler? reconciler}) async {
+    final parents = await syncParents(reconciler: reconciler);
+    if (parents.cancelled) return;
     await syncChildren();
   }
 
   /// Accounts and planning parents must sync before ledger rows so foreign
   /// key/server-ID correlation is available on a fresh second device.
-  Future<void> syncParents() async {
+  ///
+  /// [reconciler] enables the in-slot legacy epoch reconciliation at the accounts
+  /// and planning pull slots. Requirement 1: a `cancelled` outcome aborts INSIDE
+  /// this method at the exact slot — no later planning push/conflict/pull/
+  /// registration runs under a stale generation.
+  Future<SyncParentsOutcome> syncParents({
+    LegacyFinancialCacheReconciler? reconciler,
+  }) async {
     try {
       await _accountsPush.push();
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] accounts push error: $e');
     }
-    try {
-      await _accountsPull.pull();
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlanningSync] accounts pull error: $e');
+    final accounts = await reconcileOrPull(
+      reconciler: reconciler,
+      domain: accountsReconcileDomain(_accountsPull),
+      normalPull: (admitted) async {
+        try {
+          await _accountsPull.pull(isAdmitted: admitted);
+        } catch (e) {
+          if (kDebugMode) debugPrint('[PlanningSync] accounts pull error: $e');
+        }
+      },
+    );
+    if (accounts == ReconcileDomainResult.cancelled) {
+      return const SyncParentsOutcome(
+        accounts: ReconcileDomainResult.cancelled,
+        planning: ReconcileDomainResult.noDirtyState,
+      );
     }
     try {
       await _planningPush.push();
@@ -66,10 +105,20 @@ class PlanningSyncEngine {
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] auto-resolve error: $e');
     }
-    try {
-      await _planningPull.pull();
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlanningSync] planning pull error: $e');
+    final planning = await reconcileOrPull(
+      reconciler: reconciler,
+      domain: planningReconcileDomain(_planningPull),
+      normalPull: (admitted) async {
+        try {
+          await _planningPull.pull(isAdmitted: admitted);
+        } catch (e) {
+          if (kDebugMode) debugPrint('[PlanningSync] planning pull error: $e');
+        }
+      },
+    );
+    if (planning == ReconcileDomainResult.cancelled) {
+      return SyncParentsOutcome(
+          accounts: accounts, planning: ReconcileDomainResult.cancelled);
     }
     // Pull first so an existing remote singleton wins over freshly seeded
     // defaults. Only genuinely missing settings/custom categories are queued.
@@ -79,6 +128,7 @@ class PlanningSyncEngine {
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] registration error: $e');
     }
+    return SyncParentsOutcome(accounts: accounts, planning: planning);
   }
 
   /// Called after ledger sync so bill-payment transaction references and plan
