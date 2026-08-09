@@ -5,7 +5,41 @@ Single source of truth for the state of every finding from `FULL_APP_AUDIT.md`
 is ever removed from this ledger.** Updated at the end of every phase.
 
 - **Baseline HEAD:** `e2679d0e` (feat/phase1-data-integrity)
-- **Last updated:** **Phase 7 Batch 2-B — report/export/backup memory (MALI-030)
+- **Last updated:** **Phase 7 Batch 2 — CLOSURE: Argon2 KDF gate determinism
+  (test/harness reliability) — 2026-08-08.** The Batch-2 canonical gate was not
+  deterministic: two backup/database-key tests intermittently failed with
+  `Bad state: Segment processing timeout`, passing only in isolation / on a rerun.
+  **Root cause (from source):** `package:cryptography` 2.9.0
+  `DartArgon2StateImplFfi._sendSegmentsToIsolate` guards each Argon2 segment with a
+  **hardcoded 10s per-segment isolate timeout** that is internal to the package and
+  **immune to `@Timeout`**; under `flutter test`'s default core-count parallelism the
+  memory-hard 64 MiB derivation's worker isolate is CPU-starved and a segment can exceed
+  10s (measured derive inflation ~3s→~8s@2×→~11s@4× oversubscription). The prior fix
+  `f469b69c` bumped the **outer framework** `@Timeout` — the wrong layer — so the flake
+  recurred in a different file. **Fix (no production crypto/wire/param change):** a
+  `crypto-prod` tag (`app/dart_test.yaml`) routes the production-cost crypto contract set
+  (`backup_envelope_v3_test.dart`, `backup_payload_limit_test.dart`) into a **serialized**
+  gate stage (`flutter test --tags crypto-prod --concurrency=1`) run uncontended, and
+  **excludes** it from the parallel bulk stage (`--exclude-tags crypto-prod`) — both
+  mandatory in `tools/ci_gates.sh` (gate 4a/4b), disjoint, union = whole suite. The two
+  previously-flaky **semantic** tests in `database_key_state_test.dart` now inject a cheap
+  Argon2 via the existing `BackupCrypto(kdf:)` seam (envelope-semantics assertions are
+  KDF-cost-independent; genuine production-cost wrong-passphrase/round-trip coverage is
+  retained in the serialized set — nothing faked). **Production DB-key KDF wiring
+  (audited):** the SQLCipher DB key is a RANDOM secure-storage value (NOT Argon2-derived);
+  `db_encryption_key_ref` is a deprecated column excluded from backups; the production
+  Argon2id KDF is the backup key-protection boundary (`BackupCrypto`/`EncryptedBackupService`).
+  New mandatory `production_kdf_contract_test.dart` (3rd `crypto-prod` file, serialized)
+  pins all four production params (64 MiB/3/2/32), proves the real KDF is selected +
+  deterministic + salt-sensitive + consumed through the production v3 boundary, and that
+  the missing-DB-key state stays a DISTINCT typed exception. `database_lease_test.dart`
+  isolate spawns hardened with defensive `addTearDown` kills (no core-burning isolate leak).
+  **Rerun-normalization removed** (the closure rule forbids failed→isolated-pass→rerun as
+  evidence); a clean gate no longer depends on any rerun. Consecutive first-attempt green
+  evidence + full root-cause write-up: `PHASE_7_TEST_AND_CI_CONTRACT.md §9`. Argon2
+  production parameters (64 MiB/3/2/32B), v3 envelope wire format, AES-GCM, and all
+  security limits UNCHANGED; schema v29; CAS false; 0070 inactive; 0068–0076 undeployed;
+  not pushed. Prior — **Phase 7 Batch 2-B — report/export/backup memory (MALI-030)
   — 2026-08-07.** Removed/capped every avoidable full-dataset materialization: SQL
   top-N for report largest-transactions; keyset-paged + 5000-capped report appendix;
   keyset-paged CSV export + chunked encode; paged full-export transactions + no
@@ -372,7 +406,7 @@ P6 backup/DB/reliability · P7 CI/test/arch/docs · P8 MALI-026 · P9 external v
 | MALI-037 | Med | C | P7 | Not started | CVE/license gate |
 | MALI-038 | Low | C+T | P7 | **Code complete · Locally verified** (packaged IPA/APK size + real-device typography/layout external) | **P7-B2-D DONE.** Asset portion: removed 8.1 MB unreferenced assets, `asset_budget_test.dart` enforces ≤1 MiB/file + ≤11 MiB total (assets/ 7.81→~8.47 MiB with bundled fonts; margin ~2.5 MiB). **Font portion DONE:** user-supplied SIL-OFL-1.1 Alexandria TTFs bundled (verified family='Alexandria', usWeightClass 400/500/600/700, valid TrueType) + registered as ONE `Alexandria` family (400/500/600/700) with a bundled `IBMPlexSansArabic` fallback; `AppTypography.custom()` → plain `TextStyle(fontFamily:'Alexandria')` (all metrics unchanged); **`google_fonts` dependency removed** → no runtime font fetch, offline-correct. FontManifest verified; behavioral font tests (`app_typography_test`) replace the brittle source-text test; `asset_budget_test` asserts all 4 weights packaged. PDF font path unchanged. See `PHASE_7_PERFORMANCE_CONTRACT.md §8`. |
 | MALI-039 | Low | C | P5/P7 | Code complete · Locally verified | central redacting diagnostic sink — `main()` rewires the global `debugPrint` to redact (shared `PrivacyRedactor`) + length-bound every line (all call sites, plugins, future code) in debug AND release; `Diag.error`/`Diag.log` sanctioned structured API; SQL already parameterized (custom SQL interpolates only fixed table identifiers, never values). `0010b037` (P5-B2) |
-| MALI-040 | Low | T | P7 | Not started | test isolation (subsumed by MALI-067n) |
+| MALI-040 | Low | T | P7 | Not started (one contention-surface item hardened) | test isolation (subsumed by MALI-067n). **P7-B2 (Argon2 gate determinism):** the two `database_lease_test.dart` `Isolate.spawn` sites now carry a defensive `addTearDown` kill so a core-burning hammer isolate cannot leak on the throw-path and starve a co-located Argon2 derivation. This is confined to the CPU-contention surface behind the gate flake; the broader test-isolation sweep (global static state, executor ownership, temp-dir teardown across the suite) remains scoped here for a later batch. |
 | MALI-041 | Low | T | P7 | **Code complete · Locally verified** | **P7-B1 (authoritative-identity reconciled).** MALI-041 = admin **test-quality** defect: the assertion matched the parser-test source with a double-quote literal `.from("admin_users")` while the source uses single quotes — a false failure despite correct auth→admin→parser ordering (`FULL_APP_AUDIT.md:622`; `FINAL_FULL_PRODUCTION_AUDIT.md:122`). **Baseline reproduced:** the old double-quote match returns index -1 on the real single-quote source. **Fix:** a quote/whitespace-independent structural contract (`enforcesAuthThenAdminThenRead`: `auth.getUser → admin_users allowlist → sms_parsers read`, no caller-supplied admin identity) + 3 negative self-tests + a **MALI-041 regression** proving quote-style invariance (single- AND double-quote inputs both pass and are equal; the live source passes). Admin suite **8 pass / 0 fail**, wired into the canonical gate + CI. Distinct from **MALI-066n** (the CI-visibility gap). No longer a known failure. |
 | MALI-042 | Low | T | P7 | Not started | Edge unit isolation (MALI-066n) |
 | MALI-043 | Low | P+D | P7 | Decision required | canonical brand name (Mali vs Qirsh) |
