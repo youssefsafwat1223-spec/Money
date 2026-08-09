@@ -4,7 +4,6 @@ import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
-import '../../../data/repositories/supabase_transaction_repository.dart';
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/suspected_duplicate_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
@@ -38,8 +37,6 @@ class CaptureSyncService {
     CaptureBackendClient? client,
     bool? backendConfigured,
     Future<String> Function()? loadInstallId,
-    SupabaseTransactionRepository? directTransactionRepository,
-    bool Function()? isSupabasePrimaryEnabled,
   })  : _settingsRepository = settingsRepository,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
@@ -48,9 +45,7 @@ class CaptureSyncService {
         _accountRepository = accountRepository,
         _client = client,
         _backendConfigured = backendConfigured,
-        _loadInstallId = loadInstallId,
-        _directTransactionRepository = directTransactionRepository,
-        _isSupabasePrimaryEnabled = isSupabasePrimaryEnabled;
+        _loadInstallId = loadInstallId;
 
   static final DateTime _payloadMarkerTime =
       DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
@@ -64,8 +59,6 @@ class CaptureSyncService {
   final CaptureBackendClient? _client;
   final bool? _backendConfigured;
   final Future<String> Function()? _loadInstallId;
-  final SupabaseTransactionRepository? _directTransactionRepository;
-  final bool Function()? _isSupabasePrimaryEnabled;
 
   // مزامنة واحدة في الرحلة الواحدة: الاستئناف (resume) وضغطة الإشعار يصلان
   // في نفس اللحظة تقريبًا، وبدون هذا القفل يجلب الاثنان نفس صفوف الـ relay
@@ -134,46 +127,13 @@ class CaptureSyncService {
 
     final imported = <String>{};
     final needsReviewTransactionIds = <String>[];
-    // The Edge Function's capture_direct_supabase_write flag controls whether
-    // it writes before the app opens. Relay recovery is separate: it must
-    // import into the repository currently powering the transaction UI.
-    final supabasePrimaryMode = _isSupabasePrimaryEnabled?.call() ?? false;
     for (final capture in captures) {
       if (capture.payloadId.isEmpty) continue;
       if (await isPayloadImported(capture.payloadId)) {
         imported.add(capture.payloadId);
         continue;
       }
-      if (supabasePrimaryMode && _directTransactionRepository != null) {
-        final existing = await _directTransactionRepository
-            .getBySourcePayloadId(capture.payloadId);
-        if (existing != null) {
-          if (existing.accountId == null) {
-            final currency = _string(capture.parsed['currency']);
-            final account =
-                currency == null ? null : await _accountForCurrency(currency);
-            if (account != null) {
-              await _directTransactionRepository.updateAccount(
-                transactionId: existing.id,
-                accountId: account.id,
-              );
-            }
-          }
-          await markPayloadImported(
-            payloadId: capture.payloadId,
-            transactionId: existing.id,
-          );
-          if (capture.status == 'needs_review') {
-            needsReviewTransactionIds.add(existing.id);
-          }
-          imported.add(capture.payloadId);
-          continue;
-        }
-      }
-      final needsReviewTransactionId = await _importCapture(
-        capture,
-        supabasePrimaryMode: supabasePrimaryMode,
-      );
+      final needsReviewTransactionId = await _importCapture(capture);
       if (needsReviewTransactionId != null) {
         needsReviewTransactionIds.add(needsReviewTransactionId);
       }
@@ -253,10 +213,7 @@ class CaptureSyncService {
     );
   }
 
-  Future<String?> _importCapture(
-    ProcessedCaptureDto capture, {
-    required bool supabasePrimaryMode,
-  }) async {
+  Future<String?> _importCapture(ProcessedCaptureDto capture) async {
     final parsed = capture.parsed;
     var duplicateOf = _string(parsed['possibleDuplicateOfTransactionId']);
     final duplicatePayloadId = _string(parsed['possibleDuplicateOfPayloadId']);
@@ -375,37 +332,22 @@ class CaptureSyncService {
           _string(parsed['possibleDuplicateOfTransactionId']),
       duplicateReason: _string(parsed['duplicateReason']),
     );
-    final TransactionEntity saved;
-    if (supabasePrimaryMode && _directTransactionRepository != null) {
-      // Legacy direct-Supabase branch: the remote write cannot share a local
-      // transaction; marker ordering stays as before.
-      saved = await _directTransactionRepository.saveCapturedTransaction(
+    // Atomic import (MALI-012): transaction row (+outbox, via the repo's own
+    // transaction → savepoint) and the payload dedup marker commit or roll back
+    // together — a kill between them can no longer leave an imported row whose
+    // payload re-imports as a duplicate, nor a marked payload whose transaction
+    // never landed.
+    final saved = await _dedupStore.runAtomically(() async {
+      final inserted = await _transactionRepository.saveTransaction(
         transaction: transaction,
         categoryKey: _string(parsed['category']),
-        payloadId: capture.payloadId,
       );
       await markPayloadImported(
         payloadId: capture.payloadId,
-        transactionId: saved.id,
+        transactionId: inserted.id,
       );
-    } else {
-      // Atomic import (MALI-012): transaction row (+outbox, via the repo's
-      // own transaction → savepoint) and the payload dedup marker commit or
-      // roll back together — a kill between them can no longer leave an
-      // imported row whose payload re-imports as a duplicate, nor a marked
-      // payload whose transaction never landed.
-      saved = await _dedupStore.runAtomically(() async {
-        final inserted = await _transactionRepository.saveTransaction(
-          transaction: transaction,
-          categoryKey: _string(parsed['category']),
-        );
-        await markPayloadImported(
-          payloadId: capture.payloadId,
-          transactionId: inserted.id,
-        );
-        return inserted;
-      });
-    }
+      return inserted;
+    });
     return capture.status == 'needs_review' || capture.status == 'duplicate'
         ? saved.id
         : null;

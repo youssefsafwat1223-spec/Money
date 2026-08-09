@@ -4,7 +4,7 @@ import '../../../core/sync/outbox_failure.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
-import '../../../data/repositories/supabase_transaction_repository.dart';
+import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import 'ledger_payload.dart';
 
@@ -310,5 +310,5 @@ class LedgerOutboxQueue {
   // LedgerPushService._pushUpdate) so a server source already set by the relay
   // is never clobbered.
   static String _mapSource(TransactionSourceEntity source) =>
-      SupabaseTransactionRepository.sourceToServer(source);
+      transactionSourceToServer(source);
 }

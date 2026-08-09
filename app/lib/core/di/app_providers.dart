@@ -29,7 +29,6 @@ import '../../data/db/app_database.dart';
 import '../../data/repositories/account_deletion_service.dart';
 import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_card_repository.dart';
-import '../../data/repositories/financial_cache_repair_service.dart';
 import '../../data/repositories/routed_account_repository.dart';
 import '../../data/repositories/routed_category_repository.dart';
 import '../../data/repositories/routed_bill_repository.dart';
@@ -38,13 +37,6 @@ import '../../data/repositories/routed_goal_repository.dart';
 import '../../data/repositories/routed_plan_repository.dart';
 import '../../data/repositories/routed_smart_inbox_repository.dart';
 import '../../data/repositories/routed_transaction_repository.dart';
-import '../../data/repositories/supabase_account_repository.dart';
-import '../../data/repositories/supabase_bill_repository.dart';
-import '../../data/repositories/supabase_budget_repository.dart';
-import '../../data/repositories/supabase_goal_repository.dart';
-import '../../data/repositories/supabase_plan_repository.dart';
-import '../../data/repositories/supabase_smart_inbox_repository.dart';
-import '../../data/repositories/supabase_transaction_repository.dart';
 import '../../data/repositories/drift_bill_repository.dart';
 import '../../data/repositories/drift_plan_repository.dart';
 import '../../data/repositories/drift_budget_repository.dart';
@@ -360,20 +352,6 @@ final accountDeletionStatusProvider =
   return ref.watch(accountDeletionServiceProvider).getStatus();
 });
 
-final financialCacheRepairServiceProvider =
-    Provider<FinancialCacheRepairService>((ref) {
-  final db = ref.watch(appDatabaseProvider);
-  return FinancialCacheRepairService(
-    db: db,
-    accountsRepo: SupabaseAccountRepository(db: db),
-    transactionsRepo: SupabaseTransactionRepository(db: db),
-    budgetsRepo: SupabaseBudgetRepository(db: db),
-    goalsRepo: SupabaseGoalRepository(db: db),
-    billsRepo: SupabaseBillRepository(db: db),
-    plansRepo: SupabasePlanRepository(db: db),
-    smartInboxRepo: SupabaseSmartInboxRepository(db: db),
-  );
-});
 
 final catalogSyncServiceProvider = Provider<CatalogSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
@@ -965,8 +943,6 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
     accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
-    // Pattern-A is retired in production.
-    isSupabasePrimaryEnabled: () => false,
   );
 });
 

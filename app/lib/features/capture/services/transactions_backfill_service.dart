@@ -5,7 +5,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
-import '../../../data/repositories/supabase_transaction_repository.dart';
+import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/errors/repo_exceptions.dart';
 
@@ -152,16 +152,15 @@ class TransactionsBackfillService {
         'category_id': categoryKey,
         'occurred_at': dateTimeFromSql(local.read<String>('occurred_at'))
             .toIso8601String(),
-        'source': SupabaseTransactionRepository.sourceToServer(
+        'source': transactionSourceToServer(
           TransactionSourceEntity.values.firstWhere(
             (s) => s.name == local.read<String>('source'),
             orElse: () => TransactionSourceEntity.unknown,
           ),
         ),
         'confidence': local.read<double>('parse_confidence'),
-        'direction': SupabaseTransactionRepository.directionToServer(direction),
-        'transaction_type':
-            SupabaseTransactionRepository.typeToServer(type, direction),
+        'direction': transactionDirectionToServer(direction),
+        'transaction_type': transactionTypeToServer(type, direction),
         'server_account_id': serverAccountId,
         'balance_after': local.readNullable<double>('balance_after'),
         'status': isDeleted ? 'ignored' : local.read<String>('status'),

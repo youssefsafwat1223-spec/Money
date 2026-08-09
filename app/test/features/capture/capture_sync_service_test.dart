@@ -1,9 +1,5 @@
-import 'dart:convert';
-
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart';
-import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
@@ -11,7 +7,6 @@ import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
-import 'package:money_companion/data/repositories/supabase_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
@@ -20,7 +15,6 @@ import 'package:money_companion/features/capture/services/capture_backend_client
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/capture_sync_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -314,119 +308,6 @@ void main() {
     expect(transactions.single.type, TransactionTypeEntity.transfer);
   });
 
-  test('Supabase-primary relay reuses canonical source payload and only acks',
-      () async {
-    const payloadId = 'payload-direct-existing';
-    var transactionPosts = 0;
-    final http = MockClient((request) async {
-      if (request.method == 'POST') transactionPosts++;
-      return Response(
-        jsonEncode([_serverTransaction(payloadId)]),
-        200,
-        headers: const {
-          'content-type': 'application/json',
-          'content-range': '0-0/*',
-        },
-        request: request,
-      );
-    });
-    final directRepository = SupabaseTransactionRepository(
-      db: db,
-      getClient: () => SupabaseClient(
-        'https://example.supabase.co',
-        'anon-key',
-        httpClient: http,
-        accessToken: () async => 'qa-token',
-      ),
-      getAuthUserId: () async => 'qa-user',
-    );
-    final client = _FakeCaptureBackendClient([
-      _capture(payloadId: payloadId, status: 'processed'),
-    ]);
-    final syncService = CaptureSyncService(
-      settingsRepository: settingsRepository,
-      transactionRepository: DriftTransactionRepository(db),
-      dedupStore: DriftDedupStore(db),
-      suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
-      registrationService: _FakeRegistrationService(),
-      accountRepository: null,
-      client: client,
-      backendConfigured: true,
-      loadInstallId: () async => 'install-id',
-      directTransactionRepository: directRepository,
-      isSupabasePrimaryEnabled: () => true,
-    );
-
-    final result = await syncService.sync();
-
-    expect(transactionPosts, 0);
-    expect(result.importedPayloadIds, {payloadId});
-    expect(client.ackedPayloadIds, [payloadId]);
-    expect(
-      await syncService.transactionIdForPayload(payloadId),
-      '10000000-0000-4000-8000-000000000001',
-    );
-    expect(await db.count('transactions'), 1);
-  });
-
-  test('Supabase-primary relay inserts a missing capture before ack', () async {
-    const payloadId = 'payload-relay-missing';
-    var transactionPosts = 0;
-    final http = MockClient((request) async {
-      if (request.method == 'GET') {
-        return Response(
-          'null',
-          200,
-          headers: const {'content-type': 'application/json'},
-          request: request,
-        );
-      }
-      transactionPosts++;
-      final row = _serverTransaction(payloadId);
-      return Response(
-        jsonEncode(row),
-        201,
-        headers: const {'content-type': 'application/json'},
-        request: request,
-      );
-    });
-    final directRepository = SupabaseTransactionRepository(
-      db: db,
-      getClient: () => SupabaseClient(
-        'https://example.supabase.co',
-        'anon-key',
-        httpClient: http,
-        accessToken: () async => 'qa-token',
-      ),
-      getAuthUserId: () async => 'qa-user',
-    );
-    final client = _FakeCaptureBackendClient([
-      _capture(payloadId: payloadId, status: 'processed'),
-    ]);
-    final syncService = CaptureSyncService(
-      settingsRepository: settingsRepository,
-      transactionRepository: DriftTransactionRepository(db),
-      dedupStore: DriftDedupStore(db),
-      suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
-      registrationService: _FakeRegistrationService(),
-      client: client,
-      backendConfigured: true,
-      loadInstallId: () async => 'install-id',
-      directTransactionRepository: directRepository,
-      isSupabasePrimaryEnabled: () => true,
-    );
-
-    final result = await syncService.sync();
-
-    expect(transactionPosts, 1);
-    expect(result.importedPayloadIds, {payloadId});
-    expect(client.ackedPayloadIds, [payloadId]);
-    expect(
-      await syncService.transactionIdForPayload(payloadId),
-      '10000000-0000-4000-8000-000000000001',
-    );
-  });
-
   test('failed ack followed by dedup prune must not re-import the capture',
       () async {
     // ack يفشل دائمًا — يبقى صف الـ relay على الخادم، وسجل الاستيراد المحلي
@@ -542,37 +423,6 @@ class _SlowFetchBackendClient extends _FakeCaptureBackendClient {
     return _captures;
   }
 }
-
-Map<String, dynamic> _serverTransaction(String payloadId) => {
-      'id': '10000000-0000-4000-8000-000000000001',
-      'user_id': 'qa-user',
-      'client_request_id': null,
-      'source_payload_id': payloadId,
-      'amount': 42,
-      'currency': 'SAR',
-      'merchant': 'Coffee',
-      'description': null,
-      'category_id': null,
-      'occurred_at': '2026-07-05T10:00:00.000Z',
-      'source': 'ios_shortcut',
-      'confidence': 0.9,
-      'direction': 'debit',
-      'transaction_type': 'expense',
-      'server_account_id': null,
-      'balance_after': null,
-      'status': 'confirmed',
-      'foreign_amount': null,
-      'foreign_currency': null,
-      'comparison_timestamp': '2026-07-05T10:00:00.000Z',
-      'comparison_timestamp_source': 'sms_body',
-      'metadata': const {
-        'transaction_source': 'bank',
-        'comparison_timestamp_source': 'sms_body',
-      },
-      'created_at': '2026-07-05T10:00:00.000Z',
-      'updated_at': '2026-07-05T10:00:00.000Z',
-      'deleted_at': null,
-    };
 
 ProcessedCaptureDto _capture({
   required String payloadId,
