@@ -2,11 +2,8 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../data/catalog/feature_flag_service.dart';
 import '../../data/db/app_database.dart';
-import '../../data/db/financial_cache_health.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/category_entity.dart';
@@ -15,12 +12,10 @@ import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/repositories/user_settings_repository.dart';
-import '../backend/supabase_config.dart';
 import 'data_portability_models.dart';
 import 'drift_financial_exporter.dart';
 import 'drift_financial_importer.dart';
 import 'generic_transaction_import.dart';
-import 'package:money_companion/core/data_portability/import_normalizer.dart';
 import 'package:money_companion/core/data_portability/portable_csv.dart';
 import 'package:money_companion/core/data_portability/qirsh_package_codec.dart';
 
@@ -31,33 +26,17 @@ class AppDataPortabilityService implements DataPortabilityService {
     required CategoryRepository categories,
     required TransactionRepository transactions,
     required UserSettingsRepository settings,
-    required FeatureFlagService Function() flags,
-    SupabaseClient Function()? getSupabase,
-    Future<Object?> Function(String functionName, Map<String, dynamic> params)?
-        invokeRpc,
-    Future<void> Function()? repairFinancialCache,
   })  : _db = db,
         _accounts = accounts,
         _categories = categories,
         _transactions = transactions,
-        _settings = settings,
-        _flags = flags,
-        _getSupabase = getSupabase,
-        _invokeRpc = invokeRpc,
-        _repairFinancialCache = repairFinancialCache;
+        _settings = settings;
 
   final AppDatabase _db;
   final AccountRepository _accounts;
   final CategoryRepository _categories;
   final TransactionRepository _transactions;
   final UserSettingsRepository _settings;
-  final FeatureFlagService Function() _flags;
-  final SupabaseClient Function()? _getSupabase;
-  final Future<Object?> Function(
-    String functionName,
-    Map<String, dynamic> params,
-  )? _invokeRpc;
-  final Future<void> Function()? _repairFinancialCache;
 
   final Map<String, Object> _inspected = {};
 
@@ -124,19 +103,8 @@ class AppDataPortabilityService implements DataPortabilityService {
 
   @override
   Future<ExportedFile> exportFinancialPackage() async {
-    if (_anyFinancialPrimary && !_allFinancialPrimary) {
-      throw const DataPortabilityException(
-        'تصدير الحزمة الكاملة غير متاح أثناء تشغيل مصادر بيانات مختلطة.',
-      );
-    }
-    if (_allFinancialPrimary) {
-      if (_repairFinancialCache == null) {
-        throw const DataPortabilityException(
-            'تعذر تجهيز مرآة البيانات للتصدير.');
-      }
-      await _categories.getAll();
-      await _repairFinancialCache();
-    }
+    // MALI-034: Drift is the authoritative financial store — export reads local
+    // Drift directly; the obsolete Supabase-primary pre-export rebuild is gone.
     return DriftFinancialExporter(_db).exportFinancialPackage();
   }
 
@@ -163,7 +131,7 @@ class AppDataPortabilityService implements DataPortabilityService {
               entry.key: entry.value.rows.length,
           },
           issues: const [],
-          canReplace: _canReplacePackage,
+          canReplace: true,
         );
       } catch (error) {
         // Not a valid Qirsh package. Check if it's a ZIP containing a single CSV (e.g. from a bank).
@@ -275,8 +243,10 @@ class AppDataPortabilityService implements DataPortabilityService {
       throw const DataPortabilityException(
           'أعد اختيار الملف ثم حاول مرة أخرى.');
     }
-    if (_allFinancialPrimary) return _importServerPackage(package, mode);
-    if (_anyFinancialPrimary) return _importMixedPackage(package, mode);
+    // MALI-034: single Drift-authoritative import path. The Supabase-primary
+    // server/mixed import RPC branches (and their repairAll/mark-dirty recovery)
+    // are retired; local import is transactional and recorded in the local
+    // financial_import_runs for idempotency.
     return DriftFinancialImporter(_db).importPackage(package, mode);
   }
 
@@ -427,137 +397,4 @@ class AppDataPortabilityService implements DataPortabilityService {
     return created;
   }
 
-  bool get _allFinancialPrimary {
-    final flags = _flags();
-    return const [
-      'accounts_supabase_primary',
-      'transactions_supabase_primary',
-      'budgets_supabase_primary',
-      'goals_supabase_primary',
-      'subscriptions_supabase_primary',
-      'plans_supabase_primary',
-    ].every(flags.getBool);
-  }
-
-  bool get _anyFinancialPrimary {
-    final flags = _flags();
-    return const [
-      'accounts_supabase_primary',
-      'transactions_supabase_primary',
-      'budgets_supabase_primary',
-      'goals_supabase_primary',
-      'subscriptions_supabase_primary',
-      'plans_supabase_primary',
-    ].any(flags.getBool);
-  }
-
-  bool get _canReplacePackage => !_anyFinancialPrimary || _allFinancialPrimary;
-
-  Future<ImportResult> _importServerPackage(
-    QirshPackageData package,
-    ImportMode mode,
-  ) async {
-    try {
-      final result = await _callImportRpc(package, mode);
-      var repairPending = false;
-      try {
-        await _categories.getAll();
-        await _repairFinancialCache?.call();
-      } catch (_) {
-        repairPending = true;
-      }
-      return ImportResult(
-        imported: (result['imported'] as num?)?.toInt() ?? 0,
-        duplicates: (result['duplicates'] as num?)?.toInt() ?? 0,
-        skipped: (result['skipped'] as num?)?.toInt() ?? 0,
-        failed: 0,
-        cacheRepairPending: repairPending,
-      );
-    } catch (error) {
-      String message = 'تعذر إتمام الاستيراد بسبب خطأ غير معروف.';
-      final errStr = error.toString();
-
-      if (errStr.contains('PostgrestException')) {
-        message =
-            'حدث تعارض في البيانات مع الخادم. يرجى التأكد من عدم وجود تكرار في الحسابات أو العمليات.';
-      } else if (errStr.contains('FormatException')) {
-        message = 'ملف النسخة الاحتياطية يحتوي على بيانات غير صالحة أو تالفة.';
-      } else if (errStr.contains('DataPortabilityException')) {
-        message = errStr.replaceAll('DataPortabilityException: ', '');
-      }
-
-      throw DataPortabilityException('فشل الاستيراد: $message');
-    }
-  }
-
-  Future<ImportResult> _importMixedPackage(
-    QirshPackageData package,
-    ImportMode mode,
-  ) async {
-    if (mode != ImportMode.merge) {
-      throw const DataPortabilityException(
-        'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.',
-      );
-    }
-    final result = await _callImportRpc(package, mode);
-    var repairPending = false;
-    try {
-      await DriftFinancialImporter(_db).importPackage(package, mode);
-    } catch (error) {
-      repairPending = true;
-      for (final entityType in const [
-        accountsCacheEntityType,
-        transactionsCacheEntityType,
-        budgetsCacheEntityType,
-        goalsCacheEntityType,
-        subscriptionsCacheEntityType,
-        plansCacheEntityType,
-      ]) {
-        try {
-          await markFinancialCacheDirty(_db, entityType, error.runtimeType);
-        } catch (_) {}
-      }
-    }
-    return ImportResult(
-      imported: (result['imported'] as num?)?.toInt() ?? 0,
-      duplicates: (result['duplicates'] as num?)?.toInt() ?? 0,
-      skipped: (result['skipped'] as num?)?.toInt() ?? 0,
-      failed: 0,
-      cacheRepairPending: repairPending,
-    );
-  }
-
-  Future<Map<String, dynamic>> _callImportRpc(
-    QirshPackageData package,
-    ImportMode mode,
-  ) async {
-    final Map<String, List<Map<String, String>>> rawTables = {
-      for (final entry in package.tables.entries)
-        entry.key: List.of(entry.value.rows.map((r) => Map.of(r))),
-    };
-
-    final tables = ImportNormalizer.normalize(rawTables, mode);
-
-    final params = <String, dynamic>{
-      'p_import_id': package.packageId,
-      'p_mode': mode.name,
-      'p_package': tables,
-    };
-    final Object? response;
-    if (_invokeRpc != null) {
-      response = await _invokeRpc('import_financial_package', params);
-    } else {
-      if (!SupabaseConfig.isConfigured || _getSupabase == null) {
-        throw const DataPortabilityException('اتصال Supabase غير متاح.');
-      }
-      response = await _getSupabase().rpc(
-        'import_financial_package',
-        params: params,
-      );
-    }
-    if (response is! Map) {
-      throw const DataPortabilityException('استجابة الاستيراد غير صالحة.');
-    }
-    return Map<String, dynamic>.from(response);
-  }
 }

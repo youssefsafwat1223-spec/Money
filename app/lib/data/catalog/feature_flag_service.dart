@@ -23,16 +23,13 @@ const Map<String, Object> _defaults = {
   'planning_goals_sync': false,
   'planning_plans_sync': false,
   'capture_direct_ledger_write': false,
-  'accounts_supabase_primary': false,
-  'transactions_supabase_primary': false,
-  'dashboard_supabase_summary': false,
-  'budget_progress_supabase_rpc': false,
-  'budgets_supabase_primary': false,
-  'goals_supabase_primary': false,
-  'subscriptions_supabase_primary': false,
-  'plans_supabase_primary': false,
-  'smart_inbox_supabase_primary': false,
-  'capture_direct_supabase_write': false,
+  // MALI-034: the obsolete Supabase-primary financial-authority flags
+  // (accounts/transactions/budgets/goals/subscriptions/plans_supabase_primary,
+  // smart_inbox_supabase_primary, dashboard_supabase_summary,
+  // budget_progress_supabase_rpc, capture_direct_supabase_write) were removed.
+  // Drift is the sole normal financial CRUD authority; a stale remote key for
+  // any of them resolves into _cache but is read by no code (getBool returns
+  // false for unknown keys), so it can no longer switch authority.
 };
 
 class FeatureFlagService {

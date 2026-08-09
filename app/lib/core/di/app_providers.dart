@@ -855,12 +855,6 @@ final dataPortabilityServiceProvider = Provider<DataPortabilityService>((ref) {
     categories: ref.watch(categoryRepositoryProvider),
     transactions: ref.watch(transactionRepositoryProvider),
     settings: ref.watch(userSettingsRepositoryProvider),
-    flags: () => featureFlags,
-    getSupabase: SupabaseConfig.isConfigured
-        ? () => supabase.Supabase.instance.client
-        : null,
-    repairFinancialCache:
-        ref.watch(financialCacheRepairServiceProvider).repairAll,
   );
 });
 

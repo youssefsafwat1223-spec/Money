@@ -5,10 +5,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../backend/supabase_config.dart';
 import '../di/app_providers.dart';
-import '../../data/db/app_database.dart';
-import '../../features/capture/services/transactions_backfill_service.dart';
-import '../../features/planning_sync/services/accounts_backfill_service.dart';
-import '../../features/planning_sync/services/planning_primary_backfill_service.dart';
 import 'encrypted_backup_service.dart';
 import 'remote_backup_controller.dart';
 import 'remote_backup_state.dart';
@@ -147,10 +143,10 @@ class StubBackupService implements BackupService {
 final backupServiceProvider = Provider<BackupService>((ref) {
   if (SupabaseConfig.isConfigured) {
     final database = ref.watch(appDatabaseProvider);
-    return EncryptedBackupService(
-      database: database,
-      afterRestore: () => _backfillRestoredPrimaryData(database),
-    );
+    // MALI-034: Drift is authoritative — a restore repopulates local Drift and
+    // the next startupSyncReconcile pushes restored rows to Supabase. The old
+    // *_supabase_primary-gated post-restore backfill is retired.
+    return EncryptedBackupService(database: database);
   }
   return StubBackupService();
 });
@@ -164,44 +160,6 @@ final remoteBackupControllerProvider =
   return controller;
 });
 
-Future<void> _backfillRestoredPrimaryData(AppDatabase database) async {
-  final flags = featureFlags;
-  final accountsPrimary = flags.getBool('accounts_supabase_primary');
-  final transactionsPrimary = flags.getBool('transactions_supabase_primary');
-  final planningEntities = <String>{
-    if (flags.getBool('budgets_supabase_primary')) 'budgets',
-    if (flags.getBool('goals_supabase_primary')) 'goals',
-    if (flags.getBool('subscriptions_supabase_primary')) 'subscriptions',
-    if (flags.getBool('plans_supabase_primary')) 'plans',
-  };
-  final needsAccounts =
-      transactionsPrimary || planningEntities.isNotEmpty || accountsPrimary;
-  if (!needsAccounts) return;
-  if (!accountsPrimary) {
-    throw const BackupException(
-      'تعذّرت مزامنة النسخة المستعادة: فعّل مزامنة الحسابات أولاً.',
-    );
-  }
-
-  final accounts = await AccountsBackfillService(db: database).run();
-  if (!accounts.isClean) {
-    throw const BackupException('تعذّر ربط حسابات النسخة المستعادة.');
-  }
-  if (transactionsPrimary) {
-    final transactions = await TransactionsBackfillService(db: database).run();
-    if (!transactions.isClean) {
-      throw const BackupException('تعذّر ربط عمليات النسخة المستعادة.');
-    }
-  }
-  if (planningEntities.isNotEmpty) {
-    final planning = await PlanningPrimaryBackfillService(db: database).run(
-      onlyEntities: planningEntities,
-    );
-    if (!planning.isClean) {
-      throw const BackupException('تعذّر ربط بيانات التخطيط المستعادة.');
-    }
-  }
-}
 
 final backupStatusProvider = FutureProvider<BackupStatus>((ref) {
   return ref.watch(backupServiceProvider).status();
