@@ -6,7 +6,6 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
-import 'package:money_companion/data/repositories/routed_account_repository.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_pull_service.dart';
@@ -633,13 +632,11 @@ void main() {
       expect((await readSyncCursor(db, 'accounts')).id, 'server-001');
     });
 
-    // Phase 2: accountRepositoryProvider now returns a RoutedAccountRepository
-    // that delegates to Drift when accounts_supabase_primary is OFF (the
-    // default) — this replaces the pre-Phase-2 assertion that the provider
-    // returned DriftAccountRepository directly.
-    test(
-        'accountRepositoryProvider routes through RoutedAccountRepository '
-        '(Drift by default)', () async {
+    // MALI-034: the vestigial Routed* wrapper was removed; the provider now
+    // returns the Drift-backed repository directly (offline-first; sync is
+    // background-only via outbox/push/pull).
+    test('accountRepositoryProvider returns the Drift-backed repository',
+        () async {
       final container = ProviderContainer(
         overrides: [appDatabaseProvider.overrideWithValue(db)],
       );
@@ -647,7 +644,7 @@ void main() {
 
       final repo = container.read(accountRepositoryProvider);
 
-      expect(repo, isA<RoutedAccountRepository>());
+      expect(repo, isA<DriftAccountRepository>());
     });
   });
 }

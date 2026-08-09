@@ -29,14 +29,6 @@ import '../../data/db/app_database.dart';
 import '../../data/repositories/account_deletion_service.dart';
 import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_card_repository.dart';
-import '../../data/repositories/routed_account_repository.dart';
-import '../../data/repositories/routed_category_repository.dart';
-import '../../data/repositories/routed_bill_repository.dart';
-import '../../data/repositories/routed_budget_repository.dart';
-import '../../data/repositories/routed_goal_repository.dart';
-import '../../data/repositories/routed_plan_repository.dart';
-import '../../data/repositories/routed_smart_inbox_repository.dart';
-import '../../data/repositories/routed_transaction_repository.dart';
 import '../../data/repositories/drift_bill_repository.dart';
 import '../../data/repositories/drift_plan_repository.dart';
 import '../../data/repositories/drift_budget_repository.dart';
@@ -531,15 +523,12 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
   );
 });
 
-/// المرحلة 2: يوجّه القراءة/الكتابة إلى Supabase مباشرة عندما تكون علامة
-/// transactions_supabase_primary مفعّلة لهذا المستخدم، وإلا فـ Drift كالمعتاد.
+/// الواجهة تقرأ/تكتب من Drift دائمًا؛ المزامنة خلفية عبر outbox/push/pull.
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  return RoutedTransactionRepository(
-    drift: DriftTransactionRepository(
-      db,
-      outboxQueue: ref.watch(ledgerOutboxQueueProvider),
-    ),
+  return DriftTransactionRepository(
+    db,
+    outboxQueue: ref.watch(ledgerOutboxQueueProvider),
   );
 });
 
@@ -556,9 +545,7 @@ final suspectedDuplicatesProvider =
 
 final smartInboxRepositoryProvider = Provider<SmartInboxRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  return RoutedSmartInboxRepository(
-    drift: DriftSmartInboxRepository(db),
-  );
+  return DriftSmartInboxRepository(db);
 });
 
 final smartInboxItemsProvider =
@@ -571,11 +558,9 @@ final smartInboxItemsProvider =
 /// S5: الواجهة تقرأ/تكتب من Drift دائمًا؛ المزامنة خلفية عبر outbox/push/pull.
 final accountRepositoryProvider = Provider<AccountRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  return RoutedAccountRepository(
-    drift: DriftAccountRepository(
-      db,
-      outboxQueue: ref.watch(planningOutboxQueueProvider),
-    ),
+  return DriftAccountRepository(
+    db,
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
@@ -661,21 +646,17 @@ final merchantLogosProvider = FutureProvider<Map<String, String>>((ref) async {
 
 final billRepositoryProvider = Provider<BillRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  return RoutedBillRepository(
-    drift: DriftBillRepository(
-      db,
-      outboxQueue: ref.watch(planningOutboxQueueProvider),
-    ),
+  return DriftBillRepository(
+    db,
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
 final planRepositoryProvider = Provider<PlanRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  return RoutedPlanRepository(
-    drift: DriftPlanRepository(
-      db,
-      outboxQueue: ref.watch(planningOutboxQueueProvider),
-    ),
+  return DriftPlanRepository(
+    db,
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
@@ -686,21 +667,17 @@ final merchantCategoryRepositoryProvider =
 
 final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  return RoutedBudgetRepository(
-    drift: DriftBudgetRepository(
-      db,
-      outboxQueue: ref.watch(planningOutboxQueueProvider),
-    ),
+  return DriftBudgetRepository(
+    db,
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
 final goalRepositoryProvider = Provider<GoalRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
-  return RoutedGoalRepository(
-    drift: DriftGoalRepository(
-      db,
-      outboxQueue: ref.watch(planningOutboxQueueProvider),
-    ),
+  return DriftGoalRepository(
+    db,
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
@@ -818,11 +795,9 @@ final userSettingsRepositoryProvider = Provider<UserSettingsRepository>((ref) {
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   // S0: القراءة من Drift دائمًا. S3: الكتابات تُدرَج في الـ outbox وتُزامَن خلفيًا.
-  return RoutedCategoryRepository(
-    drift: DriftCategoryRepository(
-      db,
-      outboxQueue: ref.watch(planningOutboxQueueProvider),
-    ),
+  return DriftCategoryRepository(
+    db,
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 

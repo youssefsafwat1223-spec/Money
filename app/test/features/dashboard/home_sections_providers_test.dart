@@ -68,9 +68,8 @@ void main() {
 
   setUp(() async {
     db = await _openDb();
-    // Routed repositories (account/plan/etc.) read the global feature-flag
-    // singleton to decide Drift-vs-Supabase routing — same bootstrap step
-    // BootstrapRunner performs on real startup.
+    // Mirror BootstrapRunner's real-startup step: initialize the global
+    // feature-flag singleton before building providers that may read flags.
     await initFeatureFlagService(db, installIdOverride: 'test-install');
     container = ProviderContainer(
       overrides: [appDatabaseProvider.overrideWithValue(db)],
