@@ -107,3 +107,25 @@ Zero-runtime-reachability is proven and enforced, and the committed-tree gate is
 first-attempt green. **MALI-034 is closed** on branch `feat/phase1-data-integrity`
 (not pushed). The broader MALI-040 DB/executor test-ownership work remains open
 and was intentionally kept out of this stack.
+
+## Closure record (approved 2026-08-09)
+
+MALI-034 is technically closed on the following precise terms:
+
+- **Drift is the sole normal financial CRUD authority.**
+- **The legacy Supabase-primary financial repositories are retired.**
+- **`FinancialCacheRepairService` is deleted.**
+- **Data portability is Drift-authoritative.**
+- **Historical dirty-state recovery is owned by the in-slot reconciliation path**
+  (`LegacyFinancialCacheReconciler`), not a background repair service.
+- **The architecture guard (`tools/check_arch_guard.sh`, `ci_gates.sh` stage 11)
+  prevents reintroduction.**
+
+**Gate bookkeeping:** Executable closure verified at `a72f1b11`;
+documentation-only closure record at `0db06c48`. (`0db06c48` and this note change
+docs only — no code / test / CI / tool / gated artifact — so they do not require
+a fresh canonical-gate run; the authoritative executable evidence is the
+first-attempt-green gate at `a72f1b11`.)
+
+Do not reopen MALI-034 unless new evidence contradicts the zero-reachability
+proof above.
