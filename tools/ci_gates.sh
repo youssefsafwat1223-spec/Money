@@ -5,7 +5,7 @@
 #
 # Gates (mandatory unless the toolchain is unavailable):
 #   1. supabase migration lint (numbering + SECURITY DEFINER lockdown)
-#   2. Deno _shared unit tests + Deno lint
+#   2. Deno edge-function tests (ALL functions, not just _shared/) + Deno lint (_shared)
 #   3. flutter analyze
 #   4a. flutter test — BULK parallel; production-cost Argon2 crypto EXCLUDED
 #       (--exclude-tags crypto-prod). SKIP_FLUTTER_TEST=1 for fast local iteration.
@@ -24,6 +24,9 @@
 #   9. MALI-034 architecture guard — the retired Supabase-primary financial
 #      authority (flags / FinancialCacheRepairService / legacy Supabase financial
 #      repos / Routed* wrappers) cannot silently return; schema stays 29.
+#  10. iOS packaging inventory (MALI-066n) — CONDITIONAL/external: runs the
+#      built-Runner.app check only when a bundle exists (real archive evidence),
+#      else UNAVAILABLE. The static Info.plist/privacy contract is in flutter test.
 #
 # Truthfulness contract (Phase-7 B1):
 #   * an unexpected failure returns non-zero; a failed subcommand is NEVER hidden;
@@ -63,8 +66,12 @@ if bash "$ROOT/supabase/tools/check_migrations.sh"; then ok "migrations"; else b
 
 step "deno edge-function tests + lint"
 if command -v deno >/dev/null 2>&1; then
-  ( cd "$ROOT/supabase/functions" && deno test --allow-all _shared/ ) 2>&1 | tee "$DENO_OUT"
-  if [ "${PIPESTATUS[0]}" -eq 0 ]; then ok "deno _shared tests"; else bad "deno _shared tests"; fi
+  # MALI-042/066n — run EVERY Edge-function Deno test, not just _shared/. The
+  # whole-tree run picks up per-function suites (e.g. catalog-delta's country-code
+  # injection guard) that were previously CI-invisible; live-backend cases
+  # self-skip via the skip/ignore manifest (deno_ignored).
+  ( cd "$ROOT/supabase/functions" && deno test --allow-all ) 2>&1 | tee "$DENO_OUT"
+  if [ "${PIPESTATUS[0]}" -eq 0 ]; then ok "deno tests (all functions)"; else bad "deno tests (all functions)"; fi
   if ( cd "$ROOT/supabase/functions" && deno lint _shared/ ); then ok "deno lint"; else bad "deno lint"; fi
 else
   unavail "deno"
@@ -138,6 +145,21 @@ fi
 
 step "MALI-034 architecture guard (retired Supabase-primary authority stays gone)"
 if bash "$ROOT/tools/check_arch_guard.sh"; then ok "arch guard"; else bad "arch guard"; fi
+
+# MALI-066n — iOS packaging inventory. The BUILT-bundle check needs a freshly
+# built Runner.app (extensions, PrivacyInfo, bundle ids, Mach-O) — real archive
+# evidence that only exists after a macOS/CI build. When a bundle is present it
+# runs and must pass; otherwise it is reported UNAVAILABLE (never a pass, never
+# faked). The source/static packaging contract (Info.plist usage descriptions /
+# privacy manifest) is covered deterministically by `flutter test`
+# (test/ios/ios_privacy_manifest_test.dart), which runs in stage 4a.
+step "iOS packaging inventory (built Runner.app — external build evidence)"
+IOS_APP="$ROOT/app/build/ios/iphonesimulator/Runner.app"
+if [ -d "$IOS_APP" ]; then
+  if bash "$ROOT/app/tools/verify_ios_packaging.sh" "$IOS_APP"; then ok "ios packaging"; else bad "ios packaging"; fi
+else
+  unavail "ios packaging (no built Runner.app; static Info.plist contract runs in flutter test)"
+fi
 
 # --- intentional-failure injection self-test hook ---------------------------------
 if [ "${CI_GATES_INJECT_FAILURE:-0}" = "1" ]; then

@@ -28,6 +28,10 @@ test("the canonical gate wires in the previously CI-invisible mandatory suites",
   assert.match(sh, /npm run --silent test:auth/, "admin authorization gate");
   assert.match(sh, /check_migrations\.sh/, "migration lint gate");
   assert.match(sh, /flutter gen-l10n/, "l10n freshness gate");
+  // MALI-042/066n — every Edge-function Deno suite runs (not just _shared/), and
+  // the iOS packaging inventory is wired (conditional/external when no build).
+  assert.match(sh, /deno tests \(all functions\)/, "per-function deno tests (MALI-042/066n)");
+  assert.match(sh, /verify_ios_packaging\.sh/, "ios packaging inventory step (MALI-066n)");
   // Reports UNAVAILABLE separately from pass, and a truthful nested summary.
   assert.match(sh, /unavail/);
   assert.match(sh, /node tests skipped/);
