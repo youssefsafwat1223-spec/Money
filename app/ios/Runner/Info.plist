@@ -46,8 +46,6 @@
 		<string>يمكنك التقاط صورة بالكاميرا لاستخدامها كصورة شخصية في ملفك داخل قرش.</string>
 		<key>NSFaceIDUsageDescription</key>
 		<string>يستخدم قرش Face ID لحماية بياناتك المالية عند فتح التطبيق.</string>
-		<key>NSLocationWhenInUseUsageDescription</key>
-		<string>لا يستخدم قرش موقعك الجغرافي لأي ميزة داخل التطبيق.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>اختر صورة شخصية لتظهر في ملفك ولوحة التحكم داخل قرش.</string>
 		<key>UIApplicationSceneManifest</key>
