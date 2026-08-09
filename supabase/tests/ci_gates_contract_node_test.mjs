@@ -32,6 +32,7 @@ test("the canonical gate wires in the previously CI-invisible mandatory suites",
   // the iOS packaging inventory is wired (conditional/external when no build).
   assert.match(sh, /deno tests \(all functions\)/, "per-function deno tests (MALI-042/066n)");
   assert.match(sh, /verify_ios_packaging\.sh/, "ios packaging inventory step (MALI-066n)");
+  assert.match(sh, /check_deps_policy\.sh/, "offline dependency policy (MALI-037)");
   // Reports UNAVAILABLE separately from pass, and a truthful nested summary.
   assert.match(sh, /unavail/);
   assert.match(sh, /node tests skipped/);

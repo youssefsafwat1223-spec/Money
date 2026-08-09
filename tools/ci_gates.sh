@@ -24,7 +24,9 @@
 #   9. MALI-034 architecture guard — the retired Supabase-primary financial
 #      authority (flags / FinancialCacheRepairService / legacy Supabase financial
 #      repos / Routed* wrappers) cannot silently return; schema stays 29.
-#  10. iOS packaging inventory (MALI-066n) — CONDITIONAL/external: runs the
+#  10. MALI-037 dependency policy — OFFLINE/deterministic: lockfile present, no
+#      git deps, path deps allowlisted. CVE/outdated registry scans are external.
+#  11. iOS packaging inventory (MALI-066n) — CONDITIONAL/external: runs the
 #      built-Runner.app check only when a bundle exists (real archive evidence),
 #      else UNAVAILABLE. The static Info.plist/privacy contract is in flutter test.
 #
@@ -145,6 +147,9 @@ fi
 
 step "MALI-034 architecture guard (retired Supabase-primary authority stays gone)"
 if bash "$ROOT/tools/check_arch_guard.sh"; then ok "arch guard"; else bad "arch guard"; fi
+
+step "MALI-037 dependency policy (offline: reproducibility + no git/rogue-path deps)"
+if bash "$ROOT/tools/check_deps_policy.sh"; then ok "deps policy"; else bad "deps policy"; fi
 
 # MALI-066n — iOS packaging inventory. The BUILT-bundle check needs a freshly
 # built Runner.app (extensions, PrivacyInfo, bundle ids, Mach-O) — real archive
