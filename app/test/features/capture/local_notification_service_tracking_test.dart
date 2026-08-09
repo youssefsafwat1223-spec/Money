@@ -76,21 +76,24 @@ void main() {
   test(
       'an unawaited show call does not surface as an unhandled async error '
       'and still records the failure', () async {
-    // Deliberately not awaited — this is exactly the fire-and-forget shape
-    // used by several call sites in app_shell.dart.
-    // ignore: unawaited_futures
-    LocalNotificationService.instance.showAchievementNotification(
+    // The fire-and-forget shape used by several call sites in app_shell.dart:
+    // the caller need not await, but the SERVICE must swallow the plugin
+    // failure internally rather than let it escape as an unhandled async error.
+    // We hold the returned future ONLY to await its real completion
+    // deterministically — instead of racing an arbitrary timer against the
+    // async 'failed' write (a MALI-040 isolation flake under parallel load).
+    // `completes` proves the future finished WITHOUT surfacing an error, i.e.
+    // exactly the "does not surface as unhandled" contract, verified
+    // deterministically rather than by racing the test zone/event loop.
+    final fireAndForget =
+        LocalNotificationService.instance.showAchievementNotification(
       achievementKey: 'first_capture',
       title: 'شارة جديدة',
       body: 'body',
       preferences: const NotificationPreferences(),
     );
 
-    // Let the fire-and-forget call run to completion. If it produced an
-    // unhandled exception, the test framework would fail this test on its
-    // own via FlutterError/the test zone — reaching this assertion at all
-    // is part of what's being verified.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await expectLater(fireAndForget, completes);
 
     final events = await _eventTypesFor(db);
     expect(events, ['created', 'failed']);
