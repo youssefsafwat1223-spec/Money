@@ -644,7 +644,17 @@ class AppDatabase extends GeneratedDatabase {
     } catch (_) {}
     await _manualRevisionController.close();
     await _tableWriteController.close();
-    await executor.close();
+    // MALI-040 — complete Drift's own teardown for THIS instance: super.close()
+    // disposes the drift stream-query manager (active `.watch` streams), closes
+    // this instance's executor EXACTLY once, decrements drift's open-database
+    // counter and notifies devtools. The previous bare `executor.close()` skipped
+    // all of that, leaking streamQueries on every close (sign-out/restore reopen)
+    // and never decrementing the counter (the source of the spurious
+    // "created the database class AppDatabase multiple times" warnings). Each
+    // AppDatabase owns its own executor (main/secondary/test open independent
+    // connections), so this closes only this instance's executor — no double
+    // close, and the file-level lease below is released exactly as before.
+    await super.close();
     // Release the cross-isolate shared lease so file-exclusive maintenance can
     // proceed once every secondary has closed.
     final lease = _lease;
