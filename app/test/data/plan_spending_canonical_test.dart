@@ -1,4 +1,4 @@
-import 'package:drift/drift.dart' show Variable, driftRuntimeOptions;
+import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,7 +21,6 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
 /// MALI-048n — the canonical plan-spending contract.
 void main() {
-  driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
   late AppDatabase db;
   late DriftPlanRepository repo;

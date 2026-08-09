@@ -15,6 +15,8 @@
 #   3. No FinancialCacheRepairService is imported or constructed.
 #   4. No legacy Supabase financial repository is imported or constructed.
 #   5. No vestigial Routed* repository wrapper is (re)introduced.
+#   6. No Drift multiple-database warning suppression (MALI-040) exists in lib OR
+#      test — ownership is correct, so the warning must never be masked.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="$ROOT/app/lib"
@@ -56,11 +58,21 @@ m="$(hits "import .*repositories/routed_[a-z_]+_repository\.dart|\bclass Routed[
 if [ -z "$m" ]; then okc "no vestigial Routed* repository wrappers"; else
   fail "Routed* repository wrapper present:"; echo "$m"; fi
 
+# 6. MALI-040 — no Drift multiple-database warning SUPPRESSION anywhere ---------
+#    (production OR tests). AppDatabase.close() completes Drift's teardown
+#    (super.close() disposes streamQueries + decrements the open-db counter), so
+#    the "multiple databases" warning now means a genuine CONCURRENT instance,
+#    not ambient noise. Suppressing it globally would re-hide an ownership
+#    regression; the correct response to a real warning is to fix ownership.
+m="$(grep -rnE 'dontWarnAboutMultipleDatabases' "$ROOT/app/lib" "$ROOT/app/test" 2>/dev/null)"
+if [ -z "$m" ]; then okc "no Drift multi-db warning suppression (MALI-040)"; else
+  fail "dontWarnAboutMultipleDatabases suppression present (MALI-040):"; echo "$m"; fi
+
 echo
 if [ "$viol" -eq 0 ]; then
-  echo "ARCH GUARD PASS — Supabase-primary financial authority stays retired."
+  echo "ARCH GUARD PASS — Supabase-primary authority stays retired; DB warning suppression stays out."
   exit 0
 else
-  echo "ARCH GUARD FAIL — a retired-architecture signal reappeared (see ✗ above)."
+  echo "ARCH GUARD FAIL — a retired-architecture or suppression signal reappeared (see ✗ above)."
   exit 1
 fi
