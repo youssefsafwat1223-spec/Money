@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_crypto.dart';
@@ -28,6 +29,19 @@ class _SpyKeyStore implements DatabaseKeyStore {
 }
 
 const _keyCanary = 'RAW-KEY-CANARY-DO-NOT-LEAK-7b2f';
+
+// The two backup-envelope tests below assert ENVELOPE SEMANTICS (a wrong passphrase
+// surfaces a DISTINCT error type, not key-unavailable; the ciphertext never contains
+// the raw-key plaintext) — properties independent of the KDF's cost. A cheap injected
+// Argon2id keeps them fast and in the PARALLEL bulk gate, so they no longer pay the
+// production 64 MiB derivation that (under suite CPU saturation) tripped cryptography
+// 2.9.0's hardcoded 10s per-segment isolate timeout. Genuine production-cost Argon2
+// coverage lives in the serialized `crypto-prod` stage (backup_envelope_v3_test.dart,
+// backup_payload_limit_test.dart). Matches the existing cheap-KDF idiom used across
+// the backup test suite (e.g. backup_crypto_test.dart, backup_test.dart).
+BackupCrypto _semanticCrypto() => BackupCrypto(
+      kdf: Argon2id(memory: 1024, parallelism: 1, iterations: 1, hashLength: 32),
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -109,7 +123,7 @@ void main() {
 
   test('a wrong backup passphrase is a DISTINCT error, not key-unavailable',
       () async {
-    final crypto = BackupCrypto();
+    final crypto = _semanticCrypto();
     final blob = await crypto.encryptJson(
       json: {'db_encryption_key_ref': _keyCanary},
       passphrase: 'the-correct-passphrase',
@@ -126,7 +140,7 @@ void main() {
 
   test('the encrypted backup blob never contains the raw-key canary as plaintext',
       () async {
-    final crypto = BackupCrypto();
+    final crypto = _semanticCrypto();
     final blob = await crypto.encryptJson(
       json: {'db_encryption_key_ref': _keyCanary, 'country': 'SA'},
       passphrase: 'pass',

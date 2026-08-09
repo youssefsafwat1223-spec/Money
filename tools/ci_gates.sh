@@ -7,7 +7,16 @@
 #   1. supabase migration lint (numbering + SECURITY DEFINER lockdown)
 #   2. Deno _shared unit tests + Deno lint
 #   3. flutter analyze
-#   4. flutter test (full; SKIP_FLUTTER_TEST=1 for fast local iteration)
+#   4a. flutter test — BULK parallel; production-cost Argon2 crypto EXCLUDED
+#       (--exclude-tags crypto-prod). SKIP_FLUTTER_TEST=1 for fast local iteration.
+#   4b. flutter test — SERIALIZED production-cost crypto (--tags crypto-prod
+#       --concurrency=1). Split is a DETERMINISM fix, not a convenience: the v3
+#       Argon2id KDF derives each segment in a worker isolate guarded by a hardcoded
+#       10s per-segment timeout (cryptography 2.9.0) that no @Timeout can raise; under
+#       the parallel bulk run's CPU saturation a starved segment trips it
+#       nondeterministically ("Segment processing timeout"). Serializing gives the
+#       derivation an uncontended core. BOTH stages are mandatory; no test is dropped
+#       (bulk + crypto = the whole suite). See dart_test.yaml + PHASE_7_TEST_AND_CI_CONTRACT.md.
 #   5. Node contract tests (supabase/tests/*.mjs; live cases self-skip)
 #   6. skip/ignore manifest enforcement (tools/test_skip_manifest.json)
 #   7. admin authorization tests
@@ -61,11 +70,21 @@ fi
 step "flutter analyze"
 if ( cd "$ROOT/app" && flutter analyze ); then ok "analyze"; else bad "analyze"; fi
 
-step "flutter test"
+# flutter test is split into two MANDATORY stages for Argon2 determinism (see header):
+#   4a bulk parallel with production-cost crypto EXCLUDED, 4b that crypto SERIALIZED.
+# Union of the two tag sets = the whole suite, so no test is dropped or double-counted.
+step "flutter test (bulk — parallel; production-cost crypto excluded)"
 if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
-  if ( cd "$ROOT/app" && flutter test ); then ok "flutter test"; else bad "flutter test"; fi
+  if ( cd "$ROOT/app" && flutter test --exclude-tags crypto-prod ); then ok "flutter test (bulk)"; else bad "flutter test (bulk)"; fi
 else
-  unavail "flutter test (SKIP_FLUTTER_TEST=1)"
+  unavail "flutter test bulk (SKIP_FLUTTER_TEST=1)"
+fi
+
+step "flutter test (crypto — serialized production-cost Argon2, --concurrency=1)"
+if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
+  if ( cd "$ROOT/app" && flutter test --tags crypto-prod --concurrency=1 ); then ok "flutter test (crypto serialized)"; else bad "flutter test (crypto serialized)"; fi
+else
+  unavail "flutter test crypto (SKIP_FLUTTER_TEST=1)"
 fi
 
 step "node contract tests"

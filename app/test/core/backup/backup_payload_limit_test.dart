@@ -2,6 +2,16 @@
 // enforced PLAINTEXT cap checked BEFORE encryption: an oversized snapshot is rejected
 // with a typed payloadTooLarge (never an OOM), while normal payloads encrypt/decrypt
 // with unchanged semantics. No plaintext is staged to disk (pure in-memory codec).
+//
+// The within-cap round-trip runs a full production-cost v3 Argon2id derivation
+// (64 MiB / 3 iters), so this file is tagged `crypto-prod` and runs in the canonical
+// gate's SERIALIZED crypto stage (`--concurrency=1`), away from the parallel bulk
+// suite whose CPU saturation trips cryptography 2.9.0's hardcoded 10s per-segment
+// isolate timeout. See dart_test.yaml + tools/ci_gates.sh. TEST-ONLY.
+@Tags(['crypto-prod'])
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_crypto.dart';
 

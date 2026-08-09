@@ -1,0 +1,19 @@
+# Phase-7 test/harness reliability (Argon2 gate determinism).
+#
+# The `crypto-prod` tag marks tests that execute REAL production-cost Argon2id key
+# derivation (memory=64 MiB, 3 iterations, parallelism 2 — see BackupCrypto v3
+# parameters). cryptography 2.9.0 derives each segment in a worker isolate guarded
+# by a HARDCODED 10s per-segment timeout (DartArgon2StateImplFfi._sendSegmentsToIsolate);
+# that internal timeout cannot be raised from our code and is immune to `@Timeout`.
+# Under the parallel bulk `flutter test` run (default concurrency = CPU cores) the
+# worker isolate is CPU-starved and a single segment can exceed 10s, throwing
+# `StateError('Segment processing timeout')` nondeterministically.
+#
+# The canonical gate therefore runs these tests SERIALIZED, in a dedicated stage:
+#     flutter test --tags crypto-prod --concurrency=1
+# and EXCLUDES them from the parallel bulk stage:
+#     flutter test --exclude-tags crypto-prod
+# Both stages are mandatory (see tools/ci_gates.sh). Do NOT mask contention by
+# bumping timeouts — serialize the derivation instead.
+tags:
+  crypto-prod:

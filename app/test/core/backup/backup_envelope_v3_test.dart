@@ -1,9 +1,15 @@
-// Phase-7 — the v3 envelope uses a deliberately memory-hard Argon2id KDF (64 MiB,
-// 3 iterations). Under the full parallel test suite's CPU pressure a single derive
-// can exceed the default 30s per-test timeout and flake (a locally-testable test
-// must be deterministic under load — Phase-7 Batch-1 principle). A generous
-// file-wide timeout removes that flakiness. TEST-ONLY: no change to the envelope,
-// KDF parameters, or any crypto/financial behavior.
+// Phase-7 test/harness reliability — this file exercises the v3 envelope's
+// deliberately memory-hard Argon2id KDF (64 MiB / 3 iters / p=2) at PRODUCTION cost.
+// It is tagged `crypto-prod` so the canonical gate runs it SERIALIZED
+// (`flutter test --tags crypto-prod --concurrency=1`) and excludes it from the
+// parallel bulk run — the real determinism fix. Reason: cryptography 2.9.0 guards
+// each Argon2 segment with a HARDCODED 10s per-segment isolate timeout that no
+// `@Timeout` can raise; under a saturated parallel suite a starved segment trips it
+// (`StateError('Segment processing timeout')`). Serializing gives the derivation an
+// uncontended core so every segment finishes in ~1s. The generous file-wide
+// `@Timeout` is a secondary framework-level guard, NOT the fix. TEST-ONLY: no change
+// to the envelope, KDF parameters, or any crypto/financial behavior.
+@Tags(['crypto-prod'])
 @Timeout(Duration(minutes: 3))
 library;
 
