@@ -21,6 +21,9 @@
 #   6. skip/ignore manifest enforcement (tools/test_skip_manifest.json)
 #   7. admin authorization tests
 #   8. l10n freshness (flutter gen-l10n + git diff app/lib/l10n; .g.dart is gitignored)
+#   9. MALI-034 architecture guard — the retired Supabase-primary financial
+#      authority (flags / FinancialCacheRepairService / legacy Supabase financial
+#      repos / Routed* wrappers) cannot silently return; schema stays 29.
 #
 # Truthfulness contract (Phase-7 B1):
 #   * an unexpected failure returns non-zero; a failed subcommand is NEVER hidden;
@@ -132,6 +135,9 @@ if ( cd "$ROOT/app" && flutter gen-l10n >/dev/null 2>&1 ) && git -C "$ROOT" diff
 else
   bad "l10n freshness (committed app/lib/l10n is stale — run 'flutter gen-l10n' and commit)"
 fi
+
+step "MALI-034 architecture guard (retired Supabase-primary authority stays gone)"
+if bash "$ROOT/tools/check_arch_guard.sh"; then ok "arch guard"; else bad "arch guard"; fi
 
 # --- intentional-failure injection self-test hook ---------------------------------
 if [ "${CI_GATES_INJECT_FAILURE:-0}" = "1" ]; then

@@ -1119,12 +1119,11 @@ class LocalNotificationService {
   static Future<void> _runBackgroundAction(String transactionId,
       {required bool confirm}) async {
     WidgetsFlutterBinding.ensureInitialized();
-    // يُسجَّل الإجراء دائمًا لإعادة تطبيقه عبر الـ routed repository عند أول
-    // فتح: في هذا الـ isolate لا نعرف قيمة transactions_supabase_primary
-    // الفعلية (الـ overrides الشخصية تعيش في ذاكرة التطبيق الأمامي فقط)،
-    // وتعديل Drift وحده يعني ضياع التأكيد/الحذف على الخادم عندما يكون
-    // Supabase هو المرجع — أول قراءة من الخادم كانت تعيد الحالة القديمة.
-    // إعادة التطبيق آمنة التكرار في وضع Drift (تأكيد مؤكَّد/حذف محذوف).
+    // يُسجَّل الإجراء دائمًا ليُعاد تطبيقه عند أول فتح للتطبيق: هذا الـ isolate
+    // الخلفي لا يملك حالة التطبيق الأمامي كاملة (الـ overrides الشخصية والملكية
+    // تعيش في ذاكرة الواجهة فقط)، فنُسجّل النية بدل تعديل Drift مباشرةً هنا.
+    // إعادة التطبيق آمنة التكرار (تأكيد مؤكَّد/حذف محذوف) والمزامنة تتم خلفيًا
+    // عبر outbox/push عند الفتح.
     await PendingNotificationActions.record(transactionId, confirm: confirm);
     // MALI-069n §Blocker-1 — bind this background isolate to the current admission
     // generation and re-validate at every boundary. A confirm/dismiss for a
