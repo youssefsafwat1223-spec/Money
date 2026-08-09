@@ -118,7 +118,34 @@ which is complete.
 
 ## Closure gate
 
-<!-- filled after the canonical gate run -->
+Canonical `tools/ci_gates.sh` run **once** from the committed clean tree
+`54e53a60`, **first attempt green**:
+
+```
+mandatory gates passed : 11
+mandatory gates failed : 0
+tools unavailable      : 0
+skip/ignore manifest   : satisfied
+ALL LOCAL GATES PASSED
+```
+
+- flutter test bulk (crypto excluded): **1582 passed** — residual Drift multi-db
+  warnings **57** (all legitimate concurrent independent-executor tests).
+- flutter test crypto (serialized Argon2, `--concurrency=1`): **24 passed**.
+- arch guard **6/6** — including the new MALI-040 check "no Drift multi-db
+  warning suppression".
+
+**Closure conditions met:** production close lifecycle correct; warning
+suppressions = 0; unclosed test databases = 0; no shared-executor duplicate
+ownership (residual concurrency is legitimate, independent-executor, closed);
+canonical gate first-attempt green. **MALI-040 is closed** on
+`feat/phase1-data-integrity` (not pushed).
+
+**Status:** MALI-040 — Code complete — locally verified; test database/executor
+ownership is deterministic, all test databases close explicitly, and Drift
+multiple-database warning suppression has been removed. The underlying
+production `close()` lifecycle defect (skipped `super.close()`) is fixed in
+`f33d6e58`.
 
 ## Invariants preserved
 
