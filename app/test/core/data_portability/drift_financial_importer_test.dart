@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/data_portability/data_portability_models.dart';
@@ -66,6 +67,60 @@ void main() {
     expect(rows, hasLength(1));
     expect(rows.single.read<String>('raw_message'), isEmpty);
     expect(rows.single.readNullable<String>('account_id'), isNotNull);
+  });
+
+  test(
+      'MALI-039: a hostile record_id is bound as a literal — no SQL injection '
+      'through the importer', () async {
+    final source = await _database();
+    final target = await _database();
+    addTearDown(source.close);
+    addTearDown(target.close);
+
+    // A classic injection payload as the transaction primary key. It flows
+    // seed -> export (CSV) -> decode -> import; the importer binds every value
+    // (customStatement(sql, [args])), so it must be stored as data, never
+    // executed. If any layer interpolated it, `DROP TABLE transactions` would
+    // run during import.
+    const hostileId = "robert'); DROP TABLE transactions;--";
+    final account = await source
+        .customSelect('SELECT id FROM accounts ORDER BY is_default DESC LIMIT 1;')
+        .getSingle();
+    await source.customStatement('''
+      INSERT INTO transactions(
+        id,account_id,amount,currency,type,source,occurred_at,
+        raw_message,parse_confidence,status,created_at,updated_at,
+        comparison_timestamp_source,duplicate_status
+      ) VALUES(?,?,7.5,'EGP','payment','imported',
+        '2026-07-18T10:00:00.000Z','',1,'confirmed',
+        '2026-07-18T10:00:00.000Z','2026-07-18T10:00:00.000Z',
+        'received_at','normal');
+    ''', [hostileId, account.read<String>('id')]);
+
+    final bytes =
+        (await DriftFinancialExporter(source).exportFinancialPackage()).bytes;
+    final package = decodeQirshPackage(bytes);
+    await DriftFinancialImporter(target).importPackage(package, ImportMode.merge);
+
+    // The table survived (the DROP never executed) ...
+    final tableExists = await target
+        .customSelect(
+          "SELECT COUNT(*) AS n FROM sqlite_master "
+          "WHERE type='table' AND name='transactions';",
+        )
+        .map((r) => r.read<int>('n'))
+        .getSingle();
+    expect(tableExists, 1, reason: 'injection must not drop the table');
+
+    // ... and the payload was stored verbatim as a data value.
+    final stored = await target
+        .customSelect(
+          'SELECT COUNT(*) AS n FROM transactions WHERE id = ?;',
+          variables: [Variable.withString(hostileId)],
+        )
+        .map((r) => r.read<int>('n'))
+        .getSingle();
+    expect(stored, 1, reason: 'the hostile id is bound as a literal, not executed');
   });
 
   test('full package restores every supported financial relationship',
