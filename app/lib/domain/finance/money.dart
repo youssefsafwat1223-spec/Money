@@ -160,6 +160,19 @@ class Money implements Comparable<Money> {
   /// STRING / display). Never routes through `double`.
   String toDecimalString() => minorToDecimalString(minorUnits, scale);
 
+  /// DISPLAY-ONLY conversion to the nearest binary `double`, for presentation
+  /// surfaces that require a `double` (number formatting, `fl_chart` geometry).
+  ///
+  /// This is NOT a canonical value: it must NEVER be a write, calculation,
+  /// aggregation, comparison, validation, transport, or persistence source —
+  /// those use [minorUnits] / [toDecimalString] / Money arithmetic. Beyond 2^53
+  /// minor units it is necessarily approximate, which is acceptable precisely
+  /// because it can only ever terminate in presentation.
+  double toDouble() {
+    const pow10 = [1, 10, 100, 1000]; // scale ∈ {0,2,3} for supported currencies
+    return minorUnits / pow10[scale];
+  }
+
   @override
   int compareTo(Money other) {
     _requireSameCurrency(other);
