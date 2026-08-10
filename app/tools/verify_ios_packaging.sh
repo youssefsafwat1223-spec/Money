@@ -8,11 +8,21 @@
 # Usage: tools/verify_ios_packaging.sh [path/to/Runner.app]
 # Default path: build/ios/iphonesimulator/Runner.app
 #
-# Exit 0 = all checks pass; non-zero = a packaging regression.
+# PROVENANCE GATE (MALI-043 closure): a built bundle is only CURRENT evidence if
+# it was stamped (tools/stamp_ios_provenance.sh) from the SAME iOS source tree
+# that exists now. A bundle with no `.provenance` sidecar, or one whose recorded
+# ios_input_sha differs from the current source, is STALE/UNKNOWN — this script
+# then exits 3 ("not current") so the caller reports external/pending, NOT a pass.
+#
+# Exit codes:
+#   0 = provenance CURRENT and all structural checks pass (current evidence)
+#   1 = provenance current but a structural packaging regression exists
+#   3 = artifact NOT CURRENT (missing/stale provenance) — not a pass, not a regression
 set -euo pipefail
 
 APP="${1:-build/ios/iphonesimulator/Runner.app}"
 MAIN_BUNDLE_ID="com.youssefsafwat.mali"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # Exactly these extensions must ship (space-separated; macOS bash 3.2 has no
 # associative arrays, so ids are resolved via expected_id_for below).
@@ -32,6 +42,24 @@ ok()   { echo "  ✓ $*"; }
 
 [ -d "$APP" ] || fail "app bundle not found: $APP (build it first)"
 echo "Inspecting $APP"
+
+# --- Provenance gate: is this bundle CURRENT? ------------------------------------
+SIDE="$APP.provenance"
+CUR_SHA="$(bash "$REPO_ROOT/tools/ios_input_sha.sh")"
+if [ ! -f "$SIDE" ]; then
+  echo "NOT CURRENT: no provenance sidecar ($SIDE). This bundle's origin is" >&2
+  echo "unknown/stale; build fresh + tools/stamp_ios_provenance.sh to make it" >&2
+  echo "current evidence. (current ios_input_sha=$CUR_SHA)" >&2
+  exit 3
+fi
+REC_SHA="$(grep '^ios_input_sha=' "$SIDE" | cut -d= -f2 || true)"
+if [ "$REC_SHA" != "$CUR_SHA" ]; then
+  echo "NOT CURRENT: artifact provenance ios_input_sha=$REC_SHA" >&2
+  echo "!= current iOS source ios_input_sha=$CUR_SHA — the bundle predates the" >&2
+  echo "current iOS sources (rebuild + re-stamp to refresh)." >&2
+  exit 3
+fi
+ok "provenance CURRENT (ios_input_sha=$CUR_SHA)"
 
 bundle_id() { plutil -extract CFBundleIdentifier raw -o - "$1/Info.plist" 2>/dev/null || true; }
 bundle_exe() { plutil -extract CFBundleExecutable raw -o - "$1/Info.plist" 2>/dev/null || true; }

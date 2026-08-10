@@ -40,6 +40,17 @@ test("the canonical gate wires in the previously CI-invisible mandatory suites",
   assert.match(sh, /CI_GATES_JSON/);
 });
 
+test("the iOS packaging stage is PROVENANCE-GATED — a stale bundle is never counted as current", () => {
+  const sh = readFileSync(`${root}/tools/ci_gates.sh`, "utf8");
+  // verify_ios exit code is interpreted; exit 3 (not-current) maps to UNAVAILABLE
+  // (pending), never to a pass banner.
+  assert.match(sh, /ios_rc/, "ci_gates interprets the verify_ios exit code");
+  assert.match(sh, /NOT CURRENT \/ no provenance/, "not-current iOS artifact -> pending, not pass");
+  const vios = readFileSync(`${root}/app/tools/verify_ios_packaging.sh`, "utf8");
+  assert.match(vios, /ios_input_sha\.sh/, "verify_ios checks source provenance");
+  assert.match(vios, /\bexit 3\b/, "verify_ios exits 3 when the artifact is not current");
+});
+
 test("the CI workflow invokes the canonical gate as its only validation step", () => {
   const yml = readFileSync(`${root}/.github/workflows/ci.yml`, "utf8");
   assert.match(yml, /bash tools\/ci_gates\.sh/, "CI runs the canonical gate");

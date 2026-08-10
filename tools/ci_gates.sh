@@ -26,7 +26,7 @@
 #      repos / Routed* wrappers) cannot silently return; schema stays 29.
 #  10. MALI-037 dependency policy — OFFLINE/deterministic: lockfile present, no
 #      git deps, path deps allowlisted. CVE/outdated registry scans are external.
-#  11. iOS packaging inventory (MALI-066n) — CONDITIONAL/external: runs the
+#  11. iOS packaging inventory (MALI-066n/043) — PROVENANCE-GATED/external: runs the
 #      built-Runner.app check only when a bundle exists (real archive evidence),
 #      else UNAVAILABLE. The static Info.plist/privacy contract is in flutter test.
 #
@@ -158,12 +158,17 @@ if bash "$ROOT/tools/check_deps_policy.sh"; then ok "deps policy"; else bad "dep
 # faked). The source/static packaging contract (Info.plist usage descriptions /
 # privacy manifest) is covered deterministically by `flutter test`
 # (test/ios/ios_privacy_manifest_test.dart), which runs in stage 4a.
-step "iOS packaging inventory (built Runner.app — external build evidence)"
+step "iOS packaging inventory (built Runner.app — PROVENANCE-GATED; source contract in flutter test)"
 IOS_APP="$ROOT/app/build/ios/iphonesimulator/Runner.app"
 if [ -d "$IOS_APP" ]; then
-  if bash "$ROOT/app/tools/verify_ios_packaging.sh" "$IOS_APP"; then ok "ios packaging"; else bad "ios packaging"; fi
+  bash "$ROOT/app/tools/verify_ios_packaging.sh" "$IOS_APP"; ios_rc=$?
+  case "$ios_rc" in
+    0) ok "ios packaging (CURRENT artifact — provenance-verified)" ;;
+    3) unavail "ios packaging: built artifact NOT CURRENT / no provenance — fresh build (tools/stamp_ios_provenance.sh) or external evidence pending" ;;
+    *) bad "ios packaging (structural regression on a current artifact)" ;;
+  esac
 else
-  unavail "ios packaging (no built Runner.app; static Info.plist contract runs in flutter test)"
+  unavail "ios packaging (no built Runner.app; static Info.plist/privacy SOURCE contract runs in flutter test stage 4a)"
 fi
 
 # --- intentional-failure injection self-test hook ---------------------------------
