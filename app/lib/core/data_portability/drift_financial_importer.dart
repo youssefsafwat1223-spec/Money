@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../../data/db/app_database.dart';
+import '../../data/db/money_codec.dart';
 import '../../data/db/sql_value_codec.dart';
+import '../../domain/finance/money.dart';
+import '../../engine/parser/capture_money.dart';
 import '../../core/utils/id_generator.dart';
 import 'data_portability_models.dart';
 import 'qirsh_package_codec.dart';
@@ -186,6 +189,19 @@ class DriftFinancialImporter {
         }
       case 'transactions':
         final categoryId = await _categoryId(row);
+        final transactionCurrency = _currency(row['currency']);
+        final amountMoney =
+            _legacyPositiveMoney(row['amount'], transactionCurrency);
+        final balanceAfterMoney =
+            _legacyMoneyOrNull(row['balance_after'], transactionCurrency);
+        final foreignCurrency = _nullable(row['foreign_currency']);
+        final foreignMoney = foreignCurrency == null
+            ? null
+            : _legacyMoneyOrNull(row['foreign_amount'], foreignCurrency);
+        if ((foreignMoney == null) != (foreignCurrency == null)) {
+          throw const DataPortabilityException(
+              'المبلغ والعملة الأجنبية يجب أن يوجدا معًا.');
+        }
         await _db.customStatement('''
           INSERT INTO transactions(id,account_id,amount,currency,raw_merchant,
             category_id,type,source,card_last4,balance_after,note,occurred_at,
@@ -212,21 +228,23 @@ class DriftFinancialImporter {
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
-          _positiveDouble(row['amount']),
-          _currency(row['currency']),
+          kMoneyCodec.toReal(amountMoney),
+          transactionCurrency,
           _nullable(row['merchant']),
           categoryId,
           _or(row['type'], 'unknown'),
           _or(row['source'], 'imported'),
           _nullable(row['card_last4']),
-          _double(row['balance_after']),
+          balanceAfterMoney == null
+              ? null
+              : kMoneyCodec.toReal(balanceAfterMoney),
           _nullable(row['note']),
           _date(row['occurred_at']),
           _or(row['status'], 'confirmed'),
           _date(row['created_at']),
           _date(row['updated_at']),
-          _double(row['foreign_amount']),
-          _nullable(row['foreign_currency']),
+          foreignMoney == null ? null : kMoneyCodec.toReal(foreignMoney),
+          foreignCurrency,
           _nullable(row['direction']),
           _nullableDate(row['transaction_time_from_sms']),
           _nullableDate(row['sms_received_at']),
@@ -491,6 +509,26 @@ double _positiveDouble(String? value) {
     throw DataPortabilityException('قيمة مالية غير صالحة: $value');
   }
   return parsed;
+}
+
+/// Qirsh is a legacy numeric payload. Keep its quantization explicitly lossy;
+/// new generic CSV ingress parses lexical text directly into Money.
+Money? _legacyMoneyOrNull(String? value, String currency) {
+  final text = _nullable(value);
+  if (text == null) return null;
+  final numeric = num.tryParse(text);
+  if (numeric == null) {
+    throw DataPortabilityException('قيمة مالية غير صالحة: $value');
+  }
+  return legacyLossyNumberToMoney(numeric, currency);
+}
+
+Money _legacyPositiveMoney(String? value, String currency) {
+  final money = _legacyMoneyOrNull(value, currency);
+  if (money == null || money.isZero || money.isNegative) {
+    throw DataPortabilityException('قيمة مالية غير صالحة: $value');
+  }
+  return money;
 }
 
 int _int(String? value) => int.tryParse(value?.trim() ?? '') ?? 0;

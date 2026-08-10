@@ -19,7 +19,7 @@ BillPaymentEntity _payment(String id, DateTime paidAt) => BillPaymentEntity(
 TransactionEntity _transaction(String id) => TransactionEntity(
       id: id,
       type: TransactionTypeEntity.payment,
-      amount: 25,
+      amountMoney: Money.fromLegacyReal(25, 'EGP'),
       currency: 'EGP',
       occurredAt: DateTime.utc(2026, 7, 14),
       rawMerchant: 'QA Bill',

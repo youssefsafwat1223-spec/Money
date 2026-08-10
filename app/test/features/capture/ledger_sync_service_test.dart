@@ -1,4 +1,4 @@
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,6 +9,7 @@ import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/capture/services/ledger_sync_service.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -67,6 +68,7 @@ Map<String, dynamic> _serverRow({
   String id = 'test-server-uuid',
   String? payloadId,
   double amount = 100.0,
+  String? amountText,
   String currency = 'SAR',
   String type = 'debit',
   String source = 'ios_shortcut',
@@ -77,6 +79,10 @@ Map<String, dynamic> _serverRow({
       'id': id,
       'source_payload_id': payloadId,
       'amount': amount,
+      'amount_text': amountText ?? amount.toString(),
+      'balance_after_text': null,
+      'foreign_amount_text': null,
+      'foreign_currency': null,
       'currency': currency,
       'direction': type == 'credit' ? 'credit' : 'debit',
       'transaction_type': switch (type) {
@@ -122,6 +128,35 @@ void main() {
 
   tearDown(() async {
     await db.close();
+  });
+
+  test('transaction pull request shape keeps original cursor columns', () {
+    expect(ledgerTransactionSelect, contains('amount_text:amount::text'));
+    expect(ledgerTransactionSelect,
+        contains('balance_after_text:balance_after::text'));
+    expect(ledgerTransactionSelect,
+        contains('foreign_amount_text:foreign_amount::text'));
+    expect(ledgerTransactionOrderColumns, ['updated_at', 'id']);
+    final filter = ledgerTransactionKeysetFilter(
+      const SyncCursor(updatedAt: '2026-01-01T00:00:00Z', id: 'row-1'),
+    );
+    expect(filter, contains('updated_at.gt.'));
+    expect(filter, contains('updated_at.eq.'));
+    expect(filter, contains('id.gt.row-1'));
+    expect(filter, isNot(contains('amount_text')));
+  });
+
+  test('deserialize exact money text and nullable transaction legs', () {
+    final money = deserializeLedgerTransactionMoney({
+      'currency': 'KWD',
+      'amount_text': '9007199254740.991',
+      'balance_after_text': null,
+      'foreign_amount_text': '12.34',
+      'foreign_currency': 'USD',
+    });
+    expect(money.amountMoney, Money.parse('9007199254740.991', 'KWD'));
+    expect(money.balanceAfterMoney, isNull);
+    expect(money.foreignMoney, Money.parse('12.34', 'USD'));
   });
 
   test('MALI-029: account/category resolution is prefetched once, not per row',
@@ -283,6 +318,7 @@ void main() {
       {
         'id': 'partial-row',
         'amount': null,
+        'amount_text': null,
         'currency': 'SAR',
         'occurred_at': '2026-01-01T10:00:00.000Z',
         'type': 'debit',

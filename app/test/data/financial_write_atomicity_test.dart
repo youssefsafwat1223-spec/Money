@@ -41,7 +41,7 @@ TransactionEntity _transaction(String id) {
   final now = DateTime.utc(2026, 7, 28, 12);
   return TransactionEntity(
     id: id,
-    amount: 125,
+    amountMoney: Money.fromLegacyReal(125, 'SAR'),
     currency: 'SAR',
     type: TransactionTypeEntity.payment,
     source: TransactionSourceEntity.bank,

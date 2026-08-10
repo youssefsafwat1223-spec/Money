@@ -5,6 +5,7 @@ import 'package:money_companion/domain/services/card_account_grouper.dart';
 import 'package:money_companion/domain/entities/category_spend.dart';
 import 'package:money_companion/domain/entities/report_models.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/budget_repository.dart';
 import 'package:money_companion/domain/repositories/transaction_repository.dart';
 import 'package:money_companion/domain/usecases/budget_progress_usecase.dart';
@@ -161,7 +162,7 @@ class _FakeTransactionRepository implements TransactionRepository {
   @override
   Future<void> updateAmount({
     required String transactionId,
-    required double amount,
+    required Money amount,
   }) {
     throw UnimplementedError();
   }
@@ -177,7 +178,7 @@ class _FakeTransactionRepository implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findDuplicate({
-    required double amount,
+    required Money amount,
     required String rawMerchant,
     required DateTime occurredAt,
   }) {
@@ -186,7 +187,7 @@ class _FakeTransactionRepository implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findSuspiciousDuplicate({
-    required double amount,
+    required Money amount,
     required String currency,
     required String merchantOrDescription,
     String? cardLast4,
@@ -265,7 +266,7 @@ class _FakeTransactionRepository implements TransactionRepository {
   @override
   Future<TransactionEntity> updateTransaction({
     required String transactionId,
-    required double amount,
+    required Money amount,
     required String currency,
     required TransactionTypeEntity type,
     required DateTime occurredAt,

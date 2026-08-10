@@ -8,6 +8,7 @@ import 'package:money_companion/data/repositories/drift_suspected_duplicate_repo
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
@@ -200,6 +201,45 @@ void main() {
 
     expect(result.needsReviewTransactionIds, isEmpty);
     expect(client.ackedPayloadIds, ['payload-processed']);
+    final transactions = await DriftTransactionRepository(db).getAll();
+    expect(transactions.single.amountMoney, Money.parse('42', 'SAR'));
+    expect(transactions.single.status, TransactionStatus.confirmed);
+  });
+
+  test('processed capture prefers exact amount_text over legacy JSON number',
+      () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-exact-text',
+        status: 'processed',
+        amountText: '19.99',
+        numericAmount: 42,
+      ),
+    ]);
+
+    await service(client).sync();
+    final transactions = await DriftTransactionRepository(db).getAll();
+
+    expect(transactions.single.amountMoney, Money.parse('19.99', 'SAR'));
+    expect(transactions.single.status, TransactionStatus.confirmed);
+  });
+
+  test('numeric-only legacy capture is imported as pending review', () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-legacy-numeric',
+        status: 'processed',
+        includeAmountText: false,
+      ),
+    ]);
+
+    final result = await service(client).sync();
+    final transactions = await DriftTransactionRepository(db).getAll();
+
+    expect(transactions, hasLength(1));
+    expect(transactions.single.status, TransactionStatus.pending);
+    expect(transactions.single.amountMoney.currency, 'SAR');
+    expect(result.needsReviewTransactionIds, [transactions.single.id]);
   });
 
   test('AI hybrid relay capture keeps the smart transaction source', () async {
@@ -431,12 +471,16 @@ ProcessedCaptureDto _capture({
   String? rawMessage,
   String? duplicateOfPayloadId,
   String? parserSource,
+  bool includeAmountText = true,
+  String amountText = '42',
+  num numericAmount = 42,
 }) {
   return ProcessedCaptureDto(
     payloadId: payloadId,
     status: status,
     parsed: {
-      'amount': 42,
+      'amount': numericAmount,
+      if (includeAmountText) 'amount_text': amountText,
       'currency': currency,
       'type': type,
       if (direction != null) 'direction': direction,

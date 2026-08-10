@@ -15,6 +15,7 @@ import 'package:money_companion/data/repositories/drift_transaction_repository.d
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/usecases/budget_progress_usecase.dart';
 import 'package:money_companion/domain/reporting/report_data_snapshot.dart';
 import 'package:money_companion/domain/reporting/report_request.dart';
@@ -66,7 +67,7 @@ void main() {
     return txRepo.saveTransaction(
       transaction: TransactionEntity(
         id: id,
-        amount: amount,
+        amountMoney: Money.fromLegacyReal(amount, currency),
         currency: currency,
         type: type,
         source: TransactionSourceEntity.bank,

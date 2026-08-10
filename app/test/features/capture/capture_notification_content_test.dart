@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/capture/services/capture_notification_content.dart';
 
 final _fixedNow = DateTime.utc(2026, 7, 2, 14);
@@ -18,7 +19,7 @@ TransactionEntity _tx({
   final now = DateTime.utc(2026, 7, 2, 12);
   return TransactionEntity(
     id: 'tx-1',
-    amount: amount,
+    amountMoney: Money.fromLegacyReal(amount, currency),
     currency: currency,
     type: type,
     source: TransactionSourceEntity.bank,
@@ -31,8 +32,12 @@ TransactionEntity _tx({
     rawMerchant: rawMerchant,
     categoryId: categoryId,
     cardLast4: cardLast4,
-    balanceAfter: balanceAfter,
-    foreignAmount: foreignAmount,
+    balanceAfterMoney: balanceAfter == null
+        ? null
+        : Money.fromLegacyReal(balanceAfter, currency),
+    foreignMoney: foreignAmount == null || foreignCurrency == null
+        ? null
+        : Money.fromLegacyReal(foreignAmount, foreignCurrency),
     foreignCurrency: foreignCurrency,
   );
 }

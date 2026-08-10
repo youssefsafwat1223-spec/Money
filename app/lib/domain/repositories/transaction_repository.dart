@@ -2,6 +2,7 @@ import '../entities/card_summary.dart';
 import '../entities/category_spend.dart';
 import '../entities/report_models.dart';
 import '../entities/transaction_entity.dart';
+import '../finance/money.dart';
 import '../services/card_account_grouper.dart';
 
 /// The list's kind filter, pushed into SQL (B2-C). Mirrors the transactions
@@ -44,13 +45,13 @@ class TransactionPageFilter {
 
 abstract class TransactionRepository {
   Future<TransactionEntity?> findDuplicate({
-    required double amount,
+    required Money amount,
     required String rawMerchant,
     required DateTime occurredAt,
   });
 
   Future<TransactionEntity?> findSuspiciousDuplicate({
-    required double amount,
+    required Money amount,
     required String currency,
     required String merchantOrDescription,
     String? cardLast4,
@@ -88,7 +89,7 @@ abstract class TransactionRepository {
 
   Future<TransactionEntity> updateTransaction({
     required String transactionId,
-    required double amount,
+    required Money amount,
     required String currency,
     required TransactionTypeEntity type,
     required DateTime occurredAt,
@@ -116,7 +117,7 @@ abstract class TransactionRepository {
   /// التسعير» (amount = 0) بقيمتها المحلية التي يدخلها المستخدم.
   Future<void> updateAmount({
     required String transactionId,
-    required double amount,
+    required Money amount,
   });
 
   // ── قراءة (Sprint 3) ──

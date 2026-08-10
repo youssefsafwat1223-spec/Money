@@ -4,6 +4,7 @@ import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
 
 BudgetPeriod budgetPeriodFromSql(String value) {
@@ -133,8 +134,6 @@ SyncStatus syncStatusFromSql(String? value) {
 }
 
 TransactionEntity transactionFromRow(QueryRow row) {
-  final balance = row.readNullable<double>('balance_after');
-  final amount = row.read<double>('amount');
   final currency = row.read<String>('currency');
   final accountId = row.readNullable<String>('account_id');
   final merchantId = row.readNullable<String>('merchant_id');
@@ -150,8 +149,11 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final status = row.read<String>('status');
   final createdAt = row.read<String>('created_at');
   final updatedAt = row.read<String>('updated_at');
-  final foreignAmount = row.readNullable<double>('foreign_amount');
   final foreignCurrency = row.readNullable<String>('foreign_currency');
+  final hasForeignAmount = row.readNullable<double>('foreign_amount') != null;
+  if (hasForeignAmount != (foreignCurrency != null)) {
+    throw StateError('foreign_amount and foreign_currency must be stored together');
+  }
   final direction = row.readNullable<String>('direction');
   final transactionTimeFromSms =
       row.readNullable<String>('transaction_time_from_sms');
@@ -169,7 +171,7 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final syncStatus = row.readNullable<String>('sync_status');
   return TransactionEntity(
     id: row.read<String>('id'),
-    amount: amount,
+    amountMoney: kMoneyCodec.readColumn(row, 'amount', currency),
     currency: currency,
     accountId: accountId,
     merchantId: merchantId,
@@ -178,7 +180,8 @@ TransactionEntity transactionFromRow(QueryRow row) {
     type: transactionTypeFromSql(type),
     source: transactionSourceFromSql(source),
     cardLast4: cardLast4,
-    balanceAfter: balance?.toDouble(),
+    balanceAfterMoney:
+        kMoneyCodec.readColumnNullable(row, 'balance_after', currency),
     note: note,
     occurredAt: dateTimeFromSql(occurredAt),
     rawMessage: rawMessage,
@@ -186,7 +189,9 @@ TransactionEntity transactionFromRow(QueryRow row) {
     status: transactionStatusFromSql(status),
     createdAt: dateTimeFromSql(createdAt),
     updatedAt: dateTimeFromSql(updatedAt),
-    foreignAmount: foreignAmount,
+    foreignMoney: foreignCurrency == null
+        ? null
+        : kMoneyCodec.readColumnNullable(row, 'foreign_amount', foreignCurrency),
     foreignCurrency: foreignCurrency,
     direction: transactionDirectionFromSql(direction),
     transactionTimeFromSms: transactionTimeFromSms == null

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/repositories/dedup_store.dart';
 import 'package:money_companion/domain/repositories/merchant_category_repository.dart';
@@ -37,7 +38,7 @@ class _FakeParserIsolate extends ParserIsolate {
 class _StubTransactionRepo implements TransactionRepository {
   @override
   Future<TransactionEntity?> findDuplicate({
-    required double amount,
+    required Money amount,
     required String rawMerchant,
     required DateTime occurredAt,
   }) async =>
@@ -45,7 +46,7 @@ class _StubTransactionRepo implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findSuspiciousDuplicate({
-    required double amount,
+    required Money amount,
     required String currency,
     required String merchantOrDescription,
     String? cardLast4,
@@ -188,7 +189,7 @@ class _StoringTransactionRepo implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findDuplicate({
-    required double amount,
+    required Money amount,
     required String rawMerchant,
     required DateTime occurredAt,
   }) async =>
@@ -196,7 +197,7 @@ class _StoringTransactionRepo implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findSuspiciousDuplicate({
-    required double amount,
+    required Money amount,
     required String currency,
     required String merchantOrDescription,
     String? cardLast4,
@@ -360,6 +361,7 @@ void main() {
     // on-device parse is what gets saved — but the call must still have happened.
     final countingClient = _CountingAiClient();
     final fakeParsed = ParsedTransaction(
+      amountText: '500',
       amount: 500.0,
       currency: 'SAR',
       type: TransactionType.payment,
@@ -384,6 +386,35 @@ void main() {
     await useCase(rawMessage: 'dummy');
 
     expect(countingClient.callCount, 1);
+  });
+
+  test('over-precision capture token is retained only as pending legacy fallback',
+      () async {
+    final fakeParsed = ParsedTransaction(
+      amountText: '1.234',
+      amount: 1.234,
+      currency: 'SAR',
+      type: TransactionType.payment,
+      source: TransactionSource.bank,
+      rawMerchant: 'STARBUCKS',
+      occurredAt: DateTime.utc(2026, 6, 16, 12),
+      parseConfidence: 0.95,
+    );
+    TransactionEntity? saved;
+    final useCase = AddTransactionUseCase(
+      transactionRepository:
+          _CapturingTransactionRepo(onSave: (transaction) => saved = transaction),
+      merchantCategoryRepository: _StubMerchantRepoWithKnownMerchant(),
+      parserIsolate: _FakeParserIsolate(ParseResult.success(fakeParsed)),
+      loadAiConsent: () async => false,
+      dedupStore: _NoDedupStore(),
+    );
+
+    await useCase(rawMessage: 'Purchase SAR 1.234 At STARBUCKS');
+
+    expect(saved, isNotNull);
+    expect(saved!.amountMoney, Money.parse('1.23', 'SAR'));
+    expect(saved!.status, TransactionStatus.pending);
   });
 
   test('AI-first: unsupported-bank generic parse routes through AI (one call)',
@@ -444,6 +475,7 @@ void main() {
       syncStatus: SenderBankMappingSyncStatus.pending,
     );
     final fakeParsed = ParsedTransaction(
+      amountText: '50',
       amount: 50.0,
       currency: 'AED',
       type: TransactionType.payment,
@@ -481,6 +513,7 @@ void main() {
     String? capturedSanitized;
     const rawTransferSms = 'تم تحويل مبلغ 200.00 ريال إلى: سارة العمري';
     final fakeParsed = ParsedTransaction(
+      amountText: '200',
       amount: 200.0,
       currency: 'SAR',
       type: TransactionType.transfer,
@@ -513,6 +546,7 @@ void main() {
       () async {
     const rawSms = 'خصم 200.00 ريال من حسابك';
     final fakeParsed = ParsedTransaction(
+      amountText: '200',
       amount: 200.0,
       currency: 'SAR',
       type: TransactionType.payment,
@@ -552,7 +586,8 @@ void main() {
     const rawSms =
         'IPN transfer sent with amount of EGP 31.43 from 1938 on 15/03 '
         'at 02:18 PM. Ref# 22762b03. For more details call 16607';
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '31.43',
       amount: 31.43,
       currency: 'EGP',
       type: TransactionType.transfer,
@@ -685,7 +720,8 @@ void main() {
         transactionRepository: repo,
         merchantCategoryRepository: _StubMerchantRepo(),
         parserIsolate: _FakeParserIsolate(ParseResult.success(
-          const ParsedTransaction(
+          ParsedTransaction(
+            amountText: '9000',
             amount: 9000,
             currency: 'EGP',
             type: TransactionType.transfer,
@@ -734,7 +770,8 @@ void main() {
 
   test('AI category wins over local merchant keyword category', () async {
     const rawSms = 'Purchase EGP 85.00 At STARBUCKS on 08/06 at 06:55 AM';
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '85',
       amount: 85.0,
       currency: 'EGP',
       type: TransactionType.payment,
@@ -774,6 +811,7 @@ void main() {
       () async {
     const rawSms = 'خصم 150.00 ريال من حسابك في مطعم البيك';
     final fakeParsed = ParsedTransaction(
+      amountText: '150',
       amount: 150.0,
       currency: 'SAR',
       type: TransactionType.payment,
@@ -819,6 +857,7 @@ void main() {
       () async {
     final countingClient = _CountingAiClient();
     final fakeParsed = ParsedTransaction(
+      amountText: '300',
       amount: 300.0,
       currency: 'SAR',
       type: TransactionType.payment,
@@ -972,6 +1011,7 @@ void main() {
       'for a known merchant', () async {
     const rawSms = 'خصم 150.00 ريال من حسابك في ستاربكس';
     final fakeParsed = ParsedTransaction(
+      amountText: '150',
       amount: 150.0,
       currency: 'SAR',
       type: TransactionType.payment,
@@ -983,6 +1023,7 @@ void main() {
     final fakeParseResult = ParseResult.success(fakeParsed);
     const aiClient = _FixedResponseAiClient(AiParseResponse(
       amount: 150.0,
+      amountText: '150.00',
       currency: 'SAR',
       type: 'payment',
       merchantName: 'STARBUCKS',
@@ -1013,7 +1054,8 @@ void main() {
         'Your Debit Card **5398 had a Successful transaction of EGP 200.00 '
         '@BDC OROBA,your available bal.EGP1204.74 for lost/stolen card call '
         '16607.';
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '200',
       amount: 200.0,
       currency: 'EGP',
       type: TransactionType.payment,
@@ -1063,7 +1105,8 @@ void main() {
   test('AI other sends merchant to Maps and saves the resolved category',
       () async {
     const rawSms = 'Purchase EGP 85.00 At STARBUCKS on 08/06 at 06:55 AM';
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '85',
       amount: 85.0,
       currency: 'EGP',
       type: TransactionType.payment,
@@ -1110,7 +1153,8 @@ void main() {
       'merchant payment falls back to a pending best-effort category when AI '
       'and Maps cannot classify it', () async {
     const rawSms = 'Purchase EGP 40.00 At RANDOM SHOP on 08/06 at 06:55 AM';
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '40',
       amount: 40.0,
       currency: 'EGP',
       type: TransactionType.payment,
@@ -1153,6 +1197,7 @@ void main() {
       'a pending transaction', () async {
     const aiClient = _FixedResponseAiClient(AiParseResponse(
       amount: 75.0,
+      amountText: '75.00',
       currency: 'SAR',
       type: 'payment',
       merchantName: 'NOON',
@@ -1177,6 +1222,7 @@ void main() {
 
     expect(result.outcome, AddTransactionOutcome.added);
     expect(saved, isNotNull);
+    expect(saved!.amountMoney, Money.parse('75.00', 'SAR'));
     expect(saved!.amount, 75.0);
     expect(saved!.status, TransactionStatus.pending);
     expect(saved!.source, TransactionSourceEntity.aiParsed);
@@ -1248,6 +1294,7 @@ void main() {
   test('incoming external transfer counts as income (money received)',
       () async {
     final fakeParsed = ParsedTransaction(
+      amountText: '500',
       amount: 500.0,
       currency: 'SAR',
       type: TransactionType.transfer,
@@ -1279,7 +1326,8 @@ void main() {
         'الرسوم/الضريبة:SAR 7.44\n'
         'من:APPLE.CO..\n'
         '24-6-2026 11:42';
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '99',
       amount: 99.0,
       currency: 'USD',
       type: TransactionType.payment,
@@ -1306,6 +1354,8 @@ void main() {
     // Fee/tax surfaced as a separate transaction in the local currency.
     expect(result.secondary, isNotNull);
     expect(result.secondary!.outcome, AddTransactionOutcome.added);
+    expect(result.secondary!.transaction!.amountMoney,
+        Money.parse('7.44', 'SAR'));
     expect(result.secondary!.transaction!.amount, 7.44);
     expect(result.secondary!.transaction!.currency, 'SAR');
     expect(result.secondary!.transaction!.type, TransactionTypeEntity.payment);
@@ -1315,7 +1365,8 @@ void main() {
   test(
       'foreign currency SMS auto-creates an account in that currency '
       'and saves the transaction there', () async {
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '99',
       amount: 99.0,
       currency: 'USD',
       type: TransactionType.payment,
@@ -1351,7 +1402,8 @@ void main() {
 
   test('foreign purchase + fee processed twice does NOT double-count',
       () async {
-    const fakeParsed = ParsedTransaction(
+    final fakeParsed = ParsedTransaction(
+      amountText: '99',
       amount: 99.0,
       currency: 'USD',
       type: TransactionType.payment,
@@ -1380,6 +1432,12 @@ void main() {
     await build()(rawMessage: sms);
     // SMS has SAR fee → foreignUnpriced: purchase parked as SAR 0 + fee SAR 7.44.
     expect(repo.saveCount, 2);
+    final unpricedPurchase = repo.byId.values.singleWhere(
+      (transaction) => transaction.amountMoney.isZero,
+    );
+    expect(unpricedPurchase.amountMoney, Money.zero('SAR'));
+    expect(unpricedPurchase.foreignMoney, Money.parse('99', 'USD'));
+    expect(unpricedPurchase.foreignCurrency, 'USD');
 
     final second = await build()(rawMessage: sms);
     // Re-processing the same SMS adds nothing.
@@ -1397,6 +1455,7 @@ void main() {
   test('internal own-account transfer stays neutral (excluded from totals)',
       () async {
     final fakeParsed = ParsedTransaction(
+      amountText: '500',
       amount: 500.0,
       currency: 'SAR',
       type: TransactionType.transfer,
@@ -1422,6 +1481,7 @@ void main() {
   test('ATM cash deposit (withdrawal-typed + إيداع wording) becomes a transfer',
       () async {
     final fakeParsed = ParsedTransaction(
+      amountText: '300',
       amount: 300.0,
       currency: 'SAR',
       type: TransactionType.withdrawal,
@@ -1446,6 +1506,7 @@ void main() {
 
   test('outgoing external transfer counts as expense (money sent)', () async {
     final fakeParsed = ParsedTransaction(
+      amountText: '500',
       amount: 500.0,
       currency: 'SAR',
       type: TransactionType.transfer,
@@ -1507,6 +1568,7 @@ void main() {
     // known merchant, this must route to pending.
     const rawSms = 'تم إيداع راتب 5000.00 ريال في حسابك';
     final fakeParsed = ParsedTransaction(
+      amountText: '5000',
       amount: 5000.0,
       currency: 'SAR',
       type: TransactionType.payment,

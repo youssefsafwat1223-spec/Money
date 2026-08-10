@@ -11,6 +11,7 @@ import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/finance/money_input.dart';
 import '../../../domain/errors/repo_exceptions.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../common/app_sheet_scaffold.dart';
@@ -78,7 +79,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
   /// A foreign-currency spend parked in the home account with no home value yet
   /// (amount 0). The user prices it by entering the home-currency amount.
   bool _awaitingPricing(TransactionEntity tx) =>
-      tx.amount == 0 && tx.foreignAmount != null && tx.foreignCurrency != null;
+      tx.amountMoney.isZero && tx.foreignMoney != null;
 
   /// Selectable categories with the currently-selected one pinned first, so it
   /// is always visible (otherwise a selection like "أخرى" sits off-screen at the
@@ -394,9 +395,10 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                     try {
                       // Price a foreign "awaiting pricing" spend if a value was typed.
                       if (_awaitingPricing(tx)) {
-                        final priced =
-                            double.tryParse(_priceController.text.trim());
-                        if (priced != null && priced > 0) {
+                        try {
+                          final priced = parseLocalizedMoney(
+                              _priceController.text, tx.currency);
+                          if (priced.minorUnits <= 0) return;
                           try {
                             await ref
                                 .read(transactionRepositoryProvider)
@@ -409,6 +411,8 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                             AppToast.show(context, repoExceptionMessage(e));
                             return;
                           }
+                        } on Exception {
+                          return;
                         }
                       }
                       if (tx.status == TransactionStatus.pending) {

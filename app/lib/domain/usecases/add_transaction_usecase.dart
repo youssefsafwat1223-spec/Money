@@ -13,6 +13,7 @@ import '../../engine/models/transaction_type.dart';
 import '../../engine/parser/bank_profile.dart';
 import '../../engine/parser/payment_aggregators.dart';
 import '../../engine/parser/bank_sender_filter.dart';
+import '../../engine/parser/capture_money.dart';
 import '../../engine/parser/direction_signal.dart';
 import '../../engine/parser/parser_engine.dart';
 import '../../engine/parser/parser_isolate.dart';
@@ -23,6 +24,8 @@ import '../entities/account_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../entities/suspected_duplicate_entity.dart';
 import '../entities/transaction_entity.dart';
+import '../finance/money.dart';
+import '../finance/money_input.dart';
 import '../repositories/account_repository.dart';
 import '../repositories/dedup_store.dart';
 import '../repositories/merchant_category_repository.dart';
@@ -145,6 +148,54 @@ class _AppliedAiParse {
   final ParsedTransaction transaction;
   final String? categoryKey;
   final TransactionDirectionEntity? direction;
+}
+
+class _CaptureMoneyResolution {
+  const _CaptureMoneyResolution(this.money, {required this.legacyLossy});
+  final Money money;
+  final bool legacyLossy;
+}
+
+class _NullableCaptureMoneyResolution {
+  const _NullableCaptureMoneyResolution(this.money,
+      {required this.legacyLossy});
+  final Money? money;
+  final bool legacyLossy;
+}
+
+_CaptureMoneyResolution _captureMoney({
+  required String? exactText,
+  required double heuristicValue,
+  required String currency,
+}) {
+  if (exactText != null) {
+    try {
+      return _CaptureMoneyResolution(parseCaptureMoney(exactText, currency),
+          legacyLossy: false);
+    } on Exception {
+      // LEGACY_LOSSY capture fallback (pending review): never silently round a
+      // rejected exact bank token into a confirmed transaction.
+    }
+  }
+  return _CaptureMoneyResolution(
+      legacyLossyNumberToMoney(heuristicValue, currency),
+      legacyLossy: true);
+}
+
+_NullableCaptureMoneyResolution _captureMoneyOrNull({
+  required String? exactText,
+  required double? heuristicValue,
+  required String currency,
+}) {
+  if (exactText == null && heuristicValue == null) {
+    return const _NullableCaptureMoneyResolution(null, legacyLossy: false);
+  }
+  final resolved = _captureMoney(
+      exactText: exactText,
+      heuristicValue: heuristicValue ?? 0,
+      currency: currency);
+  return _NullableCaptureMoneyResolution(resolved.money,
+      legacyLossy: resolved.legacyLossy);
 }
 
 Future<AccountEntity?> _accountForCurrency(
@@ -383,6 +434,11 @@ class AddTransactionUseCase {
     );
 
     final merchant = parsed.rawMerchant;
+    final parsedAmountForDedup = _captureMoney(
+      exactText: parsed.amountText,
+      heuristicValue: parsed.amount,
+      currency: parsed.currency,
+    );
     // Pre-categorize to determine if keyword match exists — known merchants
     // (Starbucks, Amazon, etc.) should not require confirmation even on first visit.
     final preCategory = Categorizer(
@@ -395,7 +451,7 @@ class AddTransactionUseCase {
 
     if (!skipDedup) {
       final duplicate = await _transactionRepository.findSuspiciousDuplicate(
-        amount: parsed.amount,
+        amount: parsedAmountForDedup.money,
         currency: parsed.currency,
         merchantOrDescription: parsed.rawMerchant ?? rawMessage,
         cardLast4: parsed.cardLast4,
@@ -408,6 +464,7 @@ class AddTransactionUseCase {
           senderId: senderId,
           existingTransactionId: duplicate.id,
           parsed: parsed,
+          amountMoney: parsedAmountForDedup.money,
           occurredAt: occurredAt,
           cardLast4: parsed.cardLast4,
           comparisonTimestamp: comparisonTimestamp,
@@ -573,7 +630,7 @@ class AddTransactionUseCase {
     final fee = _extractFeeAmount(rawMessage);
     final hasHomeCurrencyFee = fee != null &&
         homeCurrency != null &&
-        fee.$2.trim().toUpperCase() == homeCurrency;
+        fee.currency.trim().toUpperCase() == homeCurrency;
     final foreignUnpriced = homeCurrency != null &&
         homeCurrency.isNotEmpty &&
         txCurrency.isNotEmpty &&
@@ -599,10 +656,51 @@ class AddTransactionUseCase {
               fallback: defaultAccount,
             ));
 
+    final transactionCurrency = foreignUnpriced
+        ? homeCurrency
+        : effectiveParsed.currency.trim().toUpperCase();
+    final mainAmount = foreignUnpriced
+        ? _CaptureMoneyResolution(Money.zero(transactionCurrency),
+            legacyLossy: false)
+        : _captureMoney(
+            exactText: effectiveParsed.amountText,
+            heuristicValue: effectiveParsed.amount,
+            currency: transactionCurrency,
+          );
+    final balanceAfter = _captureMoneyOrNull(
+      exactText: effectiveParsed.balanceAfterText,
+      heuristicValue: effectiveParsed.balanceAfter,
+      currency: transactionCurrency,
+    );
+    final String? finalForeignCurrency = foreignUnpriced
+        ? txCurrency
+        : effectiveParsed.foreignCurrency?.trim().toUpperCase();
+    if (!foreignUnpriced &&
+        (effectiveParsed.foreignAmount == null) !=
+            (finalForeignCurrency == null)) {
+      throw StateError(
+          'foreign amount and foreign currency must be supplied together');
+    }
+    final foreignAmount = finalForeignCurrency == null
+        ? const _NullableCaptureMoneyResolution(null, legacyLossy: false)
+        : _captureMoneyOrNull(
+            exactText: foreignUnpriced
+                ? effectiveParsed.amountText
+                : effectiveParsed.foreignAmountText,
+            heuristicValue: foreignUnpriced
+                ? effectiveParsed.amount
+                : effectiveParsed.foreignAmount,
+            currency: finalForeignCurrency,
+          );
+    final legacyLossyReview = parsedAmountForDedup.legacyLossy ||
+        mainAmount.legacyLossy ||
+        balanceAfter.legacyLossy ||
+        foreignAmount.legacyLossy;
+
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
-      amount: foreignUnpriced ? 0 : effectiveParsed.amount,
-      currency: foreignUnpriced ? homeCurrency : effectiveParsed.currency,
+      amountMoney: mainAmount.money,
+      currency: transactionCurrency,
       accountId: effectiveAccount?.id,
       merchantId: null,
       rawMerchant: effectiveParsed.rawMerchant,
@@ -610,21 +708,18 @@ class AddTransactionUseCase {
       type: _mapType(effectiveParsed.type),
       source: _mapSource(effectiveParsed.source),
       cardLast4: effectiveParsed.cardLast4,
-      balanceAfter: effectiveParsed.balanceAfter,
+      balanceAfterMoney: balanceAfter.money,
       occurredAt: occurredAt.toUtc(),
       rawMessage: rawMessage,
       parseConfidence: effectiveParsed.parseConfidence,
       direction: resolvedDirection,
-      status: (canAutoConfirm && !foreignUnpriced)
+      status: (canAutoConfirm && !foreignUnpriced && !legacyLossyReview)
           ? TransactionStatus.confirmed
           : TransactionStatus.pending,
       createdAt: now,
       updatedAt: now,
-      foreignAmount: foreignUnpriced
-          ? effectiveParsed.amount
-          : effectiveParsed.foreignAmount,
-      foreignCurrency:
-          foreignUnpriced ? txCurrency : effectiveParsed.foreignCurrency,
+      foreignMoney: foreignAmount.money,
+      foreignCurrency: finalForeignCurrency,
       transactionTimeFromSms: transactionTimeFromSms,
       smsReceivedAt: receivedAt,
       comparisonTimestamp: comparisonTimestamp,
@@ -650,6 +745,7 @@ class AddTransactionUseCase {
     // even when an external transfer is re-typed to income/expense.
     if (_dedupStore != null) {
       final hash = await TransactionDedup.computeHash(
+        // HEURISTIC-ONLY fingerprint derived deterministically from the token.
         amount: parsed.amount,
         currency: parsed.currency,
         cardLast4: parsed.cardLast4,
@@ -694,6 +790,7 @@ class AddTransactionUseCase {
     required String? senderId,
     required String existingTransactionId,
     required ParsedTransaction parsed,
+    required Money amountMoney,
     required DateTime occurredAt,
     String? cardLast4,
     DateTime? comparisonTimestamp,
@@ -708,7 +805,7 @@ class AddTransactionUseCase {
       rawMessage: rawMessage,
       senderId: senderId,
       existingTransactionId: existingTransactionId,
-      amount: parsed.amount,
+      amountMoney: amountMoney,
       currency: parsed.currency,
       rawMerchant: parsed.rawMerchant,
       occurredAt: occurredAt,
@@ -743,7 +840,8 @@ class AddTransactionUseCase {
   }) async {
     final fee = _extractFeeAmount(rawMessage);
     if (fee == null) return null;
-    final (amount, currency) = fee;
+    final amount = fee.heuristicAmount;
+    final currency = fee.currency;
     // Same currency as the main amount → part of one charge, not a second
     // transaction; skip to avoid double counting.
     if (currency.toUpperCase() == primary.currency.trim().toUpperCase()) {
@@ -751,6 +849,7 @@ class AddTransactionUseCase {
     }
 
     Future<String> feeHash() => TransactionDedup.computeHash(
+          // HEURISTIC-ONLY dedup fingerprint; money is parsed from fee text.
           amount: amount,
           currency: currency,
           cardLast4: primary.cardLast4,
@@ -773,9 +872,14 @@ class AddTransactionUseCase {
       fallback: defaultAccount,
     );
     final now = DateTime.now().toUtc();
+    final feeAmount = _captureMoney(
+      exactText: fee.amountText,
+      heuristicValue: fee.heuristicAmount,
+      currency: currency,
+    );
     final feeTx = TransactionEntity(
       id: IdGenerator.next(),
-      amount: amount,
+      amountMoney: feeAmount.money,
       currency: currency,
       accountId: account?.id,
       merchantId: null,
@@ -784,13 +888,14 @@ class AddTransactionUseCase {
       type: TransactionTypeEntity.payment,
       source: _mapSource(primary.source),
       cardLast4: primary.cardLast4,
-      balanceAfter: null,
       note: 'رسوم/ضريبة',
       occurredAt: occurredAt.toUtc(),
       rawMessage: rawMessage,
       parseConfidence: 1.0,
       direction: TransactionDirectionEntity.debit,
-      status: TransactionStatus.confirmed,
+      status: feeAmount.legacyLossy
+          ? TransactionStatus.pending
+          : TransactionStatus.confirmed,
       createdAt: now,
       updatedAt: now,
       transactionTimeFromSms: transactionTimeFromSms,
@@ -815,14 +920,15 @@ class AddTransactionUseCase {
 
   /// Extracts a fee/tax amount that appears AFTER a fee keyword
   /// (الرسوم/الضريبة/fee/VAT/tax). Returns null when no such line exists.
-  static (double, String)? _extractFeeAmount(String rawMessage) {
+  static ({String amountText, double heuristicAmount, String currency})?
+      _extractFeeAmount(String rawMessage) {
     final keyword = RegExp(
       r'(?:الرسوم|الرسم|الضريبة|الضرائب|رسوم|ضريبة|fees?|vat|tax)',
       caseSensitive: false,
     ).firstMatch(rawMessage);
     if (keyword == null) return null;
     final fee = _extractAmountCurrency(rawMessage.substring(keyword.end));
-    if (fee == null || fee.$1 <= 0) return null;
+    if (fee == null || fee.heuristicAmount <= 0) return null;
     return fee;
   }
 
@@ -974,6 +1080,9 @@ class AddTransactionUseCase {
       categoryKey: aiCategoryKey,
       direction: _parseAiDirection(aiResponse.direction),
       transaction: ParsedTransaction(
+        // Null means the old AI backend omitted amount_text: LEGACY_LOSSY and
+        // pending review at the transaction construction boundary.
+        amountText: aiResponse.amountText,
         amount: aiResponse.amount,
         currency: aiResponse.currency,
         type: aiType,
@@ -983,8 +1092,11 @@ class AddTransactionUseCase {
             ) ??
             localParsed?.rawMerchant,
         cardLast4: localParsed?.cardLast4,
+        accountNumber: localParsed?.accountNumber,
+        balanceAfterText: localParsed?.balanceAfterText,
         balanceAfter: localParsed?.balanceAfter,
         occurredAt: aiResponse.occurredAt ?? localParsed?.occurredAt,
+        foreignAmountText: localParsed?.foreignAmountText,
         foreignAmount: localParsed?.foreignAmount,
         foreignCurrency: localParsed?.foreignCurrency,
         fundingSource: localParsed?.fundingSource,
@@ -1070,14 +1182,18 @@ class AddTransactionUseCase {
     String? rawMerchant,
   ) {
     return ParsedTransaction(
+      amountText: transaction.amountText,
       amount: transaction.amount,
       currency: transaction.currency,
       type: transaction.type,
       source: transaction.source,
       rawMerchant: rawMerchant,
       cardLast4: transaction.cardLast4,
+      accountNumber: transaction.accountNumber,
+      balanceAfterText: transaction.balanceAfterText,
       balanceAfter: transaction.balanceAfter,
       occurredAt: transaction.occurredAt,
+      foreignAmountText: transaction.foreignAmountText,
       foreignAmount: transaction.foreignAmount,
       foreignCurrency: transaction.foreignCurrency,
       fundingSource: transaction.fundingSource,
@@ -1127,8 +1243,9 @@ class AddTransactionUseCase {
     );
 
     return ParsedTransaction(
-      amount: amountCurrency.$1,
-      currency: amountCurrency.$2,
+      amountText: amountCurrency.amountText,
+      amount: amountCurrency.heuristicAmount,
+      currency: amountCurrency.currency,
       type: type,
       source: TransactionSource.unknown,
       rawMerchant: merchant,
@@ -1169,7 +1286,8 @@ class AddTransactionUseCase {
     return year;
   }
 
-  static (double, String)? _extractAmountCurrency(String rawMessage) {
+  static ({String amountText, double heuristicAmount, String currency})?
+      _extractAmountCurrency(String rawMessage) {
     const codes = 'EGP|SAR|AED|USD|EUR|GBP|KWD|QAR|BHD|OMR|JOD';
     const aliases = 'جم|جنيه';
     final currencyBefore = RegExp(
@@ -1192,24 +1310,40 @@ class AddTransactionUseCase {
     final match = amountWord.firstMatch(rawMessage) ??
         currencyBefore.firstMatch(rawMessage);
     if (match != null) {
-      final amount = double.tryParse(match.group(2)!.replaceAll(',', ''));
-      if (amount == null) return null;
-      return (amount, match.group(1)!.toUpperCase());
+      return _amountCurrencyToken(match.group(2)!, match.group(1)!);
     }
 
     final reverse = currencyAfter.firstMatch(rawMessage);
     if (reverse != null) {
-      final amount = double.tryParse(reverse.group(1)!.replaceAll(',', ''));
-      if (amount == null) return null;
-      return (amount, reverse.group(2)!.toUpperCase());
+      return _amountCurrencyToken(reverse.group(1)!, reverse.group(2)!);
     }
     final egp = egyptianPoundAfter.firstMatch(rawMessage);
     if (egp != null) {
-      final amount = double.tryParse(egp.group(1)!.replaceAll(',', ''));
-      if (amount == null) return null;
-      return (amount, 'EGP');
+      return _amountCurrencyToken(egp.group(1)!, 'EGP');
     }
     return null;
+  }
+
+  static ({String amountText, double heuristicAmount, String currency})?
+      _amountCurrencyToken(String token, String currency) {
+    final heuristicAmount = double.tryParse(token.replaceAll(',', ''));
+    if (heuristicAmount == null) return null;
+    try {
+      final amountText = normalizeLocalizedDecimal(token);
+      return (
+        amountText: amountText,
+        heuristicAmount: heuristicAmount,
+        currency: currency.toUpperCase(),
+      );
+    } on Exception {
+      // Keep the lexical token so the construction boundary can explicitly
+      // route an ambiguous fee through its pending LEGACY_LOSSY fallback.
+      return (
+        amountText: token,
+        heuristicAmount: heuristicAmount,
+        currency: currency.toUpperCase(),
+      );
+    }
   }
 
   static String? _extractMerchantName(String rawMessage) {
@@ -1492,7 +1626,7 @@ class SaveManualTransactionUseCase {
   final SuspectedDuplicateRepository? _suspectedDuplicateRepository;
 
   Future<TransactionEntity> call({
-    required double amount,
+    required Money amount,
     required String currency,
     required TransactionTypeEntity type,
     required DateTime occurredAt,
@@ -1504,6 +1638,10 @@ class SaveManualTransactionUseCase {
   }) async {
     final now = DateTime.now().toUtc();
     final normalizedCurrency = currency.trim().toUpperCase();
+    if (amount.currency != normalizedCurrency) {
+      throw ArgumentError(
+          'manual amount currency ${amount.currency} does not match $normalizedCurrency');
+    }
     final normalizedMerchant = merchant?.trim();
     final normalizedNote = note?.trim();
     final comparisonTimestamp = occurredAt.toUtc();
@@ -1533,7 +1671,7 @@ class SaveManualTransactionUseCase {
         rawMessage: rawMessage,
         senderId: null,
         existingTransactionId: possibleDuplicate.id,
-        amount: amount,
+        amountMoney: amount,
         currency: normalizedCurrency,
         rawMerchant: normalizedMerchant,
         occurredAt: comparisonTimestamp,
@@ -1551,7 +1689,7 @@ class SaveManualTransactionUseCase {
         : null;
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
-      amount: amount,
+      amountMoney: amount,
       currency: normalizedCurrency,
       accountId: accountId ?? effectiveAccount?.id,
       merchantId: null,
@@ -1562,7 +1700,6 @@ class SaveManualTransactionUseCase {
       type: type,
       source: TransactionSourceEntity.unknown,
       cardLast4: (cardLast4 == null || cardLast4.isEmpty) ? null : cardLast4,
-      balanceAfter: null,
       note: normalizedNote == null || normalizedNote.isEmpty
           ? null
           : normalizedNote,
@@ -1595,7 +1732,7 @@ class SaveManualTransactionUseCase {
   }
 
   String _manualRawMessage({
-    required double amount,
+    required Money amount,
     required String currency,
     required String? merchant,
     required String? note,
@@ -1603,7 +1740,7 @@ class SaveManualTransactionUseCase {
   }) {
     final buffer = StringBuffer()
       ..writeln('Manual transaction')
-      ..writeln('مبلغ:$currency ${amount.toStringAsFixed(2)}');
+      ..writeln('مبلغ:$currency ${amount.toDecimalString()}');
     if (merchant != null && merchant.isNotEmpty) {
       buffer.writeln('لدى:$merchant');
     }

@@ -10,6 +10,7 @@ import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/repositories/transaction_repository.dart';
 import 'package:money_companion/features/common/category_catalog.dart';
@@ -137,7 +138,7 @@ TransactionEntity _tx(String id) {
   final now = DateTime.utc(2026, 6, 1);
   return TransactionEntity(
     id: id,
-    amount: 1,
+    amountMoney: Money.fromLegacyReal(1, 'SAR'),
     currency: 'SAR',
     type: TransactionTypeEntity.payment,
     source: TransactionSourceEntity.bank,

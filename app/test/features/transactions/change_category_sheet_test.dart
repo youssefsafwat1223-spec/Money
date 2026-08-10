@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/category_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/features/transactions/widgets/change_category_sheet.dart';
 
@@ -13,7 +14,7 @@ void main() {
     final now = DateTime.utc(2026, 7, 18, 12);
     final transaction = TransactionEntity(
       id: 'tx-1',
-      amount: 100,
+      amountMoney: Money.fromLegacyReal(100, 'EGP'),
       currency: 'EGP',
       type: TransactionTypeEntity.payment,
       source: TransactionSourceEntity.bank,

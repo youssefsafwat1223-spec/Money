@@ -110,7 +110,7 @@ void main() {
     await txRepo.saveTransaction(
       transaction: TransactionEntity(
         id: id,
-        amount: amount,
+        amountMoney: Money.fromLegacyReal(amount, currency),
         currency: currency,
         type: type,
         source: TransactionSourceEntity.bank,

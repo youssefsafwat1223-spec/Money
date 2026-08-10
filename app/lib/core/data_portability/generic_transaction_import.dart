@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:intl/intl.dart';
 
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import 'data_portability_models.dart';
 import 'portable_csv.dart';
 
@@ -13,7 +15,7 @@ class GenericImportRecord {
     required this.recordId,
     required this.rowNumber,
     required this.occurredAt,
-    required this.amount,
+    required this.amountMoney,
     required this.currency,
     required this.direction,
     required this.accountName,
@@ -25,7 +27,9 @@ class GenericImportRecord {
   final String recordId;
   final int rowNumber;
   final DateTime occurredAt;
-  final double amount;
+  final Money amountMoney;
+  /// DISPLAY-ONLY compatibility projection for import previews.
+  double get amount => amountMoney.toDouble();
   final String currency;
   final ImportedDirection direction;
   final String? accountName;
@@ -66,16 +70,6 @@ GenericImportParseResult parseGenericTransactions({
       continue;
     }
 
-    final amountResult = _amountAndDirection(row, mapping);
-    if (amountResult == null || amountResult.$1 <= 0) {
-      issues.add(ImportIssue(
-        message: 'المبلغ غير صالح أو يساوي صفرًا.',
-        severity: ImportIssueSeverity.error,
-        rowNumber: rowNumber,
-        field: mapping.amountColumn,
-      ));
-      continue;
-    }
     final currency = (mapping.currencyColumn == null
             ? defaultCurrency
             : row[mapping.currencyColumn]?.trim())
@@ -89,13 +83,23 @@ GenericImportParseResult parseGenericTransactions({
       ));
       continue;
     }
+    final amountResult = _amountAndDirection(row, mapping, currency);
+    if (amountResult == null || amountResult.$1.isZero) {
+      issues.add(ImportIssue(
+        message: 'المبلغ غير صالح أو يساوي صفرًا.',
+        severity: ImportIssueSeverity.error,
+        rowNumber: rowNumber,
+        field: mapping.amountColumn,
+      ));
+      continue;
+    }
     final merchant = _nullable(row[mapping.merchantColumn]);
     final category = _nullable(row[mapping.categoryColumn]);
     final account = _nullable(row[mapping.accountColumn]);
     final note = _nullable(row[mapping.noteColumn]);
     final fingerprint = [
       occurredAt.toUtc().toIso8601String(),
-      amountResult.$1.toStringAsFixed(6),
+      amountResult.$1.toDecimalString(),
       currency,
       amountResult.$2.name,
       account?.toLowerCase() ?? '',
@@ -107,7 +111,7 @@ GenericImportParseResult parseGenericTransactions({
       recordId: 'import_${sha256.convert(utf8.encode(fingerprint))}',
       rowNumber: rowNumber,
       occurredAt: occurredAt.toUtc(),
-      amount: amountResult.$1,
+      amountMoney: amountResult.$1,
       currency: currency,
       direction: amountResult.$2,
       accountName: account,
@@ -148,48 +152,40 @@ DateTime? parseImportDate(String input, ImportDateFormat format) {
   return null;
 }
 
-(double, ImportedDirection)? _amountAndDirection(
+(Money, ImportedDirection)? _amountAndDirection(
   Map<String, String> row,
   CsvColumnMapping mapping,
+  String currency,
 ) {
-  final debit = parseImportAmount(row[mapping.debitColumn] ?? '');
-  final credit = parseImportAmount(row[mapping.creditColumn] ?? '');
-  if (debit != null && debit != 0) {
-    return (debit.abs(), ImportedDirection.expense);
+  final debit = _parseImportMoney(row[mapping.debitColumn] ?? '', currency);
+  final credit = _parseImportMoney(row[mapping.creditColumn] ?? '', currency);
+  if (debit != null && !debit.isZero) {
+    return (debit.isNegative ? -debit : debit, ImportedDirection.expense);
   }
-  if (credit != null && credit != 0) {
-    return (credit.abs(), ImportedDirection.income);
+  if (credit != null && !credit.isZero) {
+    return (credit.isNegative ? -credit : credit, ImportedDirection.income);
   }
-  final amount = parseImportAmount(row[mapping.amountColumn] ?? '');
+  final amount = _parseImportMoney(row[mapping.amountColumn] ?? '', currency);
   if (amount == null) return null;
   final explicit = _parseDirection(row[mapping.typeColumn]);
-  if (explicit != ImportedDirection.unknown) return (amount.abs(), explicit);
-  final expense = mapping.negativeMeansExpense ? amount < 0 : amount > 0;
+  final absolute = amount.isNegative ? -amount : amount;
+  if (explicit != ImportedDirection.unknown) return (absolute, explicit);
+  final expense = mapping.negativeMeansExpense
+      ? amount.isNegative
+      : !amount.isNegative && !amount.isZero;
   return (
-    amount.abs(),
+    absolute,
     expense ? ImportedDirection.expense : ImportedDirection.income,
   );
 }
 
-double? parseImportAmount(String input) {
-  var value =
-      _normalizeDigits(input).replaceAll(RegExp(r'[^0-9,\.\-+]'), '').trim();
-  if (value.isEmpty || value == '-' || value == '+') return null;
-  final lastComma = value.lastIndexOf(',');
-  final lastDot = value.lastIndexOf('.');
-  if (lastComma >= 0 && lastDot >= 0) {
-    if (lastComma > lastDot) {
-      value = value.replaceAll('.', '').replaceFirst(',', '.');
-    } else {
-      value = value.replaceAll(',', '');
-    }
-  } else if (lastComma >= 0) {
-    final decimals = value.length - lastComma - 1;
-    value = decimals == 3
-        ? value.replaceAll(',', '')
-        : value.replaceFirst(',', '.');
+Money? _parseImportMoney(String input, String currency) {
+  if (input.trim().isEmpty) return null;
+  try {
+    return parseLocalizedMoney(input, currency);
+  } on Exception {
+    return null;
   }
-  return double.tryParse(value);
 }
 
 ImportedDirection _parseDirection(String? input) {

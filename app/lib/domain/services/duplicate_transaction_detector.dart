@@ -1,5 +1,6 @@
 import '../../engine/dedup/transaction_dedup.dart';
 import '../entities/transaction_entity.dart';
+import '../finance/money.dart';
 
 class DuplicateTransactionInput {
   const DuplicateTransactionInput({
@@ -11,7 +12,7 @@ class DuplicateTransactionInput {
     this.cardLast4,
   });
 
-  final double amount;
+  final Money amount;
   final String currency;
   final String merchantOrDescription;
   final String? cardLast4;
@@ -60,9 +61,9 @@ class DuplicateTransactionDetector {
     DuplicateTransactionInput input,
     TransactionEntity existing,
   ) {
-    final existingAmount = existing.foreignAmount ?? existing.amount;
+    final existingAmount = existing.foreignMoney ?? existing.amountMoney;
     final existingCurrency = existing.foreignCurrency ?? existing.currency;
-    if ((input.amount - existingAmount).abs() > 0.0001) return false;
+    if (input.amount != existingAmount) return false;
     if (input.currency.trim().toUpperCase() !=
         existingCurrency.trim().toUpperCase()) {
       return false;

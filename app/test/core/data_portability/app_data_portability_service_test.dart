@@ -13,6 +13,7 @@ import 'package:money_companion/data/repositories/drift_category_repository.dart
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 // MALI-034: data portability is a single Drift-authoritative path. The obsolete
 // Supabase-primary server/mixed import RPC + repairAll rebuild branches were
@@ -53,7 +54,7 @@ Future<void> _seedTransaction(
   await DriftTransactionRepository(db).saveTransaction(
     transaction: TransactionEntity(
       id: IdGenerator.next(),
-      amount: amount,
+      amountMoney: Money.fromLegacyReal(amount, currency),
       currency: currency,
       accountId: accountId,
       rawMerchant: merchant,

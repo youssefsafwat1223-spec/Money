@@ -8,6 +8,7 @@ import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money_transport.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
@@ -73,7 +74,7 @@ class AppDataPortabilityService implements DataPortabilityService {
       return [
         transaction.id,
         transaction.occurredAt.toUtc().toIso8601String(),
-        transaction.amount,
+        moneyToNumericText(transaction.amountMoney),
         transaction.currency,
         transaction.direction?.name ?? 'unknown',
         transaction.type.name,
@@ -84,8 +85,12 @@ class AppDataPortabilityService implements DataPortabilityService {
         category?.nameAr,
         accounts[transaction.accountId]?.name,
         transaction.cardLast4,
-        transaction.balanceAfter,
-        transaction.foreignAmount,
+        transaction.balanceAfterMoney == null
+            ? null
+            : moneyToNumericText(transaction.balanceAfterMoney!),
+        transaction.foreignMoney == null
+            ? null
+            : moneyToNumericText(transaction.foreignMoney!),
         transaction.foreignCurrency,
         transaction.note,
       ];
@@ -191,7 +196,7 @@ class AppDataPortabilityService implements DataPortabilityService {
       issues.addAll(parsed.issues);
       for (final record in parsed.records) {
         final duplicate = await _transactions.findSuspiciousDuplicate(
-          amount: record.amount,
+          amount: record.amountMoney,
           currency: record.currency,
           merchantOrDescription: record.merchant ?? record.note ?? '',
           comparisonTimestamp: record.occurredAt,
@@ -271,7 +276,7 @@ class AppDataPortabilityService implements DataPortabilityService {
         .length;
     for (final record in parsed.records) {
       final liveDuplicate = await _transactions.findSuspiciousDuplicate(
-        amount: record.amount,
+        amount: record.amountMoney,
         currency: record.currency,
         merchantOrDescription: record.merchant ?? record.note ?? '',
         comparisonTimestamp: record.occurredAt,
@@ -295,7 +300,7 @@ class AppDataPortabilityService implements DataPortabilityService {
         await _transactions.saveTransaction(
           transaction: TransactionEntity(
             id: importAsNew ? IdGenerator.next() : record.recordId,
-            amount: record.amount,
+            amountMoney: record.amountMoney,
             currency: record.currency,
             accountId: account?.id,
             rawMerchant: record.merchant,

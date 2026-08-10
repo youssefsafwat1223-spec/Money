@@ -250,7 +250,7 @@ void main() {
 
     await transactionRepository.updateTransaction(
       transactionId: 'tx_edit_time',
-      amount: 25,
+      amount: Money.fromLegacyReal(25, 'EGP'),
       currency: 'EGP',
       type: TransactionTypeEntity.payment,
       occurredAt: editedAt,
@@ -288,7 +288,7 @@ void main() {
     final saved = await transactionRepository.saveTransaction(
       transaction: TransactionEntity(
         id: IdGenerator.next(),
-        amount: 31.43,
+        amountMoney: Money.fromLegacyReal(31.43, 'EGP'),
         currency: 'EGP',
         type: TransactionTypeEntity.transfer,
         source: TransactionSourceEntity.aiParsed,
@@ -321,7 +321,7 @@ void main() {
       await transactionRepository.saveTransaction(
         transaction: TransactionEntity(
           id: 'paged-$i',
-          amount: i + 1,
+          amountMoney: Money.fromLegacyReal(i + 1, 'SAR'),
           currency: 'SAR',
           type: TransactionTypeEntity.payment,
           source: TransactionSourceEntity.unknown,
@@ -351,7 +351,7 @@ void main() {
     final saved = await transactionRepository.saveTransaction(
       transaction: TransactionEntity(
         id: IdGenerator.next(),
-        amount: 250,
+        amountMoney: Money.fromLegacyReal(250, 'EGP'),
         currency: 'EGP',
         type: TransactionTypeEntity.transfer,
         source: TransactionSourceEntity.aiParsed,
@@ -535,7 +535,7 @@ void main() {
     final saved = await transactionRepository.saveTransaction(
       transaction: TransactionEntity(
         id: 'tx-unknown-debit',
-        amount: 30,
+        amountMoney: Money.fromLegacyReal(30, 'SAR'),
         currency: 'SAR',
         type: TransactionTypeEntity.unknown,
         source: TransactionSourceEntity.bank,

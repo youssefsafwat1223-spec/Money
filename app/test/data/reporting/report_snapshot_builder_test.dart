@@ -8,6 +8,7 @@ import 'package:money_companion/data/repositories/drift_category_repository.dart
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/reporting/date_range.dart';
 import 'package:money_companion/domain/reporting/metrics/report_metrics_calculator.dart';
 import 'package:money_companion/domain/reporting/report_request.dart';
@@ -40,7 +41,7 @@ void main() {
   }) {
     return TransactionEntity(
       id: id,
-      amount: amount,
+      amountMoney: Money.fromLegacyReal(amount, currency),
       currency: currency,
       type: type,
       source: TransactionSourceEntity.bank,

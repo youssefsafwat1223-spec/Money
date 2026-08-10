@@ -5,6 +5,7 @@ import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/category_spend.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/services/card_account_grouper.dart';
 import '../../domain/services/duplicate_transaction_detector.dart';
@@ -12,6 +13,7 @@ import '../../engine/parser/card_network.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/database_seed.dart';
+import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
@@ -59,7 +61,7 @@ class DriftTransactionRepository implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findDuplicate({
-    required double amount,
+    required Money amount,
     required String rawMerchant,
     required DateTime occurredAt,
   }) async {
@@ -80,7 +82,7 @@ class DriftTransactionRepository implements TransactionRepository {
       ''',
       variables: [
         Variable.withString(merchantId),
-        Variable.withReal(amount),
+        kMoneyCodec.realVar(amount),
         Variable.withString(dateTimeToSql(occurredAt.toUtc())),
       ],
     ).getSingleOrNull();
@@ -90,7 +92,7 @@ class DriftTransactionRepository implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findSuspiciousDuplicate({
-    required double amount,
+    required Money amount,
     required String currency,
     required String merchantOrDescription,
     String? cardLast4,
@@ -113,9 +115,9 @@ class DriftTransactionRepository implements TransactionRepository {
         ORDER BY occurred_at DESC;
       ''',
       variables: [
-        Variable.withReal(amount),
+        kMoneyCodec.realVar(amount),
         Variable.withString(currency.trim().toUpperCase()),
-        Variable.withReal(amount),
+        kMoneyCodec.realVar(amount),
         Variable.withString(currency.trim().toUpperCase()),
         Variable.withString(timestampSql),
         Variable.withString(timestampSql),
@@ -188,7 +190,7 @@ class DriftTransactionRepository implements TransactionRepository {
           possible_duplicate_of_transaction_id, duplicate_reason
         ) VALUES (
           ${sqlString(transaction.id)},
-          ${transaction.amount},
+          ${kMoneyCodec.sqlRealLiteral(transaction.amountMoney)},
           ${sqlString(transaction.currency)},
           ${sqlNullableString(accountId)},
           ${sqlNullableString(merchantId)},
@@ -197,7 +199,7 @@ class DriftTransactionRepository implements TransactionRepository {
           ${sqlString(transaction.type.name)},
           ${sqlString(transaction.source.name)},
           ${sqlNullableString(transaction.cardLast4)},
-          ${sqlNullableNum(transaction.balanceAfter)},
+          ${kMoneyCodec.sqlNullableRealLiteral(transaction.balanceAfterMoney)},
           ${sqlNullableString(transaction.note)},
           ${sqlString(dateTimeToSql(transaction.occurredAt))},
           ${sqlString(transaction.rawMessage)},
@@ -205,7 +207,7 @@ class DriftTransactionRepository implements TransactionRepository {
           ${sqlString(transaction.status.name)},
           ${sqlString(dateTimeToSql(transaction.createdAt))},
           ${sqlString(dateTimeToSql(transaction.updatedAt))},
-          ${sqlNullableNum(transaction.foreignAmount)},
+          ${kMoneyCodec.sqlNullableRealLiteral(transaction.foreignMoney)},
           ${sqlNullableString(transaction.foreignCurrency)},
           ${sqlNullableString(transactionDirectionToSql(transaction.direction))},
           ${sqlNullableString(transaction.transactionTimeFromSms == null ? null : dateTimeToSql(transaction.transactionTimeFromSms!))},
@@ -266,7 +268,7 @@ class DriftTransactionRepository implements TransactionRepository {
   @override
   Future<TransactionEntity> updateTransaction({
     required String transactionId,
-    required double amount,
+    required Money amount,
     required String currency,
     required TransactionTypeEntity type,
     required DateTime occurredAt,
@@ -276,6 +278,12 @@ class DriftTransactionRepository implements TransactionRepository {
     String? accountId,
   }) async {
     return _db.transaction(() async {
+      if (amount.currency != currency.trim().toUpperCase()) {
+        throw ArgumentError(
+          'transaction amount currency ${amount.currency} does not match '
+          '${currency.trim().toUpperCase()}',
+        );
+      }
       final normalizedCategoryId = categoryId ?? await _categoryIdForType(type);
       final trimmedMerchant = type == TransactionTypeEntity.transfer ||
               type == TransactionTypeEntity.income
@@ -297,7 +305,7 @@ class DriftTransactionRepository implements TransactionRepository {
         ''',
         variables: [
           if (accountId != null) Variable.withString(accountId),
-          Variable.withReal(amount),
+          kMoneyCodec.realVar(amount),
           Variable.withString(currency),
           Variable.withString(type.name),
           Variable.withString(dateTimeToSql(occurredAt.toUtc())),
@@ -375,13 +383,23 @@ class DriftTransactionRepository implements TransactionRepository {
   @override
   Future<void> updateAmount({
     required String transactionId,
-    required double amount,
+    required Money amount,
   }) async {
     await _db.transaction(() async {
+      final existing = await getById(transactionId);
+      if (existing == null) {
+        throw StateError('Transaction not found: $transactionId');
+      }
+      if (amount.currency != existing.currency.trim().toUpperCase()) {
+        throw ArgumentError(
+          'transaction amount currency ${amount.currency} does not match '
+          '${existing.currency.trim().toUpperCase()}',
+        );
+      }
       await _db.customUpdate(
         'UPDATE transactions SET amount = ?, updated_at = ? WHERE id = ?;',
         variables: [
-          Variable.withReal(amount),
+          kMoneyCodec.realVar(amount),
           Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
           Variable.withString(transactionId),
         ],

@@ -11,6 +11,7 @@ ParsedTransaction _txn({
   TransactionType type = TransactionType.payment,
 }) {
   return ParsedTransaction(
+    amountText: '45',
     amount: 45,
     currency: 'SAR',
     type: type,

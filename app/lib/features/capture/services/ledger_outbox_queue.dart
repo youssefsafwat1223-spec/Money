@@ -6,6 +6,7 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/finance/money_transport.dart';
 import 'ledger_payload.dart';
 
 enum OutboxOperation { create, update, delete }
@@ -246,7 +247,7 @@ class LedgerOutboxQueue {
     final payload = <String, dynamic>{
       'local_id': tx.id,
       'server_id': tx.serverId,
-      'amount': tx.amount,
+      'amount': moneyToLegacyJsonNumber(tx.amountMoney),
       'currency': tx.currency,
       'type': _mapType(tx.type),
       'merchant': tx.rawMerchant,
@@ -260,8 +261,8 @@ class LedgerOutboxQueue {
       // (2nd device / reinstall) returns the transaction uncategorized and
       // unlinked. Kept in parity with TransactionsBackfillService.
       'category_id': tx.categoryId,
-      'balance_after': tx.balanceAfter,
-      'foreign_amount': tx.foreignAmount,
+      'balance_after': moneyToLegacyJsonNumberOrNull(tx.balanceAfterMoney),
+      'foreign_amount': moneyToLegacyJsonNumberOrNull(tx.foreignMoney),
       'foreign_currency': tx.foreignCurrency,
       // Confirmation state must round-trip (MALI-010): without it a locally
       // confirmed relay capture stays 'pending' on the server and re-imports

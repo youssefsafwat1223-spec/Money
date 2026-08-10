@@ -6,11 +6,14 @@ import 'ledger_sync_engine.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/finance/money.dart';
+import '../../../domain/finance/money_transport.dart';
 import 'ledger_payload.dart';
 
 class LedgerSyncResult {
@@ -27,6 +30,42 @@ class LedgerSyncResult {
   final int conflicts;
   final int tombstoned;
   final SyncPullStatus status;
+}
+
+const ledgerTransactionSelect =
+    '*, amount_text:amount::text, balance_after_text:balance_after::text, '
+    'foreign_amount_text:foreign_amount::text';
+const ledgerTransactionOrderColumns = ['updated_at', 'id'];
+
+String ledgerTransactionKeysetFilter(SyncCursor after) =>
+    'updated_at.gt.${after.updatedAt},'
+    'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})';
+
+({Money amountMoney, Money? balanceAfterMoney, Money? foreignMoney})
+    deserializeLedgerTransactionMoney(Map<String, dynamic> row) {
+  final currency = row['currency'];
+  if (currency is! String) {
+    throw const MoneyTransportException(
+        'transaction pull requires a String currency');
+  }
+  final foreignCurrency = row['foreign_currency'];
+  if (foreignCurrency != null && foreignCurrency is! String) {
+    throw const MoneyTransportException(
+        'transaction pull foreign_currency must be a String or null');
+  }
+  final foreignText = row['foreign_amount_text'];
+  if ((foreignText == null) != (foreignCurrency == null)) {
+    throw const MoneyTransportException(
+        'foreign_amount_text and foreign_currency must be supplied together');
+  }
+  return (
+    amountMoney: moneyFromPulledValueRequired(row['amount_text'], currency),
+    balanceAfterMoney:
+        moneyFromPulledValue(row['balance_after_text'], currency),
+    foreignMoney: foreignCurrency == null
+        ? null
+        : moneyFromPulledValue(foreignText, foreignCurrency as String),
+  );
 }
 
 /// Injectable remote source — real impl calls Supabase; test impl returns
@@ -46,16 +85,15 @@ class SupabaseLedgerRemoteSource implements LedgerRemoteSource {
     required SyncCursor after,
     int limit = 200,
   }) async {
-    final query = Supabase.instance.client.from('user_transactions').select();
+    final query = Supabase.instance.client
+        .from('user_transactions')
+        .select(ledgerTransactionSelect);
     final filtered = after.id.isEmpty
         ? query
-        : query.or(
-            'updated_at.gt.${after.updatedAt},'
-            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
-          );
+        : query.or(ledgerTransactionKeysetFilter(after));
     final response = await filtered
-        .order('updated_at', ascending: true)
-        .order('id', ascending: true)
+        .order(ledgerTransactionOrderColumns[0], ascending: true)
+        .order(ledgerTransactionOrderColumns[1], ascending: true)
         .limit(limit);
     return (response as List).cast<Map<String, dynamic>>();
   }
@@ -320,8 +358,8 @@ class LedgerSyncService implements LedgerPullAdapter {
       // metadata (MALI-009). Before this, an edit made on another device
       // never landed here, while the new server_updated_at was still
       // recorded — making the staleness permanent.
-      final amount = (row['amount'] as num?)?.toDouble();
-      final currency = row['currency'] as String?;
+      final pulledMoney = deserializeLedgerTransactionMoney(row);
+      final currency = row['currency'] as String;
       final occurredAt = row['occurred_at'] as String?;
       final localCategoryId =
           await _localCategoryIdForKey(row['category_id'] as String?);
@@ -348,8 +386,8 @@ class LedgerSyncService implements LedgerPullAdapter {
       };
       await _db.customStatement('''
         UPDATE transactions
-        SET ${amount != null ? 'amount = $amount,' : ''}
-            ${currency != null ? 'currency = ${sqlString(currency)},' : ''}
+        SET amount = ${kMoneyCodec.sqlRealLiteral(pulledMoney.amountMoney)},
+            currency = ${sqlString(currency)},
             raw_merchant = ${sqlNullableString(row['merchant'] as String?)},
             note = ${sqlNullableString(row['description'] as String?)},
             type = ${sqlString(mappedType.name)},
@@ -359,8 +397,8 @@ class LedgerSyncService implements LedgerPullAdapter {
             ${occurredAt != null ? 'occurred_at = ${sqlString(dateTimeToSql(DateTime.tryParse(occurredAt)?.toUtc() ?? DateTime.now().toUtc()))},' : ''}
             category_id = ${sqlNullableString(localCategoryId)},
             card_last4 = ${sqlNullableString(_last4FromMetadata(row['metadata']))},
-            balance_after = ${sqlNullableNum((row['balance_after'] as num?)?.toDouble())},
-            foreign_amount = ${sqlNullableNum((row['foreign_amount'] as num?)?.toDouble())},
+            balance_after = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.balanceAfterMoney)},
+            foreign_amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.foreignMoney)},
             foreign_currency = ${sqlNullableString(row['foreign_currency'] as String?)},
             account_id = ${sqlNullableString(resolvedAccountId)},
             updated_at = ${sqlString(now)},
@@ -469,10 +507,10 @@ class LedgerSyncService implements LedgerPullAdapter {
     Map<String, dynamic> row, {
     String? accountId,
   }) {
-    final amount = (row['amount'] as num?)?.toDouble();
     final currency = row['currency'] as String?;
     final occurredAt = row['occurred_at'] as String?;
-    if (amount == null || currency == null || occurredAt == null) return null;
+    if (currency == null || occurredAt == null) return null;
+    final pulledMoney = deserializeLedgerTransactionMoney(row);
 
     final now = DateTime.now().toUtc();
     // MALI-056n — recover the EXACT client type/source/direction from the
@@ -486,7 +524,7 @@ class LedgerSyncService implements LedgerPullAdapter {
     );
     return TransactionEntity(
       id: IdGenerator.next(),
-      amount: amount,
+      amountMoney: pulledMoney.amountMoney,
       currency: currency,
       rawMerchant: row['merchant'] as String?,
       note: row['description'] as String?,
@@ -503,8 +541,8 @@ class LedgerSyncService implements LedgerPullAdapter {
       // Card linkage lives in metadata.last4 on the server (no dedicated
       // column); restore it so pulled transactions stay linked to their card.
       cardLast4: _last4FromMetadata(row['metadata']),
-      balanceAfter: (row['balance_after'] as num?)?.toDouble(),
-      foreignAmount: (row['foreign_amount'] as num?)?.toDouble(),
+      balanceAfterMoney: pulledMoney.balanceAfterMoney,
+      foreignMoney: pulledMoney.foreignMoney,
       foreignCurrency: row['foreign_currency'] as String?,
       occurredAt: DateTime.tryParse(occurredAt)?.toUtc() ?? now,
       rawMessage: '',

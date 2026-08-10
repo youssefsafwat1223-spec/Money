@@ -108,6 +108,8 @@ class ImportNormalizer {
           compSrc == 'sms_body' ? 'sms_body' : 'received_at';
 
       if (out['foreign_amount'] != null && out['foreign_amount']!.isNotEmpty) {
+        // LEGACY_LOSSY Qirsh-package shape validation only. New generic CSV
+        // transaction money bypasses this normalizer and parses exact text.
         final fAmount = double.tryParse(out['foreign_amount']!);
         if (fAmount == null || fAmount <= 0) {
           out.remove('foreign_amount');

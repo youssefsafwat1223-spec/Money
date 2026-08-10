@@ -1,4 +1,5 @@
 import 'transaction_entity.dart';
+import '../finance/money.dart';
 
 class SuspectedDuplicateEntity {
   const SuspectedDuplicateEntity({
@@ -6,7 +7,7 @@ class SuspectedDuplicateEntity {
     required this.rawMessage,
     this.senderId,
     required this.existingTransactionId,
-    required this.amount,
+    required this.amountMoney,
     required this.currency,
     this.rawMerchant,
     required this.occurredAt,
@@ -21,7 +22,10 @@ class SuspectedDuplicateEntity {
   final String rawMessage;
   final String? senderId;
   final String existingTransactionId;
-  final double amount;
+  final Money amountMoney;
+
+  /// DISPLAY-ONLY compatibility getter. Persistence uses [amountMoney].
+  double get amount => amountMoney.toDouble();
   final String currency;
   final String? rawMerchant;
   final DateTime occurredAt;

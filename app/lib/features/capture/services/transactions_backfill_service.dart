@@ -4,10 +4,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/errors/repo_exceptions.dart';
+import '../../../domain/finance/money_transport.dart';
+
+const _transactionMoneySelect =
+    '*, amount_text:amount::text, balance_after_text:balance_after::text, '
+    'foreign_amount_text:foreign_amount::text';
 
 class TransactionBackfillReport {
   const TransactionBackfillReport({
@@ -141,12 +147,27 @@ class TransactionsBackfillService {
       final cardLast4 = local.readNullable<String>('card_last4');
       final isDeleted = local.read<String>('status') == 'ignored';
       final clientRequestId = 'backfill_transaction_$localId';
+      final localCurrency = local.read<String>('currency');
+      final localAmount =
+          kMoneyCodec.readColumn(local, 'amount', localCurrency);
+      final localBalance =
+          kMoneyCodec.readColumnNullable(local, 'balance_after', localCurrency);
+      final localForeignCurrency =
+          local.readNullable<String>('foreign_currency');
+      final localForeignAmount = localForeignCurrency == null
+          ? null
+          : kMoneyCodec.readColumnNullable(
+              local,
+              'foreign_amount',
+              localForeignCurrency,
+            );
 
       final payload = <String, dynamic>{
         'user_id': uid,
         'client_request_id': clientRequestId,
-        'amount': local.read<double>('amount'),
-        'currency': local.read<String>('currency'),
+        // LEGACY JSON-number request shape, but always sourced from Money.
+        'amount': moneyToLegacyJsonNumber(localAmount),
+        'currency': localCurrency,
         'merchant': local.readNullable<String>('raw_merchant'),
         'description': local.readNullable<String>('note'),
         'category_id': categoryKey,
@@ -162,10 +183,10 @@ class TransactionsBackfillService {
         'direction': transactionDirectionToServer(direction),
         'transaction_type': transactionTypeToServer(type, direction),
         'server_account_id': serverAccountId,
-        'balance_after': local.readNullable<double>('balance_after'),
+        'balance_after': moneyToLegacyJsonNumberOrNull(localBalance),
         'status': isDeleted ? 'ignored' : local.read<String>('status'),
-        'foreign_amount': local.readNullable<double>('foreign_amount'),
-        'foreign_currency': local.readNullable<String>('foreign_currency'),
+        'foreign_amount': moneyToLegacyJsonNumberOrNull(localForeignAmount),
+        'foreign_currency': localForeignCurrency,
         'comparison_timestamp':
             local.readNullable<String>('comparison_timestamp'),
         'comparison_timestamp_source':
@@ -196,7 +217,7 @@ class TransactionsBackfillService {
       try {
         final existing = await _getClient()
             .from('user_transactions')
-            .select()
+            .select(_transactionMoneySelect)
             .eq('user_id', uid)
             .eq('client_request_id', clientRequestId)
             .maybeSingle();
@@ -207,7 +228,7 @@ class TransactionsBackfillService {
           serverRow = await _getClient()
               .from('user_transactions')
               .insert(payload)
-              .select()
+              .select(_transactionMoneySelect)
               .single();
           created++;
         }
@@ -215,8 +236,10 @@ class TransactionsBackfillService {
         throw mapSupabaseError(e);
       }
 
+      final serverAmount = moneyFromPulledValueRequired(
+          serverRow['amount_text'], localCurrency);
       final mismatch =
-          (serverRow['amount'] as num).toDouble() != payload['amount'] ||
+          serverAmount != localAmount ||
               serverRow['currency'] != payload['currency'] ||
               serverRow['direction'] != payload['direction'] ||
               serverRow['transaction_type'] != payload['transaction_type'];

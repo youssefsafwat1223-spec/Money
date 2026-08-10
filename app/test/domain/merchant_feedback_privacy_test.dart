@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/merchant_category_repository.dart';
 import 'package:money_companion/domain/repositories/transaction_repository.dart';
 import 'package:money_companion/domain/repositories/dedup_store.dart';
@@ -36,7 +37,7 @@ TransactionEntity _stubEntity({
 }) =>
     TransactionEntity(
       id: 'test-id',
-      amount: amount,
+      amountMoney: Money.fromLegacyReal(amount, 'SAR'),
       currency: 'SAR',
       type: TransactionTypeEntity.payment,
       source: TransactionSourceEntity.bank,
@@ -53,7 +54,7 @@ TransactionEntity _stubEntity({
 class _StubTransactionRepo implements TransactionRepository {
   @override
   Future<TransactionEntity?> findDuplicate({
-    required double amount,
+    required Money amount,
     required String rawMerchant,
     required DateTime occurredAt,
   }) async =>
@@ -61,7 +62,7 @@ class _StubTransactionRepo implements TransactionRepository {
 
   @override
   Future<TransactionEntity?> findSuspiciousDuplicate({
-    required double amount,
+    required Money amount,
     required String currency,
     required String merchantOrDescription,
     String? cardLast4,
@@ -133,6 +134,7 @@ void main() {
         final recorded = <String>[];
         final useCase = _makeUseCase(
           parsedTxn: ParsedTransaction(
+            amountText: '500',
             amount: 500.0,
             currency: 'SAR',
             type: TransactionType.transfer, // ← transfer type
@@ -159,6 +161,7 @@ void main() {
         final recorded = <String>[];
         final useCase = _makeUseCase(
           parsedTxn: ParsedTransaction(
+            amountText: '45',
             amount: 45.0,
             currency: 'SAR',
             type: TransactionType.payment, // ← POS/payment type
@@ -189,6 +192,7 @@ void main() {
         final recorded = <String>[];
         final useCase = _makeUseCase(
           parsedTxn: ParsedTransaction(
+            amountText: '8500',
             amount: 8500.0,
             currency: 'SAR',
             type: TransactionType.income, // ← income
@@ -215,6 +219,7 @@ void main() {
         final recorded = <String>[];
         final useCase = _makeUseCase(
           parsedTxn: ParsedTransaction(
+            amountText: '100',
             amount: 100.0,
             currency: 'SAR',
             type: TransactionType.unknown,
@@ -240,6 +245,7 @@ void main() {
         final recorded = <String>[];
         final useCase = _makeUseCase(
           parsedTxn: ParsedTransaction(
+            amountText: '30',
             amount: 30.0,
             currency: 'SAR',
             type: TransactionType.refund,

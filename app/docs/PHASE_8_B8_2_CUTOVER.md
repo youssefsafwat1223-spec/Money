@@ -173,7 +173,22 @@ S8 Validate + commit (no push) + report.
   planning_child — SHARED with budgets/goals/goal_contributions) deferred to the cross-cutting
   ::text pass (entangled with base-currency STOP domains). Cross-currency display folds
   (subscriptions_screen / transactions_screen / bill_metrics) kept double (transitional).
-- [ ] transaction+parser (NEXT — STOP for ingress-matrix approval first), suspected_duplicate — pending.
+- [x] **transaction+parser (+ suspected_duplicate, coupled)** GREEN + committed (codex-delegate;
+  reviewed + gated + committed by orchestrator). TransactionEntity amountMoney/balanceAfterMoney?/
+  foreignMoney? + display getters + foreign-invariant asserts; ParsedTransaction carries exact
+  amountText/balanceAfterText?/foreignAmountText? (source of truth) + heuristic doubles; new
+  `capture_money.dart` (parseCaptureMoney exact / legacyLossyNumberToMoney flagged); AI prefers
+  `amount_text` else legacyLossy→PENDING; ledger `::text` pull (transactions-only) + moneyFromPulledValue;
+  over-precision/legacy → status pending (never silent round); fee amountText; manual create/edit→Money
+  interfaces; dedup detector exact Money `==`; writers via codec; push via moneyToLegacyJsonNumber.
+  **STOP-BOUNDARY NOTE: suspected_duplicate crossed the intended STOP boundary, was reviewed before
+  commit, and was retained (not reverted) because it is mechanically coupled to the transaction cutover
+  (add_transaction 803/1669 + capture 253 construct SuspectedDuplicateEntity(amountMoney); repo maps to
+  it) and reverting it would reintroduce a lossy money write path.** Outcome B (user-approved).
+- [ ] suspected_duplicate = DONE (coupled above). PENDING cross-cutting (NOT started): pull ::text for
+  budgets/goals/goal_contributions (base-currency STOP-gated), calc conversions (§8), guards (§10),
+  RMW tests (§13). v30 blocked by: base-currency semantics (Correction B) + AI/capture amount_text
+  backend deployment (EXTERNAL_DEPLOYMENT_REQUIRED).
 
 ### TRANSACTION INGRESS MATRIX (data gathered — present to user after bill commit, before touching transaction)
 Only **3** `TransactionEntity(` constructions, all in add_transaction_usecase:

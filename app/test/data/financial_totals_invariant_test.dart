@@ -10,6 +10,7 @@ import 'package:money_companion/data/repositories/drift_transaction_repository.d
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/reporting/report_request.dart';
 import 'package:money_companion/domain/usecases/budget_progress_usecase.dart';
 
@@ -58,7 +59,7 @@ void main() {
     await transactions.saveTransaction(
       transaction: TransactionEntity(
         id: id,
-        amount: amount,
+        amountMoney: Money.fromLegacyReal(amount, 'SAR'),
         currency: 'SAR',
         type: type,
         source: TransactionSourceEntity.bank,

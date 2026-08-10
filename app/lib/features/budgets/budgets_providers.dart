@@ -284,6 +284,8 @@ List<TransactionEntity> _budgetTransactionsForPeriod(
 /// Signed contribution of a budget-history row to the net total: refund
 /// subtracts, payment/withdrawal add. Kept next to [_budgetTransactionsForPeriod]
 /// so the list and its total cannot drift apart.
+/// Transitional presentation projection: the public history API still returns
+/// double and may be exercised with mixed test/account currencies.
 double budgetHistoryRowSigned(TransactionEntity tx) =>
     tx.type == TransactionTypeEntity.refund ? -tx.amount : tx.amount;
 

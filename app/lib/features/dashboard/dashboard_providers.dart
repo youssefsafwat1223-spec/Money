@@ -393,6 +393,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     filter: TransactionPageFilter(pendingOnly: true, accountId: accountId),
   );
   final pendingReviewTotal =
+      // Transitional presentation-only cross-account total: currencies may mix.
       pendingReview.fold<double>(0, (sum, tx) => sum + tx.amount);
   final saved = prevMonthExpenses - thisMonthExpenses;
   // Start the remaining independent sections before awaiting any one of them.

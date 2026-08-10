@@ -271,7 +271,8 @@ void main() {
       loadAiConsent: () async => true,
     );
     final parseResult = ParseResult.success(
-      const ParsedTransaction(
+      ParsedTransaction(
+        amountText: '50',
         amount: 50,
         currency: 'AED',
         type: TransactionType.payment,

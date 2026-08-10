@@ -642,9 +642,7 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
         .whereType<TransactionEntity>()
         .where((tx) =>
             tx.status == TransactionStatus.pending &&
-            !(tx.amount == 0 &&
-                tx.foreignAmount != null &&
-                tx.foreignCurrency != null))
+            !(tx.amountMoney.isZero && tx.foreignMoney != null))
         .map((tx) => tx.id)
         .toSet();
     for (final id in pendingIds) {

@@ -7,6 +7,7 @@ import 'package:money_companion/data/repositories/drift_suspected_duplicate_repo
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/captured_message.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/services/duplicate_transaction_detector.dart';
 import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
 import 'package:money_companion/domain/usecases/ingest_captured_message_usecase.dart';
@@ -36,7 +37,7 @@ void main() {
     final time = timestamp ?? baseTime;
     return TransactionEntity(
       id: 'existing-${time.microsecondsSinceEpoch}',
-      amount: amount,
+      amountMoney: Money.fromLegacyReal(amount, currency),
       currency: currency,
       rawMerchant: merchant,
       type: TransactionTypeEntity.payment,
@@ -62,7 +63,7 @@ void main() {
     ComparisonTimestampSource source = ComparisonTimestampSource.smsBody,
   }) {
     return DuplicateTransactionInput(
-      amount: amount,
+      amount: Money.fromLegacyReal(amount, currency),
       currency: currency,
       merchantOrDescription: merchant,
       cardLast4: last4,

@@ -41,20 +41,23 @@ void main() {
     });
   });
 
-  group('Normalizer — thousands separator stripping', () {
-    test('single group: 18,000.00 → 18000.00', () {
-      expect(Normalizer.normalize('18,000.00'), '18000.00');
+  group('Normalizer — grouping is preserved for exact money validation', () {
+    test('single group stays lexical', () {
+      expect(Normalizer.normalize('18,000.00'), '18,000.00');
     });
-    test('multi-group: 1,234,567.89 → 1234567.89', () {
-      expect(Normalizer.normalize('1,234,567.89'), '1234567.89');
+    test('multi-group stays lexical', () {
+      expect(Normalizer.normalize('1,234,567.89'), '1,234,567.89');
     });
-    test('in context: SAR 2,310.50 → SAR 2310.50', () {
+    test('grouping stays lexical in context', () {
       expect(
-          Normalizer.normalize('الرصيد: SAR 2,310.50'), 'الرصيد: SAR 2310.50');
+          Normalizer.normalize('الرصيد: SAR 2,310.50'), 'الرصيد: SAR 2,310.50');
     });
-    test('multiple in one string', () {
+    test('multiple grouped tokens stay lexical', () {
       expect(Normalizer.normalize('14,379.13 and 5,620.87'),
-          '14379.13 and 5620.87');
+          '14,379.13 and 5,620.87');
+    });
+    test('ambiguous comma stays visible for rejection at the money boundary', () {
+      expect(Normalizer.normalize('12,50'), '12,50');
     });
     test('no commas unchanged', () {
       expect(Normalizer.normalize('250.93'), '250.93');

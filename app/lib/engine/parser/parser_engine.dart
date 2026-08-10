@@ -1,3 +1,4 @@
+import '../../domain/finance/money_input.dart';
 import '../models/parsed_transaction.dart';
 import '../models/transaction_source.dart';
 import '../models/transaction_type.dart';
@@ -54,11 +55,11 @@ class ParserEngine {
   // Matches "CURRENCY AMOUNT (CURRENCY AMOUNT)" — international purchase
   // with local conversion.
   static final RegExp _intlParens = RegExp(
-    r'\b([A-Z]{3})\s*([\d.]+)\s*\(([A-Z]{3})\s*([\d.]+)\)',
+    r'\b([A-Z]{3})\s*([\d,.]+)\s*\(([A-Z]{3})\s*([\d,.]+)\)',
     caseSensitive: false,
   );
   static final RegExp _intlParensAmountFirst = RegExp(
-    r'\b([\d.]+)\s*([A-Z]{3})\s*\(([\d.]+)\s*([A-Z]{3})\)',
+    r'\b([\d,.]+)\s*([A-Z]{3})\s*\(([\d,.]+)\s*([A-Z]{3})\)',
     caseSensitive: false,
   );
   // "رقم 4907" after a card context word (Egyptian bank style).
@@ -176,6 +177,7 @@ class ParserEngine {
     }
 
     final txn = ParsedTransaction(
+      amountText: amountExtraction.transactionAmountText,
       amount: amount,
       currency: currency,
       type: type == TransactionType.unknown ? TransactionType.payment : type,
@@ -183,8 +185,10 @@ class ParserEngine {
       rawMerchant: merchant,
       cardLast4: last4,
       accountNumber: accountNumber,
+      balanceAfterText: amountExtraction.balanceText,
       balanceAfter: balance,
       occurredAt: occurredAt,
+      foreignAmountText: amountExtraction.foreignAmountText,
       foreignAmount: amountExtraction.foreignAmount,
       foreignCurrency: amountExtraction.foreignCurrency,
       fundingSource: merchantResult.fundingSource,
@@ -279,7 +283,13 @@ class ParserEngine {
     for (final line in lines) {
       for (final match in _plainNumber.allMatches(line)) {
         final raw = match.group(1)!;
-        final parsed = double.tryParse(raw.replaceAll(',', ''));
+        String normalized;
+        try {
+          normalized = normalizeLocalizedDecimal(raw);
+        } on Exception {
+          continue;
+        }
+        final parsed = double.tryParse(normalized);
         if (parsed == null) continue;
         candidates.add(_classifyAmountCandidate(
           line: line,
@@ -294,8 +304,13 @@ class ParserEngine {
 
     final balanceCandidates =
         candidates.where((c) => c.kind == AmountCandidateKind.balance);
-    final balance =
-        balanceCandidates.isEmpty ? null : balanceCandidates.first.value;
+    final balanceCandidate =
+        balanceCandidates.isEmpty ? null : balanceCandidates.first;
+    // HEURISTIC-ONLY projection; durable balance uses balanceText.
+    final balance = balanceCandidate?.value;
+    final balanceText = balanceCandidate == null
+        ? null
+        : normalizeLocalizedDecimal(balanceCandidate.raw);
     final transactionCandidates = candidates
         .where((c) => c.isStrongTransaction)
         .toList()
@@ -303,28 +318,36 @@ class ParserEngine {
     if (transactionCandidates.isEmpty) {
       return _AmountExtraction(
         transactionAmount: null,
+        transactionAmountText: null,
         currency: null,
         balance: balance,
+        balanceText: balanceText,
         hasAmbiguity: false,
         candidates: candidates,
         foreignAmount: null,
+        foreignAmountText: null,
         foreignCurrency: null,
       );
     }
 
     final top = transactionCandidates.first;
+    // HEURISTIC-ONLY ambiguity ranking. Persisted money comes from top.raw.
     final strongDistinct = transactionCandidates
         .where((c) => (c.value - top.value).abs() > 0.009)
         .where((c) => (top.score - c.score).abs() <= 0.20)
         .isNotEmpty;
     return _AmountExtraction(
+      // HEURISTIC-ONLY ParsedTransaction projection; canonical text is top.raw.
       transactionAmount: top.value,
+      transactionAmountText: normalizeLocalizedDecimal(top.raw),
       currency: _extractCurrency(
           _window(top.line, top.line.indexOf(top.raw), before: 16, after: 16)),
       balance: balance,
+      balanceText: balanceText,
       hasAmbiguity: strongDistinct,
       candidates: candidates,
       foreignAmount: null,
+      foreignAmountText: null,
       foreignCurrency: null,
     );
   }
@@ -332,16 +355,22 @@ class ParserEngine {
   _AmountExtraction? _extractInternationalParens(String text) {
     final match = _intlParens.firstMatch(text);
     if (match != null) {
-      final foreignAmount = double.tryParse(match.group(2)!);
-      final localAmount = double.tryParse(match.group(4)!);
+      final foreignText = normalizeLocalizedDecimal(match.group(2)!);
+      final localText = normalizeLocalizedDecimal(match.group(4)!);
+      final foreignAmount = double.tryParse(foreignText);
+      final localAmount = double.tryParse(localText);
       if (foreignAmount != null && localAmount != null) {
+        final balance = _extractBalanceFromText(text);
         return _AmountExtraction(
           transactionAmount: localAmount,
+          transactionAmountText: localText,
           currency: match.group(3)!.toUpperCase(),
-          balance: _extractBalanceFromText(text),
+          balance: balance?.value,
+          balanceText: balance?.text,
           hasAmbiguity: false,
           candidates: const [],
           foreignAmount: foreignAmount,
+          foreignAmountText: foreignText,
           foreignCurrency: match.group(1)!.toUpperCase(),
         );
       }
@@ -349,21 +378,27 @@ class ParserEngine {
 
     final amountFirst = _intlParensAmountFirst.firstMatch(text);
     if (amountFirst == null) return null;
-    final foreignAmount = double.tryParse(amountFirst.group(1)!);
-    final localAmount = double.tryParse(amountFirst.group(3)!);
+    final foreignText = normalizeLocalizedDecimal(amountFirst.group(1)!);
+    final localText = normalizeLocalizedDecimal(amountFirst.group(3)!);
+    final foreignAmount = double.tryParse(foreignText);
+    final localAmount = double.tryParse(localText);
     if (foreignAmount == null || localAmount == null) return null;
+    final balance = _extractBalanceFromText(text);
     return _AmountExtraction(
       transactionAmount: localAmount,
+      transactionAmountText: localText,
       currency: amountFirst.group(4)!.toUpperCase(),
-      balance: _extractBalanceFromText(text),
+      balance: balance?.value,
+      balanceText: balance?.text,
       hasAmbiguity: false,
       candidates: const [],
       foreignAmount: foreignAmount,
+      foreignAmountText: foreignText,
       foreignCurrency: amountFirst.group(2)!.toUpperCase(),
     );
   }
 
-  double? _extractBalanceFromText(String text) {
+  ({double value, String text})? _extractBalanceFromText(String text) {
     final lines = text.split('\n');
     for (final line in lines) {
       final lower = line.toLowerCase();
@@ -379,7 +414,13 @@ class ParserEngine {
       }
       final number = _plainNumber.firstMatch(line);
       if (number == null) continue;
-      return double.tryParse(number.group(1)!);
+      try {
+        final normalized = normalizeLocalizedDecimal(number.group(1)!);
+        final value = double.tryParse(normalized);
+        if (value != null) return (value: value, text: normalized);
+      } on Exception {
+        continue;
+      }
     }
     return null;
   }
@@ -994,19 +1035,25 @@ class ParserEngine {
 class _AmountExtraction {
   const _AmountExtraction({
     required this.transactionAmount,
+    required this.transactionAmountText,
     required this.currency,
     required this.balance,
+    required this.balanceText,
     required this.hasAmbiguity,
     required this.candidates,
     this.foreignAmount,
+    this.foreignAmountText,
     this.foreignCurrency,
   });
 
   final double? transactionAmount;
+  final String? transactionAmountText;
   final String? currency;
   final double? balance;
+  final String? balanceText;
   final bool hasAmbiguity;
   final List<AmountCandidate> candidates;
   final double? foreignAmount;
+  final String? foreignAmountText;
   final String? foreignCurrency;
 }

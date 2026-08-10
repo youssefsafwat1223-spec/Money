@@ -47,7 +47,7 @@ TransactionEntity _tx({
 }) {
   return TransactionEntity(
     id: id,
-    amount: amount,
+    amountMoney: Money.fromLegacyReal(amount, 'EGP'),
     currency: 'EGP',
     accountId: accountId,
     categoryId: categoryId,

@@ -9,6 +9,8 @@ import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../cards/brand_mark.dart';
 import '../common/category_catalog.dart';
@@ -201,11 +203,11 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     ),
                     const SizedBox(height: AppSpacing.s4),
                     AnimatedAmountText(
-                      amount: (tx.amount == 0 && tx.foreignAmount != null)
+                      amount: (tx.amountMoney.isZero && tx.foreignMoney != null)
                           ? tx.foreignAmount!
                           : tx.amount,
                       color: amountColor,
-                      suffix: (tx.amount == 0 && tx.foreignAmount != null)
+                      suffix: (tx.amountMoney.isZero && tx.foreignMoney != null)
                           ? ' ${tx.foreignCurrency}'
                           : ' ${Currency.arabicLabel(tx.currency)}',
                       style: AppTypography.amountHero(amountColor),
@@ -216,8 +218,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textSecondary),
                     ),
-                    if (tx.amount == 0 &&
-                        tx.foreignAmount != null &&
+                    if (tx.amountMoney.isZero &&
+                        tx.foreignMoney != null &&
                         tx.foreignCurrency != null) ...[
                       const SizedBox(height: AppSpacing.s3),
                       AppButton(
@@ -466,7 +468,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
     TransactionEntity tx,
   ) async {
     final controller = TextEditingController();
-    final value = await showDialog<double>(
+    final value = await showDialog<Money>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('القيمة بالريال'),
@@ -486,8 +488,14 @@ class _TransactionDetailsContent extends ConsumerWidget {
             child: const Text('إلغاء'),
           ),
           TextButton(
-            onPressed: () =>
-                Navigator.of(ctx).pop(double.tryParse(controller.text.trim())),
+            onPressed: () {
+              try {
+                Navigator.of(ctx).pop(
+                    parseLocalizedMoney(controller.text, tx.currency));
+              } on Exception {
+                Navigator.of(ctx).pop();
+              }
+            },
             child: const Text('حفظ'),
           ),
         ],
@@ -495,7 +503,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
     );
     // Do NOT dispose controller here – the dialog's exit animation may still
     // reference it. It will be GC'd when the method scope ends.
-    if (value == null || value <= 0) return;
+    if (value == null || value.minorUnits <= 0) return;
     try {
       await ref
           .read(transactionRepositoryProvider)

@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 import '../../performance/perf_harness.dart';
 
@@ -23,7 +24,7 @@ TransactionEntity _txn(
   final now = DateTime.utc(2026, 6, 1);
   return TransactionEntity(
     id: id,
-    amount: 42,
+    amountMoney: Money.fromLegacyReal(42, 'SAR'),
     currency: 'SAR',
     type: type,
     source: TransactionSourceEntity.imported,

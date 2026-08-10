@@ -4,6 +4,7 @@ import '../../core/utils/id_generator.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
 import '../../domain/repositories/suspected_duplicate_repository.dart';
 import '../db/app_database.dart';
+import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
@@ -31,7 +32,7 @@ class DriftSuspectedDuplicateRepository
             ? Variable.withString(entity.senderId!)
             : const Variable(null),
         Variable.withString(entity.existingTransactionId),
-        Variable.withReal(entity.amount),
+        kMoneyCodec.realVar(entity.amountMoney),
         Variable.withString(entity.currency),
         entity.rawMerchant != null
             ? Variable.withString(entity.rawMerchant!)
@@ -91,7 +92,11 @@ class DriftSuspectedDuplicateRepository
       rawMessage: row.read<String>('raw_message'),
       senderId: row.readNullable<String>('sender_id'),
       existingTransactionId: row.read<String>('existing_transaction_id'),
-      amount: row.read<double>('amount'),
+      amountMoney: kMoneyCodec.readColumn(
+        row,
+        'amount',
+        row.read<String>('currency'),
+      ),
       currency: row.read<String>('currency'),
       rawMerchant: row.readNullable<String>('raw_merchant'),
       occurredAt: dateTimeFromSql(row.read<String>('occurred_at')).toLocal(),

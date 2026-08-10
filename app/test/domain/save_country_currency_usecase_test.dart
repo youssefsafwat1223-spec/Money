@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/repositories/transaction_repository.dart';
 import 'package:money_companion/domain/repositories/user_settings_repository.dart';
@@ -160,7 +161,7 @@ void main() {
         _FakeTxnRepo([
           TransactionEntity(
             id: 't1',
-            amount: 10,
+            amountMoney: Money.fromLegacyReal(10, 'SAR'),
             currency: 'SAR',
             type: TransactionTypeEntity.payment,
             source: TransactionSourceEntity.bank,

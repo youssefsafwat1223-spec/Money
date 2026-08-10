@@ -20,6 +20,16 @@ void main() {
     );
   }
 
+  test('decodes optional exact amount_text alongside legacy numeric amount', () {
+    final response = AiParseResponse.fromJson({
+      'amount': 19.99,
+      'amount_text': '19.99',
+      'currency': 'SAR',
+    });
+    expect(response.amountText, '19.99');
+    expect(response.amount, 19.99);
+  });
+
   test('sends device_secret, request_id and schema_version', () async {
     late Map<String, dynamic> sent;
     final mock = MockClient((req) async {

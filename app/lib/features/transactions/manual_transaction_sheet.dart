@@ -15,7 +15,8 @@ import '../../core/theme/widgets/segmented_control.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
-import '../../engine/parser/normalizer.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import '../achievements/achievements_providers.dart';
 import '../budgets/budgets_providers.dart';
 import '../capture/services/captured_message_processor.dart';
@@ -81,8 +82,7 @@ class _ManualTransactionSheetState
     super.initState();
     final tx = widget.transaction;
     if (tx != null) {
-      _amount.text = tx.amount
-          .toStringAsFixed(tx.amount.truncateToDouble() == tx.amount ? 0 : 2);
+      _amount.text = tx.amountMoney.toDecimalString();
       _merchant.text = tx.rawMerchant ?? '';
       _note.text = tx.note ?? '';
       _currency.text = tx.currency;
@@ -140,11 +140,15 @@ class _ManualTransactionSheetState
 
   Future<void> _save(CategoryCatalog catalog) async {
     if (_busy) return;
-    final amountText = Normalizer.normalizeDigits(_amount.text)
-        .replaceAll(',', '.')
-        .replaceAll(RegExp(r'[^0-9.]'), '');
-    final amount = double.tryParse(amountText);
-    if (amount == null || amount <= 0) {
+    final normalizedCurrency = _currency.text.trim().toUpperCase();
+    final Money amount;
+    try {
+      amount = parseLocalizedMoney(_amount.text, normalizedCurrency);
+    } on Exception {
+      _snack('اكتب مبلغًا صحيحًا.');
+      return;
+    }
+    if (amount.minorUnits <= 0) {
       _snack('اكتب مبلغًا صحيحًا.');
       return;
     }
@@ -161,7 +165,7 @@ class _ManualTransactionSheetState
         await ref.read(transactionRepositoryProvider).updateTransaction(
               transactionId: widget.transaction!.id,
               amount: amount,
-              currency: _currency.text.trim().toUpperCase(),
+              currency: normalizedCurrency,
               type: _type,
               occurredAt: _occurredAt,
               rawMerchant: _merchant.text,
@@ -172,7 +176,7 @@ class _ManualTransactionSheetState
       } else {
         await ref.read(saveManualTransactionUseCaseProvider)(
           amount: amount,
-          currency: _currency.text.trim().toUpperCase(),
+          currency: normalizedCurrency,
           type: _type,
           occurredAt: _occurredAt,
           categoryKey: categoryKey!,

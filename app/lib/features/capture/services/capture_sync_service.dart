@@ -7,9 +7,11 @@ import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/suspected_duplicate_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/finance/money.dart';
 import '../../../domain/repositories/account_repository.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../../engine/privacy/sms_sanitizer.dart';
+import '../../../engine/parser/capture_money.dart';
 import 'capture_backend_client.dart';
 import 'capture_device_registration_service.dart';
 import 'native_capture_bridge.dart';
@@ -224,6 +226,29 @@ class CaptureSyncService {
       );
     }
     if (capture.status == 'duplicate' && duplicateOf != null) {
+      final duplicateCurrency =
+          (_string(parsed['currency']) ?? 'SAR').trim().toUpperCase();
+      final duplicateAmountText = _string(parsed['amount_text']);
+      final duplicateNumericAmount = _num(parsed['amount']);
+      late final Money duplicateAmountMoney;
+      if (duplicateAmountText != null) {
+        try {
+          duplicateAmountMoney =
+              parseCaptureMoney(duplicateAmountText, duplicateCurrency);
+        } on Exception {
+          // LEGACY_LOSSY compatibility for an already-decoded duplicate DTO.
+          duplicateAmountMoney = legacyLossyNumberToMoney(
+            duplicateNumericAmount ?? 0,
+            duplicateCurrency,
+          );
+        }
+      } else {
+        // LEGACY_LOSSY compatibility for an old duplicate DTO without text.
+        duplicateAmountMoney = legacyLossyNumberToMoney(
+          duplicateNumericAmount ?? 0,
+          duplicateCurrency,
+        );
+      }
       await _suspectedDuplicateRepository.save(
         SuspectedDuplicateEntity(
           id: capture.payloadId,
@@ -231,8 +256,8 @@ class CaptureSyncService {
               _string(parsed['rawMessage']) ?? capture.sanitizedText ?? '',
           senderId: _string(parsed['senderId']),
           existingTransactionId: duplicateOf,
-          amount: _num(parsed['amount']) ?? 0,
-          currency: _string(parsed['currency']) ?? 'SAR',
+          amountMoney: duplicateAmountMoney,
+          currency: duplicateCurrency,
           rawMerchant: _string(parsed['merchant']),
           occurredAt: _date(parsed['occurredAt']) ??
               capture.createdAt ??
@@ -253,8 +278,9 @@ class CaptureSyncService {
     }
 
     final amount = _num(parsed['amount']);
+    final amountText = _string(parsed['amount_text']);
     final currency = _string(parsed['currency']);
-    if (amount == null || currency == null) {
+    if ((amount == null && amountText == null) || currency == null) {
       await markPayloadImported(
         payloadId: capture.payloadId,
         transactionId: 'rejected:${capture.payloadId}',
@@ -264,6 +290,27 @@ class CaptureSyncService {
 
     final now = DateTime.now().toUtc();
     final normalizedCurrency = currency.trim().toUpperCase();
+    late final Money amountMoney;
+    var legacyLossyReview = false;
+    if (amountText != null) {
+      try {
+        amountMoney = parseCaptureMoney(amountText, normalizedCurrency);
+      } on Exception {
+        if (amount == null) {
+          await markPayloadImported(
+              payloadId: capture.payloadId,
+              transactionId: 'rejected:${capture.payloadId}');
+          return null;
+        }
+        // LEGACY_LOSSY capture fallback (pending review).
+        amountMoney = legacyLossyNumberToMoney(amount, normalizedCurrency);
+        legacyLossyReview = true;
+      }
+    } else {
+      // LEGACY_LOSSY deployed-backend compatibility: no amount_text yet.
+      amountMoney = legacyLossyNumberToMoney(amount!, normalizedCurrency);
+      legacyLossyReview = true;
+    }
     final account = await _accountForCurrency(normalizedCurrency);
     final occurredAt = _date(parsed['occurredAt']) ??
         _date(parsed['comparisonTimestamp']) ??
@@ -296,7 +343,7 @@ class CaptureSyncService {
       // server row the edge function already wrote instead of duplicating it.
       // isPayloadImported() above guarantees this id is never inserted twice.
       id: capture.payloadId,
-      amount: amount,
+      amountMoney: amountMoney,
       currency: normalizedCurrency,
       accountId: account?.id,
       type: type,
@@ -309,7 +356,9 @@ class CaptureSyncService {
       // capture بحالة duplicate تصل هنا فقط عندما تعذّر ربطها بعمليتها
       // الأصلية محليًا (سجل الربط فُقد أو الأصل على جهاز آخر) — لا تُعتمد
       // أبدًا كمؤكَّدة، وإلا حُسب المبلغ مرّتين بصمت رغم إشعار "مشابهة".
-      status: capture.status == 'needs_review' || capture.status == 'duplicate'
+      status: legacyLossyReview ||
+              capture.status == 'needs_review' ||
+              capture.status == 'duplicate'
           ? TransactionStatus.pending
           : TransactionStatus.confirmed,
       createdAt: now,
@@ -348,7 +397,9 @@ class CaptureSyncService {
       );
       return inserted;
     });
-    return capture.status == 'needs_review' || capture.status == 'duplicate'
+    return legacyLossyReview ||
+            capture.status == 'needs_review' ||
+            capture.status == 'duplicate'
         ? saved.id
         : null;
   }

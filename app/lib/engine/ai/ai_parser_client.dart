@@ -17,6 +17,7 @@ class AiParseResponse {
   const AiParseResponse({
     required this.amount,
     required this.currency,
+    this.amountText,
     this.merchantName,
     this.type,
     this.categoryKey,
@@ -26,6 +27,7 @@ class AiParseResponse {
   });
 
   final double amount;
+  final String? amountText;
   final String currency;
   final String? merchantName;
   final String? type;
@@ -37,6 +39,7 @@ class AiParseResponse {
   factory AiParseResponse.fromJson(Map<String, dynamic> json) {
     return AiParseResponse(
       amount: (json['amount'] as num).toDouble(),
+      amountText: json['amount_text'] as String?,
       currency: json['currency'] as String,
       merchantName: json['merchant_name'] as String?,
       type: json['type'] as String?,

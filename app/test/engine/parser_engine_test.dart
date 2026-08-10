@@ -17,12 +17,14 @@ void main() {
       expect(r.isTransaction, isTrue);
       final t = r.transaction!;
       expect(t.amount, 45.00);
+      expect(t.amountText, '45.00');
       expect(t.currency, 'SAR');
       expect(t.rawMerchant, 'BURGER BOUTIQUE');
       expect(t.type, TransactionType.payment);
       expect(t.source, TransactionSource.card);
       expect(t.cardLast4, '4521');
       expect(t.balanceAfter, 2310.50);
+      expect(t.balanceAfterText, '2310.50');
       expect(t.occurredAt, DateTime(2026, 4, 8, 12, 45));
       expect(t.parseConfidence, ParserEngine.genericMaxConfidence);
     });
@@ -83,8 +85,30 @@ void main() {
     test('أرقام هندية تُطبَّع وتُستخرج', () {
       final t = engine.parse(SampleMessages.arabicIndicDigits).transaction!;
       expect(t.amount, 250.75);
+      expect(t.amountText, '250.75');
       expect(t.rawMerchant, 'بنده');
       expect(t.occurredAt, DateTime(2026, 4, 8, 14, 30));
+    });
+
+    test('structural grouping is canonicalized once into exact amount text', () {
+      final transaction = engine
+          .parse(
+            'Purchase SAR 1,250.75 At SHOP 2026-04-08 12:00',
+            senderId: 'SNB',
+          )
+          .transaction!;
+
+      expect(transaction.amountText, '1250.75');
+      expect(transaction.amount, 1250.75);
+    });
+
+    test('an ambiguous comma amount is rejected, never changed to 1250', () {
+      final result = engine.parse(
+        'Purchase SAR 12,50 At SHOP 2026-04-08 12:00',
+        senderId: 'SNB',
+      );
+
+      expect(result.isTransaction, isFalse);
     });
 
     test('يستخرج عملات غير SAR', () {

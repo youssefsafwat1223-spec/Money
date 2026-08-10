@@ -438,7 +438,7 @@ class BillDetailsSheet extends ConsumerWidget {
                             ),
                             createTransaction: (payment) =>
                                 ref.read(saveManualTransactionUseCaseProvider)(
-                              amount: payment.amount,
+                              amount: payment.amountMoney,
                               currency: payment.currency,
                               type: TransactionTypeEntity.payment,
                               occurredAt: payment.paidAt,

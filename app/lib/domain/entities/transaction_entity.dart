@@ -1,3 +1,5 @@
+import '../finance/money.dart';
+
 enum TransactionTypeEntity {
   payment,
   withdrawal,
@@ -27,9 +29,9 @@ enum DuplicateStatus { normal, suspiciousDuplicate }
 enum SyncStatus { localOnly, synced, pending, conflict }
 
 class TransactionEntity {
-  const TransactionEntity({
+  TransactionEntity({
     required this.id,
-    required this.amount,
+    required this.amountMoney,
     required this.currency,
     required this.type,
     required this.source,
@@ -43,10 +45,10 @@ class TransactionEntity {
     this.rawMerchant,
     this.categoryId,
     this.cardLast4,
-    this.balanceAfter,
+    this.balanceAfterMoney,
     this.note,
     this.accountId,
-    this.foreignAmount,
+    this.foreignMoney,
     this.foreignCurrency,
     this.direction,
     this.transactionTimeFromSms,
@@ -60,10 +62,12 @@ class TransactionEntity {
     this.syncedAt,
     this.serverUpdatedAt,
     this.syncStatus = SyncStatus.localOnly,
-  });
+  })  : assert((foreignMoney == null) == (foreignCurrency == null)),
+        assert(foreignMoney == null ||
+            foreignMoney.currency == foreignCurrency!.trim().toUpperCase());
 
   final String id;
-  final double amount;
+  final Money amountMoney;
   final String currency;
   final String? accountId;
   final String? merchantId;
@@ -72,7 +76,7 @@ class TransactionEntity {
   final TransactionTypeEntity type;
   final TransactionSourceEntity source;
   final String? cardLast4;
-  final double? balanceAfter;
+  final Money? balanceAfterMoney;
   final String? note;
   final DateTime occurredAt;
   final String rawMessage;
@@ -80,7 +84,7 @@ class TransactionEntity {
   final TransactionStatus status;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final double? foreignAmount;
+  final Money? foreignMoney;
   final String? foreignCurrency;
   final TransactionDirectionEntity? direction;
   final DateTime? transactionTimeFromSms;
@@ -95,9 +99,15 @@ class TransactionEntity {
   final DateTime? serverUpdatedAt;
   final SyncStatus syncStatus;
 
+  /// DISPLAY-ONLY compatibility getters. Never use these as a persistence,
+  /// calculation, comparison, validation, dedup-input, or transport source.
+  double get amount => amountMoney.toDouble();
+  double? get balanceAfter => balanceAfterMoney?.toDouble();
+  double? get foreignAmount => foreignMoney?.toDouble();
+
   TransactionEntity copyWith({
     String? id,
-    double? amount,
+    Money? amountMoney,
     String? currency,
     String? accountId,
     String? merchantId,
@@ -106,7 +116,7 @@ class TransactionEntity {
     TransactionTypeEntity? type,
     TransactionSourceEntity? source,
     String? cardLast4,
-    double? balanceAfter,
+    Money? balanceAfterMoney,
     String? note,
     DateTime? occurredAt,
     String? rawMessage,
@@ -114,7 +124,7 @@ class TransactionEntity {
     TransactionStatus? status,
     DateTime? createdAt,
     DateTime? updatedAt,
-    double? foreignAmount,
+    Money? foreignMoney,
     String? foreignCurrency,
     TransactionDirectionEntity? direction,
     DateTime? transactionTimeFromSms,
@@ -131,7 +141,7 @@ class TransactionEntity {
   }) {
     return TransactionEntity(
       id: id ?? this.id,
-      amount: amount ?? this.amount,
+      amountMoney: amountMoney ?? this.amountMoney,
       currency: currency ?? this.currency,
       accountId: accountId ?? this.accountId,
       merchantId: merchantId ?? this.merchantId,
@@ -140,7 +150,7 @@ class TransactionEntity {
       type: type ?? this.type,
       source: source ?? this.source,
       cardLast4: cardLast4 ?? this.cardLast4,
-      balanceAfter: balanceAfter ?? this.balanceAfter,
+      balanceAfterMoney: balanceAfterMoney ?? this.balanceAfterMoney,
       note: note ?? this.note,
       occurredAt: occurredAt ?? this.occurredAt,
       rawMessage: rawMessage ?? this.rawMessage,
@@ -148,7 +158,7 @@ class TransactionEntity {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      foreignAmount: foreignAmount ?? this.foreignAmount,
+      foreignMoney: foreignMoney ?? this.foreignMoney,
       foreignCurrency: foreignCurrency ?? this.foreignCurrency,
       direction: direction ?? this.direction,
       transactionTimeFromSms:

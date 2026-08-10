@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/common/transaction_direction.dart';
 
 TransactionEntity _tx(
@@ -10,7 +11,7 @@ TransactionEntity _tx(
   final now = DateTime.utc(2026, 6, 16, 12);
   return TransactionEntity(
     id: 't',
-    amount: 100,
+    amountMoney: Money.fromLegacyReal(100, 'SAR'),
     currency: 'SAR',
     type: type,
     source: TransactionSourceEntity.bank,
