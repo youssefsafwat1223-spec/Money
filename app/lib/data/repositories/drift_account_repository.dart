@@ -7,6 +7,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
+import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
 
 Map<String, dynamic>? _decodeMetadata(String? raw) {
@@ -20,16 +21,21 @@ Map<String, dynamic>? _decodeMetadata(String? raw) {
 }
 
 AccountEntity accountFromRow(QueryRow row) {
+  final currency = row.read<String>('currency');
   return AccountEntity(
     id: row.read<String>('id'),
     name: row.read<String>('name'),
-    currency: row.read<String>('currency'),
+    currency: currency,
     type: accountTypeFromKey(row.read<String>('type')),
-    initialBalance: row.readNullable<double>('initial_balance'),
-    currentBalance: row.readNullable<double>('current_balance'),
+    initialBalanceMoney:
+        kMoneyCodec.readColumnNullable(row, 'initial_balance', currency),
+    currentBalanceMoney:
+        kMoneyCodec.readColumnNullable(row, 'current_balance', currency),
     bankAccountNumber: row.readNullable<String>('bank_account_number'),
-    creditLimit: row.readNullable<double>('credit_limit'),
-    availableCredit: row.readNullable<double>('available_credit'),
+    creditLimitMoney:
+        kMoneyCodec.readColumnNullable(row, 'credit_limit', currency),
+    availableCreditMoney:
+        kMoneyCodec.readColumnNullable(row, 'available_credit', currency),
     paymentDueDay: row.readNullable<int>('payment_due_day'),
     walletProvider: row.readNullable<String>('wallet_provider'),
     excludeFromTotals: sqlToBool(row.read<int>('exclude_from_totals')),
@@ -45,12 +51,8 @@ List<Variable> _accountFieldVars(AccountEntity account) => [
       account.bankAccountNumber == null
           ? const Variable<String>(null)
           : Variable.withString(account.bankAccountNumber!),
-      account.creditLimit == null
-          ? const Variable<double>(null)
-          : Variable.withReal(account.creditLimit!),
-      account.availableCredit == null
-          ? const Variable<double>(null)
-          : Variable.withReal(account.availableCredit!),
+      kMoneyCodec.realVarOrNull(account.creditLimitMoney),
+      kMoneyCodec.realVarOrNull(account.availableCreditMoney),
       account.paymentDueDay == null
           ? const Variable<int>(null)
           : Variable.withInt(account.paymentDueDay!),
@@ -130,12 +132,8 @@ class DriftAccountRepository implements AccountRepository {
           Variable.withString(account.name),
           Variable.withString(account.currency),
           Variable.withString(account.type.name),
-          account.initialBalance == null
-              ? const Variable<double>(null)
-              : Variable.withReal(account.initialBalance!),
-          account.currentBalance == null
-              ? const Variable<double>(null)
-              : Variable.withReal(account.currentBalance!),
+          kMoneyCodec.realVarOrNull(account.initialBalanceMoney),
+          kMoneyCodec.realVarOrNull(account.currentBalanceMoney),
           ..._accountFieldVars(account),
           Variable.withInt(boolToSql(makeDefault)),
           Variable.withInt(account.sortOrder),
@@ -173,12 +171,8 @@ class DriftAccountRepository implements AccountRepository {
           Variable.withString(account.name),
           Variable.withString(account.currency),
           Variable.withString(account.type.name),
-          account.initialBalance == null
-              ? const Variable<double>(null)
-              : Variable.withReal(account.initialBalance!),
-          account.currentBalance == null
-              ? const Variable<double>(null)
-              : Variable.withReal(account.currentBalance!),
+          kMoneyCodec.realVarOrNull(account.initialBalanceMoney),
+          kMoneyCodec.realVarOrNull(account.currentBalanceMoney),
           ..._accountFieldVars(account),
           Variable.withInt(account.sortOrder),
           Variable.withString(dateTimeToSql(DateTime.now().toUtc())),

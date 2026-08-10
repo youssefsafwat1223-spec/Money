@@ -7,6 +7,7 @@ import 'package:money_companion/data/repositories/drift_account_repository.dart'
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
@@ -219,8 +220,8 @@ void main() {
         sortOrder: 1,
         createdAt: now,
         updatedAt: now,
-        initialBalance: 100,
-        currentBalance: 100,
+        initialBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
+        currentBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
       ));
       // Mark it synced against a base the server has since moved past, then
       // enqueue an update (its payload captures the 'base-ts' base token).

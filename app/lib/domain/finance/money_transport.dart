@@ -38,6 +38,10 @@ String moneyToNumericText(Money m) => m.toDecimalString();
 /// value must NEVER be reconstructed into canonical Money from this path.
 num moneyToLegacyJsonNumber(Money m) => m.toDouble();
 
+/// Nullable variant of [moneyToLegacyJsonNumber] (absent money → null).
+num? moneyToLegacyJsonNumberOrNull(Money? m) =>
+    m == null ? null : moneyToLegacyJsonNumber(m);
+
 /// PULL: parse a `::text` NUMERIC response value into exact [Money]. The value
 /// MUST be a decimal String (from `select=amount::text`) or `null`; any other
 /// runtime type (e.g. a JSON number, meaning the cast was not applied) throws

@@ -14,6 +14,7 @@ import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/card_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/engine/parser/card_network.dart';
 import 'package:money_companion/domain/repositories/bill_repository.dart';
 import 'package:money_companion/domain/usecases/account_deletion.dart';
@@ -119,8 +120,8 @@ void main() {
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
-        initialBalance: 0,
-        currentBalance: 0,
+        initialBalanceMoney: Money(0, currency),
+        currentBalanceMoney: Money(0, currency),
       ));
 
   Future<void> card(String id, String accountId) => cards.create(CardEntity(

@@ -226,8 +226,6 @@ void main() {
       name: 'Main SAR',
       currency: 'SAR',
       type: AccountType.bank,
-      initialBalance: null,
-      currentBalance: null,
       isDefault: true,
       sortOrder: 0,
       createdAt: now,

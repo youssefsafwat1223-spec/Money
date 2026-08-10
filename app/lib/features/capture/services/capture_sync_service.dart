@@ -386,8 +386,6 @@ class CaptureSyncService {
         name: 'حساب $normalized',
         currency: normalized,
         type: AccountType.bank,
-        initialBalance: null,
-        currentBalance: null,
         isDefault: isDefault,
         sortOrder: sortOrder,
         createdAt: now,

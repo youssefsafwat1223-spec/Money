@@ -4,6 +4,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 
@@ -86,8 +87,8 @@ AccountEntity _account(String id, {bool isDefault = false}) => AccountEntity(
       sortOrder: 1,
       createdAt: DateTime.utc(2026, 7, 4),
       updatedAt: DateTime.utc(2026, 7, 4),
-      initialBalance: 100,
-      currentBalance: 100,
+      initialBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
+      currentBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
     );
 
 void main() {

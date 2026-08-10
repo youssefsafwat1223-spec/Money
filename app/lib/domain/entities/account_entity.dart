@@ -1,3 +1,5 @@
+import '../finance/money.dart';
+
 /// نوع الحساب/المحفظة.
 enum AccountType { cash, bank, wallet, card }
 
@@ -17,11 +19,11 @@ class AccountEntity {
     required this.sortOrder,
     required this.createdAt,
     required this.updatedAt,
-    this.initialBalance,
-    this.currentBalance,
+    this.initialBalanceMoney,
+    this.currentBalanceMoney,
     this.bankAccountNumber,
-    this.creditLimit,
-    this.availableCredit,
+    this.creditLimitMoney,
+    this.availableCreditMoney,
     this.paymentDueDay,
     this.walletProvider,
     this.excludeFromTotals = false,
@@ -30,20 +32,29 @@ class AccountEntity {
 
   final String id;
   final String name;
+
+  /// عملة الحساب — تثبّت مقياس (scale) كل مبالغه (per-row currency).
   final String currency;
   final AccountType type;
 
   /// الرصيد الافتتاحي (يُعاد استخدام العمود القديم initial_balance؛ ليس اسمًا
-  /// جديدًا). الرصيد الحالي يُحسب: initialBalance + مؤكَّد داخل − مؤكَّد خارج.
-  final double? initialBalance;
-  final double? currentBalance;
+  /// جديدًا). canonical fixed-precision Money; display via [initialBalance].
+  final Money? initialBalanceMoney;
+  final Money? currentBalanceMoney;
+
+  /// DISPLAY-ONLY compatibility getters (presentation leaf boundaries). NEVER a
+  /// write/calc/aggregation/sync-payload source — those use the `*Money` fields.
+  double? get initialBalance => initialBalanceMoney?.toDouble();
+  double? get currentBalance => currentBalanceMoney?.toDouble();
 
   /// رقم الحساب البنكي (اختياري) — يساعد مطابقة الرسائل لبعض البنوك.
   final String? bankAccountNumber;
 
   /// حقول بطاقة ائتمانية (type == card) — معلوماتية فقط في هذه المرحلة.
-  final double? creditLimit;
-  final double? availableCredit;
+  final Money? creditLimitMoney;
+  final Money? availableCreditMoney;
+  double? get creditLimit => creditLimitMoney?.toDouble();
+  double? get availableCredit => availableCreditMoney?.toDouble();
   final int? paymentDueDay;
 
   /// مزوّد المحفظة (type == wallet): فودافون كاش/أورنج كاش/…
@@ -68,11 +79,11 @@ class AccountEntity {
     String? name,
     String? currency,
     AccountType? type,
-    double? initialBalance,
-    double? currentBalance,
+    Money? initialBalanceMoney,
+    Money? currentBalanceMoney,
     String? bankAccountNumber,
-    double? creditLimit,
-    double? availableCredit,
+    Money? creditLimitMoney,
+    Money? availableCreditMoney,
     int? paymentDueDay,
     String? walletProvider,
     bool? excludeFromTotals,
@@ -87,11 +98,11 @@ class AccountEntity {
       name: name ?? this.name,
       currency: currency ?? this.currency,
       type: type ?? this.type,
-      initialBalance: initialBalance ?? this.initialBalance,
-      currentBalance: currentBalance ?? this.currentBalance,
+      initialBalanceMoney: initialBalanceMoney ?? this.initialBalanceMoney,
+      currentBalanceMoney: currentBalanceMoney ?? this.currentBalanceMoney,
       bankAccountNumber: bankAccountNumber ?? this.bankAccountNumber,
-      creditLimit: creditLimit ?? this.creditLimit,
-      availableCredit: availableCredit ?? this.availableCredit,
+      creditLimitMoney: creditLimitMoney ?? this.creditLimitMoney,
+      availableCreditMoney: availableCreditMoney ?? this.availableCreditMoney,
       paymentDueDay: paymentDueDay ?? this.paymentDueDay,
       walletProvider: walletProvider ?? this.walletProvider,
       excludeFromTotals: excludeFromTotals ?? this.excludeFromTotals,

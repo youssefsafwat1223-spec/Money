@@ -212,8 +212,6 @@ Future<List<AccountEntity>> _ensureCurrencyAccounts({
         name: 'حساب $currency',
         currency: currency,
         type: AccountType.bank,
-        initialBalance: null,
-        currentBalance: null,
         isDefault: accounts.isEmpty,
         sortOrder: accounts.length,
         createdAt: now,

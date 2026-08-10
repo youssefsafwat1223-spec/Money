@@ -173,8 +173,6 @@ Future<AccountEntity?> _accountForCurrency(
       name: 'حساب $normalized',
       currency: normalized,
       type: AccountType.bank,
-      initialBalance: null,
-      currentBalance: null,
       isDefault: accounts.isEmpty,
       sortOrder: accounts.length,
       createdAt: now,

@@ -148,6 +148,18 @@ S8 Validate + commit (no push) + report.
 
 **CHECKPOINT: foundation committed GREEN. Sweep continues per-domain. Nothing pushed. schema v29.**
 
+### Sweep progress (safe per-row-currency domains; STOP before budgets/goals/goal_contributions)
+- [x] **account** domain GREEN + committed. AccountEntity → 4 `*Money` fields + display getters;
+  accountFromRow via codec; create/update writers via `kMoneyCodec.realVarOrNull`;
+  account_form_sheet → `parseLocalizedMoney` (ambiguous/over-precision now fails validation);
+  account sync payload (planning_outbox_queue) → `moneyToLegacyJsonNumberOrNull` (LOGIC read
+  migrated); 3 prod auto-account sites + 6 test files updated. analyze clean; focused account +
+  money tests pass. (Full-suite run hit the known Argon2-KDF-timeout-under-load flake in
+  backup_crypto — environmental, untouched by this change.) The accounts PULL service
+  (accounts_pull_service, accounts_backfill) writes SQL directly (not via the entity) — left for
+  the S2 pull `::text` step; no NEW double write source introduced.
+- [ ] transaction+parser, bill/subscription, plan, suspected_duplicate — pending.
+
 ---
 
 # DETAILED PER-DOMAIN EXECUTION PLAN (for approval)

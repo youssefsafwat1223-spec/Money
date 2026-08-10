@@ -4,6 +4,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -34,10 +35,14 @@ AccountEntity _account({
     sortOrder: 0,
     createdAt: now,
     updatedAt: now,
-    initialBalance: initialBalance,
+    initialBalanceMoney:
+        initialBalance == null ? null : Money.fromLegacyReal(initialBalance, 'SAR'),
     bankAccountNumber: bankAccountNumber,
-    creditLimit: creditLimit,
-    availableCredit: availableCredit,
+    creditLimitMoney:
+        creditLimit == null ? null : Money.fromLegacyReal(creditLimit, 'SAR'),
+    availableCreditMoney: availableCredit == null
+        ? null
+        : Money.fromLegacyReal(availableCredit, 'SAR'),
     paymentDueDay: paymentDueDay,
     walletProvider: walletProvider,
     excludeFromTotals: excludeFromTotals,
@@ -109,7 +114,7 @@ void main() {
   test('update persists changes to extended fields', () async {
     final saved = await repo.create(_account(type: AccountType.card));
     final updated = await repo.update(saved.copyWith(
-      creditLimit: 8000,
+      creditLimitMoney: Money.fromLegacyReal(8000, 'SAR'),
       paymentDueDay: 5,
     ));
     final read = await repo.getById(updated.id);

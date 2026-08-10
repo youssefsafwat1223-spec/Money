@@ -12,6 +12,8 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import '../../domain/usecases/account_deletion.dart';
 import 'account_deletion_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -119,10 +121,12 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     super.dispose();
   }
 
-  double? _parseNum(TextEditingController c) {
+  /// Parse a localized money field to canonical [Money] (exact — no double).
+  /// Throws on invalid/ambiguous/over-precision input; the caller validates.
+  Money? _parseMoney(TextEditingController c) {
     final t = c.text.trim();
     if (t.isEmpty) return null;
-    return double.tryParse(t);
+    return parseLocalizedMoney(t, _currency);
   }
 
   Future<void> _save() async {
@@ -144,6 +148,25 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       );
       return;
     }
+    // Parse the money inputs exactly (localized → canonical Money). Ambiguous /
+    // over-precision input now fails validation instead of changing magnitude.
+    final Money? startingBalanceMoney;
+    final Money? creditLimitMoney;
+    final Money? availableCreditMoney;
+    try {
+      startingBalanceMoney =
+          _type == AccountType.card ? null : _parseMoney(_startingBalance);
+      creditLimitMoney =
+          _type == AccountType.card ? _parseMoney(_creditLimit) : null;
+      availableCreditMoney =
+          _type == AccountType.card ? _parseMoney(_availableCredit) : null;
+    } on Exception {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('مبلغ غير صالح')),
+      );
+      return;
+    }
+
     final repo = ref.read(accountRepositoryProvider);
     final now = DateTime.now().toUtc();
     setState(() => _busy = true);
@@ -157,17 +180,14 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           sortOrder: widget.account?.sortOrder ?? 0,
           createdAt: created,
           updatedAt: now,
-          initialBalance:
-              _type == AccountType.card ? null : _parseNum(_startingBalance),
+          initialBalanceMoney: startingBalanceMoney,
           bankAccountNumber: _type == AccountType.bank
               ? (_bankAccountNumber.text.trim().isEmpty
                   ? null
                   : _bankAccountNumber.text.trim())
               : null,
-          creditLimit:
-              _type == AccountType.card ? _parseNum(_creditLimit) : null,
-          availableCredit:
-              _type == AccountType.card ? _parseNum(_availableCredit) : null,
+          creditLimitMoney: creditLimitMoney,
+          availableCreditMoney: availableCreditMoney,
           paymentDueDay: _type == AccountType.card ? dueDay : null,
           walletProvider: _type == AccountType.wallet ? _walletProvider : null,
           excludeFromTotals: _excludeFromTotals,

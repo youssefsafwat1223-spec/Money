@@ -7,6 +7,7 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/bill_entity.dart';
+import '../../../domain/finance/money_transport.dart';
 import '../../../domain/entities/card_entity.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/entities/category_entity.dart';
@@ -555,11 +556,11 @@ class PlanningOutboxQueue {
       'name': account.name,
       'currency': account.currency,
       'type': account.type.name,
-      'initial_balance': account.initialBalance,
-      'current_balance': account.currentBalance,
+      'initial_balance': moneyToLegacyJsonNumberOrNull(account.initialBalanceMoney),
+      'current_balance': moneyToLegacyJsonNumberOrNull(account.currentBalanceMoney),
       'bank_account_number': account.bankAccountNumber,
-      'credit_limit': account.creditLimit,
-      'available_credit': account.availableCredit,
+      'credit_limit': moneyToLegacyJsonNumberOrNull(account.creditLimitMoney),
+      'available_credit': moneyToLegacyJsonNumberOrNull(account.availableCreditMoney),
       'payment_due_day': account.paymentDueDay,
       'wallet_provider': account.walletProvider,
       'exclude_from_totals': account.excludeFromTotals,

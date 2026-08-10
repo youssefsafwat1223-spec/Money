@@ -8,6 +8,7 @@ import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
@@ -200,8 +201,8 @@ AccountEntity _account(String id) {
     sortOrder: 1,
     createdAt: now,
     updatedAt: now,
-    initialBalance: 100,
-    currentBalance: 100,
+    initialBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
+    currentBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
   );
 }
 
