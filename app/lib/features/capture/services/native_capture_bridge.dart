@@ -346,16 +346,6 @@ class NativeCaptureBridge {
     return text;
   }
 
-  /// Drains the full FIFO queue of bank messages captured by native sharing
-  /// surfaces: iOS Share Extension/App Intent and Android ACTION_SEND.
-  ///
-  /// DESTRUCTIVE — prefer [peekPendingSharedMessages] +
-  /// [acknowledgeSharedMessage] (per-item lease, MALI-012); this remains for
-  /// compatibility with older native layers that lack the peek handler.
-  static Future<List<SharedCapturedMessage>>
-      consumePendingSharedMessages() async {
-    return _fetchSharedMessages('consumePendingSharedMessages');
-  }
 
   /// Returns the native capture queue WITHOUT deleting it (per-item lease,
   /// MALI-012). Call [acknowledgeSharedMessage] for each message only after

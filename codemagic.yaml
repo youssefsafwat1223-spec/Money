@@ -98,7 +98,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - youssefsafwat1223@gmail.com   # change as needed
+          - youssefsafwat1278@gmail.com   # change as needed
         notify:
           success: true
           failure: true
@@ -165,7 +165,7 @@ workflows:
         submit_to_testflight: true
       email:
         recipients:
-          - youssefsafwat1223@gmail.com
+          - youssefsafwat1278@gmail.com
         notify:
           success: true
           failure: true
@@ -181,7 +181,7 @@ workflows:
     environment:
       groups:
         - supabase
-        - google_play          # Android keystore (CM_KEYSTORE*) — set in Codemagic
+        - google_play          # Android keystore (ANDROID_KEYSTORE_* env vars, read by build.gradle.kts) — set in Codemagic
       flutter: 3.44.2
       vars:
         PACKAGE_NAME: "com.youssefsafwat.mali"
@@ -223,7 +223,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - youssefsafwat1223@gmail.com
+          - youssefsafwat1278@gmail.com
         notify:
           success: true
           failure: true
@@ -267,7 +267,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - youssefsafwat1223@gmail.com
+          - youssefsafwat1278@gmail.com
         notify:
           success: true
           failure: true
