@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/finance/bill_metrics.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 BillEntity bill({
   double amount = 30,
@@ -13,7 +14,7 @@ BillEntity bill({
     BillEntity(
       id: 'b',
       name: 'n',
-      amount: amount,
+      amountMoney: Money.fromLegacyReal(amount, currency),
       currency: currency,
       type: type,
       frequency: frequency,
@@ -29,7 +30,7 @@ BillPaymentEntity payment(double amount, {String? transactionId, String id = 'p'
     BillPaymentEntity(
       id: id,
       billId: 'b',
-      amount: amount,
+      amountMoney: Money.fromLegacyReal(amount, 'SAR'),
       currency: 'SAR',
       periodStart: DateTime(2026, 7, 1),
       periodEnd: DateTime(2026, 8, 1),

@@ -5,6 +5,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 
@@ -231,7 +232,7 @@ void main() {
     final payment = BillPaymentEntity(
       id: 'bp-1',
       billId: 'bill-1',
-      amount: 10,
+      amountMoney: Money.fromLegacyReal(10, 'EGP'),
       currency: 'EGP',
       periodStart: DateTime.utc(2026, 7, 1),
       periodEnd: DateTime.utc(2026, 7, 31),

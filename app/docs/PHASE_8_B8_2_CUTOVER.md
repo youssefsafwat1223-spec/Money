@@ -163,7 +163,35 @@ S8 Validate + commit (no push) + report.
   plan's per-row currency; invalid → snackbar, magnitude never guessed); plan payload →
   moneyToLegacyJsonNumber; 6 test files updated (incl. invalid-currency helper via
   isSupportedCurrency fallback). analyze clean; focused plan tests pass.
-- [ ] transaction+parser, bill/subscription, suspected_duplicate — pending.
+- [x] **bill/subscription** domain GREEN + committed (implemented via codex-delegate, reviewed +
+  gated + committed by orchestrator). BillEntity (amount/manualPaid/totalPurchase → *Money +
+  getters; interestRate stays double) + BillPaymentEntity (amountMoney); repo mappers/writers via
+  codec; bill_form + bill_details → parseLocalizedMoney; persisted calcs EXACT (full-payoff =
+  `amountMoney * remainingCount`; manual-paid delta = `new - prev` floored at zero via Money);
+  subscription + bill_payment payloads → moneyToLegacyJsonNumber[OrNull]. analyze clean + 173
+  focused tests pass (orchestrator re-ran). Subscriptions/bill_payments PULL (planning_pull /
+  planning_child — SHARED with budgets/goals/goal_contributions) deferred to the cross-cutting
+  ::text pass (entangled with base-currency STOP domains). Cross-currency display folds
+  (subscriptions_screen / transactions_screen / bill_metrics) kept double (transitional).
+- [ ] transaction+parser (NEXT — STOP for ingress-matrix approval first), suspected_duplicate — pending.
+
+### TRANSACTION INGRESS MATRIX (data gathered — present to user after bill commit, before touching transaction)
+Only **3** `TransactionEntity(` constructions, all in add_transaction_usecase:
+- **:602 main/parser/AI** — amount `foreignUnpriced?0:effectiveParsed.amount` (double); balanceAfter :613 `effectiveParsed.balanceAfter` (double?); foreignAmount :623 `foreignUnpriced?effectiveParsed.amount:effectiveParsed.foreignAmount` (double?); currency :605 `foreignUnpriced?homeCurrency:effectiveParsed.currency`; foreignCurrency :626 `foreignUnpriced?txCurrency:effectiveParsed.foreignCurrency`.
+- **:776 fee** — amount :778 from `_extractFeeAmount`→(double,String); currency :779 `.$2`.
+- **:1552 manual** — amount :1554 = `double amount` param; currency :1555 `normalizedCurrency`.
+Currency FINAL at construction (never re-cased/changed post-parse) EXCEPT the `foreignUnpriced` branch (:577-583) which zeroes the main leg and moves orig amount+currency onto the foreign leg (:623-627) → not a fallback.
+Ingress sources → all currently `double`:
+- Parser: parser_engine 282/335/336/352/353/382 `double.tryParse`; ParsedTransaction.amount/balanceAfter/foreignAmount double; AmountCandidate.value+score both double (raw text in `.raw`). foreign leg set only in `_extractInternationalParens` (344-345/361-362) always with foreignCurrency (`match.group!.toUpperCase()`).
+- AI: ai_parser_client.dart:39 `(json['amount'] as num).toDouble()` → double; currency :40 String, validated non-null (:125-127). Builds a ParsedTransaction (977 amount / 978 currency / 988-989 foreign from LOCAL parser), flows to :602. **Legacy/lossy ingress — AI returns JSON number; needs exact lexical/string boundary (report, do NOT hide behind fromLegacyReal).**
+- Capture: capture_sync_service 234/255 `_num`→double.
+- Manual: manual_transaction_sheet:146 `double.tryParse`; new→saveManualTransactionUseCase (entity :1552); edit→updateTransaction(amount double, currency) [interface already Money-ready pattern].
+- Import: generic_transaction_import.parseImportAmount→double; drift_financial_importer 215/222/228 `_positiveDouble`/`_double`; app_data_portability 298.
+- Pull: ledger_sync 323/362/363/472/506/507 `(as num?)?.toDouble()`; transactions_backfill 219 (backfill READS local money to push; NO local money write; only metadata write 225-236).
+- Conflict/reconciliation (conflict_resolver, ledger_sync_engine, startup_sync_reconcile): **NO money-column writes** (only sync-control cols/outbox).
+- Direct SQL writers: drift_transaction_repository INSERT 191/200/208, updateTransaction 292/300, updateAmount 382/384, findDuplicate/findSuspiciousDuplicate binds; ledger_sync_service UPDATE 351/362/363; drift_financial_importer INSERT.
+Required invariant to enforce: new amount → exact lexical/String (or exact Money) → currency-resolved → Money → repo. NEVER new→double→fromLegacyReal. `fromLegacyReal` restricted to importer legacy + migration.
+Design implication (for the transaction plan): ParsedTransaction should carry an exact **canonical decimal String** (amountText/balanceAfterText/foreignAmountText) — currency is finalized downstream (foreignUnpriced) so build Money at the :602/:776/:1552 construction points via a capture converter; keep AmountCandidate.value/score double (confidence isolation). AI path is a legacy-lossy ingress to flag (JSON number → propose exact string boundary in the AI response contract).
 
 ### v29 REAL-aggregate consumers recorded for v30 (transitional; NOT persisted-money sources)
 - `plans_providers` remaining/ratio/isOver = `plan.budgetAmount` (display getter) vs `spent`

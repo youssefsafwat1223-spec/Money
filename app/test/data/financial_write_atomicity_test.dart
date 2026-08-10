@@ -9,6 +9,7 @@ import 'package:money_companion/data/repositories/drift_transaction_repository.d
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 
@@ -71,7 +72,7 @@ BillEntity _bill() {
   return BillEntity(
     id: 'bill-atomic',
     name: 'Atomic installment',
-    amount: 250,
+    amountMoney: Money.fromLegacyReal(250, 'SAR'),
     currency: 'SAR',
     type: BillType.installment,
     frequency: BillFrequency.monthly,
@@ -88,7 +89,7 @@ BillPaymentEntity _payment() {
   return BillPaymentEntity(
     id: 'payment-atomic',
     billId: 'bill-atomic',
-    amount: 250,
+    amountMoney: Money.fromLegacyReal(250, 'SAR'),
     currency: 'SAR',
     periodStart: DateTime.utc(2026, 8, 1),
     periodEnd: DateTime.utc(2026, 8, 31),
@@ -375,7 +376,7 @@ void main() {
     final payment = BillPaymentEntity(
       id: 'linked-payment',
       billId: bill.id,
-      amount: 250,
+      amountMoney: Money.fromLegacyReal(250, 'SAR'),
       currency: 'SAR',
       periodStart: DateTime.utc(2026, 8, 1),
       periodEnd: DateTime.utc(2026, 8, 31),

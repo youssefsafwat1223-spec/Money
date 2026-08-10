@@ -17,6 +17,7 @@ import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
 import 'package:money_companion/domain/usecases/confirm_transaction_usecase.dart';
 import 'package:money_companion/domain/usecases/correct_category_usecase.dart';
@@ -695,7 +696,7 @@ void main() {
     final subscription = BillEntity(
       id: IdGenerator.next(),
       name: 'Netflix',
-      amount: 49,
+      amountMoney: Money.fromLegacyReal(49, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,
@@ -707,7 +708,7 @@ void main() {
     final installment = BillEntity(
       id: IdGenerator.next(),
       name: 'قسط جوال',
-      amount: 250,
+      amountMoney: Money.fromLegacyReal(250, 'SAR'),
       currency: 'SAR',
       type: BillType.installment,
       frequency: BillFrequency.monthly,
@@ -715,7 +716,7 @@ void main() {
       reminderOn: false,
       isConfirmed: true,
       createdAt: DateTime.utc(2026, 6, 1),
-      manualPaidAmount: 500,
+      manualPaidMoney: Money.fromLegacyReal(500, 'SAR'),
     );
 
     final savedSubscription = await billRepository.save(subscription);
@@ -728,7 +729,7 @@ void main() {
       BillPaymentEntity(
         id: IdGenerator.next(),
         billId: savedInstallment.id,
-        amount: 250,
+        amountMoney: Money.fromLegacyReal(250, 'SAR'),
         currency: 'SAR',
         periodStart: DateTime.utc(2026, 7, 1),
         periodEnd: DateTime.utc(2026, 7, 31),

@@ -292,7 +292,7 @@ void main() {
       await billRepo.save(BillEntity(
         id: 'bill-far',
         name: 'Netflix',
-        amount: 55,
+        amountMoney: Money.fromLegacyReal(55, 'EGP'),
         currency: 'EGP',
         type: BillType.subscription,
         frequency: BillFrequency.monthly,
@@ -304,7 +304,7 @@ void main() {
       await billRepo.save(BillEntity(
         id: 'bill-near',
         name: 'Spotify',
-        amount: 30,
+        amountMoney: Money.fromLegacyReal(30, 'EGP'),
         currency: 'EGP',
         type: BillType.subscription,
         frequency: BillFrequency.monthly,
@@ -316,7 +316,7 @@ void main() {
       await billRepo.save(BillEntity(
         id: 'bill-paused',
         name: 'Paused Sub',
-        amount: 10,
+        amountMoney: Money.fromLegacyReal(10, 'EGP'),
         currency: 'EGP',
         type: BillType.subscription,
         frequency: BillFrequency.monthly,
@@ -329,7 +329,7 @@ void main() {
       await billRepo.save(BillEntity(
         id: 'installment-1',
         name: 'Installment',
-        amount: 100,
+        amountMoney: Money.fromLegacyReal(100, 'EGP'),
         currency: 'EGP',
         type: BillType.installment,
         frequency: BillFrequency.monthly,

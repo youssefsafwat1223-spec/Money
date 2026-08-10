@@ -174,7 +174,7 @@ BudgetEntity _budget(String id) => BudgetEntity(
 BillEntity _bill(String id) => BillEntity(
       id: id,
       name: 'Netflix',
-      amount: 39,
+      amountMoney: Money.fromLegacyReal(39, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,

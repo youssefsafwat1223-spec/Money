@@ -162,7 +162,7 @@ void main() {
       bills.save(BillEntity(
         id: id,
         name: 'Bill $id',
-        amount: 99,
+        amountMoney: Money.fromLegacyReal(99, currency),
         currency: currency,
         type: BillType.subscription,
         frequency: BillFrequency.monthly,

@@ -14,6 +14,8 @@ import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/bill_metrics.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import '../../engine/categorization/category.dart';
 import '../cards/brand_mark.dart';
 import '../common/app_card.dart';
@@ -302,7 +304,8 @@ class BillDetailsSheet extends ConsumerWidget {
     final isInstallment = bill.type == BillType.installment;
     final period = _defaultPaymentPeriod(bill);
     final remainingCount = bill.remainingInstallments;
-    final remainingAmount = remainingCount * bill.amount;
+    final remainingAmountMoney = bill.amountMoney * remainingCount;
+    final remainingAmount = remainingAmountMoney.toDouble();
     final canPayFull = isInstallment && remainingCount > 1;
 
     final amountController =
@@ -392,10 +395,25 @@ class BillDetailsSheet extends ConsumerWidget {
                 onPressed: busy
                     ? null
                     : () async {
-                        final amount = payFull
-                            ? remainingAmount
-                            : _parseAmount(amountController.text);
-                        if (amount == null || amount <= 0) return;
+                        final Money? amountMoney;
+                        try {
+                          amountMoney = payFull
+                              ? remainingAmountMoney
+                              : _parseAmount(
+                                  amountController.text,
+                                  bill.currency,
+                                );
+                        } on Exception {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('مبلغ غير صالح')),
+                          );
+                          return;
+                        }
+                        if (amountMoney == null ||
+                            amountMoney.minorUnits <= 0) {
+                          return;
+                        }
+                        final paymentAmountMoney = amountMoney;
                         setDialogState(() {
                           busy = true;
                           errorMessage = null;
@@ -406,7 +424,7 @@ class BillDetailsSheet extends ConsumerWidget {
                                 BillPaymentEntity(
                               id: requestId,
                               billId: bill.id,
-                              amount: amount,
+                              amountMoney: paymentAmountMoney,
                               currency: bill.currency,
                               periodStart: period.start,
                               periodEnd: period.end,
@@ -822,13 +840,9 @@ _PaymentPeriod _defaultPaymentPeriod(BillEntity bill) {
   );
 }
 
-double? _parseAmount(String value) {
-  final normalized = value
-      .replaceAll('٫', '.')
-      .replaceAll(',', '.')
-      .replaceAll(RegExp(r'[^0-9.]'), '');
-  if (normalized.isEmpty) return null;
-  return double.tryParse(normalized);
+Money? _parseAmount(String value, String currency) {
+  if (value.trim().isEmpty) return null;
+  return parseLocalizedMoney(value, currency);
 }
 
 String _shortDate(DateTime value) {

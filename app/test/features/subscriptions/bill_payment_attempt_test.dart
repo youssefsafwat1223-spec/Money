@@ -3,12 +3,13 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/subscriptions/bill_payment_attempt.dart';
 
 BillPaymentEntity _payment(String id, DateTime paidAt) => BillPaymentEntity(
       id: id,
       billId: 'bill-1',
-      amount: 25,
+      amountMoney: Money.fromLegacyReal(25, 'EGP'),
       currency: 'EGP',
       periodStart: DateTime.utc(2026, 7, 1),
       periodEnd: DateTime.utc(2026, 7, 31),

@@ -4,6 +4,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_bill_repository.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -27,7 +28,7 @@ void main() {
     await repo.save(BillEntity(
       id: 'bill',
       name: 'قرض',
-      amount: 100,
+      amountMoney: Money.fromLegacyReal(100, 'SAR'),
       currency: 'SAR',
       type: BillType.installment,
       frequency: BillFrequency.monthly,
@@ -51,7 +52,7 @@ void main() {
     await repo.recordPayment(BillPaymentEntity(
       id: id,
       billId: 'bill',
-      amount: 100,
+      amountMoney: Money.fromLegacyReal(100, currency),
       currency: currency,
       periodStart: DateTime(2026, 7, 1),
       periodEnd: DateTime(2026, 8, 1),

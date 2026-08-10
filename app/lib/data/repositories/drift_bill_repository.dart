@@ -5,6 +5,7 @@ import '../../domain/entities/bill_entity.dart';
 import '../../domain/repositories/bill_repository.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
+import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
 
 class DriftBillRepository implements BillRepository {
@@ -114,7 +115,7 @@ class DriftBillRepository implements BillRepository {
             Variable.withString(bill.id),
             Variable.withString(merchantId),
             Variable.withString(bill.name),
-            Variable.withReal(bill.amount),
+            kMoneyCodec.realVar(bill.amountMoney),
             Variable.withString(bill.currency),
             Variable.withString(bill.frequency.name),
             Variable.withString(bill.frequency.name),
@@ -139,12 +140,8 @@ class DriftBillRepository implements BillRepository {
             bill.paidCount == null
                 ? const Variable<int>(null)
                 : Variable.withInt(bill.paidCount!),
-            bill.manualPaidAmount == null
-                ? const Variable<double>(null)
-                : Variable.withReal(bill.manualPaidAmount!),
-            bill.totalPurchaseAmount == null
-                ? const Variable<double>(null)
-                : Variable.withReal(bill.totalPurchaseAmount!),
+            kMoneyCodec.realVarOrNull(bill.manualPaidMoney),
+            kMoneyCodec.realVarOrNull(bill.totalPurchaseMoney),
             bill.lenderName == null
                 ? const Variable<String>(null)
                 : Variable.withString(bill.lenderName!),
@@ -176,7 +173,7 @@ class DriftBillRepository implements BillRepository {
           variables: [
             Variable.withString(merchantId),
             Variable.withString(bill.name),
-            Variable.withReal(bill.amount),
+            kMoneyCodec.realVar(bill.amountMoney),
             Variable.withString(bill.currency),
             Variable.withString(bill.frequency.name),
             Variable.withString(bill.frequency.name),
@@ -200,12 +197,8 @@ class DriftBillRepository implements BillRepository {
             bill.paidCount == null
                 ? const Variable<int>(null)
                 : Variable.withInt(bill.paidCount!),
-            bill.manualPaidAmount == null
-                ? const Variable<double>(null)
-                : Variable.withReal(bill.manualPaidAmount!),
-            bill.totalPurchaseAmount == null
-                ? const Variable<double>(null)
-                : Variable.withReal(bill.totalPurchaseAmount!),
+            kMoneyCodec.realVarOrNull(bill.manualPaidMoney),
+            kMoneyCodec.realVarOrNull(bill.totalPurchaseMoney),
             bill.lenderName == null
                 ? const Variable<String>(null)
                 : Variable.withString(bill.lenderName!),
@@ -258,7 +251,7 @@ class DriftBillRepository implements BillRepository {
         variables: [
           Variable.withString(payment.id),
           Variable.withString(payment.billId),
-          Variable.withReal(payment.amount),
+          kMoneyCodec.realVar(payment.amountMoney),
           Variable.withString(payment.currency),
           Variable.withString(dateTimeToSql(payment.periodStart.toUtc())),
           Variable.withString(dateTimeToSql(payment.periodEnd.toUtc())),
@@ -298,7 +291,7 @@ class DriftBillRepository implements BillRepository {
         BillPaymentEntity(
           id: payment.id,
           billId: saved.id,
-          amount: payment.amount,
+          amountMoney: payment.amountMoney,
           currency: payment.currency,
           periodStart: payment.periodStart,
           periodEnd: payment.periodEnd,
@@ -448,6 +441,7 @@ class DriftBillRepository implements BillRepository {
     final merchantName = row.readNullable<String>('merchant_name');
     final due = row.readNullable<String>('next_due_date');
     final created = row.readNullable<String>('created_at');
+    final currency = row.read<String>('currency');
     final period = row.readNullable<String>('frequency') ??
         row.readNullable<String>('period') ??
         'monthly';
@@ -455,8 +449,8 @@ class DriftBillRepository implements BillRepository {
       id: row.read<String>('id'),
       merchantId: row.readNullable<String>('merchant_id'),
       name: (name == null || name.isEmpty) ? (merchantName ?? 'فاتورة') : name,
-      amount: row.read<double>('amount'),
-      currency: row.readNullable<String>('currency') ?? 'SAR',
+      amountMoney: kMoneyCodec.readColumn(row, 'amount', currency),
+      currency: currency,
       type: _parseType(row.readNullable<String>('type')),
       frequency: _parseFrequency(period),
       nextDueDate: due == null ? DateTime.now().toUtc() : dateTimeFromSql(due),
@@ -470,19 +464,22 @@ class DriftBillRepository implements BillRepository {
       accountId: row.readNullable<String>('account_id'),
       totalInstallments: row.readNullable<int>('total_installments'),
       paidCount: row.readNullable<int>('paid_count'),
-      manualPaidAmount: row.readNullable<double>('manual_paid_amount'),
-      totalPurchaseAmount: row.readNullable<double>('total_purchase_amount'),
+      manualPaidMoney:
+          kMoneyCodec.readColumnNullable(row, 'manual_paid_amount', currency),
+      totalPurchaseMoney: kMoneyCodec.readColumnNullable(
+          row, 'total_purchase_amount', currency),
       lenderName: row.readNullable<String>('lender_name'),
       interestRate: row.readNullable<double>('interest_rate'),
     );
   }
 
   BillPaymentEntity _paymentFromRow(QueryRow row) {
+    final currency = row.read<String>('currency');
     return BillPaymentEntity(
       id: row.read<String>('id'),
       billId: row.read<String>('bill_id'),
-      amount: row.read<double>('amount'),
-      currency: row.read<String>('currency'),
+      amountMoney: kMoneyCodec.readColumn(row, 'amount', currency),
+      currency: currency,
       periodStart: dateTimeFromSql(row.read<String>('period_start')),
       periodEnd: dateTimeFromSql(row.read<String>('period_end')),
       paidAt: dateTimeFromSql(row.read<String>('paid_at')),

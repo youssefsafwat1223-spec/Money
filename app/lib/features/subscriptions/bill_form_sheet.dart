@@ -11,6 +11,8 @@ import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import '../cards/brand_mark.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -227,7 +229,29 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate() || _busy) return;
+    if (_busy) return;
+    final Money amountMoney;
+    final Money? manualPaidMoney;
+    final Money? totalPurchaseMoney;
+    try {
+      amountMoney =
+          parseLocalizedMoney(_amountController.text.trim(), _currency);
+      final manualPaidText = _manualPaidController.text.trim();
+      manualPaidMoney = manualPaidText.isEmpty
+          ? null
+          : parseLocalizedMoney(manualPaidText, _currency);
+      final totalPurchaseText = _totalPurchaseController.text.trim();
+      totalPurchaseMoney =
+          _type != BillType.installment || totalPurchaseText.isEmpty
+              ? null
+              : parseLocalizedMoney(totalPurchaseText, _currency);
+    } on Exception {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('مبلغ غير صالح')),
+      );
+      return;
+    }
+    if (!_formKey.currentState!.validate()) return;
     final today = DateTime.now();
     final todayStart = DateTime(today.year, today.month, today.day);
     final dueDate = DateTime(
@@ -246,13 +270,11 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     var needsManualPayment = false;
     try {
       final now = DateTime.now().toUtc();
-      final amount = _parseDecimalInput(_amountController.text.trim())!;
       final interestRaw = _parseDecimalInput(_interestController.text.trim());
-      final manualPaid = _parseDecimalInput(_manualPaidController.text.trim());
       final bill = BillEntity(
         id: _billRequestId,
         name: _nameController.text.trim(),
-        amount: amount,
+        amountMoney: amountMoney,
         currency: _currency,
         type: _type,
         frequency: _frequency,
@@ -265,16 +287,14 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
         createdAt: widget.bill?.createdAt ?? now,
         merchantId: widget.bill?.merchantId,
         status: _status,
-        manualPaidAmount: manualPaid,
+        manualPaidMoney: manualPaidMoney,
         totalInstallments: _type == BillType.installment
             ? _parseIntegerInput(_totalInstController.text.trim())
             : null,
         paidCount: _type == BillType.installment
             ? _parseIntegerInput(_paidCountController.text.trim())
             : null,
-        totalPurchaseAmount: _type == BillType.installment
-            ? _parseDecimalInput(_totalPurchaseController.text.trim())
-            : null,
+        totalPurchaseMoney: totalPurchaseMoney,
         lenderName: _type == BillType.installment &&
                 _lenderController.text.trim().isNotEmpty
             ? _lenderController.text.trim()
@@ -285,18 +305,22 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
         accountId: _accountId,
       );
       final repo = ref.read(billRepositoryProvider);
-      final previousManualPaid = widget.bill?.safeManualPaidAmount ?? 0;
-      final manualPaidDelta =
-          ((manualPaid ?? 0) - previousManualPaid).clamp(0.0, double.infinity);
-      needsManualPayment = manualPaidDelta > 0;
+      final newManualPaidMoney = manualPaidMoney ?? Money.zero(bill.currency);
+      final previousManualPaidMoney =
+          widget.bill?.manualPaidMoney ?? Money.zero(bill.currency);
+      final rawManualPaidDelta = newManualPaidMoney - previousManualPaidMoney;
+      final manualPaidDelta = rawManualPaidDelta.isNegative
+          ? Money.zero(bill.currency)
+          : rawManualPaidDelta;
+      needsManualPayment = !manualPaidDelta.isZero;
       late final BillEntity saved;
-      if (widget.bill == null && manualPaidDelta > 0) {
+      if (widget.bill == null && !manualPaidDelta.isZero) {
         final payment = BillPaymentEntity(
           // Keep the id stable while this sheet is open. If the RPC succeeds
           // but its response times out, retrying the save remains idempotent.
           id: _manualPaymentRequestId,
           billId: bill.id,
-          amount: manualPaidDelta.toDouble(),
+          amountMoney: manualPaidDelta,
           currency: bill.currency,
           periodStart: _manualPaymentPeriodStart(bill),
           periodEnd: _manualPaymentPeriodEnd(bill),
@@ -310,12 +334,12 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
       } else {
         saved = await repo.save(bill);
         billSaved = true;
-        if (manualPaidDelta > 0) {
+        if (!manualPaidDelta.isZero) {
           await repo.recordPayment(
             BillPaymentEntity(
               id: _manualPaymentRequestId,
               billId: saved.id,
-              amount: manualPaidDelta.toDouble(),
+              amountMoney: manualPaidDelta,
               currency: saved.currency,
               periodStart: _manualPaymentPeriodStart(saved),
               periodEnd: _manualPaymentPeriodEnd(saved),
@@ -404,8 +428,15 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               ],
               decoration: const InputDecoration(labelText: 'المبلغ'),
               validator: (value) {
-                final amount = _parseDecimalInput(value ?? '');
-                return amount == null || amount <= 0 ? 'اكتب مبلغ صحيح' : null;
+                final raw = value?.trim() ?? '';
+                if (raw.isEmpty) return 'اكتب مبلغ صحيح';
+                try {
+                  return parseLocalizedMoney(raw, _currency).minorUnits <= 0
+                      ? 'اكتب مبلغ صحيح'
+                      : null;
+                } on Exception {
+                  return 'اكتب مبلغ صحيح';
+                }
               },
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -425,10 +456,13 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               validator: (value) {
                 final raw = value?.trim() ?? '';
                 if (raw.isEmpty) return null;
-                final amount = _parseDecimalInput(raw);
-                return amount == null || amount <= 0
-                    ? 'اكتب مبلغ أكبر من صفر'
-                    : null;
+                try {
+                  return parseLocalizedMoney(raw, _currency).minorUnits <= 0
+                      ? 'اكتب مبلغ أكبر من صفر'
+                      : null;
+                } on Exception {
+                  return 'اكتب مبلغ أكبر من صفر';
+                }
               },
             ),
             const SizedBox(height: AppSpacing.s3),

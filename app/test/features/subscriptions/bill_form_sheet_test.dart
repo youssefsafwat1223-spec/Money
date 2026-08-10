@@ -5,6 +5,7 @@ import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/repositories/bill_repository.dart';
 import 'package:money_companion/features/subscriptions/bill_form_sheet.dart';
@@ -44,7 +45,7 @@ BillEntity _bill({
     BillEntity(
       id: 'bill-1',
       name: 'Streaming',
-      amount: 25,
+      amountMoney: Money.fromLegacyReal(25, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,
@@ -52,7 +53,9 @@ BillEntity _bill({
       reminderOn: true,
       isConfirmed: true,
       createdAt: DateTime.utc(2026, 7, 1),
-      manualPaidAmount: manualPaidAmount,
+      manualPaidMoney: manualPaidAmount == null
+          ? null
+          : Money.fromLegacyReal(manualPaidAmount, 'SAR'),
     );
 
 Widget _app(_BillRepository repository, BillEntity bill) {

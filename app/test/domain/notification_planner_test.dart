@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/engagement_entities.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/services/notification_planner.dart';
 
 void main() {
@@ -23,7 +24,7 @@ void main() {
     final bill = BillEntity(
       id: 'netflix',
       name: 'Netflix',
-      amount: 45,
+      amountMoney: Money.fromLegacyReal(45, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,
@@ -52,7 +53,7 @@ void main() {
     final bill = BillEntity(
       id: 'netflix',
       name: 'Netflix',
-      amount: 45,
+      amountMoney: Money.fromLegacyReal(45, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,
@@ -79,7 +80,7 @@ void main() {
     final bill = BillEntity(
       id: 'netflix',
       name: 'Netflix',
-      amount: 45,
+      amountMoney: Money.fromLegacyReal(45, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,
@@ -103,7 +104,7 @@ void main() {
     final bill = BillEntity(
       id: 'netflix',
       name: 'Netflix',
-      amount: 45,
+      amountMoney: Money.fromLegacyReal(45, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,
@@ -186,7 +187,7 @@ void main() {
         BillEntity(
           id: 'installment',
           name: 'قسط سيارة',
-          amount: 1200,
+          amountMoney: Money.fromLegacyReal(1200, 'SAR'),
           currency: 'SAR',
           type: BillType.installment,
           frequency: BillFrequency.monthly,
@@ -240,7 +241,7 @@ void main() {
     final bill = BillEntity(
       id: 'netflix',
       name: 'Netflix',
-      amount: 45,
+      amountMoney: Money.fromLegacyReal(45, 'SAR'),
       currency: 'SAR',
       type: BillType.subscription,
       frequency: BillFrequency.monthly,
@@ -342,7 +343,7 @@ void main() {
     BillEntity bill({required DateTime due, bool reminderOn = true}) => BillEntity(
           id: 'netflix',
           name: 'Netflix',
-          amount: 45,
+          amountMoney: Money.fromLegacyReal(45, 'SAR'),
           currency: 'SAR',
           type: BillType.subscription,
           frequency: BillFrequency.monthly,

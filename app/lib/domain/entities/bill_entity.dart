@@ -1,3 +1,5 @@
+import '../finance/money.dart';
+
 enum BillType { subscription, installment }
 
 enum BillFrequency { weekly, monthly, yearly, custom }
@@ -8,7 +10,7 @@ class BillPaymentEntity {
   const BillPaymentEntity({
     required this.id,
     required this.billId,
-    required this.amount,
+    required this.amountMoney,
     required this.currency,
     required this.periodStart,
     required this.periodEnd,
@@ -20,7 +22,11 @@ class BillPaymentEntity {
 
   final String id;
   final String billId;
-  final double amount;
+  final Money amountMoney;
+
+  /// DISPLAY-ONLY compatibility getter. Persisted calculations and writes use
+  /// [amountMoney].
+  double get amount => amountMoney.toDouble();
   final String currency;
   final DateTime periodStart;
   final DateTime periodEnd;
@@ -30,12 +36,13 @@ class BillPaymentEntity {
   final String? note;
 
   BillPaymentEntity copyWith({
+    Money? amountMoney,
     String? transactionId,
   }) {
     return BillPaymentEntity(
       id: id,
       billId: billId,
-      amount: amount,
+      amountMoney: amountMoney ?? this.amountMoney,
       currency: currency,
       periodStart: periodStart,
       periodEnd: periodEnd,
@@ -51,7 +58,7 @@ class BillEntity {
   const BillEntity({
     required this.id,
     required this.name,
-    required this.amount,
+    required this.amountMoney,
     required this.currency,
     required this.type,
     required this.frequency,
@@ -67,15 +74,19 @@ class BillEntity {
     // installment-only fields
     this.totalInstallments,
     this.paidCount,
-    this.manualPaidAmount,
-    this.totalPurchaseAmount,
+    this.manualPaidMoney,
+    this.totalPurchaseMoney,
     this.lenderName,
     this.interestRate,
   });
 
   final String id;
   final String name;
-  final double amount;
+  final Money amountMoney;
+
+  /// DISPLAY-ONLY compatibility getter. Persisted calculations and writes use
+  /// [amountMoney].
+  double get amount => amountMoney.toDouble();
   final String currency;
   final BillType type;
   final BillFrequency frequency;
@@ -92,8 +103,13 @@ class BillEntity {
   // installment-specific
   final int? totalInstallments;
   final int? paidCount;
-  final double? manualPaidAmount;
-  final double? totalPurchaseAmount;
+  final Money? manualPaidMoney;
+  final Money? totalPurchaseMoney;
+
+  /// DISPLAY-ONLY compatibility getters. Persisted calculations and writes use
+  /// the corresponding `*Money` fields.
+  double? get manualPaidAmount => manualPaidMoney?.toDouble();
+  double? get totalPurchaseAmount => totalPurchaseMoney?.toDouble();
   final String? lenderName;
   final double? interestRate;
 
@@ -130,7 +146,7 @@ class BillEntity {
   BillEntity copyWith({
     String? id,
     String? name,
-    double? amount,
+    Money? amountMoney,
     String? currency,
     BillType? type,
     BillFrequency? frequency,
@@ -145,15 +161,15 @@ class BillEntity {
     String? accountId,
     int? totalInstallments,
     int? paidCount,
-    double? manualPaidAmount,
-    double? totalPurchaseAmount,
+    Money? manualPaidMoney,
+    Money? totalPurchaseMoney,
     String? lenderName,
     double? interestRate,
   }) {
     return BillEntity(
       id: id ?? this.id,
       name: name ?? this.name,
-      amount: amount ?? this.amount,
+      amountMoney: amountMoney ?? this.amountMoney,
       currency: currency ?? this.currency,
       type: type ?? this.type,
       frequency: frequency ?? this.frequency,
@@ -168,8 +184,8 @@ class BillEntity {
       accountId: accountId ?? this.accountId,
       totalInstallments: totalInstallments ?? this.totalInstallments,
       paidCount: paidCount ?? this.paidCount,
-      manualPaidAmount: manualPaidAmount ?? this.manualPaidAmount,
-      totalPurchaseAmount: totalPurchaseAmount ?? this.totalPurchaseAmount,
+      manualPaidMoney: manualPaidMoney ?? this.manualPaidMoney,
+      totalPurchaseMoney: totalPurchaseMoney ?? this.totalPurchaseMoney,
       lenderName: lenderName ?? this.lenderName,
       interestRate: interestRate ?? this.interestRate,
     );
