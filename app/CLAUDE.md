@@ -1,13 +1,15 @@
 # Mali — CLAUDE.md
 
 Arabic-first on-device expense tracker. Bank SMS → parse → categorize → local Drift DB.
-App name: **Mali** (`money_companion`). Bundle ID: `com.youssefsafwat.mali`.
+User-facing brand: **Qirsh** (Arabic **قِرش**). Internal/technical codename:
+**Mali** — the `money_companion` Flutter package and bundle ID
+`com.youssefsafwat.mali` (both unchanged; technical identifiers are not rebranded).
 
 ## Gate commands (run these before every commit)
 
 ```bash
 flutter analyze          # must be clean (0 issues)
-flutter test             # must pass (currently ~70 tests)
+flutter test             # must pass (canonical count via tools/ci_gates.sh)
 flutter gen-l10n         # regenerate ARB → Dart after any l10n change
 ```
 
@@ -23,7 +25,12 @@ Real-device build requires a paid Apple Developer account (App Groups). Not avai
 
 ## Environment variables (dart-define)
 
-Passed at build/run time. All optional — the app runs in offline stub mode without them.
+Passed at build/run time. Optional for LOCAL use — the app's data lives in local
+Drift (the source of truth) and it launches without them — but cloud sync,
+encrypted backup, AI capture, and auth REQUIRE Supabase config. `SupabaseConfig.isConfigured`
+/ `SentryConfig.isConfigured` gate their use (no crashes without them), so those
+features are simply unavailable when unconfigured — this is NOT a full offline
+stub of all functionality.
 
 | Variable          | What it does                                 |
 |-------------------|----------------------------------------------|
@@ -187,7 +194,7 @@ cd app
 flutter pub get
 flutter gen-l10n                                  # regenerate l10n
 flutter analyze                                   # must be 0 issues
-flutter test                                      # must pass (~70 tests)
+flutter test                                      # must pass (count via tools/ci_gates.sh)
 
 # Run on simulator
 flutter run -d "Mali-iPhone"
@@ -292,14 +299,14 @@ lib/
 5. **Category keys are stable strings.**
    `'restaurants'`, `'subscriptions'`, etc. Parser rules reference categories by `key`, not UUID.
 
-6. **DB schema version is `_targetSchemaVersion` in `app_database.dart` (currently 4).**
+6. **DB schema version is `_targetSchemaVersion` in `app_database.dart` (currently 29).**
    Bump it and add a migration case for every schema change.
 
 7. **No HMAC secret in the binary.** HTTPS + Edge Function filtering is the MVP security model.
 
 8. **Do not commit.** Leave changes in the working tree for the orchestrator to review and commit.
 
-## Multi-currency accounts (current branch: feat/accounts-multicurrency)
+## Multi-currency accounts
 
 - `accounts` table, `AccountEntity`, `AccountRepository` / `DriftAccountRepository`
 - `account_id` FK on transactions; v2 migration creates a default account and backfills

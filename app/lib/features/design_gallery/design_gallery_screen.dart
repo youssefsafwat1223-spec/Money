@@ -68,7 +68,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              'Mali Design Gallery',
+                              'Qirsh Design Gallery',
                               style: AppTypography.calmDisplay(
                                   t.textOnCanvasPrimary),
                             ),

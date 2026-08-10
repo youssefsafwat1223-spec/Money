@@ -11,7 +11,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Mali Design Gallery'), findsOneWidget);
+    expect(find.text('Qirsh Design Gallery'), findsOneWidget);
   });
 
   testWidgets('exercises mixed Arabic/Latin currency typography together',

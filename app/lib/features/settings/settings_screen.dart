@@ -718,7 +718,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _NavTile(
                     icon: AppLucideIcons.shapes,
                     title: 'Design Gallery',
-                    subtitle: 'Mali flagship design system — debug only',
+                    subtitle: 'Qirsh flagship design system — debug only',
                     onTap: () => context.push('/design'),
                   ),
                 ],
