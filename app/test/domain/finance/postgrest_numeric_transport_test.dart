@@ -39,6 +39,24 @@ void main() {
         contains('"amount":"1234"'));
   });
 
+  test('PULL (Blocker 1): a NUMERIC::text response decodes to a String → exact '
+      'Money (no double)', () {
+    // With `select=amount::text`, PostgREST returns money columns as JSON
+    // STRINGS. json.decode preserves the string exactly → Money.parse is exact.
+    final row = (json.decode('[{"amount":"19.99","currency":"EGP"}]') as List)
+        .first as Map<String, dynamic>;
+    expect(row['amount'], isA<String>()); // NOT a double
+    expect(
+        Money.parse(row['amount'] as String, row['currency'] as String)
+            .minorUnits,
+        1999);
+    // CONTRAST: without ::text, NUMERIC → JSON number → Dart double (the lossy
+    // steady-state pull path rejected in B8-1.5 Blocker 1).
+    final lossy =
+        (json.decode('[{"amount":19.99}]') as List).first as Map<String, dynamic>;
+    expect(lossy['amount'], isA<double>());
+  });
+
   test('CONTRAST: a Dart double is emitted as a JSON number (the imprecise path)',
       () {
     // 0.1 + 0.2 as a double is 0.30000000000000004; json.encode keeps the float.

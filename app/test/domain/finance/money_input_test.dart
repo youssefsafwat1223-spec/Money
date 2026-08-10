@@ -27,6 +27,27 @@ void main() {
             throwsA(isA<MoneyInputException>()), reason: bad);
       }
     });
+
+    // Blocker 2 — comma ambiguity must NEVER silently change magnitude.
+    test('structurally-valid thousands grouping is accepted', () {
+      expect(normalizeLocalizedDecimal('1,234'), '1234');
+      expect(normalizeLocalizedDecimal('1,234.50'), '1234.50');
+      expect(normalizeLocalizedDecimal('١٬٢٣٤٫٥٠'), '1234.50'); // Arabic ٬ + ٫
+      expect(normalizeLocalizedDecimal('12,345,678.90'), '12345678.90');
+    });
+    test('AMBIGUOUS comma/decimal forms are REJECTED, never guessed', () {
+      for (final ambiguous in [
+        '12,50', // could be 12.50 or 1250 — never 1250
+        '١٢,٥٠', // same, Arabic digits
+        '1.234,50', // European decimal-comma — not our contract
+        '1,23', // 2-digit group
+        '1,2345', // 4-digit group
+        '1,23,456', // mis-grouped
+      ]) {
+        expect(() => normalizeLocalizedDecimal(ambiguous),
+            throwsA(isA<MoneyInputException>()), reason: ambiguous);
+      }
+    });
   });
 
   group('parseLocalizedMoney', () {
