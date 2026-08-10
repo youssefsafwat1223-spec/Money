@@ -158,7 +158,17 @@ S8 Validate + commit (no push) + report.
   backup_crypto — environmental, untouched by this change.) The accounts PULL service
   (accounts_pull_service, accounts_backfill) writes SQL directly (not via the entity) — left for
   the S2 pull `::text` step; no NEW double write source introduced.
-- [ ] transaction+parser, bill/subscription, plan, suspected_duplicate — pending.
+- [x] **plan** domain GREEN + committed. PlanEntity.budgetAmount → budgetAmountMoney + display
+  getter; planFromRow + save writer via codec; plan_form_sheet → parseLocalizedMoney (currency =
+  plan's per-row currency; invalid → snackbar, magnitude never guessed); plan payload →
+  moneyToLegacyJsonNumber; 6 test files updated (incl. invalid-currency helper via
+  isSupportedCurrency fallback). analyze clean; focused plan tests pass.
+- [ ] transaction+parser, bill/subscription, suspected_duplicate — pending.
+
+### v29 REAL-aggregate consumers recorded for v30 (transitional; NOT persisted-money sources)
+- `plans_providers` remaining/ratio/isOver = `plan.budgetAmount` (display getter) vs `spent`
+  (SQL `SUM` of REAL, v29 legacy). Kept double (display/threshold on a REAL aggregate) — migrate
+  to integer `SUM(_minor)` at v30. Produces display/bool only; no persisted Money derived.
 
 ---
 

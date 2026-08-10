@@ -1,3 +1,5 @@
+import '../finance/money.dart';
+
 enum PlanStatus { active, closed }
 
 /// A temporary spending plan / envelope for an event (travel, wedding, Ramadan…)
@@ -7,7 +9,7 @@ class PlanEntity {
   const PlanEntity({
     required this.id,
     required this.name,
-    required this.budgetAmount,
+    required this.budgetAmountMoney,
     required this.currency,
     required this.startDate,
     required this.endDate,
@@ -20,7 +22,14 @@ class PlanEntity {
 
   final String id;
   final String name;
-  final double budgetAmount;
+
+  /// Canonical fixed-precision plan budget (per-row [currency]).
+  final Money budgetAmountMoney;
+
+  /// DISPLAY-ONLY compatibility getter (presentation / transitional
+  /// aggregate-comparison against the v29 REAL `spent` total). NEVER a
+  /// write/persisted-calc source — those use [budgetAmountMoney].
+  double get budgetAmount => budgetAmountMoney.toDouble();
   final String currency;
   final DateTime startDate;
   final DateTime endDate;
@@ -45,7 +54,7 @@ class PlanEntity {
 
   PlanEntity copyWith({
     String? name,
-    double? budgetAmount,
+    Money? budgetAmountMoney,
     String? currency,
     DateTime? startDate,
     DateTime? endDate,
@@ -57,7 +66,7 @@ class PlanEntity {
     return PlanEntity(
       id: id,
       name: name ?? this.name,
-      budgetAmount: budgetAmount ?? this.budgetAmount,
+      budgetAmountMoney: budgetAmountMoney ?? this.budgetAmountMoney,
       currency: currency ?? this.currency,
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,

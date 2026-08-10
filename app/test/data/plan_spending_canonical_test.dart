@@ -9,7 +9,9 @@ import 'package:money_companion/data/repositories/drift_account_repository.dart'
 import 'package:money_companion/data/repositories/drift_plan_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
+import 'package:money_companion/domain/finance/currency_scale.dart';
 import 'package:money_companion/domain/finance/financial_semantics.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/finance/plan_scope.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -82,7 +84,8 @@ void main() {
       PlanEntity(
         id: 'plan-1',
         name: 'رحلة',
-        budgetAmount: 5000,
+        budgetAmountMoney: Money.fromLegacyReal(
+            5000, isSupportedCurrency(currency) ? currency : 'SAR'),
         currency: currency,
         startDate: DateTime(2026, 6, 1),
         endDate: DateTime(2026, 6, 10, 23, 59, 59),

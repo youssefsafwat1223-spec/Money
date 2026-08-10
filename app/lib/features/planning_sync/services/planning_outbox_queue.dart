@@ -716,7 +716,7 @@ class PlanningOutboxQueue {
     return _withDelete(op, {
       'local_id': plan.id,
       'name': plan.name,
-      'budget_amount': plan.budgetAmount,
+      'budget_amount': moneyToLegacyJsonNumber(plan.budgetAmountMoney),
       'currency': plan.currency,
       'start_date': plan.startDate.toUtc().toIso8601String(),
       'end_date': plan.endDate.toUtc().toIso8601String(),

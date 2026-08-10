@@ -11,6 +11,8 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import '../cards/cards_providers.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -86,16 +88,30 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
 
   Future<void> _save() async {
     final name = _nameController.text.trim();
-    final budget = double.tryParse(_budgetController.text.trim()) ?? 0;
-    if (name.isEmpty || budget <= 0 || _saving) return;
+    if (name.isEmpty || _saving) return;
+    final currency = widget.existing?.currency ??
+        (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    // Exact localized parse — ambiguous / over-precision input fails validation
+    // instead of silently changing the magnitude.
+    final Money budgetMoney;
+    try {
+      budgetMoney = parseLocalizedMoney(_budgetController.text.trim(), currency);
+    } on Exception {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('مبلغ غير صالح')),
+        );
+      }
+      return;
+    }
+    if (budgetMoney.minorUnits <= 0) return;
     setState(() => _saving = true);
 
-    final currency = ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR';
     final existing = widget.existing;
     final plan = PlanEntity(
       id: existing?.id ?? IdGenerator.next(),
       name: name,
-      budgetAmount: budget,
+      budgetAmountMoney: budgetMoney,
       currency: existing?.currency ?? currency,
       startDate: DateTime(_start.year, _start.month, _start.day),
       endDate: DateTime(_end.year, _end.month, _end.day, 23, 59, 59),

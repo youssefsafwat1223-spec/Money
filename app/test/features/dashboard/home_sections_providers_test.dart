@@ -17,6 +17,7 @@ import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/dashboard/home_sections_providers.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -413,7 +414,7 @@ void main() {
       await planRepo.save(PlanEntity(
         id: 'plan-far',
         name: 'خطة بعيدة',
-        budgetAmount: 1000,
+        budgetAmountMoney: Money.fromLegacyReal(1000, 'EGP'),
         currency: 'EGP',
         startDate: now,
         endDate: now.add(const Duration(days: 30)),
@@ -425,7 +426,7 @@ void main() {
       await planRepo.save(PlanEntity(
         id: 'plan-near',
         name: 'خطة قريبة',
-        budgetAmount: 500,
+        budgetAmountMoney: Money.fromLegacyReal(500, 'EGP'),
         currency: 'EGP',
         startDate: now,
         endDate: now.add(const Duration(days: 3)),
@@ -437,7 +438,7 @@ void main() {
       await planRepo.save(PlanEntity(
         id: 'plan-closed',
         name: 'خطة مغلقة',
-        budgetAmount: 200,
+        budgetAmountMoney: Money.fromLegacyReal(200, 'EGP'),
         currency: 'EGP',
         startDate: now,
         endDate: now.add(const Duration(days: 1)),

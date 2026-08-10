@@ -11,6 +11,7 @@ import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
@@ -196,7 +197,7 @@ GoalEntity _goal(String id) => GoalEntity(
 PlanEntity _plan(String id) => PlanEntity(
       id: id,
       name: 'Summer',
-      budgetAmount: 2000,
+      budgetAmountMoney: Money.fromLegacyReal(2000, 'SAR'),
       currency: 'SAR',
       startDate: DateTime.utc(2026, 7, 1),
       endDate: DateTime.utc(2026, 7, 31),

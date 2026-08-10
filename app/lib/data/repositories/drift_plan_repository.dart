@@ -7,6 +7,7 @@ import '../../domain/finance/plan_scope.dart';
 import '../../domain/repositories/plan_repository.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
+import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
@@ -42,7 +43,7 @@ class DriftPlanRepository implements PlanRepository {
       final existing = await getById(plan.id);
       final vars = [
         Variable.withString(plan.name),
-        Variable.withReal(plan.budgetAmount),
+        kMoneyCodec.realVar(plan.budgetAmountMoney),
         Variable.withString(plan.currency),
         Variable.withString(dateTimeToSql(plan.startDate.toUtc())),
         Variable.withString(dateTimeToSql(plan.endDate.toUtc())),
@@ -261,7 +262,8 @@ class DriftPlanRepository implements PlanRepository {
     return PlanEntity(
       id: row.read<String>('id'),
       name: row.read<String>('name'),
-      budgetAmount: row.read<double>('budget_amount'),
+      budgetAmountMoney:
+          kMoneyCodec.readColumn(row, 'budget_amount', row.read<String>('currency')),
       currency: row.read<String>('currency'),
       startDate: dateTimeFromSql(row.read<String>('start_date')),
       endDate: dateTimeFromSql(row.read<String>('end_date')),

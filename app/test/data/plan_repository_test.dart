@@ -7,6 +7,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_plan_repository.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -71,7 +72,7 @@ void main() {
       PlanEntity(
         id: 'plan-1',
         name: 'رحلة',
-        budgetAmount: 5000,
+        budgetAmountMoney: Money.fromLegacyReal(5000, 'SAR'),
         currency: 'SAR',
         startDate: DateTime.utc(2026, 6, 1),
         endDate: DateTime.utc(2026, 6, 10, 23, 59, 59),

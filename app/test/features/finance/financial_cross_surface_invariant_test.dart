@@ -16,6 +16,7 @@ import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/budgets/budgets_providers.dart';
 import 'package:money_companion/features/dashboard/home_sections_providers.dart';
 import 'package:money_companion/features/plans/plans_providers.dart';
@@ -212,7 +213,7 @@ void main() {
     await planRepo.save(PlanEntity(
       id: 'p-month',
       name: 'الشهر',
-      budgetAmount: 5000,
+      budgetAmountMoney: Money.fromLegacyReal(5000, 'SAR'),
       currency: 'SAR',
       startDate: monthStart,
       endDate: DateTime(now.year, now.month + 1, 0, 23, 59, 59), // last day
