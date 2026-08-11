@@ -28,6 +28,10 @@ class MoneyTransportException implements Exception {
 /// NUMERIC column. Byte-exact, no binary `double`.
 String moneyToNumericText(Money m) => m.toDecimalString();
 
+/// Nullable variant of [moneyToNumericText] (absent money → null).
+String? moneyToNumericTextOrNull(Money? m) =>
+    m == null ? null : moneyToNumericText(m);
+
 /// PUSH (LEGACY compatibility shape — READY_EXACT_NOT_ACTIVATED era): the JSON
 /// number for the EXISTING request shape, derived from canonical minor units.
 ///

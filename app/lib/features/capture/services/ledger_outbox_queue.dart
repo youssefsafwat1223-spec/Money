@@ -3,9 +3,11 @@ import 'dart:convert';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/finance/money.dart';
 import '../../../domain/finance/money_transport.dart';
 import 'ledger_payload.dart';
 
@@ -37,15 +39,22 @@ class LedgerOutboxQueue {
     required bool Function() isPushEnabled,
     required Future<String?> Function() getAuthUserId,
     void Function()? onQueued,
+    // MALI-026 (B8-2.10 §10): the money-authority mode. Legacy (v29 today) emits
+    // the current JSON-number wire shape; canonical emits the exact decimal
+    // STRING. Defaults to legacy, so today's payloads are byte-identical.
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _db = db,
         _isPushEnabled = isPushEnabled,
         _getAuthUserId = getAuthUserId,
-        _onQueued = onQueued;
+        _onQueued = onQueued,
+        _coordinator = coordinator;
 
   final AppDatabase _db;
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
   final void Function()? _onQueued;
+  final PlanningCutoverCoordinator _coordinator;
 
   Future<void> enqueue(
     OutboxOperation op,
@@ -223,6 +232,45 @@ class LedgerOutboxQueue {
     ''');
   }
 
+  /// MALI-026 (B8-2.10 §8): park a canonical money row whose exact push transport
+  /// is unverified. Reuses the Phase-3 status+reason model: a distinct `parked`
+  /// status (excluded from [pendingItems], so never sent/retried) carrying the
+  /// [reason]. The local write already stands; the row is retained DURABLY, is
+  /// NOT marked synced, and does NOT consume a retry attempt. Only pending rows
+  /// park (a dead-lettered row stays dead-lettered).
+  Future<void> park(String id, String reason) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.customStatement('''
+      UPDATE ledger_sync_outbox
+      SET status = 'parked', failure_class = ${sqlString(reason)},
+          last_error = NULL, next_retry_at = NULL, updated_at = ${sqlString(now)}
+      WHERE id = ${sqlString(id)} AND status = 'pending';
+    ''');
+  }
+
+  /// MALI-026 (B8-2.10 §9): re-arm parked rows once exact push transport is
+  /// verified. The SAME durable rows become drainable again (their payload was
+  /// already built as the exact decimal string). Returns the number re-armed.
+  Future<int> reArmParked() async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    return _db.customUpdate('''
+      UPDATE ledger_sync_outbox
+      SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
+          updated_at = ${sqlString(now)}
+      WHERE status = 'parked';
+    ''');
+  }
+
+  /// Parked-row count for diagnostics (no financial payload exposed).
+  Future<int> parkedCount() async {
+    final row = await _db
+        .customSelect(
+          "SELECT COUNT(*) AS n FROM ledger_sync_outbox WHERE status = 'parked';",
+        )
+        .getSingle();
+    return row.read<int>('n');
+  }
+
   /// Queue health for diagnostics (no financial payload exposed).
   Future<int> deadLetterCount() async {
     final row = await _db
@@ -244,10 +292,20 @@ class LedgerOutboxQueue {
       };
     }
 
+    // MALI-026 (B8-2.10 §10): canonical mode serializes money as the EXACT
+    // decimal STRING (Money -> moneyToNumericText -> NUMERIC); legacy mode keeps
+    // the JSON-number shape. No Money.toDouble() ever runs on the canonical path.
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object amountWire(Money m) =>
+        canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
+    Object? amountWireOrNull(Money? m) => canonical
+        ? moneyToNumericTextOrNull(m)
+        : moneyToLegacyJsonNumberOrNull(m);
+
     final payload = <String, dynamic>{
       'local_id': tx.id,
       'server_id': tx.serverId,
-      'amount': moneyToLegacyJsonNumber(tx.amountMoney),
+      'amount': amountWire(tx.amountMoney),
       'currency': tx.currency,
       'type': _mapType(tx.type),
       'merchant': tx.rawMerchant,
@@ -261,8 +319,8 @@ class LedgerOutboxQueue {
       // (2nd device / reinstall) returns the transaction uncategorized and
       // unlinked. Kept in parity with TransactionsBackfillService.
       'category_id': tx.categoryId,
-      'balance_after': moneyToLegacyJsonNumberOrNull(tx.balanceAfterMoney),
-      'foreign_amount': moneyToLegacyJsonNumberOrNull(tx.foreignMoney),
+      'balance_after': amountWireOrNull(tx.balanceAfterMoney),
+      'foreign_amount': amountWireOrNull(tx.foreignMoney),
       'foreign_currency': tx.foreignCurrency,
       // Confirmation state must round-trip (MALI-010): without it a locally
       // confirmed relay capture stays 'pending' on the server and re-imports

@@ -43,6 +43,7 @@ import '../../data/repositories/drift_sender_bank_mapping_repository.dart';
 import '../../data/repositories/drift_smart_inbox_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
+import '../../data/sync/exact_transport_capability.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
@@ -426,6 +427,7 @@ final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
         return null;
       }
     },
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );
 });
 
@@ -536,6 +538,8 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
     db: db,
     queue: ref.watch(ledgerOutboxQueueProvider),
     isPushEnabled: () => true,
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
+    pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
   );
 });
 

@@ -5,7 +5,9 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/exact_transport_capability.dart';
 import 'ledger_outbox_queue.dart';
 import 'ledger_payload.dart';
 import 'ledger_sync_engine.dart';
@@ -28,12 +30,16 @@ class LedgerPushResult {
     this.conflicts = 0,
     this.failed = 0,
     this.abandoned = 0,
+    this.parked = 0,
   });
 
   final int pushed;
   final int conflicts;
   final int failed;
   final int abandoned;
+
+  /// MALI-026 (B8-2.10 §8): money rows held for unverified exact push transport.
+  final int parked;
 }
 
 class LedgerPushService implements LedgerPushAdapter {
@@ -44,12 +50,24 @@ class LedgerPushService implements LedgerPushAdapter {
     Future<String?> Function()? getAuthUserId,
     SupabaseClient Function()? getClient,
     bool revisionCasEnabled = kServerRevisionCas,
+    // MALI-026 (B8-2.10 §8/§9): the money-authority mode and exact PUSH capability.
+    // Both default so v29 (legacy + unknown) never parks — current behavior is
+    // unchanged. Only canonical mode with an unverified push capability parks.
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+    ExactTransportCapability Function() pushCapability =
+        _defaultPushCapability,
   })  : _db = db,
         _queue = queue,
         _isPushEnabled = isPushEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getClient = getClient ?? _defaultGetClient,
-        _revisionCasEnabled = revisionCasEnabled;
+        _revisionCasEnabled = revisionCasEnabled,
+        _coordinator = coordinator,
+        _pushCapability = pushCapability;
+
+  static ExactTransportCapability _defaultPushCapability() =>
+      ExactTransportCapability.unknown;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -73,12 +91,22 @@ class LedgerPushService implements LedgerPushAdapter {
   /// verified on staging); injectable so the ON path is testable.
   final bool _revisionCasEnabled;
 
+  final PlanningCutoverCoordinator _coordinator;
+  final ExactTransportCapability Function() _pushCapability;
+
   @override
   Future<LedgerPushResult> push() async {
     if (!_isPushEnabled()) return const LedgerPushResult();
 
     final userId = await _getAuthUserId();
     if (userId == null) return const LedgerPushResult();
+
+    // MALI-026 (B8-2.10 §9): once exact push transport is verified, re-arm any
+    // rows parked while it was unverified — the SAME durable rows drain now. A
+    // no-op today (nothing is ever parked while the capability is unknown/legacy).
+    if (_pushCapability() == ExactTransportCapability.verifiedExact) {
+      await _queue.reArmParked();
+    }
 
     final items = await _queue.pendingItems();
     if (items.isEmpty) return const LedgerPushResult();
@@ -87,6 +115,7 @@ class LedgerPushService implements LedgerPushAdapter {
     int conflicts = 0;
     int failed = 0;
     int abandoned = 0;
+    int parked = 0;
 
     for (final item in items) {
       try {
@@ -98,6 +127,9 @@ class LedgerPushService implements LedgerPushAdapter {
             conflicts++;
           case _PushOutcome.abandoned:
             abandoned++;
+          case _PushOutcome.parked:
+            // Held durably; not sent, not synced, not a failure/retry.
+            parked++;
         }
       } catch (e) {
         failed++;
@@ -117,6 +149,7 @@ class LedgerPushService implements LedgerPushAdapter {
       conflicts: conflicts,
       failed: failed,
       abandoned: abandoned,
+      parked: parked,
     );
   }
 
@@ -134,6 +167,18 @@ class LedgerPushService implements LedgerPushAdapter {
         OutboxFailureClass.unsupportedSchema,
       );
       return _PushOutcome.abandoned;
+    }
+
+    // MALI-026 (B8-2.10 §8): park money-bearing writes whose exact push transport
+    // is unverified BEFORE any network send. Deletes carry no money and are never
+    // parked. Legacy (v29) never parks — shouldParkExactMoneyWrite is false for it.
+    if (item.operation != OutboxOperation.delete &&
+        shouldParkExactMoneyWrite(
+          cutoverState: _coordinator.state(),
+          pushCapability: _pushCapability(),
+        )) {
+      await _queue.park(item.id, exactMoneyTransportUnverifiedReason);
+      return _PushOutcome.parked;
     }
 
     switch (item.operation) {
@@ -473,4 +518,4 @@ class LedgerPushService implements LedgerPushAdapter {
   }
 }
 
-enum _PushOutcome { pushed, conflict, abandoned }
+enum _PushOutcome { pushed, conflict, abandoned, parked }
