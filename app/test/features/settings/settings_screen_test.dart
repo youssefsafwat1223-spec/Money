@@ -77,6 +77,7 @@ void main() {
     // data), instead of being hidden behind tabs.
     for (final label in const [
       'إدارة أموالك',
+      'تأكيد عملة الميزانيات والأهداف',
       'رصد العمليات',
       'تنبيهاتك',
       'نقل البيانات',

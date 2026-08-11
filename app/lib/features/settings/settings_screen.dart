@@ -375,6 +375,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onTap: () => context.push('/achievements'),
                 ),
                 _NavTile(
+                  icon: Icons.currency_exchange_rounded,
+                  title: 'تأكيد عملة الميزانيات والأهداف',
+                  subtitle: 'راجع عملة بيانات التخطيط القديمة بأمان',
+                  onTap: () =>
+                      context.push('/settings/planning-currency-repair'),
+                ),
+                _NavTile(
                   icon: AppLucideIcons.inbox,
                   title: 'التصنيفات',
                   subtitle: 'نظم المصروفات والدخل والتحويلات',

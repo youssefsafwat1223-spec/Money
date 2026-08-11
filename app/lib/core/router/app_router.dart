@@ -16,6 +16,7 @@ import '../../features/onboarding/story_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/settings/privacy_screen.dart';
 import '../../features/settings/data_transfer_screen.dart';
+import '../../features/settings/planning_currency_repair_screen.dart';
 import '../../features/subscriptions/subscriptions_screen.dart';
 import '../../features/budgets/budget_form_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
@@ -239,6 +240,11 @@ final appRouter = GoRouter(
       builder: (context, state) => SettingsScreen(
         showBackButton: context.canPop(),
       ),
+    ),
+    GoRoute(
+      path: '/settings/planning-currency-repair',
+      name: 'planning-currency-repair',
+      builder: (context, state) => const PlanningCurrencyRepairScreen(),
     ),
     GoRoute(
       path: '/profile',
