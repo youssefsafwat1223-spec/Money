@@ -37,6 +37,14 @@ Deno.test('process-ios-sms model contract never derives text from a JSON number'
   assertEquals(numericOnly.amount, 19.99);
   assertEquals(Object.hasOwn(numericOnly, 'amount_text'), false);
 
-  const valid = withValidatedModelAmountText({ amount: 19.99, amount_text: '19.99', currency: 'USD' });
+  const valid = withValidatedModelAmountText({ amount: 20, amount_text: '19.99', currency: 'USD' });
   assertEquals(valid, { amount: 19.99, amount_text: '19.99', currency: 'USD' });
+});
+
+Deno.test('process-ios-sms model amount_text stays authoritative beyond IEEE-754 precision', () => {
+  const token = '9007199254740993';
+  const valid = withValidatedModelAmountText({ amount: 7, amount_text: token, currency: 'USD' });
+  assertEquals(valid.amount_text, token);
+  assertEquals(valid.amount, Number(token));
+  assertNotEquals((valid.amount as number).toString(), token);
 });

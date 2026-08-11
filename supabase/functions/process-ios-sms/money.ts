@@ -20,9 +20,9 @@ export function extractCaptureAmount(
   }
   if (!token) return {};
 
-  const legacyAmount = Number(token.replace(/,/g, ''));
-  const amount = Number.isFinite(legacyAmount) ? legacyAmount : undefined;
   const amountText = currency ? canonicalMoneyText(token, currency) : null;
+  const legacyAmount = Number(amountText ?? token.replace(/,/g, ''));
+  const amount = Number.isFinite(legacyAmount) ? legacyAmount : undefined;
   return {
     ...(amount == null ? {} : { amount }),
     ...(amountText == null ? {} : { amount_text: amountText }),
@@ -33,6 +33,9 @@ export function withValidatedModelAmountText(parsed: Record<string, unknown>): R
   const next = { ...parsed };
   delete next.amount_text;
   const amountText = modelMoneyText(parsed);
-  if (amountText != null) next.amount_text = amountText;
+  if (amountText != null) {
+    next.amount_text = amountText;
+    next.amount = Number(amountText);
+  }
   return next;
 }

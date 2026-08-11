@@ -6,12 +6,12 @@ Deno.test('sync-captures preserves exact stored text independently of compatibil
   const wire = JSON.parse(JSON.stringify(capturesForResponse([{
     payload_id: 'p1',
     parsed: {
-      amount: Number(token),
+      amount: 1,
       amount_text: token,
       currency: 'USD',
       balance_after: null,
       balance_after_text: null,
-      foreign_amount: 1.005,
+      foreign_amount: 7,
       foreign_amount_text: '1.005',
       foreign_currency: 'KWD',
     },

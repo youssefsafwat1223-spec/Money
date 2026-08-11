@@ -43,38 +43,50 @@ export function canonicalMoneyText(
 }
 
 /**
- * Accepts exact model text only when it is valid for the currency and agrees
- * with the independently supplied legacy JSON number. The string is never
- * generated from that number.
+ * Accepts exact model text solely from its lexical syntax and currency scale.
+ * The legacy JSON number is deliberately ignored: callers derive that
+ * compatibility value from the returned canonical text, never the reverse.
  */
 export function modelMoneyText(
   parsed: Record<string, unknown>,
-  amountField = 'amount',
+  _amountField = 'amount',
   textField = 'amount_text',
   currencyField = 'currency',
   options: CanonicalMoneyTextOptions = {},
 ): string | null {
   const token = parsed[textField];
   const currency = parsed[currencyField];
-  const legacyAmount = parsed[amountField];
-  if (typeof token !== 'string' || typeof currency !== 'string' || typeof legacyAmount !== 'number') return null;
+  if (typeof token !== 'string' || typeof currency !== 'string') return null;
 
-  const canonical = canonicalMoneyText(token, currency, options);
-  if (canonical == null || !Number.isFinite(legacyAmount) || Number(canonical) !== legacyAmount) return null;
-  return canonical;
+  return canonicalMoneyText(token, currency, options);
 }
 
-/** Revalidates exact fields already stored as strings. Never fills them from numbers. */
+/**
+ * Revalidates exact fields already stored as strings. A valid exact string is
+ * authoritative and regenerates its legacy numeric compatibility field. An
+ * invalid exact string is omitted while its historical numeric field is kept.
+ */
 export function withValidatedExactMoneyText(parsed: Record<string, unknown>): Record<string, unknown> {
   const next = { ...parsed };
   const specs: Array<{
+    amountField: string;
     textField: string;
     currencyField: string;
     allowNegative: boolean;
   }> = [
-    { textField: 'amount_text', currencyField: 'currency', allowNegative: false },
-    { textField: 'balance_after_text', currencyField: 'currency', allowNegative: true },
-    { textField: 'foreign_amount_text', currencyField: 'foreign_currency', allowNegative: false },
+    { amountField: 'amount', textField: 'amount_text', currencyField: 'currency', allowNegative: false },
+    {
+      amountField: 'balance_after',
+      textField: 'balance_after_text',
+      currencyField: 'currency',
+      allowNegative: true,
+    },
+    {
+      amountField: 'foreign_amount',
+      textField: 'foreign_amount_text',
+      currencyField: 'foreign_currency',
+      allowNegative: false,
+    },
   ];
 
   for (const spec of specs) {
@@ -84,8 +96,12 @@ export function withValidatedExactMoneyText(parsed: Record<string, unknown>): Re
     const canonical = typeof token === 'string' && typeof currency === 'string'
       ? canonicalMoneyText(token, currency, { allowNegative: spec.allowNegative })
       : null;
-    if (canonical == null) delete next[spec.textField];
-    else next[spec.textField] = canonical;
+    if (canonical == null) {
+      delete next[spec.textField];
+    } else {
+      next[spec.textField] = canonical;
+      next[spec.amountField] = Number(canonical);
+    }
   }
   return next;
 }

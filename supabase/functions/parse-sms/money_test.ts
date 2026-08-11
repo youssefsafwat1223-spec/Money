@@ -22,16 +22,31 @@ Deno.test('parse-sms fallback preserves IEEE-754-damaged lexical identity indepe
   assertNotEquals(parsed.amount.toString(), token);
 });
 
-Deno.test('parse-sms model contract emits only validated independent string text', () => {
+Deno.test('parse-sms model amount_text beyond IEEE-754 precision is authoritative and byte-preserved', () => {
   const token = '9007199254740993';
   const response = withValidatedModelAmountText({
-    amount: Number(token),
+    amount: 1,
     amount_text: token,
     currency: 'USD',
   });
   assertEquals(response.amount, Number(token));
   assertEquals(response.amount_text, token);
+  assertNotEquals((response.amount as number).toString(), token);
+});
 
+Deno.test('parse-sms numeric disagreement does not reject valid model amount_text', () => {
+  const response = withValidatedModelAmountText({
+    amount: 20,
+    amount_text: '19.99',
+    currency: 'USD',
+  });
+  assertEquals(response, { amount: 19.99, amount_text: '19.99', currency: 'USD' });
+
+  const textOnly = withValidatedModelAmountText({ amount_text: '12.34', currency: 'EGP' });
+  assertEquals(textOnly, { amount: 12.34, amount_text: '12.34', currency: 'EGP' });
+});
+
+Deno.test('parse-sms invalid model amount_text is omitted and legacy numeric is retained', () => {
   const oldNumericOnly = withValidatedModelAmountText({ amount: 19.99, currency: 'EGP' });
   assertEquals(oldNumericOnly.amount, 19.99);
   assertEquals(Object.hasOwn(oldNumericOnly, 'amount_text'), false);

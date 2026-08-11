@@ -24,7 +24,7 @@ export interface ExtractedAmount {
 function extractedAmount(token: string, currency: string): ExtractedAmount {
   const amountText = canonicalMoneyText(token, currency);
   return {
-    amount: Number(token.replace(/,/g, '')),
+    amount: Number(amountText ?? token.replace(/,/g, '')),
     ...(amountText == null ? {} : { amount_text: amountText }),
     currency,
   };
@@ -54,6 +54,9 @@ export function withValidatedModelAmountText(parsed: Record<string, unknown>): R
   const next = { ...parsed };
   delete next.amount_text;
   const amountText = modelMoneyText(parsed);
-  if (amountText != null) next.amount_text = amountText;
+  if (amountText != null) {
+    next.amount_text = amountText;
+    next.amount = Number(amountText);
+  }
   return next;
 }

@@ -6,10 +6,53 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
+import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/budget_entity.dart';
+import '../../../domain/finance/money.dart';
+import '../../../domain/finance/money_transport.dart';
 import 'planning_outbox_queue.dart';
+
+const planningSubscriptionsPullSelect = '*, amount_text:amount::text, '
+    'manual_paid_amount_text:manual_paid_amount::text, '
+    'total_purchase_amount_text:total_purchase_amount::text';
+const planningPlansPullSelect = '*, budget_amount_text:budget_amount::text';
+const planningPullOrderColumns = ['updated_at', 'id'];
+
+String planningPullSelectForTable(String table) => switch (table) {
+      'user_subscriptions' => planningSubscriptionsPullSelect,
+      'user_plans' => planningPlansPullSelect,
+      _ => '*',
+    };
+
+String planningPullKeysetFilter(SyncCursor after) =>
+    'updated_at.gt.${after.updatedAt},'
+    'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})';
+
+({Money? amountMoney, Money? manualPaidMoney, Money? totalPurchaseMoney})
+    deserializeSubscriptionsPullMoney(Map<String, dynamic> row) {
+  final currency = row['currency'];
+  if (currency is! String) {
+    throw const MoneyTransportException(
+        'subscription pull requires a String currency');
+  }
+  return (
+    amountMoney: moneyFromPulledValue(row['amount_text'], currency),
+    manualPaidMoney:
+        moneyFromPulledValue(row['manual_paid_amount_text'], currency),
+    totalPurchaseMoney:
+        moneyFromPulledValue(row['total_purchase_amount_text'], currency),
+  );
+}
+
+Money? deserializePlansPullMoney(Map<String, dynamic> row) {
+  final currency = row['currency'];
+  if (currency is! String) {
+    throw const MoneyTransportException('plan pull requires a String currency');
+  }
+  return moneyFromPulledValue(row['budget_amount_text'], currency);
+}
 
 class PlanningPullResult {
   const PlanningPullResult({
@@ -52,16 +95,15 @@ class SupabasePlanningRemoteSource implements PlanningRemoteSource {
     required SyncCursor after,
     int limit = 200,
   }) async {
-    final query = _client.from(table).select();
-    final filtered = after.id.isEmpty
-        ? query
-        : query.or(
-            'updated_at.gt.${after.updatedAt},'
-            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
-          );
+    final select = planningPullSelectForTable(table);
+    final query = select == '*'
+        ? _client.from(table).select()
+        : _client.from(table).select(select);
+    final filtered =
+        after.id.isEmpty ? query : query.or(planningPullKeysetFilter(after));
     final response = await filtered
-        .order('updated_at', ascending: true)
-        .order('id', ascending: true)
+        .order(planningPullOrderColumns[0], ascending: true)
+        .order(planningPullOrderColumns[1], ascending: true)
         .limit(limit);
     return (response as List).cast<Map<String, dynamic>>();
   }
@@ -611,6 +653,7 @@ class PlanningPullService {
     _PlanningPageContext ctx,
   ) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
+    final pulledMoney = deserializeSubscriptionsPullMoney(row);
     final merchantId = await ctx.merchants.resolve(
         row['merchant_id'] as String?, row['name'] as String? ?? 'فاتورة');
     await _db.customStatement('''
@@ -623,7 +666,7 @@ class PlanningPullService {
       ) VALUES (
         ${sqlString(id)}, ${sqlString(merchantId)},
         ${sqlString(row['name'] as String? ?? 'فاتورة')},
-        ${(row['amount'] as num?)?.toDouble() ?? 0},
+        ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.amountMoney)},
         ${sqlString(row['currency'] as String? ?? 'SAR')},
         ${sqlString(row['frequency'] as String? ?? 'monthly')},
         ${sqlString(row['frequency'] as String? ?? 'monthly')},
@@ -638,8 +681,8 @@ class PlanningPullService {
         ${sqlNullableString(row['local_account_id'] as String?)},
         ${sqlNullableNum(row['total_installments'] as num?)},
         ${sqlNullableNum(row['paid_count'] as num?)},
-        ${sqlNullableNum(row['manual_paid_amount'] as num?)},
-        ${sqlNullableNum(row['total_purchase_amount'] as num?)},
+        ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.manualPaidMoney)},
+        ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.totalPurchaseMoney)},
         ${sqlNullableString(row['lender_name'] as String?)},
         ${sqlNullableNum(row['interest_rate'] as num?)},
         ${sqlString(row['id'] as String)},
@@ -656,13 +699,14 @@ class PlanningPullService {
     Map<String, dynamic> row,
     _PlanningPageContext ctx,
   ) async {
+    final pulledMoney = deserializeSubscriptionsPullMoney(row);
     final merchantId = await ctx.merchants.resolve(
         row['merchant_id'] as String?, row['name'] as String? ?? 'فاتورة');
     await _db.customStatement('''
       UPDATE subscriptions
       SET merchant_id = ${sqlString(merchantId)},
           name = ${sqlString(row['name'] as String? ?? 'فاتورة')},
-          amount = ${(row['amount'] as num?)?.toDouble() ?? 0},
+          amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.amountMoney)},
           currency = ${sqlString(row['currency'] as String? ?? 'SAR')},
           period = ${sqlString(row['frequency'] as String? ?? 'monthly')},
           frequency = ${sqlString(row['frequency'] as String? ?? 'monthly')},
@@ -676,8 +720,8 @@ class PlanningPullService {
           account_id = ${sqlNullableString(row['local_account_id'] as String?)},
           total_installments = ${sqlNullableNum(row['total_installments'] as num?)},
           paid_count = ${sqlNullableNum(row['paid_count'] as num?)},
-          manual_paid_amount = ${sqlNullableNum(row['manual_paid_amount'] as num?)},
-          total_purchase_amount = ${sqlNullableNum(row['total_purchase_amount'] as num?)},
+          manual_paid_amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.manualPaidMoney)},
+          total_purchase_amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.totalPurchaseMoney)},
           lender_name = ${sqlNullableString(row['lender_name'] as String?)},
           interest_rate = ${sqlNullableNum(row['interest_rate'] as num?)},
           server_id = ${sqlString(row['id'] as String)},
@@ -743,6 +787,7 @@ class PlanningPullService {
 
   Future<void> _insertPlan(String id, Map<String, dynamic> row) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
+    final budgetMoney = deserializePlansPullMoney(row);
     await _db.customStatement('''
       INSERT OR IGNORE INTO plans(
         id, name, budget_amount, currency, start_date, end_date,
@@ -751,7 +796,7 @@ class PlanningPullService {
       ) VALUES (
         ${sqlString(id)},
         ${sqlString(row['name'] as String? ?? 'خطة')},
-        ${(row['budget_amount'] as num?)?.toDouble() ?? 0},
+        ${kMoneyCodec.sqlNullableRealLiteral(budgetMoney)},
         ${sqlString(row['currency'] as String? ?? 'SAR')},
         ${sqlString(_dateString(row['start_date']) ?? now)},
         ${sqlString(_dateString(row['end_date']) ?? now)},
@@ -770,10 +815,11 @@ class PlanningPullService {
   }
 
   Future<void> _updatePlan(String id, Map<String, dynamic> row) async {
+    final budgetMoney = deserializePlansPullMoney(row);
     await _db.customStatement('''
       UPDATE plans
       SET name = ${sqlString(row['name'] as String? ?? 'خطة')},
-          budget_amount = ${(row['budget_amount'] as num?)?.toDouble() ?? 0},
+          budget_amount = ${kMoneyCodec.sqlNullableRealLiteral(budgetMoney)},
           currency = ${sqlString(row['currency'] as String? ?? 'SAR')},
           start_date = ${sqlString(_dateString(row['start_date']) ?? dateTimeToSql(DateTime.now().toUtc()))},
           end_date = ${sqlString(_dateString(row['end_date']) ?? dateTimeToSql(DateTime.now().toUtc()))},

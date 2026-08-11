@@ -404,12 +404,12 @@ Return ONLY valid JSON. No markdown, no explanation.`;
     return await finish({ is_transaction: false });
   }
 
-  if (!parsed || typeof parsed.amount !== 'number' || !parsed.currency) {
+  const withExactText = parsed && typeof parsed === 'object' ? withValidatedModelAmountText(parsed) : null;
+  if (!withExactText || typeof withExactText.amount !== 'number' || !withExactText.currency) {
     const fallback = fallbackParse(reSanitized);
     if (fallback) return await finish({ ...fallback, model_used: `${GEMINI_MODEL}+fallback` });
     return await failUpstream('upstream_rejected');
   }
 
-  const withExactText = withValidatedModelAmountText(parsed);
   return await finish({ ...normalizeParsedCategory(withExactText, reSanitized), model_used: GEMINI_MODEL });
 });
