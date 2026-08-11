@@ -155,7 +155,8 @@ void main() {
     expect(await s.migrationCurrencyForBudget('b1'), 'EGP');
   });
 
-  test('REPLACE — changing a budget category (identity) → stale', () async {
+  test('budget category edit does NOT invalidate (category is mutable business '
+      'data, not identity — budget id is the authority)', () async {
     await addBudget('b1');
     final s = service();
     await s.confirmGlobal('EGP');
@@ -165,7 +166,7 @@ void main() {
         .read<String>('id');
     await db.customStatement(
         "UPDATE budgets SET category_id = '$cat2' WHERE id = 'b1';");
-    expect(await s.evaluate(), PlanningRepairStatus.stale);
+    expect(await s.evaluate(), PlanningRepairStatus.satisfied);
   });
 
   test('RESTORE-style replacement — same goal id, different created_at → stale',

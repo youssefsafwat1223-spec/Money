@@ -117,4 +117,39 @@ void main() {
     expect(g.read<int>('target_amount_minor'), 100000);
     expect(g.read<int>('saved_amount_minor'), 25000);
   });
+
+  test('crash DURING cutover rolls back the _minor backfill AND the marker '
+      '(all-or-nothing → still P1)', () async {
+    await applyAdditiveV30Columns();
+    // A prototype cutover marker (the real one lands at v30 in user_settings) —
+    // it must commit in the SAME transaction as the backfill.
+    await db.customStatement(
+        'ALTER TABLE budgets ADD COLUMN cutover_done INTEGER NOT NULL DEFAULT 0;');
+    final repair =
+        PlanningCurrencyRepairService(db: db, store: _MemoryKv(), installId: 'i');
+    await repair.confirmGlobal('EGP');
+
+    Object? caught;
+    try {
+      await db.transaction(() async {
+        await db.customStatement(
+            "UPDATE budgets SET currency='EGP', "
+            "amount_minor=${legacyRealToMinor(100.0, 2)}, cutover_done=1 "
+            "WHERE id='b1';");
+        throw StateError('simulated crash mid-cutover');
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught, isA<StateError>());
+
+    // SQLite rolled the whole transaction back: no backfill, no marker → P1.
+    final b = await db
+        .customSelect(
+            "SELECT currency, amount_minor, cutover_done FROM budgets WHERE id='b1';")
+        .getSingle();
+    expect(b.readNullable<String>('currency'), isNull);
+    expect(b.readNullable<int>('amount_minor'), isNull);
+    expect(b.read<int>('cutover_done'), 0);
+  });
 }

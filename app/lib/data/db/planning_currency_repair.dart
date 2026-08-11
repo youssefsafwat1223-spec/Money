@@ -18,9 +18,10 @@ import 'app_database.dart';
 /// Storage is the app's flutter_secure_storage KV (no new schema), namespaced +
 /// bound to the local install (and the signed-in user, if any) so it can never apply to another
 /// dataset. It carries a SEMANTIC FINGERPRINT of the planning objects' IDENTITY
-/// (goals: id+created_at; budgets: id+category_id — NOT their monetary values),
-/// so a decision is rejected as stale when a budget/goal is added, deleted,
-/// replaced/recreated, or a restore/import brings a DIFFERENT planning dataset —
+/// (goals: id+created_at; budgets: id — NOT their monetary/mutable-business
+/// values), so a decision is rejected as stale when a budget/goal is added,
+/// deleted, or (for goals) recreated under the same id; a restore that brings a
+/// DIFFERENT dataset is handled by the restore payload's own scoped repair —
 /// while a harmless amount edit or goal contribution (a row's currency is
 /// orthogonal to its amount) does NOT invalidate it. Contributions
 /// derive their currency from the parent goal — there is NO contribution currency.
@@ -192,21 +193,26 @@ class PlanningCurrencyRepairService {
   /// financial object), or a restore/import that brings a DIFFERENT planning
   /// dataset — all change the identity set.
   ///
-  /// goals use the IMMUTABLE `(id, created_at)` — a recreated/restored goal has a
-  /// different `created_at`, so a same-id replacement is detected. budgets have no
-  /// `created_at`, so their identity is `(id, category_id)`: ids are unique UUIDs
-  /// (a cross-dataset same-id collision is impossible) and a category change is a
-  /// meaningful re-scope for which re-confirmation is correct.
+  /// Identity policy per table:
+  /// - goals have an immutable `created_at`, so identity is `(id, created_at)` —
+  ///   a recreated/restored goal has a different `created_at`, so a same-id
+  ///   replacement of a goal IS detected as stale.
+  /// - budgets have NO immutable creation field. category_id is MUTABLE business
+  ///   data (a budget can be re-categorised without changing its currency), not
+  ///   identity, so it is excluded. We therefore define the budget `id` itself as
+  ///   the authoritative logical identity: a same-id budget is intentionally
+  ///   treated as the SAME planning object (a restore that brings a DIFFERENT
+  ///   dataset under the same budget id is handled separately by the restore
+  ///   payload's own scoped repair decision — see PHASE_8 restore preflight — not
+  ///   by this live-dataset fingerprint).
   Future<String> computeFingerprint() async {
-    final budgets = await _db
-        .customSelect('SELECT id, category_id FROM budgets ORDER BY id;')
-        .get();
+    final budgets =
+        await _db.customSelect('SELECT id FROM budgets ORDER BY id;').get();
     final goals = await _db
         .customSelect('SELECT id, created_at FROM goals ORDER BY id;')
         .get();
     final parts = <String>[
-      for (final r in budgets)
-        'b|${r.read<String>('id')}|${r.read<String>('category_id')}',
+      for (final r in budgets) 'b|${r.read<String>('id')}',
       for (final r in goals)
         'g|${r.read<String>('id')}|${r.read<String>('created_at')}',
     ];
