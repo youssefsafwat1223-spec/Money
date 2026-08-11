@@ -141,6 +141,47 @@ void main() {
         s.migrationCurrencyForBudget('b1'), throwsA(isA<StateError>()));
   });
 
+  test('amount edit / contribution does NOT invalidate (currency orthogonal)',
+      () async {
+    await addBudget('b1');
+    await addGoal('g1');
+    final s = service();
+    await s.confirmGlobal('EGP');
+    // edit a budget amount and a goal saved_amount (as a contribution would):
+    await db.customStatement("UPDATE budgets SET amount = 999.0 WHERE id = 'b1';");
+    await db.customStatement(
+        "UPDATE goals SET saved_amount = 999.0 WHERE id = 'g1';");
+    expect(await s.evaluate(), PlanningRepairStatus.satisfied);
+    expect(await s.migrationCurrencyForBudget('b1'), 'EGP');
+  });
+
+  test('REPLACE — changing a budget category (identity) → stale', () async {
+    await addBudget('b1');
+    final s = service();
+    await s.confirmGlobal('EGP');
+    final cat2 = (await db
+            .customSelect("SELECT id FROM categories WHERE id != '$catId' LIMIT 1;")
+            .getSingle())
+        .read<String>('id');
+    await db.customStatement(
+        "UPDATE budgets SET category_id = '$cat2' WHERE id = 'b1';");
+    expect(await s.evaluate(), PlanningRepairStatus.stale);
+  });
+
+  test('RESTORE-style replacement — same goal id, different created_at → stale',
+      () async {
+    await addGoal('g1');
+    final s = service();
+    await s.confirmGlobal('EGP');
+    // a restore that replaces g1 with a different object under the same id:
+    await db.customStatement("DELETE FROM goals WHERE id = 'g1';");
+    await db.customStatement(
+        "INSERT INTO goals(id, name, target_amount, saved_amount, vault_skin, "
+        "status, created_at) VALUES ('g1', 'G', 1000.0, 250.0, 'default', "
+        "'active', '2020-06-15T00:00:00Z');"); // different created_at
+    expect(await s.evaluate(), PlanningRepairStatus.stale);
+  });
+
   test('a decision from another install does not apply here', () async {
     await addBudget('b1');
     await service(installId: 'install-A').confirmGlobal('EGP');

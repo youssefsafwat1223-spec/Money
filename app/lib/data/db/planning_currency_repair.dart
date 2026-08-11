@@ -17,9 +17,12 @@ import 'app_database.dart';
 ///
 /// Storage is the app's flutter_secure_storage KV (no new schema), namespaced +
 /// bound to the local install (and the signed-in user, if any) so it can never apply to another
-/// dataset. It carries a FINGERPRINT of the current planning row-id set, so a
-/// decision made before a budget/goal is added or removed is rejected as stale
-/// (confirm → edit rows → migration cannot consume a stale assumption). Contributions
+/// dataset. It carries a SEMANTIC FINGERPRINT of the planning objects' IDENTITY
+/// (goals: id+created_at; budgets: id+category_id — NOT their monetary values),
+/// so a decision is rejected as stale when a budget/goal is added, deleted,
+/// replaced/recreated, or a restore/import brings a DIFFERENT planning dataset —
+/// while a harmless amount edit or goal contribution (a row's currency is
+/// orthogonal to its amount) does NOT invalidate it. Contributions
 /// derive their currency from the parent goal — there is NO contribution currency.
 ///
 /// This is the FOUNDATION (model + service + fingerprint + consume API + tests).
@@ -178,13 +181,36 @@ class PlanningCurrencyRepairService {
     return (budgetIds: await _ids('budgets'), goalIds: await _ids('goals'));
   }
 
-  /// SHA-256 over the sorted budget/goal id set. Adding or removing a budget/goal
-  /// changes it, so a decision confirmed against the old set is rejected as stale.
+  /// Semantic fingerprint of the planning objects the currency confirmation is
+  /// keyed to — their SET + IDENTITY, NOT their monetary values.
+  ///
+  /// Explicit policy: a row's currency is ORTHOGONAL to its amount, so editing a
+  /// budget/goal amount, or adding a goal contribution (which changes
+  /// `saved_amount`), does NOT change the row's currency and MUST NOT invalidate
+  /// the confirmation (a currency edit is not implied by a value edit). What DOES
+  /// invalidate: adding/deleting a budget/goal, replacing/recreating one (a new
+  /// financial object), or a restore/import that brings a DIFFERENT planning
+  /// dataset — all change the identity set.
+  ///
+  /// goals use the IMMUTABLE `(id, created_at)` — a recreated/restored goal has a
+  /// different `created_at`, so a same-id replacement is detected. budgets have no
+  /// `created_at`, so their identity is `(id, category_id)`: ids are unique UUIDs
+  /// (a cross-dataset same-id collision is impossible) and a category change is a
+  /// meaningful re-scope for which re-confirmation is correct.
   Future<String> computeFingerprint() async {
-    final ids = await _planningIds();
-    final payload =
-        'budgets:${ids.budgetIds.join(',')}|goals:${ids.goalIds.join(',')}';
-    return sha256.convert(utf8.encode(payload)).toString();
+    final budgets = await _db
+        .customSelect('SELECT id, category_id FROM budgets ORDER BY id;')
+        .get();
+    final goals = await _db
+        .customSelect('SELECT id, created_at FROM goals ORDER BY id;')
+        .get();
+    final parts = <String>[
+      for (final r in budgets)
+        'b|${r.read<String>('id')}|${r.read<String>('category_id')}',
+      for (final r in goals)
+        'g|${r.read<String>('id')}|${r.read<String>('created_at')}',
+    ];
+    return sha256.convert(utf8.encode(parts.join('\n'))).toString();
   }
 
   /// The stored decision, but ONLY if it is valid for the current dataset AND the
