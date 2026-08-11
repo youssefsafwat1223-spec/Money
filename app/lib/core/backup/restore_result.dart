@@ -45,6 +45,12 @@ enum RestoreOutcome {
   /// Structural / integrity / preflight validation failed before mutation.
   validationFailed,
 
+  /// MALI-026 (B8-2.10 §5): the live database is canonical and the backup's
+  /// planning rows carry no stable currency, so restoring them would insert
+  /// ambiguous money. Aborted BEFORE any destructive mutation; the caller must
+  /// run the RESTORE_PAYLOAD-scoped currency repair, then retry with a decision.
+  planningCurrencyRepairRequired,
+
   /// A failure occurred DURING mutation but the transaction rolled back — the
   /// pre-restore database is intact.
   rollbackCompleted,
@@ -108,6 +114,7 @@ class RestoreResult {
       outcome == RestoreOutcome.maintenanceTimeout ||
       outcome == RestoreOutcome.databaseBusy ||
       outcome == RestoreOutcome.validationFailed ||
+      outcome == RestoreOutcome.planningCurrencyRepairRequired ||
       outcome == RestoreOutcome.rollbackCompleted ||
       outcome == RestoreOutcome.localFileUnavailable ||
       outcome == RestoreOutcome.remoteObjectUnavailable ||
@@ -121,6 +128,21 @@ class RestoreResult {
 
   @override
   String toString() => 'RestoreResult(${outcome.name})';
+}
+
+/// MALI-026 (B8-2.10 §5) — thrown BEFORE any destructive restore mutation when
+/// the live DB is canonical and the payload's planning rows lack a stable
+/// currency. Privacy-safe: carries ONLY the payload fingerprint (a SHA-256 hash),
+/// never an amount or any snapshot field. The caller repairs the RESTORE_PAYLOAD
+/// scope for this fingerprint, then retries with a decision.
+class RestorePlanningRepairRequiredException implements Exception {
+  const RestorePlanningRepairRequiredException(this.payloadFingerprint);
+
+  final String payloadFingerprint;
+
+  @override
+  String toString() =>
+      'RestorePlanningRepairRequiredException($payloadFingerprint)';
 }
 
 /// Thrown INSIDE the restore transaction when in-transaction verification fails,

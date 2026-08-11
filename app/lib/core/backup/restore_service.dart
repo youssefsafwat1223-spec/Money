@@ -5,7 +5,9 @@ import 'package:crypto/crypto.dart';
 import '../../data/db/app_database.dart';
 import '../../data/db/database_lease.dart';
 import '../../data/db/ownership_guard.dart';
+import '../../data/db/planning_cutover.dart';
 import 'backup_service.dart';
+import 'planning_restore_preflight.dart';
 import 'restore_backup_usecase.dart';
 import 'restore_journal.dart';
 import 'restore_plan.dart';
@@ -32,6 +34,12 @@ class RestoreService {
     Future<void> Function()? afterRestore,
     Duration drainTimeout = const Duration(seconds: 10),
     Duration exclusiveTimeout = const Duration(seconds: 10),
+    // MALI-026 (B8-2.10 §5/§7): the live cutover authority (defaults to legacy,
+    // so v29 restore is unchanged) and an optional RESTORE_PAYLOAD-scoped repair
+    // decision for the continuation retry.
+    PlanningCutoverCoordinator planningCoordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+    RestorePayloadRepairDecision? planningRepairDecision,
     void Function(String point)? onFaultPoint,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
@@ -81,7 +89,7 @@ class RestoreService {
           !await ownershipGuard.isCurrent(admissionToken)) {
         throw const StaleOwnershipException();
       }
-      await RestoreBackupUseCase(_db).call(
+      await RestoreBackupUseCase(_db, coordinator: planningCoordinator).call(
         <String, dynamic>{
           'schemaVersion': plan.snapshotSchemaVersion,
           'tables': plan.tables,
@@ -90,6 +98,7 @@ class RestoreService {
         journal: _journal,
         operationId: plan.operationId,
         nowIso: now,
+        planningRepairDecision: planningRepairDecision,
         onFaultPoint: onFaultPoint,
       );
     }
@@ -138,6 +147,13 @@ class RestoreService {
             : RestoreOutcome.internalFailure,
         operationId: plan.operationId,
       );
+    } on RestorePlanningRepairRequiredException {
+      // Thrown BEFORE any destructive mutation — the DB is untouched. The caller
+      // repairs the RESTORE_PAYLOAD scope and retries with a decision.
+      await _journal.markRolledBack(
+          plan.operationId, 'planningRepairRequired', now);
+      return RestoreResult(RestoreOutcome.planningCurrencyRepairRequired,
+          operationId: plan.operationId);
     } on RestoreVerificationException {
       await _journal.markRolledBack(plan.operationId, 'validationFailed', now);
       return RestoreResult(RestoreOutcome.rollbackCompleted,

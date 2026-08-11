@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../../data/db/planning_cutover.dart';
 import '../../data/db/planning_currency_repair.dart' show PlanningRepairMode;
 import '../../domain/finance/currency_scale.dart';
 import '../../domain/finance/decimal_minor.dart';
@@ -131,3 +132,78 @@ class RestorePayloadRepairDecision {
 /// destructive restore transaction.
 int restoreLegacyAmountToMinor(double legacyAmount, String confirmedCurrency) =>
     legacyRealToMinor(legacyAmount, currencyScale(confirmedCurrency));
+
+/// Extract the planning identity rows from a restore snapshot's `tables` map.
+/// Only budgets + goals participate (goal_contributions inherit their parent
+/// goal's confirmed currency, so they are not fingerprinted here).
+List<RestorePlanningRow> restoreSnapshotPlanningRows(
+    Map<String, dynamic> tables) {
+  final rows = <RestorePlanningRow>[];
+  for (final b in (tables['budgets'] as List<dynamic>? ?? const [])
+      .cast<Map<String, dynamic>>()) {
+    rows.add(RestorePlanningRow(
+      id: b['id'] as String,
+      isGoal: false,
+      legacyAmount: (b['amount'] as num?)?.toDouble() ?? 0,
+    ));
+  }
+  for (final g in (tables['goals'] as List<dynamic>? ?? const [])
+      .cast<Map<String, dynamic>>()) {
+    rows.add(RestorePlanningRow(
+      id: g['id'] as String,
+      isGoal: true,
+      legacyAmount: (g['target_amount'] as num?)?.toDouble() ?? 0,
+      createdAt: g['created_at'] as String?,
+    ));
+  }
+  return rows;
+}
+
+/// True when EVERY budget/goal row in the payload already carries a non-empty
+/// `currency` — i.e. the payload is NOT the legacy currency-less shape.
+bool _snapshotPlanningCarriesCurrency(Map<String, dynamic> tables) {
+  bool has(String table) {
+    final rows = (tables[table] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+    if (rows.isEmpty) return true; // nothing to disambiguate for this table
+    return rows.every((r) {
+      final c = r['currency'];
+      return c is String && c.isNotEmpty;
+    });
+  }
+
+  return has('budgets') && has('goals');
+}
+
+/// MALI-026 (Phase-8 B8-2.10 §5/§6/§7) — the restore preflight decision over a
+/// snapshot, GATED on the live cutover state.
+///
+/// * The live DB is legacy (schema v29 today) -> [RestoreReady]: restoring
+///   currency-less planning rows into a legacy DB is not ambiguous, so restore
+///   proceeds exactly as before. THIS IS WHY v29 restore is unchanged.
+/// * The live DB is canonical (future P3) and the payload's budgets/goals lack a
+///   stable currency -> [RestorePlanningCurrencyRepairRequired], UNLESS a fresh,
+///   payload-scoped [decision] (matching this payload's fingerprint) is supplied,
+///   in which case restore may continue using that mapping (§7 continuation). A
+///   decision whose fingerprint does not match (e.g. a LIVE_DATASET decision) does
+///   NOT satisfy the payload (§6 cross-scope rejection).
+RestorePreflightResult inspectRestoreSnapshotPlanning({
+  required Map<String, dynamic> tables,
+  required PlanningCutoverState cutoverState,
+  RestorePayloadRepairDecision? decision,
+}) {
+  if (cutoverState != PlanningCutoverState.canonical) {
+    return const RestoreReady();
+  }
+  final rows = restoreSnapshotPlanningRows(tables);
+  final base = inspectPlanningRestorePayload(
+    planningRows: rows,
+    rowsLackCurrency: !_snapshotPlanningCarriesCurrency(tables),
+  );
+  if (base is RestorePlanningCurrencyRepairRequired &&
+      decision != null &&
+      decision.payloadFingerprint == base.payloadFingerprint) {
+    return const RestoreReady();
+  }
+  return base;
+}

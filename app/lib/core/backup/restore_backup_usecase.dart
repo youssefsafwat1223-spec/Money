@@ -1,17 +1,28 @@
 import 'package:drift/drift.dart';
 
 import '../../data/db/app_database.dart';
+import '../../data/db/planning_cutover.dart';
 import '../../domain/finance/financial_semantics.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
+import 'planning_restore_preflight.dart';
 import 'restore_journal.dart';
 import 'restore_plan.dart';
 import 'restore_result.dart';
 
 class RestoreBackupUseCase {
-  const RestoreBackupUseCase(this._db);
+  // MALI-026 (B8-2.10 §5): [coordinator] defaults to schema-v29 legacy, so the
+  // planning-currency preflight below is a NO-OP today and restore behaves
+  // exactly as before; only a canonical (future v30) live DB makes a
+  // currency-less planning payload abort before any destructive mutation.
+  const RestoreBackupUseCase(
+    this._db, {
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+  }) : _coordinator = coordinator;
 
   final AppDatabase _db;
+  final PlanningCutoverCoordinator _coordinator;
   static const currentSchemaVersion = 3;
 
   // accounts must come before tables that FK into it; categories before the
@@ -68,6 +79,10 @@ class RestoreBackupUseCase {
     RestoreJournal? journal,
     String? operationId,
     String? nowIso,
+    // MALI-026 (B8-2.10 §7): a fresh, RESTORE_PAYLOAD-scoped repair decision that
+    // lets the restore continue when the live DB is canonical (its fingerprint
+    // must match this payload). Null on the first attempt.
+    RestorePayloadRepairDecision? planningRepairDecision,
     // Test-only deterministic fault injection at named transaction-boundary
     // points (Batch-5 closure §Blocker-3). The callback throws to simulate a
     // failure; the whole restore must then roll back with the DB unchanged.
@@ -92,6 +107,23 @@ class RestoreBackupUseCase {
     // here — otherwise conditional-delete would wipe the catalog and restore
     // nothing.
     final tables = validateTables(snapshot, schemaVersion);
+
+    // MALI-026 (B8-2.10 §5) — planning-currency RESTORE preflight. Runs AFTER
+    // validation and BEFORE any destructive PRAGMA/DELETE, so a repair-required
+    // payload aborts with the original database byte-for-byte unchanged. It only
+    // bites when the LIVE db is canonical (P3): restoring currency-less legacy
+    // planning rows into a canonical DB would insert ambiguous money. At schema
+    // v29 (legacy) [inspectRestoreSnapshotPlanning] returns RestoreReady, so this
+    // is a no-op and every existing restore path is unchanged.
+    final planningPreflight = inspectRestoreSnapshotPlanning(
+      tables: tables,
+      cutoverState: _coordinator.state(),
+      decision: planningRepairDecision,
+    );
+    if (planningPreflight is RestorePlanningCurrencyRepairRequired) {
+      throw RestorePlanningRepairRequiredException(
+          planningPreflight.payloadFingerprint);
+    }
 
     // MALI-045n: `PRAGMA foreign_keys` is connection-scoped and a documented
     // NO-OP while a transaction is pending, so it MUST be toggled OUTSIDE
