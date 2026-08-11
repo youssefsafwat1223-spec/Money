@@ -1,9 +1,11 @@
 import { serviceClient } from './capture_auth.ts';
 import { resolveUserBooleanFlag } from './feature_flags.ts';
+import { canonicalMoneyText } from './money_text.ts';
 
 export interface LedgerWritePayload {
   payloadId: string;
   amount: number;
+  amountText?: string;
   currency: string;
   direction?: string;
   type?: string;
@@ -14,6 +16,7 @@ export interface LedgerWritePayload {
   last4?: string;
   status?: 'confirmed' | 'pending';
   balanceAfter?: number;
+  balanceAfterText?: string;
   comparisonTimestamp?: string;
   comparisonTimestampSource?: 'sms_body' | 'received_at';
   transactionTimeFromSms?: string;
@@ -93,6 +96,10 @@ export async function upsertLedgerTransaction(
   userId: string,
   payload: LedgerWritePayload,
 ): Promise<LedgerWriteResult> {
+  const exactAmount = payload.amountText == null ? null : canonicalMoneyText(payload.amountText, payload.currency);
+  const exactBalance = payload.balanceAfterText == null
+    ? null
+    : canonicalMoneyText(payload.balanceAfterText, payload.currency, { allowNegative: true });
   const metadata: Record<string, unknown> = {
     transaction_source: 'bank',
     duplicate_status: 'normal',
@@ -119,7 +126,7 @@ export async function upsertLedgerTransaction(
     // push hit the (user_id, client_request_id) unique index and UPDATE this
     // row instead of inserting a duplicate.
     client_request_id: payload.payloadId,
-    amount: payload.amount,
+    amount: exactAmount ?? payload.amount,
     currency: payload.currency,
     direction: mapDirection(payload.direction, payload.type),
     transaction_type: mapTransactionType(payload.direction, payload.type),
@@ -129,7 +136,7 @@ export async function upsertLedgerTransaction(
     source: 'ios_shortcut',
     confidence: payload.confidence ?? null,
     status: payload.status ?? 'confirmed',
-    balance_after: payload.balanceAfter ?? null,
+    balance_after: exactBalance ?? payload.balanceAfter ?? null,
     comparison_timestamp: payload.comparisonTimestamp ?? payload.occurredAt,
     comparison_timestamp_source: payload.comparisonTimestampSource ?? 'received_at',
     metadata,

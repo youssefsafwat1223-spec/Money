@@ -1,5 +1,13 @@
 import rules from './parser_rules.json' with { type: 'json' };
-import { corsHeaders, json, readBoundedJsonBody, readString, serviceClient, sha256Hex, verifyDevice } from '../_shared/capture_auth.ts';
+import {
+  corsHeaders,
+  json,
+  readBoundedJsonBody,
+  readString,
+  serviceClient,
+  sha256Hex,
+  verifyDevice,
+} from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
 import { markApnsLogFailed, markApnsLogSent, upsertQueuedApnsLog } from '../_shared/notification_logs.ts';
@@ -10,10 +18,12 @@ import {
 } from '../_shared/notification_retry_policy.ts';
 import { type FingerprintReservationStore, reserveCaptureFingerprint } from '../_shared/fingerprint_reservation.ts';
 import { isDirectCaptureWriteEnabled, isLedgerDualWriteEnabled, upsertLedgerTransaction } from '../_shared/ledger.ts';
+import { extractCaptureAmount, withValidatedModelAmountText } from './money.ts';
 
 type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
 type ParsedCapture = {
   amount?: number;
+  amount_text?: string;
   currency?: string;
   type?: string;
   merchant?: string;
@@ -40,7 +50,7 @@ type NotificationPayload = {
 };
 
 const CAPTURE_RATE_LIMIT_PER_DAY = 300;
-const CURRENCY_CODES = ['SAR', 'AED', 'EGP', 'QAR', 'OMR', 'KWD', 'BHD', 'JOD', 'USD', 'EUR', 'GBP'];
+const CURRENCY_CODES = ['SAR', 'AED', 'EGP', 'QAR', 'OMR', 'KWD', 'BHD', 'JOD', 'USD', 'EUR', 'GBP', 'JPY'];
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -65,11 +75,7 @@ Deno.serve(async (req) => {
   const MAX_BODY_BYTES = 16 * 1024; // one SMS + metadata; generous, bounded.
   const bodyResult = await readBoundedJsonBody(req, MAX_BODY_BYTES);
   if (!bodyResult.ok) {
-    const status = bodyResult.reason === 'too_large'
-      ? 413
-      : bodyResult.reason === 'unsupported_media_type'
-      ? 415
-      : 400;
+    const status = bodyResult.reason === 'too_large' ? 413 : bodyResult.reason === 'unsupported_media_type' ? 415 : 400;
     return json({ error: bodyResult.reason }, status);
   }
   const body = bodyResult.body;
@@ -253,6 +259,7 @@ Deno.serve(async (req) => {
         const ledger = await upsertLedgerTransaction(supabase, auth.userId, {
           payloadId,
           amount: parsed.amount!,
+          amountText: parsed.amount_text,
           currency: parsed.currency!,
           direction: parsed.direction,
           type: parsed.type,
@@ -400,7 +407,9 @@ async function parseSms(input: {
 
   if (input.allowAi) {
     const ai = await aiParse(input.text);
-    const amount = deterministic.amount ?? ai?.amount;
+    const deterministicAmount = deterministic.amount != null;
+    const amount = deterministicAmount ? deterministic.amount : ai?.amount;
+    const amount_text = deterministicAmount ? deterministic.amount_text : ai?.amount_text;
     const currency = normalizeCurrencyCode(deterministic.currency) ??
       normalizeCurrencyCode(ai?.currency);
     if (ai && amount != null && currency) {
@@ -419,6 +428,7 @@ async function parseSms(input: {
       const comparisonTimestamp = deterministicTimestamp ?? aiTimestamp ?? input.receivedAt;
       return {
         amount,
+        ...(amount_text == null ? {} : { amount_text }),
         currency,
         type: ai.type ?? deterministic.type,
         merchant: ai.merchant ?? deterministic.merchant,
@@ -454,8 +464,9 @@ function deterministicParse(
   const ignored = (rules.ignoreKeywords as string[]).some((keyword) => lower.includes(keyword.toLowerCase()));
   if (ignored) return { confidence: 0, comparisonTimestamp: receivedAt, comparisonTimestampSource: 'received_at' };
 
-  const amount = extractNumber(normalized, rules.amountPatterns as string[]);
   const currency = extractCurrency(normalized);
+  const amountFields = extractCaptureAmount(normalized, rules.amountPatterns as string[], currency);
+  const amount = amountFields.amount;
   const merchant = extractMerchant(normalized);
   const last4 = extractFirstGroup(normalized, rules.last4Patterns as string[]);
   const direction = detectDirection(lower);
@@ -471,7 +482,7 @@ function deterministicParse(
     (merchant ? 0.1 : 0) +
     (last4 ? 0.05 : 0);
   return {
-    amount,
+    ...amountFields,
     currency,
     merchant,
     last4,
@@ -489,7 +500,9 @@ async function aiParse(text: string): Promise<ParsedCapture | null> {
   if (!GEMINI_API_KEY) return null;
   const prompt = `Extract one bank transaction from this sanitized SMS.
 Return only JSON. If not a transaction return {"is_transaction":false}.
-Fields: amount number, currency ISO, merchant string, type payment|withdrawal|transfer|income|refund|unknown, direction credit|debit|unknown, category restaurants|groceries|transport|fuel|bills|shopping|health|education|entertainment|subscriptions|transfers|cash|travel|gifts|kids|home|cafes|maintenance|fitness|beauty|charity|pets|insurance|income|other, occurredAt ISO if present, last4 if present.
+Fields: amount number (required legacy compatibility value), amount_text string (required exact plain-decimal token
+from the SMS, no exponent or rounding), currency ISO, merchant string, type payment|withdrawal|transfer|income|refund|unknown, direction credit|debit|unknown, category restaurants|groceries|transport|fuel|bills|shopping|health|education|entertainment|subscriptions|transfers|cash|travel|gifts|kids|home|cafes|maintenance|fitness|beauty|charity|pets|insurance|income|other, occurredAt ISO if present, last4 if present.
+Example money shape: {"amount":19.99,"amount_text":"19.99","currency":"EGP"}.
 IPN/InstaPay/person-to-person transfers (SMS contains "IPN REF", "IPN transfer", "Instapay", "credited by ... from <person>", "received from <person>", or "sent to <person>") are type=transfer, category=transfers, and merchant must be omitted even if a person's name appears — never type=income, never a merchant name. direction=credit for incoming/received, debit for sent/outgoing.
 SMS: ${text}`;
   try {
@@ -518,9 +531,13 @@ SMS: ${text}`;
     if (typeof raw !== 'string') return null;
     const parsed = JSON.parse(raw);
     if (parsed?.is_transaction === false) return null;
+    const withExactText = parsed && typeof parsed === 'object'
+      ? withValidatedModelAmountText(parsed as Record<string, unknown>)
+      : {};
     return {
-      amount: typeof parsed.amount === 'number' ? parsed.amount : undefined,
-      currency: typeof parsed.currency === 'string' ? parsed.currency.toUpperCase() : undefined,
+      amount: typeof withExactText.amount === 'number' ? withExactText.amount : undefined,
+      amount_text: typeof withExactText.amount_text === 'string' ? withExactText.amount_text : undefined,
+      currency: typeof withExactText.currency === 'string' ? withExactText.currency.toUpperCase() : undefined,
       merchant: typeof parsed.merchant === 'string' ? parsed.merchant : undefined,
       type: typeof parsed.type === 'string' ? parsed.type : undefined,
       direction: typeof parsed.direction === 'string' ? parsed.direction : undefined,
@@ -912,11 +929,10 @@ async function sendApnsIfPossible(
 function normalize(input: string): string {
   let text = normalizeDigits(input);
   for (const mark of rules.normalization.decimalMarks as string[]) text = text.replaceAll(mark, '.');
-  for (const mark of rules.normalization.thousandsMarks as string[]) text = text.replaceAll(mark, '');
+  for (const mark of rules.normalization.thousandsMarks as string[]) text = text.replaceAll(mark, ',');
   for (const rule of rules.normalization.currencyReplacements as Array<{ pattern: string; replacement: string }>) {
     text = text.replace(new RegExp(rule.pattern, 'gi'), rule.replacement);
   }
-  while (/(\d),(\d)/.test(text)) text = text.replace(/(\d),(\d)/g, '$1$2');
   return text;
 }
 
@@ -937,13 +953,6 @@ function reSanitize(text: string): string {
     .replace(/\+\d{7,15}\b/g, '[PHONE]')
     .replace(/\b\d{10,20}\b/g, '[ACCOUNT]')
     .trim();
-}
-
-function extractNumber(text: string, patterns: string[]): number | undefined {
-  const raw = extractFirstGroup(text, patterns);
-  if (!raw) return undefined;
-  const value = Number(raw.replace(/,/g, ''));
-  return Number.isFinite(value) ? value : undefined;
 }
 
 function extractCurrency(text: string): string | undefined {

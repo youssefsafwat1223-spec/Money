@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_readme": "Shared preview-parsing rules used by BOTH the iOS App Intent (Swift) and the Dart mirror (lib/engine/parser/shared_preview_parser.dart). Regexes must stay compatible with Dart RegExp AND NSRegularExpression (ICU): no named groups, no \\b (differs for Arabic), group 1 is always the extracted value. Matching is case-insensitive. Pipeline: normalize digits -> apply currencyReplacements in order -> strip thousands separators -> match. Flutter's ParserEngine stays the source of truth; these rules only power the immediate notification preview.",
+  "_readme": "Shared preview-parsing rules used by BOTH the iOS App Intent (Swift) and the Dart mirror (lib/engine/parser/shared_preview_parser.dart). Regexes must stay compatible with Dart RegExp AND NSRegularExpression (ICU): no named groups, no \\b (differs for Arabic), group 1 is always the extracted value. Matching is case-insensitive. Pipeline: normalize digits -> apply currencyReplacements in order -> preserve thousands separators for validation -> match. Flutter's ParserEngine stays the source of truth; these rules only power the immediate notification preview.",
   "normalization": {
     "decimalMarks": ["٫"],
     "thousandsMarks": ["٬"],
@@ -20,7 +20,7 @@
       { "pattern": "ريال", "replacement": "SAR" }
     ]
   },
-  "currencyPattern": "(?:^|[^A-Za-z])(SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP)(?![A-Za-z])",
+  "currencyPattern": "(?:^|[^A-Za-z])(SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP|JPY)(?![A-Za-z])",
   "ignoreKeywords": [
     "otp",
     "one time password",
@@ -72,10 +72,10 @@
     "salary"
   ],
   "amountPatterns": [
-    "(?:بمبلغ|بقيمة|مبلغ|قيمة)[\\s:]*([0-9]+(?:\\.[0-9]+)?)",
-    "(?:SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP)\\s*([0-9]+(?:\\.[0-9]+)?)",
-    "([0-9]+(?:\\.[0-9]+)?)\\s*(?:SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP)",
-    "(?:amount|amt)[\\s:]*([0-9]+(?:\\.[0-9]+)?)"
+    "(?:بمبلغ|بقيمة|مبلغ|قيمة)[\\s:]*([0-9][0-9,]*(?:\\.[0-9]+)?)",
+    "(?:SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP|JPY)\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)",
+    "([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(?:SAR|AED|EGP|QAR|OMR|KWD|BHD|JOD|USD|EUR|GBP|JPY)",
+    "(?:amount|amt)[\\s:]*([0-9][0-9,]*(?:\\.[0-9]+)?)"
   ],
   "merchantPatterns": [
     "(?:لدى|لدي)[\\s:]+([^\\n\\r؛;,]{2,40})",

@@ -6,6 +6,7 @@ import {
   serviceClient,
   verifyDevice,
 } from '../_shared/capture_auth.ts';
+import { capturesForResponse } from './money.ts';
 
 const SYNC_CAPTURES_LIMIT_PER_DAY = 240;
 
@@ -62,5 +63,5 @@ Deno.serve(async (req) => {
   const { data, error } = await captureQuery;
   if (error) return json({ error: 'sync_failed' }, 500);
 
-  return json({ captures: data ?? [] });
+  return json({ captures: capturesForResponse(data ?? []) });
 });

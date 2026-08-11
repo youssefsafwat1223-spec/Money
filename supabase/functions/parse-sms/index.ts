@@ -12,6 +12,7 @@ import {
   resolveVerifiedIdentity,
   schemaError,
 } from '../_shared/ai_endpoint.ts';
+import { amountFromText, withValidatedModelAmountText } from './money.ts';
 
 const MAX_BODY_BYTES = 8192;
 const MAX_SMS_LENGTH = 2000;
@@ -33,7 +34,6 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const RATE_LIMIT_PER_DAY = 500;
 
-const CURRENCY_CODES = ['EGP', 'SAR', 'AED', 'USD', 'EUR', 'GBP', 'KWD', 'QAR', 'BHD', 'OMR', 'JOD'];
 const BANK_ATM_ALIASES = [
   'BDC',
   'CIB',
@@ -69,39 +69,6 @@ function compactToken(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
-function amountFromText(text: string): { amount: number; currency: string } | null {
-  const escapedCurrencies = CURRENCY_CODES.join('|');
-  const currencyBefore = new RegExp(`\\b(${escapedCurrencies})\\b\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)`, 'i');
-  const currencyAfter = new RegExp(`([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*\\b(${escapedCurrencies})\\b`, 'i');
-  const egyptianPoundAfter = /([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:جم|جنيه)/i;
-  const withAmountWord = new RegExp(
-    `(?:amount(?:\\s+of)?|مبلغ)\\s*(?:of\\s*)?\\b(${escapedCurrencies})\\b\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)`,
-    'i',
-  );
-  const match = text.match(withAmountWord) ?? text.match(currencyBefore);
-  if (match) {
-    return {
-      currency: match[1].toUpperCase(),
-      amount: Number(match[2].replace(/,/g, '')),
-    };
-  }
-  const reverse = text.match(currencyAfter);
-  if (reverse) {
-    return {
-      amount: Number(reverse[1].replace(/,/g, '')),
-      currency: reverse[2].toUpperCase(),
-    };
-  }
-  const egp = text.match(egyptianPoundAfter);
-  if (egp) {
-    return {
-      amount: Number(egp[1].replace(/,/g, '')),
-      currency: 'EGP',
-    };
-  }
-  return null;
-}
-
 function looksLikeBankAtmLocation(location: string): boolean {
   const compact = compactToken(location);
   return BANK_ATM_ALIASES.some((alias) => compact.startsWith(alias));
@@ -124,6 +91,7 @@ function fallbackParse(text: string): Record<string, unknown> | null {
   if (isIpn) {
     return {
       amount: amount.amount,
+      ...(amount.amount_text == null ? {} : { amount_text: amount.amount_text }),
       currency: amount.currency,
       type: 'transfer',
       category_key: 'transfers',
@@ -140,6 +108,7 @@ function fallbackParse(text: string): Record<string, unknown> | null {
   if (debitCardAtm) {
     return {
       amount: amount.amount,
+      ...(amount.amount_text == null ? {} : { amount_text: amount.amount_text }),
       currency: amount.currency,
       type: 'withdrawal',
       category_key: 'cash',
@@ -156,6 +125,7 @@ function fallbackParse(text: string): Record<string, unknown> | null {
   if (looksLikePayment && location.length > 0) {
     return normalizeParsedCategory({
       amount: amount.amount,
+      ...(amount.amount_text == null ? {} : { amount_text: amount.amount_text }),
       currency: amount.currency,
       merchant_name: location,
       type: 'payment',
@@ -352,8 +322,11 @@ a general bank notification, or any non-transactional communication — return O
 Do NOT attempt to extract amount or other fields for non-transaction messages.
 
 Fields (for transaction messages only):
-- amount: number (required)
+- amount: number (required legacy compatibility value)
+- amount_text: string (required exact decimal token, for example "19.99"; plain ASCII digits with an optional
+  decimal point, no exponent, no currency symbol, and no rounding; preserve all fractional digits from the SMS)
 - currency: ISO code like "SAR", "EGP", "AED" (required)
+  Example money shape: {"amount":19.99,"amount_text":"19.99","currency":"EGP"}
 - merchant_name: string (business name for payment/POS only — omit for transfers).
   Payment gateways/aggregators (e.g. "Fawry", "Fawateer", "Fawateerak") are intermediaries,
   NOT the merchant. When the text reads "<gateway> <real merchant>", return the REAL merchant
@@ -437,5 +410,6 @@ Return ONLY valid JSON. No markdown, no explanation.`;
     return await failUpstream('upstream_rejected');
   }
 
-  return await finish({ ...normalizeParsedCategory(parsed, reSanitized), model_used: GEMINI_MODEL });
+  const withExactText = withValidatedModelAmountText(parsed);
+  return await finish({ ...normalizeParsedCategory(withExactText, reSanitized), model_used: GEMINI_MODEL });
 });
