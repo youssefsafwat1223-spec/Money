@@ -6,6 +6,7 @@ import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/suspected_duplicate_entity.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/finance/money.dart';
 import '../../../domain/repositories/account_repository.dart';
@@ -39,6 +40,11 @@ class CaptureSyncService {
     CaptureBackendClient? client,
     bool? backendConfigured,
     Future<String> Function()? loadInstallId,
+    // MALI-026 (B8-2.10 §12): the money-authority mode. Defaults to legacy, so
+    // v29 capture ingestion is unchanged; only canonical mode makes a
+    // numeric-only (no exact amount_text) capture unconditionally pending.
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _settingsRepository = settingsRepository,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
@@ -47,7 +53,8 @@ class CaptureSyncService {
         _accountRepository = accountRepository,
         _client = client,
         _backendConfigured = backendConfigured,
-        _loadInstallId = loadInstallId;
+        _loadInstallId = loadInstallId,
+        _coordinator = coordinator;
 
   static final DateTime _payloadMarkerTime =
       DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
@@ -61,6 +68,7 @@ class CaptureSyncService {
   final CaptureBackendClient? _client;
   final bool? _backendConfigured;
   final Future<String> Function()? _loadInstallId;
+  final PlanningCutoverCoordinator _coordinator;
 
   // مزامنة واحدة في الرحلة الواحدة: الاستئناف (resume) وضغطة الإشعار يصلان
   // في نفس اللحظة تقريبًا، وبدون هذا القفل يجلب الاثنان نفس صفوف الـ relay
@@ -311,6 +319,16 @@ class CaptureSyncService {
       amountMoney = legacyLossyNumberToMoney(amount!, normalizedCurrency);
       legacyLossyReview = true;
     }
+    // MALI-026 (B8-2.10 §12/§13): route ingestion through the explicit ingress
+    // resolver. In canonical mode a numeric-only / non-exact capture can NEVER
+    // auto-confirm into canonical authority — it is forced to pending review.
+    // Legacy (v29) is unchanged: exact text confirms, numeric-only reviews.
+    final requiresReview = resolveAiCaptureIngress(
+          hasExactText: !legacyLossyReview,
+          canonicalMode:
+              _coordinator.state() == PlanningCutoverState.canonical,
+        ) ==
+        AiCaptureIngress.legacyPendingReview;
     final account = await _accountForCurrency(normalizedCurrency);
     final occurredAt = _date(parsed['occurredAt']) ??
         _date(parsed['comparisonTimestamp']) ??
@@ -356,7 +374,7 @@ class CaptureSyncService {
       // capture بحالة duplicate تصل هنا فقط عندما تعذّر ربطها بعمليتها
       // الأصلية محليًا (سجل الربط فُقد أو الأصل على جهاز آخر) — لا تُعتمد
       // أبدًا كمؤكَّدة، وإلا حُسب المبلغ مرّتين بصمت رغم إشعار "مشابهة".
-      status: legacyLossyReview ||
+      status: requiresReview ||
               capture.status == 'needs_review' ||
               capture.status == 'duplicate'
           ? TransactionStatus.pending

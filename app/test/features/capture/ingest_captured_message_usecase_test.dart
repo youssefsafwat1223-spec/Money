@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/repositories/drift_merchant_category_repository.dart';
 import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -50,6 +51,29 @@ void main() {
 
     expect(result.disposition, CapturedMessageDisposition.notifyOnly);
     expect(result.addTransactionResult.outcome, AddTransactionOutcome.added);
+    expect(result.addTransactionResult.requiresConfirmation, isFalse);
+  });
+
+  // MALI-026 (B8-2.10 §12) — Path B (AddTransactionUseCase) honours the ingress
+  // contract: canonical mode is wired and an EXACT parsed amount still confirms
+  // (the resolver does not over-block exact captures). Numeric-only → pending is
+  // proven at the service level in capture_sync_service_test §12.
+  test('§12 canonical mode: exact parsed capture still confirms via Path B',
+      () async {
+    const rawMessage = 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\n'
+        'لدى:NETFLIX\nفي:2026-04-08 12:45\nالرصيد:SAR 2,310.50';
+    final canonicalIngest = IngestCapturedMessageUseCase(
+      AddTransactionUseCase(
+        transactionRepository: DriftTransactionRepository(db),
+        merchantCategoryRepository: DriftMerchantCategoryRepository(db),
+        suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
+        coordinator: const FixedPlanningCutoverCoordinator(
+            PlanningCutoverState.canonical),
+      ),
+    );
+
+    final result =
+        await canonicalIngest(rawMessage: rawMessage, senderId: 'SNB');
     expect(result.addTransactionResult.requiresConfirmation, isFalse);
   });
 

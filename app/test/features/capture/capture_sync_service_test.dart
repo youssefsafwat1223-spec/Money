@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
@@ -133,7 +134,11 @@ void main() {
     await db.close();
   });
 
-  CaptureSyncService service(_FakeCaptureBackendClient client) {
+  CaptureSyncService service(
+    _FakeCaptureBackendClient client, {
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+  }) {
     return CaptureSyncService(
       settingsRepository: settingsRepository,
       transactionRepository: DriftTransactionRepository(db),
@@ -144,6 +149,7 @@ void main() {
       client: client,
       backendConfigured: true,
       loadInstallId: () async => 'install-id',
+      coordinator: coordinator,
     );
   }
 
@@ -240,6 +246,45 @@ void main() {
     expect(transactions.single.status, TransactionStatus.pending);
     expect(transactions.single.amountMoney.currency, 'SAR');
     expect(result.needsReviewTransactionIds, [transactions.single.id]);
+  });
+
+  // MALI-026 (B8-2.10 §12/§13) — canonical-mode old-backend enforcement through
+  // the REAL CaptureSyncService (not the pure resolver).
+  test('§12 canonical mode: numeric-only old backend can NEVER auto-confirm',
+      () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-canonical-numeric',
+        status: 'processed',
+        includeAmountText: false, // old numeric-only backend
+      ),
+    ]);
+    await service(
+      client,
+      coordinator: const FixedPlanningCutoverCoordinator(
+          PlanningCutoverState.canonical),
+    ).sync();
+    final tx = (await DriftTransactionRepository(db).getAll()).single;
+    expect(tx.status, TransactionStatus.pending); // forced to review
+  });
+
+  test('§13 canonical mode: exact amount_text enters canonical authority',
+      () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(
+        payloadId: 'payload-canonical-exact',
+        status: 'processed',
+        includeAmountText: true,
+        amountText: '42.00',
+      ),
+    ]);
+    await service(
+      client,
+      coordinator: const FixedPlanningCutoverCoordinator(
+          PlanningCutoverState.canonical),
+    ).sync();
+    final tx = (await DriftTransactionRepository(db).getAll()).single;
+    expect(tx.status, TransactionStatus.confirmed);
   });
 
   test('AI hybrid relay capture keeps the smart transaction source', () async {

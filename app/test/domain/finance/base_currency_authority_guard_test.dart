@@ -12,12 +12,17 @@ import 'package:flutter_test/flutter_test.dart';
 // someone wires the base currency into a planning money read/write authority.
 
 void main() {
-  // Planning-money data-layer surfaces. The mapper file (drift_repository_support)
-  // is checked narrowly for the base-currency identifiers too, since the future
-  // budget/goal mappers will live there.
+  // Planning-money data-layer surfaces: the two repositories AND the list/detail
+  // PROVIDERS that build the planning view models. (B8-2.10 §15 strengthening:
+  // the screens may still label existing-row amounts with the base currency for
+  // DISPLAY until the v30 entity conversion — that is presentation, not money
+  // authority — but the DATA layer that produces planning money must never resolve
+  // an EXISTING row's currency from the base/active-account/user_settings.)
   const dataLayerFiles = [
     'lib/data/repositories/drift_budget_repository.dart',
     'lib/data/repositories/drift_goal_repository.dart',
+    'lib/features/budgets/budgets_providers.dart',
+    'lib/features/goals/goals_providers.dart',
   ];
 
   test('planning data-layer never uses baseCurrencyProvider as a currency authority',
@@ -39,6 +44,18 @@ void main() {
       // repo would be interpreting existing planning money via the mutable base.
       expect(src.contains('user_settings'), isFalse,
           reason: '$path must not consult user_settings for planning money currency.');
+    }
+  });
+
+  test('planning data-layer does not resolve an existing row currency from the active account',
+      () {
+    for (final path in dataLayerFiles) {
+      final src = File(path).readAsStringSync();
+      // The active/default account currency is a NEW-row default only; a planning
+      // data-layer file must not read it to interpret an existing row's money.
+      expect(src.contains('activeAccountProvider'), isFalse,
+          reason: '$path must not derive existing planning money currency from '
+              'the active account.');
     }
   });
 }

@@ -143,7 +143,7 @@ void main() {
 
     expect(find.text('لماذا نحتاج تأكيدك؟'), findsOneWidget);
     expect(
-      find.textContaining('الميزانيات والأهداف القديمة لا تحفظ العملة الأصلية'),
+      find.textContaining('لا تحفظ عملة مع المبلغ'),
       findsOneWidget,
     );
     final field = tester.widget<TextFormField>(
@@ -161,6 +161,24 @@ void main() {
     expect(manifest!.mode, PlanningRepairMode.global);
     expect(manifest.globalCurrency, 'EGP');
     expect(find.text('تم تأكيد العملات'), findsOneWidget);
+  });
+
+  testWidgets('§14 copy is semantically truthful (treat-as, not detected-original)',
+      (tester) async {
+    await addBudget();
+    await addGoal();
+    await pumpRepairScreen(tester);
+
+    // The screen must NEVER imply it rediscovered a historical/original currency.
+    expect(find.textContaining('العملة الأصلية'), findsNothing);
+    expect(find.textContaining('اكتشفنا'), findsNothing);
+    expect(find.textContaining('الأصلية'), findsNothing);
+    // It MUST frame the choice as how to TREAT the current items.
+    expect(find.textContaining('تختار أنت كيف تريد معاملتها'), findsOneWidget);
+    expect(
+      find.textContaining('كل الميزانيات والأهداف الحالية تستخدم'),
+      findsWidgets,
+    );
   });
 
   testWidgets('per-row flow saves different budget and goal currencies',

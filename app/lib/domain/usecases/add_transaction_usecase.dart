@@ -13,6 +13,7 @@ import '../../engine/models/transaction_type.dart';
 import '../../engine/parser/bank_profile.dart';
 import '../../engine/parser/payment_aggregators.dart';
 import '../../engine/parser/bank_sender_filter.dart';
+import '../../data/db/planning_cutover.dart';
 import '../../engine/parser/capture_money.dart';
 import '../../engine/parser/direction_signal.dart';
 import '../../engine/parser/parser_engine.dart';
@@ -279,7 +280,13 @@ class AddTransactionUseCase {
     ResolveBankForSenderUseCase? resolveBankForSenderUseCase,
     BankDiscoveryService? bankDiscoveryService,
     SuspectedDuplicateRepository? suspectedDuplicateRepository,
+    // MALI-026 (B8-2.10 §12): money-authority mode; defaults to legacy so v29
+    // add/AI ingestion is unchanged. Canonical mode forces a non-exact capture
+    // to pending review (never auto-confirmed into canonical authority).
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _transactionRepository = transactionRepository,
+        _coordinator = coordinator,
         _merchantCategoryRepository = merchantCategoryRepository,
         _parserIsolate = parserIsolate ?? const ParserIsolate(),
         _recordEngagementUseCase = recordEngagementUseCase,
@@ -302,6 +309,7 @@ class AddTransactionUseCase {
   static const double categoryAutoConfirmThreshold = 0.80;
 
   final TransactionRepository _transactionRepository;
+  final PlanningCutoverCoordinator _coordinator;
   final MerchantCategoryRepository _merchantCategoryRepository;
   final SuspectedDuplicateRepository? _suspectedDuplicateRepository;
   final ParserIsolate _parserIsolate;
@@ -696,6 +704,16 @@ class AddTransactionUseCase {
         mainAmount.legacyLossy ||
         balanceAfter.legacyLossy ||
         foreignAmount.legacyLossy;
+    // MALI-026 (B8-2.10 §12/§13): the explicit ingress contract. In canonical
+    // mode any non-exact (legacy-lossy) money forces pending review — a
+    // numeric-only old-backend response can never auto-confirm into canonical
+    // authority. Legacy (v29) is unchanged (non-exact already reviews).
+    final requiresReview = resolveAiCaptureIngress(
+          hasExactText: !legacyLossyReview,
+          canonicalMode:
+              _coordinator.state() == PlanningCutoverState.canonical,
+        ) ==
+        AiCaptureIngress.legacyPendingReview;
 
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
@@ -713,7 +731,7 @@ class AddTransactionUseCase {
       rawMessage: rawMessage,
       parseConfidence: effectiveParsed.parseConfidence,
       direction: resolvedDirection,
-      status: (canAutoConfirm && !foreignUnpriced && !legacyLossyReview)
+      status: (canAutoConfirm && !foreignUnpriced && !requiresReview)
           ? TransactionStatus.confirmed
           : TransactionStatus.pending,
       createdAt: now,
@@ -893,7 +911,14 @@ class AddTransactionUseCase {
       rawMessage: rawMessage,
       parseConfidence: 1.0,
       direction: TransactionDirectionEntity.debit,
-      status: feeAmount.legacyLossy
+      // MALI-026 (B8-2.10 §12): the fee line obeys the same ingress contract —
+      // a non-exact fee amount cannot auto-confirm in canonical mode.
+      status: resolveAiCaptureIngress(
+                hasExactText: !feeAmount.legacyLossy,
+                canonicalMode:
+                    _coordinator.state() == PlanningCutoverState.canonical,
+              ) ==
+              AiCaptureIngress.legacyPendingReview
           ? TransactionStatus.pending
           : TransactionStatus.confirmed,
       createdAt: now,

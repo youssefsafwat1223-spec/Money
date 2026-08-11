@@ -117,9 +117,9 @@ class _PlanningCurrencyRepairScreenState
           icon: Icons.info_outline_rounded,
           title: 'لماذا نحتاج تأكيدك؟',
           child: Text(
-            'الميزانيات والأهداف القديمة لا تحفظ العملة الأصلية مع المبلغ. '
-            'لذلك لا يستطيع قرش استنتاجها بأمان، ولن يغيّر أي مبلغ أو يحذف أي بيانات. '
-            'مساهمات الأهداف تتبع عملة الهدف تلقائياً.',
+            'الميزانيات والأهداف القديمة لا تحفظ عملة مع المبلغ. لذلك لن يخمّن '
+            'قرش عملتها، بل تختار أنت كيف تريد معاملتها. لن يتغيّر أي مبلغ ولن '
+            'تُحذف أي بيانات. مساهمات الأهداف تتبع عملة الهدف تلقائياً.',
             style: AppTypography.body(c.textSecondary),
           ),
         ),
@@ -540,7 +540,7 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.s1),
           Text(
             '${isBudget ? 'المبلغ القديم' : 'المبلغ المستهدف القديم'}: '
-            '${Formatters.amount(row.legacyAmount)} · العملة غير معروفة',
+            '${Formatters.amount(row.legacyAmount)} · بدون عملة محددة',
             style: AppTypography.caption(c.textSecondary),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -548,7 +548,7 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
             key: ValueKey('repair-currency-${row.id}'),
             value: currency,
             isExpanded: true,
-            decoration: const InputDecoration(labelText: 'العملة الأصلية'),
+            decoration: const InputDecoration(labelText: 'اعتبرها بهذه العملة'),
             items: [
               for (final code in currencies)
                 DropdownMenuItem(
