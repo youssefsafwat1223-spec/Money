@@ -5,7 +5,9 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/exact_transport_capability.dart';
 import 'planning_outbox_queue.dart';
 
 /// Acknowledgement columns a guarded write reads back — includes the server
@@ -19,12 +21,16 @@ class PlanningPushResult {
     this.conflicts = 0,
     this.failed = 0,
     this.abandoned = 0,
+    this.parked = 0,
   });
 
   final int pushed;
   final int conflicts;
   final int failed;
   final int abandoned;
+
+  /// MALI-026 (B8-2.10 §8): money rows held for unverified exact transport.
+  final int parked;
 }
 
 abstract class PlanningRemoteSink {
@@ -151,12 +157,22 @@ class PlanningPushService {
     Future<String?> Function()? getAuthUserId,
     PlanningRemoteSink? remoteSink,
     bool revisionCasEnabled = kServerRevisionCas,
+    // MALI-026 (B8-2.10 §8/§9): both defaults preserve schema-v29 behavior:
+    // legacy authority never parks, regardless of the unknown capability.
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+    ExactTransportCapability Function() pushCapability = _defaultPushCapability,
   })  : _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _remoteSink = remoteSink ?? const SupabasePlanningRemoteSink(),
-        _revisionCasEnabled = revisionCasEnabled;
+        _revisionCasEnabled = revisionCasEnabled,
+        _coordinator = coordinator,
+        _pushCapability = pushCapability;
+
+  static ExactTransportCapability _defaultPushCapability() =>
+      ExactTransportCapability.unknown;
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
@@ -168,6 +184,15 @@ class PlanningPushService {
   /// [kServerRevisionCas] capability const (OFF until 0068 verified on staging);
   /// injectable so the ON path is testable.
   final bool _revisionCasEnabled;
+  final PlanningCutoverCoordinator _coordinator;
+  final ExactTransportCapability Function() _pushCapability;
+
+  static const _moneyEntityTypes = {
+    PlanningOutboxQueue.accountsEntityType,
+    PlanningOutboxQueue.subscriptionsEntityType,
+    PlanningOutboxQueue.plansEntityType,
+    PlanningOutboxQueue.billPaymentsEntityType,
+  };
 
   static const _entityTable = {
     PlanningOutboxQueue.budgetsEntityType: 'user_budgets',
@@ -202,10 +227,17 @@ class PlanningPushService {
     final userId = await _getAuthUserId();
     if (userId == null) return const PlanningPushResult();
 
+    // MALI-026 (B8-2.10 §9): a verified exact transport re-arms the SAME
+    // durable rows before this drain starts.
+    if (_pushCapability() == ExactTransportCapability.verifiedExact) {
+      await _queue.reArmParked();
+    }
+
     var pushed = 0;
     var conflicts = 0;
     var failed = 0;
     var abandoned = 0;
+    var parked = 0;
 
     for (final entityType in _entityTable.keys) {
       if (!_isEnabled(entityType)) continue;
@@ -220,6 +252,9 @@ class PlanningPushService {
               conflicts++;
             case _PlanningPushOutcome.abandoned:
               abandoned++;
+            case _PlanningPushOutcome.parked:
+              // Held durably; not sent, synced, failed, or retried.
+              parked++;
           }
         } catch (e) {
           failed++;
@@ -240,6 +275,7 @@ class PlanningPushService {
       conflicts: conflicts,
       failed: failed,
       abandoned: abandoned,
+      parked: parked,
     );
   }
 
@@ -247,6 +283,18 @@ class PlanningPushService {
     PlanningOutboxItem item,
     String userId,
   ) async {
+    // MALI-026 (B8-2.10 §8): only converted Money entities park, and only for
+    // non-delete writes. Budgets/goals retain their raw-double wire shape.
+    if (item.operation != PlanningSyncOperation.delete &&
+        _moneyEntityTypes.contains(item.entityType) &&
+        shouldParkExactMoneyWrite(
+          cutoverState: _coordinator.state(),
+          pushCapability: _pushCapability(),
+        )) {
+      await _queue.park(item.id, exactMoneyTransportUnverifiedReason);
+      return _PlanningPushOutcome.parked;
+    }
+
     final remoteTable = _entityTable[item.entityType];
     final localTable = _localTable[item.entityType];
     if (remoteTable == null || localTable == null) {
@@ -530,4 +578,4 @@ class PlanningPushService {
   }
 }
 
-enum _PlanningPushOutcome { pushed, conflict, abandoned }
+enum _PlanningPushOutcome { pushed, conflict, abandoned, parked }

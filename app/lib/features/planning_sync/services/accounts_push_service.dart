@@ -5,7 +5,9 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/exact_transport_capability.dart';
 import 'planning_outbox_queue.dart';
 
 /// Acknowledgement columns a non-CAS account write reads back — includes the
@@ -23,12 +25,14 @@ class AccountsPushResult {
     this.conflicts = 0,
     this.failed = 0,
     this.abandoned = 0,
+    this.parked = 0,
   });
 
   final int pushed;
   final int conflicts;
   final int failed;
   final int abandoned;
+  final int parked;
 }
 
 abstract class AccountsRemoteSink {
@@ -152,12 +156,20 @@ class AccountsPushService {
     Future<String?> Function()? getAuthUserId,
     AccountsRemoteSink? remoteSink,
     bool revisionCasEnabled = kServerRevisionCas,
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+    ExactTransportCapability Function() pushCapability = _defaultPushCapability,
   })  : _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _remoteSink = remoteSink ?? const SupabaseAccountsRemoteSink(),
-        _revisionCasEnabled = revisionCasEnabled;
+        _revisionCasEnabled = revisionCasEnabled,
+        _coordinator = coordinator,
+        _pushCapability = pushCapability;
+
+  static ExactTransportCapability _defaultPushCapability() =>
+      ExactTransportCapability.unknown;
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
@@ -169,6 +181,8 @@ class AccountsPushService {
   /// [kServerRevisionCas] capability const (OFF until 0068 verified on staging);
   /// injectable so the ON path is testable.
   final bool _revisionCasEnabled;
+  final PlanningCutoverCoordinator _coordinator;
+  final ExactTransportCapability Function() _pushCapability;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -184,10 +198,15 @@ class AccountsPushService {
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPushResult();
 
+    if (_pushCapability() == ExactTransportCapability.verifiedExact) {
+      await _queue.reArmParked();
+    }
+
     int pushed = 0;
     int conflicts = 0;
     int failed = 0;
     int abandoned = 0;
+    int parked = 0;
 
     // Field syncs FIRST, so a default command can resolve its target's server id
     // (a freshly-created default account is established before the command runs).
@@ -204,6 +223,8 @@ class AccountsPushService {
             conflicts++;
           case _AccountsPushOutcome.abandoned:
             abandoned++;
+          case _AccountsPushOutcome.parked:
+            parked++;
         }
       } catch (e) {
         failed++;
@@ -251,6 +272,7 @@ class AccountsPushService {
       conflicts: conflicts,
       failed: failed,
       abandoned: abandoned,
+      parked: parked,
     );
   }
 
@@ -258,6 +280,15 @@ class AccountsPushService {
     PlanningOutboxItem item,
     String userId,
   ) async {
+    if (item.operation != PlanningSyncOperation.delete &&
+        shouldParkExactMoneyWrite(
+          cutoverState: _coordinator.state(),
+          pushCapability: _pushCapability(),
+        )) {
+      await _queue.park(item.id, exactMoneyTransportUnverifiedReason);
+      return _AccountsPushOutcome.parked;
+    }
+
     switch (item.operation) {
       case PlanningSyncOperation.create:
       case PlanningSyncOperation.update:
@@ -433,4 +464,4 @@ class AccountsPushService {
   }
 }
 
-enum _AccountsPushOutcome { pushed, conflict, abandoned }
+enum _AccountsPushOutcome { pushed, conflict, abandoned, parked }

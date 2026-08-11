@@ -467,6 +467,7 @@ final planningOutboxQueueProvider = Provider<PlanningOutboxQueue>((ref) {
     isSyncEnabled: _planningEntitySyncEnabled,
     getAuthUserId: _currentSupabaseUserId,
     onQueued: SyncWakeup.notify,
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );
 });
 
@@ -476,6 +477,8 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
     db: db,
     queue: ref.watch(planningOutboxQueueProvider),
     isEnabled: _planningAccountsSyncEnabled,
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
+    pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
   );
 });
 
@@ -491,6 +494,8 @@ final planningPushServiceProvider = Provider<PlanningPushService>((ref) {
     db: ref.watch(appDatabaseProvider),
     queue: ref.watch(planningOutboxQueueProvider),
     isEnabled: _planningEntitySyncEnabled,
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
+    pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
   );
 });
 
@@ -507,6 +512,8 @@ final planningChildSyncServiceProvider =
     db: ref.watch(appDatabaseProvider),
     queue: ref.watch(planningOutboxQueueProvider),
     isEnabled: _planningEntitySyncEnabled,
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
+    pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
   );
 });
 
@@ -940,6 +947,7 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
     accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );
 });
 
@@ -1053,6 +1061,7 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     bankDiscoveryService: ref.watch(bankDiscoveryServiceProvider),
     suspectedDuplicateRepository:
         ref.watch(suspectedDuplicateRepositoryProvider),
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );
 });
 

@@ -8,8 +8,10 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_repository_support.dart';
+import '../../../data/sync/exact_transport_capability.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/finance/money_transport.dart';
 import '../../../engine/parser/capture_money.dart';
@@ -154,13 +156,18 @@ class PlanningChildSyncService {
     Future<String?> Function()? getAuthUserId,
     PlanningChildRemote? remote,
     int pageSize = 200,
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+    ExactTransportCapability Function() pushCapability = _defaultPushCapability,
   })  : assert(pageSize > 0),
         _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultUserId,
         _pageSize = pageSize,
-        _remote = remote ?? const SupabasePlanningChildRemote();
+        _remote = remote ?? const SupabasePlanningChildRemote(),
+        _coordinator = coordinator,
+        _pushCapability = pushCapability;
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
@@ -168,6 +175,11 @@ class PlanningChildSyncService {
   final Future<String?> Function() _getAuthUserId;
   final PlanningChildRemote _remote;
   final int _pageSize;
+  final PlanningCutoverCoordinator _coordinator;
+  final ExactTransportCapability Function() _pushCapability;
+
+  static ExactTransportCapability _defaultPushCapability() =>
+      ExactTransportCapability.unknown;
 
   static Future<String?> _defaultUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -181,6 +193,9 @@ class PlanningChildSyncService {
   Future<void> sync() async {
     final userId = await _getAuthUserId();
     if (userId == null) return;
+    if (_pushCapability() == ExactTransportCapability.verifiedExact) {
+      await _queue.reArmParked();
+    }
     if (kDebugMode) debugPrint('[PlanningChildSync] start');
     await _push(userId);
     await _pull();
@@ -197,6 +212,18 @@ class PlanningChildSyncService {
       final items = await _queue.pendingItems(entityType: type);
       for (final item in items) {
         try {
+          if (item.entityType == PlanningOutboxQueue.billPaymentsEntityType &&
+              item.operation != PlanningSyncOperation.delete &&
+              shouldParkExactMoneyWrite(
+                cutoverState: _coordinator.state(),
+                pushCapability: _pushCapability(),
+              )) {
+            await _queue.park(
+              item.id,
+              exactMoneyTransportUnverifiedReason,
+            );
+            continue;
+          }
           await _pushItem(userId, item);
           await _queue.markSuccess(item.id);
         } catch (error) {

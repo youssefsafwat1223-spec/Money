@@ -4,16 +4,18 @@ import '../../../core/sync/conflict_policy.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/bill_entity.dart';
-import '../../../domain/finance/money_transport.dart';
 import '../../../domain/entities/card_entity.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/entities/category_entity.dart';
 import '../../../domain/entities/goal_entity.dart';
 import '../../../domain/entities/plan_entity.dart';
 import '../../../domain/entities/supporting_entities.dart';
+import '../../../domain/finance/money.dart';
+import '../../../domain/finance/money_transport.dart';
 
 enum PlanningSyncOperation { create, update, delete }
 
@@ -55,10 +57,16 @@ class PlanningOutboxQueue {
     required bool Function(String entityType) isSyncEnabled,
     required Future<String?> Function() getAuthUserId,
     void Function()? onQueued,
+    // MALI-026 (B8-2.10 §10): the money-authority mode. Legacy (v29 today)
+    // emits the current JSON-number wire shape; canonical emits the exact
+    // decimal STRING. Defaults to legacy, so today's payloads are byte-identical.
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _db = db,
         _isSyncEnabled = isSyncEnabled,
         _getAuthUserId = getAuthUserId,
-        _onQueued = onQueued;
+        _onQueued = onQueued,
+        _coordinator = coordinator;
 
   static const String accountsEntityType = 'account';
   static const String budgetsEntityType = 'budget';
@@ -87,6 +95,7 @@ class PlanningOutboxQueue {
   final bool Function(String entityType) _isSyncEnabled;
   final Future<String?> Function() _getAuthUserId;
   final void Function()? _onQueued;
+  final PlanningCutoverCoordinator _coordinator;
 
   Future<bool> enqueueAccount(
     PlanningSyncOperation op,
@@ -187,6 +196,10 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     BillPaymentEntity payment,
   ) {
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object amountWire(Money m) =>
+        canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
+
     return _enqueue(
       entityType: billPaymentsEntityType,
       entityId: payment.id,
@@ -196,7 +209,7 @@ class PlanningOutboxQueue {
         'local_id': payment.id,
         'local_subscription_id': payment.billId,
         'local_transaction_id': payment.transactionId,
-        'amount': moneyToLegacyJsonNumber(payment.amountMoney),
+        'amount': amountWire(payment.amountMoney),
         'currency': payment.currency,
         'period_start': payment.periodStart.toUtc().toIso8601String(),
         'period_end': payment.periodEnd.toUtc().toIso8601String(),
@@ -536,6 +549,41 @@ class PlanningOutboxQueue {
     ''');
   }
 
+  /// MALI-026 (B8-2.10 §8): park a canonical money row whose exact push
+  /// transport is unverified. Parked rows are excluded from [pendingItems],
+  /// retained durably, and consume no retry attempt.
+  Future<void> park(String id, String reason) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.customStatement('''
+      UPDATE planning_sync_outbox
+      SET status = 'parked', failure_class = ${sqlString(reason)},
+          last_error = NULL, next_retry_at = NULL, updated_at = ${sqlString(now)}
+      WHERE id = ${sqlString(id)} AND status = 'pending';
+    ''');
+  }
+
+  /// MALI-026 (B8-2.10 §9): re-arm the same durable rows after exact push
+  /// transport is verified. Returns the number re-armed.
+  Future<int> reArmParked() async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    return _db.customUpdate('''
+      UPDATE planning_sync_outbox
+      SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
+          updated_at = ${sqlString(now)}
+      WHERE status = 'parked';
+    ''');
+  }
+
+  /// Parked-row count for diagnostics (no financial payload exposed).
+  Future<int> parkedCount() async {
+    final row = await _db
+        .customSelect(
+          "SELECT COUNT(*) AS n FROM planning_sync_outbox WHERE status = 'parked';",
+        )
+        .getSingle();
+    return row.read<int>('n');
+  }
+
   Future<int> deadLetterCount() async {
     final row = await _db
         .customSelect(
@@ -551,16 +599,21 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     AccountEntity account,
   ) {
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object? amountWireOrNull(Money? m) => canonical
+        ? moneyToNumericTextOrNull(m)
+        : moneyToLegacyJsonNumberOrNull(m);
+
     final payload = <String, dynamic>{
       'local_id': account.id,
       'name': account.name,
       'currency': account.currency,
       'type': account.type.name,
-      'initial_balance': moneyToLegacyJsonNumberOrNull(account.initialBalanceMoney),
-      'current_balance': moneyToLegacyJsonNumberOrNull(account.currentBalanceMoney),
+      'initial_balance': amountWireOrNull(account.initialBalanceMoney),
+      'current_balance': amountWireOrNull(account.currentBalanceMoney),
       'bank_account_number': account.bankAccountNumber,
-      'credit_limit': moneyToLegacyJsonNumberOrNull(account.creditLimitMoney),
-      'available_credit': moneyToLegacyJsonNumberOrNull(account.availableCreditMoney),
+      'credit_limit': amountWireOrNull(account.creditLimitMoney),
+      'available_credit': amountWireOrNull(account.availableCreditMoney),
       'payment_due_day': account.paymentDueDay,
       'wallet_provider': account.walletProvider,
       'exclude_from_totals': account.excludeFromTotals,
@@ -663,12 +716,19 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     BillEntity bill,
   ) {
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object amountWire(Money m) =>
+        canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
+    Object? amountWireOrNull(Money? m) => canonical
+        ? moneyToNumericTextOrNull(m)
+        : moneyToLegacyJsonNumberOrNull(m);
+
     return _withDelete(op, {
       'local_id': bill.id,
       'local_account_id': bill.accountId,
       'merchant_id': bill.merchantId,
       'name': bill.name,
-      'amount': moneyToLegacyJsonNumber(bill.amountMoney),
+      'amount': amountWire(bill.amountMoney),
       'currency': bill.currency,
       'type': bill.type.name,
       'frequency': bill.frequency.name,
@@ -680,9 +740,8 @@ class PlanningOutboxQueue {
       'status': bill.status.name,
       'total_installments': bill.totalInstallments,
       'paid_count': bill.paidCount,
-      'manual_paid_amount': moneyToLegacyJsonNumberOrNull(bill.manualPaidMoney),
-      'total_purchase_amount':
-          moneyToLegacyJsonNumberOrNull(bill.totalPurchaseMoney),
+      'manual_paid_amount': amountWireOrNull(bill.manualPaidMoney),
+      'total_purchase_amount': amountWireOrNull(bill.totalPurchaseMoney),
       'lender_name': bill.lenderName,
       'interest_rate': bill.interestRate,
       'created_at': bill.createdAt.toUtc().toIso8601String(),
@@ -714,10 +773,14 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     PlanEntity plan,
   ) {
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object amountWire(Money m) =>
+        canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
+
     return _withDelete(op, {
       'local_id': plan.id,
       'name': plan.name,
-      'budget_amount': moneyToLegacyJsonNumber(plan.budgetAmountMoney),
+      'budget_amount': amountWire(plan.budgetAmountMoney),
       'currency': plan.currency,
       'start_date': plan.startDate.toUtc().toIso8601String(),
       'end_date': plan.endDate.toUtc().toIso8601String(),
