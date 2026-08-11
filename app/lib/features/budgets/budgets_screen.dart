@@ -16,6 +16,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/category_catalog.dart';
+import '../common/planning_repair_gate.dart';
 import '../common/premium_loading.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../common/app_card.dart';
@@ -36,7 +37,10 @@ class BudgetsScreen extends ConsumerWidget {
   const BudgetsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context, WidgetRef ref) =>
+      PlanningRepairGate(child: _buildScreen(context, ref));
+
+  Widget _buildScreen(BuildContext context, WidgetRef ref) {
     final async = ref.watch(budgetsViewProvider);
     final tab = ref.watch(budgetsPageTabProvider);
     final currencyLabel = Currency.arabicLabel(

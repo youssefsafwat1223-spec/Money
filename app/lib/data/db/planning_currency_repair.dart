@@ -70,6 +70,19 @@ enum PlanningRepairStatus {
   satisfied,
 }
 
+/// MALI-026 (Phase-8 B8-2.10 §4) — the single cutover-eligibility contract.
+///
+/// The future v30 planning-currency cutover executor MUST call this and refuse
+/// unless the repair is non-blocking: [PlanningRepairStatus.satisfied] (a valid
+/// confirmed decision) or [PlanningRepairStatus.notRequired] (no existing rows,
+/// nothing to disambiguate). It refuses for `needsConfirmation` and — crucially
+/// — for `stale`: a `stale` decision (the confirmed dataset was replaced/edited
+/// after confirmation) is NEVER treated as satisfied, so the executor refuses
+/// and the planning mutation guard keeps blocking writes until re-confirmation.
+bool mayExecutePlanningCutover(PlanningRepairStatus status) =>
+    status == PlanningRepairStatus.satisfied ||
+    status == PlanningRepairStatus.notRequired;
+
 class PlanningCurrencyRepairManifest {
   const PlanningCurrencyRepairManifest({
     required this.manifestVersion,

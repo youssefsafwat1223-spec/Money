@@ -11,6 +11,7 @@ import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../common/planning_repair_gate.dart';
 import '../common/premium_loading.dart';
 import 'goal_details_screen.dart';
 import 'goal_form_screen.dart';
@@ -20,7 +21,10 @@ class GoalsScreen extends ConsumerWidget {
   const GoalsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context, WidgetRef ref) =>
+      PlanningRepairGate(child: _buildScreen(context, ref));
+
+  Widget _buildScreen(BuildContext context, WidgetRef ref) {
     final async = ref.watch(goalsListProvider);
     final currencyLabel = Currency.arabicLabel(
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');

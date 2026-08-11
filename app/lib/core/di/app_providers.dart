@@ -686,6 +686,7 @@ final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
   return DriftBudgetRepository(
     db,
     outboxQueue: ref.watch(planningOutboxQueueProvider),
+    guard: ref.watch(planningMutationGuardProvider),
   );
 });
 
@@ -694,6 +695,7 @@ final goalRepositoryProvider = Provider<GoalRepository>((ref) {
   return DriftGoalRepository(
     db,
     outboxQueue: ref.watch(planningOutboxQueueProvider),
+    guard: ref.watch(planningMutationGuardProvider),
   );
 });
 

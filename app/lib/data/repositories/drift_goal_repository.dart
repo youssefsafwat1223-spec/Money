@@ -1,23 +1,36 @@
 import 'package:drift/drift.dart';
 
 import '../../domain/entities/goal_entity.dart';
+import '../../domain/finance/planning_mutation_guard.dart';
 import '../../domain/repositories/goal_repository.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
+import '../db/planning_cutover.dart';
 import '../db/sql_value_codec.dart';
 import 'drift_repository_support.dart';
 
 class DriftGoalRepository implements GoalRepository {
-  DriftGoalRepository(this._db, {PlanningOutboxQueue? outboxQueue})
-      : _outboxQueue = outboxQueue;
+  DriftGoalRepository(
+    this._db, {
+    PlanningOutboxQueue? outboxQueue,
+    // MALI-026 (B8-2.10 §1): the authoritative planning-mutation boundary. The
+    // default resolves to schema-v29 legacy, so every existing construction site
+    // and today's production behavior is unchanged; only an injected unresolved
+    // coordinator (future v30 P1) makes these writes throw.
+    PlanningMutationGuard guard =
+        const PlanningMutationGuard(SchemaV29PlanningCutoverCoordinator()),
+  })  : _outboxQueue = outboxQueue,
+        _guard = guard;
 
   final AppDatabase _db;
   final PlanningOutboxQueue? _outboxQueue;
+  final PlanningMutationGuard _guard;
 
   @override
   Future<GoalContributionEntity> addContribution(
     GoalContributionEntity contribution,
   ) async {
+    _guard.requireMutable();
     return _db.transaction(() async {
       await _db.customStatement('''
       INSERT INTO goal_contributions(id, goal_id, amount, created_at, note)
@@ -54,6 +67,7 @@ class DriftGoalRepository implements GoalRepository {
 
   @override
   Future<void> delete(String id) async {
+    _guard.requireDeletable();
     await _db.transaction(() async {
       final existing = await getById(id);
       final now = dateTimeToSql(DateTime.now().toUtc());
@@ -121,6 +135,7 @@ class DriftGoalRepository implements GoalRepository {
 
   @override
   Future<GoalEntity> save(GoalEntity goal) async {
+    _guard.requireMutable();
     return _db.transaction(() async {
       final existing = await getById(goal.id);
       final autoAmount =
