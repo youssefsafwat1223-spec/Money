@@ -394,7 +394,10 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   );
   final pendingReviewTotal =
       // Transitional presentation-only cross-account total: currencies may mix.
-      pendingReview.fold<double>(0, (sum, tx) => sum + tx.amount);
+      pendingReview.fold<double>(
+    0,
+    (sum, tx) => sum + tx.amountMoney.toDouble(),
+  );
   final saved = prevMonthExpenses - thisMonthExpenses;
   // Start the remaining independent sections before awaiting any one of them.
   // This is especially important with direct Supabase repositories, where

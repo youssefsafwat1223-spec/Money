@@ -287,7 +287,8 @@ List<TransactionEntity> _budgetTransactionsForPeriod(
 /// Transitional presentation projection: the public history API still returns
 /// double and may be exercised with mixed test/account currencies.
 double budgetHistoryRowSigned(TransactionEntity tx) =>
-    tx.type == TransactionTypeEntity.refund ? -tx.amount : tx.amount;
+    (tx.type == TransactionTypeEntity.refund ? -tx.amountMoney : tx.amountMoney)
+        .toDouble();
 
 class _BudgetPeriodWindow {
   const _BudgetPeriodWindow({

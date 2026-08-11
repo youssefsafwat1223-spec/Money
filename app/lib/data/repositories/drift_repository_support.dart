@@ -4,8 +4,73 @@ import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money.dart';
+import '../db/app_database.dart';
 import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
+
+/// Canonical persistence seam for a per-row-currency bill-payment pulled by
+/// the shared planning-child coordinator. Keeping the SQL here prevents the
+/// coordinator itself from becoming an unregistered money writer.
+Future<void> writePulledBillPayment({
+  required AppDatabase db,
+  required Map<String, dynamic> row,
+  required String localId,
+  required String billLocalId,
+  required String? transactionLocalId,
+  required Money amountMoney,
+  required String now,
+}) async {
+  await db.customStatement('''
+    INSERT INTO bill_payments(
+      id, bill_id, amount, currency, period_start, period_end, paid_at,
+      installment_index, transaction_id, note, server_id, synced_at,
+      server_updated_at, sync_status, deleted_at
+    ) VALUES (
+      ${sqlString(localId)}, ${sqlString(billLocalId)},
+      ${kMoneyCodec.sqlRealLiteral(amountMoney)},
+      ${sqlString(amountMoney.currency)},
+      ${sqlString(row['period_start'] as String)},
+      ${sqlString(row['period_end'] as String)},
+      ${sqlString(row['paid_at'] as String)},
+      ${sqlNullableNum(row['installment_index'] as num?)},
+      ${sqlNullableString(transactionLocalId)},
+      ${sqlNullableString(row['note'] as String?)},
+      ${sqlString(row['id'] as String)}, ${sqlString(now)},
+      ${sqlNullableString(row['updated_at'] as String?)}, 'synced',
+      ${sqlNullableString(row['deleted_at'] as String?)}
+    ) ON CONFLICT(id) DO UPDATE SET
+      bill_id=excluded.bill_id, amount=excluded.amount,
+      currency=excluded.currency, period_start=excluded.period_start,
+      period_end=excluded.period_end, paid_at=excluded.paid_at,
+      installment_index=excluded.installment_index,
+      transaction_id=excluded.transaction_id, note=excluded.note,
+      server_id=excluded.server_id, synced_at=excluded.synced_at,
+      server_updated_at=excluded.server_updated_at,
+      sync_status='synced', deleted_at=excluded.deleted_at;
+  ''');
+}
+
+/// Canonical money binding for the subscription counter returned by the
+/// record-payment RPC. The coordinator resolves/decodes transport values;
+/// this approved persistence module owns the actual money-column write.
+Future<void> writePulledSubscriptionCounter({
+  required AppDatabase db,
+  required String serverId,
+  required int? paidCount,
+  required Money? manualPaidMoney,
+  required String? serverUpdatedAt,
+}) async {
+  await db.customStatement('''
+    UPDATE subscriptions
+    SET paid_count = ${sqlNullableNum(paidCount)},
+        manual_paid_amount = ${kMoneyCodec.sqlNullableRealLiteral(manualPaidMoney)},
+        synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
+        server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+        sync_status = 'synced'
+    WHERE server_id = ${sqlString(serverId)};
+  ''');
+}
 
 BudgetPeriod budgetPeriodFromSql(String value) {
   switch (value) {

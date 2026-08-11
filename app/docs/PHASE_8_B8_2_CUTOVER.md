@@ -334,3 +334,74 @@ bump) — converters+tests only.
 4. **Push stays JSON-number shape** (READY_EXACT_NOT_ACTIVATED); end-to-end exactness external.
 5. **No export/snapshot/qirsh version bump** — import converters + tests only.
 6. Base-currency threading adds one `user_settings.currency` read per repo/pull/import batch.
+
+---
+
+## B8-2.5 SAFE cross-cutting audit (2026-08-11, schema v29)
+
+Scope is limited to the converted per-row-currency domains. Budgets, goals, and goal
+contributions remain STOP-gated by the unresolved base-currency decision; no entity,
+repository, pull/push, schema, migration, backup-version, or Qirsh-version change was made for
+them.
+
+### §10 — accounts pull NUMERIC text transport
+
+| path | result |
+|---|---|
+| `user_accounts` SELECT | `initial_balance`, `current_balance`, `credit_limit`, and `available_credit` are projected through distinct `*_text:<column>::text` aliases |
+| keyset contract | filter and ordering remain on original `updated_at` / `id` columns; no alias participates in a cursor |
+| decode/write | row `currency` + `moneyFromPulledValue` produce nullable exact `Money`; local REAL compatibility columns bind only through `kMoneyCodec.sqlNullableRealLiteral` |
+| accounts backfill existing-match read | `(serverRow[...] as num?)?.toDouble()` is comparison-only against the outgoing server payload; it never constructs `Money` or feeds a local money write, so it remains a legacy server-match comparison |
+| shared planning pull | subscription and plan `::text` projections remain **DEFERRED** because `planning_pull_service` is shared with STOP-gated budgets/goals |
+
+The separately safe bill-payment child pull now also projects `amount::text`; its local write is
+owned by the allowlisted repository-support seam. The payment RPC's numeric compatibility result
+is explicitly marked legacy-lossy until that RPC returns a text amount.
+
+### §7 — converted-domain display-getter audit
+
+The audit covers entity display getters `amount`, `balanceAfter`, `foreignAmount`,
+`initialBalance`, `currentBalance`, `creditLimit`, `availableCredit`, `budgetAmount`,
+`manualPaidAmount`, and `totalPurchaseAmount`. “Logic-migrated” counts the old getter reads removed
+in this pass; presentation reads remain intentionally compatible. The plan entries compare a
+Money display projection with the v29 SQL `SUM(REAL)` spent aggregate and are therefore recorded
+as transitional, never used for persistence.
+
+| converted domain | presentation-retained | logic-migrated to `*Money` | transitional-REAL-aggregate | unresolved |
+|---|---:|---:|---:|---:|
+| transaction | 28 | 3 (pending-review total; budget-history signed value) | 0 | 0 |
+| account | 3 | 0 | 0 | 0 |
+| bill + bill payment | 20 | 7 (annual/custom recurrence, paid ledger/residual, safe manual value, installment multiplication) | 0 | 0 |
+| plan | 3 | 0 | 4 (remaining, ratio denominator/zero gate, over-budget comparison) | 0 |
+| suspected duplicate | 2 | 0 | 0 | 0 |
+| **TOTAL** | **56** | **10** | **4** | **0** |
+
+No converted-domain money display getter remains a persistence or canonical logic source.
+
+### §6 — calculation residual matrix
+
+| calculation family | classification | v29 disposition |
+|---|---|---|
+| bill annualization/monthly normalization | exact-Money-now | whole multipliers use `Money * int`; custom/monthly ratios use `Money.applyRate` and quantize once |
+| bill payment attribution/manual residual | exact-Money-now | `Money.sum`, exact subtraction, and zero-floor; only final UI getters project to `double` |
+| transaction comparisons, signing, and persisted derivations | exact-Money-now | canonical inputs are `amountMoney` / related Money fields; duplicate equality and non-money RMW preserve integer identity |
+| transaction/account/report SQL totals (`SUM`/`AVG`/balance projections) | transitional-REAL-aggregate | remain v29 REAL read models; must move to `_minor` aggregates at v30 |
+| plan remaining/ratio/over-budget | transitional-REAL-aggregate | `budgetAmount` is compared only with repository `spent = SUM(REAL)`; display/threshold result is not persisted |
+| cross-currency dashboard/installment display folds | transitional-REAL-aggregate | each converted entity is sourced from `*Money`, then projected for the existing mixed-currency display model; no Money is reconstructed from the result |
+| parser/capture canonical amounts | exact-Money-now | lexical `*_text` values parse directly to Money; AI/Edge JSON-number compatibility is explicitly legacy-lossy and review-gated |
+| parser confidence/scoring/amount-closeness hints | non-money-heuristic-double | scores and heuristics never become a persisted money source |
+| legacy import: transaction/account/subscription/bill-payment/plan | exact-Money-now | legacy text is explicitly quantized to Money, then the compatibility REAL binds through `kMoneyCodec` |
+| budget/goal/goal-contribution import and semantics | blocked-by-base-currency | untouched until stable currency ownership is decided |
+
+### §9/§10 — identity and structural enforcement
+
+- `rmw_money_identity_test.dart` uses JPY minor units `(1 << 53) + 7` for transaction, account,
+  bill, bill payment, plan, and suspected duplicate entities. A non-money `copyWith` edit must
+  preserve the exact integer, and `MoneyCodec(v30Minor)` must round-trip it unchanged.
+- `money_write_path_guard_test.dart` derives converted columns/display names from
+  `kMoneyFields`, excludes only the three base-currency-pending tables, and enforces: no display
+  getter into a REAL write adapter; no production `Money.fromLegacyReal` outside named legacy
+  seams; and no converted money-column INSERT/UPDATE outside the reviewed persistence allowlist.
+- The bootstrap's default-account INSERT is narrowly exempted because both balance values are
+  literal `NULL`; it persists no monetary magnitude. Generated `*.g.dart` is excluded because it
+  is schema output, not an authored write path.

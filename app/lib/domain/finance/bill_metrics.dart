@@ -4,38 +4,62 @@
 // same label never means two different numbers and one real payment is counted
 // exactly once.
 import '../entities/bill_entity.dart';
+import 'money.dart';
 
 // ── Recurrence normalization ────────────────────────────────────────────────
 
 /// The **annual-equivalent** cost of a recurring bill, normalized from its
 /// billing frequency: weekly ×52, monthly ×12, yearly ×1, custom = amount ×
 /// (365 / intervalDays). One normalization, used everywhere.
-double annualEquivalent(BillEntity bill) {
+Money annualEquivalentMoney(BillEntity bill) {
   switch (bill.frequency) {
     case BillFrequency.weekly:
-      return bill.amount * 52;
+      return bill.amountMoney * 52;
     case BillFrequency.monthly:
-      return bill.amount * 12;
+      return bill.amountMoney * 12;
     case BillFrequency.yearly:
-      return bill.amount;
+      return bill.amountMoney;
     case BillFrequency.custom:
       final days = bill.customIntervalDays ?? 30;
-      return days <= 0 ? bill.amount * 12 : bill.amount * (365 / days);
+      return days <= 0
+          ? bill.amountMoney * 12
+          : bill.amountMoney.applyRate(
+              rateNumerator: BigInt.from(365),
+              rateDenominator: BigInt.from(days),
+            );
   }
 }
 
-/// The **monthly-equivalent** recurring obligation of a bill — exactly
-/// [annualEquivalent] / 12, so a monthly total and its ×12 annual total can
-/// never disagree (they previously used two different weekly/custom divisors).
-double monthlyEquivalent(BillEntity bill) => annualEquivalent(bill) / 12;
+double annualEquivalent(BillEntity bill) =>
+    annualEquivalentMoney(bill).toDouble();
+
+/// The **monthly-equivalent** recurring obligation of a bill. The annual value
+/// is divided by 12 as an exact ratio and quantized once at the bill currency's
+/// minor-unit boundary.
+Money monthlyEquivalentMoney(BillEntity bill) =>
+    annualEquivalentMoney(bill).applyRate(
+      rateNumerator: BigInt.one,
+      rateDenominator: BigInt.from(12),
+    );
+
+double monthlyEquivalent(BillEntity bill) =>
+    monthlyEquivalentMoney(bill).toDouble();
 
 /// The projected **monthly recurring obligation** across [bills] — active
-/// subscriptions only. Summed within a single currency scope; callers must
-/// scope by account/currency, never mix currencies under one label.
-double subscriptionMonthlyTotal(Iterable<BillEntity> bills) => bills
-    .where((b) =>
-        b.type == BillType.subscription && b.status == BillStatus.active)
-    .fold<double>(0, (sum, b) => sum + monthlyEquivalent(b));
+/// subscriptions only. The existing UI model may mix currencies under one
+/// presentation label, so each bill is calculated exactly as Money before the
+/// final legacy display fold.
+double subscriptionMonthlyTotal(Iterable<BillEntity> bills) {
+  final active = bills
+      .where((b) =>
+          b.type == BillType.subscription && b.status == BillStatus.active)
+      .toList(growable: false);
+  if (active.isEmpty) return 0;
+  return active.fold<double>(
+    0,
+    (sum, bill) => sum + monthlyEquivalentMoney(bill).toDouble(),
+  );
+}
 
 // ── Payment attribution ─────────────────────────────────────────────────────
 
@@ -48,26 +72,39 @@ double subscriptionMonthlyTotal(Iterable<BillEntity> bills) => bills
 /// Fuzzy merchant-name matched transactions are NEVER counted here — they are
 /// only suggestions to link (see [linkedTransactionIds]).
 class BillPaidSummary {
-  const BillPaidSummary({required this.recorded, required this.legacyManual});
+  const BillPaidSummary({
+    required this.recordedMoney,
+    required this.legacyManualMoney,
+  });
 
   /// Σ of recorded `bill_payments` amounts (each real payment once).
-  final double recorded;
+  final Money recordedMoney;
 
   /// `max(0, manualPaidAmount − recorded)` — a legacy manual total kept only
   /// for the part not already represented by recorded payments.
-  final double legacyManual;
+  final Money legacyManualMoney;
 
-  double get total => recorded + legacyManual;
+  Money get totalMoney => recordedMoney + legacyManualMoney;
+  double get recorded => recordedMoney.toDouble();
+  double get legacyManual => legacyManualMoney.toDouble();
+  double get total => totalMoney.toDouble();
 }
 
 BillPaidSummary billPaidTotal({
   required Iterable<BillPaymentEntity> payments,
-  required double manualPaidAmount,
+  required Money manualPaidMoney,
 }) {
-  final recorded = payments.fold<double>(0, (sum, p) => sum + p.amount);
-  final legacyManual =
-      (manualPaidAmount - recorded).clamp(0.0, double.infinity).toDouble();
-  return BillPaidSummary(recorded: recorded, legacyManual: legacyManual);
+  final recordedMoney = Money.sum(
+    payments.map((payment) => payment.amountMoney),
+    manualPaidMoney.currency,
+  );
+  final residual = manualPaidMoney - recordedMoney;
+  final legacyManualMoney =
+      residual.isNegative ? Money.zero(manualPaidMoney.currency) : residual;
+  return BillPaidSummary(
+    recordedMoney: recordedMoney,
+    legacyManualMoney: legacyManualMoney,
+  );
 }
 
 /// Transaction ids already represented by a recorded payment (via

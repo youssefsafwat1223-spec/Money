@@ -139,9 +139,12 @@ class BillEntity {
     return daysPast > (periodDays * 1.5).round();
   }
 
-  double get safeManualPaidAmount => manualPaidAmount == null
-      ? 0
-      : manualPaidAmount!.clamp(0.0, double.infinity).toDouble();
+  Money get safeManualPaidMoney {
+    final money = manualPaidMoney;
+    return money == null || money.isNegative ? Money.zero(currency) : money;
+  }
+
+  double get safeManualPaidAmount => safeManualPaidMoney.toDouble();
 
   BillEntity copyWith({
     String? id,

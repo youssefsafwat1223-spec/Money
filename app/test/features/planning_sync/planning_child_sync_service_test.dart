@@ -53,6 +53,7 @@ class _FakeChildRemote implements PlanningChildRemote {
         'subscription_id': params['p_subscription_id'],
         'transaction_id': params['p_transaction_id'],
         'amount': params['p_amount'],
+        'amount_text': '${params['p_amount']}',
         'currency': params['p_currency'],
         'period_start': params['p_period_start'],
         'period_end': params['p_period_end'],
@@ -70,6 +71,7 @@ class _FakeChildRemote implements PlanningChildRemote {
           'id': params['p_subscription_id'],
           'paid_count': 1,
           'manual_paid_amount': 0,
+          'currency': params['p_currency'],
           'updated_at': now,
         },
       };
@@ -206,6 +208,13 @@ Future<void> _seedParents(AppDatabase db) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('bill-payment pull selects canonical amount text', () {
+    expect(
+      planningChildBillPaymentSelect,
+      contains('amount_text:amount::text'),
+    );
+  });
+
   test('goal contribution, bill payment and plan link drain via child worker',
       () async {
     final db = await _openDb();
@@ -294,6 +303,7 @@ void main() {
           'subscription_id': 'server-bill-1',
           'transaction_id': 'server-tx-1',
           'amount': 10,
+          'amount_text': '10',
           'currency': 'EGP',
           'period_start': '2026-07-01',
           'period_end': '2026-07-31',

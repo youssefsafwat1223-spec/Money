@@ -8,8 +8,43 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
+import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/sync_cursor.dart';
+import '../../../domain/finance/money.dart';
+import '../../../domain/finance/money_transport.dart';
+
+const accountsPullSelect = '*, initial_balance_text:initial_balance::text, '
+    'current_balance_text:current_balance::text, '
+    'credit_limit_text:credit_limit::text, '
+    'available_credit_text:available_credit::text';
+const accountsPullOrderColumns = ['updated_at', 'id'];
+
+String accountsPullKeysetFilter(SyncCursor after) =>
+    'updated_at.gt.${after.updatedAt},'
+    'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})';
+
+({
+  Money? initialBalanceMoney,
+  Money? currentBalanceMoney,
+  Money? creditLimitMoney,
+  Money? availableCreditMoney,
+}) deserializeAccountsPullMoney(Map<String, dynamic> row) {
+  final currency = row['currency'];
+  if (currency is! String) {
+    throw const MoneyTransportException(
+        'account pull requires a String currency');
+  }
+  return (
+    initialBalanceMoney:
+        moneyFromPulledValue(row['initial_balance_text'], currency),
+    currentBalanceMoney:
+        moneyFromPulledValue(row['current_balance_text'], currency),
+    creditLimitMoney: moneyFromPulledValue(row['credit_limit_text'], currency),
+    availableCreditMoney:
+        moneyFromPulledValue(row['available_credit_text'], currency),
+  );
+}
 
 class AccountsPullResult {
   const AccountsPullResult({
@@ -44,16 +79,12 @@ class SupabaseAccountsRemoteSource implements AccountsRemoteSource {
     required SyncCursor after,
     int limit = 200,
   }) async {
-    final query = _client.from('user_accounts').select();
-    final filtered = after.id.isEmpty
-        ? query
-        : query.or(
-            'updated_at.gt.${after.updatedAt},'
-            'and(updated_at.eq.${after.updatedAt},id.gt.${after.id})',
-          );
+    final query = _client.from('user_accounts').select(accountsPullSelect);
+    final filtered =
+        after.id.isEmpty ? query : query.or(accountsPullKeysetFilter(after));
     final response = await filtered
-        .order('updated_at', ascending: true)
-        .order('id', ascending: true)
+        .order(accountsPullOrderColumns[0], ascending: true)
+        .order(accountsPullOrderColumns[1], ascending: true)
         .limit(limit);
     return (response as List).cast<Map<String, dynamic>>();
   }
@@ -233,16 +264,17 @@ class AccountsPullService {
         return _AccountPullOutcome.skipped;
       }
 
+      final pulledMoney = deserializeAccountsPullMoney(row);
       await _db.customStatement('''
         UPDATE accounts
         SET name = ${sqlString(row['name'] as String? ?? 'Account')},
             currency = ${sqlString(row['currency'] as String? ?? 'SAR')},
             type = ${sqlString(row['type'] as String? ?? 'bank')},
-            initial_balance = ${sqlNullableNum(row['initial_balance'] as num?)},
-            current_balance = ${sqlNullableNum(row['current_balance'] as num?)},
+            initial_balance = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.initialBalanceMoney)},
+            current_balance = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.currentBalanceMoney)},
             bank_account_number = ${sqlNullableString(row['bank_account_number'] as String?)},
-            credit_limit = ${sqlNullableNum(row['credit_limit'] as num?)},
-            available_credit = ${sqlNullableNum(row['available_credit'] as num?)},
+            credit_limit = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.creditLimitMoney)},
+            available_credit = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.availableCreditMoney)},
             payment_due_day = ${sqlNullableNum((row['payment_due_day'] as num?)?.toInt())},
             wallet_provider = ${sqlNullableString(row['wallet_provider'] as String?)},
             exclude_from_totals = ${(row['exclude_from_totals'] == true) ? 1 : 0},
@@ -269,6 +301,7 @@ class AccountsPullService {
     }
 
     final importedId = row['local_id'] as String? ?? IdGenerator.next();
+    final pulledMoney = deserializeAccountsPullMoney(row);
     await _db.customStatement('''
       INSERT OR IGNORE INTO accounts(
         id, name, currency, type, initial_balance, current_balance,
@@ -282,11 +315,11 @@ class AccountsPullService {
         ${sqlString(row['name'] as String? ?? 'Account')},
         ${sqlString(row['currency'] as String? ?? 'SAR')},
         ${sqlString(row['type'] as String? ?? 'bank')},
-        ${sqlNullableNum(row['initial_balance'] as num?)},
-        ${sqlNullableNum(row['current_balance'] as num?)},
+        ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.initialBalanceMoney)},
+        ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.currentBalanceMoney)},
         ${sqlNullableString(row['bank_account_number'] as String?)},
-        ${sqlNullableNum(row['credit_limit'] as num?)},
-        ${sqlNullableNum(row['available_credit'] as num?)},
+        ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.creditLimitMoney)},
+        ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.availableCreditMoney)},
         ${sqlNullableNum((row['payment_due_day'] as num?)?.toInt())},
         ${sqlNullableString(row['wallet_provider'] as String?)},
         ${(row['exclude_from_totals'] == true) ? 1 : 0},

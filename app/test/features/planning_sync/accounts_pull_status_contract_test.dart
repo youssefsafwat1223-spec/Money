@@ -25,8 +25,10 @@ Map<String, dynamic> _row(String id, String updatedAt) => {
       'name': 'Acc $id',
       'currency': 'SAR',
       'type': 'bank',
-      'initial_balance': 0,
-      'current_balance': 0,
+      'initial_balance_text': '0',
+      'current_balance_text': '0',
+      'credit_limit_text': null,
+      'available_credit_text': null,
       'updated_at': updatedAt,
       'deleted_at': null,
     };

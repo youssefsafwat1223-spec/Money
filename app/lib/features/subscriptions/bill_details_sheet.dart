@@ -83,7 +83,7 @@ class BillDetailsSheet extends ConsumerWidget {
             // summed; the unlinked ones are shown only as link suggestions.
             final paidSummary = billPaidTotal(
               payments: payments,
-              manualPaidAmount: currentBill.safeManualPaidAmount,
+              manualPaidMoney: currentBill.safeManualPaidMoney,
             );
             final legacyManualPaid = paidSummary.legacyManual;
             final totalPaid = paidSummary.total;

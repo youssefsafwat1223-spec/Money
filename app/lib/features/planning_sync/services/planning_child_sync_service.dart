@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart' show Variable;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -8,8 +9,13 @@ import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/repositories/drift_repository_support.dart';
 import '../../../data/sync/sync_cursor.dart';
+import '../../../domain/finance/money_transport.dart';
+import '../../../engine/parser/capture_money.dart';
 import 'planning_outbox_queue.dart';
+
+const planningChildBillPaymentSelect = '*, amount_text:amount::text';
 
 /// MALI-051n: outcome of applying one child pull-row. `missingParent` means the
 /// parent hasn't synced yet → the row is durably parked (never dropped) so the
@@ -66,7 +72,8 @@ class SupabasePlanningChildRemote implements PlanningChildRemote {
     required SyncCursor after,
     int limit = 200,
   }) async {
-    final query = _client.from(table).select();
+    final query = _client.from(table).select(
+        table == 'user_bill_payments' ? planningChildBillPaymentSelect : '*');
     final filtered = after.id.isEmpty
         ? query
         : query.or(
@@ -578,34 +585,22 @@ class PlanningChildSyncService {
       return _ChildApplyOutcome.preservedPending;
     }
     final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customStatement('''
-      INSERT INTO bill_payments(
-        id, bill_id, amount, currency, period_start, period_end, paid_at,
-        installment_index, transaction_id, note, server_id, synced_at,
-        server_updated_at, sync_status, deleted_at
-      ) VALUES (
-        ${sqlString(localId)}, ${sqlString(billLocal)},
-        ${(row['amount'] as num).toDouble()},
-        ${sqlString(row['currency'] as String)},
-        ${sqlString(row['period_start'] as String)},
-        ${sqlString(row['period_end'] as String)},
-        ${sqlString(row['paid_at'] as String)},
-        ${sqlNullableNum(row['installment_index'] as num?)},
-        ${sqlNullableString(transactionLocal)},
-        ${sqlNullableString(row['note'] as String?)},
-        ${sqlString(row['id'] as String)}, ${sqlString(now)},
-        ${sqlNullableString(row['updated_at'] as String?)}, 'synced',
-        ${sqlNullableString(row['deleted_at'] as String?)}
-      ) ON CONFLICT(id) DO UPDATE SET
-        bill_id=excluded.bill_id, amount=excluded.amount,
-        currency=excluded.currency, period_start=excluded.period_start,
-        period_end=excluded.period_end, paid_at=excluded.paid_at,
-        installment_index=excluded.installment_index,
-        transaction_id=excluded.transaction_id, note=excluded.note,
-        server_id=excluded.server_id, synced_at=excluded.synced_at,
-        server_updated_at=excluded.server_updated_at,
-        sync_status='synced', deleted_at=excluded.deleted_at;
-    ''');
+    final currency = row['currency'];
+    if (currency is! String) {
+      throw const MoneyTransportException(
+          'bill-payment pull requires a String currency');
+    }
+    final amountMoney =
+        moneyFromPulledValueRequired(row['amount_text'], currency);
+    await writePulledBillPayment(
+      db: _db,
+      row: row,
+      localId: localId,
+      billLocalId: billLocal,
+      transactionLocalId: transactionLocal,
+      amountMoney: amountMoney,
+      now: now,
+    );
     scope.rememberChild(row['id'] as String, localId);
     return _ChildApplyOutcome.applied;
   }
@@ -801,15 +796,30 @@ class PlanningChildSyncService {
   }
 
   Future<void> _updateSubscriptionCounter(Map<String, dynamic> row) async {
-    await _db.customStatement('''
-      UPDATE subscriptions
-      SET paid_count = ${sqlNullableNum(row['paid_count'] as num?)},
-          manual_paid_amount = ${sqlNullableNum(row['manual_paid_amount'] as num?)},
-          synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
-          server_updated_at = ${sqlNullableString(row['updated_at'] as String?)},
-          sync_status = 'synced'
-      WHERE server_id = ${sqlString(row['id'] as String)};
-    ''');
+    final serverId = row['id'] as String;
+    final local = await _db.customSelect(
+      'SELECT currency FROM subscriptions WHERE server_id = ? LIMIT 1;',
+      variables: [Variable.withString(serverId)],
+    ).getSingleOrNull();
+    if (local == null) return;
+    final currency = local.read<String>('currency');
+    final rawManualPaid =
+        row['manual_paid_amount_text'] ?? row['manual_paid_amount'];
+    final manualPaidMoney = switch (rawManualPaid) {
+      null => null,
+      final String value => moneyFromPulledValue(value, currency),
+      final num value => legacyLossyNumberToMoney(value, currency),
+      _ => throw MoneyTransportException(
+          'unsupported RPC manual_paid_amount type: '
+          '${rawManualPaid.runtimeType}'),
+    };
+    await writePulledSubscriptionCounter(
+      db: _db,
+      serverId: serverId,
+      paidCount: (row['paid_count'] as num?)?.toInt(),
+      manualPaidMoney: manualPaidMoney,
+      serverUpdatedAt: row['updated_at'] as String?,
+    );
   }
 
   Future<void> _markPlanLinkSynced(

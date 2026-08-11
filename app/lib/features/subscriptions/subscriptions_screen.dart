@@ -583,8 +583,12 @@ class _InstallmentsTab extends StatelessWidget {
             BillFormSheet.show(context, initialType: BillType.installment),
       );
     }
+    // The UI still shows one cross-bill display total, but every persisted
+    // amount multiplication is exact before that presentation projection.
     final totalRemaining = bills.fold<double>(
-        0, (sum, b) => sum + b.remainingInstallments * b.amount);
+      0,
+      (sum, b) => sum + (b.amountMoney * b.remainingInstallments).toDouble(),
+    );
     final activeCount = bills.where((b) => b.remainingInstallments > 0).length;
     final dueSoon = bills.where((b) => b.remainingInstallments > 0).toList()
       ..sort((a, b) => a.nextDueDate.compareTo(b.nextDueDate));

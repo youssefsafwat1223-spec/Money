@@ -173,8 +173,10 @@ Map<String, dynamic> _remoteAccountRow(
     'name': 'Remote $suffix',
     'currency': 'SAR',
     'type': 'bank',
-    'initial_balance': index,
-    'current_balance': index,
+    'initial_balance_text': '$index',
+    'current_balance_text': '$index',
+    'credit_limit_text': null,
+    'available_credit_text': null,
     'is_default': false,
     'sort_order': index,
     'created_at': '2026-07-01T00:00:00.000Z',
@@ -248,6 +250,39 @@ void main() {
 
     tearDown(() async {
       await db.close();
+    });
+
+    test('account pull request shape and exact nullable money decoding', () {
+      expect(accountsPullSelect,
+          contains('initial_balance_text:initial_balance::text'));
+      expect(accountsPullSelect,
+          contains('current_balance_text:current_balance::text'));
+      expect(
+          accountsPullSelect, contains('credit_limit_text:credit_limit::text'));
+      expect(accountsPullSelect,
+          contains('available_credit_text:available_credit::text'));
+      expect(accountsPullOrderColumns, ['updated_at', 'id']);
+
+      final filter = accountsPullKeysetFilter(
+        const SyncCursor(updatedAt: '2026-01-01T00:00:00Z', id: 'account-1'),
+      );
+      expect(filter, contains('updated_at.gt.'));
+      expect(filter, contains('updated_at.eq.'));
+      expect(filter, contains('id.gt.account-1'));
+      expect(filter, isNot(contains('_text')),
+          reason: 'keyset cursors must use original server columns');
+
+      final money = deserializeAccountsPullMoney({
+        'currency': 'JPY',
+        'initial_balance_text': '9007199254740999',
+        'current_balance_text': null,
+        'credit_limit_text': '9007199254740998',
+        'available_credit_text': null,
+      });
+      expect(money.initialBalanceMoney, Money(9007199254740999, 'JPY'));
+      expect(money.currentBalanceMoney, isNull);
+      expect(money.creditLimitMoney, Money(9007199254740998, 'JPY'));
+      expect(money.availableCreditMoney, isNull);
     });
 
     test('planning_accounts_sync OFF does not queue local account writes',
@@ -423,8 +458,10 @@ void main() {
         'name': 'Remote Account',
         'currency': 'AED',
         'type': 'wallet',
-        'initial_balance': 10,
-        'current_balance': 20,
+        'initial_balance_text': '10',
+        'current_balance_text': '20',
+        'credit_limit_text': null,
+        'available_credit_text': null,
         'is_default': false,
         'sort_order': 4,
         'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
@@ -587,7 +624,8 @@ void main() {
     test('failed page rolls back row writes and cursor, then retries cleanly',
         () async {
       final first = _remoteAccountRow(0);
-      final broken = _remoteAccountRow(1)..['initial_balance'] = 'not-a-number';
+      final broken = _remoteAccountRow(1)
+        ..['initial_balance_text'] = 'not-a-number';
       final remote = _KeysetAccountsRemote([first, broken]);
       final pull = AccountsPullService(
         db: db,
@@ -617,7 +655,7 @@ void main() {
         isNull,
       );
 
-      broken['initial_balance'] = 1;
+      broken['initial_balance_text'] = '1';
       final retried = await pull.pull();
 
       expect(retried.imported, 2);

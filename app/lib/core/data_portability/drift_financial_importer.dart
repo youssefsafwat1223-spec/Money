@@ -133,6 +133,11 @@ class DriftFinancialImporter {
   Future<void> _upsert(String table, Map<String, String> row) async {
     switch (table) {
       case 'accounts':
+        final accountCurrency = _currency(row['currency']);
+        final initialBalanceMoney =
+            _legacyMoneyOrNull(row['initial_balance'], accountCurrency);
+        final currentBalanceMoney =
+            _legacyMoneyOrNull(row['current_balance'], accountCurrency);
         await _db.customStatement('''
           INSERT INTO accounts(id,name,currency,type,initial_balance,current_balance,
             is_default,sort_order,created_at,updated_at,deleted_at)
@@ -144,10 +149,14 @@ class DriftFinancialImporter {
         ''', [
           _required(row, 'record_id'),
           _required(row, 'name'),
-          _currency(row['currency']),
+          accountCurrency,
           _or(row['type'], 'bank'),
-          _double(row['initial_balance']),
-          _double(row['current_balance']),
+          initialBalanceMoney == null
+              ? null
+              : kMoneyCodec.toReal(initialBalanceMoney),
+          currentBalanceMoney == null
+              ? null
+              : kMoneyCodec.toReal(currentBalanceMoney),
           _boolInt(row['is_default']),
           _int(row['sort_order']),
           _date(row['created_at']),
@@ -281,6 +290,13 @@ class DriftFinancialImporter {
       case 'subscriptions':
         final merchantId =
             await _merchantId(_or(row['merchant'], row['name'] ?? 'اشتراك'));
+        final subscriptionCurrency = _currency(row['currency']);
+        final subscriptionAmountMoney =
+            _legacyPositiveMoney(row['amount'], subscriptionCurrency);
+        final manualPaidMoney =
+            _legacyMoneyOrNull(row['manual_paid_amount'], subscriptionCurrency);
+        final totalPurchaseMoney = _legacyMoneyOrNull(
+            row['total_purchase_amount'], subscriptionCurrency);
         await _db.customStatement('''
           INSERT INTO subscriptions(id,account_id,merchant_id,name,amount,currency,
             period,frequency,type,next_due_date,is_confirmed,reminder_on,
@@ -303,8 +319,8 @@ class DriftFinancialImporter {
           _nullable(row['account_record_id']),
           merchantId,
           _or(row['name'], 'اشتراك'),
-          _positiveDouble(row['amount']),
-          _currency(row['currency']),
+          kMoneyCodec.toReal(subscriptionAmountMoney),
+          subscriptionCurrency,
           _or(row['period'], 'monthly'),
           _or(row['frequency'], 'monthly'),
           _or(row['type'], 'subscription'),
@@ -317,12 +333,17 @@ class DriftFinancialImporter {
           _or(row['status'], 'active'),
           _intOrNull(row['total_installments']),
           _intOrNull(row['paid_count']),
-          _double(row['manual_paid_amount']),
-          _double(row['total_purchase_amount']),
+          manualPaidMoney == null ? null : kMoneyCodec.toReal(manualPaidMoney),
+          totalPurchaseMoney == null
+              ? null
+              : kMoneyCodec.toReal(totalPurchaseMoney),
           _nullable(row['lender_name']),
           _double(row['interest_rate']),
         ]);
       case 'bill_payments':
+        final paymentCurrency = _currency(row['currency']);
+        final paymentAmountMoney =
+            _legacyPositiveMoney(row['amount'], paymentCurrency);
         await _db.customStatement('''
           INSERT INTO bill_payments(id,bill_id,amount,currency,period_start,
             period_end,paid_at,installment_index,transaction_id,note,deleted_at)
@@ -335,8 +356,8 @@ class DriftFinancialImporter {
         ''', [
           _required(row, 'record_id'),
           _required(row, 'subscription_record_id'),
-          _positiveDouble(row['amount']),
-          _currency(row['currency']),
+          kMoneyCodec.toReal(paymentAmountMoney),
+          paymentCurrency,
           _date(row['period_start']),
           _date(row['period_end']),
           _date(row['paid_at']),
@@ -387,6 +408,9 @@ class DriftFinancialImporter {
           _nullable(row['note']),
         ]);
       case 'plans':
+        final planCurrency = _currency(row['currency']);
+        final budgetAmountMoney =
+            _legacyPositiveMoney(row['budget_amount'], planCurrency);
         await _db.customStatement('''
           INSERT INTO plans(id,name,budget_amount,currency,start_date,end_date,
             account_ids,card_last4s,status,icon,created_at,deleted_at)
@@ -399,8 +423,8 @@ class DriftFinancialImporter {
         ''', [
           _required(row, 'record_id'),
           _required(row, 'name'),
-          _positiveDouble(row['budget_amount']),
-          _currency(row['currency']),
+          kMoneyCodec.toReal(budgetAmountMoney),
+          planCurrency,
           _date(row['start_date']),
           _date(row['end_date']),
           _or(row['account_record_ids'], ''),
