@@ -26,6 +26,7 @@ import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
+import '../../data/db/planning_cutover.dart';
 import '../../data/repositories/account_deletion_service.dart';
 import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_card_repository.dart';
@@ -46,6 +47,7 @@ import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
 import '../../domain/entities/smart_inbox_item_entity.dart';
+import '../../domain/finance/planning_mutation_guard.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/card_repository.dart';
 import '../../domain/repositories/budget_repository.dart';
@@ -98,6 +100,20 @@ import '../../domain/services/notification_planner.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   throw UnimplementedError('AppDatabase must be provided from main().');
+});
+
+/// The one planning money-authority seam shared by every cutover-aware
+/// subsystem. Schema v29 is unconditionally legacy/allowed; tests and the future
+/// v30 implementation override this provider rather than inspecting columns.
+final planningCutoverCoordinatorProvider =
+    Provider<PlanningCutoverCoordinator>((ref) {
+  return const SchemaV29PlanningCutoverCoordinator();
+});
+
+/// Central P1 mutation/delete guard. It is intentionally not called by current
+/// v29 repositories yet, so registering it cannot alter live behavior.
+final planningMutationGuardProvider = Provider<PlanningMutationGuard>((ref) {
+  return PlanningMutationGuard(ref.watch(planningCutoverCoordinatorProvider));
 });
 
 /// Whether any local data existed at the moment bootstrap finished.

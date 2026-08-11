@@ -1,6 +1,34 @@
 import '../../domain/finance/money.dart';
 import '../../domain/finance/money_input.dart';
 
+/// How a parsed AI/capture amount may enter financial authority.
+enum AiCaptureIngress {
+  /// Future canonical mode received the verified exact text field.
+  canonicalExact,
+
+  /// Future canonical mode received only the legacy numeric field; review is
+  /// required and the value cannot auto-confirm into canonical authority.
+  legacyPendingReview,
+}
+
+/// Resolves old/new backend response shapes without interpreting the amount.
+///
+/// In canonical mode an exact text field is mandatory. A numeric-only response
+/// must use [legacyLossyNumberToMoney] and the existing pending-review path.
+AiCaptureIngress resolveAiCaptureIngress({
+  required bool hasExactText,
+  required bool canonicalMode,
+}) {
+  if (canonicalMode && !hasExactText) {
+    return AiCaptureIngress.legacyPendingReview;
+  }
+  // v29 already prefers exact text and routes numeric-only legacy values to
+  // pending review, so the same shape-based result preserves current behavior.
+  return hasExactText
+      ? AiCaptureIngress.canonicalExact
+      : AiCaptureIngress.legacyPendingReview;
+}
+
 /// EXACT machine/capture money parse. The required normalization semantics are
 /// IDENTICAL to the UI adapter (Arabic-Indic/Persian digits -> ASCII, U+066B ->
 /// '.', structurally-valid thousands grouping only; "12,50" and any ambiguous
