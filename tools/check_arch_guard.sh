@@ -30,12 +30,12 @@ hits() { grep -rnE "$1" "$LIB" 2>/dev/null; }
 
 echo "══ MALI-034 architecture guard ══"
 
-# 1. Schema pinned at 29 -------------------------------------------------------
+# 1. Schema pinned at 30 (Phase-8 B8-3 fixed-precision cutover) ----------------
 schema_line="$(grep -E 'const int _targetSchemaVersion = [0-9]+;' "$LIB/data/db/app_database.dart" 2>/dev/null)"
-if echo "$schema_line" | grep -qE '= 29;'; then
-  okc "schema pinned at 29"
+if echo "$schema_line" | grep -qE '= 30;'; then
+  okc "schema pinned at 30"
 else
-  fail "schema is not 29 (found: ${schema_line:-<missing>}) — Batch-3 must keep v29"
+  fail "schema is not 30 (found: ${schema_line:-<missing>}) — B8-3 is the authorized v30 cutover"
 fi
 
 # 2. No *_supabase_primary flag SELECTORS (quoted keys are code; comments aren't) --

@@ -12,12 +12,13 @@ import 'database_key_store.dart';
 import 'database_lease.dart';
 import 'database_process_liveness.dart';
 import 'database_seed.dart';
+import 'money_v30_backfill.dart';
 import 'ownership_guard.dart';
 import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 29;
+const int _targetSchemaVersion = 30;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -523,6 +524,7 @@ class AppDatabase extends GeneratedDatabase {
       await _backfillSystemTransactionCategories();
       await _backfillTransactionDirections();
       await _repairBankCaptureTimestampDrift();
+      await _migrateMoneyV30(); // fixed-precision backfill (throws → rolls back)
       await _phase('postBackfill'); // after backfills
       await _verifyMigrationIntegrity(); // postflight (throws → rolls back)
       await _phase('preVersion'); // immediately before the version bump
@@ -619,6 +621,24 @@ class AppDatabase extends GeneratedDatabase {
         'violation(s): $diagnostics',
       );
     }
+    // MALI-026 (v30 §37): every documented minor column + planning authority
+    // column must exist before the version bump commits — a half-applied v30
+    // schema rolls the whole upgrade back rather than stamping user_version=30.
+    Future<void> requireColumn(String table, String column) async {
+      final info = await customSelect('PRAGMA table_info($table);').get();
+      if (!info.any((r) => r.read<String>('name') == column)) {
+        throw MigrationIntegrityException(
+          'post-migration schema check failed: missing column "$table.$column"',
+        );
+      }
+    }
+
+    for (final f in kV30MinorColumns) {
+      await requireColumn(f.table, f.minorColumn);
+    }
+    await requireColumn('budgets', 'currency');
+    await requireColumn('goals', 'currency');
+    await requireColumn('user_settings', 'planning_cutover_state');
   }
 
   Future<void>? _closeFuture;
@@ -1844,6 +1864,46 @@ class AppDatabase extends GeneratedDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_categories_deleted_at ON categories(deleted_at);',
     );
+    await _ensureV30MoneyColumns();
+  }
+
+  /// MALI-026 (Phase-8 B8-3 §2/§3) — the ADDITIVE v30 fixed-precision schema.
+  /// Every money REAL column `X` gains an int64 `X_minor` (retained REAL is the
+  /// compatibility shadow — NOT dropped/rebuilt). Planning gains its per-row
+  /// currency authority; user_settings gains the durable cutover marker. All
+  /// idempotent (`_ensureColumn`); the backfill/postflight run later in the
+  /// upgrade transaction (see [_migrateMoneyV30]).
+  Future<void> _ensureV30MoneyColumns() async {
+    for (final f in kV30MinorColumns) {
+      await _ensureColumn(f.table, f.minorColumn, 'INTEGER NULL');
+    }
+    // Per-row planning currency authority (repair-confirmed at cutover).
+    await _ensureColumn('budgets', 'currency', 'TEXT NULL');
+    await _ensureColumn('goals', 'currency', 'TEXT NULL');
+    // Durable planning cutover marker: 0 = unresolved (P1), 1 = canonical (P3).
+    await _ensureColumn(
+        'user_settings', 'planning_cutover_state', 'INTEGER NOT NULL DEFAULT 0');
+  }
+
+  /// MALI-026 (Phase-8 B8-3 §5/§6/§7/§8/§11) — the v30 money DATA migration,
+  /// inside the upgrade transaction. Non-planning domains are canonicalized
+  /// (REAL -> checked int64 minor) with preflight + exact postflight; any invalid
+  /// row throws and rolls the WHOLE upgrade back. Planning is STRUCTURAL ONLY:
+  /// historical budgets/goals keep currency/minor NULL and land in P1
+  /// (marker = unresolved) for the app-level cutover executor — EXCEPT a dataset
+  /// with no planning rows at all, which is trivially canonical (§11: a fresh /
+  /// empty DB must never show a historical-currency repair prompt).
+  Future<void> _migrateMoneyV30() async {
+    await backfillNonPlanningMoneyV30(this);
+    await verifyNonPlanningMoneyV30(this);
+    final hasBudgets =
+        (await customSelect('SELECT 1 FROM budgets LIMIT 1;').get()).isNotEmpty;
+    final hasGoals =
+        (await customSelect('SELECT 1 FROM goals LIMIT 1;').get()).isNotEmpty;
+    if (!hasBudgets && !hasGoals) {
+      await customStatement(
+          'UPDATE user_settings SET planning_cutover_state = 1;');
+    }
   }
 
   Future<void> _ensureAccountsSyncSchema() async {

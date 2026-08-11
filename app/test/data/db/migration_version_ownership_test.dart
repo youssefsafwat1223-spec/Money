@@ -66,15 +66,15 @@ void main() {
 
     final dbFramework = openUninit(newDbFile(), enableMigrations: true);
     addTearDown(dbFramework.close);
-    expect(await userVersion(dbFramework), 29,
-        reason: 'framework stamps schemaVersion (29) — the behavior the fix disables');
+    expect(await userVersion(dbFramework), 30,
+        reason: 'framework stamps schemaVersion (30) — the behavior the fix disables');
   });
 
-  test('fresh database (production config) initializes forward to 29', () async {
+  test('fresh database (production config) initializes forward to 30', () async {
     final db = openUninit(newDbFile());
     addTearDown(db.close);
     await db.initialize();
-    expect(await userVersion(db), 29);
+    expect(await userVersion(db), 30);
     expect(await count(db, 'accounts'), greaterThan(0));
     expect(await count(db, 'categories'), greaterThan(0));
   });
@@ -118,14 +118,14 @@ void main() {
 
     await db.initialize();
 
-    expect(await userVersion(db), 29);
+    expect(await userVersion(db), 30);
     expect(await columnExists(db, 'transactions', 'foreign_amount'), isTrue,
         reason: 'version<9 gate fired — real on-disk version (8) was observed');
     expect(await count(db, "transactions WHERE id='legacy_tx'"), 1,
         reason: 'legacy data preserved');
   });
 
-  test('reopening the same file persists user_version 29 without re-migrating',
+  test('reopening the same file persists user_version 30 without re-migrating',
       () async {
     final f = newDbFile();
     final db1 = openUninit(f);
@@ -138,10 +138,10 @@ void main() {
 
     final db2 = openUninit(f);
     addTearDown(db2.close);
-    expect(await userVersion(db2), 29,
-        reason: 'the pipeline persisted 29 to disk; observed on reopen');
+    expect(await userVersion(db2), 30,
+        reason: 'the pipeline persisted 30 to disk; observed on reopen');
     await db2.initialize(); // idempotent no-op
-    expect(await userVersion(db2), 29);
+    expect(await userVersion(db2), 30);
     expect(await count(db2, "accounts WHERE id='marker'"), 1);
   });
 
