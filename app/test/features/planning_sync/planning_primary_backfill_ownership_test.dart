@@ -116,4 +116,52 @@ void main() {
     expect(report.isClean, isTrue);
     expect(report.created, isEmpty);
   });
+
+  // MALI-026 (B8-3 §13): planning money has base/external currency authority, so
+  // budgets/goals carry a per-row currency (and `_minor`) ONLY after the P3
+  // repair. A migrated-but-un-repaired (P1) row has currency = NULL / `_minor` =
+  // NULL. The exact backfill must DEFER such a row — never push unknown-currency
+  // money, never fail-close on the NULL minor mid-loop (which would abort the
+  // whole phase, blocking repaired siblings). It must skip it before any remote
+  // call.
+  test(
+      'defers an un-repaired (P1) budget whose currency is still NULL — no '
+      'remote push, no phase abort', () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _clearPlanningTables(db);
+
+    final categoryId = (await db
+            .customSelect('SELECT id FROM categories LIMIT 1;')
+            .getSingle())
+        .read<String>('id');
+    await db.customStatement(
+      'INSERT INTO budgets(id, category_id, amount, period, start_date, '
+      'is_active, currency, amount_minor) '
+      "VALUES('b-unrepaired', ?, 100.0, 'monthly', '2026-01-01T00:00:00Z', 1, "
+      'NULL, NULL);',
+      [categoryId],
+    );
+
+    final service = PlanningPrimaryBackfillService(
+      db: db,
+      getAuthUserId: () async => 'user-b',
+      getLocalDataOwnerUid: () async => null,
+      getClient: _refusingClient, // deferral must happen before any remote call
+    );
+
+    final report = await service.run();
+
+    // Deferred as a soft skip, nothing created. _refusingClient never threw
+    // (no `budgets: StateError` entry), proving no remote INSERT was attempted.
+    expect(report.created, isEmpty);
+    expect(
+      report.failures,
+      contains('budgets:b-unrepaired:planning_currency_unrepaired'),
+    );
+    expect(
+      report.failures.where((f) => f.contains('StateError')),
+      isEmpty,
+    );
+  });
 }

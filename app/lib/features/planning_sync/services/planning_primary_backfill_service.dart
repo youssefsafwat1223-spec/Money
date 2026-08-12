@@ -140,6 +140,16 @@ class PlanningPrimaryBackfillService {
     final rows = await _db.customSelect('SELECT * FROM budgets;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
+      // Planning money has base/external currency authority: budgets carry a
+      // per-row currency only AFTER the planning-currency repair (P3), which
+      // sets currency + `_minor` atomically. An un-repaired (P1) row has
+      // currency = NULL / `_minor` = NULL — defer it rather than push
+      // unknown-currency money to the cloud (or fail-close on the NULL minor).
+      final currency = row.readNullable<String>('currency');
+      if (currency == null) {
+        failures.add('budgets:$localId:planning_currency_unrepaired');
+        continue;
+      }
       final account = await _optionalParent(
         table: 'accounts',
         localParentId: row.readNullable<String>('account_id'),
@@ -156,12 +166,12 @@ class PlanningPrimaryBackfillService {
         localId: localId,
         payload: {
           'category_id': await _categoryKey(row.read<String>('category_id')),
-          'amount': _money(row, 'amount', row.read<String>('currency')),
+          'amount': _money(row, 'amount', currency),
           'period': row.read<String>('period'),
           'start_date': row.read<String>('start_date'),
           'is_active': row.read<int>('is_active') == 1,
-          'last_notified_spent_amount': _money(
-              row, 'last_notified_spent_amount', row.read<String>('currency')),
+          'last_notified_spent_amount':
+              _money(row, 'last_notified_spent_amount', currency),
           'last_notified_period_start':
               row.read<String>('last_notified_period_start'),
           'show_on_header': row.read<int>('show_on_header') == 1,
@@ -180,6 +190,13 @@ class PlanningPrimaryBackfillService {
     final rows = await _db.customSelect('SELECT * FROM goals;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
+      // See _backfillBudgets: defer un-repaired (P1) planning rows whose
+      // currency / `_minor` are still NULL until the P3 currency repair.
+      final currency = row.readNullable<String>('currency');
+      if (currency == null) {
+        failures.add('goals:$localId:planning_currency_unrepaired');
+        continue;
+      }
       final account = await _optionalParent(
         table: 'accounts',
         localParentId: row.readNullable<String>('account_id'),
@@ -197,14 +214,13 @@ class PlanningPrimaryBackfillService {
         payload: {
           'name': row.read<String>('name'),
           'server_account_id': account.$1,
-          'target_amount': _money(row, 'target_amount', row.read<String>('currency')),
-          'saved_amount': _money(row, 'saved_amount', row.read<String>('currency')),
+          'target_amount': _money(row, 'target_amount', currency),
+          'saved_amount': _money(row, 'saved_amount', currency),
           'deadline': row.readNullable<String>('deadline'),
           'vault_skin': row.read<String>('vault_skin'),
           'status': row.read<String>('status'),
           'created_at': row.read<String>('created_at'),
-          'auto_save_amount':
-              _moneyOrNull(row, 'auto_save_amount', row.read<String>('currency')),
+          'auto_save_amount': _moneyOrNull(row, 'auto_save_amount', currency),
           'auto_save_period': row.readNullable<String>('auto_save_period'),
           'auto_save_last_run': row.readNullable<String>('auto_save_last_run'),
           'deleted_at': row.readNullable<String>('deleted_at'),
