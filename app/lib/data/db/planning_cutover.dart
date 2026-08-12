@@ -46,3 +46,60 @@ class FixedPlanningCutoverCoordinator implements PlanningCutoverCoordinator {
   @override
   PlanningCutoverState state() => fixedState;
 }
+
+/// MALI-026 (Phase-8 B8-3 §10) — thrown when the durable marker claims canonical
+/// but the planning data is not actually canonical (a NULL currency/minor on a
+/// non-null planning amount). This is an INVARIANT failure, never silently healed.
+class PlanningCutoverInvariantException implements Exception {
+  const PlanningCutoverInvariantException(this.message);
+  final String message;
+  @override
+  String toString() => 'PlanningCutoverInvariantException: $message';
+}
+
+/// MALI-026 (Phase-8 B8-3 §10) — the REAL v30-aware cutover state, derived from
+/// the durable DB marker + a postflight validation. Kept OUTSIDE the coordinator
+/// class so it can be computed once at bootstrap (async) and cached in a
+/// [DbBackedPlanningCutoverCoordinator]; re-run after the cutover executor commits.
+///
+/// - `userVersion < 30`            -> legacy (no v30 structure; never at runtime
+///                                     in a v30 build, but the contract is explicit);
+/// - v30 + marker 0                -> unresolved (P1: repair not complete);
+/// - v30 + marker 1 + valid data   -> canonical (P3);
+/// - v30 + marker 1 + INVALID data -> throws [PlanningCutoverInvariantException]
+///                                     (a canonical marker over non-canonical rows).
+///
+/// Canonical is NEVER inferred from column existence alone (§10): the durable
+/// marker is the authority, and marker=1 is corroborated by the postflight.
+Future<PlanningCutoverState> computePlanningCutoverState(
+  Future<int> Function() readUserVersion,
+  Future<int> Function() readMarker,
+  Future<int> Function() countCanonicalViolations,
+) async {
+  final version = await readUserVersion();
+  if (version < 30) return PlanningCutoverState.legacy;
+  final marker = await readMarker();
+  if (marker != 1) return PlanningCutoverState.unresolved;
+  final violations = await countCanonicalViolations();
+  if (violations > 0) {
+    throw PlanningCutoverInvariantException(
+      'planning_cutover_state=canonical but $violations planning row(s) lack a '
+      'currency/minor — refusing to treat a corrupt dataset as canonical',
+    );
+  }
+  return PlanningCutoverState.canonical;
+}
+
+/// A coordinator holding a state resolved from the DB at bootstrap and refreshed
+/// after the cutover executor commits (P2 -> P3), so the guard/nav/parking react
+/// to the real durable authority without an app restart.
+class DbBackedPlanningCutoverCoordinator implements PlanningCutoverCoordinator {
+  DbBackedPlanningCutoverCoordinator(this._state);
+  PlanningCutoverState _state;
+
+  @override
+  PlanningCutoverState state() => _state;
+
+  /// Called by the cutover executor after it commits marker=canonical.
+  void refresh(PlanningCutoverState next) => _state = next;
+}
