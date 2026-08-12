@@ -94,12 +94,32 @@ Future<PlanningCutoverState> computePlanningCutoverState(
 /// after the cutover executor commits (P2 -> P3), so the guard/nav/parking react
 /// to the real durable authority without an app restart.
 class DbBackedPlanningCutoverCoordinator implements PlanningCutoverCoordinator {
-  DbBackedPlanningCutoverCoordinator(this._state);
+  DbBackedPlanningCutoverCoordinator({
+    required PlanningCutoverState initialState,
+    required Future<int> Function() readUserVersion,
+    required Future<int> Function() readMarker,
+    required Future<int> Function() countCanonicalViolations,
+  })  : _state = initialState,
+        _readUserVersion = readUserVersion,
+        _readMarker = readMarker,
+        _countViolations = countCanonicalViolations;
+
   PlanningCutoverState _state;
+  final Future<int> Function() _readUserVersion;
+  final Future<int> Function() _readMarker;
+  final Future<int> Function() _countViolations;
 
   @override
   PlanningCutoverState state() => _state;
 
-  /// Called by the cutover executor after it commits marker=canonical.
-  void refresh(PlanningCutoverState next) => _state = next;
+  /// Correction 2 — after the cutover commits (or on demand), INDEPENDENTLY
+  /// recompute the state from the persisted DB (user_version + marker + canonical
+  /// violations), never from a caller-asserted value. Throws
+  /// [PlanningCutoverInvariantException] if the marker claims canonical over a
+  /// non-canonical dataset; never silently downgrades or forces canonical.
+  Future<PlanningCutoverState> refreshFromDatabase() async {
+    _state = await computePlanningCutoverState(
+        _readUserVersion, _readMarker, _countViolations);
+    return _state;
+  }
 }

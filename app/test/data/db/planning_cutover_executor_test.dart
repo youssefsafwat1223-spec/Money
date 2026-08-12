@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/planning_canonical_invariants.dart';
 import 'package:money_companion/data/db/planning_currency_repair.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/db/planning_cutover_executor.dart';
@@ -175,6 +176,70 @@ void main() {
       final state = await PlanningCutoverExecutor(db, repair).execute();
       expect(state, PlanningCutoverState.canonical);
       expect(await marker(), 1);
+    });
+
+    // Correction 2 / §16 — the canonical proof cannot depend on the executor's
+    // in-memory return; a FRESH coordinator built from the persisted DB must
+    // independently resolve canonical.
+    test('§16 after cutover a fresh coordinator recomputes canonical from DB',
+        () async {
+      await addBudget('b1', 100.0);
+      await addGoal('g1');
+      await repair.confirmGlobal('EGP');
+
+      DbBackedPlanningCutoverCoordinator coord() =>
+          DbBackedPlanningCutoverCoordinator(
+            initialState: PlanningCutoverState.unresolved,
+            readUserVersion: () async => (await db
+                    .customSelect('PRAGMA user_version;')
+                    .getSingle())
+                .read<int>('user_version'),
+            readMarker: marker,
+            countCanonicalViolations: () async =>
+                (await planningCanonicalViolations(db)).length,
+          );
+
+      // Before cutover: independent recompute = unresolved (marker 0).
+      expect(await coord().refreshFromDatabase(), PlanningCutoverState.unresolved);
+
+      await PlanningCutoverExecutor(db, repair).execute();
+
+      // After cutover: a brand-new coordinator (no in-memory carry-over) resolves
+      // canonical purely from the committed DB.
+      expect(await coord().refreshFromDatabase(), PlanningCutoverState.canonical);
+    });
+
+    // Correction 3 — the violation check covers the WHOLE contract, not just
+    // "amount_minor exists".
+    test('§10/corr-3 canonical violations catch NULL currency, NULL/mismatched minor',
+        () async {
+      await addBudget('b1', 100.0);
+      await addGoal('g1');
+      await addContribution('c1', 'g1');
+      await repair.confirmGlobal('EGP');
+      await PlanningCutoverExecutor(db, repair).execute();
+      expect(await planningCanonicalViolations(db), isEmpty); // canonical
+
+      // NULL currency on a canonical budget → violation.
+      await db.customStatement(
+          "UPDATE budgets SET currency = NULL WHERE id = 'b1';");
+      expect(await planningCanonicalViolations(db), isNotEmpty);
+      await db.customStatement(
+          "UPDATE budgets SET currency = 'EGP' WHERE id = 'b1';");
+      expect(await planningCanonicalViolations(db), isEmpty);
+
+      // NULL required minor → violation.
+      await db.customStatement(
+          "UPDATE goals SET target_amount_minor = NULL WHERE id = 'g1';");
+      expect(await planningCanonicalViolations(db), isNotEmpty);
+      await db.customStatement(
+          "UPDATE goals SET target_amount_minor = 100000 WHERE id = 'g1';");
+      expect(await planningCanonicalViolations(db), isEmpty);
+
+      // Minor != exact(real) → violation (parity, not just presence).
+      await db.customStatement(
+          "UPDATE goal_contributions SET amount_minor = 999 WHERE id = 'c1';");
+      expect(await planningCanonicalViolations(db), isNotEmpty);
     });
   });
 }
