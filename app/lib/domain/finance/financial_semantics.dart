@@ -177,12 +177,34 @@ class FinancialSql {
   }
 
   /// The signed amount for a net-expense sum: refund subtracts, payment/
-  /// withdrawal add, everything else contributes 0.
+  /// withdrawal add, everything else contributes 0. Operates on the REAL `amount`
+  /// shadow — LEGACY/display aggregates only; canonical exact totals use
+  /// [netExpenseSignedAmountMinor].
   static String netExpenseSignedAmount({String alias = ''}) {
     final p = alias.isEmpty ? '' : '$alias.';
     return "CASE WHEN ${p}type = 'refund' THEN -${p}amount "
         "WHEN ${p}type IN ('payment', 'withdrawal') THEN ${p}amount "
         'ELSE 0 END';
+  }
+
+  /// MALI-026 (B8-3 §16): the net-expense signed amount over the EXACT
+  /// `amount_minor` int64 column. Canonical integer aggregates SUM this; an int64
+  /// overflow raises a SQLite "integer overflow" error (fail-exact — NEVER a
+  /// floating fallback), so the SUM must NOT be wrapped in `CAST(... AS REAL)`.
+  /// Same refund/payment/withdrawal semantics as [netExpenseSignedAmount]. Only
+  /// meaningful within ONE currency (never SUM across mixed currencies).
+  static String netExpenseSignedAmountMinor({String alias = ''}) {
+    final p = alias.isEmpty ? '' : '$alias.';
+    return "CASE WHEN ${p}type = 'refund' THEN -${p}amount_minor "
+        "WHEN ${p}type IN ('payment', 'withdrawal') THEN ${p}amount_minor "
+        'ELSE 0 END';
+  }
+
+  /// MALI-026 (B8-3 §16): the income-flow exact minor amount (0 for non-income).
+  /// Single-currency only, integer, fail-exact on overflow (no `CAST AS REAL`).
+  static String incomeSignedAmountMinor({String alias = ''}) {
+    final p = alias.isEmpty ? '' : '$alias.';
+    return "CASE WHEN ${p}type = 'income' THEN ${p}amount_minor ELSE 0 END";
   }
 
   /// The income flow.

@@ -485,7 +485,8 @@ class DriftTransactionRepository implements TransactionRepository {
   /// النطاق. عند فتح حساب بعينه (`accountId != null`) يظهر الحساب بمجاميعه
   /// كاملةً حتى لو كان مستبعَدًا من الإجماليات — فالعَلَم يمنع دخوله في المجموع
   /// المشترك، لا في عرض تفاصيله الخاصة.
-  static ({String where, String signedAmount}) _financialAggregateSql(
+  static ({String where, String signedAmount, String signedAmountMinor})
+      _financialAggregateSql(
     _FinancialAggregateFlow flow, {
     String tableAlias = '',
     String? accountId,
@@ -504,6 +505,15 @@ class DriftTransactionRepository implements TransactionRepository {
             "THEN -${prefix}amount "
             "WHEN ${prefix}type IN ('payment', 'withdrawal') "
             "THEN ${prefix}amount ELSE 0 END";
+    // MALI-026 (B8-3 §16): the exact int64 counterpart. Summed WITHOUT
+    // `CAST(... AS REAL)` so an int64 overflow fails exact (SQLite raises), and
+    // only ever within a single-currency scope.
+    final signedAmountMinor = flow == _FinancialAggregateFlow.income
+        ? '${prefix}amount_minor'
+        : "CASE WHEN ${prefix}type = 'refund' "
+            "THEN -${prefix}amount_minor "
+            "WHEN ${prefix}type IN ('payment', 'withdrawal') "
+            "THEN ${prefix}amount_minor ELSE 0 END";
     final accountExclusion = accountId == null
         ? _includedTotalsAccountClause(tableAlias: tableAlias)
         : '';
@@ -512,6 +522,7 @@ class DriftTransactionRepository implements TransactionRepository {
           'AND $typeFilter'
           '$accountExclusion',
       signedAmount: signedAmount,
+      signedAmountMinor: signedAmountMinor,
     );
   }
 
