@@ -5,6 +5,7 @@ import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -72,6 +73,7 @@ void main() {
       "period_end, paid_at) VALUES ('pay1', 'sub1', 100, 'SAR', '2026-01-01', "
       "'2026-01-31', '2026-01-15');",
     );
+    await backfillNonPlanningMoneyV30(src);
 
     final snapshot = await BackupSnapshotBuilder(src).build();
     final subs =
@@ -181,6 +183,7 @@ void main() {
       "INSERT INTO accounts(id, name, currency, type, created_at, updated_at) "
       "VALUES ('keep', 'K', 'SAR', 'bank', '2026-01-01', '2026-01-01');",
     );
+    await backfillNonPlanningMoneyV30(dst);
     final before = await count(dst, 'accounts');
 
     await expectLater(
@@ -205,6 +208,7 @@ void main() {
       "INSERT INTO accounts(id, name, currency, type, created_at, updated_at) "
       "VALUES ('orig', 'O', 'SAR', 'bank', '2026-01-01', '2026-01-01');",
     );
+    await backfillNonPlanningMoneyV30(dst);
 
     final snapshot = <String, dynamic>{
       'schemaVersion': 3,

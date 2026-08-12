@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/repositories/drift_card_repository.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/card_entity.dart';
@@ -200,6 +201,7 @@ void main() {
       "'sms', '1111', 'acc-a', '2026-07-01T00:00:00.000Z', 'm', 1.0, "
       "'confirmed', '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z');",
     );
+    await backfillNonPlanningMoneyV30(db);
     final c = await cards.create(_card('acc-a', '1111'));
     await _push(db, queue, remote).push();
     await cards.delete(c.id);

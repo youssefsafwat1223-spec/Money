@@ -4,6 +4,7 @@ import 'package:money_companion/core/sync/conflict_policy.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -90,6 +91,7 @@ void main() {
         "('$id', 'Travel', 5000, 300, 'classic', 'active', '2026-07-01', "
         "'srv-$id', 'base-ts', '$status');",
       );
+      await backfillNonPlanningMoneyV30(db);
       await db.customStatement(
         "INSERT INTO planning_sync_outbox(id, entity_type, entity_id, operation, "
         "payload_json, created_at, updated_at) VALUES "

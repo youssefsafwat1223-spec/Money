@@ -27,10 +27,13 @@ enum MoneyStorageMode {
   v30Minor,
 }
 
-/// The active physical mode for THIS build. Schema is v29, so REAL is
-/// authoritative. The v30 activation commit flips this constant (and adds the 20
-/// `_minor` columns + their write bindings) — see PHASE_8_B8_2_CUTOVER.md §15.
-const MoneyStorageMode kMoneyStorageMode = MoneyStorageMode.v29Real;
+/// The active physical mode for THIS build. Schema is v30: the non-planning money
+/// domains are canonicalized (their `_minor` columns are backfilled by the v30
+/// upgrade transaction), so `_minor` is authoritative and REAL is the shadow.
+/// Planning (budgets/goals/goal_contributions) does NOT read through this codec —
+/// it stays REAL until its own P3 cutover, so this flip is scoped to the
+/// non-planning repositories that bind money through [kMoneyCodec].
+const MoneyStorageMode kMoneyStorageMode = MoneyStorageMode.v30Minor;
 
 /// Shared const codec for the active build mode — the single instance the
 /// repository / sync / import layers bind money through.
@@ -109,11 +112,19 @@ class MoneyCodec {
   /// The exact integer minor units — the v30 authoritative column value.
   int toMinor(Money m) => m.minorUnits;
 
-  /// Bound `?` variable for the REAL column (v29). Callers that use bound
-  /// parameters (`Variable.withReal`) pass [realVar]/[realVarOrNull].
+  /// Bound `?` variable for the REAL column (v29 authority / v30 compatibility
+  /// shadow). Callers that use bound parameters (`Variable.withReal`) pass
+  /// [realVar]/[realVarOrNull].
   Variable<double> realVar(Money m) => Variable.withReal(toReal(m));
   Variable<double> realVarOrNull(Money? m) =>
       m == null ? const Variable<double>(null) : realVar(m);
+
+  /// MALI-026 (B8-3 §18/§19) — bound `?` variable for the v30 authoritative
+  /// `_minor` column, from the SAME [Money] as the REAL shadow. Dual-write
+  /// callers bind BOTH [minorVar] and [realVar] in one statement.
+  Variable<int> minorVar(Money m) => Variable.withInt(toMinor(m));
+  Variable<int> minorVarOrNull(Money? m) =>
+      m == null ? const Variable<int>(null) : minorVar(m);
 
   /// SQL numeric literal for the interpolation writers (the transactions/goals
   /// repositories build SQL text). Emits the EXACT decimal (`19.99`, `-0.50`,
@@ -122,4 +133,11 @@ class MoneyCodec {
   String sqlRealLiteral(Money m) => m.toDecimalString();
   String sqlNullableRealLiteral(Money? m) =>
       m == null ? 'NULL' : m.toDecimalString();
+
+  /// MALI-026 (B8-3 §18/§19) — SQL integer literal for the v30 authoritative
+  /// `_minor` column in the interpolation writers, from the SAME [Money] as the
+  /// REAL shadow. `minorUnits` is an exact int64, so `.toString()` is exact.
+  String sqlMinorLiteral(Money m) => toMinor(m).toString();
+  String sqlNullableMinorLiteral(Money? m) =>
+      m == null ? 'NULL' : toMinor(m).toString();
 }

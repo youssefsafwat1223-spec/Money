@@ -182,15 +182,16 @@ class DriftTransactionRepository implements TransactionRepository {
 
       await _db.customStatement('''
         INSERT INTO transactions(
-          id, amount, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
-          card_last4, balance_after, note, occurred_at, raw_message, parse_confidence, status,
-          created_at, updated_at, foreign_amount, foreign_currency, direction,
+          id, amount, amount_minor, currency, account_id, merchant_id, raw_merchant, category_id, type, source,
+          card_last4, balance_after, balance_after_minor, note, occurred_at, raw_message, parse_confidence, status,
+          created_at, updated_at, foreign_amount, foreign_amount_minor, foreign_currency, direction,
           transaction_time_from_sms, sms_received_at, comparison_timestamp,
           comparison_timestamp_source, duplicate_status,
           possible_duplicate_of_transaction_id, duplicate_reason
         ) VALUES (
           ${sqlString(transaction.id)},
           ${kMoneyCodec.sqlRealLiteral(transaction.amountMoney)},
+          ${kMoneyCodec.sqlMinorLiteral(transaction.amountMoney)},
           ${sqlString(transaction.currency)},
           ${sqlNullableString(accountId)},
           ${sqlNullableString(merchantId)},
@@ -200,6 +201,7 @@ class DriftTransactionRepository implements TransactionRepository {
           ${sqlString(transaction.source.name)},
           ${sqlNullableString(transaction.cardLast4)},
           ${kMoneyCodec.sqlNullableRealLiteral(transaction.balanceAfterMoney)},
+          ${kMoneyCodec.sqlNullableMinorLiteral(transaction.balanceAfterMoney)},
           ${sqlNullableString(transaction.note)},
           ${sqlString(dateTimeToSql(transaction.occurredAt))},
           ${sqlString(transaction.rawMessage)},
@@ -208,6 +210,7 @@ class DriftTransactionRepository implements TransactionRepository {
           ${sqlString(dateTimeToSql(transaction.createdAt))},
           ${sqlString(dateTimeToSql(transaction.updatedAt))},
           ${kMoneyCodec.sqlNullableRealLiteral(transaction.foreignMoney)},
+          ${kMoneyCodec.sqlNullableMinorLiteral(transaction.foreignMoney)},
           ${sqlNullableString(transaction.foreignCurrency)},
           ${sqlNullableString(transactionDirectionToSql(transaction.direction))},
           ${sqlNullableString(transaction.transactionTimeFromSms == null ? null : dateTimeToSql(transaction.transactionTimeFromSms!))},
@@ -297,7 +300,7 @@ class DriftTransactionRepository implements TransactionRepository {
       await _db.customUpdate(
         '''
           UPDATE transactions
-          SET ${accountClause}amount = ?, currency = ?, type = ?, occurred_at = ?,
+          SET ${accountClause}amount = ?, amount_minor = ?, currency = ?, type = ?, occurred_at = ?,
               comparison_timestamp = ?, merchant_id = ?, raw_merchant = ?,
               category_id = ?, note = ?,
               status = 'confirmed', updated_at = ?
@@ -306,6 +309,7 @@ class DriftTransactionRepository implements TransactionRepository {
         variables: [
           if (accountId != null) Variable.withString(accountId),
           kMoneyCodec.realVar(amount),
+          kMoneyCodec.minorVar(amount),
           Variable.withString(currency),
           Variable.withString(type.name),
           Variable.withString(dateTimeToSql(occurredAt.toUtc())),
@@ -397,9 +401,10 @@ class DriftTransactionRepository implements TransactionRepository {
         );
       }
       await _db.customUpdate(
-        'UPDATE transactions SET amount = ?, updated_at = ? WHERE id = ?;',
+        'UPDATE transactions SET amount = ?, amount_minor = ?, updated_at = ? WHERE id = ?;',
         variables: [
           kMoneyCodec.realVar(amount),
+          kMoneyCodec.minorVar(amount),
           Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
           Variable.withString(transactionId),
         ],

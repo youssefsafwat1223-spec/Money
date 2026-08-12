@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/bounded_lookup.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -133,6 +134,7 @@ void main() {
           "'bank', '$now', '$now', 'srv-$i', '$owner');",
         );
       }
+      await backfillNonPlanningMoneyV30(db);
       counter.selects = 0;
     });
 

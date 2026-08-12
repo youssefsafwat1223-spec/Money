@@ -44,6 +44,7 @@ class DriftPlanRepository implements PlanRepository {
       final vars = [
         Variable.withString(plan.name),
         kMoneyCodec.realVar(plan.budgetAmountMoney),
+        kMoneyCodec.minorVar(plan.budgetAmountMoney),
         Variable.withString(plan.currency),
         Variable.withString(dateTimeToSql(plan.startDate.toUtc())),
         Variable.withString(dateTimeToSql(plan.endDate.toUtc())),
@@ -58,9 +59,9 @@ class DriftPlanRepository implements PlanRepository {
         await _db.customInsert(
           '''
           INSERT INTO plans(
-            name, budget_amount, currency, start_date, end_date,
+            name, budget_amount, budget_amount_minor, currency, start_date, end_date,
             account_ids, card_last4s, status, icon, created_at, id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
           variables: [
             ...vars,
@@ -76,7 +77,7 @@ class DriftPlanRepository implements PlanRepository {
         await _db.customUpdate(
           '''
           UPDATE plans SET
-            name = ?, budget_amount = ?, currency = ?, start_date = ?,
+            name = ?, budget_amount = ?, budget_amount_minor = ?, currency = ?, start_date = ?,
             end_date = ?, account_ids = ?, card_last4s = ?, status = ?, icon = ?
           WHERE id = ?;
         ''',
@@ -262,8 +263,8 @@ class DriftPlanRepository implements PlanRepository {
     return PlanEntity(
       id: row.read<String>('id'),
       name: row.read<String>('name'),
-      budgetAmountMoney:
-          kMoneyCodec.readColumn(row, 'budget_amount', row.read<String>('currency')),
+      budgetAmountMoney: kMoneyCodec.readColumn(
+          row, 'budget_amount', row.read<String>('currency')),
       currency: row.read<String>('currency'),
       startDate: dateTimeFromSql(row.read<String>('start_date')),
       endDate: dateTimeFromSql(row.read<String>('end_date')),

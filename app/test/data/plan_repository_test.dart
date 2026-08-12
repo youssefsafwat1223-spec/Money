@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_plan_repository.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
@@ -63,6 +64,7 @@ void main() {
         Variable.withString(dateTimeToSql(occurredAt.toUtc())),
       ],
     );
+    await backfillNonPlanningMoneyV30(db);
   }
 
   PlanEntity plan({

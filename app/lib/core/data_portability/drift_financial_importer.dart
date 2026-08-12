@@ -139,12 +139,15 @@ class DriftFinancialImporter {
         final currentBalanceMoney =
             _legacyMoneyOrNull(row['current_balance'], accountCurrency);
         await _db.customStatement('''
-          INSERT INTO accounts(id,name,currency,type,initial_balance,current_balance,
+          INSERT INTO accounts(id,name,currency,type,initial_balance,initial_balance_minor,
+            current_balance,current_balance_minor,
             is_default,sort_order,created_at,updated_at,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,NULL)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET name=excluded.name,currency=excluded.currency,
             type=excluded.type,initial_balance=excluded.initial_balance,
-            current_balance=excluded.current_balance,is_default=excluded.is_default,
+            initial_balance_minor=excluded.initial_balance_minor,
+            current_balance=excluded.current_balance,
+            current_balance_minor=excluded.current_balance_minor,is_default=excluded.is_default,
             sort_order=excluded.sort_order,updated_at=excluded.updated_at,deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
@@ -154,9 +157,15 @@ class DriftFinancialImporter {
           initialBalanceMoney == null
               ? null
               : kMoneyCodec.toReal(initialBalanceMoney),
+          initialBalanceMoney == null
+              ? null
+              : kMoneyCodec.toMinor(initialBalanceMoney),
           currentBalanceMoney == null
               ? null
               : kMoneyCodec.toReal(currentBalanceMoney),
+          currentBalanceMoney == null
+              ? null
+              : kMoneyCodec.toMinor(currentBalanceMoney),
           _boolInt(row['is_default']),
           _int(row['sort_order']),
           _date(row['created_at']),
@@ -212,20 +221,22 @@ class DriftFinancialImporter {
               'المبلغ والعملة الأجنبية يجب أن يوجدا معًا.');
         }
         await _db.customStatement('''
-          INSERT INTO transactions(id,account_id,amount,currency,raw_merchant,
-            category_id,type,source,card_last4,balance_after,note,occurred_at,
+          INSERT INTO transactions(id,account_id,amount,amount_minor,currency,raw_merchant,
+            category_id,type,source,card_last4,balance_after,balance_after_minor,note,occurred_at,
             raw_message,parse_confidence,status,created_at,updated_at,
-            foreign_amount,foreign_currency,direction,transaction_time_from_sms,
+            foreign_amount,foreign_amount_minor,foreign_currency,direction,transaction_time_from_sms,
             sms_received_at,comparison_timestamp,comparison_timestamp_source,
             duplicate_status,possible_duplicate_of_transaction_id,duplicate_reason)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?, '',1,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, '',1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
           ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,
-            amount=excluded.amount,currency=excluded.currency,
+            amount=excluded.amount,amount_minor=excluded.amount_minor,currency=excluded.currency,
             raw_merchant=excluded.raw_merchant,category_id=excluded.category_id,
             type=excluded.type,source=excluded.source,card_last4=excluded.card_last4,
-            balance_after=excluded.balance_after,note=excluded.note,
+            balance_after=excluded.balance_after,
+            balance_after_minor=excluded.balance_after_minor,note=excluded.note,
             occurred_at=excluded.occurred_at,status=excluded.status,
             updated_at=excluded.updated_at,foreign_amount=excluded.foreign_amount,
+            foreign_amount_minor=excluded.foreign_amount_minor,
             foreign_currency=excluded.foreign_currency,direction=excluded.direction,
             transaction_time_from_sms=excluded.transaction_time_from_sms,
             sms_received_at=excluded.sms_received_at,
@@ -238,6 +249,7 @@ class DriftFinancialImporter {
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
           kMoneyCodec.toReal(amountMoney),
+          kMoneyCodec.toMinor(amountMoney),
           transactionCurrency,
           _nullable(row['merchant']),
           categoryId,
@@ -247,12 +259,16 @@ class DriftFinancialImporter {
           balanceAfterMoney == null
               ? null
               : kMoneyCodec.toReal(balanceAfterMoney),
+          balanceAfterMoney == null
+              ? null
+              : kMoneyCodec.toMinor(balanceAfterMoney),
           _nullable(row['note']),
           _date(row['occurred_at']),
           _or(row['status'], 'confirmed'),
           _date(row['created_at']),
           _date(row['updated_at']),
           foreignMoney == null ? null : kMoneyCodec.toReal(foreignMoney),
+          foreignMoney == null ? null : kMoneyCodec.toMinor(foreignMoney),
           foreignCurrency,
           _nullable(row['direction']),
           _nullableDate(row['transaction_time_from_sms']),
@@ -298,20 +314,24 @@ class DriftFinancialImporter {
         final totalPurchaseMoney = _legacyMoneyOrNull(
             row['total_purchase_amount'], subscriptionCurrency);
         await _db.customStatement('''
-          INSERT INTO subscriptions(id,account_id,merchant_id,name,amount,currency,
+          INSERT INTO subscriptions(id,account_id,merchant_id,name,amount,amount_minor,currency,
             period,frequency,type,next_due_date,is_confirmed,reminder_on,
             custom_interval_days,note,created_at,status,total_installments,paid_count,
-            manual_paid_amount,total_purchase_amount,lender_name,interest_rate,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+            manual_paid_amount,manual_paid_amount_minor,total_purchase_amount,
+            total_purchase_amount_minor,lender_name,interest_rate,deleted_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,
             merchant_id=excluded.merchant_id,name=excluded.name,amount=excluded.amount,
+            amount_minor=excluded.amount_minor,
             currency=excluded.currency,period=excluded.period,frequency=excluded.frequency,
             type=excluded.type,next_due_date=excluded.next_due_date,
             is_confirmed=excluded.is_confirmed,reminder_on=excluded.reminder_on,
             custom_interval_days=excluded.custom_interval_days,note=excluded.note,
             status=excluded.status,total_installments=excluded.total_installments,
             paid_count=excluded.paid_count,manual_paid_amount=excluded.manual_paid_amount,
+            manual_paid_amount_minor=excluded.manual_paid_amount_minor,
             total_purchase_amount=excluded.total_purchase_amount,
+            total_purchase_amount_minor=excluded.total_purchase_amount_minor,
             lender_name=excluded.lender_name,interest_rate=excluded.interest_rate,
             deleted_at=NULL;
         ''', [
@@ -320,6 +340,7 @@ class DriftFinancialImporter {
           merchantId,
           _or(row['name'], 'اشتراك'),
           kMoneyCodec.toReal(subscriptionAmountMoney),
+          kMoneyCodec.toMinor(subscriptionAmountMoney),
           subscriptionCurrency,
           _or(row['period'], 'monthly'),
           _or(row['frequency'], 'monthly'),
@@ -334,9 +355,13 @@ class DriftFinancialImporter {
           _intOrNull(row['total_installments']),
           _intOrNull(row['paid_count']),
           manualPaidMoney == null ? null : kMoneyCodec.toReal(manualPaidMoney),
+          manualPaidMoney == null ? null : kMoneyCodec.toMinor(manualPaidMoney),
           totalPurchaseMoney == null
               ? null
               : kMoneyCodec.toReal(totalPurchaseMoney),
+          totalPurchaseMoney == null
+              ? null
+              : kMoneyCodec.toMinor(totalPurchaseMoney),
           _nullable(row['lender_name']),
           _double(row['interest_rate']),
         ]);
@@ -345,11 +370,11 @@ class DriftFinancialImporter {
         final paymentAmountMoney =
             _legacyPositiveMoney(row['amount'], paymentCurrency);
         await _db.customStatement('''
-          INSERT INTO bill_payments(id,bill_id,amount,currency,period_start,
+          INSERT INTO bill_payments(id,bill_id,amount,amount_minor,currency,period_start,
             period_end,paid_at,installment_index,transaction_id,note,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,NULL)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET bill_id=excluded.bill_id,
-            amount=excluded.amount,currency=excluded.currency,
+            amount=excluded.amount,amount_minor=excluded.amount_minor,currency=excluded.currency,
             period_start=excluded.period_start,period_end=excluded.period_end,
             paid_at=excluded.paid_at,installment_index=excluded.installment_index,
             transaction_id=excluded.transaction_id,note=excluded.note,deleted_at=NULL;
@@ -357,6 +382,7 @@ class DriftFinancialImporter {
           _required(row, 'record_id'),
           _required(row, 'subscription_record_id'),
           kMoneyCodec.toReal(paymentAmountMoney),
+          kMoneyCodec.toMinor(paymentAmountMoney),
           paymentCurrency,
           _date(row['period_start']),
           _date(row['period_end']),
@@ -412,11 +438,12 @@ class DriftFinancialImporter {
         final budgetAmountMoney =
             _legacyPositiveMoney(row['budget_amount'], planCurrency);
         await _db.customStatement('''
-          INSERT INTO plans(id,name,budget_amount,currency,start_date,end_date,
+          INSERT INTO plans(id,name,budget_amount,budget_amount_minor,currency,start_date,end_date,
             account_ids,card_last4s,status,icon,created_at,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET name=excluded.name,
-            budget_amount=excluded.budget_amount,currency=excluded.currency,
+            budget_amount=excluded.budget_amount,
+            budget_amount_minor=excluded.budget_amount_minor,currency=excluded.currency,
             start_date=excluded.start_date,end_date=excluded.end_date,
             account_ids=excluded.account_ids,card_last4s=excluded.card_last4s,
             status=excluded.status,icon=excluded.icon,deleted_at=NULL;
@@ -424,6 +451,7 @@ class DriftFinancialImporter {
           _required(row, 'record_id'),
           _required(row, 'name'),
           kMoneyCodec.toReal(budgetAmountMoney),
+          kMoneyCodec.toMinor(budgetAmountMoney),
           planCurrency,
           _date(row['start_date']),
           _date(row['end_date']),

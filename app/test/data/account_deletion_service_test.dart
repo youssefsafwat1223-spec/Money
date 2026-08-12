@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/account_deletion_service.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
@@ -173,13 +174,16 @@ void main() {
         accountId: accountId,
       ));
 
-  Future<void> txn(String id, String accountId) => db.customStatement(
+  Future<void> txn(String id, String accountId) async {
+    await db.customStatement(
         "INSERT INTO transactions(id, amount, currency, type, source, "
         "occurred_at, raw_message, parse_confidence, status, created_at, "
         "updated_at, account_id) VALUES ('$id', 10, 'SAR', 'payment', 'bank', "
         "'${dateTimeToSql(now)}', 'raw', 1.0, 'confirmed', "
         "'${dateTimeToSql(now)}', '${dateTimeToSql(now)}', '$accountId');",
       );
+    await backfillNonPlanningMoneyV30(db);
+  }
 
   Future<int> count(String sql) async =>
       (await db.customSelect('SELECT COUNT(*) AS n FROM $sql;').getSingle())

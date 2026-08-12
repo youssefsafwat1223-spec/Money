@@ -9,6 +9,7 @@ import 'package:money_companion/core/privacy/data_wipe_service.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/domain/errors/repo_exceptions.dart';
 import 'package:money_companion/features/capture/services/transactions_backfill_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -65,6 +66,7 @@ Future<void> _seedOneTransaction(AppDatabase db, {String id = 't1'}) async {
     "raw_message, parse_confidence, status, created_at, updated_at) "
     "VALUES ('$id', 10, 'SAR', 'expense', 'manual', '$now', 'raw', 1.0, 'active', '$now', '$now');",
   );
+  await backfillNonPlanningMoneyV30(db);
 }
 
 SupabaseClient _refusingClient() {

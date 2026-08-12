@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/utils/id_generator.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_bill_repository.dart';
@@ -139,6 +140,7 @@ void main() {
         Variable.withString('2026-07-05T11:26:00.000Z'),
       ],
     );
+    await backfillNonPlanningMoneyV30(db);
 
     // MALI-027: initialize() is memoized per instance (no double-migration), so
     // re-running the idempotent startup repairs on freshly-inserted stale data
@@ -206,6 +208,7 @@ void main() {
         Variable.withString(now.toIso8601String()),
       ],
     );
+    await backfillNonPlanningMoneyV30(db);
 
     final total = await transactionRepository.expenseTotalBetween(
       from: now.subtract(const Duration(minutes: 1)),
@@ -247,6 +250,7 @@ void main() {
         Variable.withString(originalAt.toIso8601String()),
       ],
     );
+    await backfillNonPlanningMoneyV30(db);
 
     await transactionRepository.updateTransaction(
       transactionId: 'tx_edit_time',
@@ -411,6 +415,7 @@ void main() {
         Variable.withString(now.toUtc().toIso8601String()),
       ],
     );
+    await backfillNonPlanningMoneyV30(db);
 
     // MALI-027: re-run seam (initialize() is memoized; see note above).
     await db.debugReinitialize();
@@ -458,6 +463,7 @@ void main() {
         Variable.withString(now.toUtc().toIso8601String()),
       ],
     );
+    await backfillNonPlanningMoneyV30(db);
 
     // MALI-027: re-run seam (initialize() is memoized; see note above).
     await db.debugReinitialize();

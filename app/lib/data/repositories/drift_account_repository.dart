@@ -52,7 +52,9 @@ List<Variable> _accountFieldVars(AccountEntity account) => [
           ? const Variable<String>(null)
           : Variable.withString(account.bankAccountNumber!),
       kMoneyCodec.realVarOrNull(account.creditLimitMoney),
+      kMoneyCodec.minorVarOrNull(account.creditLimitMoney),
       kMoneyCodec.realVarOrNull(account.availableCreditMoney),
+      kMoneyCodec.minorVarOrNull(account.availableCreditMoney),
       account.paymentDueDay == null
           ? const Variable<int>(null)
           : Variable.withInt(account.paymentDueDay!),
@@ -120,12 +122,13 @@ class DriftAccountRepository implements AccountRepository {
       await _db.customInsert(
         '''
         INSERT INTO accounts(
-          id, name, currency, type, initial_balance, current_balance,
-          bank_account_number, credit_limit, available_credit,
+          id, name, currency, type, initial_balance, initial_balance_minor,
+          current_balance, current_balance_minor, bank_account_number,
+          credit_limit, credit_limit_minor, available_credit, available_credit_minor,
           payment_due_day, wallet_provider, exclude_from_totals, metadata,
           is_default, sort_order, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
         variables: [
           Variable.withString(id),
@@ -133,7 +136,9 @@ class DriftAccountRepository implements AccountRepository {
           Variable.withString(account.currency),
           Variable.withString(account.type.name),
           kMoneyCodec.realVarOrNull(account.initialBalanceMoney),
+          kMoneyCodec.minorVarOrNull(account.initialBalanceMoney),
           kMoneyCodec.realVarOrNull(account.currentBalanceMoney),
+          kMoneyCodec.minorVarOrNull(account.currentBalanceMoney),
           ..._accountFieldVars(account),
           Variable.withInt(boolToSql(makeDefault)),
           Variable.withInt(account.sortOrder),
@@ -162,8 +167,10 @@ class DriftAccountRepository implements AccountRepository {
         '''
         UPDATE accounts
         SET name = ?, currency = ?, type = ?, initial_balance = ?,
-            current_balance = ?, bank_account_number = ?, credit_limit = ?,
-            available_credit = ?, payment_due_day = ?, wallet_provider = ?,
+            initial_balance_minor = ?, current_balance = ?,
+            current_balance_minor = ?, bank_account_number = ?, credit_limit = ?,
+            credit_limit_minor = ?, available_credit = ?,
+            available_credit_minor = ?, payment_due_day = ?, wallet_provider = ?,
             exclude_from_totals = ?, metadata = ?, sort_order = ?, updated_at = ?
         WHERE id = ?;
       ''',
@@ -172,7 +179,9 @@ class DriftAccountRepository implements AccountRepository {
           Variable.withString(account.currency),
           Variable.withString(account.type.name),
           kMoneyCodec.realVarOrNull(account.initialBalanceMoney),
+          kMoneyCodec.minorVarOrNull(account.initialBalanceMoney),
           kMoneyCodec.realVarOrNull(account.currentBalanceMoney),
+          kMoneyCodec.minorVarOrNull(account.currentBalanceMoney),
           ..._accountFieldVars(account),
           Variable.withInt(account.sortOrder),
           Variable.withString(dateTimeToSql(DateTime.now().toUtc())),

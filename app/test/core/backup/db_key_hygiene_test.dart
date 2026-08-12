@@ -7,6 +7,7 @@ import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 // MALI-058n — the local SQLCipher key lives ONLY in platform secure storage. It
 // must never be stored in Drift, backed up, synced, exported, logged, or written
@@ -122,6 +123,7 @@ void main() {
       "VALUES ('marker-acct', 'Marker', 'SAR', 'cash', 0, 0, 0, 999, "
       "'2026-01-01', '2026-01-01');",
     );
+    await backfillNonPlanningMoneyV30(dst);
 
     await expectLater(
       RestoreBackupUseCase(dst).call(snapshot),

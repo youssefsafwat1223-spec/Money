@@ -55,7 +55,7 @@ void main() {
 
   test('clean install stamps v29 and creates both hot-path indexes', () async {
     final db = await openFile(dbPath);
-    expect(await _userVersion(db), 29);
+    expect(await _userVersion(db), 30);
     expect(await _indexNames(db), _newIndexes);
     await db.close();
   });
@@ -76,7 +76,7 @@ void main() {
     // Reopen → the version-owned pipeline upgrades: recreates the indexes and
     // stamps v29 (last, inside the migration transaction).
     final upgraded = await openFile(dbPath);
-    expect(await _userVersion(upgraded), 29);
+    expect(await _userVersion(upgraded), 30);
     expect(await _indexNames(upgraded), _newIndexes);
     await upgraded.close();
   });
@@ -88,7 +88,7 @@ void main() {
     // Exactly two matching indexes — CREATE INDEX IF NOT EXISTS is a no-op the 2nd
     // time; no duplicate objects, no error.
     expect(await _indexNames(b), _newIndexes);
-    expect(await _userVersion(b), 29);
+    expect(await _userVersion(b), 30);
     await b.close();
   });
 
@@ -109,7 +109,7 @@ void main() {
           'CREATE INDEX idx_transactions_account_occurred '
           'ON transactions(account_id, occurred_at);',
         );
-        await seed.customStatement('PRAGMA user_version = 29;');
+        await seed.customStatement('PRAGMA user_version = 30;');
         throw StateError('injected mid-upgrade failure');
       });
     } catch (_) {}
@@ -119,7 +119,7 @@ void main() {
 
     // A clean reopen still completes the real upgrade deterministically.
     final ok = await openFile(dbPath);
-    expect(await _userVersion(ok), 29);
+    expect(await _userVersion(ok), 30);
     expect(await _indexNames(ok), _newIndexes);
     await ok.close();
   });

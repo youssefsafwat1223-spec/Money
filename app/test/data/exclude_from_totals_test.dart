@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
@@ -49,6 +50,7 @@ void main() {
         );
       ''',
     );
+    await backfillNonPlanningMoneyV30(db);
   }
 
   test('combined totals exclude flagged accounts; per-account totals do not',
@@ -152,6 +154,7 @@ void main() {
         );
       ''',
     );
+    await backfillNonPlanningMoneyV30(db);
     expect(await txRepo.latestBalanceAfter(), 300);
     expect(await txRepo.latestBalanceAfter(accountId: excluded.id), 9999);
   });

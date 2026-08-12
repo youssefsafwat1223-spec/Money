@@ -23,12 +23,13 @@ Future<void> writePulledBillPayment({
 }) async {
   await db.customStatement('''
     INSERT INTO bill_payments(
-      id, bill_id, amount, currency, period_start, period_end, paid_at,
+      id, bill_id, amount, amount_minor, currency, period_start, period_end, paid_at,
       installment_index, transaction_id, note, server_id, synced_at,
       server_updated_at, sync_status, deleted_at
     ) VALUES (
       ${sqlString(localId)}, ${sqlString(billLocalId)},
       ${kMoneyCodec.sqlRealLiteral(amountMoney)},
+      ${kMoneyCodec.sqlMinorLiteral(amountMoney)},
       ${sqlString(amountMoney.currency)},
       ${sqlString(row['period_start'] as String)},
       ${sqlString(row['period_end'] as String)},
@@ -41,6 +42,7 @@ Future<void> writePulledBillPayment({
       ${sqlNullableString(row['deleted_at'] as String?)}
     ) ON CONFLICT(id) DO UPDATE SET
       bill_id=excluded.bill_id, amount=excluded.amount,
+      amount_minor=excluded.amount_minor,
       currency=excluded.currency, period_start=excluded.period_start,
       period_end=excluded.period_end, paid_at=excluded.paid_at,
       installment_index=excluded.installment_index,
@@ -65,6 +67,7 @@ Future<void> writePulledSubscriptionCounter({
     UPDATE subscriptions
     SET paid_count = ${sqlNullableNum(paidCount)},
         manual_paid_amount = ${kMoneyCodec.sqlNullableRealLiteral(manualPaidMoney)},
+        manual_paid_amount_minor = ${kMoneyCodec.sqlNullableMinorLiteral(manualPaidMoney)},
         synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
         server_updated_at = ${sqlNullableString(serverUpdatedAt)},
         sync_status = 'synced'
@@ -217,7 +220,8 @@ TransactionEntity transactionFromRow(QueryRow row) {
   final foreignCurrency = row.readNullable<String>('foreign_currency');
   final hasForeignAmount = row.readNullable<double>('foreign_amount') != null;
   if (hasForeignAmount != (foreignCurrency != null)) {
-    throw StateError('foreign_amount and foreign_currency must be stored together');
+    throw StateError(
+        'foreign_amount and foreign_currency must be stored together');
   }
   final direction = row.readNullable<String>('direction');
   final transactionTimeFromSms =
@@ -256,7 +260,8 @@ TransactionEntity transactionFromRow(QueryRow row) {
     updatedAt: dateTimeFromSql(updatedAt),
     foreignMoney: foreignCurrency == null
         ? null
-        : kMoneyCodec.readColumnNullable(row, 'foreign_amount', foreignCurrency),
+        : kMoneyCodec.readColumnNullable(
+            row, 'foreign_amount', foreignCurrency),
     foreignCurrency: foreignCurrency,
     direction: transactionDirectionFromSql(direction),
     transactionTimeFromSms: transactionTimeFromSms == null

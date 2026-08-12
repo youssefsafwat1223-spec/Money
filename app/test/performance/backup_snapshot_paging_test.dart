@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 
 class _K implements DatabaseKeyStore {
@@ -62,6 +63,7 @@ void main() {
         );
       }
     });
+    await backfillNonPlanningMoneyV30(db);
     counter.txnSelects = 0;
     counter.maxRows = 0;
 

@@ -102,20 +102,21 @@ class DriftBillRepository implements BillRepository {
         await _db.customInsert(
           '''
           INSERT INTO subscriptions(
-            id, merchant_id, name, amount, currency, period, frequency, type,
+            id, merchant_id, name, amount, amount_minor, currency, period, frequency, type,
             next_due_date, is_confirmed, reminder_on, custom_interval_days,
             note, created_at, status, account_id,
-            total_installments, paid_count, manual_paid_amount,
-            total_purchase_amount,
+            total_installments, paid_count, manual_paid_amount, manual_paid_amount_minor,
+            total_purchase_amount, total_purchase_amount_minor,
             lender_name, interest_rate
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
           variables: [
             Variable.withString(bill.id),
             Variable.withString(merchantId),
             Variable.withString(bill.name),
             kMoneyCodec.realVar(bill.amountMoney),
+            kMoneyCodec.minorVar(bill.amountMoney),
             Variable.withString(bill.currency),
             Variable.withString(bill.frequency.name),
             Variable.withString(bill.frequency.name),
@@ -141,7 +142,9 @@ class DriftBillRepository implements BillRepository {
                 ? const Variable<int>(null)
                 : Variable.withInt(bill.paidCount!),
             kMoneyCodec.realVarOrNull(bill.manualPaidMoney),
+            kMoneyCodec.minorVarOrNull(bill.manualPaidMoney),
             kMoneyCodec.realVarOrNull(bill.totalPurchaseMoney),
+            kMoneyCodec.minorVarOrNull(bill.totalPurchaseMoney),
             bill.lenderName == null
                 ? const Variable<String>(null)
                 : Variable.withString(bill.lenderName!),
@@ -161,12 +164,13 @@ class DriftBillRepository implements BillRepository {
         await _db.customUpdate(
           '''
           UPDATE subscriptions
-          SET merchant_id = ?, name = ?, amount = ?, currency = ?,
+          SET merchant_id = ?, name = ?, amount = ?, amount_minor = ?, currency = ?,
               period = ?, frequency = ?, type = ?, next_due_date = ?,
               is_confirmed = ?, reminder_on = ?, custom_interval_days = ?,
               note = ?, status = ?, account_id = ?,
               total_installments = ?, paid_count = ?, manual_paid_amount = ?,
-              total_purchase_amount = ?,
+              manual_paid_amount_minor = ?, total_purchase_amount = ?,
+              total_purchase_amount_minor = ?,
               lender_name = ?, interest_rate = ?
           WHERE id = ?;
         ''',
@@ -174,6 +178,7 @@ class DriftBillRepository implements BillRepository {
             Variable.withString(merchantId),
             Variable.withString(bill.name),
             kMoneyCodec.realVar(bill.amountMoney),
+            kMoneyCodec.minorVar(bill.amountMoney),
             Variable.withString(bill.currency),
             Variable.withString(bill.frequency.name),
             Variable.withString(bill.frequency.name),
@@ -198,7 +203,9 @@ class DriftBillRepository implements BillRepository {
                 ? const Variable<int>(null)
                 : Variable.withInt(bill.paidCount!),
             kMoneyCodec.realVarOrNull(bill.manualPaidMoney),
+            kMoneyCodec.minorVarOrNull(bill.manualPaidMoney),
             kMoneyCodec.realVarOrNull(bill.totalPurchaseMoney),
+            kMoneyCodec.minorVarOrNull(bill.totalPurchaseMoney),
             bill.lenderName == null
                 ? const Variable<String>(null)
                 : Variable.withString(bill.lenderName!),
@@ -243,15 +250,16 @@ class DriftBillRepository implements BillRepository {
       await _db.customInsert(
         '''
         INSERT INTO bill_payments(
-          id, bill_id, amount, currency, period_start, period_end, paid_at,
+          id, bill_id, amount, amount_minor, currency, period_start, period_end, paid_at,
           installment_index, transaction_id, note
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
         variables: [
           Variable.withString(payment.id),
           Variable.withString(payment.billId),
           kMoneyCodec.realVar(payment.amountMoney),
+          kMoneyCodec.minorVar(payment.amountMoney),
           Variable.withString(payment.currency),
           Variable.withString(dateTimeToSql(payment.periodStart.toUtc())),
           Variable.withString(dateTimeToSql(payment.periodEnd.toUtc())),

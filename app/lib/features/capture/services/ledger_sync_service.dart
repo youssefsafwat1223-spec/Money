@@ -144,7 +144,8 @@ class LedgerSyncService implements LedgerPullAdapter {
   // accounts/categories (accounts are pulled earlier in the same single-flight
   // pump), so a start-of-pull snapshot is valid for every page. Cleared when pull
   // finishes; a null cache falls back to the original per-call SELECT.
-  Map<String, String>? _accountServerToLocal; // accounts.server_id → accounts.id
+  Map<String, String>?
+      _accountServerToLocal; // accounts.server_id → accounts.id
   Set<String>? _localAccountIds; // non-deleted accounts.id
   Map<String, String>? _categoryKeyToLocal; // categories.key → categories.id
 
@@ -165,8 +166,7 @@ class LedgerSyncService implements LedgerPullAdapter {
     final categories =
         await _db.customSelect('SELECT id, key FROM categories;').get();
     final keyToLocal = <String, String>{
-      for (final c in categories)
-        c.read<String>('key'): c.read<String>('id'),
+      for (final c in categories) c.read<String>('key'): c.read<String>('id'),
     };
     _accountServerToLocal = serverToLocal;
     _localAccountIds = ids;
@@ -387,6 +387,7 @@ class LedgerSyncService implements LedgerPullAdapter {
       await _db.customStatement('''
         UPDATE transactions
         SET amount = ${kMoneyCodec.sqlRealLiteral(pulledMoney.amountMoney)},
+            amount_minor = ${kMoneyCodec.sqlMinorLiteral(pulledMoney.amountMoney)},
             currency = ${sqlString(currency)},
             raw_merchant = ${sqlNullableString(row['merchant'] as String?)},
             note = ${sqlNullableString(row['description'] as String?)},
@@ -398,7 +399,9 @@ class LedgerSyncService implements LedgerPullAdapter {
             category_id = ${sqlNullableString(localCategoryId)},
             card_last4 = ${sqlNullableString(_last4FromMetadata(row['metadata']))},
             balance_after = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.balanceAfterMoney)},
+            balance_after_minor = ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.balanceAfterMoney)},
             foreign_amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.foreignMoney)},
+            foreign_amount_minor = ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.foreignMoney)},
             foreign_currency = ${sqlNullableString(row['foreign_currency'] as String?)},
             account_id = ${sqlNullableString(resolvedAccountId)},
             updated_at = ${sqlString(now)},

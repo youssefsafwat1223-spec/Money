@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -172,6 +173,7 @@ void main() {
       "server_id) VALUES ('a1', 'A', 'SAR', 'bank', '2026-01-01', "
       "'2026-01-01', 'srv-acct');",
     );
+    await backfillNonPlanningMoneyV30(cdb);
     await cdb.customStatement(
       "INSERT INTO categories(id, key, name_ar, icon, color, is_income, "
       "sort_order) VALUES ('c1', 'cat_food', 'طعام', 'x', '#111', 0, 0);",
@@ -292,6 +294,7 @@ void main() {
         '$now', '$now'
       );
     ''');
+    await backfillNonPlanningMoneyV30(db);
     await DriftDedupStore(db).mark(
       'capture_payload:$payloadId',
       transactionId: localId,
@@ -462,6 +465,7 @@ void main() {
       "'2026-01-01T10:00:00.000Z', '', 0.9, 'confirmed', '$now', '$now', "
       "'srv-1', 'synced', '2026-01-01T10:00:00.000Z', 'hBNX-dead-id');",
     );
+    await backfillNonPlanningMoneyV30(db);
     final row = _serverRow(id: 'srv-1', updatedAt: '2026-01-01T10:00:00.000Z');
     row['server_account_id'] = 'SRV-ACC-1';
     remote.activeRows = [row];

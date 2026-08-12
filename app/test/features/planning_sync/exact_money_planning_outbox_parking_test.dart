@@ -4,6 +4,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
@@ -137,6 +138,7 @@ void main() {
         ${sqlString(dateTimeToSql(now))}, 'local_only'
       );
     ''');
+    await backfillNonPlanningMoneyV30(db);
     await q.enqueueAccount(
       PlanningSyncOperation.create,
       AccountEntity(

@@ -5,6 +5,7 @@ import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -37,6 +38,7 @@ Future<void> _insertAccount(
     "${excludeFromTotals ? 1 : 0}, ${metadata == null ? 'NULL' : "'$metadata'"}, "
     "0, 5, '$_t', '$_t');",
   );
+  await backfillNonPlanningMoneyV30(db);
 }
 
 Future<void> _insertCategory(
@@ -169,6 +171,7 @@ void main() {
       "created_at, updated_at) VALUES ('tx-hist', 25, 'SAR', 'cat-hist', "
       "'payment', 'bank', '$_t', 'raw', 1.0, 'confirmed', '$_t', '$_t');",
     );
+    await backfillNonPlanningMoneyV30(source);
 
     await roundTrip();
 
@@ -230,6 +233,7 @@ void main() {
       "updated_at) VALUES ('target-marker', 9, 'SAR', 'payment', 'bank', "
       "'$_t', 'raw', 1.0, 'confirmed', '$_t', '$_t');",
     );
+    await backfillNonPlanningMoneyV30(target);
 
     final bad = {
       'schemaVersion': 3,

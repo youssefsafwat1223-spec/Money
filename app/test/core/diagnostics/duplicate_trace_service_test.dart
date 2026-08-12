@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/diagnostics/duplicate_trace_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -32,6 +33,7 @@ Future<void> _tx(
       '$occurredAt', '$occurredAt', '$rawMessage', 0.9, 'confirmed',
       '$now', '$now', ${serverId == null ? 'NULL' : "'$serverId'"});
   ''');
+  await backfillNonPlanningMoneyV30(db);
 }
 
 Future<void> _dedupMarker(AppDatabase db, String hash, String txId) async {

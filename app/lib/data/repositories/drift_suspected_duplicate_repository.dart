@@ -20,10 +20,10 @@ class DriftSuspectedDuplicateRepository
       '''
         INSERT OR IGNORE INTO suspected_duplicates(
           id, raw_message, sender_id, existing_transaction_id,
-          amount, currency, raw_merchant, occurred_at, card_last4,
+          amount, amount_minor, currency, raw_merchant, occurred_at, card_last4,
           comparison_timestamp, comparison_timestamp_source, duplicate_reason,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       ''',
       variables: [
         Variable.withString(entity.id.isEmpty ? IdGenerator.next() : entity.id),
@@ -33,6 +33,7 @@ class DriftSuspectedDuplicateRepository
             : const Variable(null),
         Variable.withString(entity.existingTransactionId),
         kMoneyCodec.realVar(entity.amountMoney),
+        kMoneyCodec.minorVar(entity.amountMoney),
         Variable.withString(entity.currency),
         entity.rawMerchant != null
             ? Variable.withString(entity.rawMerchant!)

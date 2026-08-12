@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
@@ -34,6 +35,7 @@ Future<void> _insertTx(AppDatabase db, {String id = 'tx-001'}) async {
       '$now', '$now'
     );
   ''');
+  await backfillNonPlanningMoneyV30(db);
 }
 
 LedgerOutboxQueue _queue(
@@ -120,6 +122,7 @@ void main() {
         '$now', '$now', 0, 0, '00000000-0000-4000-8000-000000000001'
       );
     ''');
+    await backfillNonPlanningMoneyV30(db);
     await _insertTx(db);
     await db.customStatement(
       "UPDATE transactions SET account_id = 'local-account' WHERE id = 'tx-001';",
@@ -191,6 +194,7 @@ void main() {
         '$now', '', 0.9, 'confirmed', '$now', '$now'
       );
     ''');
+    await backfillNonPlanningMoneyV30(db);
     final queue = _queue(db);
     final tx = (await DriftTransactionRepository(db).getById('tx-cat'))!;
     await queue.enqueue(OutboxOperation.create, tx);

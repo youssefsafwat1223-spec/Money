@@ -14,6 +14,7 @@ import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 // MALI-014 / MALI-076n (Batch-5 closure) §Blocker-3/§Blocker-4 — complete rollback
 // evidence via deterministic fault injection + a full-DB digest, plus durable
@@ -80,6 +81,7 @@ Future<void> seedRich(AppDatabase db) async {
       ],
     );
   }
+  await backfillNonPlanningMoneyV30(db);
 }
 
 Future<void> seedSource(AppDatabase db) async {
@@ -108,6 +110,7 @@ Future<void> seedSource(AppDatabase db) async {
       Variable.withString(now),
     ],
   );
+  await backfillNonPlanningMoneyV30(db);
 }
 
 Future<RestorePlan> planFrom(AppDatabase src) async => RestorePreparation.build(

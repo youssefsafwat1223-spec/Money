@@ -9,6 +9,7 @@ import 'package:money_companion/core/data_portability/data_portability_models.da
 import 'package:money_companion/core/data_portability/drift_financial_exporter.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 
 class _K implements DatabaseKeyStore {
@@ -43,6 +44,7 @@ void main() {
         );
       }
     });
+    await backfillNonPlanningMoneyV30(db);
   }
 
   tearDown(() => db.close());

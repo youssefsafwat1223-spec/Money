@@ -14,6 +14,7 @@ import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/database_lease.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/ownership_guard.dart';
 
 // MALI-014 / MALI-076n (Phase 6 Batch 5) — the restore preparation/mutation
@@ -88,6 +89,7 @@ void main() {
         ],
       );
     }
+    await backfillNonPlanningMoneyV30(db);
   }
 
   Future<RestorePlan> planFrom(AppDatabase src,

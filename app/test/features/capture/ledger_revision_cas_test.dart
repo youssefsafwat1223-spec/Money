@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
@@ -46,6 +47,7 @@ void main() {
         '$now', '$now', 'srv-tx1', '2026-08-01T00:00:00.000Z', 5, 'synced'
       );
     ''');
+    await backfillNonPlanningMoneyV30(db);
     final q = LedgerOutboxQueue(
       db: db,
       isPushEnabled: () => true,

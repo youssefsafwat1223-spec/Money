@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/privacy/data_wipe_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -46,6 +47,7 @@ void main() {
       "raw_message, parse_confidence, status, created_at, updated_at) "
       "VALUES ('t1', 10, 'SAR', 'expense', 'manual', '$now', 'raw', 1.0, 'active', '$now', '$now');",
     );
+    await backfillNonPlanningMoneyV30(db);
     await db.customStatement(
       "UPDATE user_settings SET display_name = 'Previous User', phone_number = '0500000000';",
     );
@@ -161,6 +163,7 @@ void main() {
       "INSERT INTO accounts(id, name, currency, type, is_default, sort_order, created_at, updated_at) "
       "VALUES ('a2', 'Second account', 'USD', 'bank', 0, 1, '2026-01-01', '2026-01-01');",
     );
+    await backfillNonPlanningMoneyV30(db);
     expect(await _count(db, 'accounts'), greaterThanOrEqualTo(2));
 
     await DataWipeService(db).wipeAll();

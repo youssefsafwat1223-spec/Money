@@ -11,6 +11,7 @@ import 'package:money_companion/core/backup/encrypted_backup_service.dart';
 import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show StorageException;
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -287,6 +288,7 @@ void main() {
         "VALUES ('old-txn', 999, 'SAR', 'm-old', 'old', NULL, 'expense', 'manual', "
         "'2024-01-01', 1.0, 'confirmed', '2024-01-01', '2024-01-01', 'msg');",
       );
+      await backfillNonPlanningMoneyV30(db);
 
       await RestoreBackupUseCase(db)(emptySnapshot());
 
@@ -408,6 +410,7 @@ void main() {
         "VALUES ('keep-txn', 42, 'SAR', 'm-keep', 'keep', NULL, 'expense', 'manual', "
         "'2024-01-01', 1.0, 'confirmed', '2024-01-01', '2024-01-01', 'msg');",
       );
+      await backfillNonPlanningMoneyV30(db);
       final snapshot = {
         ...emptySnapshot(),
         'schemaVersion': RestoreBackupUseCase.currentSchemaVersion + 1,

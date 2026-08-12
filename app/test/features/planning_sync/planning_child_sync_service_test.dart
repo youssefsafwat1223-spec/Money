@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
@@ -203,6 +204,7 @@ Future<void> _seedParents(AppDatabase db) async {
     VALUES ('tx-1',10,'EGP','payment','manual','$now','',1,'confirmed','$now',
       '$now','server-tx-1','synced');
   ''');
+  await backfillNonPlanningMoneyV30(db);
 }
 
 void main() {
@@ -254,6 +256,7 @@ void main() {
       VALUES ('bp-1','bill-1',10,'EGP','2026-07-01','2026-07-31',
         '2026-07-23','tx-1');
     ''');
+    await backfillNonPlanningMoneyV30(db);
     await queue.enqueueBillPayment(PlanningSyncOperation.create, payment);
 
     await db.customStatement('''

@@ -10,6 +10,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/reporting/report_snapshot_builder.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
@@ -68,6 +69,7 @@ void main() {
         );
       }
     });
+    await backfillNonPlanningMoneyV30(db);
     return ReportSnapshotBuilder(
       transactions: DriftTransactionRepository(db),
       accounts: DriftAccountRepository(db),

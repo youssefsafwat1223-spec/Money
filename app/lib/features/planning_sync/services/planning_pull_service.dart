@@ -658,15 +658,17 @@ class PlanningPullService {
         row['merchant_id'] as String?, row['name'] as String? ?? 'فاتورة');
     await _db.customStatement('''
       INSERT OR IGNORE INTO subscriptions(
-        id, merchant_id, name, amount, currency, period, frequency, type,
+        id, merchant_id, name, amount, amount_minor, currency, period, frequency, type,
         next_due_date, is_confirmed, reminder_on, custom_interval_days,
         note, created_at, status, account_id, total_installments, paid_count,
-        manual_paid_amount, total_purchase_amount, lender_name, interest_rate,
+        manual_paid_amount, manual_paid_amount_minor,
+        total_purchase_amount, total_purchase_amount_minor, lender_name, interest_rate,
         server_id, synced_at, server_updated_at, sync_status, deleted_at
       ) VALUES (
         ${sqlString(id)}, ${sqlString(merchantId)},
         ${sqlString(row['name'] as String? ?? 'فاتورة')},
         ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.amountMoney)},
+        ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.amountMoney)},
         ${sqlString(row['currency'] as String? ?? 'SAR')},
         ${sqlString(row['frequency'] as String? ?? 'monthly')},
         ${sqlString(row['frequency'] as String? ?? 'monthly')},
@@ -682,7 +684,9 @@ class PlanningPullService {
         ${sqlNullableNum(row['total_installments'] as num?)},
         ${sqlNullableNum(row['paid_count'] as num?)},
         ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.manualPaidMoney)},
+        ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.manualPaidMoney)},
         ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.totalPurchaseMoney)},
+        ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.totalPurchaseMoney)},
         ${sqlNullableString(row['lender_name'] as String?)},
         ${sqlNullableNum(row['interest_rate'] as num?)},
         ${sqlString(row['id'] as String)},
@@ -707,6 +711,7 @@ class PlanningPullService {
       SET merchant_id = ${sqlString(merchantId)},
           name = ${sqlString(row['name'] as String? ?? 'فاتورة')},
           amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.amountMoney)},
+          amount_minor = ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.amountMoney)},
           currency = ${sqlString(row['currency'] as String? ?? 'SAR')},
           period = ${sqlString(row['frequency'] as String? ?? 'monthly')},
           frequency = ${sqlString(row['frequency'] as String? ?? 'monthly')},
@@ -721,7 +726,9 @@ class PlanningPullService {
           total_installments = ${sqlNullableNum(row['total_installments'] as num?)},
           paid_count = ${sqlNullableNum(row['paid_count'] as num?)},
           manual_paid_amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.manualPaidMoney)},
+          manual_paid_amount_minor = ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.manualPaidMoney)},
           total_purchase_amount = ${kMoneyCodec.sqlNullableRealLiteral(pulledMoney.totalPurchaseMoney)},
+          total_purchase_amount_minor = ${kMoneyCodec.sqlNullableMinorLiteral(pulledMoney.totalPurchaseMoney)},
           lender_name = ${sqlNullableString(row['lender_name'] as String?)},
           interest_rate = ${sqlNullableNum(row['interest_rate'] as num?)},
           server_id = ${sqlString(row['id'] as String)},
@@ -790,13 +797,14 @@ class PlanningPullService {
     final budgetMoney = deserializePlansPullMoney(row);
     await _db.customStatement('''
       INSERT OR IGNORE INTO plans(
-        id, name, budget_amount, currency, start_date, end_date,
+        id, name, budget_amount, budget_amount_minor, currency, start_date, end_date,
         account_ids, card_last4s, status, icon, created_at,
         server_id, synced_at, server_updated_at, sync_status, deleted_at
       ) VALUES (
         ${sqlString(id)},
         ${sqlString(row['name'] as String? ?? 'خطة')},
         ${kMoneyCodec.sqlNullableRealLiteral(budgetMoney)},
+        ${kMoneyCodec.sqlNullableMinorLiteral(budgetMoney)},
         ${sqlString(row['currency'] as String? ?? 'SAR')},
         ${sqlString(_dateString(row['start_date']) ?? now)},
         ${sqlString(_dateString(row['end_date']) ?? now)},
@@ -820,6 +828,7 @@ class PlanningPullService {
       UPDATE plans
       SET name = ${sqlString(row['name'] as String? ?? 'خطة')},
           budget_amount = ${kMoneyCodec.sqlNullableRealLiteral(budgetMoney)},
+          budget_amount_minor = ${kMoneyCodec.sqlNullableMinorLiteral(budgetMoney)},
           currency = ${sqlString(row['currency'] as String? ?? 'SAR')},
           start_date = ${sqlString(_dateString(row['start_date']) ?? dateTimeToSql(DateTime.now().toUtc()))},
           end_date = ${sqlString(_dateString(row['end_date']) ?? dateTimeToSql(DateTime.now().toUtc()))},
@@ -854,10 +863,9 @@ class PlanningPullService {
     List<Map<String, dynamic>> rows,
   ) async {
     final identity = await _prefetchIdentity(localTable, rows);
-    final merchants =
-        entityType == PlanningOutboxQueue.subscriptionsEntityType
-            ? await _prefetchMerchants(rows)
-            : _PlanningMerchantResolver.empty(_db);
+    final merchants = entityType == PlanningOutboxQueue.subscriptionsEntityType
+        ? await _prefetchMerchants(rows)
+        : _PlanningMerchantResolver.empty(_db);
     final categories = entityType == PlanningOutboxQueue.budgetsEntityType
         ? await _prefetchCategories(rows)
         : const _PlanningCategoryResolver.empty();
@@ -873,7 +881,9 @@ class PlanningPullService {
     List<Map<String, dynamic>> rows,
   ) async {
     final index = _PlanningIdentityIndex();
-    if (localTable == null) return index; // settings singleton — no identity map
+    if (localTable == null) {
+      return index; // settings singleton — no identity map
+    }
     final serverIds = <String>{};
     final localIds = <String>{};
     for (final row in rows) {
@@ -916,8 +926,7 @@ class PlanningPullService {
     }
     final byNorm = <String, String>{};
     for (final r in await selectByIdChunks(_db, normNames,
-        sql: (ph) =>
-            'SELECT id, normalized_name FROM merchants '
+        sql: (ph) => 'SELECT id, normalized_name FROM merchants '
             'WHERE normalized_name IN ($ph);')) {
       byNorm[r.read<String>('normalized_name')] = r.read<String>('id');
     }
@@ -954,7 +963,8 @@ class PlanningPullService {
     final otherRow = await _db
         .customSelect("SELECT id FROM categories WHERE key = 'other' LIMIT 1;")
         .getSingleOrNull();
-    return _PlanningCategoryResolver(byKey, byServer, otherRow?.read<String>('id'));
+    return _PlanningCategoryResolver(
+        byKey, byServer, otherRow?.read<String>('id'));
   }
 
   String? _dateString(Object? value) {

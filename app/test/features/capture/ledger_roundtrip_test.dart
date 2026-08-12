@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
@@ -61,6 +62,7 @@ void main() {
         '$now', '', 0.9, '$status', '$now', '$now'
       );
     ''');
+    await backfillNonPlanningMoneyV30(db);
   }
 
   // Pushes the single pending item through a MockClient, returning the captured

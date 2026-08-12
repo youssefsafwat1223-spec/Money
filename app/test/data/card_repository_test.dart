@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/repositories/drift_card_repository.dart';
 import 'package:money_companion/domain/entities/card_entity.dart';
 import 'package:money_companion/domain/errors/repo_exceptions.dart';
@@ -63,6 +64,7 @@ void main() {
         );
       ''',
     );
+    await backfillNonPlanningMoneyV30(db);
   }
 
   test('normalizeLast4 keeps digits and takes last 4', () {
@@ -167,6 +169,7 @@ void main() {
           );
         ''',
       );
+      await backfillNonPlanningMoneyV30(db);
 
       final created = await repo.backfillFromTransactions();
       expect(created, 1);

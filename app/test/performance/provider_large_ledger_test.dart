@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/data/db/app_database.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/features/budgets/budgets_providers.dart';
 import 'package:money_companion/features/cards/cards_providers.dart';
@@ -14,13 +15,15 @@ import 'package:money_companion/features/dashboard/dashboard_providers.dart';
 
 import 'perf_harness.dart';
 
-Future<void> _seedAccount(AppDatabase db, String id, String currency) =>
-    db.customStatement(
+Future<void> _seedAccount(AppDatabase db, String id, String currency) async {
+  await db.customStatement(
       "INSERT INTO accounts(id,name,currency,type,is_default,created_at,"
       "updated_at) VALUES (?,?,?,'bank',?, '2020-01-01T00:00:00Z',"
       "'2020-01-01T00:00:00Z');",
       [id, id, currency, id == 'acc-now' ? 1 : 0],
     );
+  await backfillNonPlanningMoneyV30(db);
+}
 
 Future<void> _seedCategory(AppDatabase db) => db.customStatement(
       "INSERT OR IGNORE INTO categories(id,key,name_ar,icon,color,is_income,"
@@ -54,6 +57,7 @@ Future<void> _seedTxns(
       await db.customStatement(buf.toString());
     }
   });
+  await backfillNonPlanningMoneyV30(db);
 }
 
 void main() {

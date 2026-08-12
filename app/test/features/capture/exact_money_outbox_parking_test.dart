@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -41,6 +42,7 @@ Future<void> _insertTx(AppDatabase db, {String id = 'tx-001'}) async {
       '$now', '$now'
     );
   ''');
+  await backfillNonPlanningMoneyV30(db);
 }
 
 void main() {

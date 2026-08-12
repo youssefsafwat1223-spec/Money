@@ -8,6 +8,7 @@ import 'package:money_companion/core/data_portability/portable_csv.dart';
 import 'package:money_companion/core/data_portability/qirsh_package_codec.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -49,6 +50,7 @@ void main() {
         '2026-07-18T10:00:00.000Z','2026-07-18T10:00:00.000Z',
         'received_at','normal');
     ''', [account.read<String>('id'), category.read<String>('id')]);
+    await backfillNonPlanningMoneyV30(source);
 
     final bytes =
         (await DriftFinancialExporter(source).exportFinancialPackage()).bytes;
@@ -96,6 +98,7 @@ void main() {
         '2026-07-18T10:00:00.000Z','2026-07-18T10:00:00.000Z',
         'received_at','normal');
     ''', [hostileId, account.read<String>('id')]);
+    await backfillNonPlanningMoneyV30(source);
 
     final bytes =
         (await DriftFinancialExporter(source).exportFinancialPackage()).bytes;
@@ -190,6 +193,7 @@ void main() {
       INSERT INTO plan_transaction_links(plan_id,transaction_id,created_at)
       VALUES('portable-plan','portable-transaction',?);
     ''', [createdAt]);
+    await backfillNonPlanningMoneyV30(source);
 
     final package = decodeQirshPackage(
       (await DriftFinancialExporter(source).exportFinancialPackage()).bytes,

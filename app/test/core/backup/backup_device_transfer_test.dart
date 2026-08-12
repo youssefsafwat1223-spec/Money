@@ -9,6 +9,7 @@ import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -239,4 +240,5 @@ Future<void> _seedSourceDevice(AppDatabase db) async {
     ''',
     variables: [Variable.withString(now)],
   );
+  await backfillNonPlanningMoneyV30(db);
 }

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
@@ -26,6 +27,7 @@ Future<void> _insertTx(AppDatabase db, String id) async {
     "('$id', 100.0, 'SAR', 'payment', 'bank', '$now', '', 0.9, 'confirmed', "
     "'$now', '$now');",
   );
+  await backfillNonPlanningMoneyV30(db);
 }
 
 void main() {

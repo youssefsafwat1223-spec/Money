@@ -10,6 +10,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 
 class _PerfKeyStore implements DatabaseKeyStore {
@@ -191,6 +192,7 @@ Future<({List<String> accountIds, List<String> categoryIds})> seedFixtures(
       await db.customStatement(buffer.toString());
     }
   });
+  await backfillNonPlanningMoneyV30(db);
 
   return (accountIds: accountIds, categoryIds: categoryIds);
 }

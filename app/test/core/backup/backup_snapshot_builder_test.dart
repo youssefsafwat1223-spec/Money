@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -41,6 +42,7 @@ void main() {
       ''',
       variables: [Variable.withString('tx_backup_privacy')],
     );
+    await backfillNonPlanningMoneyV30(db);
 
     final snapshot = await BackupSnapshotBuilder(db).build();
     final tables = snapshot['tables'] as Map<String, dynamic>;

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/features/planning_sync/services/startup_sync_reconcile_service.dart';
 
@@ -27,6 +28,7 @@ Future<void> _insertAccount(
             ${serverId == null ? 'NULL' : "'$serverId'"},
             ${deleted ? "'$now'" : 'NULL'});
   ''');
+  await backfillNonPlanningMoneyV30(db);
 }
 
 Future<void> _insertTx(
@@ -43,6 +45,7 @@ Future<void> _insertTx(
             'confirmed', '$now', '$now',
             ${serverId == null ? 'NULL' : "'$serverId'"});
   ''');
+  await backfillNonPlanningMoneyV30(db);
 }
 
 Future<void> _queueTx(AppDatabase db, String txId) async {

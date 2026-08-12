@@ -9,6 +9,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/repositories/transaction_repository.dart';
@@ -64,6 +65,7 @@ Future<void> _seed(
       type == 'income' ? 'credit' : 'debit',
     ],
   );
+  await backfillNonPlanningMoneyV30(db);
 }
 
 Future<void> _seedCategories(AppDatabase db) async {
@@ -97,6 +99,7 @@ void main() {
         [id, id],
       );
     }
+    await backfillNonPlanningMoneyV30(db);
   });
   tearDown(() => db.close());
 

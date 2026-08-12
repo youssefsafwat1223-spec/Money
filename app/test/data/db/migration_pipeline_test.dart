@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -56,10 +57,13 @@ void main() {
           .read<int>('n');
 
   // A marker account (works on a fully-initialized DB).
-  Future<void> insertMarker(AppDatabase db) => db.customStatement(
+  Future<void> insertMarker(AppDatabase db) async {
+    await db.customStatement(
         "INSERT INTO accounts(id, name, currency, type, created_at, updated_at) "
         "VALUES ('marker', 'Marker', 'SAR', 'bank', '2026-01-01', '2026-01-01');",
       );
+    await backfillNonPlanningMoneyV30(db);
+  }
 
   Future<bool> markerPresent(AppDatabase db) async =>
       await count(db, "accounts WHERE id='marker'") == 1;

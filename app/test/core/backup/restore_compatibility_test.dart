@@ -9,6 +9,7 @@ import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/money_v30_backfill.dart';
 
 // MALI-014 / MALI-076n (Batch-5 closure) §Blocker-2 — preparation-time compatibility
 // adapters, exercised with synthetic legacy snapshot fixtures (not only envelope
@@ -58,6 +59,7 @@ void main() {
         Variable.withString(now),
       ],
     );
+    await backfillNonPlanningMoneyV30(src);
     return BackupSnapshotBuilder(src).build();
   }
 
