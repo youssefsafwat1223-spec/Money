@@ -45,20 +45,33 @@ Money monthlyEquivalentMoney(BillEntity bill) =>
 double monthlyEquivalent(BillEntity bill) =>
     monthlyEquivalentMoney(bill).toDouble();
 
-/// The projected **monthly recurring obligation** across [bills] — active
-/// subscriptions only. The existing UI model may mix currencies under one
-/// presentation label, so each bill is calculated exactly as Money before the
-/// final legacy display fold.
-double subscriptionMonthlyTotal(Iterable<BillEntity> bills) {
-  final active = bills
+/// The projected **monthly recurring obligation** across [bills] in [currency]
+/// — active subscriptions only, summed EXACTLY as Money (integer minor units).
+/// Currency-isolated: a subscription in another currency is NEVER folded into
+/// this total (no implicit FX). Convert to double only at the leaf display.
+Money subscriptionMonthlyTotalMoney(
+    Iterable<BillEntity> bills, String currency) {
+  final code = Money.zero(currency).currency; // normalized target currency
+  final monthly = bills
       .where((b) =>
           b.type == BillType.subscription && b.status == BillStatus.active)
-      .toList(growable: false);
-  if (active.isEmpty) return 0;
-  return active.fold<double>(
-    0,
-    (sum, bill) => sum + monthlyEquivalentMoney(bill).toDouble(),
-  );
+      .map(monthlyEquivalentMoney)
+      .where((m) => m.currency == code);
+  return Money.sum(monthly, code);
+}
+
+/// Total remaining installment debt across [bills] in [currency] — each bill's
+/// `amount × remainingInstallments` summed EXACTLY as Money (integer minor
+/// units). Currency-isolated: an installment in another currency is NEVER
+/// folded into this total (no implicit FX). Convert to double only at the leaf
+/// display.
+Money installmentsRemainingTotalMoney(
+    Iterable<BillEntity> bills, String currency) {
+  final code = Money.zero(currency).currency; // normalized target currency
+  final remaining = bills
+      .where((b) => b.amountMoney.currency == code)
+      .map((b) => b.amountMoney * b.remainingInstallments);
+  return Money.sum(remaining, code);
 }
 
 // ── Payment attribution ─────────────────────────────────────────────────────

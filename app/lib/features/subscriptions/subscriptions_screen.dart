@@ -58,7 +58,10 @@ class SubscriptionsScreen extends ConsumerWidget {
         final suggestions = suggestionsAsync.valueOrNull ?? [];
         // MALI-064n: projected monthly recurring obligation (frequency-
         // normalized, active subscriptions only) — the ONE canonical metric.
-        final monthlyTotal = subscriptionMonthlyTotal(subs);
+        // Summed EXACTLY as Money in the base display currency (currency-
+        // isolated); converted to double only here at the display leaf.
+        final monthlyTotal =
+            subscriptionMonthlyTotalMoney(subs, baseCur).toDouble();
 
         return DefaultTabController(
           length: 2,
@@ -584,12 +587,13 @@ class _InstallmentsTab extends StatelessWidget {
             BillFormSheet.show(context, initialType: BillType.installment),
       );
     }
-    // The UI still shows one cross-bill display total, but every persisted
-    // amount multiplication is exact before that presentation projection.
-    final totalRemaining = bills.fold<double>(
-      0,
-      (sum, b) => sum + (b.amountMoney * b.remainingInstallments).toDouble(),
-    );
+    // One cross-bill display total, computed EXACTLY as Money and currency-
+    // isolated: an installment in another currency is NEVER folded into this
+    // total (no implicit FX). The double conversion happens only at the leaf
+    // Text below.
+    final displayCode = bills.first.amountMoney.currency;
+    final totalRemainingMoney =
+        installmentsRemainingTotalMoney(bills, displayCode);
     final activeCount = bills.where((b) => b.remainingInstallments > 0).length;
     final dueSoon = bills.where((b) => b.remainingInstallments > 0).toList()
       ..sort((a, b) => a.nextDueDate.compareTo(b.nextDueDate));
@@ -600,7 +604,7 @@ class _InstallmentsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.only(top: AppSpacing.s3, bottom: 120),
       children: [
-        if (totalRemaining > 0) ...[
+        if (!totalRemainingMoney.isZero) ...[
           Container(
             padding: const EdgeInsets.all(AppSpacing.s4),
             decoration: BoxDecoration(
@@ -615,7 +619,7 @@ class _InstallmentsTab extends StatelessWidget {
                         Colors.white.withValues(alpha: 0.75))),
                 const SizedBox(height: 4),
                 Text(
-                  '${Formatters.amount(totalRemaining)} $currency',
+                  '${Formatters.amount(totalRemainingMoney.toDouble())} $currency',
                   style: AppTypography.title1(Colors.white)
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
