@@ -1,5 +1,7 @@
 // Pure result models for report calculations. No Flutter / Riverpod / pdf.
 
+import '../finance/money.dart';
+
 /// Headline cash-flow metrics for a single currency over one period.
 ///
 /// Refund handling (product decision): refunds are treated as negative expense
@@ -14,11 +16,11 @@ class CashFlowMetrics {
     required this.savingsRate,
   });
 
-  final double income;
-  final double expense;
+  final Money income;
+  final Money expense;
 
   /// `income - expense`.
-  final double net;
+  final Money net;
 
   /// `(income - expense) / income`, clamped to `0..1` to match the app's
   /// `savingsScore`. `null` when income is `<= 0` (undefined, shown as "—"
@@ -44,18 +46,18 @@ class MetricDelta {
     required this.percent,
   });
 
-  final double current;
-  final double previous;
+  final Money current;
+  final Money previous;
 
   /// `current - previous`.
-  final double absolute;
+  final Money absolute;
 
   /// `(current - previous) / previous`; `null` when `previous == 0`
   /// (percentage change is undefined), matching `ReportSection.deltaPercent`.
   final double? percent;
 
-  bool get isIncrease => absolute > 0;
-  bool get isDecrease => absolute < 0;
+  bool get isIncrease => absolute.compareTo(Money.zero(absolute.currency)) > 0;
+  bool get isDecrease => absolute.compareTo(Money.zero(absolute.currency)) < 0;
 }
 
 /// Previous-period comparison for the headline metrics.

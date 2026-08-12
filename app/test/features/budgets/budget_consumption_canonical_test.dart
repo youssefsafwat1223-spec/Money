@@ -146,12 +146,15 @@ void main() {
       await budgetRepo.save(budget(BudgetPeriod.monthly));
 
       final repoSpent = await txRepo.expenseTotalBetween(
-          from: monthStart, to: nextMonthStart, accountId: acc.id);
-      expect(repoSpent, 400); // 500 − 100 refund
+          from: monthStart,
+          to: nextMonthStart,
+          currency: 'SAR',
+          accountId: acc.id);
+      expect(repoSpent, Money(40000, 'SAR')); // 500 − 100 refund
 
       final view = await container.read(budgetsViewProvider.future);
       final entry = view.snapshot.entries.single;
-      expect(entry.spent, 400);
+      expect(entry.spent, Money(40000, 'SAR'));
       expect(entry.spent, repoSpent);
       // Genuine half-open period on the entry, no epsilon end.
       expect(entry.periodStart, monthStart);
@@ -162,7 +165,7 @@ void main() {
       container.read(transactionsDateRangeProvider.notifier).state =
           transactionsRangeForPreset(TransactionsDatePreset.last90Days);
       final refiltered = await container.read(budgetsViewProvider.future);
-      expect(refiltered.snapshot.entries.single.spent, 400);
+      expect(refiltered.snapshot.entries.single.spent, Money(40000, 'SAR'));
     });
 
     test('excluded account dropped from an all-expenses budget', () async {
@@ -193,7 +196,7 @@ void main() {
 
       final view = await container.read(budgetsViewProvider.future);
       // All-accounts scope excludes the flagged account: 100, not 170.
-      expect(view.snapshot.entries.single.spent, 100);
+      expect(view.snapshot.entries.single.spent, Money(10000, 'SAR'));
     });
   });
 }

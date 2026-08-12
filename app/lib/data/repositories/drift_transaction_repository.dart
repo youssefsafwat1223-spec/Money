@@ -5,6 +5,7 @@ import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/category_spend.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/financial_semantics.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/services/card_account_grouper.dart';
@@ -810,9 +811,10 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
-  Future<double> expenseTotalBetween({
+  Future<Money> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) async {
     final aggregate = _financialAggregateSql(
@@ -821,24 +823,27 @@ class DriftTransactionRepository implements TransactionRepository {
     );
     final row = await _db.customSelect(
       '''
-        SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
+        SELECT COALESCE(SUM(${aggregate.signedAmountMinor}), 0) AS t
         FROM transactions
         WHERE ${aggregate.where}
-          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)};
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
+          AND UPPER(currency) = ?;
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
         ..._accountVars(accountId),
+        Variable.withString(currency.trim().toUpperCase()),
       ],
     ).getSingle();
-    return row.read<double>('total');
+    return Money(row.read<int>('t'), currency);
   }
 
   @override
-  Future<double> incomeTotalBetween({
+  Future<Money> incomeTotalBetween({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) async {
     final aggregate = _financialAggregateSql(
@@ -847,25 +852,27 @@ class DriftTransactionRepository implements TransactionRepository {
     );
     final row = await _db.customSelect(
       '''
-        SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
+        SELECT COALESCE(SUM(${aggregate.signedAmountMinor}), 0) AS t
         FROM transactions
         WHERE ${aggregate.where}
-          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)};
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
+          AND UPPER(currency) = ?;
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
         ..._accountVars(accountId),
+        Variable.withString(currency.trim().toUpperCase()),
       ],
     ).getSingle();
-    return row.read<double>('total');
+    return Money(row.read<int>('t'), currency);
   }
 
   @override
-  Future<double?> latestBalanceAfter({String? accountId}) async {
+  Future<Money?> latestBalanceAfter({String? accountId}) async {
     final row = await _db.customSelect(
       '''
-        SELECT CAST(balance_after AS REAL) AS balance
+        SELECT balance_after_minor AS m, currency
         FROM transactions
         WHERE status = 'confirmed'
           AND balance_after IS NOT NULL${_accountClause(accountId)}${accountId == null ? _includedTotalsAccountClause() : ''}
@@ -874,7 +881,9 @@ class DriftTransactionRepository implements TransactionRepository {
       ''',
       variables: _accountVars(accountId),
     ).getSingleOrNull();
-    return row?.read<double>('balance');
+    final minor = row?.readNullable<int>('m');
+    if (row == null || minor == null) return null;
+    return Money(minor, row.read<String>('currency'));
   }
 
   @override
@@ -886,33 +895,35 @@ class DriftTransactionRepository implements TransactionRepository {
         _financialAggregateSql(_FinancialAggregateFlow.expenseAndIncome);
     final rows = await _db.customSelect(
       '''
-        SELECT currency,
-          CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS expense,
-          CAST(COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS REAL) AS income
+        SELECT UPPER(currency) AS currency,
+          COALESCE(SUM(${aggregate.signedAmountMinor}), 0) AS expense,
+          COALESCE(SUM(${FinancialSql.incomeSignedAmountMinor()}), 0) AS income
         FROM transactions
         WHERE ${aggregate.where}
           AND occurred_at >= ? AND occurred_at < ?
-        GROUP BY currency
-        ORDER BY expense DESC;
+        GROUP BY UPPER(currency)
+        ORDER BY currency ASC;
       ''',
       variables: [
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
       ],
     ).get();
-    return rows
-        .map((r) => CurrencyTotal(
-              currency: r.read<String>('currency'),
-              expense: r.read<double>('expense'),
-              income: r.read<double>('income'),
-            ))
-        .toList();
+    return rows.map((r) {
+      final currency = r.read<String>('currency');
+      return CurrencyTotal(
+        currency: currency,
+        expense: Money(r.read<int>('expense'), currency),
+        income: Money(r.read<int>('income'), currency),
+      );
+    }).toList();
   }
 
   @override
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) async {
     final aggregate = _financialAggregateSql(
@@ -922,10 +933,11 @@ class DriftTransactionRepository implements TransactionRepository {
     final rows = await _db.customSelect(
       '''
         SELECT date(occurred_at, 'localtime') AS day,
-               CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
+               COALESCE(SUM(${aggregate.signedAmountMinor}), 0) AS total
         FROM transactions
         WHERE ${aggregate.where}
           AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
+          AND UPPER(currency) = ?
         GROUP BY date(occurred_at, 'localtime')
         ORDER BY day ASC;
       ''',
@@ -933,13 +945,14 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
         ..._accountVars(accountId),
+        Variable.withString(currency.trim().toUpperCase()),
       ],
     ).get();
     return rows
         .map(
           (r) => DailySpend(
             day: DateTime.parse(r.read<String>('day')),
-            total: r.read<double>('total'),
+            total: Money(r.read<int>('total'), currency),
           ),
         )
         .toList();
@@ -949,8 +962,8 @@ class DriftTransactionRepository implements TransactionRepository {
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
-    String? currency,
   }) async {
     final aggregate = _financialAggregateSql(
       _FinancialAggregateFlow.expense,
@@ -959,7 +972,7 @@ class DriftTransactionRepository implements TransactionRepository {
     final rows = await _db.customSelect(
       '''
         SELECT category_id AS cid,
-               CAST(SUM(${aggregate.signedAmount}) AS REAL) AS total,
+               SUM(${aggregate.signedAmountMinor}) AS total,
                COUNT(*) AS tx_count
         FROM transactions
         WHERE ${aggregate.where}
@@ -979,7 +992,7 @@ class DriftTransactionRepository implements TransactionRepository {
         .map(
           (r) => CategorySpend(
             categoryId: r.read<String>('cid'),
-            total: r.read<double>('total'),
+            total: Money(r.read<int>('total'), currency),
             count: r.read<int>('tx_count'),
           ),
         )
@@ -987,10 +1000,11 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
-  Future<double> categoryExpenseTotalBetween({
+  Future<Money> categoryExpenseTotalBetween({
     required String categoryId,
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) async {
     final aggregate = _financialAggregateSql(
@@ -999,26 +1013,29 @@ class DriftTransactionRepository implements TransactionRepository {
     );
     final row = await _db.customSelect(
       '''
-        SELECT CAST(COALESCE(SUM(${aggregate.signedAmount}), 0) AS REAL) AS total
+        SELECT COALESCE(SUM(${aggregate.signedAmountMinor}), 0) AS total
         FROM transactions
         WHERE ${aggregate.where}
           AND category_id = ?
-          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)};
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
+          AND UPPER(currency) = ?;
       ''',
       variables: [
         Variable.withString(categoryId),
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
         ..._accountVars(accountId),
+        Variable.withString(currency.trim().toUpperCase()),
       ],
     ).getSingle();
-    return row.read<double>('total');
+    return Money(row.read<int>('total'), currency);
   }
 
   @override
   Future<List<MerchantSpend>> merchantBreakdown({
     required DateTime from,
     required DateTime to,
+    required String currency,
     int limit = 3,
     String? accountId,
   }) async {
@@ -1031,12 +1048,13 @@ class DriftTransactionRepository implements TransactionRepository {
     final rows = await _db.customSelect(
       '''
         SELECT m.raw_name AS name,
-               CAST(SUM(${aggregate.signedAmount}) AS REAL) AS total,
+               SUM(${aggregate.signedAmountMinor}) AS total,
                COUNT(*) AS tx_count
         FROM transactions t
         INNER JOIN merchants m ON m.id = t.merchant_id
         WHERE ${aggregate.where}
           AND t.occurred_at >= ? AND t.occurred_at < ?$accountClause
+          AND UPPER(t.currency) = ?
         GROUP BY t.merchant_id
         ORDER BY total DESC
         LIMIT ?;
@@ -1045,13 +1063,14 @@ class DriftTransactionRepository implements TransactionRepository {
         Variable.withString(dateTimeToSql(from.toUtc())),
         Variable.withString(dateTimeToSql(to.toUtc())),
         ..._accountVars(accountId),
+        Variable.withString(currency.trim().toUpperCase()),
         Variable.withInt(limit),
       ],
     ).get();
     return rows
         .map((r) => MerchantSpend(
               name: r.read<String>('name'),
-              total: r.read<double>('total'),
+              total: Money(r.read<int>('total'), currency),
               count: r.read<int>('tx_count'),
             ))
         .toList();
@@ -1063,10 +1082,8 @@ class DriftTransactionRepository implements TransactionRepository {
       '''
         SELECT card_last4 AS last4,
                UPPER(currency) AS currency,
-               CAST(SUM(CASE WHEN type = 'refund' THEN -amount
-                            WHEN type IN ('payment','withdrawal') THEN amount
-                            ELSE 0 END) AS REAL) AS out_total,
-               CAST(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS REAL) AS in_total,
+               SUM(${FinancialSql.netExpenseSignedAmountMinor()}) AS out_total,
+               SUM(${FinancialSql.incomeSignedAmountMinor()}) AS in_total,
                COUNT(*) AS cnt,
                MAX(raw_message) AS sample,
                (SELECT color_theme FROM cards
@@ -1080,22 +1097,23 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE card_last4 IS NOT NULL AND status = 'confirmed'
         GROUP BY card_last4, UPPER(currency)
-        ORDER BY (out_total + in_total) DESC;
+        ORDER BY card_last4 ASC, currency ASC;
       ''',
     ).get();
-    return rows
-        .map((r) => CardSummary(
-              last4: r.read<String>('last4'),
-              currency: r.read<String>('currency'),
-              network: CardNetworkDetector.detect(
-                  r.readNullable<String>('sample') ?? ''),
-              totalOut: r.read<double>('out_total'),
-              totalIn: r.read<double>('in_total'),
-              count: r.read<int>('cnt'),
-              colorTheme: r.readNullable<String>('color_theme'),
-              accentHex: r.readNullable<String>('accent_hex'),
-            ))
-        .toList();
+    return rows.map((r) {
+      final currency = r.read<String>('currency');
+      return CardSummary(
+        last4: r.read<String>('last4'),
+        currency: currency,
+        network:
+            CardNetworkDetector.detect(r.readNullable<String>('sample') ?? ''),
+        totalOut: Money(r.read<int>('out_total'), currency),
+        totalIn: Money(r.read<int>('in_total'), currency),
+        count: r.read<int>('cnt'),
+        colorTheme: r.readNullable<String>('color_theme'),
+        accentHex: r.readNullable<String>('accent_hex'),
+      );
+    }).toList();
   }
 
   @override
@@ -1105,10 +1123,8 @@ class DriftTransactionRepository implements TransactionRepository {
         SELECT card_last4 AS last4,
                account_id AS account_id,
                UPPER(currency) AS currency,
-               CAST(SUM(CASE WHEN type = 'refund' THEN -amount
-                            WHEN type IN ('payment','withdrawal') THEN amount
-                            ELSE 0 END) AS REAL) AS out_total,
-               CAST(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS REAL) AS in_total,
+               SUM(${FinancialSql.netExpenseSignedAmountMinor()}) AS out_total,
+               SUM(${FinancialSql.incomeSignedAmountMinor()}) AS in_total,
                COUNT(*) AS cnt,
                MAX(raw_message) AS sample,
                (SELECT color_theme FROM cards
@@ -1126,19 +1142,20 @@ class DriftTransactionRepository implements TransactionRepository {
         GROUP BY card_last4, account_id, UPPER(currency);
       ''',
     ).get();
-    return rows
-        .map((r) => CardAccountBreakdownRow(
-              last4: r.read<String>('last4'),
-              currency: r.read<String>('currency'),
-              accountId: r.readNullable<String>('account_id'),
-              totalOut: r.read<double>('out_total'),
-              totalIn: r.read<double>('in_total'),
-              count: r.read<int>('cnt'),
-              sample: r.readNullable<String>('sample') ?? '',
-              colorTheme: r.readNullable<String>('color_theme'),
-              accentHex: r.readNullable<String>('accent_hex'),
-            ))
-        .toList();
+    return rows.map((r) {
+      final currency = r.read<String>('currency');
+      return CardAccountBreakdownRow(
+        last4: r.read<String>('last4'),
+        currency: currency,
+        accountId: r.readNullable<String>('account_id'),
+        totalOut: Money(r.read<int>('out_total'), currency),
+        totalIn: Money(r.read<int>('in_total'), currency),
+        count: r.read<int>('cnt'),
+        sample: r.readNullable<String>('sample') ?? '',
+        colorTheme: r.readNullable<String>('color_theme'),
+        accentHex: r.readNullable<String>('accent_hex'),
+      );
+    }).toList();
   }
 
   @override
@@ -1160,8 +1177,9 @@ class DriftTransactionRepository implements TransactionRepository {
     final accountClause = _accountClause(accountId, tableAlias: 't');
     final rows = await _db.customSelect(
       '''
-        SELECT mid, name, avg_amount, months FROM (
+        SELECT mid, name, currency, avg_amount, months FROM (
           SELECT m.id AS mid, m.raw_name AS name,
+                 MAX(UPPER(t.currency)) AS currency,
                  CAST(AVG(t.amount) AS REAL) AS avg_amount,
                  CAST(MIN(t.amount) AS REAL) AS min_a,
                  CAST(MAX(t.amount) AS REAL) AS max_a,
@@ -1170,8 +1188,10 @@ class DriftTransactionRepository implements TransactionRepository {
           INNER JOIN merchants m ON m.id = t.merchant_id
           WHERE t.type = 'payment' AND t.status = 'confirmed'
             $accountClause
-          GROUP BY t.merchant_id
+          GROUP BY t.merchant_id, UPPER(t.currency)
         )
+        -- HEURISTIC recurrence-stability ratio over legacy REAL shadows; this
+        -- is an advisory estimate, not a canonical Money aggregate.
         WHERE months >= 2 AND (max_a - min_a) <= (avg_amount * 0.15)
         ORDER BY avg_amount DESC;
       ''',
@@ -1182,6 +1202,7 @@ class DriftTransactionRepository implements TransactionRepository {
               merchantId: r.read<String>('mid'),
               name: r.read<String>('name'),
               averageAmount: r.read<double>('avg_amount'),
+              currency: r.read<String>('currency'),
               monthsSeen: r.read<int>('months'),
             ))
         .toList();

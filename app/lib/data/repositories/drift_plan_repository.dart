@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/financial_semantics.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/finance/plan_scope.dart';
 import '../../domain/repositories/plan_repository.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
@@ -118,16 +119,18 @@ class DriftPlanRepository implements PlanRepository {
   }
 
   @override
-  Future<double> spentForPlan(PlanEntity plan) async {
+  Future<Money> spentForPlan(PlanEntity plan) async {
     // Fail closed: a plan with no currency must never sum across currencies.
-    if (!plan.hasValidCurrency) return 0;
+    if (!plan.hasValidCurrency) {
+      return Money(0, plan.budgetAmountMoney.currency);
+    }
     final membership = _membershipSql(plan);
     final row = await _db.customSelect(
       '''
-        SELECT CAST(COALESCE(SUM(${FinancialSql.netExpenseSignedAmount()}), 0)
-                 AS REAL) AS total
+        SELECT COALESCE(SUM(${FinancialSql.netExpenseSignedAmountMinor()}), 0)
+                 AS total
         FROM (
-          SELECT DISTINCT t.id, t.type AS type, t.amount AS amount
+          SELECT DISTINCT t.id, t.type AS type, t.amount_minor AS amount_minor
           FROM transactions t
           LEFT JOIN plan_transaction_links ptl
             ON ptl.transaction_id = t.id AND ptl.plan_id = ?
@@ -138,7 +141,7 @@ class DriftPlanRepository implements PlanRepository {
       ''',
       variables: [Variable.withString(plan.id), ...membership.variables],
     ).getSingle();
-    return row.read<double>('total');
+    return Money(row.read<int>('total'), plan.currency);
   }
 
   @override

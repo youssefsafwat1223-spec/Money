@@ -58,8 +58,8 @@ class _FakeTransactionRepository implements TransactionRepository {
     required this.previousSpend,
   });
 
-  final double currentSpend;
-  final double previousSpend;
+  final Money currentSpend;
+  final Money previousSpend;
 
   @override
   Future<List<TransactionEntity>> largestExpenses({
@@ -82,10 +82,11 @@ class _FakeTransactionRepository implements TransactionRepository {
       const [];
 
   @override
-  Future<double> categoryExpenseTotalBetween({
+  Future<Money> categoryExpenseTotalBetween({
     required String categoryId,
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) async {
     if (from.day == 12) {
@@ -99,7 +100,7 @@ class _FakeTransactionRepository implements TransactionRepository {
     required DateTime from,
     required DateTime to,
     String? accountId,
-    String? currency,
+    required String currency,
   }) {
     throw UnimplementedError();
   }
@@ -110,9 +111,10 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
-  Future<double> expenseTotalBetween({
+  Future<Money> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) async {
     if (from.day == 12) {
@@ -122,16 +124,17 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
-  Future<double> incomeTotalBetween({
+  Future<Money> incomeTotalBetween({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<double?> latestBalanceAfter({String? accountId}) {
+  Future<Money?> latestBalanceAfter({String? accountId}) {
     throw UnimplementedError();
   }
 
@@ -171,6 +174,7 @@ class _FakeTransactionRepository implements TransactionRepository {
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) {
     throw UnimplementedError();
@@ -287,6 +291,7 @@ class _FakeTransactionRepository implements TransactionRepository {
   Future<List<MerchantSpend>> merchantBreakdown({
     required DateTime from,
     required DateTime to,
+    required String currency,
     int limit = 3,
     String? accountId,
   }) {
@@ -334,19 +339,19 @@ void main() {
     final useCase = BudgetProgressUseCase(
       budgetRepository: repo,
       transactionRepository: _FakeTransactionRepository(
-        currentSpend: 999,
-        previousSpend: 0,
+        currentSpend: Money(99900, 'SAR'),
+        previousSpend: Money(0, 'SAR'),
       ),
       fetchBatchSpent: ({required from, required to}) async {
         calls++;
-        return {'budget-1': 25};
+        return {'budget-1': Money(2500, 'SAR')};
       },
     );
 
     final snapshot = await useCase(now: DateTime(2026, 7, 14, 12));
 
     expect(calls, 1);
-    expect(snapshot.entries.single.spent, 25);
+    expect(snapshot.entries.single.spent, Money(2500, 'SAR'));
     expect(snapshot.entries.single.ratio, 0.25);
   });
 
@@ -367,14 +372,14 @@ void main() {
     final useCase = BudgetProgressUseCase(
       budgetRepository: repo,
       transactionRepository: _FakeTransactionRepository(
-        currentSpend: 150,
-        previousSpend: 20,
+        currentSpend: Money(15000, 'SAR'),
+        previousSpend: Money(2000, 'SAR'),
       ),
     );
 
     final snapshot = await useCase.call(now: DateTime.utc(2026, 6, 14, 10));
 
-    expect(snapshot.entries.single.spent, 150);
+    expect(snapshot.entries.single.spent, Money(15000, 'SAR'));
     expect(snapshot.entries.single.ratio, 0.5);
     expect(snapshot.entries.single.budget.isAllExpenses, isTrue);
   });

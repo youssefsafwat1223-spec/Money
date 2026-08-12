@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/report_models.dart';
+import '../../domain/finance/money.dart';
 import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
 import '../transactions/transactions_providers.dart';
@@ -16,33 +17,41 @@ class ReportSection {
     required this.anomaly,
   });
 
-  final double total;
-  final double prevTotal;
+  final Money total;
+  final Money prevTotal;
   final List<CategorySlice> topCategories;
   final List<MerchantSpend> topMerchants;
   final List<DailySpend> dailySpend;
   final SpendingAnomaly? anomaly;
 
   /// نسبة التغيّر مقابل الفترة السابقة (null إذا لا توجد فترة سابقة).
-  double? get deltaPercent =>
-      prevTotal == 0 ? null : (total - prevTotal) / prevTotal;
+  double? get deltaPercent => prevTotal.isZero
+      ? null
+      : (total - prevTotal).toDouble() / prevTotal.toDouble();
 
-  double get averageDaily {
-    if (dailySpend.isEmpty) return 0;
-    return dailySpend.fold<double>(0, (sum, day) => sum + day.total) /
-        dailySpend.length;
+  Money get averageDaily {
+    if (dailySpend.isEmpty) return Money.zero(total.currency);
+    return Money.sum(dailySpend.map((day) => day.total), total.currency)
+        .applyRate(
+      rateNumerator: BigInt.one,
+      rateDenominator: BigInt.from(dailySpend.length),
+    );
   }
 
-  double get highestDaily {
-    if (dailySpend.isEmpty) return 0;
-    return dailySpend.map((day) => day.total).reduce((a, b) => a > b ? a : b);
+  Money get highestDaily {
+    if (dailySpend.isEmpty) return Money.zero(total.currency);
+    return dailySpend
+        .map((day) => day.total)
+        .reduce((a, b) => a.compareTo(b) > 0 ? a : b);
   }
 
   /// أفضل يوم توفيرًا = اليوم الوحيد بأقل إنفاق غير صفري.
   DailySpend? get bestSavingsDay {
-    final active = dailySpend.where((d) => d.total > 0).toList();
+    final zero = Money.zero(total.currency);
+    final active =
+        dailySpend.where((d) => d.total.compareTo(zero) > 0).toList();
     if (active.isEmpty) return null;
-    return active.reduce((a, b) => a.total < b.total ? a : b);
+    return active.reduce((a, b) => a.total.compareTo(b.total) < 0 ? a : b);
   }
 
   /// أكبر فئة إنفاق.
@@ -63,8 +72,8 @@ class SpendingAnomaly {
   });
 
   final DateTime day;
-  final double total;
-  final double baseline;
+  final Money total;
+  final Money baseline;
   final double ratio;
 }
 
@@ -91,7 +100,10 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
       ? null
       : await accountRepo.getById(selectedAccountId);
   final defaultAccount = await accountRepo.getDefault();
-  final accountId = (selectedAccount ?? defaultAccount)?.id;
+  final activeAccount = selectedAccount ?? defaultAccount;
+  final accountId = activeAccount?.id;
+  final String currency =
+      activeAccount?.currency ?? (await ref.watch(baseCurrencyProvider.future));
   final now = DateTime.now();
   final range =
       effectiveTransactionsRange(ref.watch(transactionsDateRangeProvider));
@@ -102,12 +114,12 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
     // MALI-063n: always the canonical Drift aggregates (the dormant Supabase
     // summary path is retired).
     final total = await txRepo.expenseTotalBetween(
-        from: from, to: to, accountId: accountId);
+        from: from, to: to, currency: currency, accountId: accountId);
     final prevTotal = await txRepo.expenseTotalBetween(
-        from: prevFrom, to: prevTo, accountId: accountId);
+        from: prevFrom, to: prevTo, currency: currency, accountId: accountId);
     final breakdown = await txRepo.categoryBreakdown(
-        from: from, to: to, accountId: accountId);
-    final sumAll = breakdown.fold<double>(0, (s, i) => s + i.total);
+        from: from, to: to, currency: currency, accountId: accountId);
+    final sumAll = Money.sum(breakdown.map((item) => item.total), currency);
     final topCategories = <CategorySlice>[];
     for (final item in breakdown.take(18)) {
       final view =
@@ -116,14 +128,14 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
       topCategories.add(CategorySlice(
         category: view,
         total: item.total,
-        percent: sumAll == 0 ? 0 : item.total / sumAll,
+        percent: sumAll.isZero ? 0 : item.total.toDouble() / sumAll.toDouble(),
         count: item.count,
       ));
     }
     final topMerchants = await txRepo.merchantBreakdown(
-        from: from, to: to, limit: 8, accountId: accountId);
+        from: from, to: to, currency: currency, limit: 8, accountId: accountId);
     final dailySpend = await txRepo.dailyExpenseTotals(
-        from: from, to: to, accountId: accountId);
+        from: from, to: to, currency: currency, accountId: accountId);
     return ReportSection(
       total: total,
       prevTotal: prevTotal,
@@ -157,26 +169,35 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
 });
 
 SpendingAnomaly? detectSpendingAnomaly(List<DailySpend> dailySpend) {
-  final activeDays =
-      dailySpend.where((day) => day.total > 0).toList(growable: false);
+  if (dailySpend.isEmpty) return null;
+  final currency = dailySpend.first.total.currency;
+  final zero = Money.zero(currency);
+  final activeDays = dailySpend
+      .where((day) => day.total.compareTo(zero) > 0)
+      .toList(growable: false);
   if (activeDays.length < 4) return null;
 
   final candidate = activeDays.reduce(
-    (a, b) => a.total >= b.total ? a : b,
+    (a, b) => a.total.compareTo(b.total) >= 0 ? a : b,
   );
   final baselineDays =
       activeDays.where((day) => !_isSameDate(day.day, candidate.day));
   final baselineTotal =
-      baselineDays.fold<double>(0, (sum, day) => sum + day.total);
+      Money.sum(baselineDays.map((day) => day.total), currency);
   final baselineCount = activeDays.length - 1;
   if (baselineCount <= 0) return null;
 
-  final baseline = baselineTotal / baselineCount;
-  if (baseline <= 0) return null;
+  final baseline = baselineTotal.applyRate(
+    rateNumerator: BigInt.one,
+    rateDenominator: BigInt.from(baselineCount),
+  );
+  if (baseline.compareTo(zero) <= 0) return null;
 
-  final ratio = candidate.total / baseline;
+  final ratio = candidate.total.toDouble() / baseline.toDouble();
   final difference = candidate.total - baseline;
-  if (ratio < 1.8 || difference < 75) return null;
+  if (ratio < 1.8 || difference.compareTo(Money.parse('75', currency)) < 0) {
+    return null;
+  }
 
   return SpendingAnomaly(
     day: candidate.day,

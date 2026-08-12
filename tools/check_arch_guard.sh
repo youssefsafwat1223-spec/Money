@@ -68,6 +68,15 @@ m="$(grep -rnE 'dontWarnAboutMultipleDatabases' "$ROOT/app/lib" "$ROOT/app/test"
 if [ -z "$m" ]; then okc "no Drift multi-db warning suppression (MALI-040)"; else
   fail "dontWarnAboutMultipleDatabases suppression present (MALI-040):"; echo "$m"; fi
 
+# 7. MALI-026 (B8-3 §16) — no canonical money SUM is cast to REAL. Financial
+#    totals SUM the exact `amount_minor` int column so an int64 overflow FAILS
+#    EXACT (SQLite raises), never a silent float; casting a SUM to REAL would
+#    reintroduce a lossy floating total. (The recurring-detection heuristic uses
+#    CAST(AVG/MIN/MAX(...)) — a ratio, NOT a SUM — and is intentionally untouched.)
+m="$(grep -rnE 'CAST\((COALESCE\()?SUM\(.*AS REAL' "$LIB" 2>/dev/null)"
+if [ -z "$m" ]; then okc "no money SUM cast to REAL (exact integer minor totals)"; else
+  fail "a SUM(...) is cast to REAL — money totals must SUM amount_minor as integer:"; echo "$m"; fi
+
 echo
 if [ "$viol" -eq 0 ]; then
   echo "ARCH GUARD PASS — Supabase-primary authority stays retired; DB warning suppression stays out."

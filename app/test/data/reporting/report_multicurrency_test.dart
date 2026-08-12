@@ -102,10 +102,30 @@ void main() {
       await acct('sar', 'SAR', isDefault: true);
       await acct('egp', 'EGP');
       await acct('kwd', 'KWD');
-      await put(id: 'sar-pay', amount: 500, type: TransactionTypeEntity.payment, currency: 'SAR', accountId: 'sar');
-      await put(id: 'sar-ref', amount: 100, type: TransactionTypeEntity.refund, currency: 'SAR', accountId: 'sar');
-      await put(id: 'egp-pay', amount: 1000, type: TransactionTypeEntity.payment, currency: 'EGP', accountId: 'egp');
-      await put(id: 'kwd-pay', amount: 30, type: TransactionTypeEntity.payment, currency: 'KWD', accountId: 'kwd');
+      await put(
+          id: 'sar-pay',
+          amount: 500,
+          type: TransactionTypeEntity.payment,
+          currency: 'SAR',
+          accountId: 'sar');
+      await put(
+          id: 'sar-ref',
+          amount: 100,
+          type: TransactionTypeEntity.refund,
+          currency: 'SAR',
+          accountId: 'sar');
+      await put(
+          id: 'egp-pay',
+          amount: 1000,
+          type: TransactionTypeEntity.payment,
+          currency: 'EGP',
+          accountId: 'egp');
+      await put(
+          id: 'kwd-pay',
+          amount: 30,
+          type: TransactionTypeEntity.payment,
+          currency: 'KWD',
+          accountId: 'kwd');
 
       final snapshot = await builder.build(const ReportRequest(
         period: MonthlyPeriod(),
@@ -116,15 +136,18 @@ void main() {
       // Per-currency breakdown: each currency isolated (SAR nets the refund).
       final byCur = snapshot.categoryBreakdownByCurrency;
       expect(byCur.keys.toSet(), {'SAR', 'EGP', 'KWD'});
-      expect(byCur['SAR']!.fold<double>(0, (s, c) => s + c.total), 400);
-      expect(byCur['EGP']!.fold<double>(0, (s, c) => s + c.total), 1000);
-      expect(byCur['KWD']!.fold<double>(0, (s, c) => s + c.total), 30);
+      expect(Money.sum(byCur['SAR']!.map((c) => c.total), 'SAR'),
+          Money(40000, 'SAR'));
+      expect(Money.sum(byCur['EGP']!.map((c) => c.total), 'EGP'),
+          Money(100000, 'EGP'));
+      expect(Money.sum(byCur['KWD']!.map((c) => c.total), 'KWD'),
+          Money(30000, 'KWD'));
 
       // currencyTotals never merge currencies.
       final cur = {for (final t in snapshot.currencyTotals) t.currency: t};
-      expect(cur['SAR']!.expense, 400);
-      expect(cur['EGP']!.expense, 1000);
-      expect(cur['KWD']!.expense, 30);
+      expect(cur['SAR']!.expense, Money(40000, 'SAR'));
+      expect(cur['EGP']!.expense, Money(100000, 'EGP'));
+      expect(cur['KWD']!.expense, Money(30000, 'KWD'));
 
       final vm = const ReportComposer().compose(snapshot);
       // Donut center is the PRIMARY (SAR) expense, not 1430 cross-currency.
@@ -142,19 +165,32 @@ void main() {
       );
     });
 
-    test('half-open period: a transaction at toExclusive is in neither totals '
+    test(
+        'half-open period: a transaction at toExclusive is in neither totals '
         'nor appendix', () async {
       await acct('sar', 'SAR', isDefault: true);
-      await put(id: 'in', amount: 200, type: TransactionTypeEntity.payment, currency: 'SAR', accountId: 'sar', occurredAt: DateTime(2026, 7, 31, 23));
+      await put(
+          id: 'in',
+          amount: 200,
+          type: TransactionTypeEntity.payment,
+          currency: 'SAR',
+          accountId: 'sar',
+          occurredAt: DateTime(2026, 7, 31, 23));
       // Aug 1 00:00 is the exclusive upper bound of the July monthly period.
-      await put(id: 'boundary', amount: 999, type: TransactionTypeEntity.payment, currency: 'SAR', accountId: 'sar', occurredAt: DateTime(2026, 8, 1));
+      await put(
+          id: 'boundary',
+          amount: 999,
+          type: TransactionTypeEntity.payment,
+          currency: 'SAR',
+          accountId: 'sar',
+          occurredAt: DateTime(2026, 8, 1));
 
       final snapshot = await builder.build(const ReportRequest(
         period: MonthlyPeriod(),
         languageCode: 'en',
         content: ReportContentOptions(includeTransactionDetails: true),
       ));
-      expect(snapshot.totalExpense, 200);
+      expect(snapshot.totalExpense, Money(20000, 'SAR'));
       expect(snapshot.appendixTransactions.map((t) => t.id), ['in']);
     });
   });

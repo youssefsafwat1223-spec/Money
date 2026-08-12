@@ -7,7 +7,7 @@ import '../repositories/budget_repository.dart';
 import '../repositories/transaction_repository.dart';
 import 'engagement_usecase.dart';
 
-typedef FetchBudgetBatchSpent = Future<Map<String, double>> Function({
+typedef FetchBudgetBatchSpent = Future<Map<String, Money>> Function({
   required DateTime from,
   required DateTime to,
 });
@@ -62,9 +62,10 @@ class BudgetProgressUseCase {
       final period = currentPeriods[normalizedBudget.period]!;
       final spent = batchSpent?[normalizedBudget.id] ??
           await _spentForBudget(normalizedBudget, period);
-      final ratio =
-          normalizedBudget.amount == 0 ? 0.0 : spent / normalizedBudget.amount;
-      final remaining = normalizedBudget.amount - spent;
+      final ratio = normalizedBudget.amountMoney.isZero
+          ? 0.0
+          : spent.toDouble() / normalizedBudget.amountMoney.toDouble();
+      final remaining = normalizedBudget.amountMoney - spent;
       final health = ratio >= 1
           ? BudgetHealth.over
           : ratio >= 0.8
@@ -86,13 +87,13 @@ class BudgetProgressUseCase {
     return BudgetProgressSnapshot(entries: entries);
   }
 
-  Future<Map<String, double>?> _fetchCurrentBatchSpent(
+  Future<Map<String, Money>?> _fetchCurrentBatchSpent(
     List<BudgetEntity> budgets,
     Map<BudgetPeriod, (DateTime, DateTime)> periods,
   ) async {
     final fetch = _fetchBatchSpent;
     if (fetch == null || budgets.isEmpty) return null;
-    final result = <String, double>{};
+    final result = <String, Money>{};
     for (final entry in periods.entries) {
       final ids = budgets
           .where((budget) => budget.period == entry.key)
@@ -124,7 +125,7 @@ class BudgetProgressUseCase {
     final previousSpent = await _spentForBudget(budget, previousPeriod);
 
     if (budget.period == BudgetPeriod.daily &&
-        previousSpent <= budget.amount &&
+        previousSpent.compareTo(budget.amountMoney) <= 0 &&
         _recordEngagementUseCase != null) {
       await _recordEngagementUseCase(
         action: EngagementAction.dailyBudgetKept,
@@ -155,7 +156,7 @@ class BudgetProgressUseCase {
     return (range.from, range.to);
   }
 
-  Future<double> _spentForBudget(
+  Future<Money> _spentForBudget(
     BudgetEntity budget,
     (DateTime, DateTime) period,
   ) =>

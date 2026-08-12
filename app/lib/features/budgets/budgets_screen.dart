@@ -11,6 +11,7 @@ import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/money.dart';
 import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -43,8 +44,9 @@ class BudgetsScreen extends ConsumerWidget {
   Widget _buildScreen(BuildContext context, WidgetRef ref) {
     final async = ref.watch(budgetsViewProvider);
     final tab = ref.watch(budgetsPageTabProvider);
-    final currencyLabel = Currency.arabicLabel(
-        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final displayCurrency =
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
+    final currencyLabel = Currency.arabicLabel(displayCurrency);
 
     return Scaffold(
       body: async.when(
@@ -53,9 +55,14 @@ class BudgetsScreen extends ConsumerWidget {
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (data) {
           final historyEntries = data.historyEntries;
-          final budgetEntries = tab == 1
+          final rawBudgetEntries = tab == 1
               ? historyEntries.map((entry) => entry.progress).toList()
               : data.snapshot.entries;
+          final budgetEntries = rawBudgetEntries
+              .where((entry) =>
+                  entry.budget.currency.toUpperCase() ==
+                  displayCurrency.toUpperCase())
+              .toList(growable: false);
           // An "all expenses" budget is the overall roll-up; category budgets
           // are its breakdown. Summing both double-counts, so the header total
           // uses the roll-up when present, otherwise the sum of categories.
@@ -63,19 +70,37 @@ class BudgetsScreen extends ConsumerWidget {
               budgetEntries.where((e) => !e.budget.isAllExpenses).toList();
           final allExpensesEntries =
               budgetEntries.where((e) => e.budget.isAllExpenses);
+          // §16/§6: only same-currency category budgets fold into the roll-up —
+          // never Money(EGP)+Money(SAR).
+          final sameCurrencyEntries = categoryEntries
+              .where((e) =>
+                  e.budget.currency.toUpperCase() ==
+                  displayCurrency.toUpperCase())
+              .toList(growable: false);
           final used = allExpensesEntries.isNotEmpty
               ? allExpensesEntries.first.spent
-              : categoryEntries.fold<double>(0, (sum, e) => sum + e.spent);
+              : Money.sum(
+                  sameCurrencyEntries.map((entry) => entry.spent),
+                  displayCurrency,
+                );
           final limit = allExpensesEntries.isNotEmpty
-              ? allExpensesEntries.first.budget.amount
-              : categoryEntries.fold<double>(
-                  0, (sum, e) => sum + e.budget.amount);
-          final usedRatio = limit == 0 ? 0 : (used / limit * 100).round();
-          final saved =
-              data.goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
-          final target = data.goals
-              .fold<double>(0, (sum, goal) => sum + goal.targetAmount);
-          final progress = target == 0 ? 0 : (saved / target * 100).round();
+              ? allExpensesEntries.first.budget.amountMoney
+              : Money.sum(
+                  sameCurrencyEntries.map((entry) => entry.budget.amountMoney),
+                  displayCurrency,
+                );
+          final usedRatio = limit.isZero
+              ? 0
+              : (used.toDouble() / limit.toDouble() * 100).round();
+          final displayGoals = data.goals.where((goal) =>
+              goal.currency.toUpperCase() == displayCurrency.toUpperCase());
+          final saved = Money.sum(
+              displayGoals.map((goal) => goal.savedMoney), displayCurrency);
+          final target = Money.sum(
+              displayGoals.map((goal) => goal.targetMoney), displayCurrency);
+          final progress = target.isZero
+              ? 0
+              : (saved.toDouble() / target.toDouble() * 100).round();
           final safeCount = budgetEntries
               .where((entry) => entry.health == BudgetHealth.safe)
               .length;
@@ -100,10 +125,10 @@ class BudgetsScreen extends ConsumerWidget {
                           _BudgetsHeader(
                             tab: tab,
                             usedRatio: usedRatio,
-                            usedAmount: used,
-                            limit: limit,
-                            saved: saved,
-                            target: target,
+                            usedAmount: used.toDouble(),
+                            limit: limit.toDouble(),
+                            saved: saved.toDouble(),
+                            target: target.toDouble(),
                             progress: progress,
                             goalsCount: data.goals.length,
                             budgetsCount: budgetEntries.length,
@@ -586,7 +611,7 @@ class _BudgetCard extends StatelessWidget {
     final progressColor = c.budgetState(entry.ratio);
     final progress = entry.ratio.clamp(0, 1).toDouble();
     final percent = (entry.ratio * 100).round();
-    final isOver = entry.remaining < 0;
+    final isOver = entry.remaining.isNegative;
     final isGeneral = entry.budget.isAllExpenses;
     final statusLabel = isOver
         ? 'تجاوز'
@@ -737,7 +762,8 @@ class _BudgetCard extends StatelessWidget {
                 Expanded(
                   child: _BudgetAmountTile(
                     label: 'مصروف',
-                    value: '${Formatters.integer(entry.spent)} $currencyLabel',
+                    value:
+                        '${Formatters.integer(entry.spent.toDouble())} $currencyLabel',
                     color: c.textPrimary,
                   ),
                 ),
@@ -746,8 +772,8 @@ class _BudgetCard extends StatelessWidget {
                   child: _BudgetAmountTile(
                     label: isOver ? 'تجاوز' : 'باقي',
                     value: isOver
-                        ? '${Formatters.integer(entry.remaining.abs())} $currencyLabel'
-                        : '${Formatters.integer(entry.remaining)} $currencyLabel',
+                        ? '${Formatters.integer((-entry.remaining).toDouble())} $currencyLabel'
+                        : '${Formatters.integer(entry.remaining.toDouble())} $currencyLabel',
                     color: isOver ? c.danger : c.success,
                   ),
                 ),
@@ -813,7 +839,7 @@ class _BudgetHistoryRow extends StatelessWidget {
     final c = context.colors;
     final entry = history.progress;
     final isGeneral = entry.budget.isAllExpenses;
-    final isOver = entry.remaining < 0;
+    final isOver = entry.remaining.isNegative;
     final progressColor = c.budgetState(entry.ratio);
     final iconColor = category?.tileColor ?? progressColor;
     final periodLabel = switch (entry.budget.period) {
@@ -833,16 +859,17 @@ class _BudgetHistoryRow extends StatelessWidget {
     final IconData? resultIcon;
     if (history.isCurrent) {
       resultText = isOver
-          ? 'تجاوزت ${Formatters.integer(entry.remaining.abs())}'
-          : 'باقي ${Formatters.integer(entry.remaining)}';
+          ? 'تجاوزت ${Formatters.integer((-entry.remaining).toDouble())}'
+          : 'باقي ${Formatters.integer(entry.remaining.toDouble())}';
       resultColor = isOver ? c.danger : c.textSecondary;
       resultIcon = null;
     } else if (isOver) {
-      resultText = 'تجاوزت ${Formatters.integer(entry.remaining.abs())}';
+      resultText =
+          'تجاوزت ${Formatters.integer((-entry.remaining).toDouble())}';
       resultColor = c.danger;
       resultIcon = Icons.warning_amber_rounded;
     } else {
-      resultText = 'وفّرت ${Formatters.integer(entry.remaining)}';
+      resultText = 'وفّرت ${Formatters.integer(entry.remaining.toDouble())}';
       resultColor = c.success;
       resultIcon = Icons.check_circle_outline;
     }
@@ -902,7 +929,7 @@ class _BudgetHistoryRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${Formatters.integer(entry.spent)} / ${Formatters.integer(entry.budget.amount)}',
+                '${Formatters.integer(entry.spent.toDouble())} / ${Formatters.integer(entry.budget.amountMoney.toDouble())}',
                 style: AppTypography.subhead(c.textPrimary),
               ),
               const SizedBox(height: 2),
@@ -959,7 +986,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
     final progressColor = c.budgetState(entry.ratio);
     final progress = entry.ratio.clamp(0, 1).toDouble();
     final percent = (entry.ratio * 100).round();
-    final isOver = entry.remaining < 0;
+    final isOver = entry.remaining.isNegative;
     final title = entry.budget.isAllExpenses
         ? 'كل المصروفات'
         : category?.nameAr ?? 'ميزانية';
@@ -1044,7 +1071,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                     child: _BudgetAmountTile(
                       label: 'مصروف',
                       value:
-                          '${Formatters.integer(entry.spent)} $currencyLabel',
+                          '${Formatters.integer(entry.spent.toDouble())} $currencyLabel',
                       color: c.textPrimary,
                     ),
                   ),
@@ -1053,8 +1080,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                     child: _BudgetAmountTile(
                       label: isOver ? 'تجاوز' : 'باقي',
                       value: isOver
-                          ? '${Formatters.integer(entry.remaining.abs())} $currencyLabel'
-                          : '${Formatters.integer(entry.remaining)} $currencyLabel',
+                          ? '${Formatters.integer((-entry.remaining).toDouble())} $currencyLabel'
+                          : '${Formatters.integer(entry.remaining.toDouble())} $currencyLabel',
                       color: isOver ? c.danger : c.success,
                     ),
                   ),

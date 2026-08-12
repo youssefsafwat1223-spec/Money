@@ -7,30 +7,39 @@ import 'package:money_companion/features/dashboard/home_sections_providers.dart'
 BudgetEntity _budget({
   required String id,
   required String categoryId,
-  required double amount,
+  required int amountMinor,
+  String currency = 'SAR',
 }) {
   return BudgetEntity(
     id: id,
     categoryId: categoryId,
-    currency: 'SAR',
-    amountMoney: Money.fromLegacyReal(amount, 'SAR'),
+    currency: currency,
+    amountMoney: Money(amountMinor, currency),
     period: BudgetPeriod.monthly,
     startDate: DateTime(2026, 7),
     isActive: true,
-    lastNotifiedSpentMoney: Money(0, 'SAR'),
+    lastNotifiedSpentMoney: Money(0, currency),
     lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
   );
 }
 
 BudgetProgressEntry _entry({
   required String categoryId,
-  required double amount,
-  required double spent,
+  required int amountMinor,
+  required int spentMinor,
+  String currency = 'SAR',
 }) {
-  final budget =
-      _budget(id: categoryId, categoryId: categoryId, amount: amount);
-  final remaining = amount - spent;
-  final ratio = amount == 0 ? 0.0 : spent / amount;
+  final budget = _budget(
+    id: categoryId,
+    categoryId: categoryId,
+    amountMinor: amountMinor,
+    currency: currency,
+  );
+  final spent = Money(spentMinor, currency);
+  final remaining = budget.amountMoney - spent;
+  final ratio = budget.amountMoney.isZero
+      ? 0.0
+      : spent.toDouble() / budget.amountMoney.toDouble();
   return BudgetProgressEntry(
     budget: budget,
     spent: spent,
@@ -49,13 +58,14 @@ void main() {
     test('returns the exact-category budget when one exists', () {
       final allExpenses = _entry(
         categoryId: BudgetEntity.allExpensesCategoryId,
-        amount: 500,
-        spent: 100,
+        amountMinor: 50000,
+        spentMinor: 10000,
       );
-      final food = _entry(categoryId: 'food', amount: 200, spent: 20);
+      final food =
+          _entry(categoryId: 'food', amountMinor: 20000, spentMinor: 2000);
       final snapshot = BudgetProgressSnapshot(entries: [allExpenses, food]);
 
-      final match = matchBudgetForCategory(snapshot, 'food');
+      final match = matchBudgetForCategory(snapshot, 'food', 'SAR');
 
       expect(match, same(food));
     });
@@ -63,30 +73,49 @@ void main() {
     test('falls back to the all-expenses budget when no category match', () {
       final allExpenses = _entry(
         categoryId: BudgetEntity.allExpensesCategoryId,
-        amount: 500,
-        spent: 100,
+        amountMinor: 50000,
+        spentMinor: 10000,
       );
       final snapshot = BudgetProgressSnapshot(entries: [allExpenses]);
 
-      final match = matchBudgetForCategory(snapshot, 'transport');
+      final match = matchBudgetForCategory(snapshot, 'transport', 'SAR');
 
       expect(match, same(allExpenses));
     });
 
     test('returns null when there is no matching or catch-all budget', () {
-      final food = _entry(categoryId: 'food', amount: 200, spent: 20);
+      final food =
+          _entry(categoryId: 'food', amountMinor: 20000, spentMinor: 2000);
       final snapshot = BudgetProgressSnapshot(entries: [food]);
 
-      final match = matchBudgetForCategory(snapshot, 'transport');
+      final match = matchBudgetForCategory(snapshot, 'transport', 'SAR');
 
       expect(match, isNull);
     });
 
     test('returns null for a null category id (uncategorized transaction)', () {
-      final food = _entry(categoryId: 'food', amount: 200, spent: 20);
+      final food =
+          _entry(categoryId: 'food', amountMinor: 20000, spentMinor: 2000);
       final snapshot = BudgetProgressSnapshot(entries: [food]);
 
-      final match = matchBudgetForCategory(snapshot, null);
+      final match = matchBudgetForCategory(snapshot, null, 'SAR');
+
+      expect(match, isNull);
+    });
+
+    test('never matches a budget from another currency', () {
+      final food = _entry(
+        categoryId: 'food',
+        amountMinor: 20000,
+        spentMinor: 2000,
+        currency: 'USD',
+      );
+
+      final match = matchBudgetForCategory(
+        BudgetProgressSnapshot(entries: [food]),
+        'food',
+        'SAR',
+      );
 
       expect(match, isNull);
     });
@@ -97,7 +126,6 @@ void main() {
       final text = budgetContextText(
         null,
         categoryName: 'الطعام',
-        currency: 'EGP',
         pending: true,
       );
       expect(text, 'عملية بانتظار التصنيف أو التأكيد');
@@ -107,17 +135,16 @@ void main() {
       final text = budgetContextText(
         null,
         categoryName: 'الطعام',
-        currency: 'EGP',
       );
       expect(text, 'لا توجد ميزانية محددة لهذه الفئة');
     });
 
     test('remaining budget under 50% used shows the remaining amount', () {
-      final entry = _entry(categoryId: 'food', amount: 200, spent: 20);
+      final entry =
+          _entry(categoryId: 'food', amountMinor: 20000, spentMinor: 2000);
       final text = budgetContextText(
         entry,
         categoryName: 'الطعام',
-        currency: 'EGP',
       );
       expect(text, contains('متبقي'));
       expect(text, contains('180'));
@@ -125,22 +152,22 @@ void main() {
     });
 
     test('50% or more used (but not exceeded) shows the usage percentage', () {
-      final entry = _entry(categoryId: 'food', amount: 200, spent: 130);
+      final entry =
+          _entry(categoryId: 'food', amountMinor: 20000, spentMinor: 13000);
       final text = budgetContextText(
         entry,
         categoryName: 'الطعام',
-        currency: 'EGP',
       );
       expect(text, contains('استخدمت'));
       expect(text, contains('65%'));
     });
 
     test('exceeded budget shows the exceeded amount', () {
-      final entry = _entry(categoryId: 'food', amount: 200, spent: 230);
+      final entry =
+          _entry(categoryId: 'food', amountMinor: 20000, spentMinor: 23000);
       final text = budgetContextText(
         entry,
         categoryName: 'الطعام',
-        currency: 'EGP',
       );
       expect(text, contains('تجاوزت'));
       expect(text, contains('30'));

@@ -1,4 +1,5 @@
 import '../entities/engagement_entities.dart';
+import '../finance/money.dart';
 import '../repositories/goal_repository.dart';
 
 class GoalDetailsUseCase {
@@ -13,24 +14,34 @@ class GoalDetailsUseCase {
     }
     final contributions = await _goalRepository.getContributions(goalId);
     final current = now ?? DateTime.now().toUtc();
-    final remainingAmount = (goal.targetAmount - goal.savedAmount).clamp(
-      0,
-      double.infinity,
-    );
-    final progress =
-        goal.targetAmount == 0 ? 0.0 : goal.savedAmount / goal.targetAmount;
+    final rawRemaining = goal.targetMoney - goal.savedMoney;
+    final zero = Money.zero(goal.currency);
+    final remainingAmount =
+        rawRemaining.compareTo(zero) < 0 ? zero : rawRemaining;
+    final progress = goal.targetMoney.isZero
+        ? 0.0
+        : goal.savedMoney.toDouble() / goal.targetMoney.toDouble();
     final daysRemaining =
         goal.deadline?.difference(current).inDays.clamp(0, 1000000);
     final recommendedDaily = daysRemaining == null || daysRemaining == 0
-        ? remainingAmount.toDouble()
-        : remainingAmount / daysRemaining;
+        ? remainingAmount
+        : remainingAmount.applyRate(
+            rateNumerator: BigInt.one,
+            rateDenominator: BigInt.from(daysRemaining),
+          );
+    final recommendedWeekly = daysRemaining == null || daysRemaining == 0
+        ? remainingAmount
+        : remainingAmount.applyRate(
+            rateNumerator: BigInt.from(7),
+            rateDenominator: BigInt.from(daysRemaining),
+          );
     return GoalDetailsEntity(
       goal: goal,
       contributions: contributions,
       progress: progress.clamp(0, 1),
-      remainingAmount: remainingAmount.toDouble(),
+      remainingAmount: remainingAmount,
       recommendedDailyAmount: recommendedDaily,
-      recommendedWeeklyAmount: recommendedDaily * 7,
+      recommendedWeeklyAmount: recommendedWeekly,
       daysRemaining: daysRemaining,
     );
   }

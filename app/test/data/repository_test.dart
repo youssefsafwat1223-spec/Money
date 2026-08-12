@@ -214,6 +214,7 @@ void main() {
     final total = await transactionRepository.expenseTotalBetween(
       from: now.subtract(const Duration(minutes: 1)),
       to: now.add(const Duration(minutes: 1)),
+      currency: 'SAR',
       accountId: account.id,
     );
     final recent =
@@ -223,7 +224,7 @@ void main() {
 
     // Exact ownership: an unassigned row is NOT attributed to a specific
     // account just because its currency matches.
-    expect(total, 0);
+    expect(total, Money(0, 'SAR'));
     expect(recent.map((tx) => tx.id), isNot(contains('legacy_same_currency')));
     expect(recent.map((tx) => tx.id), isNot(contains('legacy_other_currency')));
     // All-accounts scope surfaces unassigned rows (both currencies).
@@ -564,8 +565,9 @@ void main() {
     final total = await transactionRepository.expenseTotalBetween(
       from: DateTime.utc(2026, 4, 1),
       to: DateTime.utc(2026, 5, 1),
+      currency: 'SAR',
     );
-    expect(total, 30);
+    expect(total, Money(3000, 'SAR'));
   });
 
   test('pending transactions are excluded from financial totals', () async {
@@ -577,15 +579,17 @@ void main() {
     final beforeConfirm = await transactionRepository.expenseTotalBetween(
       from: DateTime.utc(2026, 4, 1),
       to: DateTime.utc(2026, 5, 1),
+      currency: 'SAR',
     );
-    expect(beforeConfirm, 0);
+    expect(beforeConfirm, Money(0, 'SAR'));
 
     await confirmTransaction(added.transaction!.id);
     final afterConfirm = await transactionRepository.expenseTotalBetween(
       from: DateTime.utc(2026, 4, 1),
       to: DateTime.utc(2026, 5, 1),
+      currency: 'SAR',
     );
-    expect(afterConfirm, 20);
+    expect(afterConfirm, Money(2000, 'SAR'));
   });
 
   test(

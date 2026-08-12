@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/backend/supabase_config.dart';
 import '../../domain/entities/category_spend.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/money.dart';
 
 class PeriodFinancialSummary {
   const PeriodFinancialSummary({
@@ -121,6 +122,7 @@ class SupabaseFinancialSummaryService {
   Future<List<CategorySpend>> categorySummary({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   }) async {
     await _requireAuth();
@@ -138,7 +140,10 @@ class SupabaseFinancialSummaryService {
           .map(
             (row) => CategorySpend(
               categoryId: row['category_id'] as String,
-              total: (row['total'] as num).toDouble(),
+              total: Money.fromLegacyReal(
+                (row['total'] as num).toDouble(),
+                currency,
+              ),
               count: (row['transaction_count'] as num).toInt(),
             ),
           )

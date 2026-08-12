@@ -225,52 +225,54 @@ void main() {
       clock: () => now,
     );
 
-    final headline = await transactions.expenseTotalBetween(from: from, to: to);
+    final headline = await transactions.expenseTotalBetween(
+        from: from, to: to, currency: 'SAR');
     final categoryTotal = (await transactions.categoryBreakdown(
       from: from,
       to: to,
+      currency: 'SAR',
     ))
-        .fold<double>(0, (sum, row) => sum + row.total);
+        .map((row) => row.total);
     final merchantTotal = (await transactions.merchantBreakdown(
       from: from,
       to: to,
+      currency: 'SAR',
       limit: 10,
     ))
-        .fold<double>(0, (sum, row) => sum + row.total);
+        .map((row) => row.total);
     final dailyTotal = (await transactions.dailyExpenseTotals(
       from: from,
       to: to,
+      currency: 'SAR',
     ))
-        .fold<double>(0, (sum, row) => sum + row.total);
+        .map((row) => row.total);
     final progress = await budgetProgress(now: now);
-    final income = await transactions.incomeTotalBetween(from: from, to: to);
+    final income = await transactions.incomeTotalBetween(
+        from: from, to: to, currency: 'SAR');
     final report = await reportBuilder.build(
       const ReportRequest(period: MonthlyPeriod()),
     );
 
-    expect(headline, 130); // 120 + 30 unassigned - 20 refund
-    expect(categoryTotal, headline);
-    expect(merchantTotal, headline);
-    expect(dailyTotal, headline);
+    expect(headline, Money(13000, 'SAR')); // 120 + 30 unassigned - 20 refund
+    expect(Money.sum(categoryTotal, 'SAR'), headline);
+    expect(Money.sum(merchantTotal, 'SAR'), headline);
+    expect(Money.sum(dailyTotal, 'SAR'), headline);
     expect(progress.entries.single.spent, headline);
-    expect(income, 500);
+    expect(income, Money(50000, 'SAR'));
     expect(report.totalExpense, headline);
     expect(report.totalIncome, income);
     expect(report.currencyTotals.single.expense, headline);
     expect(report.currencyTotals.single.income, income);
     expect(
-      report.categoryBreakdown.fold<double>(
-        0,
-        (sum, row) => sum + row.total,
-      ),
+      Money.sum(report.categoryBreakdown.map((row) => row.total), 'SAR'),
       headline,
     );
     expect(
-      report.topMerchants.fold<double>(0, (sum, row) => sum + row.total),
+      Money.sum(report.topMerchants.map((row) => row.total), 'SAR'),
       headline,
     );
     expect(
-      report.dailyExpense.fold<double>(0, (sum, row) => sum + row.total),
+      Money.sum(report.dailyExpense.map((row) => row.total), 'SAR'),
       headline,
     );
     expect(

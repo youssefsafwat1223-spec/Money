@@ -8,6 +8,7 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/budget_period.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/reporting/date_range.dart';
 import '../common/category_catalog.dart';
@@ -88,7 +89,9 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
       DateRange(from, to),
       fallbackAccountId: fallbackAccountId,
     );
-    final ratio = budget.amount == 0 ? 0.0 : spent / budget.amount;
+    final ratio = budget.amountMoney.isZero
+        ? 0.0
+        : spent.toDouble() / budget.amountMoney.toDouble();
     final health = ratio >= 1
         ? BudgetHealth.over
         : ratio >= 0.8
@@ -97,7 +100,7 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
     return BudgetProgressEntry(
       budget: budget,
       spent: spent,
-      remaining: budget.amount - spent,
+      remaining: budget.amountMoney - spent,
       ratio: ratio,
       health: health,
       periodStart: from,
@@ -269,7 +272,8 @@ List<TransactionEntity> _budgetTransactionsForPeriod(
     }
     if (budget.accountId != null) {
       if (tx.accountId != budget.accountId) return false;
-    } else if (tx.accountId != null && excludedAccountIds.contains(tx.accountId)) {
+    } else if (tx.accountId != null &&
+        excludedAccountIds.contains(tx.accountId)) {
       return false;
     }
     if (!budget.isAllExpenses && tx.categoryId != budget.categoryId) {
@@ -284,11 +288,8 @@ List<TransactionEntity> _budgetTransactionsForPeriod(
 /// Signed contribution of a budget-history row to the net total: refund
 /// subtracts, payment/withdrawal add. Kept next to [_budgetTransactionsForPeriod]
 /// so the list and its total cannot drift apart.
-/// Transitional presentation projection: the public history API still returns
-/// double and may be exercised with mixed test/account currencies.
-double budgetHistoryRowSigned(TransactionEntity tx) =>
-    (tx.type == TransactionTypeEntity.refund ? -tx.amountMoney : tx.amountMoney)
-        .toDouble();
+Money budgetHistoryRowSigned(TransactionEntity tx) =>
+    tx.type == TransactionTypeEntity.refund ? -tx.amountMoney : tx.amountMoney;
 
 class _BudgetPeriodWindow {
   const _BudgetPeriodWindow({

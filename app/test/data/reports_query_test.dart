@@ -5,6 +5,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_merchant_category_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -52,11 +53,12 @@ void main() {
     final breakdown = await txRepo.merchantBreakdown(
       from: DateTime.utc(2026, 1, 1),
       to: DateTime.utc(2026, 3, 1),
+      currency: 'SAR',
     );
 
     expect(breakdown, isNotEmpty);
     expect(breakdown.first.name, 'NETFLIX');
-    expect(breakdown.first.total, 112);
+    expect(breakdown.first.total, Money(11200, 'SAR'));
   });
 
   test('recurringCandidates يكتشف الاشتراك المتكرر عبر شهرين', () async {

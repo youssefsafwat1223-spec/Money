@@ -58,9 +58,9 @@ GoalDetailsEntity _details() => GoalDetailsEntity(
       goal: _goal,
       contributions: const [],
       progress: 0.1,
-      remainingAmount: 900,
-      recommendedDailyAmount: 30,
-      recommendedWeeklyAmount: 210,
+      remainingAmount: Money(90000, 'SAR'),
+      recommendedDailyAmount: Money(3000, 'SAR'),
+      recommendedWeeklyAmount: Money(21000, 'SAR'),
       daysRemaining: 30,
     );
 

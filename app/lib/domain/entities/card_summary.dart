@@ -1,4 +1,5 @@
 import '../../engine/parser/card_network.dart';
+import '../finance/money.dart';
 
 /// ملخّص بطاقة لعملة واحدة (MALI-074n): آخر 4 أرقام + العملة + الشبكة.
 /// [totalOut] صافي الإنفاق (payment + withdrawal − refund، الاسترداد يخصم)،
@@ -22,10 +23,10 @@ class CardSummary {
   final CardNetwork network;
 
   /// صافي الإنفاق: payment + withdrawal − refund (الاسترداد يخصم، لا يُحتسب دخلاً).
-  final double totalOut;
+  final Money totalOut;
 
   /// الدخل فقط (income) — الاسترداد لا يظهر هنا.
-  final double totalIn;
+  final Money totalIn;
   final int count;
 
   /// تصميم البطاقة اليدوية المطابقة (جدول cards) — null للبطاقات المشتقّة فقط.

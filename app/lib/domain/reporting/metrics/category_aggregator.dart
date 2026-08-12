@@ -1,4 +1,5 @@
 import '../../entities/category_spend.dart';
+import '../../finance/money.dart';
 
 /// One row of the spending-by-category section.
 class CategoryReportSlice {
@@ -14,7 +15,7 @@ class CategoryReportSlice {
   /// `null` for the aggregated "Other" remainder row.
   final String? categoryId;
   final String label;
-  final double total;
+  final Money total;
 
   /// Fraction `0..1` of the period's total expense.
   final double percent;
@@ -42,21 +43,23 @@ class CategoryAggregator {
   List<CategoryReportSlice> aggregate({
     required List<CategorySpend> breakdown,
     required String? Function(String categoryId) labelFor,
-    required double totalExpense,
+    required Money totalExpense,
     required String otherLabel,
   }) {
     final slices = <CategoryReportSlice>[];
-    var resolvedTotal = 0.0;
+    var resolvedTotal = Money.zero(totalExpense.currency);
     for (final item in breakdown) {
       final label = labelFor(item.categoryId);
       if (label == null) continue; // deleted/unknown → folds into "Other" below
-      resolvedTotal += item.total;
+      resolvedTotal = resolvedTotal + item.total;
       slices.add(
         CategoryReportSlice(
           categoryId: item.categoryId,
           label: label,
           total: item.total,
-          percent: totalExpense <= 0 ? 0.0 : item.total / totalExpense,
+          percent: totalExpense.isZero || totalExpense.isNegative
+              ? 0.0
+              : item.total.toDouble() / totalExpense.toDouble(),
           count: item.count,
         ),
       );
@@ -64,13 +67,15 @@ class CategoryAggregator {
     slices.sort((a, b) => b.total.compareTo(a.total));
 
     final remainder = totalExpense - resolvedTotal;
-    if (remainder > 0.005) {
+    if (remainder.compareTo(Money.zero(totalExpense.currency)) > 0) {
       slices.add(
         CategoryReportSlice(
           categoryId: null,
           label: otherLabel,
           total: remainder,
-          percent: totalExpense <= 0 ? 0.0 : remainder / totalExpense,
+          percent: totalExpense.isZero || totalExpense.isNegative
+              ? 0.0
+              : remainder.toDouble() / totalExpense.toDouble(),
           count: 0,
           isOther: true,
         ),

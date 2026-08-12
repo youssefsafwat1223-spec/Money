@@ -1,4 +1,5 @@
 import '../../entities/report_models.dart';
+import '../../finance/money.dart';
 import '../report_metrics.dart';
 
 /// Computes headline cash-flow metrics. Pure — operates on already-collected
@@ -8,12 +9,13 @@ class ReportMetricsCalculator {
 
   /// income / expense / net / savings-rate for one currency.
   CashFlowMetrics computeCashFlow({
-    required double income,
-    required double expense,
+    required Money income,
+    required Money expense,
   }) {
     final net = income - expense;
-    final savingsRate =
-        income <= 0 ? null : ((income - expense) / income).clamp(0.0, 1.0).toDouble();
+    final savingsRate = income.isZero || income.isNegative
+        ? null
+        : (net.toDouble() / income.toDouble()).clamp(0.0, 1.0).toDouble();
     return CashFlowMetrics(
       income: income,
       expense: expense,

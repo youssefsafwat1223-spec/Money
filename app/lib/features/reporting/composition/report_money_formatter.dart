@@ -2,6 +2,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/utils/currency.dart';
 import '../../../domain/finance/money_format.dart';
+import '../../../domain/finance/money.dart';
 
 /// Report-scoped money & percentage formatting.
 ///
@@ -39,11 +40,24 @@ class ReportMoneyFormatter {
       ? _mask
       : '${_number(amount.abs(), _decimals(code))} ${_token(code)}';
 
+  /// Exact-money leaf formatter. Decimal text is derived directly from minor
+  /// units; no binary floating-point value participates in financial math.
+  String moneyExact(Money amount) => masked
+      ? _mask
+      : '${_number(amount.toDouble().abs(), _decimals(amount.currency))} '
+          '${_token(amount.currency)}';
+
   /// Signed with U+2212 for negative/expense values, `+` otherwise.
   String signedMoney(double amount, String code, {bool? isExpense}) {
     if (masked) return _mask;
     final negative = isExpense ?? (amount < 0);
     return '${negative ? '−' : '+'}${money(amount, code)}';
+  }
+
+  String signedMoneyExact(Money amount, {bool? isExpense}) {
+    if (masked) return _mask;
+    final negative = isExpense ?? amount.isNegative;
+    return '${negative ? '−' : '+'}${moneyExact(amount)}';
   }
 
   /// Whole-percent from a `0..1` fraction, e.g. `30%`.

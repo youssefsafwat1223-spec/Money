@@ -12,6 +12,7 @@ import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/finance/money_format.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/card_entity.dart';
 import '../../domain/entities/card_summary.dart';
@@ -30,12 +31,12 @@ import '../../core/theme/widgets/app_toast.dart';
 String _cardKey(String? accountId, String last4) => '${accountId ?? ''}|$last4';
 
 /// ملخّص بلا عمليات لبطاقة يدوية أُضيفت للتوّ (لا تظهر بعد في التجميع المشتقّ).
-CardSummary _zeroSummary(CardEntity card) => CardSummary(
+CardSummary _zeroSummary(CardEntity card, String currency) => CardSummary(
       last4: card.last4,
-      currency: '', // a managed card with no transactions has no currency yet
+      currency: currency,
       network: card.network,
-      totalOut: 0,
-      totalIn: 0,
+      totalOut: Money.zero(currency),
+      totalIn: Money.zero(currency),
       count: 0,
       colorTheme: card.colorTheme,
       accentHex: card.accentHex,
@@ -58,6 +59,8 @@ class MyCardsScreen extends ConsumerWidget {
     final accounts = ref.watch(accountsProvider).valueOrNull ?? const [];
     final allCards =
         ref.watch(allCardsProvider).valueOrNull ?? const <CardEntity>[];
+    final displayCurrency =
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
     final accountName = {for (final a in accounts) a.id: a.name};
     // بطاقة مُدارة مطابقة لكل صفّ — لتفعيل التعديل (الملخّص وحده بلا id).
     final entityByKey = {
@@ -80,7 +83,7 @@ class MyCardsScreen extends ConsumerWidget {
         final extras = [
           for (final card in allCards)
             if (card.accountId == account.id && !shown.contains(card.last4))
-              _zeroSummary(card),
+              _zeroSummary(card, account.currency),
         ];
         final combined = [...summaries, ...extras];
         if (combined.isEmpty) continue;
@@ -115,7 +118,7 @@ class MyCardsScreen extends ConsumerWidget {
       final unassignedExtras = [
         for (final card in allCards)
           if (card.accountId == null && !shownUnassigned.contains(card.last4))
-            _zeroSummary(card),
+            _zeroSummary(card, displayCurrency),
       ];
       final unassigned = [...unassignedBase, ...unassignedExtras];
       if (unassigned.isNotEmpty) {
@@ -361,13 +364,11 @@ class _CardRow extends ConsumerWidget {
     );
   }
 
-  Widget _flow(String label, double value, Color color) {
+  Widget _flow(String label, Money value, Color color) {
     // MALI-074n: exponent-correct amount + the card's own currency label
-    // (totals are per-currency; a zero-summary managed card has no currency).
-    final money = formatMoneyAmount(value, card.currency);
-    final text = card.currency.isEmpty
-        ? money
-        : '$money ${Currency.arabicLabel(card.currency)}';
+    // (totals are per-currency; zero summaries use their display authority).
+    final money = formatMoneyAmount(value.toDouble(), value.currency);
+    final text = '$money ${Currency.arabicLabel(value.currency)}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

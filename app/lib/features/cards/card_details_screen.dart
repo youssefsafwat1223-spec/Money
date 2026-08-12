@@ -7,6 +7,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/finance/money_format.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/entities/card_summary.dart';
 import '../common/app_header.dart';
 import '../common/category_catalog.dart';
@@ -46,12 +47,18 @@ class _CardDetailsContent extends ConsumerWidget {
     final summaries = ref.watch(cardSummariesProvider).valueOrNull;
     final txAsync = ref.watch(cardTransactionsProvider(last4));
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
+    final displayCurrency =
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
 
-    final summary =
-        summaries?.where((s) => s.last4 == last4).fold<CardSummary?>(
-              null,
-              (prev, s) => s,
-            );
+    final matchingSummaries = summaries
+            ?.where((summary) => summary.last4 == last4)
+            .toList(growable: false) ??
+        const <CardSummary>[];
+    final displayCurrencySummary = matchingSummaries
+        .where((summary) =>
+            summary.currency.toUpperCase() == displayCurrency.toUpperCase())
+        .firstOrNull;
+    final summary = displayCurrencySummary ?? matchingSummaries.firstOrNull;
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
@@ -59,15 +66,15 @@ class _CardDetailsContent extends ConsumerWidget {
         _CardHeader(
           last4: last4,
           network: summary?.network ?? CardNetwork.unknown,
-          totalIn: summary?.totalIn ?? 0,
-          totalOut: summary?.totalOut ?? 0,
+          totalIn: summary?.totalIn ?? Money.zero(displayCurrency),
+          totalOut: summary?.totalOut ?? Money.zero(displayCurrency),
           colorTheme: summary?.colorTheme,
           accentHex: summary?.accentHex,
           // MALI-074n: the summary's own currency (the totals are per-currency),
           // not a guess from the first transaction row.
           currency: (summary?.currency.isNotEmpty ?? false)
               ? summary!.currency
-              : (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR'),
+              : displayCurrency,
         ),
         const SizedBox(height: AppSpacing.s4),
         Text('عمليات هذه البطاقة',
@@ -114,8 +121,8 @@ class _CardHeader extends StatelessWidget {
 
   final String last4;
   final CardNetwork network;
-  final double totalIn;
-  final double totalOut;
+  final Money totalIn;
+  final Money totalOut;
   final String currency;
   final String? colorTheme;
   final String? accentHex;
@@ -168,7 +175,7 @@ class _CardHeader extends StatelessWidget {
     );
   }
 
-  Widget _flow(String label, double value, Color color) {
+  Widget _flow(String label, Money value, Color color) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -179,7 +186,7 @@ class _CardHeader extends StatelessWidget {
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 2),
         Text(
-            '${formatMoneyAmount(value, currency)} '
+            '${formatMoneyAmount(value.toDouble(), currency)} '
             '${Currency.arabicLabel(currency)}',
             style: TextStyle(
                 color: color, fontSize: 17, fontWeight: FontWeight.w700)),

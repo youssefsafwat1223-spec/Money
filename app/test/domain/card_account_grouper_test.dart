@@ -1,12 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/services/card_account_grouper.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 CardAccountBreakdownRow _row(
   String last4,
   String? accountId, {
   int count = 1,
-  double out = 100,
-  double income = 0,
+  int outMinor = 10000,
+  int incomeMinor = 0,
   String sample = 'card 1234 visa',
   String currency = 'SAR',
 }) =>
@@ -14,8 +15,8 @@ CardAccountBreakdownRow _row(
       last4: last4,
       currency: currency,
       accountId: accountId,
-      totalIn: income,
-      totalOut: out,
+      totalIn: Money(incomeMinor, currency),
+      totalOut: Money(outMinor, currency),
       count: count,
       sample: sample,
     );
@@ -55,12 +56,12 @@ void main() {
 
   test('summary aggregates in/out/count across rows of the same card', () {
     final result = grouper.group([
-      _row('1111', 'acc-a', count: 2, out: 30, income: 0),
-      _row('1111', 'acc-a', count: 1, out: 0, income: 50),
+      _row('1111', 'acc-a', count: 2, outMinor: 3000),
+      _row('1111', 'acc-a', count: 1, outMinor: 0, incomeMinor: 5000),
     ]);
     final card = result.byAccount['acc-a']!.single;
-    expect(card.totalOut, 30);
-    expect(card.totalIn, 50);
+    expect(card.totalOut, Money(3000, 'SAR'));
+    expect(card.totalIn, Money(5000, 'SAR'));
     expect(card.count, 3);
   });
 

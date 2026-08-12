@@ -64,12 +64,11 @@ class TransactionsScreen extends ConsumerWidget {
     // MALI-047n: canonical period expense over the full dataset (not a fold of
     // loaded pages), single-currency for the active-account scope.
     final periodTotal = ref.watch(transactionsPeriodTotalProvider).valueOrNull;
-    final periodExpense = periodTotal?.netExpense ?? 0;
-    final txHeaderCurrencyLabel = Currency.arabicLabel(
-        (periodTotal?.currency ??
-                ref.watch(baseCurrencyProvider).valueOrNull ??
-                'SAR')
-            .toUpperCase());
+    final periodExpense = periodTotal?.netExpense.toDouble() ?? 0.0;
+    final txHeaderCurrencyLabel = Currency.arabicLabel((periodTotal?.currency ??
+            ref.watch(baseCurrencyProvider).valueOrNull ??
+            'SAR')
+        .toUpperCase());
     final logos = ref.watch(merchantLogosProvider).valueOrNull ??
         const <String, String>{};
 
@@ -132,8 +131,9 @@ class TransactionsScreen extends ConsumerWidget {
                             subsCount: subs.length,
                             instsCount: insts.length,
                             monthlyTotal: monthlyTotal,
-                            currencyLabel:
-                                tab == 0 ? txHeaderCurrencyLabel : currencyLabel,
+                            currencyLabel: tab == 0
+                                ? txHeaderCurrencyLabel
+                                : currencyLabel,
                             onAdd: () {
                               if (tab == 0) {
                                 showCaptureEntrySheet(context);
@@ -1622,7 +1622,6 @@ class _DateHeader extends StatelessWidget {
     );
   }
 }
-
 
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   _TabBarDelegate({required this.child});

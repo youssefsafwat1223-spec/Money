@@ -144,7 +144,7 @@ class _PlanCard extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${Formatters.amount(progress.spent)} $currency',
+                '${Formatters.amount(progress.spent.toDouble())} $currency',
                 style: AppTypography.bodyStrong(c.textMain)
                     .copyWith(fontWeight: FontWeight.w700),
               ),
@@ -169,15 +169,15 @@ class _PlanCard extends ConsumerWidget {
               Expanded(
                 child: Text(
                   progress.isOver
-                      ? 'تجاوزت الميزانية بـ ${Formatters.amount(-progress.remaining)} $currency'
-                      : 'باقي ${Formatters.amount(progress.remaining)} $currency',
+                      ? 'تجاوزت الميزانية بـ ${Formatters.amount((-progress.remaining).toDouble())} $currency'
+                      : 'باقي ${Formatters.amount(progress.remaining.toDouble())} $currency',
                   style: AppTypography.caption(
                       progress.isOver ? c.danger : c.textSecondary),
                 ),
               ),
               if (plan.daysLeft > 0 && !progress.isOver)
                 Text(
-                  '${Formatters.amount(progress.perDayLeft)} $currency/يوم · ${plan.daysLeft} يوم',
+                  '${Formatters.amount(progress.perDayLeft.toDouble())} $currency/يوم · ${plan.daysLeft} يوم',
                   style: AppTypography.caption(c.textLight),
                 ),
             ],
@@ -309,7 +309,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${Formatters.amount(progress.spent)} $currency',
+                      '${Formatters.amount(progress.spent.toDouble())} $currency',
                       style: AppTypography.title1(c.textMain)
                           .copyWith(fontWeight: FontWeight.w700),
                     ),

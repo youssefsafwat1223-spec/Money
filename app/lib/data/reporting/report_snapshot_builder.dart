@@ -1,6 +1,7 @@
 import '../../domain/entities/category_spend.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/reporting/date_range.dart';
 import '../../domain/reporting/metrics/report_period_resolver.dart';
 import '../../domain/reporting/report_data_snapshot.dart';
@@ -75,13 +76,19 @@ class ReportSnapshotBuilder {
     final baseCurrency = await _baseCurrencyFor(request, accountsInScope);
     final currencyTotals = await _currencyTotalsFor(request, range);
     final previousCurrencyTotals = await _currencyTotalsFor(request, previous);
+    final reportCurrency = _primaryCurrency(currencyTotals, baseCurrency);
 
-    final totalExpense = await _transactions.expenseTotalBetween(
-        from: fromU, to: toU, accountId: accountId);
-    final totalIncome = await _transactions.incomeTotalBetween(
-        from: fromU, to: toU, accountId: accountId);
+    final currentTotal = currencyTotals
+        .where((total) => total.currency == reportCurrency)
+        .firstOrNull;
+    final totalExpense = currentTotal?.expense ?? Money.zero(reportCurrency);
+    final totalIncome = currentTotal?.income ?? Money.zero(reportCurrency);
     final categoryBreakdown = await _transactions.categoryBreakdown(
-        from: fromU, to: toU, accountId: accountId);
+      from: fromU,
+      to: toU,
+      currency: reportCurrency,
+      accountId: accountId,
+    );
     // MALI-063n: a per-currency breakdown so the donut/slices never mix
     // currencies. One query per currency actually present in the period.
     final categoryBreakdownByCurrency = <String, List<CategorySpend>>{};
@@ -97,11 +104,22 @@ class ReportSnapshotBuilder {
     }
     final categoryMeta = await _categoryMeta();
     final dailyExpense = await _transactions.dailyExpenseTotals(
-        from: fromU, to: toU, accountId: accountId);
+      from: fromU,
+      to: toU,
+      currency: reportCurrency,
+      accountId: accountId,
+    );
     final topMerchants = await _transactions.merchantBreakdown(
-        from: fromU, to: toU, limit: _merchantLimit, accountId: accountId);
-    final latestBalance =
+      from: fromU,
+      to: toU,
+      currency: reportCurrency,
+      limit: _merchantLimit,
+      accountId: accountId,
+    );
+    final rawLatestBalance =
         await _transactions.latestBalanceAfter(accountId: accountId);
+    final latestBalance =
+        rawLatestBalance?.currency == reportCurrency ? rawLatestBalance : null;
     final largest = await _largestTransactions(range, accountId);
     final budgets = await _budgetsFor(now);
     final bills = await _billsFor();
@@ -150,6 +168,20 @@ class ReportSnapshotBuilder {
     }
     final defaultAccount = await _accounts.getDefault();
     return defaultAccount?.currency;
+  }
+
+  String _primaryCurrency(
+    List<CurrencyTotal> totals,
+    String? baseCurrency,
+  ) {
+    final base = baseCurrency?.trim().toUpperCase();
+    if (base != null &&
+        base.isNotEmpty &&
+        totals.any((total) => total.currency == base)) {
+      return base;
+    }
+    if (totals.isNotEmpty) return totals.first.currency;
+    return base != null && base.isNotEmpty ? base : 'SAR';
   }
 
   /// All confirmed in-period transactions for the appendix, newest first.
@@ -205,7 +237,7 @@ class ReportSnapshotBuilder {
         ReportBudgetLite(
           categoryId: e.budget.categoryId,
           spent: e.spent,
-          limit: e.budget.amount,
+          limit: e.budget.amountMoney,
           ratio: e.ratio,
           health: e.health.name,
         ),
@@ -239,11 +271,14 @@ class ReportSnapshotBuilder {
       for (final g in all)
         ReportGoalLite(
           name: g.name,
-          saved: g.savedAmount,
-          target: g.targetAmount,
-          progress: g.targetAmount <= 0
+          saved: g.savedMoney,
+          target: g.targetMoney,
+          currency: g.currency,
+          progress: g.targetMoney.isZero
               ? 0.0
-              : (g.savedAmount / g.targetAmount).clamp(0.0, 1.0).toDouble(),
+              : (g.savedMoney.toDouble() / g.targetMoney.toDouble())
+                  .clamp(0.0, 1.0)
+                  .toDouble(),
           deadline: g.deadline,
         ),
     ];
@@ -282,13 +317,22 @@ class ReportSnapshotBuilder {
     final scope = request.scope;
     if (scope is SingleAccountScope) {
       final account = await _accounts.getById(scope.accountId);
+      if (account == null || account.currency.trim().isEmpty) {
+        return const <CurrencyTotal>[];
+      }
       final expense = await _transactions.expenseTotalBetween(
-          from: fromU, to: toU, accountId: scope.accountId);
+          from: fromU,
+          to: toU,
+          currency: account.currency,
+          accountId: scope.accountId);
       final income = await _transactions.incomeTotalBetween(
-          from: fromU, to: toU, accountId: scope.accountId);
+          from: fromU,
+          to: toU,
+          currency: account.currency,
+          accountId: scope.accountId);
       return <CurrencyTotal>[
         CurrencyTotal(
-          currency: account?.currency ?? '',
+          currency: account.currency,
           expense: expense,
           income: income,
         ),

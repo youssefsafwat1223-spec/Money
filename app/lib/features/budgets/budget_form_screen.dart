@@ -156,7 +156,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   bool _didSeedInitialState = false;
   bool _suggestionLoading = false;
   bool _saving = false;
-  double? _suggestedAmount;
+  Money? _suggestedAmount;
   String? _suggestionKey;
 
   @override
@@ -339,7 +339,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                           ? null
                           : () => setState(() {
                                 _amountController.text =
-                                    _suggestedAmount!.toStringAsFixed(0);
+                                    _suggestedAmount!.toDecimalString();
                               }),
                     ),
                   ],
@@ -529,8 +529,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     if (categoryId == null || widget.budgetId != null) return;
     final accounts =
         ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
-    final accountId = _selectedAccount(accounts)?.id;
-    final key = '$categoryId:${_period.name}:$accountId';
+    final selectedAccount = _selectedAccount(accounts);
+    final accountId = selectedAccount?.id;
+    final currency = selectedAccount?.currency ??
+        (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final key =
+        '$categoryId:${_period.name}:$accountId:${currency.toUpperCase()}';
     if (_suggestionKey == key && _suggestedAmount != null) return;
     setState(() {
       _suggestionKey = key;
@@ -545,31 +549,52 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
         ? await txRepo.expenseTotalBetween(
             from: from,
             to: now,
+            currency: currency,
             accountId: accountId,
           )
         : await txRepo.categoryExpenseTotalBetween(
             categoryId: categoryId,
             from: from,
             to: now,
+            currency: currency,
+            accountId: accountId,
           );
     if (!mounted || _suggestionKey != key) return;
-    final dailyAverage = total / 30;
     final amount = switch (_period) {
-      BudgetPeriod.daily => dailyAverage,
-      BudgetPeriod.weekly => dailyAverage * 7,
-      BudgetPeriod.monthly => dailyAverage * 30,
-      BudgetPeriod.yearly => dailyAverage * 365,
+      BudgetPeriod.daily => total.applyRate(
+          rateNumerator: BigInt.one,
+          rateDenominator: BigInt.from(30),
+        ),
+      BudgetPeriod.weekly => total.applyRate(
+          rateNumerator: BigInt.from(7),
+          rateDenominator: BigInt.from(30),
+        ),
+      BudgetPeriod.monthly => total,
+      BudgetPeriod.yearly => total.applyRate(
+          rateNumerator: BigInt.from(365),
+          rateDenominator: BigInt.from(30),
+        ),
     };
+    final zero = Money.zero(currency);
     setState(() {
       _suggestionLoading = false;
-      _suggestedAmount = amount <= 0 ? null : _roundBudgetSuggestion(amount);
+      _suggestedAmount =
+          amount.compareTo(zero) <= 0 ? null : _roundBudgetSuggestion(amount);
     });
   }
 
-  double _roundBudgetSuggestion(double amount) {
-    if (amount < 50) return amount.ceilToDouble();
-    if (amount < 500) return (amount / 10).ceil() * 10.0;
-    return (amount / 50).ceil() * 50.0;
+  Money _roundBudgetSuggestion(Money amount) {
+    final stepMajor = amount.compareTo(Money.parse('50', amount.currency)) < 0
+        ? 1
+        : amount.compareTo(Money.parse('500', amount.currency)) < 0
+            ? 10
+            : 50;
+    final scaleFactor =
+        switch (amount.scale) { 0 => 1, 2 => 100, 3 => 1000, _ => 1 };
+    final stepMinor = stepMajor * scaleFactor;
+    final roundedMinor =
+        ((amount.minorUnits + stepMinor - 1) ~/ stepMinor) * stepMinor;
+    return Money(roundedMinor, amount.currency);
   }
 }
 
@@ -582,7 +607,7 @@ class _BudgetSuggestionCard extends StatelessWidget {
   });
 
   final bool loading;
-  final double? amount;
+  final Money? amount;
   final BudgetPeriod period;
   final VoidCallback? onApply;
 
@@ -595,7 +620,7 @@ class _BudgetSuggestionCard extends StatelessWidget {
       BudgetPeriod.monthly => 'شهرية',
       BudgetPeriod.yearly => 'سنوية',
     };
-    final value = amount?.toStringAsFixed(0);
+    final value = amount?.toDecimalString();
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(

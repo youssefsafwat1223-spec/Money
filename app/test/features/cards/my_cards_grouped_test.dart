@@ -9,6 +9,7 @@ import 'package:money_companion/domain/services/card_account_grouper.dart';
 import 'package:money_companion/engine/parser/card_network.dart';
 import 'package:money_companion/features/cards/cards_providers.dart';
 import 'package:money_companion/features/cards/my_cards_screen.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 AccountEntity _account(String id, String name) => AccountEntity(
       id: id,
@@ -25,8 +26,8 @@ CardSummary _card(String last4) => CardSummary(
       last4: last4,
       currency: 'SAR',
       network: CardNetwork.visa,
-      totalOut: 100,
-      totalIn: 0,
+      totalOut: Money(10000, 'SAR'),
+      totalIn: Money(0, 'SAR'),
       count: 1,
     );
 

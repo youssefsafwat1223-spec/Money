@@ -1,4 +1,5 @@
 import '../report_metrics.dart';
+import '../../finance/money.dart';
 
 /// Computes previous-period comparisons. Pure.
 class ComparisonCalculator {
@@ -6,12 +7,16 @@ class ComparisonCalculator {
 
   /// Absolute and percentage change from [previous] to [current]. Percentage is
   /// `null` when `previous == 0` (undefined), matching `ReportSection.deltaPercent`.
-  MetricDelta delta(double current, double previous) => MetricDelta(
-        current: current,
-        previous: previous,
-        absolute: current - previous,
-        percent: previous == 0 ? null : (current - previous) / previous,
-      );
+  MetricDelta delta(Money current, Money previous) {
+    final absolute = current - previous;
+    return MetricDelta(
+      current: current,
+      previous: previous,
+      absolute: absolute,
+      percent:
+          previous.isZero ? null : absolute.toDouble() / previous.toDouble(),
+    );
+  }
 
   /// Full comparison for the headline metrics. Savings rate is compared in
   /// percentage points and is `null` if either side is undefined.

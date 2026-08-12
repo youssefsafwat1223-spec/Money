@@ -178,15 +178,15 @@ class _GoalDetailsContent extends ConsumerWidget {
             Center(
               child: Text(
                 data.daysRemaining == null
-                    ? 'باقي ${Formatters.integer(data.remainingAmount)} $cur'
-                    : 'باقي ${Formatters.integer(data.remainingAmount)} · ${data.daysRemaining} يوم',
+                    ? 'باقي ${Formatters.integer(data.remainingAmount.toDouble())} $cur'
+                    : 'باقي ${Formatters.integer(data.remainingAmount.toDouble())} · ${data.daysRemaining} يوم',
                 style: AppTypography.callout(c.textLight),
               ),
             ),
             const SizedBox(height: AppSpacing.s2),
             Center(
               child: Text(
-                'موصى: ${Formatters.integer(data.recommendedDailyAmount)} $cur يوميًا',
+                'موصى: ${Formatters.integer(data.recommendedDailyAmount.toDouble())} $cur يوميًا',
                 style: AppTypography.bodyStrong(c.primary),
               ),
             ),

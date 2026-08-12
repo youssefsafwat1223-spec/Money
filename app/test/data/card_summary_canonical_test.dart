@@ -6,6 +6,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -70,8 +71,8 @@ void main() {
 
     final summary = (await txRepo.getCardSummaries()).single;
     expect(summary.currency, 'SAR');
-    expect(summary.totalOut, 440); // 500 + 40 − 100 refund
-    expect(summary.totalIn, 300); // income only (refund NOT counted as income)
+    expect(summary.totalOut, Money(44000, 'SAR'));
+    expect(summary.totalIn, Money(30000, 'SAR'));
   });
 
   test('a card used in two currencies yields two per-currency summaries',
@@ -82,8 +83,8 @@ void main() {
     final summaries = await txRepo.getCardSummaries();
     final byCur = {for (final s in summaries) s.currency: s};
     expect(byCur.keys.toSet(), {'SAR', 'USD'});
-    expect(byCur['SAR']!.totalOut, 100); // never 300 cross-currency
-    expect(byCur['USD']!.totalOut, 200);
+    expect(byCur['SAR']!.totalOut, Money(10000, 'SAR'));
+    expect(byCur['USD']!.totalOut, Money(20000, 'USD'));
   });
 
   test('pending / ignored never count toward card totals', () async {
@@ -91,7 +92,7 @@ void main() {
     await tx(id: 'pending', amount: 50, type: 'payment', status: 'pending');
     await tx(id: 'ignored', amount: 70, type: 'payment', status: 'ignored');
     final summary = (await txRepo.getCardSummaries()).single;
-    expect(summary.totalOut, 100);
+    expect(summary.totalOut, Money(10000, 'SAR'));
   });
 
   test('501 rows aggregate set-based (pagination cannot change the total)',
@@ -100,6 +101,6 @@ void main() {
       await tx(id: 'p$i', amount: 1, type: 'payment');
     }
     final summary = (await txRepo.getCardSummaries()).single;
-    expect(summary.totalOut, 501);
+    expect(summary.totalOut, Money(50100, 'SAR'));
   });
 }

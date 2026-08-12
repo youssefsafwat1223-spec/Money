@@ -1,6 +1,7 @@
 import 'budget_entity.dart';
 import 'goal_entity.dart';
 import 'supporting_entities.dart';
+import '../finance/money.dart';
 
 enum BudgetHealth { safe, warning, over }
 
@@ -16,8 +17,8 @@ class BudgetProgressEntry {
   });
 
   final BudgetEntity budget;
-  final double spent;
-  final double remaining;
+  final Money spent;
+  final Money remaining;
   final double ratio;
   final BudgetHealth health;
   final DateTime periodStart;
@@ -46,9 +47,9 @@ class GoalDetailsEntity {
   final GoalEntity goal;
   final List<GoalContributionEntity> contributions;
   final double progress;
-  final double remainingAmount;
-  final double recommendedDailyAmount;
-  final double recommendedWeeklyAmount;
+  final Money remainingAmount;
+  final Money recommendedDailyAmount;
+  final Money recommendedWeeklyAmount;
   final int? daysRemaining;
 }
 
@@ -231,8 +232,7 @@ class NotificationPreferences {
       weeklyReport: json['weeklyReport'] as bool? ?? true,
       subscriptionReminder: json['subscriptionReminder'] as bool? ?? true,
       goalMilestone: json['goalMilestone'] as bool? ?? true,
-      hideLockScreenContent:
-          json['hideLockScreenContent'] as bool? ?? false,
+      hideLockScreenContent: json['hideLockScreenContent'] as bool? ?? false,
       quietHoursEnabled: json['quietHoursEnabled'] as bool? ?? false,
       quietHoursStartHour: json['quietHoursStartHour'] as int? ?? 23,
       quietHoursEndHour: json['quietHoursEndHour'] as int? ?? 8,

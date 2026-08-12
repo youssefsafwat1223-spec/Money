@@ -259,12 +259,14 @@ void main() {
       await budgetRepo.save(BudgetEntity(
         id: 'budget-food',
         categoryId: food.id,
-        currency: 'SAR',
-        amountMoney: Money.parse('100', 'SAR'),
+        // §16: the budget must match the spending currency (EGP) — a SAR budget
+        // no longer (incorrectly) matches EGP spend under currency-aware matching.
+        currency: 'EGP',
+        amountMoney: Money.parse('100', 'EGP'),
         period: BudgetPeriod.monthly,
         startDate: DateTime(now.year, now.month, 1),
         isActive: true,
-        lastNotifiedSpentMoney: Money(0, 'SAR'),
+        lastNotifiedSpentMoney: Money(0, 'EGP'),
         lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       ));
 
@@ -274,12 +276,12 @@ void main() {
       // Highest spend first — matches the existing "topCategories" ranking
       // convention used elsewhere in the app (Reports, dashboard donut).
       expect(groups[0].categoryId, food.id);
-      expect(groups[0].total, 65);
+      expect(groups[0].total, Money.parse('65', 'EGP'));
       expect(groups[1].categoryId, transport.id);
-      expect(groups[1].total, 30);
+      expect(groups[1].total, Money.parse('30', 'EGP'));
       // Food has a matching monthly budget (100) — 65 spent, 35 remaining.
       expect(groups[0].budget, isNotNull);
-      expect(groups[0].budget!.remaining, 35);
+      expect(groups[0].budget!.remaining, Money.parse('35', 'EGP'));
       // Transport has no budget.
       expect(groups[1].budget, isNull);
     });

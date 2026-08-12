@@ -11,6 +11,7 @@ import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/finance/financial_period.dart';
+import '../../domain/finance/money.dart';
 import '../budgets/budgets_providers.dart';
 import '../goals/goals_providers.dart';
 import '../plans/plans_providers.dart';
@@ -23,15 +24,21 @@ import '../subscriptions/subscriptions_providers.dart';
 BudgetProgressEntry? matchBudgetForCategory(
   BudgetProgressSnapshot snapshot,
   String? categoryId,
+  String currency,
 ) {
   if (categoryId == null) return null;
   for (final entry in snapshot.entries) {
-    if (!entry.budget.isAllExpenses && entry.budget.categoryId == categoryId) {
+    if (entry.budget.currency.toUpperCase() == currency.toUpperCase() &&
+        !entry.budget.isAllExpenses &&
+        entry.budget.categoryId == categoryId) {
       return entry;
     }
   }
   for (final entry in snapshot.entries) {
-    if (entry.budget.isAllExpenses) return entry;
+    if (entry.budget.currency.toUpperCase() == currency.toUpperCase() &&
+        entry.budget.isAllExpenses) {
+      return entry;
+    }
   }
   return null;
 }
@@ -41,14 +48,14 @@ BudgetProgressEntry? matchBudgetForCategory(
 String budgetContextText(
   BudgetProgressEntry? budget, {
   required String? categoryName,
-  required String currency,
   bool pending = false,
 }) {
   if (pending) return 'عملية بانتظار التصنيف أو التأكيد';
   if (budget == null) return 'لا توجد ميزانية محددة لهذه الفئة';
   final name = categoryName ?? 'هذه الفئة';
-  if (budget.remaining < 0) {
-    return 'تجاوزت ميزانية $name بـ ${_plainMoney(budget.remaining.abs(), currency)}';
+  final currency = budget.budget.currency;
+  if (budget.remaining.isNegative) {
+    return 'تجاوزت ميزانية $name بـ ${_plainMoney(-budget.remaining, currency)}';
   }
   if (budget.ratio >= 0.5) {
     return 'استخدمت ${(budget.ratio * 100).round()}% من ميزانية $name';
@@ -56,11 +63,11 @@ String budgetContextText(
   return 'متبقي ${_plainMoney(budget.remaining, currency)} من ميزانية $name';
 }
 
-String _plainMoney(double amount, String currency) {
+String _plainMoney(Money amount, String currency) {
   final suffix = currency.trim().isEmpty
       ? ''
       : ' ${Currency.arabicLabel(currency.toUpperCase())}';
-  return '${Formatters.amount(amount)}$suffix';
+  return '${Formatters.amount(amount.toDouble())}$suffix';
 }
 
 class RecentExpensesState {
@@ -135,7 +142,7 @@ class MonthlyCategoryGroup {
   });
 
   final String? categoryId;
-  final double total;
+  final Money total;
   final int count;
   final BudgetProgressEntry? budget;
 }
@@ -163,7 +170,10 @@ final monthlyExpenseGroupsProvider =
       ? null
       : await accountRepo.getById(selectedAccountId);
   final defaultAccount = await accountRepo.getDefault();
-  final accountId = (selectedAccount ?? defaultAccount)?.id;
+  final activeAccount = selectedAccount ?? defaultAccount;
+  final accountId = activeAccount?.id;
+  final String currency =
+      activeAccount?.currency ?? (await ref.watch(baseCurrencyProvider.future));
 
   // Canonical half-open month [startOfMonth, startOfNextMonth) — one definition
   // shared across the app (MALI-028/062n), Saturday-week irrelevant here.
@@ -172,6 +182,7 @@ final monthlyExpenseGroupsProvider =
   final breakdown = await txRepo.categoryBreakdown(
     from: period.from,
     to: period.to,
+    currency: currency,
     accountId: accountId,
   );
 
@@ -184,7 +195,11 @@ final monthlyExpenseGroupsProvider =
           categoryId: row.categoryId,
           total: row.total,
           count: row.count,
-          budget: matchBudgetForCategory(budgetsView.snapshot, row.categoryId),
+          budget: matchBudgetForCategory(
+            budgetsView.snapshot,
+            row.categoryId,
+            currency,
+          ),
         ),
       )
       .toList();
@@ -211,10 +226,15 @@ final homeSubscriptionsProvider = FutureProvider<List<BillEntity>>((ref) async {
 /// as a literal sort key — deadline urgency and completion% already cover
 /// the same "what needs attention" intent.
 final homeGoalsProvider = FutureProvider<List<GoalEntity>>((ref) async {
-  final goals = List.of(await ref.watch(goalsListProvider.future));
-  double ratio(GoalEntity g) => g.targetAmount <= 0
+  // MALI-026 (B8-3 §16): this is a LIST of goals (each card shows its own
+  // currency), NOT a folded total — so it is NOT scoped to one currency; every
+  // active goal is shown regardless of currency (no cross-currency math occurs).
+  final goals = (await ref.watch(goalsListProvider.future)).toList();
+  double ratio(GoalEntity g) => g.targetMoney.isZero
       ? 0
-      : (g.savedAmount / g.targetAmount).clamp(0, 1).toDouble();
+      : (g.savedMoney.toDouble() / g.targetMoney.toDouble())
+          .clamp(0, 1)
+          .toDouble();
   goals.sort((a, b) {
     final aDeadline = a.deadline;
     final bDeadline = b.deadline;

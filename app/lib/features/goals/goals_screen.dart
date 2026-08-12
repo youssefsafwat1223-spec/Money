@@ -11,6 +11,7 @@ import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/goal_entity.dart';
+import '../../domain/finance/money.dart';
 import '../common/planning_repair_gate.dart';
 import '../common/premium_loading.dart';
 import 'goal_details_screen.dart';
@@ -26,8 +27,9 @@ class GoalsScreen extends ConsumerWidget {
 
   Widget _buildScreen(BuildContext context, WidgetRef ref) {
     final async = ref.watch(goalsListProvider);
-    final currencyLabel = Currency.arabicLabel(
-        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final displayCurrency =
+        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
+    final currencyLabel = Currency.arabicLabel(displayCurrency);
 
     return Scaffold(
       backgroundColor: context.colors.bg,
@@ -36,11 +38,15 @@ class GoalsScreen extends ConsumerWidget {
         loading: () => const FirstLoadPlaceholder(cardCount: 4),
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (goals) {
-          final saved =
-              goals.fold<double>(0, (sum, goal) => sum + goal.savedAmount);
-          final target =
-              goals.fold<double>(0, (sum, goal) => sum + goal.targetAmount);
-          if (goals.isEmpty) {
+          final visibleGoals = goals
+              .where((goal) =>
+                  goal.currency.toUpperCase() == displayCurrency.toUpperCase())
+              .toList(growable: false);
+          final saved = Money.sum(
+              visibleGoals.map((goal) => goal.savedMoney), displayCurrency);
+          final target = Money.sum(
+              visibleGoals.map((goal) => goal.targetMoney), displayCurrency);
+          if (visibleGoals.isEmpty) {
             return ListView(
               padding: EdgeInsets.zero,
               children: [
@@ -66,9 +72,9 @@ class GoalsScreen extends ConsumerWidget {
               padding: EdgeInsets.zero,
               children: [
                 _GoalsHeader(
-                  count: goals.length,
-                  saved: saved,
-                  target: target,
+                  count: visibleGoals.length,
+                  saved: saved.toDouble(),
+                  target: target.toDouble(),
                   currencyLabel: currencyLabel,
                   onAdd: () => GoalFormScreen.showSheet(context),
                 ),
@@ -76,10 +82,11 @@ class GoalsScreen extends ConsumerWidget {
                   padding: const EdgeInsets.all(AppSpacing.gutter),
                   child: Column(
                     children: [
-                      for (final goal in goals) ...[
+                      for (final goal in visibleGoals) ...[
                         _GoalCard(
                           goal: goal,
-                          currencyLabel: currencyLabel,
+                          currencyLabel:
+                              Currency.arabicLabel(goal.currency),
                         ),
                         const SizedBox(height: AppSpacing.s4),
                       ],

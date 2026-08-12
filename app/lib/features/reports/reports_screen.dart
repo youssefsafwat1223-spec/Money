@@ -12,6 +12,7 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/report_models.dart';
+import '../../domain/finance/money.dart';
 import '../cards/brand_mark.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
@@ -139,13 +140,13 @@ class ReportsScreen extends ConsumerWidget {
 }
 
 String _money(
-  double amount, {
+  Money amount, {
   required String currencyLabel,
   required bool privacyMode,
 }) {
   return privacyMode
       ? '•••• $currencyLabel'
-      : '${Formatters.amount(amount)} $currencyLabel';
+      : '${Formatters.amount(amount.toDouble())} $currencyLabel';
 }
 
 String _dateLabel(DateTime day) => '${day.day}/${day.month}';
@@ -173,7 +174,7 @@ class _OverviewTab extends StatelessWidget {
         AppSpacing.gutter,
       ),
       children: [
-        if (weekly.total > 0) ...[
+        if (!weekly.total.isZero && !weekly.total.isNegative) ...[
           PremiumMotion(
             child: _WeeklyInsightCard(
               weekly: weekly,
@@ -442,7 +443,7 @@ class _CategoryDistributionCard extends StatelessWidget {
       for (final slice in section.topCategories)
         SpendingChartSlice(
           category: slice.category,
-          total: slice.total,
+          total: slice.total.toDouble(),
           percent: slice.percent,
           count: slice.count,
         ),
@@ -514,7 +515,10 @@ class _MerchantRankingCard extends StatelessWidget {
     final c = context.colors;
     final maxTotal = section.topMerchants.fold<double>(
       1,
-      (max, merchant) => merchant.total > max ? merchant.total : max,
+      (max, merchant) {
+        final chartValue = merchant.total.toDouble();
+        return chartValue > max ? chartValue : max;
+      },
     );
     return MaliCard(
       style: MaliSurfaceStyle.floating,
@@ -667,8 +671,9 @@ class _MerchantBarRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final ratio =
-        maxTotal <= 0 ? 0.0 : (merchant.total / maxTotal).clamp(0.0, 1.0);
+    final ratio = maxTotal <= 0
+        ? 0.0
+        : (merchant.total.toDouble() / maxTotal).clamp(0.0, 1.0);
     return Row(
       children: [
         BrandMark(name: merchant.name, size: 38),
@@ -813,7 +818,8 @@ class _ReportsHeader extends StatelessWidget {
           ? const BackButton(color: Colors.white)
           : null,
       trailing: _ReportButton(onTap: onReport),
-      amount: privacyMode ? '••••' : Formatters.amount(section.total),
+      amount:
+          privacyMode ? '••••' : Formatters.amount(section.total.toDouble()),
       currency: privacyMode ? '' : currencyLabel,
       metrics: [
         CalmMetric(
@@ -873,14 +879,14 @@ class _WeeklyInsightCard extends StatelessWidget {
         (
           Icons.star_outline_rounded,
           'أفضل يوم توفيرًا: ${bestDay.day.day}/${bestDay.day.month} '
-              '(${Formatters.amount(bestDay.total)} $currencyLabel)',
+              '(${Formatters.amount(bestDay.total.toDouble())} $currencyLabel)',
           c.success,
         ),
       if (topMerchant != null)
         (
           Icons.store_outlined,
           'أكثر متجر صرفًا: ${topMerchant.name} '
-              '(${Formatters.amount(topMerchant.total)} $currencyLabel)',
+              '(${Formatters.amount(topMerchant.total.toDouble())} $currencyLabel)',
           c.textMuted,
         ),
     ];

@@ -217,7 +217,7 @@ class _UnassignedCardTile extends StatelessWidget {
                 ],
               ),
             ),
-            Text(Formatters.amount(net),
+            Text(Formatters.amount(net.toDouble()),
                 style: AppTypography.caption(c.textLight)),
             const SizedBox(width: 6),
             Icon(Icons.chevron_left, color: c.textLight, size: 20),

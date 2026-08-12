@@ -1,4 +1,6 @@
 import '../entities/card_summary.dart';
+import '../finance/money.dart';
+
 import '../../engine/parser/card_network.dart';
 
 /// صف تجميعي خام لكل (آخر 4 أرقام، حساب) قادم من قاعدة البيانات.
@@ -23,8 +25,8 @@ class CardAccountBreakdownRow {
   final String? accountId;
 
   /// الدخل فقط (income). صافي الإنفاق في [totalOut] (الاسترداد يخصم منه).
-  final double totalIn;
-  final double totalOut;
+  final Money totalIn;
+  final Money totalOut;
   final int count;
   final String sample;
 
@@ -72,8 +74,8 @@ class CardAccountGrouper {
     final unassigned = <CardSummary>[];
 
     for (final cardRows in byCard.values) {
-      final summary = _summaryFor(cardRows.first.last4, cardRows.first.currency,
-          cardRows);
+      final summary =
+          _summaryFor(cardRows.first.last4, cardRows.first.currency, cardRows);
       final owner = _confidentOwner(cardRows);
       if (owner == null) {
         unassigned.add(summary);
@@ -87,15 +89,15 @@ class CardAccountGrouper {
 
   CardSummary _summaryFor(
       String last4, String currency, List<CardAccountBreakdownRow> rows) {
-    var totalIn = 0.0;
-    var totalOut = 0.0;
+    var totalIn = Money(0, currency);
+    var totalOut = Money(0, currency);
     var count = 0;
     var sample = '';
     String? colorTheme;
     String? accentHex;
     for (final row in rows) {
-      totalIn += row.totalIn;
-      totalOut += row.totalOut;
+      totalIn = totalIn + row.totalIn;
+      totalOut = totalOut + row.totalOut;
       count += row.count;
       if (sample.isEmpty && row.sample.isNotEmpty) sample = row.sample;
       colorTheme ??= row.colorTheme;

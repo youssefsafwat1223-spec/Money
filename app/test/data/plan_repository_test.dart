@@ -126,7 +126,7 @@ void main() {
 
     final spent =
         await repo.spentForPlan(plan(accounts: ['acc1'], cards: ['7640']));
-    expect(spent, 150); // t1 (account) + t2 (card)
+    expect(spent, Money(15000, 'SAR')); // t1 (account) + t2 (card)
   });
 
   test('spentForPlan with no account/card counts all expenses in range',
@@ -154,7 +154,7 @@ void main() {
         accountId: 'z');
 
     final spent = await repo.spentForPlan(plan());
-    expect(spent, 140);
+    expect(spent, Money(14000, 'SAR'));
   });
 
   test('save then getAll round-trips account/card lists', () async {

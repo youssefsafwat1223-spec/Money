@@ -7,13 +7,13 @@ import 'package:money_companion/domain/services/budget_alert_planner.dart';
 BudgetEntity _budget({
   String id = 'b1',
   String categoryId = 'food',
-  double amount = 1000,
+  int amountMinor = 100000,
 }) {
   return BudgetEntity(
     id: id,
     categoryId: categoryId,
     currency: 'SAR',
-    amountMoney: Money.fromLegacyReal(amount, 'SAR'),
+    amountMoney: Money(amountMinor, 'SAR'),
     period: BudgetPeriod.monthly,
     startDate: DateTime.utc(2026, 7),
     isActive: true,
@@ -23,17 +23,21 @@ BudgetEntity _budget({
 }
 
 BudgetProgressEntry _entry({
-  required double amount,
-  required double spent,
+  required int amountMinor,
+  required int spentMinor,
   String id = 'b1',
   String categoryId = 'food',
 }) {
-  final budget = _budget(id: id, categoryId: categoryId, amount: amount);
-  final ratio = amount == 0 ? 0.0 : spent / amount;
+  final budget =
+      _budget(id: id, categoryId: categoryId, amountMinor: amountMinor);
+  final spent = Money(spentMinor, 'SAR');
+  final ratio = budget.amountMoney.isZero
+      ? 0.0
+      : spent.toDouble() / budget.amountMoney.toDouble();
   return BudgetProgressEntry(
     budget: budget,
     spent: spent,
-    remaining: amount - spent,
+    remaining: budget.amountMoney - spent,
     ratio: ratio,
     health: ratio >= 1
         ? BudgetHealth.over
@@ -49,7 +53,7 @@ void main() {
 
   test('no alert below 75% spent', () {
     final content = planner.plan(
-      entry: _entry(amount: 1000, spent: 500),
+      entry: _entry(amountMinor: 100000, spentMinor: 50000),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
@@ -59,7 +63,7 @@ void main() {
 
   test('75%-89% spent produces a warning alert mentioning the category', () {
     final content = planner.plan(
-      entry: _entry(amount: 1000, spent: 800),
+      entry: _entry(amountMinor: 100000, spentMinor: 80000),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
@@ -71,7 +75,7 @@ void main() {
 
   test('90%-99% spent produces the "about to run out" warning', () {
     final content = planner.plan(
-      entry: _entry(amount: 1000, spent: 950),
+      entry: _entry(amountMinor: 100000, spentMinor: 95000),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
@@ -83,7 +87,7 @@ void main() {
 
   test('100%+ spent produces an over-budget alert', () {
     final content = planner.plan(
-      entry: _entry(amount: 1000, spent: 1200),
+      entry: _entry(amountMinor: 100000, spentMinor: 120000),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
@@ -96,14 +100,21 @@ void main() {
 
   test('different budgets produce different notification ids', () {
     final a = planner.plan(
-      entry: _entry(id: 'b1', categoryId: 'food', amount: 1000, spent: 1200),
+      entry: _entry(
+          id: 'b1',
+          categoryId: 'food',
+          amountMinor: 100000,
+          spentMinor: 120000),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
     )!;
     final b = planner.plan(
-      entry:
-          _entry(id: 'b2', categoryId: 'transport', amount: 1000, spent: 1200),
+      entry: _entry(
+          id: 'b2',
+          categoryId: 'transport',
+          amountMinor: 100000,
+          spentMinor: 120000),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'المواصلات',
@@ -113,13 +124,13 @@ void main() {
 
   test('same budget/period/bucket produces a stable notification id', () {
     final a = planner.plan(
-      entry: _entry(amount: 1000, spent: 1200),
+      entry: _entry(amountMinor: 100000, spentMinor: 120000),
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
     )!;
     final b = planner.plan(
-      entry: _entry(amount: 1000, spent: 1300),
+      entry: _entry(amountMinor: 100000, spentMinor: 130000),
       now: now.add(const Duration(hours: 2)),
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',

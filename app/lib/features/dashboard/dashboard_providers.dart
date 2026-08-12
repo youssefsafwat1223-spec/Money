@@ -10,6 +10,7 @@ import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/budget_period.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
@@ -31,8 +32,8 @@ class DashboardBudgetEntry {
 
   final String budgetId;
   final String label;
-  final double spent;
-  final double limit;
+  final Money spent;
+  final Money limit;
   final double ratio;
   final BudgetPeriod period;
   final String? accountId;
@@ -48,7 +49,7 @@ class CategorySlice {
   });
 
   final CategoryView category;
-  final double total;
+  final Money total;
   final double percent; // 0..1
   final int count;
 }
@@ -90,16 +91,16 @@ class DashboardData {
     this.activeGoal,
   });
 
-  final double savedThisMonth;
-  final double spentThisMonth;
-  final double incomeThisMonth;
-  final double todaySpend;
-  final double todayIncome;
-  final double weekIncome;
-  final double? balance;
-  final double dailyBudgetLimit;
-  final double weeklyBudgetLimit;
-  final double monthlyBudgetLimit;
+  final Money savedThisMonth;
+  final Money spentThisMonth;
+  final Money incomeThisMonth;
+  final Money todaySpend;
+  final Money todayIncome;
+  final Money weekIncome;
+  final Money? balance;
+  final Money dailyBudgetLimit;
+  final Money weeklyBudgetLimit;
+  final Money monthlyBudgetLimit;
   final double monthlyBudgetRatio;
   final String currency;
 
@@ -113,9 +114,9 @@ class DashboardData {
   final List<TransactionEntity> recent;
   final CategoryCatalog catalog;
   final List<TransactionEntity> pendingReview;
-  final double pendingReviewTotal;
-  final double weekSpend;
-  final double previousWeekSpend;
+  final Money pendingReviewTotal;
+  final Money weekSpend;
+  final Money previousWeekSpend;
   final double projectedMonthSpend;
   final List<RecurringCandidate> subscriptions;
   final double subscriptionsMonthlyTotal;
@@ -127,8 +128,8 @@ class DashboardData {
   /// Expense/income totals for the currently selected filter [range] — not
   /// tied to the calendar month, unlike [spentThisMonth]/[incomeThisMonth].
   /// Feeds the dashboard's income-vs-expense summary card.
-  final double rangeExpense;
-  final double rangeIncome;
+  final Money rangeExpense;
+  final Money rangeIncome;
 
   /// عرض إجماليات منفصلة لكل عملة (عند تعدّد العملات في «كل الحسابات»).
   bool get hasMultipleCurrencies => currencyTotals.length > 1;
@@ -138,22 +139,24 @@ class DashboardData {
   int get subscriptionsCount => subscriptions.length;
 
   double get weekChangeRatio {
-    if (previousWeekSpend == 0) return weekSpend == 0 ? 0 : 1;
-    return (weekSpend - previousWeekSpend) / previousWeekSpend;
+    if (previousWeekSpend.isZero) return weekSpend.isZero ? 0 : 1;
+    return (weekSpend - previousWeekSpend).toDouble() /
+        previousWeekSpend.toDouble();
   }
 
   // ─── درجة قرش ───────────────────────────────────────────────────────────────
 
   /// التزام بالميزانية: 0-100. إذا لم تُحدَّد ميزانية → 75 (محايد).
   double get budgetScore {
-    if (monthlyBudgetLimit <= 0) return 75;
+    if (monthlyBudgetLimit.isZero || monthlyBudgetLimit.isNegative) return 75;
     return ((1 - monthlyBudgetRatio).clamp(0.0, 1.0) * 100);
   }
 
   /// معدل الادخار: 0-100. إذا لم يوجد دخل → 50 (محايد).
   double get savingsScore {
-    if (incomeThisMonth <= 0) return 50;
-    return (((incomeThisMonth - spentThisMonth) / incomeThisMonth)
+    if (incomeThisMonth.isZero || incomeThisMonth.isNegative) return 50;
+    return (((incomeThisMonth - spentThisMonth).toDouble() /
+                incomeThisMonth.toDouble())
             .clamp(0.0, 1.0) *
         100);
   }
@@ -255,8 +258,7 @@ Future<List<AccountEntity>> _ensureCurrencyAccounts({
       final account = byCurrency[_normalizeCurrency(tx.currency)];
       if (account == null) continue;
       try {
-        await txRepo.updateAccount(
-            transactionId: tx.id, accountId: account.id);
+        await txRepo.updateAccount(transactionId: tx.id, accountId: account.id);
       } on RepoException catch (e) {
         // مصالحة في الخلفية بلا واجهة مستخدم — نسجّل ونكمل الباقي بدل
         // فشل حساب الـ dashboard كله بسبب صف واحد.
@@ -318,6 +320,11 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       defaultAccount ??
       (accounts.isEmpty ? null : accounts.first);
   final accountId = activeAccount?.id;
+  // The dashboard is a single-currency surface: a selected/default account is
+  // authoritative; without an account, fall back to the base display currency.
+  final displayCurrency = accountId != null
+      ? activeAccount!.currency
+      : await ref.watch(baseCurrencyProvider.future);
 
   final now = DateTime.now();
   final rangeStart =
@@ -342,25 +349,49 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // completes.
   final balanceFuture = txRepo.latestBalanceAfter(accountId: accountId);
   final thisMonthExpensesFuture = txRepo.expenseTotalBetween(
-      from: calendarMonthStart, to: now, accountId: accountId);
+      from: calendarMonthStart,
+      to: now,
+      currency: displayCurrency,
+      accountId: accountId);
   final thisMonthIncomeFuture = txRepo.incomeTotalBetween(
-      from: calendarMonthStart, to: now, accountId: accountId);
+      from: calendarMonthStart,
+      to: now,
+      currency: displayCurrency,
+      accountId: accountId);
   final prevMonthExpensesFuture = txRepo.expenseTotalBetween(
-      from: previousStart, to: previousEnd, accountId: accountId);
+      from: previousStart,
+      to: previousEnd,
+      currency: displayCurrency,
+      accountId: accountId);
   final weekSpendFuture = txRepo.expenseTotalBetween(
-      from: weekStart, to: now, accountId: accountId);
-  final todaySpendFuture =
-      txRepo.expenseTotalBetween(from: today, to: now, accountId: accountId);
-  final todayIncomeFuture =
-      txRepo.incomeTotalBetween(from: today, to: now, accountId: accountId);
+      from: weekStart,
+      to: now,
+      currency: displayCurrency,
+      accountId: accountId);
+  final todaySpendFuture = txRepo.expenseTotalBetween(
+      from: today, to: now, currency: displayCurrency, accountId: accountId);
+  final todayIncomeFuture = txRepo.incomeTotalBetween(
+      from: today, to: now, currency: displayCurrency, accountId: accountId);
   final weekIncomeFuture = txRepo.incomeTotalBetween(
-      from: weekStart, to: now, accountId: accountId);
+      from: weekStart,
+      to: now,
+      currency: displayCurrency,
+      accountId: accountId);
   final previousWeekSpendFuture = txRepo.expenseTotalBetween(
-      from: prevWeekStart, to: weekStart, accountId: accountId);
+      from: prevWeekStart,
+      to: weekStart,
+      currency: displayCurrency,
+      accountId: accountId);
   final rangeExpenseFuture = txRepo.expenseTotalBetween(
-      from: rangeStart, to: rangeEnd, accountId: accountId);
+      from: rangeStart,
+      to: rangeEnd,
+      currency: displayCurrency,
+      accountId: accountId);
   final rangeIncomeFuture = txRepo.incomeTotalBetween(
-      from: rangeStart, to: rangeEnd, accountId: accountId);
+      from: rangeStart,
+      to: rangeEnd,
+      currency: displayCurrency,
+      accountId: accountId);
   final (
     thisMonthExpenses,
     thisMonthIncome,
@@ -383,8 +414,10 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // Dart's tuple `.wait` extension tops out at 8 elements, so the remaining
   // totals are awaited separately (still concurrently — their futures were
   // started above alongside everything else).
-  final (rangeExpense, rangeIncome, balance) =
+  final (rangeExpense, rangeIncome, rawBalance) =
       await (rangeExpenseFuture, rangeIncomeFuture, balanceFuture).wait;
+  final balance =
+      rawBalance?.currency == displayCurrency.toUpperCase() ? rawBalance : null;
   // B2-C — the 3 most-recent pending rows via a bounded SQL query (was a
   // .where(...).take(3) over the whole ledger). Same scope: pending status,
   // active-account (or all when none).
@@ -392,11 +425,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     limit: 3,
     filter: TransactionPageFilter(pendingOnly: true, accountId: accountId),
   );
-  final pendingReviewTotal =
-      // Transitional presentation-only cross-account total: currencies may mix.
-      pendingReview.fold<double>(
-    0,
-    (sum, tx) => sum + tx.amountMoney.toDouble(),
+  final pendingReviewTotal = Money.sum(
+    pendingReview
+        .where(
+            (tx) => tx.currency.toUpperCase() == displayCurrency.toUpperCase())
+        .map((tx) => tx.amountMoney),
+    displayCurrency,
   );
   final saved = prevMonthExpenses - thisMonthExpenses;
   // Start the remaining independent sections before awaiting any one of them.
@@ -404,17 +438,25 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // every aggregate is otherwise a separate network wait.
   final allBudgetsFuture = budgetRepo.getAll();
   final breakdownFuture = txRepo.categoryBreakdown(
-      from: rangeStart, to: rangeEnd, accountId: accountId);
+      from: rangeStart,
+      to: rangeEnd,
+      currency: displayCurrency,
+      accountId: accountId);
   final dailySpendTrendFuture = txRepo.dailyExpenseTotals(
-      from: rangeStart, to: rangeEnd, accountId: accountId);
+      from: rangeStart,
+      to: rangeEnd,
+      currency: displayCurrency,
+      accountId: accountId);
   final weeklyDailySpendFuture = txRepo.dailyExpenseTotals(
     from: weekStart,
     to: now,
+    currency: displayCurrency,
     accountId: accountId,
   );
   final topMerchantsFuture = txRepo.merchantBreakdown(
     from: rangeStart,
     to: rangeEnd,
+    currency: displayCurrency,
     limit: 5,
     accountId: accountId,
   );
@@ -446,6 +488,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   ).wait;
   final activeBudgets = allBudgets.where((budget) {
     if (!budget.isActive) return false;
+    if (budget.currency.toUpperCase() != displayCurrency.toUpperCase()) {
+      return false;
+    }
     return accountId == null
         ? budget.accountId == null
         : budget.accountId == accountId;
@@ -457,19 +502,31 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final dailyBudget = allExpensesFor(BudgetPeriod.daily);
   final weeklyBudget = allExpensesFor(BudgetPeriod.weekly);
   final monthlyBudget = allExpensesFor(BudgetPeriod.monthly);
-  final dailyBudgetLimit = dailyBudget?.amount ?? 0;
-  final weeklyBudgetLimit = weeklyBudget?.amount ?? 0;
-  var monthlyBudgetLimit = monthlyBudget?.amount ?? 0;
+  final dailyBudgetLimit =
+      dailyBudget?.amountMoney ?? Money.zero(displayCurrency);
+  final weeklyBudgetLimit =
+      weeklyBudget?.amountMoney ?? Money.zero(displayCurrency);
+  var monthlyBudgetLimit =
+      monthlyBudget?.amountMoney ?? Money.zero(displayCurrency);
 
   // لو المستخدم وزّع دخله على مظاريف شهرية ومفيش ميزانية شهرية عامة،
   // اعرض مجموع المظاريف كحد صرف شهري في الداشبورد بدون double count.
-  if (monthlyBudgetLimit <= 0) {
-    monthlyBudgetLimit = activeBudgets
-        .where((b) => !b.isAllExpenses && b.period == BudgetPeriod.monthly)
-        .fold<double>(0, (sum, b) => sum + b.amount);
+  if (monthlyBudgetLimit.isZero || monthlyBudgetLimit.isNegative) {
+    monthlyBudgetLimit = Money.sum(
+      activeBudgets
+          .where((b) =>
+              !b.isAllExpenses &&
+              b.period == BudgetPeriod.monthly &&
+              // §16/§6: only same-currency budgets fold into the display total —
+              // never Money(EGP)+Money(SAR).
+              b.currency.toUpperCase() == displayCurrency.toUpperCase())
+          .map((b) => b.amountMoney),
+      displayCurrency,
+    );
   }
-  final monthlyBudgetRatio =
-      monthlyBudgetLimit == 0 ? 0.0 : thisMonthExpenses / monthlyBudgetLimit;
+  final monthlyBudgetRatio = monthlyBudgetLimit.isZero
+      ? 0.0
+      : thisMonthExpenses.toDouble() / monthlyBudgetLimit.toDouble();
 
   final accountMap = {for (final a in accounts) a.id: a.name};
   final budgetProgress = await Future.wait(activeBudgets.map((budget) async {
@@ -485,7 +542,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       period,
       fallbackAccountId: accountId,
     );
-    final bRatio = budget.amount == 0 ? 0.0 : bSpent / budget.amount;
+    final bRatio = budget.amountMoney.isZero
+        ? 0.0
+        : bSpent.toDouble() / budget.amountMoney.toDouble();
     final catView = catalog.byId(budget.categoryId);
     return DashboardBudgetEntry(
       budgetId: budget.id,
@@ -493,7 +552,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
           ? 'كل المصروفات'
           : (catView?.nameAr ?? 'ميزانية'),
       spent: bSpent,
-      limit: budget.amount,
+      limit: budget.amountMoney,
       ratio: bRatio,
       period: budget.period,
       accountId: budget.accountId,
@@ -502,7 +561,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     );
   }));
 
-  final totalSpend = breakdown.fold<double>(0, (sum, item) => sum + item.total);
+  final totalSpend =
+      Money.sum(breakdown.map((item) => item.total), displayCurrency);
   final topCategories = <CategorySlice>[];
   for (final item in breakdown.take(3)) {
     final view =
@@ -512,13 +572,15 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       CategorySlice(
         category: view,
         total: item.total,
-        percent: totalSpend == 0 ? 0 : item.total / totalSpend,
+        percent: totalSpend.isZero
+            ? 0
+            : item.total.toDouble() / totalSpend.toDouble(),
         count: item.count,
       ),
     );
   }
   final dailySpendTrend =
-      dailySpendRows.map((day) => day.total).toList(growable: false);
+      dailySpendRows.map((day) => day.total.toDouble()).toList(growable: false);
 
   final recent = recentRows
       .where((tx) =>
@@ -529,24 +591,33 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       .toList(growable: false);
   // الداشبورد يعرض عملة الحساب النشط فقط لتجنب جمع عملات مختلفة في رقم واحد.
   const currencyTotals = <CurrencyTotal>[];
-  final subscriptions = subscriptionRows.take(3).toList(growable: false);
+  final subscriptions = subscriptionRows
+      .where((item) =>
+          item.currency.toUpperCase() == displayCurrency.toUpperCase())
+      .take(3)
+      .toList(growable: false);
   final subscriptionsMonthlyTotal = subscriptions.fold<double>(
     0,
     (sum, item) => sum + item.averageAmount,
   );
   final projectedMonthSpend = daysInRange == 0
-      ? thisMonthExpenses
-      : (thisMonthExpenses / daysInRange) * 30;
+      ? thisMonthExpenses.toDouble()
+      : (thisMonthExpenses.toDouble() / daysInRange) * 30;
 
   final activeGoal = goals
       .where((g) =>
           g.status == 'active' &&
+          g.currency.toUpperCase() == displayCurrency.toUpperCase() &&
           (accountId == null || g.accountId == accountId))
       .fold<GoalEntity?>(null, (best, g) {
     if (best == null) return g;
-    return g.savedAmount / g.targetAmount > best.savedAmount / best.targetAmount
-        ? g
-        : best;
+    final progress = g.targetMoney.isZero
+        ? 0.0
+        : g.savedMoney.toDouble() / g.targetMoney.toDouble();
+    final bestProgress = best.targetMoney.isZero
+        ? 0.0
+        : best.savedMoney.toDouble() / best.targetMoney.toDouble();
+    return progress > bestProgress ? g : best;
   });
 
   return DashboardData(
@@ -561,8 +632,10 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     weeklyBudgetLimit: weeklyBudgetLimit,
     monthlyBudgetLimit: monthlyBudgetLimit,
     monthlyBudgetRatio: monthlyBudgetRatio,
-    budgetPeriod: monthlyBudgetLimit > 0 ? BudgetPeriod.monthly : null,
-    currency: activeAccount?.currency ?? settings.currency,
+    budgetPeriod: monthlyBudgetLimit.isNegative || monthlyBudgetLimit.isZero
+        ? null
+        : BudgetPeriod.monthly,
+    currency: displayCurrency,
     streak: streak,
     topCategories: topCategories,
     dailySpendTrend: dailySpendTrend,

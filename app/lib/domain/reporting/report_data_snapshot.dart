@@ -2,6 +2,7 @@ import '../entities/account_entity.dart';
 import '../entities/category_spend.dart';
 import '../entities/report_models.dart';
 import '../entities/transaction_entity.dart';
+import '../finance/money.dart';
 import 'date_range.dart';
 import 'report_request.dart';
 
@@ -19,7 +20,8 @@ class ReportAccountRef {
     this.isAvailable = true,
   });
 
-  factory ReportAccountRef.fromEntity(AccountEntity account) => ReportAccountRef(
+  factory ReportAccountRef.fromEntity(AccountEntity account) =>
+      ReportAccountRef(
         id: account.id,
         name: account.name,
         currency: account.currency,
@@ -75,8 +77,8 @@ class ReportBudgetLite {
   /// The budget's category id (`'__all_expenses__'` for the all-expenses
   /// budget); the composer resolves the display label per-language.
   final String? categoryId;
-  final double spent;
-  final double limit;
+  final Money spent;
+  final Money limit;
   final double ratio;
 
   /// 'safe' | 'warning' | 'over' (from `BudgetHealth`).
@@ -110,13 +112,15 @@ class ReportGoalLite {
     required this.name,
     required this.saved,
     required this.target,
+    required this.currency,
     required this.progress,
     required this.deadline,
   });
 
   final String name;
-  final double saved;
-  final double target;
+  final Money saved;
+  final Money target;
+  final String currency;
 
   /// Fraction `0..1`.
   final double progress;
@@ -170,12 +174,10 @@ class ReportDataSnapshot {
 
   /// Raw period totals from `incomeTotalBetween` / `expenseTotalBetween`.
   ///
-  /// NOTE: for all-accounts scope spanning multiple currencies these are a raw
-  /// cross-currency sum (no FX) — the same convention the app already uses, and
-  /// the denominator for category percentages. Use [currencyTotals] for the
-  /// FX-safe, per-currency view.
-  final double totalIncome;
-  final double totalExpense;
+  /// These are scoped to the report's primary display currency. All-account
+  /// reports keep every currency separately in [currencyTotals].
+  final Money totalIncome;
+  final Money totalExpense;
 
   final List<CategorySpend> categoryBreakdown;
 
@@ -198,7 +200,7 @@ class ReportDataSnapshot {
   final List<TransactionEntity> largestTransactions;
 
   /// Latest known bank balance for the scope, if any (`latestBalanceAfter`).
-  final double? latestBalance;
+  final Money? latestBalance;
 
   /// Active budgets with in-period spend/health (empty if not collected).
   final List<ReportBudgetLite> budgets;

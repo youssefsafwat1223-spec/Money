@@ -6,6 +6,7 @@ import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -90,26 +91,29 @@ void main() {
     final to = DateTime.utc(2026, 7, 31);
 
     // Combined (accountId null) excludes the flagged account.
-    expect(await txRepo.expenseTotalBetween(from: from, to: to), 100);
-    expect(await txRepo.incomeTotalBetween(from: from, to: to), 500);
+    expect(
+        await txRepo.expenseTotalBetween(from: from, to: to, currency: 'SAR'),
+        Money(10000, 'SAR'));
+    expect(await txRepo.incomeTotalBetween(from: from, to: to, currency: 'SAR'),
+        Money(50000, 'SAR'));
 
     // Per-account totals are unaffected — drilling into the flagged account
     // still reports its own numbers (the flag keeps it out of combined totals,
     // not out of its own detail view).
     expect(
         await txRepo.expenseTotalBetween(
-            from: from, to: to, accountId: excluded.id),
-        40);
+            from: from, to: to, currency: 'SAR', accountId: excluded.id),
+        Money(4000, 'SAR'));
     expect(
         await txRepo.incomeTotalBetween(
-            from: from, to: to, accountId: excluded.id),
-        999);
+            from: from, to: to, currency: 'SAR', accountId: excluded.id),
+        Money(99900, 'SAR'));
 
     // Currency totals (always combined) exclude the flagged account.
     final totals = await txRepo.currencyTotalsBetween(from: from, to: to);
     final sar = totals.firstWhere((t) => t.currency == 'SAR');
-    expect(sar.expense, 100);
-    expect(sar.income, 500);
+    expect(sar.expense, Money(10000, 'SAR'));
+    expect(sar.income, Money(50000, 'SAR'));
   });
 
   test('latestBalanceAfter combined skips flagged accounts', () async {
@@ -155,7 +159,8 @@ void main() {
       ''',
     );
     await backfillNonPlanningMoneyV30(db);
-    expect(await txRepo.latestBalanceAfter(), 300);
-    expect(await txRepo.latestBalanceAfter(accountId: excluded.id), 9999);
+    expect(await txRepo.latestBalanceAfter(), Money(30000, 'SAR'));
+    expect(await txRepo.latestBalanceAfter(accountId: excluded.id),
+        Money(999900, 'SAR'));
   });
 }

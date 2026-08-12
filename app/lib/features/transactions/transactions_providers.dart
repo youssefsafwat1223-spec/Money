@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
 
@@ -260,7 +261,8 @@ class TransactionsListNotifier
     _cursor = null;
     _buildGen++;
     _catalog = await ref.read(categoryCatalogProvider.future);
-    _range = effectiveTransactionsRange(ref.read(transactionsDateRangeProvider));
+    _range =
+        effectiveTransactionsRange(ref.read(transactionsDateRangeProvider));
     _filter = await _resolveFilter();
     return _loadNextPage();
   }
@@ -402,7 +404,7 @@ class TransactionsPeriodTotal {
     required this.currency,
   });
 
-  final double netExpense;
+  final Money netExpense;
   final String currency;
 }
 
@@ -429,6 +431,7 @@ final transactionsPeriodTotalProvider =
     final netExpense = await txRepo.expenseTotalBetween(
       from: range.from,
       to: range.to,
+      currency: activeAccount.currency,
       accountId: activeAccount.id,
     );
     return TransactionsPeriodTotal(
@@ -446,7 +449,7 @@ final transactionsPeriodTotalProvider =
       .where((c) => c.currency.toUpperCase() == base.toUpperCase())
       .toList(growable: false);
   return TransactionsPeriodTotal(
-    netExpense: match.isEmpty ? 0 : match.first.expense,
+    netExpense: match.isEmpty ? Money.zero(base) : match.first.expense,
     currency: base,
   );
 });

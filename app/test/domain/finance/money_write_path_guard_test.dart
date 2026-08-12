@@ -119,7 +119,13 @@ void main() {
           in RegExp(r'Money\.fromLegacyReal\s*\(').allMatches(source)) {
         final allowedFile = path == 'lib/data/db/money_codec.dart' ||
             path == 'lib/domain/finance/money.dart' ||
-            path == 'lib/core/data_portability/drift_financial_importer.dart';
+            path == 'lib/core/data_portability/drift_financial_importer.dart' ||
+            // MALI-026 (B8-3 §16, class C): the RETIRED, zero-consumer Supabase
+            // financial-summary adapter reads a legacy RPC that returns JSON
+            // NUMBERS (no ::text), so fromLegacyReal is the correct EXPLICIT
+            // legacy remote-double converter here. Not a canonical write path.
+            path ==
+                'lib/data/repositories/supabase_financial_summary_service.dart';
         final before = source.substring(0, match.start);
         final captureAdapter = path == 'lib/engine/parser/capture_money.dart' &&
             before.lastIndexOf('legacyLossyNumberToMoney') >

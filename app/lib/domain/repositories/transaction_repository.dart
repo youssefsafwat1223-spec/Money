@@ -171,22 +171,24 @@ abstract class TransactionRepository {
   /// `[from, to)` — الحد الأعلى غير شامل (MALI-028). لحساب «وفّرت» وعنوان
   /// شاشة العمليات (MALI-047n). المؤكّد فقط؛ الاسترداد يخصم؛ التحويل/unknown
   /// خارج المجموع؛ الحسابات المستبعَدة تُستثنى فقط عند `accountId == null`.
-  Future<double> expenseTotalBetween({
+  Future<Money> expenseTotalBetween({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   });
 
   /// إجمالي الدخل خلال فترة نصف-مفتوحة `[from, to)` (MALI-028) — يُعرض في
   /// Dashboard/العمليات ولا يستهلك الميزانيات. الاسترداد ليس دخلاً.
-  Future<double> incomeTotalBetween({
+  Future<Money> incomeTotalBetween({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   });
 
   /// آخر رصيد معروف من رسائل البنك، إن وُجد.
-  Future<double?> latestBalanceAfter({String? accountId});
+  Future<Money?> latestBalanceAfter({String? accountId});
 
   /// إجمالي المصروف والدخل مجمّعاً حسب العملة خلال فترة نصف-مفتوحة `[from, to)`
   /// (MALI-028) — لعرض «كل الحسابات» دون جمع عملات مختلفة تحت وسم واحد.
@@ -199,6 +201,7 @@ abstract class TransactionRepository {
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   });
 
@@ -211,14 +214,15 @@ abstract class TransactionRepository {
   Future<List<CategorySpend>> categoryBreakdown({
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
-    String? currency,
   });
 
-  Future<double> categoryExpenseTotalBetween({
+  Future<Money> categoryExpenseTotalBetween({
     required String categoryId,
     required DateTime from,
     required DateTime to,
+    required String currency,
     String? accountId,
   });
 
@@ -226,6 +230,7 @@ abstract class TransactionRepository {
   Future<List<MerchantSpend>> merchantBreakdown({
     required DateTime from,
     required DateTime to,
+    required String currency,
     int limit = 3,
     String? accountId,
   });

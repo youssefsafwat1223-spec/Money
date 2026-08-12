@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../entities/engagement_entities.dart';
+import '../finance/money.dart';
 
 /// Deterministic notification id for a (budget, period, threshold) triple —
 /// SHA-256 instead of hashCode for the same stability reason documented in
@@ -65,27 +66,35 @@ class BudgetAlertPlanner {
     final daysPassed =
         now.difference(entry.periodStart).inDays.clamp(1, daysTotal);
     final daysRemaining = (daysTotal - daysPassed).clamp(0, daysTotal);
-    final dailyRate = entry.spent / daysPassed;
-    final projected = entry.spent + dailyRate * daysRemaining;
-    final remaining = entry.remaining.clamp(0.0, budget.amount);
+    final projectedIncrement = entry.spent.applyRate(
+      rateNumerator: BigInt.from(daysRemaining),
+      rateDenominator: BigInt.from(daysPassed),
+    );
+    final projected = entry.spent + projectedIncrement;
+    final zero = Money.zero(budget.currency);
+    final remaining = entry.remaining.compareTo(zero) < 0
+        ? zero
+        : entry.remaining.compareTo(budget.amountMoney) > 0
+            ? budget.amountMoney
+            : entry.remaining;
 
-    String fmt(double v) => v.toStringAsFixed(0);
+    String fmt(Money value) => value.toDecimalString();
 
     final String title;
     final String body;
     if (bucket == 3) {
       title = 'تجاوزت $categoryLabel';
       body =
-          'صرفت ${fmt(entry.spent - budget.amount)} $currencyLabel زيادة عن الميزانية.';
+          'صرفت ${fmt(entry.spent - budget.amountMoney)} $currencyLabel زيادة عن الميزانية.';
     } else if (bucket == 2) {
       title = '$categoryLabel على وشك الاكتمال';
       body = 'بقيلك ${fmt(remaining)} $currencyLabel فقط — '
           'معدلك الحالي سيستهلكها في $daysRemaining يوم.';
     } else {
       title = 'وصلت ٧٥٪ من $categoryLabel';
-      body = projected > budget.amount
+      body = projected.compareTo(budget.amountMoney) > 0
           ? 'بقيلك ${fmt(remaining)} $currencyLabel. '
-              'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - budget.amount)} $currencyLabel.'
+              'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - budget.amountMoney)} $currencyLabel.'
           : 'بقيلك ${fmt(remaining)} $currencyLabel حتى نهاية الفترة.';
     }
 

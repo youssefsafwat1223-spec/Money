@@ -114,7 +114,7 @@ void main() {
     await tx(id: 'egp-link', amount: 500, accountId: 'other', currency: 'EGP');
     await repo.linkTransactionToPlan(planId: p.id, transactionId: 'egp-link');
 
-    expect(await repo.spentForPlan(p), 100);
+    expect(await repo.spentForPlan(p), Money(10000, 'SAR'));
   });
 
   test('refund nets expense; withdrawal counts; income/transfer excluded',
@@ -125,14 +125,16 @@ void main() {
     await tx(id: 'inc', amount: 900, type: 'income', accountId: 'acc');
     await tx(id: 'xfer', amount: 700, type: 'transfer', accountId: 'acc');
 
-    expect(await repo.spentForPlan(plan(accountIds: ['acc'])), 190); // 200+40-50
+    expect(await repo.spentForPlan(plan(accountIds: ['acc'])),
+        Money(19000, 'SAR')); // 200+40-50
   });
 
   test('pending / ignored never count', () async {
     await tx(id: 'ok', amount: 100, accountId: 'acc');
     await tx(id: 'pending', amount: 30, status: 'pending', accountId: 'acc');
     await tx(id: 'ignored', amount: 60, status: 'ignored', accountId: 'acc');
-    expect(await repo.spentForPlan(plan(accountIds: ['acc'])), 100);
+    expect(await repo.spentForPlan(plan(accountIds: ['acc'])),
+        Money(10000, 'SAR'));
   });
 
   test('half-open window: start included, endExclusive excluded', () async {
@@ -152,7 +154,8 @@ void main() {
         amount: 40,
         accountId: 'acc',
         occurredAt: DateTime(2026, 6, 11));
-    expect(await repo.spentForPlan(plan(accountIds: ['acc'])), 30);
+    expect(await repo.spentForPlan(plan(accountIds: ['acc'])),
+        Money(3000, 'SAR'));
   });
 
   test('all-expenses scope applies the excluded-account policy; selected does '
@@ -182,9 +185,10 @@ void main() {
     await tx(id: 'x', amount: 70, accountId: excluded.id);
 
     // All-expenses plan drops the flagged account.
-    expect(await repo.spentForPlan(plan()), 100);
+    expect(await repo.spentForPlan(plan()), Money(10000, 'SAR'));
     // Explicitly selecting the flagged account overrides the policy.
-    expect(await repo.spentForPlan(plan(accountIds: [excluded.id])), 70);
+    expect(await repo.spentForPlan(plan(accountIds: [excluded.id])),
+        Money(7000, 'SAR'));
   });
 
   test('membership is a UNION of account and card scope', () async {
@@ -193,14 +197,14 @@ void main() {
     await tx(id: 'neither', amount: 200, accountId: 'acc3', cardLast4: '1111');
     expect(
       await repo.spentForPlan(plan(accountIds: ['acc1'], cards: ['7640'])),
-      150,
+      Money(15000, 'SAR'),
     );
   });
 
   test('blank currency fails closed to zero', () async {
     await tx(id: 't', amount: 100, accountId: 'acc');
     expect(await repo.spentForPlan(plan(accountIds: ['acc'], currency: ' ')),
-        0);
+        Money(0, 'SAR'));
     expect(
       await repo.transactionsForPlan(plan(accountIds: ['acc'], currency: ' ')),
       isEmpty,
@@ -213,20 +217,22 @@ void main() {
     final p = plan(accountIds: ['acc']);
     final total = await repo.spentForPlan(p);
     final list = await repo.transactionsForPlan(p);
-    final signedListSum = list.fold<double>(
-      0,
-      (s, t) => s + (t.type.name == 'refund' ? -t.amount : t.amount),
+    final signedListSum = Money.sum(
+      list.map((t) =>
+          t.type.name == 'refund' ? -t.amountMoney : t.amountMoney),
+      'SAR',
     );
     expect(list.map((t) => t.id), containsAll(['pay', 'ref']));
     expect(signedListSum, total);
-    expect(total, 150);
+    expect(total, Money(15000, 'SAR'));
   });
 
   test('large dataset (501 rows) is aggregated set-based, not folded', () async {
     for (var i = 0; i < 501; i++) {
       await tx(id: 'p$i', amount: 1, accountId: 'acc');
     }
-    expect(await repo.spentForPlan(plan(accountIds: ['acc'])), 501);
+    expect(await repo.spentForPlan(plan(accountIds: ['acc'])),
+        Money(50100, 'SAR'));
   });
 
   test('canonical SQL signed amount matches the shared contract', () {

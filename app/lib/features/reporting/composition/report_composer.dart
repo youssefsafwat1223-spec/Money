@@ -1,5 +1,6 @@
 import '../../../domain/entities/report_models.dart';
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/finance/money.dart';
 import '../../../domain/reporting/metrics/category_aggregator.dart';
 import '../../../domain/reporting/metrics/comparison_calculator.dart';
 import '../../../domain/reporting/metrics/report_metrics_calculator.dart';
@@ -69,12 +70,14 @@ class ReportComposer {
       ),
       summary: ReportSummaryVM(
         tiles: <TileVM>[
-          TileVM(str.income, fmt.money(current.income, primary),
+          TileVM(str.income, fmt.moneyExact(current.income),
               colorArgb: _incomeColor),
-          TileVM(str.expense, fmt.money(current.expense, primary),
+          TileVM(str.expense, fmt.moneyExact(current.expense),
               colorArgb: _expenseColor),
-          TileVM(str.net,
-              fmt.signedMoney(current.net, primary, isExpense: current.net < 0)),
+          TileVM(
+              str.net,
+              fmt.signedMoneyExact(current.net,
+                  isExpense: current.net.isNegative)),
         ],
         verdict: _verdict(str, fmt, comparison),
       ),
@@ -84,11 +87,13 @@ class ReportComposer {
       ],
       comparison: <ComparisonRowVM>[
         _cmpRow(str.income, fmt, primary, comparison.income),
-        _cmpRow(str.expense, fmt, primary, comparison.expense, invertGood: true),
+        _cmpRow(str.expense, fmt, primary, comparison.expense,
+            invertGood: true),
         _cmpRow(str.net, fmt, primary, comparison.net, signed: true),
         _savingsRow(str, fmt, current, previous, comparison),
       ],
-      category: _categoryVM(snapshot, fmt, str, primary, primaryExpense, slices),
+      category:
+          _categoryVM(snapshot, fmt, str, primary, primaryExpense, slices),
       trend: trend,
       largest: <AmountRowVM>[
         for (final txn in snapshot.largestTransactions)
@@ -97,8 +102,8 @@ class ReportComposer {
       budgets: _budgets(snapshot, fmt, str, primary, lang),
       bills: _bills(snapshot, fmt, str),
       goals: _goals(snapshot, fmt, str, primary),
-      insights:
-          _insights(snapshot, fmt, str, comparison, slices, trend, primary, lang),
+      insights: _insights(
+          snapshot, fmt, str, comparison, slices, trend, primary, lang),
       appendix: _appendix(snapshot, fmt, str, lang),
       appendixOmitted: snapshot.appendixOmittedForSize,
     );
@@ -106,16 +111,17 @@ class ReportComposer {
 
   List<AppendixRowVM> _appendix(ReportDataSnapshot s, ReportMoneyFormatter fmt,
       ReportStrings str, String lang) {
-    final showMerchant = s.request.content.includeMerchantNames &&
-        !s.request.privacyMode;
+    final showMerchant =
+        s.request.content.includeMerchantNames && !s.request.privacyMode;
     return <AppendixRowVM>[
       for (final t in s.appendixTransactions)
         () {
           final isIncome = t.type == TransactionTypeEntity.income ||
               t.type == TransactionTypeEntity.refund;
           final merchant = (showMerchant ? t.rawMerchant : null)?.trim();
-          final category =
-              t.categoryId == null ? '' : (_categoryLabel(s, lang, t.categoryId!) ?? '');
+          final category = t.categoryId == null
+              ? ''
+              : (_categoryLabel(s, lang, t.categoryId!) ?? '');
           return AppendixRowVM(
             date: _dateLabel(t.occurredAt.toLocal(), str),
             merchant: (merchant != null && merchant.isNotEmpty)
@@ -135,29 +141,27 @@ class ReportComposer {
     final totals = s.currencyTotals;
     final base = s.baseCurrency;
     // Prefer the user's base currency when the period actually has data in it.
-    if (base != null && base.isNotEmpty && totals.any((t) => t.currency == base)) {
+    if (base != null &&
+        base.isNotEmpty &&
+        totals.any((t) => t.currency == base)) {
       return base;
     }
     if (totals.isEmpty) return (base != null && base.isNotEmpty) ? base : 'SAR';
-    var best = totals.first;
-    for (final t in totals) {
-      if (t.expense + t.income > best.expense + best.income) best = t;
-    }
-    return best.currency;
+    return totals.first.currency;
   }
 
-  double _income(List<CurrencyTotal> totals, String currency) {
+  Money _income(List<CurrencyTotal> totals, String currency) {
     for (final t in totals) {
       if (t.currency == currency) return t.income;
     }
-    return 0;
+    return Money.zero(currency);
   }
 
-  double _expense(List<CurrencyTotal> totals, String currency) {
+  Money _expense(List<CurrencyTotal> totals, String currency) {
     for (final t in totals) {
       if (t.currency == currency) return t.expense;
     }
-    return 0;
+    return Money.zero(currency);
   }
 
   CashFlowRowVM _cashRow(ReportMoneyFormatter fmt, ReportStrings str,
@@ -166,9 +170,9 @@ class ReportComposer {
         metrics.computeCashFlow(income: total.income, expense: total.expense);
     return CashFlowRowVM(
       currency: total.currency,
-      income: fmt.money(cf.income, total.currency),
-      expense: fmt.money(cf.expense, total.currency),
-      net: fmt.signedMoney(cf.net, total.currency, isExpense: cf.net < 0),
+      income: fmt.moneyExact(cf.income),
+      expense: fmt.moneyExact(cf.expense),
+      net: fmt.signedMoneyExact(cf.net, isExpense: cf.net.isNegative),
       savingsRate: cf.savingsRate == null ? '—' : fmt.percent(cf.savingsRate!),
     );
   }
@@ -182,24 +186,25 @@ class ReportComposer {
     bool invertGood = false,
   }) {
     // For expense, a decrease is "good" (green); for income/net an increase is.
-    final kind = delta.absolute == 0
+    final kind = delta.absolute.isZero
         ? DeltaKind.neutral
         : (delta.isIncrease ^ invertGood)
             ? DeltaKind.up
             : DeltaKind.down;
     final pct = delta.percent;
-    final deltaText = (pct == null || delta.absolute == 0)
+    final deltaText = (pct == null || delta.absolute.isZero)
         ? '—'
         : '${delta.isIncrease ? '+' : '−'}${fmt.percent1(pct)}';
     return ComparisonRowVM(
       metric: metric,
       thisValue: signed
-          ? fmt.signedMoney(delta.current, currency, isExpense: delta.current < 0)
-          : fmt.money(delta.current, currency),
+          ? fmt.signedMoneyExact(delta.current,
+              isExpense: delta.current.isNegative)
+          : fmt.moneyExact(delta.current),
       previousValue: signed
-          ? fmt.signedMoney(delta.previous, currency,
-              isExpense: delta.previous < 0)
-          : fmt.money(delta.previous, currency),
+          ? fmt.signedMoneyExact(delta.previous,
+              isExpense: delta.previous.isNegative)
+          : fmt.moneyExact(delta.previous),
       delta: deltaText,
       kind: kind,
     );
@@ -215,9 +220,11 @@ class ReportComposer {
     final points = comparison.savingsRatePoints;
     return ComparisonRowVM(
       metric: str.savingsRate,
-      thisValue: current.savingsRate == null ? '—' : fmt.percent(current.savingsRate!),
-      previousValue:
-          previous.savingsRate == null ? '—' : fmt.percent(previous.savingsRate!),
+      thisValue:
+          current.savingsRate == null ? '—' : fmt.percent(current.savingsRate!),
+      previousValue: previous.savingsRate == null
+          ? '—'
+          : fmt.percent(previous.savingsRate!),
       delta: (points == null || points == 0) ? '—' : fmt.points(points),
       kind: points == null || points == 0
           ? DeltaKind.neutral
@@ -238,7 +245,7 @@ class ReportComposer {
     ReportMoneyFormatter fmt,
     ReportStrings str,
     String primary,
-    double primaryExpense,
+    Money primaryExpense,
     List<CategoryReportSlice> slices,
   ) {
     final rows = <CategoryRowVM>[];
@@ -249,17 +256,17 @@ class ReportComposer {
           : _hexToArgb(snapshot.categoryMeta[slice.categoryId]?.colorHex);
       rows.add(CategoryRowVM(
         label: slice.label,
-        value: fmt.money(slice.total, primary),
+        value: fmt.moneyExact(slice.total),
         percent: fmt.percent(slice.percent),
         colorArgb: color,
       ));
-      donut.add(DonutSliceVM(slice.total, color));
+      donut.add(DonutSliceVM(slice.total.toDouble(), color));
     }
     return ReportCategoryVM(
       slices: donut,
       rows: rows,
       centerLabel: str.totalSpend,
-      centerValue: fmt.money(primaryExpense, primary),
+      centerValue: fmt.moneyExact(primaryExpense),
     );
   }
 
@@ -267,14 +274,14 @@ class ReportComposer {
 
   ReportTrendVM _trend(ReportDataSnapshot snapshot, ReportMoneyFormatter fmt,
       ReportStrings str, String primary) {
-    final from = DateTime(
-        snapshot.range.from.year, snapshot.range.from.month, snapshot.range.from.day);
+    final from = DateTime(snapshot.range.from.year, snapshot.range.from.month,
+        snapshot.range.from.day);
     final days = snapshot.range.length.inDays.clamp(1, 366);
     final byIndex = <int, double>{};
     for (final d in snapshot.dailyExpense) {
       final day = DateTime(d.day.year, d.day.month, d.day.day);
       final idx = day.difference(from).inDays;
-      if (idx >= 0 && idx < days) byIndex[idx] = d.total;
+      if (idx >= 0 && idx < days) byIndex[idx] = d.total.toDouble();
     }
     final bars = <double>[for (var i = 0; i < days; i++) byIndex[i] ?? 0.0];
     var maxValue = 0.0;
@@ -315,8 +322,9 @@ class ReportComposer {
         ? null
         : snapshot.categoryMeta[txn.categoryId]?.name;
     final date = _dateLabel(txn.occurredAt.toLocal(), str);
-    final subtitle =
-        <String?>[categoryName, date].where((s) => s != null && s.isNotEmpty).join(' · ');
+    final subtitle = <String?>[categoryName, date]
+        .where((s) => s != null && s.isNotEmpty)
+        .join(' · ');
     final title = (merchant != null && merchant.isNotEmpty)
         ? merchant
         : (categoryName ?? str.transaction);
@@ -336,8 +344,7 @@ class ReportComposer {
       for (final b in s.budgets)
         BudgetBarVM(
           label: _budgetLabel(s, lang, str, b.categoryId),
-          amounts:
-              '${fmt.money(b.spent, primary)} / ${fmt.money(b.limit, primary)}',
+          amounts: '${fmt.moneyExact(b.spent)} / ${fmt.moneyExact(b.limit)}',
           ratio: b.ratio.clamp(0.0, 1.0).toDouble(),
           status: b.health == 'over'
               ? '${str.over} ${((b.ratio - 1) * 100).round()}%'
@@ -366,8 +373,7 @@ class ReportComposer {
       for (final g in s.goals)
         GoalBarVM(
           name: g.name,
-          amounts:
-              '${fmt.money(g.saved, primary)} / ${fmt.money(g.target, primary)}',
+          amounts: '${fmt.moneyExact(g.saved)} / ${fmt.moneyExact(g.target)}',
           progress: g.progress,
           percent: fmt.percent(g.progress),
           meta: g.deadline == null ? '' : _dateLabel(g.deadline!, str),
@@ -447,7 +453,8 @@ class ReportComposer {
         return str.insightSavingsDeclined
             .replaceAll('{pp}', fmt.percent1((a['pp'] as double?) ?? 0));
       case InsightCode.budgetsOver:
-        return str.insightBudgetsOver.replaceAll('{count}', '${a['count'] ?? 0}');
+        return str.insightBudgetsOver
+            .replaceAll('{count}', '${a['count'] ?? 0}');
       case InsightCode.dominantCategory:
         return str.insightDominantCategory
             .replaceAll('{category}', '${a['category'] ?? ''}')
@@ -458,10 +465,8 @@ class ReportComposer {
             .replaceAll('{amount}', money())
             .replaceAll('{days}', '${a['days'] ?? 0}');
       case InsightCode.unusualDay:
-        return str.insightUnusualDay
-            .replaceAll('{amount}', money())
-            .replaceAll('{factor}',
-                ((a['factor'] as double?) ?? 0).toStringAsFixed(1));
+        return str.insightUnusualDay.replaceAll('{amount}', money()).replaceAll(
+            '{factor}', ((a['factor'] as double?) ?? 0).toStringAsFixed(1));
     }
   }
 
@@ -495,7 +500,8 @@ class ReportComposer {
           ? null
           : snapshot.accountsInScope.first;
       if (ref == null || !ref.isAvailable || ref.name.isEmpty) {
-        return str.allAccounts; // fallback; unavailable handled by composer caller
+        return str
+            .allAccounts; // fallback; unavailable handled by composer caller
       }
       return ref.name;
     }
@@ -521,8 +527,8 @@ class ReportComposer {
   String _dateLabel(DateTime date, ReportStrings str) =>
       '${date.day} ${str.months[date.month - 1]} ${date.year}';
 
-  String _verdict(
-      ReportStrings str, ReportMoneyFormatter fmt, ComparisonMetrics comparison) {
+  String _verdict(ReportStrings str, ReportMoneyFormatter fmt,
+      ComparisonMetrics comparison) {
     final pct = comparison.expense.percent;
     if (pct == null || pct.abs() < 0.005) return str.verdictFlat;
     final template = pct < 0 ? str.verdictLess : str.verdictMore;

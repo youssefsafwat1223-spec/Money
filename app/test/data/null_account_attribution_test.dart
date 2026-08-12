@@ -8,6 +8,7 @@ import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -80,7 +81,8 @@ void main() {
         updatedAt: from,
       ));
 
-  test('two same-currency accounts both exclude a NULL-account row; global '
+  test(
+      'two same-currency accounts both exclude a NULL-account row; global '
       'includes it once', () async {
     await account('a');
     await account('b');
@@ -88,13 +90,18 @@ void main() {
     await tx(id: 'b-pay', amount: 200, accountId: 'b');
     await tx(id: 'orphan', amount: 30, accountId: null); // unassigned, SAR
 
-    expect(await txRepo.expenseTotalBetween(from: from, to: to, accountId: 'a'),
-        100); // NOT 130
-    expect(await txRepo.expenseTotalBetween(from: from, to: to, accountId: 'b'),
-        200); // NOT 230
+    expect(
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, currency: 'SAR', accountId: 'a'),
+        Money(10000, 'SAR')); // NOT 130
+    expect(
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, currency: 'SAR', accountId: 'b'),
+        Money(20000, 'SAR')); // NOT 230
     // All-accounts (global) scope includes the orphan exactly once.
     expect(
-        await txRepo.expenseTotalBetween(from: from, to: to), 330); // 100+200+30
+        await txRepo.expenseTotalBetween(from: from, to: to, currency: 'SAR'),
+        Money(33000, 'SAR')); // 100+200+30
   });
 
   test('assigning the orphan to A includes it only under A', () async {
@@ -103,25 +110,34 @@ void main() {
     await tx(id: 'orphan', amount: 30, accountId: null);
     await txRepo.updateAccount(transactionId: 'orphan', accountId: 'a');
 
-    expect(await txRepo.expenseTotalBetween(from: from, to: to, accountId: 'a'),
-        30);
-    expect(await txRepo.expenseTotalBetween(from: from, to: to, accountId: 'b'),
-        0);
-    expect(await txRepo.expenseTotalBetween(from: from, to: to), 30);
+    expect(
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, currency: 'SAR', accountId: 'a'),
+        Money(3000, 'SAR'));
+    expect(
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, currency: 'SAR', accountId: 'b'),
+        Money(0, 'SAR'));
+    expect(
+        await txRepo.expenseTotalBetween(from: from, to: to, currency: 'SAR'),
+        Money(3000, 'SAR'));
   });
 
-  test('mixed currencies: an account never picks up a foreign orphan', () async {
+  test('mixed currencies: an account never picks up a foreign orphan',
+      () async {
     await account('sar', currency: 'SAR');
     await account('usd', currency: 'USD');
     await tx(id: 'orphan-usd', amount: 50, accountId: null, currency: 'USD');
     // SAR account excludes the USD orphan (previously the currency fallback
     // would still have excluded it, but the point is exact ownership).
     expect(
-        await txRepo.expenseTotalBetween(from: from, to: to, accountId: 'sar'),
-        0);
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, currency: 'SAR', accountId: 'sar'),
+        Money(0, 'SAR'));
     expect(
-        await txRepo.expenseTotalBetween(from: from, to: to, accountId: 'usd'),
-        0);
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, currency: 'USD', accountId: 'usd'),
+        Money(0, 'USD'));
   });
 
   test('category breakdown honours exact account ownership', () async {
@@ -130,7 +146,9 @@ void main() {
     await tx(id: 'orphan', amount: 30, accountId: null, type: 'payment');
     // categoryBreakdown needs a category; both rows are uncategorised → the
     // account-scoped total via expenseTotalBetween is the invariant we assert.
-    expect(await txRepo.expenseTotalBetween(from: from, to: to, accountId: 'a'),
-        100);
+    expect(
+        await txRepo.expenseTotalBetween(
+            from: from, to: to, currency: 'SAR', accountId: 'a'),
+        Money(10000, 'SAR'));
   });
 }

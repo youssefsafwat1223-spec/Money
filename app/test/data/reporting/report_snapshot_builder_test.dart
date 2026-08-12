@@ -131,18 +131,18 @@ void main() {
     expect(snap.capturedAt, clock());
 
     final sar = snap.currencyTotals.firstWhere((c) => c.currency == 'SAR');
-    expect(sar.income, 12400);
-    expect(sar.expense, 8430); // 8,730 expense - 300 refund
+    expect(sar.income, Money(1240000, 'SAR'));
+    expect(sar.expense, Money(843000, 'SAR'));
 
     final usd = snap.currencyTotals.firstWhere((c) => c.currency == 'USD');
-    expect(usd.expense, 200);
-    expect(usd.income, 0);
+    expect(usd.expense, Money(20000, 'USD'));
+    expect(usd.income, Money(0, 'USD'));
 
     // Metrics computed from the snapshot's frozen totals.
     const metrics = ReportMetricsCalculator();
     expect(
         metrics.computeCashFlow(income: sar.income, expense: sar.expense).net,
-        closeTo(3970, 1e-9));
+        Money(397000, 'SAR'));
 
     // Largest = confirmed expenses only, sorted desc: 5000, 3730, 200.
     expect(snap.largestTransactions.map((t) => t.amount).toList(),
@@ -166,7 +166,7 @@ void main() {
 
     final first =
         await builder.build(const ReportRequest(period: MonthlyPeriod()));
-    expect(first.totalExpense, 5000);
+    expect(first.totalExpense, Money(500000, 'SAR'));
 
     // Mutate the DB after the snapshot was captured.
     await put(seed(
@@ -176,11 +176,11 @@ void main() {
         occurredAt: DateTime.utc(2026, 7, 12)));
 
     // The already-built snapshot is unchanged (internally consistent).
-    expect(first.totalExpense, 5000);
+    expect(first.totalExpense, Money(500000, 'SAR'));
     // A fresh build reflects the new data.
     final second =
         await builder.build(const ReportRequest(period: MonthlyPeriod()));
-    expect(second.totalExpense, 7000);
+    expect(second.totalExpense, Money(700000, 'SAR'));
   });
 
   test(
@@ -222,8 +222,8 @@ void main() {
 
     expect(snap.currencyTotals.length, 1);
     expect(snap.currencyTotals.single.currency, 'USD');
-    expect(
-        snap.currencyTotals.single.expense, 200); // SAR txn excluded by scope
+    expect(snap.currencyTotals.single.expense,
+        Money(20000, 'USD')); // SAR txn excluded by scope
     expect(snap.accountsInScope.single.name, 'Travel USD');
   });
 }

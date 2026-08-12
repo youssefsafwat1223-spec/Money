@@ -120,9 +120,9 @@ void main() {
     ));
 
     final entry = await currentGroceriesHistory(groceries.id);
-    final signed = entry.transactions
-        .fold<double>(0, (s, tx) => s + budgetHistoryRowSigned(tx));
-    expect(entry.progress.spent, 400); // 500 − 100
+    final signed = Money.sum(
+        entry.transactions.map(budgetHistoryRowSigned), 'SAR');
+    expect(entry.progress.spent, Money(40000, 'SAR')); // 500 − 100
     expect(signed, entry.progress.spent);
     // The refund row is visible so the user can understand the net.
     expect(entry.transactions.map((t) => t.id), containsAll(['pay', 'ref']));
@@ -150,11 +150,11 @@ void main() {
     ));
 
     final entry = await currentGroceriesHistory(groceries.id);
-    final signed = entry.transactions
-        .fold<double>(0, (s, tx) => s + budgetHistoryRowSigned(tx));
-    expect(
-        entry.progress.spent, 500); // excluded account dropped from the total
-    expect(signed, 500);
+    final signed = Money.sum(
+        entry.transactions.map(budgetHistoryRowSigned), 'SAR');
+    expect(entry.progress.spent,
+        Money(50000, 'SAR')); // excluded account dropped from the total
+    expect(signed, Money(50000, 'SAR'));
     expect(entry.transactions.map((t) => t.id), isNot(contains('excl-pay')));
   });
 }

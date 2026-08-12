@@ -3,6 +3,7 @@
 // snapshot, local alerts) resolves a budget's window and spend through THIS,
 // so they cannot disagree and no screen filter can mutate a budget's period.
 import '../entities/budget_entity.dart';
+import 'money.dart';
 import '../reporting/date_range.dart';
 import '../repositories/transaction_repository.dart';
 import 'financial_period.dart';
@@ -41,7 +42,7 @@ String budgetPeriodLabel(BudgetPeriod period) => switch (period) {
 /// stays account-scoped; a global budget falls back to [fallbackAccountId] (the
 /// surface's active account) so the dashboard ring and budget detail agree for
 /// the same scope. Set-based Drift aggregation — never a Dart-side fold.
-Future<double> budgetSpent(
+Future<Money> budgetSpent(
   TransactionRepository repo,
   BudgetEntity budget,
   DateRange period, {
@@ -52,12 +53,14 @@ Future<double> budgetSpent(
       ? repo.expenseTotalBetween(
           from: period.from,
           to: period.to,
+          currency: budget.currency,
           accountId: accountId,
         )
       : repo.categoryExpenseTotalBetween(
           categoryId: budget.categoryId,
           from: period.from,
           to: period.to,
+          currency: budget.currency,
           accountId: accountId,
         );
 }

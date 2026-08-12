@@ -195,15 +195,24 @@ void main() {
 
     // Repository tier.
     final repoExpense = await txRepo.expenseTotalBetween(
-        from: monthStart, to: nextMonthStart, accountId: main.id);
+        from: monthStart,
+        to: nextMonthStart,
+        currency: 'SAR',
+        accountId: main.id);
     final repoIncome = await txRepo.incomeTotalBetween(
-        from: monthStart, to: nextMonthStart, accountId: main.id);
+        from: monthStart,
+        to: nextMonthStart,
+        currency: 'SAR',
+        accountId: main.id);
     final breakdown = await txRepo.categoryBreakdown(
-        from: monthStart, to: nextMonthStart, accountId: main.id);
-    expect(repoExpense, 450); // groceries 400 + restaurants 50
-    expect(repoIncome, 500);
+        from: monthStart,
+        to: nextMonthStart,
+        currency: 'SAR',
+        accountId: main.id);
+    expect(repoExpense, Money(45000, 'SAR'));
+    expect(repoIncome, Money(50000, 'SAR'));
     final breakdownByCat = {for (final r in breakdown) r.categoryId: r.total};
-    expect(breakdownByCat[groceries.id], 400);
+    expect(breakdownByCat[groceries.id], Money(40000, 'SAR'));
 
     // Transactions header provider == repository net expense.
     final header = await container.read(transactionsPeriodTotalProvider.future);
@@ -214,14 +223,14 @@ void main() {
     final groups = await container.read(monthlyExpenseGroupsProvider.future);
     final groupByCat = {for (final g in groups) g.categoryId: g.total};
     expect(groupByCat[groceries.id], breakdownByCat[groceries.id]);
-    expect(groupByCat[groceries.id], 400);
+    expect(groupByCat[groceries.id], Money(40000, 'SAR'));
 
     // Home groceries total == the adjacent budget metric for the same scope.
     final groceriesGroup =
         groups.firstWhere((g) => g.categoryId == groceries.id);
     expect(groceriesGroup.budget, isNotNull);
     expect(groceriesGroup.budget!.spent, groceriesGroup.total);
-    expect(groceriesGroup.budget!.spent, 400);
+    expect(groceriesGroup.budget!.spent, Money(40000, 'SAR'));
   });
 
   test(
@@ -272,17 +281,20 @@ void main() {
     ));
 
     final repoExpense = await txRepo.expenseTotalBetween(
-        from: monthStart, to: nextMonthStart, accountId: main.id);
-    expect(repoExpense, 400);
+        from: monthStart,
+        to: nextMonthStart,
+        currency: 'SAR',
+        accountId: main.id);
+    expect(repoExpense, Money(40000, 'SAR'));
 
     final header = await container.read(transactionsPeriodTotalProvider.future);
-    expect(header.netExpense, 400);
+    expect(header.netExpense, Money(40000, 'SAR'));
 
     final budgetView = await container.read(budgetsViewProvider.future);
-    expect(budgetView.snapshot.entries.single.spent, 400);
+    expect(budgetView.snapshot.entries.single.spent, Money(40000, 'SAR'));
 
     final plans = await container.read(plansWithSpentProvider.future);
-    expect(plans.single.spent, 400);
+    expect(plans.single.spent, Money(40000, 'SAR'));
   });
 
   test('card summary net-spend == account net expense (same scope)', () async {
@@ -309,17 +321,21 @@ void main() {
         cardLast4: '9999');
 
     final repoExpense = await txRepo.expenseTotalBetween(
-        from: monthStart, to: nextMonthStart, accountId: main.id);
+        from: monthStart,
+        to: nextMonthStart,
+        currency: 'SAR',
+        accountId: main.id);
     final header = await container.read(transactionsPeriodTotalProvider.future);
     final sar = (await txRepo.getCardSummaries())
         .firstWhere((s) => s.last4 == '9999' && s.currency == 'SAR');
 
     // Card net-spend (refund-netted) == account/header net expense.
-    expect(repoExpense, 400); // 500 − 100
-    expect(header.netExpense, 400);
-    expect(sar.totalOut, 400);
+    expect(repoExpense, Money(40000, 'SAR')); // 500 − 100
+    expect(header.netExpense, Money(40000, 'SAR'));
+    expect(sar.totalOut, Money(40000, 'SAR'));
     expect(sar.totalOut, repoExpense);
-    expect(sar.totalIn, 200); // income only, refund not counted as income
+    expect(sar.totalIn,
+        Money(20000, 'SAR')); // income only, refund not counted as income
   });
 
   test('report snapshot + composer agree with the repo/header on one scope',
@@ -343,7 +359,10 @@ void main() {
         categoryKey: null);
 
     final repoExpense = await txRepo.expenseTotalBetween(
-        from: monthStart, to: nextMonthStart, accountId: main.id);
+        from: monthStart,
+        to: nextMonthStart,
+        currency: 'SAR',
+        accountId: main.id);
     final header = await container.read(transactionsPeriodTotalProvider.future);
 
     final builder = ReportSnapshotBuilder(
@@ -360,29 +379,29 @@ void main() {
     ));
 
     // Same metric (SAR net expense) across repo, header, report totals + donut.
-    expect(repoExpense, 400);
-    expect(header.netExpense, 400);
-    expect(snapshot.totalExpense, 400);
-    expect(snapshot.currencyTotals.single.expense, 400);
+    expect(repoExpense, Money(40000, 'SAR'));
+    expect(header.netExpense, Money(40000, 'SAR'));
+    expect(snapshot.totalExpense, Money(40000, 'SAR'));
+    expect(snapshot.currencyTotals.single.expense, Money(40000, 'SAR'));
     expect(
-        snapshot.categoryBreakdownByCurrency['SAR']!
-            .fold<double>(0, (s, c) => s + c.total),
-        400);
+        Money.sum(
+            snapshot.categoryBreakdownByCurrency['SAR']!
+                .map((category) => category.total),
+            'SAR'),
+        Money(40000, 'SAR'));
 
     // Appendix rows (net-expense signed) sum to the same total.
-    final appendixNet = snapshot.appendixTransactions
-        .where((t) =>
-            t.type == TransactionTypeEntity.payment ||
-            t.type == TransactionTypeEntity.withdrawal ||
-            t.type == TransactionTypeEntity.refund)
-        .fold<double>(
-            0,
-            (s, t) =>
-                s +
-                (t.type == TransactionTypeEntity.refund
-                    ? -t.amount
-                    : t.amount));
-    expect(appendixNet, 400);
+    final appendixNet = Money.sum(
+        snapshot.appendixTransactions
+            .where((t) =>
+                t.type == TransactionTypeEntity.payment ||
+                t.type == TransactionTypeEntity.withdrawal ||
+                t.type == TransactionTypeEntity.refund)
+            .map((t) => t.type == TransactionTypeEntity.refund
+                ? -t.amountMoney
+                : t.amountMoney),
+        'SAR');
+    expect(appendixNet, Money(40000, 'SAR'));
 
     final vm = const ReportComposer().compose(snapshot);
     expect(vm.category.centerValue, '400.00 SAR');
@@ -399,18 +418,21 @@ void main() {
         accountId: excluded.id);
 
     // Combined (no active account) excludes the flagged account.
-    final combined =
-        await txRepo.expenseTotalBetween(from: monthStart, to: nextMonthStart);
-    expect(combined, 0);
+    final combined = await txRepo.expenseTotalBetween(
+        from: monthStart, to: nextMonthStart, currency: 'SAR');
+    expect(combined, Money(0, 'SAR'));
     // Drilling into the flagged account still shows its own total.
     final scoped = await txRepo.expenseTotalBetween(
-        from: monthStart, to: nextMonthStart, accountId: excluded.id);
-    expect(scoped, 70);
+        from: monthStart,
+        to: nextMonthStart,
+        currency: 'SAR',
+        accountId: excluded.id);
+    expect(scoped, Money(7000, 'SAR'));
 
     // Header, scoped to the excluded account, reports its own total.
     container.read(activeAccountIdProvider.notifier).state = excluded.id;
     final header = await container.read(transactionsPeriodTotalProvider.future);
-    expect(header.netExpense, 70);
+    expect(header.netExpense, Money(7000, 'SAR'));
   });
 
   test('multi-currency never sums under one label', () async {
@@ -432,19 +454,20 @@ void main() {
     // Header on the SAR account shows SAR only — never 1099.
     final sarHeader =
         await container.read(transactionsPeriodTotalProvider.future);
-    expect(sarHeader.netExpense, 100);
+    expect(sarHeader.netExpense, Money(10000, 'SAR'));
     expect(sarHeader.currency, 'SAR');
 
     // Home categories for the SAR scope exclude the USD row.
     final sarGroups = await container.read(monthlyExpenseGroupsProvider.future);
-    expect(sarGroups.fold<double>(0, (s, g) => s + g.total), 100);
+    expect(Money.sum(sarGroups.map((group) => group.total), 'SAR'),
+        Money(10000, 'SAR'));
 
     // Switching to the USD account isolates its currency.
     container.read(activeAccountIdProvider.notifier).state = usd.id;
     container.invalidate(transactionsPeriodTotalProvider);
     final usdHeader =
         await container.read(transactionsPeriodTotalProvider.future);
-    expect(usdHeader.netExpense, 999);
+    expect(usdHeader.netExpense, Money(99900, 'USD'));
     expect(usdHeader.currency, 'USD');
   });
 
@@ -462,7 +485,7 @@ void main() {
     final header = await container.read(transactionsPeriodTotalProvider.future);
     // A fold over the first 500-row page would stop at 500; the canonical
     // aggregate sees all 501.
-    expect(header.netExpense, 501);
+    expect(header.netExpense, Money(50100, 'SAR'));
   });
 
   test(
@@ -499,13 +522,13 @@ void main() {
         categoryKey: null);
 
     final header = await container.read(transactionsPeriodTotalProvider.future);
-    expect(header.netExpense, 110); // 100 + 40 − 30
+    expect(header.netExpense, Money(11000, 'SAR')); // 100 + 40 − 30
   });
 
   test('empty result → header 0', () async {
     await account('main', isDefault: true);
     final header = await container.read(transactionsPeriodTotalProvider.future);
-    expect(header.netExpense, 0);
+    expect(header.netExpense, Money(0, 'SAR'));
   });
 
   test('category alias resolves to the same stable category key', () async {
@@ -528,7 +551,7 @@ void main() {
     final groceries =
         (await categoryRepo.getAll()).firstWhere((c) => c.key == 'groceries');
     final g = groups.firstWhere((g) => g.categoryId == groceries.id);
-    expect(g.total, 100);
+    expect(g.total, Money(10000, 'SAR'));
     expect(g.count, 2);
   });
 }

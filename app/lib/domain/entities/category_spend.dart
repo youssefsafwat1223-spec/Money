@@ -1,4 +1,8 @@
-/// مجموع الإنفاق لتصنيف خلال فترة (لتفصيل «أين ذهبت أموالك»).
+import '../finance/money.dart';
+
+/// مجموع الإنفاق لتصنيف خلال فترة (لتفصيل «أين ذهبت أموالك»). MALI-026 (B8-3
+/// §16): [total] هو [Money] دقيق بعملة واحدة؛ التفصيل مُقيَّد بعملة واحدة فلا
+/// يُجمَع صرف عملتين في رقم واحد ولا تُحسَب نسبة عبر عملات مختلفة.
 class CategorySpend {
   const CategorySpend({
     required this.categoryId,
@@ -7,6 +11,6 @@ class CategorySpend {
   });
 
   final String categoryId;
-  final double total;
+  final Money total;
   final int count;
 }

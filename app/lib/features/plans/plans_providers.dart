@@ -3,26 +3,33 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money.dart';
 
 /// A plan paired with its current spending so the UI can show live progress.
 class PlanProgress {
   const PlanProgress(this.plan, this.spent);
 
   final PlanEntity plan;
-  final double spent;
+  final Money spent;
 
-  double get remaining => plan.budgetAmount - spent;
-  double get ratio => plan.budgetAmount <= 0
+  Money get remaining => plan.budgetAmountMoney - spent;
+  double get ratio => plan.budgetAmountMoney.isZero
       ? 0
-      : (spent / plan.budgetAmount).clamp(0, 1).toDouble();
-  bool get isOver => spent > plan.budgetAmount;
+      : (spent.toDouble() / plan.budgetAmountMoney.toDouble())
+          .clamp(0, 1)
+          .toDouble();
+  bool get isOver => spent.compareTo(plan.budgetAmountMoney) > 0;
 
   /// Suggested daily allowance for the rest of the plan.
-  double get perDayLeft {
+  Money get perDayLeft {
     final days = plan.daysLeft;
     final left = remaining;
-    if (days <= 0 || left <= 0) return 0;
-    return left / days;
+    final zero = Money.zero(plan.currency);
+    if (days <= 0 || left.compareTo(zero) <= 0) return zero;
+    return left.applyRate(
+      rateNumerator: BigInt.one,
+      rateDenominator: BigInt.from(days),
+    );
   }
 }
 

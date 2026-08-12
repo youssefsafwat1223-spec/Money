@@ -106,10 +106,16 @@ void main() {
       accountId: acc.id,
     );
 
-    expect(await transactions.expenseTotalBetween(from: from, to: to), 30);
+    expect(
+        await transactions.expenseTotalBetween(
+            from: from, to: to, currency: 'SAR'),
+        Money(3000, 'SAR'));
     // The excluded boundary row is the first row of the adjacent window.
     final next = DateTime.utc(2026, 9);
-    expect(await transactions.expenseTotalBetween(from: to, to: next), 40);
+    expect(
+        await transactions.expenseTotalBetween(
+            from: to, to: next, currency: 'SAR'),
+        Money(4000, 'SAR'));
   });
 
   test('categoryBreakdown is half-open [from, to)', () async {
@@ -117,9 +123,10 @@ void main() {
     await put(id: 'at-from', amount: 10, occurredAt: from, accountId: acc.id);
     await put(id: 'at-to', amount: 40, occurredAt: to, accountId: acc.id);
 
-    final rows = await transactions.categoryBreakdown(from: from, to: to);
-    final total = rows.fold<double>(0, (s, r) => s + r.total);
-    expect(total, 10); // the at-to row is excluded
+    final rows = await transactions.categoryBreakdown(
+        from: from, to: to, currency: 'SAR');
+    final total = Money.sum(rows.map((row) => row.total), 'SAR');
+    expect(total, Money(1000, 'SAR')); // the at-to row is excluded
   });
 
   test('account scope isolates currency — totals are never cross-currency sums',
@@ -144,12 +151,14 @@ void main() {
 
     // Each account's total stays in its own currency — never 300.
     expect(
-      await transactions.expenseTotalBetween(from: from, to: to, accountId: sar.id),
-      100,
+      await transactions.expenseTotalBetween(
+          from: from, to: to, currency: 'SAR', accountId: sar.id),
+      Money(10000, 'SAR'),
     );
     expect(
-      await transactions.expenseTotalBetween(from: from, to: to, accountId: usd.id),
-      200,
+      await transactions.expenseTotalBetween(
+          from: from, to: to, currency: 'USD', accountId: usd.id),
+      Money(20000, 'USD'),
     );
 
     // The per-currency grouping keeps them separate (no single labelled sum).
@@ -158,11 +167,11 @@ void main() {
     expect(byCurrency.length, 2);
     expect(
       byCurrency.firstWhere((c) => c.currency == 'SAR').expense,
-      100,
+      Money(10000, 'SAR'),
     );
     expect(
       byCurrency.firstWhere((c) => c.currency == 'USD').expense,
-      200,
+      Money(20000, 'USD'),
     );
   });
 }

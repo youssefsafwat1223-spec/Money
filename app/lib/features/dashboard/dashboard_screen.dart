@@ -29,6 +29,7 @@ import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/money.dart';
 import '../../core/security/app_lock_service.dart';
 import '../app/app_shell.dart';
 import '../cards/brand_mark.dart';
@@ -242,7 +243,8 @@ class _HomeBody extends ConsumerWidget {
         ? '${(ratio.abs() * 100).round()}% عن الأسبوع الماضي'
         : null;
 
-    final hasBudget = data.monthlyBudgetLimit > 0;
+    final hasBudget =
+        !data.monthlyBudgetLimit.isZero && !data.monthlyBudgetLimit.isNegative;
     final remaining =
         hasBudget ? (1 - data.monthlyBudgetRatio).clamp(0.0, 1.0) : null;
     final over = hasBudget && data.monthlyBudgetRatio >= 1.0;
@@ -526,8 +528,8 @@ class _BlueZone extends ConsumerWidget {
         ? '${(ratio.abs() * 100).round()}% عن الأسبوع الماضي'
         : null;
     final todayNet = data.todayIncome - data.todaySpend;
-    String signed(double v) =>
-        '${v >= 0 ? '+' : '−'}${Formatters.amount(v.abs())}';
+    String signed(Money value) =>
+        '${value.isNegative ? '−' : '+'}${Formatters.amount((value.isNegative ? -value : value).toDouble())}';
     final currencyLabel = Currency.arabicLabel(data.currency.toUpperCase());
 
     return Container(
@@ -602,7 +604,9 @@ class _BlueZone extends ConsumerWidget {
             children: [
               Flexible(
                 child: Text(
-                  privacyMode ? '••••••' : Formatters.amount(heroValue),
+                  privacyMode
+                      ? '••••••'
+                      : Formatters.amount(heroValue.toDouble()),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.amountHero(Colors.white)
@@ -631,18 +635,18 @@ class _BlueZone extends ConsumerWidget {
                     'دخل اليوم',
                     privacyMode
                         ? '••••'
-                        : '+${Formatters.amount(data.todayIncome)}',
+                        : '+${Formatters.amount(data.todayIncome.toDouble())}',
                     _income),
                 _pulseDivider(),
                 _pulseCell(
                     'مصروف اليوم',
                     privacyMode
                         ? '••••'
-                        : '−${Formatters.amount(data.todaySpend)}',
+                        : '−${Formatters.amount(data.todaySpend.toDouble())}',
                     Colors.white),
                 _pulseDivider(),
                 _pulseCell('الصافي', privacyMode ? '••••' : signed(todayNet),
-                    todayNet >= 0 ? _income : _expenseNet),
+                    todayNet.isNegative ? _expenseNet : _income),
               ],
             ),
           ),
@@ -912,10 +916,12 @@ class _BudgetSection extends ConsumerWidget {
                   rings: [
                     for (final b in entries)
                       BudgetRing(
-                        value: b.limit > 0 ? (b.ratio).clamp(0.0, 1.0) : null,
+                        value: b.limit.isZero || b.limit.isNegative
+                            ? null
+                            : (b.ratio).clamp(0.0, 1.0),
                         name: b.label,
                         sub:
-                            '${Formatters.amount(b.spent)} / ${Formatters.amount(b.limit)}',
+                            '${Formatters.amount(b.spent.toDouble())} / ${Formatters.amount(b.limit.toDouble())}',
                         color: toneOf(b.ratio),
                       ),
                   ],
@@ -936,7 +942,9 @@ class _BudgetWideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = MaliTokens.of(context);
-    final ratio = entry.limit > 0 ? entry.ratio.clamp(0.0, 1.0) : null;
+    final ratio = entry.limit.isZero || entry.limit.isNegative
+        ? null
+        : entry.ratio.clamp(0.0, 1.0);
     return MaliCard(
       style: MaliSurfaceStyle.floating,
       child: Row(
@@ -960,7 +968,7 @@ class _BudgetWideCard extends StatelessWidget {
                     style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
                 const SizedBox(height: 6),
                 Text(
-                  '${Formatters.amount(entry.spent)} / ${Formatters.amount(entry.limit)}',
+                  '${Formatters.amount(entry.spent.toDouble())} / ${Formatters.amount(entry.limit.toDouble())}',
                   style: AppTypography.caption(t.textOnCanvasSecondary),
                 ),
               ],
@@ -1482,7 +1490,7 @@ class _PlanCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('المصروف: ${Formatters.amount(progress.spent)}',
+              Text('المصروف: ${Formatters.amount(progress.spent.toDouble())}',
                   style: AppTypography.caption(t.textOnCanvasSecondary)),
               Text('تنتهي: ${Formatters.dateGroupLabel(plan.endDate, context)}',
                   style: AppTypography.caption(t.textOnCanvasMuted)),

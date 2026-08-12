@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/report_models.dart';
+import '../../../domain/finance/money.dart';
 import '../category_catalog.dart';
 import '../widgets.dart';
 
@@ -155,7 +156,7 @@ class WeeklyCapsuleBarChart extends StatelessWidget {
     final visibleDays = _lastSevenDays(days);
     final maxValue = visibleDays.fold<double>(
       1,
-      (max, day) => day.total > max ? day.total : max,
+      (max, day) => math.max(max, day.total.toDouble()),
     );
     final palette = [
       c.primary,
@@ -194,6 +195,7 @@ class WeeklyCapsuleBarChart extends StatelessWidget {
   List<DailySpend> _lastSevenDays(List<DailySpend> source) {
     final sorted = [...source]..sort((a, b) => a.day.compareTo(b.day));
     if (sorted.length >= 7) return sorted.sublist(sorted.length - 7);
+    if (sorted.isEmpty) return const <DailySpend>[];
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final existing = {
@@ -203,7 +205,10 @@ class WeeklyCapsuleBarChart extends StatelessWidget {
     return [
       for (var i = 6; i >= 0; i--)
         existing[today.subtract(Duration(days: i))] ??
-            DailySpend(day: today.subtract(Duration(days: i)), total: 0),
+            DailySpend(
+              day: today.subtract(Duration(days: i)),
+              total: Money.zero(sorted.first.total.currency),
+            ),
     ];
   }
 }
@@ -232,7 +237,8 @@ class _CapsuleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final ratio = maxValue <= 0 ? 0.0 : (day.total / maxValue).clamp(0.0, 1.0);
+    final chartValue = day.total.toDouble();
+    final ratio = maxValue <= 0 ? 0.0 : (chartValue / maxValue).clamp(0.0, 1.0);
     final barHeight = 24 + ratio * maxBarHeight;
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
@@ -244,7 +250,7 @@ class _CapsuleBar extends StatelessWidget {
             child: Column(
               children: [
                 Text(
-                  privacyMode ? '••••' : Formatters.amount(day.total),
+                  privacyMode ? '••••' : Formatters.amount(chartValue),
                   textAlign: TextAlign.center,
                   style: AppTypography.caption(c.textSecondary)
                       .copyWith(fontWeight: FontWeight.w700),
