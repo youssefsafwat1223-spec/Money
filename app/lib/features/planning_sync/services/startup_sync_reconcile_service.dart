@@ -59,7 +59,7 @@ class StartupSyncReconcileService {
       // can resolve their server_account_id foreign references. All services
       // are idempotent (keyed on local_id / client_request_id) and the account
       // ones assert local-data ownership (no cross-account upload).
-      await AccountsBackfillService(db: _db).run();
+      await AccountsBackfillService(db: _db, coordinator: _coordinator).run();
       await TransactionsBackfillService(db: _db, coordinator: _coordinator).run();
       // Planning entities too — otherwise budgets/goals/subscriptions/plans
       // created before sync (or with no session) stay local-only and are

@@ -4,8 +4,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/money_codec.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/errors/repo_exceptions.dart';
+import '../../../domain/finance/money.dart';
+import '../../../domain/finance/money_transport.dart';
 
 class AccountBackfillReport {
   const AccountBackfillReport({
@@ -37,16 +41,37 @@ class AccountsBackfillService {
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
     Future<String?> Function()? getLocalDataOwnerUid,
+    // MALI-026 (B8-3 §13): read balances as EXACT Money (from `_minor`, never the
+    // REAL shadow as authority) and serialize canonical → exact decimal STRING,
+    // matching the primary account outbox push (planning_outbox_queue).
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _db = db,
         _getClient = getClient ?? (() => Supabase.instance.client),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getLocalDataOwnerUid =
-            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
+            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid,
+        _coordinator = coordinator;
 
   final AppDatabase _db;
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
   final Future<String?> Function() _getLocalDataOwnerUid;
+  final PlanningCutoverCoordinator _coordinator;
+
+  bool get _canonical =>
+      _coordinator.state() == PlanningCutoverState.canonical;
+
+  /// Serialize a balance for the wire exactly as the primary push does:
+  /// canonical → exact decimal STRING, legacy → JSON number.
+  Object? _amountWireOrNull(Money? m) => _canonical
+      ? moneyToNumericTextOrNull(m)
+      : moneyToLegacyJsonNumberOrNull(m);
+
+  /// Reconstruct the server's returned NUMERIC balance as Money for an exact
+  /// mismatch diagnostic (server returns the value from a plain `.select()`).
+  Money? _serverMoneyOrNull(Object? raw, String currency) =>
+      raw == null ? null : Money.parse(raw.toString(), currency);
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -86,14 +111,19 @@ class AccountsBackfillService {
     for (final local in localRows) {
       final localId = local.read<String>('id');
       final deletedAt = local.readNullable<String>('deleted_at');
+      final currency = local.read<String>('currency');
+      final initialM =
+          kMoneyCodec.readColumnNullable(local, 'initial_balance', currency);
+      final currentM =
+          kMoneyCodec.readColumnNullable(local, 'current_balance', currency);
       final payload = {
         'user_id': uid,
         'local_id': localId,
         'name': local.read<String>('name'),
-        'currency': local.read<String>('currency'),
+        'currency': currency,
         'type': local.read<String>('type'),
-        'initial_balance': local.readNullable<double>('initial_balance'),
-        'current_balance': local.readNullable<double>('current_balance'),
+        'initial_balance': _amountWireOrNull(initialM),
+        'current_balance': _amountWireOrNull(currentM),
         'is_default': false, // مرحَّل دائمًا false — يُحسم لاحقًا عبر RPC ذرّي
         'sort_order': local.read<int>('sort_order'),
         'created_at': local.read<String>('created_at'),
@@ -126,10 +156,10 @@ class AccountsBackfillService {
       final mismatch = serverRow['name'] != payload['name'] ||
           serverRow['currency'] != payload['currency'] ||
           serverRow['type'] != payload['type'] ||
-          (serverRow['initial_balance'] as num?)?.toDouble() !=
-              payload['initial_balance'] ||
-          (serverRow['current_balance'] as num?)?.toDouble() !=
-              payload['current_balance'] ||
+          _serverMoneyOrNull(serverRow['initial_balance'], currency) !=
+              initialM ||
+          _serverMoneyOrNull(serverRow['current_balance'], currency) !=
+              currentM ||
           serverRow['deleted_at'] != payload['deleted_at'];
       if (mismatch) mismatched.add(localId);
 
