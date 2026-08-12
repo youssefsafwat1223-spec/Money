@@ -5,6 +5,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/usecases/run_goal_auto_saves_usecase.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -15,7 +16,6 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 void main() {
-
   late AppDatabase db;
   late DriftGoalRepository repo;
 
@@ -38,12 +38,15 @@ void main() {
       GoalEntity(
         id: 'g1',
         name: 'سيارة',
-        targetAmount: 10000,
-        savedAmount: 0,
+        currency: 'SAR',
+        targetMoney: Money.parse('10000', 'SAR'),
+        savedMoney: Money(0, 'SAR'),
+        lastNotifiedSavedMoney: Money(0, 'SAR'),
         vaultSkin: 'default_vault',
         status: status,
         createdAt: DateTime.utc(2026, 1, 1),
-        autoSaveAmount: autoAmount,
+        autoSaveMoney:
+            autoAmount == null ? null : Money.fromLegacyReal(autoAmount, 'SAR'),
         autoSavePeriod: period,
         autoSaveLastRun: lastRun,
       );

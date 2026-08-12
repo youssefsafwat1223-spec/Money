@@ -58,9 +58,10 @@ Future<void> _seedGoals(dynamic db, int count) async {
   const now = '2026-07-23T09:00:00.000Z';
   for (var i = 0; i < count; i++) {
     await db.customStatement('''
-      INSERT INTO goals(id,name,target_amount,saved_amount,vault_skin,status,
-        created_at,server_id,sync_status)
-      VALUES ('goal-$i','G$i',100,0,'classic','active','$now',
+      INSERT INTO goals(id,name,currency,target_amount,target_amount_minor,
+        saved_amount,saved_amount_minor,last_notified_saved_amount_minor,
+        vault_skin,status,created_at,server_id,sync_status)
+      VALUES ('goal-$i','G$i','SAR',100,10000,0,0,0,'classic','active','$now',
         'server-goal-$i','synced');
     ''');
   }

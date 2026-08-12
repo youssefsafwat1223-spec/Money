@@ -26,6 +26,7 @@ import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
+import '../../data/db/planning_canonical_invariants.dart';
 import '../../data/db/planning_cutover.dart';
 import '../../data/repositories/account_deletion_service.dart';
 import '../../data/repositories/drift_account_repository.dart';
@@ -103,12 +104,28 @@ final appDatabaseProvider = Provider<AppDatabase>((ref) {
   throw UnimplementedError('AppDatabase must be provided from main().');
 });
 
-/// The one planning money-authority seam shared by every cutover-aware
-/// subsystem. Schema v29 is unconditionally legacy/allowed; tests and the future
-/// v30 implementation override this provider rather than inspecting columns.
+/// MALI-026 (B8-3 §1) — the ACTIVATED planning money-authority seam. The DB-marker
+/// coordinator resolves the real cutover state from user_settings.planning_cutover_state
+/// + a canonical-invariant recount. It starts at [PlanningCutoverState.canonical]
+/// (a fresh v30 DB is canonical) and MUST be refreshed at bootstrap
+/// (`refreshFromDatabase()` in main) to reflect an upgraded-with-data (unresolved)
+/// database. Tests inject a fixed state via override for P1/P3 scenarios.
 final planningCutoverCoordinatorProvider =
     Provider<PlanningCutoverCoordinator>((ref) {
-  return const SchemaV29PlanningCutoverCoordinator();
+  final db = ref.watch(appDatabaseProvider);
+  return DbBackedPlanningCutoverCoordinator(
+    initialState: PlanningCutoverState.canonical,
+    readUserVersion: () async => (await db
+            .customSelect('PRAGMA user_version;')
+            .getSingle())
+        .read<int>('user_version'),
+    readMarker: () async => (await db
+            .customSelect('SELECT planning_cutover_state AS s FROM user_settings;')
+            .getSingle())
+        .read<int>('s'),
+    countCanonicalViolations: () async =>
+        (await planningCanonicalViolations(db)).length,
+  );
 });
 
 /// Central P1 mutation/delete guard. It is intentionally not called by current
@@ -697,7 +714,7 @@ final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
   return DriftBudgetRepository(
     db,
     outboxQueue: ref.watch(planningOutboxQueueProvider),
-    guard: ref.watch(planningMutationGuardProvider),
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );
 });
 
@@ -706,7 +723,7 @@ final goalRepositoryProvider = Provider<GoalRepository>((ref) {
   return DriftGoalRepository(
     db,
     outboxQueue: ref.watch(planningOutboxQueueProvider),
-    guard: ref.watch(planningMutationGuardProvider),
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );
 });
 

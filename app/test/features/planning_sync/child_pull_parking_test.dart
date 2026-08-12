@@ -101,10 +101,11 @@ void main() {
       );
 
   Future<void> seedGoal(AppDatabase db, String serverId) => db.customStatement(
-        "INSERT INTO goals(id,name,target_amount,saved_amount,vault_skin,status,"
-        "created_at,server_id,sync_status) VALUES "
-        "('local-$serverId','هدف',100,0,'classic','active','2026-07-23T09:00:00Z',"
-        "'$serverId','synced');",
+        "INSERT INTO goals(id,name,currency,target_amount,target_amount_minor,"
+        "saved_amount,saved_amount_minor,last_notified_saved_amount_minor,"
+        "vault_skin,status,created_at,server_id,sync_status) VALUES "
+        "('local-$serverId','هدف','SAR',100,10000,0,0,0,'classic',"
+        "'active','2026-07-23T09:00:00Z','$serverId','synced');",
       );
 
   Future<int> count(AppDatabase db, String sql) async =>

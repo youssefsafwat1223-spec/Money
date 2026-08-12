@@ -150,8 +150,10 @@ void main() {
     final goal = GoalEntity(
       id: 'emergency',
       name: 'الطوارئ',
-      targetAmount: 1000,
-      savedAmount: 520,
+      currency: 'SAR',
+      targetMoney: Money.parse('1000', 'SAR'),
+      savedMoney: Money.parse('520', 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       vaultSkin: 'amber',
       status: 'active',
       createdAt: DateTime(2026, 6, 1),
@@ -340,7 +342,8 @@ void main() {
   // notification_capacity_planner_test 'cancels managed pending that fell out').
   group('reminder reconciliation', () {
     const planner = NotificationPlanner();
-    BillEntity bill({required DateTime due, bool reminderOn = true}) => BillEntity(
+    BillEntity bill({required DateTime due, bool reminderOn = true}) =>
+        BillEntity(
           id: 'netflix',
           name: 'Netflix',
           amountMoney: Money.fromLegacyReal(45, 'SAR'),
@@ -370,7 +373,8 @@ void main() {
       expect(p1.first.scheduledAtRiyadh, isNot(p2.first.scheduledAtRiyadh));
     });
 
-    test('disabling a reminder plans nothing (capacity then cancels the stale id)',
+    test(
+        'disabling a reminder plans nothing (capacity then cancels the stale id)',
         () {
       final planned = planner.planBillReminders(
         preferences: const NotificationPreferences(),

@@ -45,8 +45,8 @@ void main() {
 
   DateTime clock() => DateTime(2026, 7, 27, 12);
 
-  pw.Font fontFrom(String file) =>
-      pw.Font.ttf(ByteData.sublistView(File('assets/fonts/$file').readAsBytesSync()));
+  pw.Font fontFrom(String file) => pw.Font.ttf(
+      ByteData.sublistView(File('assets/fonts/$file').readAsBytesSync()));
 
   ReportFontSet loadFonts() => ReportFontSet(
         regular: fontFrom('IBMPlexSansArabic-Regular.ttf'),
@@ -107,18 +107,21 @@ void main() {
     await budgetRepo.save(BudgetEntity(
       id: 'bud-groc',
       categoryId: groceriesId,
-      amount: 1500, // spent 1,980 → over budget
+      currency: 'SAR',
+      amountMoney: Money.parse('1500', 'SAR'), // spent 1,980 → over budget
       period: BudgetPeriod.monthly,
       startDate: DateTime(2026, 7),
       isActive: true,
-      lastNotifiedSpentAmount: 0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime(2026, 7),
     ));
     await goalRepo.save(GoalEntity(
       id: 'goal-1',
       name: 'صندوق الطوارئ',
-      targetAmount: 20000,
-      savedAmount: 13500,
+      currency: 'SAR',
+      targetMoney: Money.parse('20000', 'SAR'),
+      savedMoney: Money.parse('13500', 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       vaultSkin: '',
       status: 'active',
       createdAt: clock(),
@@ -127,17 +130,64 @@ void main() {
 
     // July (current): income 12,400 · expense 8,730 across categories + one
     // uncategorised payment (→ "Other" remainder).
-    await put(id: 'jul-inc', amount: 12400, type: TransactionTypeEntity.income, occurredAt: DateTime.utc(2026, 7, 5));
-    await put(id: 'jul-groc', amount: 1980, type: TransactionTypeEntity.payment, occurredAt: DateTime.utc(2026, 7, 8), categoryKey: 'groceries', merchant: 'Panda');
-    await put(id: 'jul-rest', amount: 1540, type: TransactionTypeEntity.payment, occurredAt: DateTime.utc(2026, 7, 20), categoryKey: 'restaurants', merchant: 'Cheesecake Factory');
-    await put(id: 'jul-bill', amount: 1320, type: TransactionTypeEntity.payment, occurredAt: DateTime.utc(2026, 7, 6), categoryKey: 'bills', merchant: 'Electricity');
-    await put(id: 'jul-shop', amount: 1150, type: TransactionTypeEntity.payment, occurredAt: DateTime.utc(2026, 7, 14), categoryKey: 'shopping', merchant: 'IKEA');
-    await put(id: 'jul-tran', amount: 980, type: TransactionTypeEntity.payment, occurredAt: DateTime.utc(2026, 7, 11), categoryKey: 'transport', merchant: 'Uber');
-    await put(id: 'jul-unc', amount: 1760, type: TransactionTypeEntity.payment, occurredAt: DateTime.utc(2026, 7, 15));
+    await put(
+        id: 'jul-inc',
+        amount: 12400,
+        type: TransactionTypeEntity.income,
+        occurredAt: DateTime.utc(2026, 7, 5));
+    await put(
+        id: 'jul-groc',
+        amount: 1980,
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 7, 8),
+        categoryKey: 'groceries',
+        merchant: 'Panda');
+    await put(
+        id: 'jul-rest',
+        amount: 1540,
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 7, 20),
+        categoryKey: 'restaurants',
+        merchant: 'Cheesecake Factory');
+    await put(
+        id: 'jul-bill',
+        amount: 1320,
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 7, 6),
+        categoryKey: 'bills',
+        merchant: 'Electricity');
+    await put(
+        id: 'jul-shop',
+        amount: 1150,
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 7, 14),
+        categoryKey: 'shopping',
+        merchant: 'IKEA');
+    await put(
+        id: 'jul-tran',
+        amount: 980,
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 7, 11),
+        categoryKey: 'transport',
+        merchant: 'Uber');
+    await put(
+        id: 'jul-unc',
+        amount: 1760,
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 7, 15));
 
     // June (previous): income 12,400 · expense 9,910 → savings 20% → +10pp, expense ▼11.9%.
-    await put(id: 'jun-inc', amount: 12400, type: TransactionTypeEntity.income, occurredAt: DateTime.utc(2026, 6, 5));
-    await put(id: 'jun-exp', amount: 9910, type: TransactionTypeEntity.payment, occurredAt: DateTime.utc(2026, 6, 15), categoryKey: 'groceries');
+    await put(
+        id: 'jun-inc',
+        amount: 12400,
+        type: TransactionTypeEntity.income,
+        occurredAt: DateTime.utc(2026, 6, 5));
+    await put(
+        id: 'jun-exp',
+        amount: 9910,
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 6, 15),
+        categoryKey: 'groceries');
   });
 
   tearDown(() async => db.close());
@@ -153,7 +203,8 @@ void main() {
   test('renders a full Arabic report PDF from real data', () async {
     final snap = await snapshotFor('ar');
     final vm = composer.compose(snap);
-    final bytes = await renderer.render(model: vm, fonts: loadFonts(), theme: theme);
+    final bytes =
+        await renderer.render(model: vm, fonts: loadFonts(), theme: theme);
 
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
     expect(bytes.length, greaterThan(5000));
@@ -180,17 +231,20 @@ void main() {
     expect(vm.category.rows.first.value, '••••');
     expect(vm.insights, isNotEmpty); // insights still computed
     // Rendering must still succeed.
-    final bytes = await renderer.render(model: vm, fonts: loadFonts(), theme: theme);
+    final bytes =
+        await renderer.render(model: vm, fonts: loadFonts(), theme: theme);
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
   });
 
   test('renders a full English report PDF from real data', () async {
     final snap = await snapshotFor('en');
     final vm = composer.compose(snap);
-    final bytes = await renderer.render(model: vm, fonts: loadFonts(), theme: theme);
+    final bytes =
+        await renderer.render(model: vm, fonts: loadFonts(), theme: theme);
 
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
-    expect(vm.comparison.firstWhere((r) => r.metric == 'Expenses').delta, contains('11.9%'));
+    expect(vm.comparison.firstWhere((r) => r.metric == 'Expenses').delta,
+        contains('11.9%'));
     expect(vm.category.rows.any((r) => r.label == 'Groceries'), isTrue);
     File('build/report_full_en.pdf').writeAsBytesSync(bytes);
   });

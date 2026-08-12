@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -117,6 +119,9 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
     final save = ref.read(saveBudgetUseCaseProvider);
     final budgetRepo = ref.read(budgetRepositoryProvider);
     final now = DateTime.now().toUtc();
+    // §25 — new budgets are seeded from the effective base currency; amounts are
+    // parsed EXACTLY from each envelope's input string.
+    final currency = ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR';
     for (final entry in _allocationPlan.entries) {
       final amount = _val(entry.key);
       final category = catalog.byKey(entry.key);
@@ -125,11 +130,12 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
         BudgetEntity(
           id: idFor(category.id) ?? IdGenerator.next(),
           categoryId: category.id,
-          amount: amount,
+          currency: currency,
+          amountMoney: parseLocalizedMoney(_ctrl(entry.key).text.trim(), currency),
+          lastNotifiedSpentMoney: Money(0, currency),
           period: BudgetPeriod.monthly,
           startDate: now,
           isActive: true,
-          lastNotifiedSpentAmount: 0,
           lastNotifiedPeriodStart: now,
           accountId: accountId,
         ),
@@ -153,9 +159,11 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
       final goalRepo = ref.read(goalRepositoryProvider);
       final goal = await goalRepo.getById(goalId);
       if (goal != null) {
+        // The auto-save amount is in the GOAL's own currency, parsed exactly.
         await goalRepo.save(
           goal.copyWith(
-            autoSaveAmount: savings,
+            autoSaveMoney:
+                parseLocalizedMoney(_savingsController.text.trim(), goal.currency),
             autoSavePeriod: 'monthly',
             autoSaveLastRun: goal.autoSaveLastRun ?? now,
           ),

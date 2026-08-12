@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -410,7 +412,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     }
     setState(() => _saving = true);
     try {
-      final amount = double.parse(_amountController.text);
+      // §25 — an existing budget keeps its persisted currency; a new one is
+      // seeded from the effective base. The amount is parsed EXACTLY from the
+      // input string into that currency (never double -> Money.fromLegacyReal).
+      final currency = existing?.currency ??
+          (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+      final amountMoney = parseLocalizedMoney(_amountController.text, currency);
       final accounts =
           ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
       final selectedAccount = _selectedAccount(accounts);
@@ -419,16 +426,17 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
               BudgetEntity(
                 id: IdGenerator.next(),
                 categoryId: _categoryId!,
-                amount: amount,
+                currency: currency,
+                amountMoney: amountMoney,
+                lastNotifiedSpentMoney: Money(0, currency),
                 period: _period,
                 startDate: DateTime.now().toUtc(),
                 isActive: true,
-                lastNotifiedSpentAmount: 0,
                 lastNotifiedPeriodStart: DateTime.now().toUtc(),
               ))
           .copyWith(
         categoryId: _categoryId,
-        amount: amount,
+        amountMoney: amountMoney,
         period: _period,
         showOnHeader: false,
         accountId: selectedAccount?.id,

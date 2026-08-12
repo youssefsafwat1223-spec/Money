@@ -180,9 +180,11 @@ Future<void> _seedParents(AppDatabase db) async {
     VALUES ('merchant-1','نت','نت','$now','$now');
   ''');
   await db.customStatement('''
-    INSERT INTO goals(id,name,target_amount,saved_amount,vault_skin,status,
-      created_at,server_id,sync_status)
-    VALUES ('goal-1','هدف',100,0,'classic','active','$now','server-goal-1','synced');
+    INSERT INTO goals(id,name,target_amount,saved_amount,currency,
+      target_amount_minor,saved_amount_minor,last_notified_saved_amount_minor,
+      vault_skin,status,created_at,server_id,sync_status)
+    VALUES ('goal-1','هدف',100,0,'EGP',10000,0,0,'classic','active',
+      '$now','server-goal-1','synced');
   ''');
   await db.customStatement('''
     INSERT INTO subscriptions(id,merchant_id,amount,period,next_due_date,
@@ -228,12 +230,12 @@ void main() {
     final contribution = GoalContributionEntity(
       id: 'gc-1',
       goalId: 'goal-1',
-      amount: 25,
+      amountMoney: Money.parse('25', 'EGP'),
       createdAt: DateTime.utc(2026, 7, 23, 9),
     );
     await db.customStatement('''
-      INSERT INTO goal_contributions(id,goal_id,amount,created_at)
-      VALUES ('gc-1','goal-1',25,'2026-07-23T09:00:00Z');
+      INSERT INTO goal_contributions(id,goal_id,amount,amount_minor,created_at)
+      VALUES ('gc-1','goal-1',25,2500,'2026-07-23T09:00:00Z');
     ''');
     await queue.enqueueGoalContribution(
       PlanningSyncOperation.create,

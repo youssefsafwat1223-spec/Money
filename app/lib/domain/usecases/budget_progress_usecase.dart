@@ -1,6 +1,7 @@
 import '../entities/budget_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../finance/budget_period.dart';
+import '../finance/money.dart';
 import '../reporting/date_range.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/transaction_repository.dart';
@@ -133,7 +134,9 @@ class BudgetProgressUseCase {
 
     final updated = budget.copyWith(
       startDate: expectedStart,
-      lastNotifiedSpentAmount: 0,
+      // Period roll resets the notified-spent to an EXACT zero in the budget's
+      // own currency (canonical persistence, not a display double).
+      lastNotifiedSpentMoney: Money(0, budget.currency),
       lastNotifiedPeriodStart: expectedStart,
     );
     return _budgetRepository.save(updated);

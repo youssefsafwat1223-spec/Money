@@ -134,26 +134,62 @@ void main() {
     final main = await account('main', isDefault: true);
 
     // groceries: 500 spent − 100 refunded → net 400 (refund NETS, not income).
-    await put(id: 'g-pay', amount: 500, type: TransactionTypeEntity.payment, accountId: main.id);
-    await put(id: 'g-ref', amount: 100, type: TransactionTypeEntity.refund, accountId: main.id);
+    await put(
+        id: 'g-pay',
+        amount: 500,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id);
+    await put(
+        id: 'g-ref',
+        amount: 100,
+        type: TransactionTypeEntity.refund,
+        accountId: main.id);
     // restaurants: 50 confirmed; a pending + an ignored that must NOT count.
-    await put(id: 'r-pay', amount: 50, type: TransactionTypeEntity.payment, accountId: main.id, categoryKey: 'restaurants');
-    await put(id: 'r-pending', amount: 30, type: TransactionTypeEntity.payment, accountId: main.id, categoryKey: 'restaurants', status: TransactionStatus.pending);
-    await put(id: 'r-ignored', amount: 60, type: TransactionTypeEntity.payment, accountId: main.id, categoryKey: 'restaurants', status: TransactionStatus.ignored);
+    await put(
+        id: 'r-pay',
+        amount: 50,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id,
+        categoryKey: 'restaurants');
+    await put(
+        id: 'r-pending',
+        amount: 30,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id,
+        categoryKey: 'restaurants',
+        status: TransactionStatus.pending);
+    await put(
+        id: 'r-ignored',
+        amount: 60,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id,
+        categoryKey: 'restaurants',
+        status: TransactionStatus.ignored);
     // income + transfer never touch expense.
-    await put(id: 'inc', amount: 500, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null);
-    await put(id: 'xfer', amount: 1000, type: TransactionTypeEntity.transfer, accountId: main.id, categoryKey: null);
+    await put(
+        id: 'inc',
+        amount: 500,
+        type: TransactionTypeEntity.income,
+        accountId: main.id,
+        categoryKey: null);
+    await put(
+        id: 'xfer',
+        amount: 1000,
+        type: TransactionTypeEntity.transfer,
+        accountId: main.id,
+        categoryKey: null);
 
     final groceries =
         (await categoryRepo.getAll()).firstWhere((c) => c.key == 'groceries');
     await budgetRepo.save(BudgetEntity(
       id: 'b-groceries',
       categoryId: groceries.id,
-      amount: 1000,
+      currency: 'SAR',
+      amountMoney: Money.parse('1000', 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: monthStart,
       isActive: true,
-      lastNotifiedSpentAmount: 0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2000),
     ));
 
@@ -170,14 +206,12 @@ void main() {
     expect(breakdownByCat[groceries.id], 400);
 
     // Transactions header provider == repository net expense.
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, repoExpense);
     expect(header.currency, 'SAR');
 
     // Home category provider == repository category breakdown.
-    final groups =
-        await container.read(monthlyExpenseGroupsProvider.future);
+    final groups = await container.read(monthlyExpenseGroupsProvider.future);
     final groupByCat = {for (final g in groups) g.categoryId: g.total};
     expect(groupByCat[groceries.id], breakdownByCat[groceries.id]);
     expect(groupByCat[groceries.id], 400);
@@ -195,18 +229,32 @@ void main() {
       '(same all-expenses month scope)', () async {
     final main = await account('main', isDefault: true);
     // groceries 500 − 100 refund = net 400 everywhere.
-    await put(id: 'pay', amount: 500, type: TransactionTypeEntity.payment, accountId: main.id);
-    await put(id: 'ref', amount: 100, type: TransactionTypeEntity.refund, accountId: main.id);
-    await put(id: 'inc', amount: 900, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null);
+    await put(
+        id: 'pay',
+        amount: 500,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id);
+    await put(
+        id: 'ref',
+        amount: 100,
+        type: TransactionTypeEntity.refund,
+        accountId: main.id);
+    await put(
+        id: 'inc',
+        amount: 900,
+        type: TransactionTypeEntity.income,
+        accountId: main.id,
+        categoryKey: null);
 
     await budgetRepo.save(BudgetEntity(
       id: 'b-all',
       categoryId: BudgetEntity.allExpensesCategoryId,
-      amount: 5000,
+      currency: 'SAR',
+      amountMoney: Money.parse('5000', 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: monthStart,
       isActive: true,
-      lastNotifiedSpentAmount: 0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2000),
     ));
     final planRepo = DriftPlanRepository(db);
@@ -227,8 +275,7 @@ void main() {
         from: monthStart, to: nextMonthStart, accountId: main.id);
     expect(repoExpense, 400);
 
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, 400);
 
     final budgetView = await container.read(budgetsViewProvider.future);
@@ -241,14 +288,29 @@ void main() {
   test('card summary net-spend == account net expense (same scope)', () async {
     final main = await account('main', isDefault: true);
     // All of main's expense is on card 9999 (SAR).
-    await put(id: 'c-pay', amount: 500, type: TransactionTypeEntity.payment, accountId: main.id, cardLast4: '9999');
-    await put(id: 'c-ref', amount: 100, type: TransactionTypeEntity.refund, accountId: main.id, cardLast4: '9999');
-    await put(id: 'c-inc', amount: 200, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null, cardLast4: '9999');
+    await put(
+        id: 'c-pay',
+        amount: 500,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id,
+        cardLast4: '9999');
+    await put(
+        id: 'c-ref',
+        amount: 100,
+        type: TransactionTypeEntity.refund,
+        accountId: main.id,
+        cardLast4: '9999');
+    await put(
+        id: 'c-inc',
+        amount: 200,
+        type: TransactionTypeEntity.income,
+        accountId: main.id,
+        categoryKey: null,
+        cardLast4: '9999');
 
     final repoExpense = await txRepo.expenseTotalBetween(
         from: monthStart, to: nextMonthStart, accountId: main.id);
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
     final sar = (await txRepo.getCardSummaries())
         .firstWhere((s) => s.last4 == '9999' && s.currency == 'SAR');
 
@@ -263,14 +325,26 @@ void main() {
   test('report snapshot + composer agree with the repo/header on one scope',
       () async {
     final main = await account('main', isDefault: true);
-    await put(id: 'pay', amount: 500, type: TransactionTypeEntity.payment, accountId: main.id);
-    await put(id: 'ref', amount: 100, type: TransactionTypeEntity.refund, accountId: main.id);
-    await put(id: 'inc', amount: 500, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null);
+    await put(
+        id: 'pay',
+        amount: 500,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id);
+    await put(
+        id: 'ref',
+        amount: 100,
+        type: TransactionTypeEntity.refund,
+        accountId: main.id);
+    await put(
+        id: 'inc',
+        amount: 500,
+        type: TransactionTypeEntity.income,
+        accountId: main.id,
+        categoryKey: null);
 
     final repoExpense = await txRepo.expenseTotalBetween(
         from: monthStart, to: nextMonthStart, accountId: main.id);
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
 
     final builder = ReportSnapshotBuilder(
       transactions: txRepo,
@@ -290,8 +364,10 @@ void main() {
     expect(header.netExpense, 400);
     expect(snapshot.totalExpense, 400);
     expect(snapshot.currencyTotals.single.expense, 400);
-    expect(snapshot.categoryBreakdownByCurrency['SAR']!
-        .fold<double>(0, (s, c) => s + c.total), 400);
+    expect(
+        snapshot.categoryBreakdownByCurrency['SAR']!
+            .fold<double>(0, (s, c) => s + c.total),
+        400);
 
     // Appendix rows (net-expense signed) sum to the same total.
     final appendixNet = snapshot.appendixTransactions
@@ -302,7 +378,10 @@ void main() {
         .fold<double>(
             0,
             (s, t) =>
-                s + (t.type == TransactionTypeEntity.refund ? -t.amount : t.amount));
+                s +
+                (t.type == TransactionTypeEntity.refund
+                    ? -t.amount
+                    : t.amount));
     expect(appendixNet, 400);
 
     final vm = const ReportComposer().compose(snapshot);
@@ -313,11 +392,15 @@ void main() {
       () async {
     await account('main', isDefault: true);
     final excluded = await account('excluded', excludeFromTotals: true);
-    await put(id: 'e-pay', amount: 70, type: TransactionTypeEntity.payment, accountId: excluded.id);
+    await put(
+        id: 'e-pay',
+        amount: 70,
+        type: TransactionTypeEntity.payment,
+        accountId: excluded.id);
 
     // Combined (no active account) excludes the flagged account.
-    final combined = await txRepo.expenseTotalBetween(
-        from: monthStart, to: nextMonthStart);
+    final combined =
+        await txRepo.expenseTotalBetween(from: monthStart, to: nextMonthStart);
     expect(combined, 0);
     // Drilling into the flagged account still shows its own total.
     final scoped = await txRepo.expenseTotalBetween(
@@ -326,16 +409,25 @@ void main() {
 
     // Header, scoped to the excluded account, reports its own total.
     container.read(activeAccountIdProvider.notifier).state = excluded.id;
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, 70);
   });
 
   test('multi-currency never sums under one label', () async {
     final sar = await account('main', currency: 'SAR', isDefault: true);
     final usd = await account('usd', currency: 'USD');
-    await put(id: 's-pay', amount: 100, type: TransactionTypeEntity.payment, accountId: sar.id, currency: 'SAR');
-    await put(id: 'u-pay', amount: 999, type: TransactionTypeEntity.payment, accountId: usd.id, currency: 'USD');
+    await put(
+        id: 's-pay',
+        amount: 100,
+        type: TransactionTypeEntity.payment,
+        accountId: sar.id,
+        currency: 'SAR');
+    await put(
+        id: 'u-pay',
+        amount: 999,
+        type: TransactionTypeEntity.payment,
+        accountId: usd.id,
+        currency: 'USD');
 
     // Header on the SAR account shows SAR only — never 1099.
     final sarHeader =
@@ -344,8 +436,7 @@ void main() {
     expect(sarHeader.currency, 'SAR');
 
     // Home categories for the SAR scope exclude the USD row.
-    final sarGroups =
-        await container.read(monthlyExpenseGroupsProvider.future);
+    final sarGroups = await container.read(monthlyExpenseGroupsProvider.future);
     expect(sarGroups.fold<double>(0, (s, g) => s + g.total), 100);
 
     // Switching to the USD account isolates its currency.
@@ -368,42 +459,72 @@ void main() {
         accountId: main.id,
       );
     }
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
     // A fold over the first 500-row page would stop at 500; the canonical
     // aggregate sees all 501.
     expect(header.netExpense, 501);
   });
 
-  test('header net expense = payment + withdrawal − refund; income/transfer out',
+  test(
+      'header net expense = payment + withdrawal − refund; income/transfer out',
       () async {
     final main = await account('main', isDefault: true);
-    await put(id: 'pay', amount: 100, type: TransactionTypeEntity.payment, accountId: main.id);
-    await put(id: 'wd', amount: 40, type: TransactionTypeEntity.withdrawal, accountId: main.id, categoryKey: 'cash');
-    await put(id: 'ref', amount: 30, type: TransactionTypeEntity.refund, accountId: main.id);
-    await put(id: 'inc', amount: 500, type: TransactionTypeEntity.income, accountId: main.id, categoryKey: null);
-    await put(id: 'xf', amount: 200, type: TransactionTypeEntity.transfer, accountId: main.id, categoryKey: null);
+    await put(
+        id: 'pay',
+        amount: 100,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id);
+    await put(
+        id: 'wd',
+        amount: 40,
+        type: TransactionTypeEntity.withdrawal,
+        accountId: main.id,
+        categoryKey: 'cash');
+    await put(
+        id: 'ref',
+        amount: 30,
+        type: TransactionTypeEntity.refund,
+        accountId: main.id);
+    await put(
+        id: 'inc',
+        amount: 500,
+        type: TransactionTypeEntity.income,
+        accountId: main.id,
+        categoryKey: null);
+    await put(
+        id: 'xf',
+        amount: 200,
+        type: TransactionTypeEntity.transfer,
+        accountId: main.id,
+        categoryKey: null);
 
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, 110); // 100 + 40 − 30
   });
 
   test('empty result → header 0', () async {
     await account('main', isDefault: true);
-    final header =
-        await container.read(transactionsPeriodTotalProvider.future);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, 0);
   });
 
   test('category alias resolves to the same stable category key', () async {
     final main = await account('main', isDefault: true);
     // 'grocery' is an alias of the stable 'groceries' key.
-    await put(id: 'a1', amount: 40, type: TransactionTypeEntity.payment, accountId: main.id, categoryKey: 'groceries');
-    await put(id: 'a2', amount: 60, type: TransactionTypeEntity.payment, accountId: main.id, categoryKey: 'groceries');
+    await put(
+        id: 'a1',
+        amount: 40,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id,
+        categoryKey: 'groceries');
+    await put(
+        id: 'a2',
+        amount: 60,
+        type: TransactionTypeEntity.payment,
+        accountId: main.id,
+        categoryKey: 'groceries');
 
-    final groups =
-        await container.read(monthlyExpenseGroupsProvider.future);
+    final groups = await container.read(monthlyExpenseGroupsProvider.future);
     final groceries =
         (await categoryRepo.getAll()).firstWhere((c) => c.key == 'groceries');
     final g = groups.firstWhere((g) => g.categoryId == groceries.id);

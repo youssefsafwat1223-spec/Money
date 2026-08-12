@@ -27,6 +27,8 @@ const _known = <String, String>{
       'machine:import (v30 cutover follow-up)',
   'lib/core/backup/restore_backup_usecase.dart':
       'machine:restore (restore-preflight gated)',
+  'lib/data/db/planning_cutover_executor.dart':
+      'machine:P2-cutover (satisfied-manifest + txn-fingerprint + postflight gated)',
 };
 
 // Direct INSERT into a planning table.

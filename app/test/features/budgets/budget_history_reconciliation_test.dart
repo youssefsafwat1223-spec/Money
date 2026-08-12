@@ -110,17 +110,18 @@ void main() {
     await budgetRepo.save(BudgetEntity(
       id: 'b',
       categoryId: groceries.id,
-      amount: 1000,
+      currency: 'SAR',
+      amountMoney: Money.parse('1000', 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: monthStart,
       isActive: true,
-      lastNotifiedSpentAmount: 0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2000),
     ));
 
     final entry = await currentGroceriesHistory(groceries.id);
-    final signed = entry.transactions.fold<double>(
-        0, (s, tx) => s + budgetHistoryRowSigned(tx));
+    final signed = entry.transactions
+        .fold<double>(0, (s, tx) => s + budgetHistoryRowSigned(tx));
     expect(entry.progress.spent, 400); // 500 − 100
     expect(signed, entry.progress.spent);
     // The refund row is visible so the user can understand the net.
@@ -132,23 +133,27 @@ void main() {
     final excluded = await account('excluded', excluded: true);
     final groceries =
         (await categoryRepo.getAll()).firstWhere((c) => c.key == 'groceries');
-    await put('main-pay', 500, TransactionTypeEntity.payment, 'main', 'groceries');
-    await put('excl-pay', 70, TransactionTypeEntity.payment, excluded.id, 'groceries');
+    await put(
+        'main-pay', 500, TransactionTypeEntity.payment, 'main', 'groceries');
+    await put('excl-pay', 70, TransactionTypeEntity.payment, excluded.id,
+        'groceries');
     await budgetRepo.save(BudgetEntity(
       id: 'b',
       categoryId: groceries.id,
-      amount: 1000,
+      currency: 'SAR',
+      amountMoney: Money.parse('1000', 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: monthStart,
       isActive: true,
-      lastNotifiedSpentAmount: 0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2000),
     ));
 
     final entry = await currentGroceriesHistory(groceries.id);
-    final signed = entry.transactions.fold<double>(
-        0, (s, tx) => s + budgetHistoryRowSigned(tx));
-    expect(entry.progress.spent, 500); // excluded account dropped from the total
+    final signed = entry.transactions
+        .fold<double>(0, (s, tx) => s + budgetHistoryRowSigned(tx));
+    expect(
+        entry.progress.spent, 500); // excluded account dropped from the total
     expect(signed, 500);
     expect(entry.transactions.map((t) => t.id), isNot(contains('excl-pay')));
   });

@@ -60,8 +60,10 @@ GoalEntity _goal() {
   return GoalEntity(
     id: 'goal-atomic',
     name: 'Atomic goal',
-    targetAmount: 1000,
-    savedAmount: 100,
+    currency: 'SAR',
+    targetMoney: Money.parse('1000', 'SAR'),
+    savedMoney: Money.parse('100', 'SAR'),
+    lastNotifiedSavedMoney: Money(0, 'SAR'),
     vaultSkin: 'classic',
     status: 'active',
     createdAt: DateTime.utc(2026, 7, 28),
@@ -224,7 +226,7 @@ void main() {
     final contribution = GoalContributionEntity(
       id: 'contribution-atomic',
       goalId: goal.id,
-      amount: 75,
+      amountMoney: Money.parse('75', 'SAR'),
       createdAt: DateTime.utc(2026, 7, 28, 13),
     );
     await db.customStatement('''
@@ -457,7 +459,8 @@ void main() {
         transaction.id,
       ),
       1,
-      reason: 'one coalesced delete row (the create was already synced/cleared)',
+      reason:
+          'one coalesced delete row (the create was already synced/cleared)',
     );
     expect(
       await _outboxCount(

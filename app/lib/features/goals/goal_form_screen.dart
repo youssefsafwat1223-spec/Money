@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_input.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -505,19 +507,28 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     try {
       final accountId = widget.goal?.accountId ?? await _resolveAccountId();
       final base = widget.goal;
+      // §25 — an existing goal keeps its persisted currency; a new one is seeded
+      // from the effective base. All amounts are parsed EXACTLY from their input
+      // strings into that currency.
+      final currency = base?.currency ??
+          (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
       final autoAmount = double.tryParse(_autoSaveController.text.trim()) ?? 0;
       final autoOn = _autoSaveOn && autoAmount > 0;
       final goal = GoalEntity(
         id: base?.id ?? IdGenerator.next(),
         name: _nameController.text.trim(),
         accountId: accountId,
-        targetAmount: double.parse(_amountController.text),
-        savedAmount: base?.savedAmount ?? 0,
+        currency: currency,
+        targetMoney: parseLocalizedMoney(_amountController.text, currency),
+        savedMoney: base?.savedMoney ?? Money(0, currency),
+        lastNotifiedSavedMoney: base?.lastNotifiedSavedMoney ?? Money(0, currency),
         deadline: _deadline?.toUtc(),
         vaultSkin: base?.vaultSkin ?? 'default_vault',
         status: base?.status ?? 'active',
         createdAt: base?.createdAt ?? DateTime.now().toUtc(),
-        autoSaveAmount: autoOn ? autoAmount : null,
+        autoSaveMoney: autoOn
+            ? parseLocalizedMoney(_autoSaveController.text.trim(), currency)
+            : null,
         autoSavePeriod: autoOn ? _autoSavePeriod : null,
         // Start the schedule now so catch-up doesn't backfill from creation.
         autoSaveLastRun:

@@ -172,7 +172,8 @@ void main() {
     }
   });
 
-  test('account-scoped reads EXCLUDE null-account rows; global scope includes '
+  test(
+      'account-scoped reads EXCLUDE null-account rows; global scope includes '
       'them (MALI-074n exact ownership)', () async {
     final account = await accountRepository.getDefault();
     expect(account, isNotNull);
@@ -639,18 +640,21 @@ void main() {
     final budget = BudgetEntity(
       id: IdGenerator.next(),
       categoryId: groceriesCategory.read<String>('id'),
-      amount: 1200,
+      currency: 'SAR',
+      amountMoney: Money.parse('1200', 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: DateTime.utc(2026, 6, 1),
       isActive: true,
-      lastNotifiedSpentAmount: 0.0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
     );
 
     final saved = await saveBudget(budget);
     expect(saved.amount, 1200);
 
-    final updated = await saveBudget(saved.copyWith(amount: 1400));
+    final updated = await saveBudget(
+      saved.copyWith(amountMoney: Money.parse('1400', 'SAR')),
+    );
     expect(updated.amount, 1400);
 
     final fetched = await budgetRepository.getById(saved.id);
@@ -666,8 +670,10 @@ void main() {
       id: IdGenerator.next(),
       name: 'جهاز جديد',
       accountId: defaultAccount?.id,
-      targetAmount: 4000,
-      savedAmount: 500,
+      currency: 'SAR',
+      targetMoney: Money.parse('4000', 'SAR'),
+      savedMoney: Money.parse('500', 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       deadline: DateTime.utc(2026, 12, 1),
       vaultSkin: 'tech_goal',
       status: 'active',
@@ -682,7 +688,7 @@ void main() {
       GoalContributionEntity(
         id: IdGenerator.next(),
         goalId: savedGoal.id,
-        amount: 300,
+        amountMoney: Money.parse('300', 'SAR'),
         createdAt: DateTime.utc(2026, 6, 2),
         note: 'دفعة أولى',
       ),

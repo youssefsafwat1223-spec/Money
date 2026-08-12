@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/catalog/seed_loader.dart';
 import '../../data/db/app_database.dart';
+import '../../data/db/planning_canonical_invariants.dart';
+import '../../data/db/planning_cutover.dart';
 import '../exporting/managed_export_store.dart';
 import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
@@ -64,6 +66,9 @@ class BootstrapRunner {
   /// (no skeleton) so a failed check can never cause a data-having user to
   /// see skeletons.
   bool hasLocalData = true;
+
+  /// MALI-026 (B8-3) — the planning cutover state resolved from the opened DB.
+  PlanningCutoverState planningCutoverState = PlanningCutoverState.canonical;
 
   /// Name of the step that was running when the most recent [run] call
   /// failed (or is currently running). `'database_open'` specifically means
@@ -142,6 +147,25 @@ class BootstrapRunner {
       } catch (_) {
         hasLocalData = true;
       }
+    });
+
+    // MALI-026 (B8-3 §1/§12) — resolve the REAL planning cutover state from the
+    // opened DB (marker + canonical invariants). A fresh v30 install is canonical;
+    // an upgraded-with-data DB is unresolved (P1). main() provides this as the
+    // coordinator's initial state so guard/nav/reads react correctly from launch.
+    await _step('planning_cutover_state', () async {
+      planningCutoverState = await computePlanningCutoverState(
+        () async => (await database
+                .customSelect('PRAGMA user_version;')
+                .getSingle())
+            .read<int>('user_version'),
+        () async => (await database
+                .customSelect(
+                    'SELECT planning_cutover_state AS s FROM user_settings;')
+                .getSingle())
+            .read<int>('s'),
+        () async => (await planningCanonicalViolations(database)).length,
+      );
     });
 
     await _step('seed_catalog', () async {

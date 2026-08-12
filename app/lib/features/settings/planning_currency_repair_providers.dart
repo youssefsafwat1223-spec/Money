@@ -4,6 +4,8 @@ import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
 import '../../data/db/app_database.dart';
 import '../../data/db/planning_currency_repair.dart';
+import '../../data/db/planning_cutover.dart';
+import '../../data/db/planning_cutover_executor.dart';
 import '../../domain/finance/currency_scale.dart';
 
 enum LegacyPlanningRowKind { budget, goal }
@@ -119,6 +121,16 @@ class PlanningCurrencyRepairController
     state = const AsyncLoading();
     try {
       await action(service);
+      // §13 — the manifest is now satisfied: run the P2 cutover executor (one
+      // atomic transaction) and INDEPENDENTLY recompute the coordinator from the
+      // committed DB (P2 -> P3), so guard/nav/reads flip to canonical without a
+      // restart.
+      await PlanningCutoverExecutor(ref.read(appDatabaseProvider), service)
+          .execute();
+      final coord = ref.read(planningCutoverCoordinatorProvider);
+      if (coord is DbBackedPlanningCutoverCoordinator) {
+        await coord.refreshFromDatabase();
+      }
       final proposedCurrency = previous?.proposedCurrency ??
           (await ref.read(baseCurrencyProvider.future)).trim().toUpperCase();
       state = AsyncData(await _read(service, proposedCurrency));

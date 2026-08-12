@@ -162,11 +162,12 @@ Future<int> _outboxCount(AppDatabase db) async {
 BudgetEntity _budget(String id) => BudgetEntity(
       id: id,
       categoryId: BudgetEntity.allExpensesCategoryId,
-      amount: 500,
+      currency: 'SAR',
+      amountMoney: Money.parse('500', 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: DateTime.utc(2026, 7, 1),
       isActive: true,
-      lastNotifiedSpentAmount: 0.0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       showOnHeader: true,
     );
@@ -187,8 +188,10 @@ BillEntity _bill(String id) => BillEntity(
 GoalEntity _goal(String id) => GoalEntity(
       id: id,
       name: 'Travel',
-      targetAmount: 5000,
-      savedAmount: 300,
+      currency: 'SAR',
+      targetMoney: Money.parse('5000', 'SAR'),
+      savedMoney: Money.parse('300', 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       vaultSkin: 'classic',
       status: 'active',
       createdAt: DateTime.utc(2026, 7, 1),
@@ -259,7 +262,9 @@ void main() {
       final plans = DriftPlanRepository(db, outboxQueue: queue);
 
       await budgets.save(_budget('b1'));
-      await budgets.save(_budget('b1').copyWith(amount: 600));
+      await budgets.save(
+        _budget('b1').copyWith(amountMoney: Money.parse('600', 'SAR')),
+      );
       await budgets.save(_budget('b-delete'));
       await budgets.delete('b-delete');
       await bills.save(_bill('s1'));
@@ -451,7 +456,9 @@ void main() {
       remote.rows['user_budgets']!['b1']!['amount'] = 999;
 
       // Local edit against the OLD base, then push.
-      await budgets.save(_budget('b1').copyWith(amount: 123));
+      await budgets.save(
+        _budget('b1').copyWith(amountMoney: Money.parse('123', 'SAR')),
+      );
       final result = await push.push();
 
       expect(result.conflicts, 1);
@@ -484,7 +491,9 @@ void main() {
       await push.push(); // synced; base == server updated_at
 
       // Local edit → pending; the server row is NOT touched.
-      await goals.save(_goal('g1').copyWith(savedAmount: 777));
+      await goals.save(
+        _goal('g1').copyWith(savedMoney: Money.parse('777', 'SAR')),
+      );
 
       final pull = PlanningPullService(
         db: db,
@@ -519,7 +528,9 @@ void main() {
       await goals.save(_goal('g1'));
       await push.push();
 
-      await goals.save(_goal('g1').copyWith(savedAmount: 777));
+      await goals.save(
+        _goal('g1').copyWith(savedMoney: Money.parse('777', 'SAR')),
+      );
       // Server moves past our base.
       remote.rows['user_goals']!['g1']!['updated_at'] =
           DateTime.utc(2030, 1, 1).toIso8601String();

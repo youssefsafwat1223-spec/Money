@@ -86,9 +86,12 @@ void main() {
 
     Future<void> seedGoal(String id, {String status = 'conflict'}) async {
       await db.customStatement(
-        "INSERT INTO goals(id, name, target_amount, saved_amount, vault_skin, "
-        "status, created_at, server_id, server_updated_at, sync_status) VALUES "
-        "('$id', 'Travel', 5000, 300, 'classic', 'active', '2026-07-01', "
+        "INSERT INTO goals(id, name, currency, target_amount, "
+        "target_amount_minor, saved_amount, saved_amount_minor, "
+        "last_notified_saved_amount_minor, vault_skin, status, created_at, "
+        "server_id, server_updated_at, sync_status) VALUES "
+        "('$id', 'Travel', 'SAR', 5000, 500000, 300, 30000, 0, 'classic', "
+        "'active', '2026-07-01', "
         "'srv-$id', 'base-ts', '$status');",
       );
       await backfillNonPlanningMoneyV30(db);

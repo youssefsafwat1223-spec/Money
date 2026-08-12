@@ -7,6 +7,7 @@ import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/repositories/goal_repository.dart';
 import 'package:money_companion/domain/usecases/save_goal_usecase.dart';
@@ -78,8 +79,10 @@ Widget _app(_GoalRepository repository, {GoalEntity? goal}) {
 final _editableGoal = GoalEntity(
   id: 'goal-1',
   name: 'Existing',
-  targetAmount: 1000,
-  savedAmount: 100,
+  currency: 'SAR',
+  targetMoney: Money.parse('1000', 'SAR'),
+  savedMoney: Money.parse('100', 'SAR'),
+  lastNotifiedSavedMoney: Money(0, 'SAR'),
   vaultSkin: 'default_vault',
   status: 'active',
   createdAt: DateTime.utc(2026, 7, 1),
@@ -147,8 +150,10 @@ void main() {
     final staleGoal = GoalEntity(
       id: 'goal-1',
       name: 'Existing',
-      targetAmount: 1000,
-      savedAmount: 100,
+      currency: 'SAR',
+      targetMoney: Money.parse('1000', 'SAR'),
+      savedMoney: Money.parse('100', 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       deadline: yesterday,
       vaultSkin: 'default_vault',
       status: 'active',

@@ -1,4 +1,5 @@
 import '../../core/utils/id_generator.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/entities/achievement_catalog.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/category_entity.dart';
@@ -56,8 +57,10 @@ class DatabaseSeed {
     GoalEntity(
       id: IdGenerator.next(),
       name: 'رحلة صيف',
-      targetAmount: 6000,
-      savedAmount: 0,
+      currency: 'SAR',
+      targetMoney: Money.parse('6000', 'SAR'),
+      savedMoney: Money(0, 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       deadline: DateTime.utc(DateTime.now().year, 8, 1),
       vaultSkin: 'summer_trip',
       status: 'active',
@@ -66,8 +69,10 @@ class DatabaseSeed {
     GoalEntity(
       id: IdGenerator.next(),
       name: 'صندوق طوارئ',
-      targetAmount: 15000,
-      savedAmount: 0,
+      currency: 'SAR',
+      targetMoney: Money.parse('15000', 'SAR'),
+      savedMoney: Money(0, 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       deadline: null,
       vaultSkin: 'emergency_fund',
       status: 'active',
@@ -76,8 +81,10 @@ class DatabaseSeed {
     GoalEntity(
       id: IdGenerator.next(),
       name: 'الحج / العمرة',
-      targetAmount: 12000,
-      savedAmount: 0,
+      currency: 'SAR',
+      targetMoney: Money.parse('12000', 'SAR'),
+      savedMoney: Money(0, 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       deadline: null,
       vaultSkin: 'hajj_umrah',
       status: 'active',

@@ -19,7 +19,9 @@ class RunGoalAutoSavesUseCase {
     final now = DateTime.now();
     for (final goal in goals) {
       if (goal.status != 'active' || !goal.hasAutoSave) continue;
-      final amount = goal.autoSaveAmount!;
+      // Canonical: the auto-save contribution IS the goal's autoSaveMoney, in the
+      // goal's own currency (the contribution inherits the parent goal currency).
+      final amount = goal.autoSaveMoney!;
       final period = goal.autoSavePeriod!;
       var last = goal.autoSaveLastRun ?? goal.createdAt;
       var next = _advance(last, period);
@@ -29,7 +31,7 @@ class RunGoalAutoSavesUseCase {
           GoalContributionEntity(
             id: IdGenerator.next(),
             goalId: goal.id,
-            amount: amount,
+            amountMoney: amount,
             createdAt: next,
             note: 'ادخار تلقائي',
           ),

@@ -39,14 +39,19 @@ class _CasSink implements PlanningRemoteSink {
 
   @override
   Future<Map<String, dynamic>> upsert(String t, Map<String, dynamic> r) async =>
-      {'id': 'srv-${r['local_id']}', 'updated_at': serverUpdatedAt, 'revision': serverRevision};
+      {
+        'id': 'srv-${r['local_id']}',
+        'updated_at': serverUpdatedAt,
+        'revision': serverRevision
+      };
 
   @override
   Future<String?> fetchServerUpdatedAt(String t, String s) async =>
       serverUpdatedAt;
 
   @override
-  Future<Map<String, dynamic>?> findByLocalId(String t, String u, String l) async =>
+  Future<Map<String, dynamic>?> findByLocalId(
+          String t, String u, String l) async =>
       null;
 
   @override
@@ -78,8 +83,10 @@ class _CasSink implements PlanningRemoteSink {
 GoalEntity _goal() => GoalEntity(
       id: 'g1',
       name: 'Travel',
-      targetAmount: 5000,
-      savedAmount: 300,
+      currency: 'SAR',
+      targetMoney: Money.parse('5000', 'SAR'),
+      savedMoney: Money.parse('300', 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       vaultSkin: 'classic',
       status: 'active',
       createdAt: DateTime.utc(2026, 7, 1),
@@ -139,18 +146,21 @@ void main() {
       );
 
   group('planning revision CAS', () {
-    test('OFF: uses the guarded timestamp path, never the CAS (even with a '
+    test(
+        'OFF: uses the guarded timestamp path, never the CAS (even with a '
         'base revision present)', () async {
       await seedAndEnqueue(revision: 5);
       final sink = _CasSink(serverRevision: 5);
       final r = await push(sink, casEnabled: false).push();
       expect(r.pushed, 1);
-      expect(sink.casCalls, 0, reason: 'CAS must not run when the capability is off');
+      expect(sink.casCalls, 0,
+          reason: 'CAS must not run when the capability is off');
       expect(sink.guardedUpdateCalls, 1);
       expect(await goalStatus(), 'synced');
     });
 
-    test('ON + matching revision: atomic CAS applies and the ack stores the new '
+    test(
+        'ON + matching revision: atomic CAS applies and the ack stores the new '
         'revision', () async {
       await seedAndEnqueue(revision: 5);
       final sink = _CasSink(serverRevision: 5);
@@ -159,10 +169,12 @@ void main() {
       expect(sink.casCalls, 1);
       expect(sink.guardedUpdateCalls, 0);
       expect(await goalStatus(), 'synced');
-      expect(await goalRevision(), 6, reason: 'acknowledged new revision stored');
+      expect(await goalRevision(), 6,
+          reason: 'acknowledged new revision stored');
     });
 
-    test('ON + stale revision: zero-row CAS becomes a typed conflict, no '
+    test(
+        'ON + stale revision: zero-row CAS becomes a typed conflict, no '
         'overwrite (also the crash-after-acceptance case)', () async {
       await seedAndEnqueue(revision: 5);
       // Server has already moved to revision 9 (another device, or our own
@@ -172,11 +184,13 @@ void main() {
       expect(r.conflicts, 1);
       expect(r.pushed, 0);
       expect(sink.casCalls, 1);
-      expect(sink.guardedUpdateCalls, 0, reason: 'never a blind fallback write');
+      expect(sink.guardedUpdateCalls, 0,
+          reason: 'never a blind fallback write');
       expect(await goalStatus(), 'conflict');
     });
 
-    test('ON + null base revision (old payload): falls back to the guarded '
+    test(
+        'ON + null base revision (old payload): falls back to the guarded '
         'path, never a blind overwrite', () async {
       await seedAndEnqueue(revision: null); // pre-0068 row, revision unknown
       final sink = _CasSink(serverRevision: 5);
@@ -187,14 +201,16 @@ void main() {
       expect(await goalStatus(), 'synced');
     });
 
-    test('ON-unsupported (server lacks the revision column): fails safe — the '
+    test(
+        'ON-unsupported (server lacks the revision column): fails safe — the '
         'row is not marked synced and is not overwritten', () async {
       await seedAndEnqueue(revision: 5);
       final sink = _CasSink(serverRevision: 5, unsupported: true);
       final r = await push(sink, casEnabled: true).push();
       expect(r.failed, 1);
       expect(r.pushed, 0);
-      expect(sink.guardedUpdateCalls, 0, reason: 'error must not fall through to a write');
+      expect(sink.guardedUpdateCalls, 0,
+          reason: 'error must not fall through to a write');
       // The outbox item was dead-lettered as an unsupported-schema failure.
       final dead = (await db
               .customSelect(
@@ -207,7 +223,8 @@ void main() {
   });
 
   group('accounts fail-safe (blind-overwrite fix)', () {
-    test('OFF update of a synced account guards on updated_at instead of '
+    test(
+        'OFF update of a synced account guards on updated_at instead of '
         'blindly upserting', () async {
       final repo = DriftAccountRepository(db, outboxQueue: queue);
       final now = DateTime.utc(2026, 7, 4, 12);
@@ -246,7 +263,8 @@ void main() {
       ).push();
 
       expect(r.conflicts, 1);
-      expect(sink.upserts, 0, reason: 'an existing account must not be re-upserted');
+      expect(sink.upserts, 0,
+          reason: 'an existing account must not be re-upserted');
       final status = (await db
               .customSelect("SELECT sync_status FROM accounts WHERE id='a1';")
               .getSingle())
@@ -269,7 +287,8 @@ class _CasAccountsSink implements AccountsRemoteSink {
   }
 
   @override
-  Future<Map<String, dynamic>?> findAccountByLocalId(String u, String id) async =>
+  Future<Map<String, dynamic>?> findAccountByLocalId(
+          String u, String id) async =>
       null;
 
   @override
@@ -286,7 +305,11 @@ class _CasAccountsSink implements AccountsRemoteSink {
   @override
   Future<Map<String, dynamic>?> casUpdateAccount(
           String s, int expectedRevision, Map<String, dynamic> r) async =>
-      {'id': s, 'updated_at': currentUpdatedAt, 'revision': expectedRevision + 1};
+      {
+        'id': s,
+        'updated_at': currentUpdatedAt,
+        'revision': expectedRevision + 1
+      };
 
   @override
   Future<void> setDefaultAccount(String s) async {}

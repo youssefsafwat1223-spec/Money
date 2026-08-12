@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/engagement_entities.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/dashboard/home_sections_providers.dart';
 
 BudgetEntity _budget({
@@ -11,11 +12,12 @@ BudgetEntity _budget({
   return BudgetEntity(
     id: id,
     categoryId: categoryId,
-    amount: amount,
+    currency: 'SAR',
+    amountMoney: Money.fromLegacyReal(amount, 'SAR'),
     period: BudgetPeriod.monthly,
     startDate: DateTime(2026, 7),
     isActive: true,
-    lastNotifiedSpentAmount: 0,
+    lastNotifiedSpentMoney: Money(0, 'SAR'),
     lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
   );
 }

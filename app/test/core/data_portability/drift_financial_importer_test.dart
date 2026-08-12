@@ -156,10 +156,11 @@ void main() {
         ?,'private sms',1,'confirmed',?,?,?,'received_at','normal');
     ''', [createdAt, createdAt, createdAt, createdAt]);
     await source.customStatement('''
-      INSERT INTO budgets(id,account_id,category_id,amount,period,start_date,
-        is_active,last_notified_spent_amount,last_notified_period_start,show_on_header)
-      VALUES('portable-budget','portable-account','portable-category',500,
-        'monthly',?,1,0,'2000-01-01T00:00:00Z',1);
+      INSERT INTO budgets(id,account_id,category_id,currency,amount,amount_minor,
+        period,start_date,is_active,last_notified_spent_amount,
+        last_notified_spent_amount_minor,last_notified_period_start,show_on_header)
+      VALUES('portable-budget','portable-account','portable-category','EGP',500,
+        50000,'monthly',?,1,0,0,'2000-01-01T00:00:00Z',1);
     ''', [createdAt]);
     await source.customStatement('''
       INSERT INTO subscriptions(id,account_id,merchant_id,name,amount,currency,
@@ -174,14 +175,15 @@ void main() {
         'portable-transaction','دفعة اختبار');
     ''', [createdAt, createdAt, createdAt]);
     await source.customStatement('''
-      INSERT INTO goals(id,account_id,name,target_amount,saved_amount,vault_skin,
-        status,created_at)
-      VALUES('portable-goal','portable-account','هدف اختبار',1000,100,
-        'default','active',?);
+      INSERT INTO goals(id,account_id,name,currency,target_amount,
+        target_amount_minor,saved_amount,saved_amount_minor,
+        last_notified_saved_amount_minor,vault_skin,status,created_at)
+      VALUES('portable-goal','portable-account','هدف اختبار','EGP',1000,
+        100000,100,10000,0,'default','active',?);
     ''', [createdAt]);
     await source.customStatement('''
-      INSERT INTO goal_contributions(id,goal_id,amount,created_at,note)
-      VALUES('portable-contribution','portable-goal',100,?,'مساهمة اختبار');
+      INSERT INTO goal_contributions(id,goal_id,amount,amount_minor,created_at,note)
+      VALUES('portable-contribution','portable-goal',100,10000,?,'مساهمة اختبار');
     ''', [createdAt]);
     await source.customStatement('''
       INSERT INTO plans(id,name,budget_amount,currency,start_date,end_date,

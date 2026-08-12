@@ -158,10 +158,12 @@ Future<void> _seedSourceDevice(AppDatabase db) async {
   await db.customInsert(
     '''
       INSERT INTO budgets(
-        id, category_id, amount, period, start_date, is_active,
-        last_notified_spent_amount, last_notified_period_start
+        id, category_id, currency, amount, amount_minor, period, start_date,
+        is_active, last_notified_spent_amount,
+        last_notified_spent_amount_minor, last_notified_period_start
       )
-      VALUES (?, ?, 5000.0, 'monthly', ?, 1, 0, '2000-01-01T00:00:00Z');
+      VALUES (?, ?, 'EGP', 5000.0, 500000, 'monthly', ?, 1, 0, 0,
+        '2000-01-01T00:00:00Z');
     ''',
     variables: [
       Variable.withString('budget_device_a_1'),
@@ -172,11 +174,12 @@ Future<void> _seedSourceDevice(AppDatabase db) async {
   await db.customInsert(
     '''
       INSERT INTO goals(
-        id, name, target_amount, saved_amount, deadline, vault_skin,
-        status, created_at
+        id, name, currency, target_amount, target_amount_minor, saved_amount,
+        saved_amount_minor, last_notified_saved_amount_minor, deadline,
+        vault_skin, status, created_at
       )
-      VALUES (?, 'سفر', 20000.0, 3500.0, '2026-12-31T00:00:00.000Z',
-        'default', 'active', ?);
+      VALUES (?, 'سفر', 'EGP', 20000.0, 2000000, 3500.0, 350000, 0,
+        '2026-12-31T00:00:00.000Z', 'default', 'active', ?);
     ''',
     variables: [
       Variable.withString('goal_device_a_1'),

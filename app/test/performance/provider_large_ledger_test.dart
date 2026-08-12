@@ -83,10 +83,11 @@ void main() {
           idPrefix: 'cur');
       // An active monthly category budget on the seeded 'cat-b' category.
       await counting.db.customStatement(
-        "INSERT INTO budgets(id,category_id,amount,period,start_date,is_active,"
-        "last_notified_spent_amount,last_notified_period_start,show_on_header) "
-        "VALUES ('b1', 'cat-b', 1000, 'monthly', ?, 1, 0, "
-        "'2000-01-01T00:00:00Z', 0);",
+        "INSERT INTO budgets(id,category_id,currency,amount,amount_minor,period,"
+        "start_date,is_active,last_notified_spent_amount,"
+        "last_notified_spent_amount_minor,last_notified_period_start,"
+        "show_on_header) VALUES ('b1', 'cat-b', 'SAR', 1000, 100000, "
+        "'monthly', ?, 1, 0, 0, '2000-01-01T00:00:00Z', 0);",
         [dateTimeToSql(thisMonthStart)],
       );
 

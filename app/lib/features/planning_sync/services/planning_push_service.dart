@@ -192,6 +192,11 @@ class PlanningPushService {
     PlanningOutboxQueue.subscriptionsEntityType,
     PlanningOutboxQueue.plansEntityType,
     PlanningOutboxQueue.billPaymentsEntityType,
+    // MALI-026 (B8-3 §30) — budgets/goals become canonical planning money at v30.
+    // Their exact push depends on the server per-row currency column (0077, still
+    // UNDEPLOYED), so canonical push parks until that capability is verified.
+    PlanningOutboxQueue.budgetsEntityType,
+    PlanningOutboxQueue.goalsEntityType,
   };
 
   static const _entityTable = {

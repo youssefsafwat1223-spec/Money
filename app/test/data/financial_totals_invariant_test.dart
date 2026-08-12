@@ -204,11 +204,12 @@ void main() {
       BudgetEntity(
         id: 'groceries-budget',
         categoryId: groceries.id,
-        amount: 1000,
+        currency: 'SAR',
+        amountMoney: Money.parse('1000', 'SAR'),
         period: BudgetPeriod.monthly,
         startDate: DateTime(2026, 7),
         isActive: true,
-        lastNotifiedSpentAmount: 0,
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
         lastNotifiedPeriodStart: DateTime.utc(2000),
       ),
     );

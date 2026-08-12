@@ -138,11 +138,12 @@ void main() {
   Future<void> budget(String id, String accountId) => budgets.save(BudgetEntity(
         id: id,
         categoryId: catId,
-        amount: 500,
+        currency: 'SAR',
+        amountMoney: Money.parse('500', 'SAR'),
         period: BudgetPeriod.monthly,
         startDate: now,
         isActive: true,
-        lastNotifiedSpentAmount: 0,
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
         lastNotifiedPeriodStart: DateTime.utc(2000),
         accountId: accountId,
       ));
@@ -151,8 +152,10 @@ void main() {
       goals.save(GoalEntity(
         id: id,
         name: 'Goal $id',
-        targetAmount: 1000,
-        savedAmount: saved,
+        currency: 'SAR',
+        targetMoney: Money.parse('1000', 'SAR'),
+        savedMoney: Money.fromLegacyReal(saved, 'SAR'),
+        lastNotifiedSavedMoney: Money(0, 'SAR'),
         vaultSkin: 'default',
         status: 'active',
         createdAt: now,
@@ -176,12 +179,12 @@ void main() {
 
   Future<void> txn(String id, String accountId) async {
     await db.customStatement(
-        "INSERT INTO transactions(id, amount, currency, type, source, "
-        "occurred_at, raw_message, parse_confidence, status, created_at, "
-        "updated_at, account_id) VALUES ('$id', 10, 'SAR', 'payment', 'bank', "
-        "'${dateTimeToSql(now)}', 'raw', 1.0, 'confirmed', "
-        "'${dateTimeToSql(now)}', '${dateTimeToSql(now)}', '$accountId');",
-      );
+      "INSERT INTO transactions(id, amount, currency, type, source, "
+      "occurred_at, raw_message, parse_confidence, status, created_at, "
+      "updated_at, account_id) VALUES ('$id', 10, 'SAR', 'payment', 'bank', "
+      "'${dateTimeToSql(now)}', 'raw', 1.0, 'confirmed', "
+      "'${dateTimeToSql(now)}', '${dateTimeToSql(now)}', '$accountId');",
+    );
     await backfillNonPlanningMoneyV30(db);
   }
 

@@ -8,6 +8,7 @@ import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/finance/planning_mutation_guard.dart';
 
 // MALI-026 (Phase-8 B8-2.10 §1/§2) — the PlanningMutationGuard is wired into the
@@ -16,7 +17,7 @@ import 'package:money_companion/domain/finance/planning_mutation_guard.dart';
 // prove, per required-proof:
 //   inject coordinator = unresolved -> real repo mutation throws the typed
 //     PlanningCurrencyRepairRequired AND the database is unchanged;
-//   coordinator = legacy (schema v29 today) -> the mutation proceeds unchanged.
+//   coordinator = canonical (v30 P3) -> the mutation proceeds unchanged.
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -25,29 +26,30 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String?> readStoredKey() async => 'memory-key';
 }
 
-const _unresolved = PlanningMutationGuard(
-  FixedPlanningCutoverCoordinator(PlanningCutoverState.unresolved),
-);
-const _legacy = PlanningMutationGuard(
-  FixedPlanningCutoverCoordinator(PlanningCutoverState.legacy),
-);
+const _unresolved =
+    FixedPlanningCutoverCoordinator(PlanningCutoverState.unresolved);
+const _canonical =
+    FixedPlanningCutoverCoordinator(PlanningCutoverState.canonical);
 
 BudgetEntity _budget(String id) => BudgetEntity(
       id: id,
       categoryId: 'cat-1',
-      amount: 250.0,
+      currency: 'SAR',
+      amountMoney: Money.parse('250.0', 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: DateTime.utc(2026, 1, 1),
       isActive: true,
-      lastNotifiedSpentAmount: 0.0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2026, 1, 1),
     );
 
 GoalEntity _goal(String id) => GoalEntity(
       id: id,
       name: 'Trip',
-      targetAmount: 1000.0,
-      savedAmount: 100.0,
+      currency: 'SAR',
+      targetMoney: Money.parse('1000.0', 'SAR'),
+      savedMoney: Money.parse('100.0', 'SAR'),
+      lastNotifiedSavedMoney: Money(0, 'SAR'),
       vaultSkin: 'default',
       status: 'active',
       createdAt: DateTime.utc(2026, 1, 1),
@@ -57,7 +59,7 @@ GoalContributionEntity _contribution(String id, String goalId) =>
     GoalContributionEntity(
       id: id,
       goalId: goalId,
-      amount: 50.0,
+      amountMoney: Money.parse('50.0', 'SAR'),
       createdAt: DateTime.utc(2026, 2, 1),
     );
 
@@ -79,9 +81,8 @@ void main() {
   tearDown(() async => db.close());
 
   Future<int> count(String table) async {
-    final row = await db
-        .customSelect('SELECT COUNT(*) AS n FROM $table;')
-        .getSingle();
+    final row =
+        await db.customSelect('SELECT COUNT(*) AS n FROM $table;').getSingle();
     return row.read<int>('n');
   }
 
@@ -103,7 +104,7 @@ void main() {
 
   group('unresolved coordinator blocks the real planning repositories', () {
     test('budget save throws and writes nothing', () async {
-      final repo = DriftBudgetRepository(db, guard: _unresolved);
+      final repo = DriftBudgetRepository(db, coordinator: _unresolved);
       await expectLater(
         () => repo.save(_budget('b1')),
         throwsA(isA<PlanningCurrencyRepairRequired>()),
@@ -112,9 +113,10 @@ void main() {
     });
 
     test('budget delete throws and leaves the row intact', () async {
-      // Seed a live budget through the legacy (no-op) guard.
-      await DriftBudgetRepository(db, guard: _legacy).save(_budget('b1'));
-      final repo = DriftBudgetRepository(db, guard: _unresolved);
+      // Seed a live budget through the canonical coordinator.
+      await DriftBudgetRepository(db, coordinator: _canonical)
+          .save(_budget('b1'));
+      final repo = DriftBudgetRepository(db, coordinator: _unresolved);
       await expectLater(
         () => repo.delete('b1'),
         throwsA(isA<PlanningCurrencyRepairRequired>()),
@@ -123,7 +125,7 @@ void main() {
     });
 
     test('goal save throws and writes nothing', () async {
-      final repo = DriftGoalRepository(db, guard: _unresolved);
+      final repo = DriftGoalRepository(db, coordinator: _unresolved);
       await expectLater(
         () => repo.save(_goal('g1')),
         throwsA(isA<PlanningCurrencyRepairRequired>()),
@@ -132,8 +134,8 @@ void main() {
     });
 
     test('goal delete throws', () async {
-      await DriftGoalRepository(db, guard: _legacy).save(_goal('g1'));
-      final repo = DriftGoalRepository(db, guard: _unresolved);
+      await DriftGoalRepository(db, coordinator: _canonical).save(_goal('g1'));
+      final repo = DriftGoalRepository(db, coordinator: _unresolved);
       await expectLater(
         () => repo.delete('g1'),
         throwsA(isA<PlanningCurrencyRepairRequired>()),
@@ -142,8 +144,8 @@ void main() {
 
     test('addContribution throws, inserts no contribution, saved_amount intact',
         () async {
-      await DriftGoalRepository(db, guard: _legacy).save(_goal('g1'));
-      final repo = DriftGoalRepository(db, guard: _unresolved);
+      await DriftGoalRepository(db, coordinator: _canonical).save(_goal('g1'));
+      final repo = DriftGoalRepository(db, coordinator: _unresolved);
       await expectLater(
         () => repo.addContribution(_contribution('c1', 'g1')),
         throwsA(isA<PlanningCurrencyRepairRequired>()),
@@ -153,9 +155,9 @@ void main() {
     });
   });
 
-  group('legacy coordinator (schema v29 today) — behavior unchanged', () {
+  group('canonical coordinator (v30 P3) — writes and reads proceed', () {
     test('budget save + delete proceed', () async {
-      final repo = DriftBudgetRepository(db, guard: _legacy);
+      final repo = DriftBudgetRepository(db, coordinator: _canonical);
       await repo.save(_budget('b1'));
       expect(await count('budgets'), 1);
       await repo.delete('b1');
@@ -164,14 +166,15 @@ void main() {
 
     test('goal save + addContribution proceed and update saved_amount',
         () async {
-      final repo = DriftGoalRepository(db, guard: _legacy);
+      final repo = DriftGoalRepository(db, coordinator: _canonical);
       await repo.save(_goal('g1'));
       await repo.addContribution(_contribution('c1', 'g1'));
       expect(await count('goal_contributions'), 1);
       expect(await goalSaved('g1'), 150.0); // 100 + 50
     });
 
-    test('the DEFAULT repository guard resolves to legacy (no injection needed)',
+    test(
+        'the DEFAULT repository coordinator resolves to canonical (no injection needed)',
         () async {
       // Proves production construction sites that pass no guard are unaffected.
       final repo = DriftBudgetRepository(db);

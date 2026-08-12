@@ -28,18 +28,19 @@ void main() {
   BudgetEntity budget(BudgetPeriod period) => BudgetEntity(
         id: 'b',
         categoryId: BudgetEntity.allExpensesCategoryId,
-        amount: 1000,
+        currency: 'SAR',
+        amountMoney: Money.parse('1000', 'SAR'),
         period: period,
         startDate: DateTime(2026, 1, 1),
         isActive: true,
-        lastNotifiedSpentAmount: 0,
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
         lastNotifiedPeriodStart: DateTime.utc(2000),
       );
 
   group('resolveBudgetPeriod is genuine half-open (no epsilon end)', () {
     test('monthly → [1st, 1st-of-next-month)', () {
-      final r = resolveBudgetPeriod(budget(BudgetPeriod.monthly),
-          DateTime(2026, 2, 15, 13));
+      final r = resolveBudgetPeriod(
+          budget(BudgetPeriod.monthly), DateTime(2026, 2, 15, 13));
       expect(r.from, DateTime(2026, 2, 1));
       expect(r.to, DateTime(2026, 3, 1)); // exclusive, not Feb 28 23:59:59
     });

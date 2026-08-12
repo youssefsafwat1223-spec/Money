@@ -6,6 +6,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
 
@@ -97,11 +98,12 @@ PlanningPushService _push(
 BudgetEntity _budget(String id, {double amount = 500}) => BudgetEntity(
       id: id,
       categoryId: BudgetEntity.allExpensesCategoryId,
-      amount: amount,
+      currency: 'SAR',
+      amountMoney: Money.fromLegacyReal(amount, 'SAR'),
       period: BudgetPeriod.monthly,
       startDate: DateTime.utc(2026, 7, 1),
       isActive: true,
-      lastNotifiedSpentAmount: 0,
+      lastNotifiedSpentMoney: Money(0, 'SAR'),
       lastNotifiedPeriodStart: DateTime.utc(2000),
       showOnHeader: true,
     );

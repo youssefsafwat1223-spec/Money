@@ -285,19 +285,24 @@ TransactionEntity transactionFromRow(QueryRow row) {
   );
 }
 
+/// MALI-026 (B8-3 §8) — P3 CANONICAL budget mapper. The row's `currency` is the
+/// authority; money is read from the `_minor` columns (via the v30 codec — a NULL
+/// required minor throws, never a REAL fallback). Only ever called in canonical
+/// state; in P1 the repository refuses before mapping.
 BudgetEntity budgetFromRow(QueryRow row) {
-  final amount = row.read<double>('amount');
+  final currency = row.read<String>('currency');
   final period = row.read<String>('period');
   final startDate = row.read<String>('start_date');
   return BudgetEntity(
     id: row.read<String>('id'),
     categoryId: row.read<String>('category_id'),
-    amount: amount,
+    currency: currency,
+    amountMoney: kMoneyCodec.readColumn(row, 'amount', currency),
+    lastNotifiedSpentMoney:
+        kMoneyCodec.readColumn(row, 'last_notified_spent_amount', currency),
     period: budgetPeriodFromSql(period),
     startDate: dateTimeFromSql(startDate),
     isActive: sqlToBool(row.read<int>('is_active')),
-    lastNotifiedSpentAmount:
-        row.readNullable<double>('last_notified_spent_amount') ?? 0,
     lastNotifiedPeriodStart: dateTimeFromSql(
         row.readNullable<String>('last_notified_period_start') ??
             '2000-01-01T00:00:00Z'),
@@ -306,35 +311,41 @@ BudgetEntity budgetFromRow(QueryRow row) {
   );
 }
 
+/// MALI-026 (B8-3 §8) — P3 CANONICAL goal mapper (row.currency + `_minor`).
 GoalEntity goalFromRow(QueryRow row) {
+  final currency = row.read<String>('currency');
   final deadlineValue = row.readNullable<String>('deadline');
   final autoSaveLastRun = row.readNullable<String>('auto_save_last_run');
   return GoalEntity(
     id: row.read<String>('id'),
     name: row.read<String>('name'),
     accountId: row.readNullable<String>('account_id'),
-    targetAmount: row.read<double>('target_amount'),
-    savedAmount: row.read<double>('saved_amount'),
-    lastNotifiedSavedAmount:
-        row.readNullable<double>('last_notified_saved_amount') ?? 0.0,
+    currency: currency,
+    targetMoney: kMoneyCodec.readColumn(row, 'target_amount', currency),
+    savedMoney: kMoneyCodec.readColumn(row, 'saved_amount', currency),
+    lastNotifiedSavedMoney:
+        kMoneyCodec.readColumn(row, 'last_notified_saved_amount', currency),
     deadline: deadlineValue == null ? null : dateTimeFromSql(deadlineValue),
     vaultSkin: row.read<String>('vault_skin'),
     status: row.read<String>('status'),
     createdAt: dateTimeFromSql(row.read<String>('created_at')),
-    autoSaveAmount: row.readNullable<double>('auto_save_amount'),
+    autoSaveMoney:
+        kMoneyCodec.readColumnNullable(row, 'auto_save_amount', currency),
     autoSavePeriod: row.readNullable<String>('auto_save_period'),
     autoSaveLastRun:
         autoSaveLastRun == null ? null : dateTimeFromSql(autoSaveLastRun),
   );
 }
 
-GoalContributionEntity goalContributionFromRow(QueryRow row) {
-  final amount = row.read<double>('amount');
+/// MALI-026 (B8-3 §14) — P3 CANONICAL contribution mapper. A contribution has NO
+/// own currency; its Money currency is the PARENT GOAL's [goalCurrency], resolved
+/// by a JOIN in the caller (no N+1). Money is read from `amount_minor`.
+GoalContributionEntity goalContributionFromRow(QueryRow row, String goalCurrency) {
   final createdAt = row.read<String>('created_at');
   return GoalContributionEntity(
     id: row.read<String>('id'),
     goalId: row.read<String>('goal_id'),
-    amount: amount,
+    amountMoney: kMoneyCodec.readColumn(row, 'amount', goalCurrency),
     createdAt: dateTimeFromSql(createdAt),
     note: row.readNullable<String>('note'),
   );

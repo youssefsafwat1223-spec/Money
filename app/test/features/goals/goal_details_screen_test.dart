@@ -7,6 +7,7 @@ import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/engagement_entities.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
+import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/goal_repository.dart';
 import 'package:money_companion/domain/usecases/save_goal_usecase.dart';
 import 'package:money_companion/features/goals/goal_details_screen.dart';
@@ -44,8 +45,10 @@ class _GoalRepository implements GoalRepository {
 final _goal = GoalEntity(
   id: 'goal-1',
   name: 'Emergency fund',
-  targetAmount: 1000,
-  savedAmount: 100,
+  currency: 'SAR',
+  targetMoney: Money.parse('1000', 'SAR'),
+  savedMoney: Money.parse('100', 'SAR'),
+  lastNotifiedSavedMoney: Money(0, 'SAR'),
   vaultSkin: 'default_vault',
   status: 'active',
   createdAt: DateTime.utc(2026, 7, 1),

@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../domain/finance/money_input.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -318,8 +319,12 @@ Future<void> _showAddContributionSheet(
   final controller = TextEditingController();
   final noteController = TextEditingController();
   final c = context.colors;
-  final cur =
-      Currency.arabicLabel(ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+  // §14 — the contribution inherits the PARENT GOAL's currency; the amount is
+  // parsed exactly into it (the repository rejects any mismatch).
+  final goalCurrency =
+      ref.read(goalDetailsProvider(goalId)).valueOrNull?.goal.currency ??
+          (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+  final cur = Currency.arabicLabel(goalCurrency);
   final isDark = Theme.of(context).brightness == Brightness.dark;
 
   await showModalBottomSheet<void>(
@@ -342,7 +347,8 @@ Future<void> _showAddContributionSheet(
                     GoalContributionEntity(
                       id: IdGenerator.next(),
                       goalId: goalId,
-                      amount: amount,
+                      amountMoney:
+                          parseLocalizedMoney(controller.text, goalCurrency),
                       createdAt: DateTime.now().toUtc(),
                       note: noteController.text.isEmpty
                           ? null

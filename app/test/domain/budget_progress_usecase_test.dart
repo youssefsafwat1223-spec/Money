@@ -321,11 +321,12 @@ void main() {
       BudgetEntity(
         id: 'budget-1',
         categoryId: 'restaurants',
-        amount: 100,
+        currency: 'SAR',
+        amountMoney: Money.parse('100', 'SAR'),
         period: BudgetPeriod.monthly,
         startDate: DateTime(2026, 7),
         isActive: true,
-        lastNotifiedSpentAmount: 0.0,
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
         lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       ),
     ]);
@@ -354,11 +355,12 @@ void main() {
       BudgetEntity(
         id: 'budget-all',
         categoryId: BudgetEntity.allExpensesCategoryId,
-        amount: 300,
+        currency: 'SAR',
+        amountMoney: Money.parse('300', 'SAR'),
         period: BudgetPeriod.daily,
         startDate: DateTime.utc(2026, 6, 14, 0),
         isActive: true,
-        lastNotifiedSpentAmount: 0.0,
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
         lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
       ),
     ]);

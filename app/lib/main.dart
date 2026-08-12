@@ -12,6 +12,8 @@ import 'core/observability/telemetry_sanitizer.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
 import 'data/db/app_database.dart';
+import 'data/db/planning_canonical_invariants.dart';
+import 'data/db/planning_cutover.dart';
 import 'features/app/startup_loading_screen.dart';
 
 Future<void> main() async {
@@ -115,6 +117,25 @@ class _StartupAppState extends State<StartupApp> {
         overrides: [
           appDatabaseProvider.overrideWithValue(database),
           startupHasLocalDataProvider.overrideWithValue(_runner.hasLocalData),
+          // MALI-026 (B8-3 §1/§12) — seed the coordinator with the REAL state
+          // resolved from the DB at bootstrap (canonical for fresh v30, unresolved
+          // for upgraded-with-data), so P1/P3 behavior is correct from launch.
+          planningCutoverCoordinatorProvider.overrideWith(
+            (ref) => DbBackedPlanningCutoverCoordinator(
+              initialState: _runner.planningCutoverState,
+              readUserVersion: () async => (await database
+                      .customSelect('PRAGMA user_version;')
+                      .getSingle())
+                  .read<int>('user_version'),
+              readMarker: () async => (await database
+                      .customSelect(
+                          'SELECT planning_cutover_state AS s FROM user_settings;')
+                      .getSingle())
+                  .read<int>('s'),
+              countCanonicalViolations: () async =>
+                  (await planningCanonicalViolations(database)).length,
+            ),
+          ),
         ],
         child: const MoneyApp(),
       );
