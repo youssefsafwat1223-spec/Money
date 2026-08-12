@@ -361,8 +361,13 @@ void main() {
     // delete/restore transaction touches the existing local data.
 
     test('lower schema version than current is accepted', () async {
+      // A version BELOW current must never be rejected as "newer". Use a REAL
+      // snapshot (which carries the required tables) relabeled to current-1:
+      // an EMPTY current-1 snapshot is correctly rejected for a missing required
+      // table (see the completeness suite), so version-acceptance is proven with
+      // a complete snapshot, not an empty one.
       final snapshot = {
-        ...emptySnapshot(),
+        ...await BackupSnapshotBuilder(db).build(),
         'schemaVersion': RestoreBackupUseCase.currentSchemaVersion - 1,
       };
 
