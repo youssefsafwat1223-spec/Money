@@ -5,7 +5,9 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/money_codec.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../domain/finance/money.dart';
 import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/errors/repo_exceptions.dart';
@@ -44,16 +46,24 @@ class TransactionsBackfillService {
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
     Future<String?> Function()? getLocalDataOwnerUid,
+    // MALI-026 (B8-3 §12): defaults to schema-v29 legacy — the historical
+    // backfill keeps the JSON-number wire shape until canonical, matching the
+    // LedgerOutboxQueue. At canonical it serializes money as the EXACT decimal
+    // STRING (never a JSON number for a canonical Money push).
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _db = db,
         _getClient = getClient ?? (() => Supabase.instance.client),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getLocalDataOwnerUid =
-            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
+            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid,
+        _coordinator = coordinator;
 
   final AppDatabase _db;
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
   final Future<String?> Function() _getLocalDataOwnerUid;
+  final PlanningCutoverCoordinator _coordinator;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -162,11 +172,20 @@ class TransactionsBackfillService {
               localForeignCurrency,
             );
 
+      // §12: canonical mode serializes money as the EXACT decimal STRING
+      // (Money -> moneyToNumericText -> NUMERIC); legacy keeps the JSON number.
+      // Never a JSON-number for a canonical Money push; no Money.toDouble() runs
+      // on the canonical path.
+      final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+      Object amountWire(Money m) =>
+          canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
+      Object? amountWireOrNull(Money? m) => canonical
+          ? moneyToNumericTextOrNull(m)
+          : moneyToLegacyJsonNumberOrNull(m);
       final payload = <String, dynamic>{
         'user_id': uid,
         'client_request_id': clientRequestId,
-        // LEGACY JSON-number request shape, but always sourced from Money.
-        'amount': moneyToLegacyJsonNumber(localAmount),
+        'amount': amountWire(localAmount),
         'currency': localCurrency,
         'merchant': local.readNullable<String>('raw_merchant'),
         'description': local.readNullable<String>('note'),
@@ -183,9 +202,9 @@ class TransactionsBackfillService {
         'direction': transactionDirectionToServer(direction),
         'transaction_type': transactionTypeToServer(type, direction),
         'server_account_id': serverAccountId,
-        'balance_after': moneyToLegacyJsonNumberOrNull(localBalance),
+        'balance_after': amountWireOrNull(localBalance),
         'status': isDeleted ? 'ignored' : local.read<String>('status'),
-        'foreign_amount': moneyToLegacyJsonNumberOrNull(localForeignAmount),
+        'foreign_amount': amountWireOrNull(localForeignAmount),
         'foreign_currency': localForeignCurrency,
         'comparison_timestamp':
             local.readNullable<String>('comparison_timestamp'),

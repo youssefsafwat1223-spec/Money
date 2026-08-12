@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../capture/services/transactions_backfill_service.dart';
 import 'accounts_backfill_service.dart';
 import 'outbox_queue_factory.dart';
@@ -32,11 +33,17 @@ class StartupSyncReconcileService {
   StartupSyncReconcileService({
     required AppDatabase db,
     Future<String?> Function()? getAuthUserId,
+    // MALI-026 (B8-3 §12): threaded to the transactions backfill so a canonical
+    // (v30) backfill pushes EXACT decimal strings, never JSON-number money.
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _db = db,
-        _getAuthUserId = getAuthUserId ?? currentSupabaseUserId;
+        _getAuthUserId = getAuthUserId ?? currentSupabaseUserId,
+        _coordinator = coordinator;
 
   final AppDatabase _db;
   final Future<String?> Function() _getAuthUserId;
+  final PlanningCutoverCoordinator _coordinator;
 
   Future<ReconcileOutcome> run() async {
     if (!SupabaseConfig.isConfigured) return ReconcileOutcome.skippedGuest;
@@ -53,7 +60,7 @@ class StartupSyncReconcileService {
       // are idempotent (keyed on local_id / client_request_id) and the account
       // ones assert local-data ownership (no cross-account upload).
       await AccountsBackfillService(db: _db).run();
-      await TransactionsBackfillService(db: _db).run();
+      await TransactionsBackfillService(db: _db, coordinator: _coordinator).run();
       // Planning entities too — otherwise budgets/goals/subscriptions/plans
       // created before sync (or with no session) stay local-only and are
       // permanently destroyed by the next sign-out wipe. Rows already queued

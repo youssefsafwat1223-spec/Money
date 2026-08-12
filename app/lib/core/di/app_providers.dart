@@ -1040,7 +1040,10 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
 /// [StartupSyncReconcileService].
 final startupSyncReconcileServiceProvider =
     Provider<StartupSyncReconcileService>((ref) {
-  return StartupSyncReconcileService(db: ref.watch(appDatabaseProvider));
+  return StartupSyncReconcileService(
+    db: ref.watch(appDatabaseProvider),
+    coordinator: ref.watch(planningCutoverCoordinatorProvider),
+  );
 });
 
 final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
