@@ -244,6 +244,66 @@ void main() {
     });
   });
 
+  // Backs the transactions-screen bill header totals (subscriptions + installment
+  // tabs): every shown bill, no active/type filter, summed exactly per currency.
+  group('monthlyEquivalentsTotalMoney', () {
+    test('same-currency exact sum, no active/type filter', () {
+      final bills = [
+        bill(amount: 30, frequency: BillFrequency.monthly), // 30
+        bill(amount: 120, frequency: BillFrequency.yearly), // 10 / month
+        bill(
+            amount: 10,
+            frequency: BillFrequency.monthly,
+            status: BillStatus.paused), // INCLUDED (no active filter here) → 10
+      ];
+      expect(monthlyEquivalentsTotalMoney(bills, 'SAR'),
+          Money.parse('50', 'SAR')); // 30 + 10 + 10, exact
+    });
+
+    test('cents exact + 3-decimal scale', () {
+      expect(
+          monthlyEquivalentsTotalMoney(
+              [bill(money: Money.parse('0.10', 'SAR'))], 'SAR'),
+          Money.parse('0.10', 'SAR'));
+      expect(
+          monthlyEquivalentsTotalMoney([
+            bill(money: Money.parse('1.005', 'KWD')),
+            bill(money: Money.parse('2.005', 'KWD')),
+          ], 'KWD'),
+          Money.parse('3.010', 'KWD'));
+    });
+
+    test('sum beyond 2^53 minor stays exact', () {
+      final big = Money.parse('90071992547409.93', 'SAR'); // 2^53 + 1 minor
+      expect(
+          monthlyEquivalentsTotalMoney([bill(money: big), bill(money: big)],
+                  'SAR')
+              .minorUnits,
+          18014398509481986);
+    });
+
+    test('currency-isolated: a KWD bill is never folded into the SAR total', () {
+      final bills = [
+        bill(money: Money.parse('100', 'SAR')),
+        bill(money: Money.parse('50', 'KWD')),
+      ];
+      expect(monthlyEquivalentsTotalMoney(bills, 'SAR'),
+          Money.parse('100', 'SAR'));
+      expect(monthlyEquivalentsTotalMoney(bills, 'KWD'),
+          Money.parse('50', 'KWD'));
+    });
+
+    test('returns exact Money; the display double is derived AFTER', () {
+      final total = monthlyEquivalentsTotalMoney([
+        bill(money: Money.parse('19.99', 'SAR')),
+        bill(money: Money.parse('19.99', 'SAR')),
+      ], 'SAR');
+      expect(total, isA<Money>());
+      expect(total, Money.parse('39.98', 'SAR'));
+      expect(total.toDouble(), 39.98);
+    });
+  });
+
   group('billPaidTotal attribution', () {
     test('recorded payments count once; fuzzy transactions never sum', () {
       // A payment linked to a transaction is ONE payment in the ledger.

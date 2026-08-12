@@ -60,6 +60,18 @@ Money subscriptionMonthlyTotalMoney(
   return Money.sum(monthly, code);
 }
 
+/// Sum of the monthly-equivalent obligation of EVERY bill in [bills] that is in
+/// [currency], summed EXACTLY as Money (integer minor units). Currency-isolated
+/// (no implicit FX); no active/type filter — the caller decides which bills to
+/// pass. Convert to double only at the leaf display.
+Money monthlyEquivalentsTotalMoney(
+    Iterable<BillEntity> bills, String currency) {
+  final code = Money.zero(currency).currency; // normalized target currency
+  final monthly =
+      bills.map(monthlyEquivalentMoney).where((m) => m.currency == code);
+  return Money.sum(monthly, code);
+}
+
 /// Total remaining installment debt across [bills] in [currency] — each bill's
 /// `amount × remainingInstallments` summed EXACTLY as Money (integer minor
 /// units). Currency-isolated: an installment in another currency is NEVER

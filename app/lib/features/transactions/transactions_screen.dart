@@ -106,13 +106,12 @@ class TransactionsScreen extends ConsumerWidget {
               bills.where((b) => b.type == BillType.subscription).toList();
           final insts =
               bills.where((b) => b.type == BillType.installment).toList();
-          final activeSubs =
-              subs.where((b) => b.status == BillStatus.active).toList();
-
-          final monthlyTotal = activeSubs.fold<double>(
-            0,
-            (sum, bill) => sum + monthlyEquivalent(bill),
-          );
+          // Active-subscription monthly obligation, summed EXACTLY as Money in
+          // the base display currency (currency-isolated); converted to double
+          // only here at the display leaf.
+          final baseCur = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
+          final monthlyTotal =
+              subscriptionMonthlyTotalMoney(subs, baseCur).toDouble();
 
           return SafeArea(
               top: false,
@@ -932,10 +931,13 @@ class _BillsTabState extends State<_BillsTab> {
         .where((bill) => bill.type == _type)
         .toList(growable: false);
     final activeCount = bills.where((bill) => bill.isConfirmed).length;
-    final monthlyTotal = bills.fold<double>(
-      0,
-      (sum, bill) => sum + monthlyEquivalent(bill),
-    );
+    // Monthly-equivalent obligation across the shown bills, summed EXACTLY as
+    // Money and currency-isolated (currency derived from the bills, no implicit
+    // FX); converted to double only at the display leaf.
+    final monthlyTotal = bills.isEmpty
+        ? 0.0
+        : monthlyEquivalentsTotalMoney(bills, bills.first.amountMoney.currency)
+            .toDouble();
     final nextThisWeek = bills.where((bill) {
       final now = DateTime.now();
       final weekEnd = now.add(const Duration(days: 7));
