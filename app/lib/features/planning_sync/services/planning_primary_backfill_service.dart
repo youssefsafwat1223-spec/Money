@@ -4,9 +4,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/money_codec.dart';
+import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/errors/repo_exceptions.dart';
+import '../../../domain/finance/money_transport.dart';
 
 class PlanningBackfillReport {
   const PlanningBackfillReport({
@@ -29,16 +32,42 @@ class PlanningPrimaryBackfillService {
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
     Future<String?> Function()? getLocalDataOwnerUid,
+    // MALI-026 (B8-3 §12/§13): canonical mode reads the exact `_minor` (never the
+    // REAL shadow as authority) and serializes money as the exact decimal STRING
+    // — the backfill is a canonical sync path and must not emit a JSON-number for
+    // a canonical Money, matching the ledger/transactions backfill.
+    PlanningCutoverCoordinator coordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
   })  : _db = db,
         _client = getClient ?? (() => Supabase.instance.client),
         _getAuthUserId = getAuthUserId ?? _defaultUserId,
         _getLocalDataOwnerUid =
-            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
+            getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid,
+        _coordinator = coordinator;
 
   final AppDatabase _db;
   final SupabaseClient Function() _client;
   final Future<String?> Function() _getAuthUserId;
   final Future<String?> Function() _getLocalDataOwnerUid;
+  final PlanningCutoverCoordinator _coordinator;
+
+  bool get _canonical =>
+      _coordinator.state() == PlanningCutoverState.canonical;
+
+  /// §12: read a money column as EXACT Money (from `_minor`, currency-scoped),
+  /// then serialize canonical → decimal STRING / legacy → JSON number. Never the
+  /// REAL shadow as authority, never a JSON number for a canonical Money.
+  Object _money(QueryRow row, String col, String currency) {
+    final m = kMoneyCodec.readColumn(row, col, currency);
+    return _canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
+  }
+
+  Object? _moneyOrNull(QueryRow row, String col, String currency) {
+    final m = kMoneyCodec.readColumnNullable(row, col, currency);
+    return _canonical
+        ? moneyToNumericTextOrNull(m)
+        : moneyToLegacyJsonNumberOrNull(m);
+  }
 
   static Future<String?> _defaultUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -127,12 +156,12 @@ class PlanningPrimaryBackfillService {
         localId: localId,
         payload: {
           'category_id': await _categoryKey(row.read<String>('category_id')),
-          'amount': row.read<double>('amount'),
+          'amount': _money(row, 'amount', row.read<String>('currency')),
           'period': row.read<String>('period'),
           'start_date': row.read<String>('start_date'),
           'is_active': row.read<int>('is_active') == 1,
-          'last_notified_spent_amount':
-              row.read<double>('last_notified_spent_amount'),
+          'last_notified_spent_amount': _money(
+              row, 'last_notified_spent_amount', row.read<String>('currency')),
           'last_notified_period_start':
               row.read<String>('last_notified_period_start'),
           'show_on_header': row.read<int>('show_on_header') == 1,
@@ -168,13 +197,14 @@ class PlanningPrimaryBackfillService {
         payload: {
           'name': row.read<String>('name'),
           'server_account_id': account.$1,
-          'target_amount': row.read<double>('target_amount'),
-          'saved_amount': row.read<double>('saved_amount'),
+          'target_amount': _money(row, 'target_amount', row.read<String>('currency')),
+          'saved_amount': _money(row, 'saved_amount', row.read<String>('currency')),
           'deadline': row.readNullable<String>('deadline'),
           'vault_skin': row.read<String>('vault_skin'),
           'status': row.read<String>('status'),
           'created_at': row.read<String>('created_at'),
-          'auto_save_amount': row.readNullable<double>('auto_save_amount'),
+          'auto_save_amount':
+              _moneyOrNull(row, 'auto_save_amount', row.read<String>('currency')),
           'auto_save_period': row.readNullable<String>('auto_save_period'),
           'auto_save_last_run': row.readNullable<String>('auto_save_last_run'),
           'deleted_at': row.readNullable<String>('deleted_at'),
@@ -192,9 +222,21 @@ class PlanningPrimaryBackfillService {
         await _db.customSelect('SELECT * FROM goal_contributions;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
-      final goalId = await _serverId('goals', row.read<String>('goal_id'));
+      final localGoalId = row.read<String>('goal_id');
+      final goalId = await _serverId('goals', localGoalId);
       if (goalId == null) {
         failures.add('goal_contributions:$localId:missing_parent');
+        continue;
+      }
+      // §10 — a contribution has no currency of its own; its parent goal is the
+      // currency authority. Money is read exactly with that currency.
+      final goalCurrency = (await _db
+              .customSelect('SELECT currency FROM goals WHERE id = ? LIMIT 1;',
+                  variables: [Variable.withString(localGoalId)])
+              .getSingleOrNull())
+          ?.readNullable<String>('currency');
+      if (goalCurrency == null) {
+        failures.add('goal_contributions:$localId:parent_currency_missing');
         continue;
       }
       await _insertChild(
@@ -206,7 +248,7 @@ class PlanningPrimaryBackfillService {
         payload: {
           'goal_id': goalId,
           'client_request_id': 'backfill_goal_contribution_$localId',
-          'amount': row.read<double>('amount'),
+          'amount': _money(row, 'amount', goalCurrency),
           'note': row.readNullable<String>('note'),
           'created_at': row.read<String>('created_at'),
           'deleted_at': row.readNullable<String>('deleted_at'),
@@ -240,7 +282,7 @@ class PlanningPrimaryBackfillService {
         payload: {
           'merchant_id': row.readNullable<String>('merchant_id'),
           'name': row.read<String>('name'),
-          'amount': row.read<double>('amount'),
+          'amount': _money(row, 'amount', row.read<String>('currency')),
           'currency': row.read<String>('currency').toUpperCase(),
           'type': row.read<String>('type'),
           'frequency': row.read<String>('frequency'),
@@ -254,9 +296,10 @@ class PlanningPrimaryBackfillService {
           'server_account_id': account.$1,
           'total_installments': row.readNullable<int>('total_installments'),
           'paid_count': row.readNullable<int>('paid_count'),
-          'manual_paid_amount': row.readNullable<double>('manual_paid_amount'),
-          'total_purchase_amount':
-              row.readNullable<double>('total_purchase_amount'),
+          'manual_paid_amount':
+              _moneyOrNull(row, 'manual_paid_amount', row.read<String>('currency')),
+          'total_purchase_amount': _moneyOrNull(
+              row, 'total_purchase_amount', row.read<String>('currency')),
           'lender_name': row.readNullable<String>('lender_name'),
           'interest_rate': row.readNullable<double>('interest_rate'),
           'created_at': row.read<String>('created_at'),
@@ -293,7 +336,7 @@ class PlanningPrimaryBackfillService {
           'subscription_id': subscriptionId,
           'transaction_id': transactionId,
           'client_request_id': 'backfill_bill_payment_$localId',
-          'amount': row.read<double>('amount'),
+          'amount': _money(row, 'amount', row.read<String>('currency')),
           'currency': row.read<String>('currency').toUpperCase(),
           'period_start': row.read<String>('period_start'),
           'period_end': row.read<String>('period_end'),
@@ -339,7 +382,7 @@ class PlanningPrimaryBackfillService {
         localId: localId,
         payload: {
           'name': row.read<String>('name'),
-          'budget_amount': row.read<double>('budget_amount'),
+          'budget_amount': _money(row, 'budget_amount', row.read<String>('currency')),
           'currency': row.read<String>('currency').toUpperCase(),
           'start_date': row.read<String>('start_date'),
           'end_date': row.read<String>('end_date'),

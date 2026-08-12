@@ -67,7 +67,7 @@ class StartupSyncReconcileService {
       // on the planning outbox may individually no-op/fail against the
       // server's (user_id, local_id) unique constraint — the outbox push owns
       // those; nothing duplicates.
-      await PlanningPrimaryBackfillService(db: _db).run();
+      await PlanningPrimaryBackfillService(db: _db, coordinator: _coordinator).run();
       if (kDebugMode) debugPrint('[Reconcile] backfill complete');
       return ReconcileOutcome.ran;
     } catch (error) {
