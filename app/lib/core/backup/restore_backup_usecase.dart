@@ -2,6 +2,8 @@ import 'package:drift/drift.dart';
 
 import '../../data/db/app_database.dart';
 import '../../data/db/planning_cutover.dart';
+import '../../data/db/money_v30_backfill.dart';
+import '../../data/db/planning_canonical_invariants.dart';
 import '../../domain/finance/financial_semantics.dart';
 import 'backup_service.dart';
 import 'backup_snapshot_builder.dart';
@@ -175,6 +177,38 @@ class RestoreBackupUseCase {
             'البيانات.',
           );
         }
+        // MALI-026 (B8-3 §26/§7 continuation) — when a RESTORE_PAYLOAD-scoped
+        // repair decision was supplied, convert the just-restored planning rows to
+        // canonical (row.currency + `_minor`) using THAT decision (never the base
+        // currency), so a canonical live DB ends canonical. Contributions inherit
+        // the parent goal's confirmed currency. Any id not covered → throw → rollback.
+        if (planningRepairDecision != null) {
+          await _canonicalizeRestoredPlanning(planningRepairDecision);
+        }
+        // MALI-026 (B8-3 §26) — canonicalize restored NON-planning money exactly:
+        // the snapshot carries REAL + currency but no `_minor`, and the v30 reader
+        // is minor-authoritative, so populate `_minor` from the restored REAL via
+        // the SAME exact converter as the v30 upgrade. A bad row throws → the whole
+        // restore rolls back.
+        await backfillNonPlanningMoneyV30(_db);
+
+        // MALI-026 (B8-3 §26/§8) — reconcile the PLANNING cutover marker with the
+        // ACTUAL restored planning data; NEVER trust a marker carried in the
+        // backup. Legacy planning rows (no currency/minor) -> unresolved; empty or
+        // fully-canonical -> canonical. If the LIVE db was canonical and the restore
+        // ends with planning violations, that is corruption -> roll the whole
+        // restore back (atomic; no partial planning restore, no false marker).
+        final planningViolations = await planningCanonicalViolations(_db);
+        if (_coordinator.state() == PlanningCutoverState.canonical &&
+            planningViolations.isNotEmpty) {
+          throw const BackupException(
+            'تعذّرت الاستعادة: بيانات التخطيط غير متسقة بعد الاستعادة.',
+          );
+        }
+        await _db.customStatement(
+          'UPDATE user_settings SET planning_cutover_state = '
+          '${planningViolations.isEmpty ? 1 : 0};',
+        );
         fault('beforeVerification');
         // MALI-014/076n §6 — in-transaction verification against the immutable
         // plan. Any mismatch throws BEFORE commit → the whole restore rolls back
@@ -205,6 +239,81 @@ class RestoreBackupUseCase {
       if (step.appliesTo(schemaVersion)) {
         await step.run(_db);
       }
+    }
+  }
+
+  /// MALI-026 (B8-3 §26/§7) — canonicalize the just-restored planning rows using
+  /// the RESTORE_PAYLOAD-scoped [decision] (never the base currency, never the
+  /// local live rows): set row.currency + every `_minor` field exactly from the
+  /// restored REAL amounts. Contributions inherit their parent goal's confirmed
+  /// currency. Any budget/goal id the decision doesn't cover, or a contribution
+  /// whose parent goal wasn't converted, throws → the whole restore rolls back
+  /// (§8, no partial planning restore). Runs INSIDE the restore transaction.
+  Future<void> _canonicalizeRestoredPlanning(
+      RestorePayloadRepairDecision decision) async {
+    for (final b in await _db
+        .customSelect(
+            'SELECT id, amount, last_notified_spent_amount FROM budgets;')
+        .get()) {
+      final id = b.read<String>('id');
+      final cur = decision.currencyForId(id);
+      await _db.customStatement(
+        'UPDATE budgets SET currency = ?, amount_minor = ?, '
+        'last_notified_spent_amount_minor = ? WHERE id = ?;',
+        [
+          cur,
+          restoreLegacyAmountToMinor(b.read<double>('amount'), cur),
+          restoreLegacyAmountToMinor(
+              b.read<double>('last_notified_spent_amount'), cur),
+          id,
+        ],
+      );
+    }
+
+    // Build the parent-goal currency map ONCE (no N+1) so contributions resolve
+    // from their converted parent, not a per-row decision lookup.
+    final goalCurrency = <String, String>{};
+    for (final g in await _db
+        .customSelect('SELECT id, target_amount, saved_amount, '
+            'last_notified_saved_amount, auto_save_amount FROM goals;')
+        .get()) {
+      final id = g.read<String>('id');
+      final cur = decision.currencyForId(id);
+      goalCurrency[id] = cur;
+      final autoSave = g.readNullable<double>('auto_save_amount');
+      await _db.customStatement(
+        'UPDATE goals SET currency = ?, target_amount_minor = ?, '
+        'saved_amount_minor = ?, last_notified_saved_amount_minor = ?, '
+        'auto_save_amount_minor = ? WHERE id = ?;',
+        [
+          cur,
+          restoreLegacyAmountToMinor(g.read<double>('target_amount'), cur),
+          restoreLegacyAmountToMinor(g.read<double>('saved_amount'), cur),
+          restoreLegacyAmountToMinor(
+              g.read<double>('last_notified_saved_amount'), cur),
+          autoSave == null ? null : restoreLegacyAmountToMinor(autoSave, cur),
+          id,
+        ],
+      );
+    }
+
+    for (final c in await _db
+        .customSelect('SELECT id, amount, goal_id FROM goal_contributions;')
+        .get()) {
+      final parentGoalId = c.read<String>('goal_id');
+      final cur = goalCurrency[parentGoalId];
+      if (cur == null) {
+        throw BackupException(
+          'تعذّرت الاستعادة: مساهمة هدف يتيمة (${c.read<String>('id')}).',
+        );
+      }
+      await _db.customStatement(
+        'UPDATE goal_contributions SET amount_minor = ? WHERE id = ?;',
+        [
+          restoreLegacyAmountToMinor(c.read<double>('amount'), cur),
+          c.read<String>('id'),
+        ],
+      );
     }
   }
 

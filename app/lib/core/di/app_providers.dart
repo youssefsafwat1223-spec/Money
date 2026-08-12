@@ -513,22 +513,63 @@ final planningPushServiceProvider = Provider<PlanningPushService>((ref) {
     isEnabled: _planningEntitySyncEnabled,
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
+    planningCurrencyCapability: () =>
+        ref.read(planningServerCurrencyCapabilityProvider),
   );
 });
 
+/// MALI-026 (B8-3 §29/§30) — budgets/goals/goal_contributions carry per-row
+/// planning currency that the SERVER only supports once 0077 is deployed AND the
+/// capability is externally verified. Until then their cloud sync is DEFERRED
+/// (never accept a legacy / missing-currency remote payload; never reconstruct a
+/// currency from the base). Every other entity is unaffected. The gate depends
+/// ONLY on the explicit capabilities — never on local schema/P3 state.
+const _planningCurrencyGatedEntities = {
+  PlanningOutboxQueue.budgetsEntityType,
+  PlanningOutboxQueue.goalsEntityType,
+  PlanningOutboxQueue.goalContributionsEntityType,
+};
+
+/// Direction-aware gate: a planning money entity syncs only when the SERVER
+/// planning-currency capability AND that direction's exact decimal transport are
+/// BOTH verified. [transportCap] is the exact PULL transport for pulls and the
+/// exact PUSH transport for pushes. Non-planning entities keep their normal gate.
+bool _planningEntitySyncEnabledWithCurrency(
+  String entityType,
+  ExactTransportCapability planningCurrencyCap,
+  ExactTransportCapability transportCap,
+) {
+  if (!_planningEntitySyncEnabled(entityType)) return false;
+  return planningMoneyEntitySyncEnabled(
+    isPlanningCurrencyGatedEntity:
+        _planningCurrencyGatedEntities.contains(entityType),
+    planningCurrencyCapability: planningCurrencyCap,
+    transportCapability: transportCap,
+  );
+}
+
 final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
+  final planningCap = ref.watch(planningServerCurrencyCapabilityProvider);
+  final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return PlanningPullService(
     db: ref.watch(appDatabaseProvider),
-    isEnabled: _planningEntitySyncEnabled,
+    isEnabled: (entityType) => _planningEntitySyncEnabledWithCurrency(
+        entityType, planningCap, pullCap),
   );
 });
 
 final planningChildSyncServiceProvider =
     Provider<PlanningChildSyncService>((ref) {
+  final planningCap = ref.watch(planningServerCurrencyCapabilityProvider);
+  final pushCap = ref.watch(exactPushTransportCapabilityProvider);
   return PlanningChildSyncService(
     db: ref.watch(appDatabaseProvider),
     queue: ref.watch(planningOutboxQueueProvider),
-    isEnabled: _planningEntitySyncEnabled,
+    // §29/§30 — goal_contributions inherit the parent goal's server currency,
+    // so they are deferred until the planning-currency + exact PUSH transport
+    // capabilities are both verified (this is a push-direction service).
+    isEnabled: (entityType) => _planningEntitySyncEnabledWithCurrency(
+        entityType, planningCap, pushCap),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
   );

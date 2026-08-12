@@ -162,6 +162,11 @@ class PlanningPushService {
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
+    // MALI-026 (B8-3 §30): whether the SERVER carries per-row planning currency
+    // (0077). Budgets/goals push parks on THIS (they need a server currency
+    // column), independent of the exact decimal-string transport capability.
+    ExactTransportCapability Function() planningCurrencyCapability =
+        _defaultPushCapability,
   })  : _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
@@ -169,10 +174,16 @@ class PlanningPushService {
         _remoteSink = remoteSink ?? const SupabasePlanningRemoteSink(),
         _revisionCasEnabled = revisionCasEnabled,
         _coordinator = coordinator,
-        _pushCapability = pushCapability;
+        _pushCapability = pushCapability,
+        _planningCurrencyCapability = planningCurrencyCapability;
 
   static ExactTransportCapability _defaultPushCapability() =>
       ExactTransportCapability.unknown;
+
+  static const _planningCurrencyEntityTypes = {
+    PlanningOutboxQueue.budgetsEntityType,
+    PlanningOutboxQueue.goalsEntityType,
+  };
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
@@ -186,6 +197,7 @@ class PlanningPushService {
   final bool _revisionCasEnabled;
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
+  final ExactTransportCapability Function() _planningCurrencyCapability;
 
   static const _moneyEntityTypes = {
     PlanningOutboxQueue.accountsEntityType,
@@ -288,13 +300,20 @@ class PlanningPushService {
     PlanningOutboxItem item,
     String userId,
   ) async {
-    // MALI-026 (B8-2.10 §8): only converted Money entities park, and only for
-    // non-delete writes. Budgets/goals retain their raw-double wire shape.
+    // MALI-026 (B8-2.10 §8 / B8-3 §30): money entities park on the relevant
+    // capability. Budgets/goals need BOTH the exact decimal-string transport AND
+    // the SERVER per-row currency column (0077), so they park unless BOTH are
+    // verified (the weaker of the two) — never unpark on one alone. Everything
+    // else parks on the exact decimal-string transport capability. Non-delete
+    // writes only.
+    final capability = _planningCurrencyEntityTypes.contains(item.entityType)
+        ? weakerCapability(_planningCurrencyCapability(), _pushCapability())
+        : _pushCapability();
     if (item.operation != PlanningSyncOperation.delete &&
         _moneyEntityTypes.contains(item.entityType) &&
         shouldParkExactMoneyWrite(
           cutoverState: _coordinator.state(),
-          pushCapability: _pushCapability(),
+          pushCapability: capability,
         )) {
       await _queue.park(item.id, exactMoneyTransportUnverifiedReason);
       return _PlanningPushOutcome.parked;
