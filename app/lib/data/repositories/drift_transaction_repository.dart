@@ -1177,35 +1177,47 @@ class DriftTransactionRepository implements TransactionRepository {
     final accountClause = _accountClause(accountId, tableAlias: 't');
     final rows = await _db.customSelect(
       '''
-        SELECT mid, name, currency, avg_amount, months FROM (
+        SELECT mid, name, currency, sum_m, cnt, months FROM (
           SELECT m.id AS mid, m.raw_name AS name,
                  MAX(UPPER(t.currency)) AS currency,
-                 CAST(AVG(t.amount) AS REAL) AS avg_amount,
-                 CAST(MIN(t.amount) AS REAL) AS min_a,
-                 CAST(MAX(t.amount) AS REAL) AS max_a,
-                 CAST(COUNT(DISTINCT strftime('%Y-%m', t.occurred_at)) AS INTEGER) AS months
+                 SUM(t.amount_minor) AS sum_m,
+                 COUNT(*) AS cnt,
+                 MIN(t.amount_minor) AS min_m,
+                 MAX(t.amount_minor) AS max_m,
+                 COUNT(DISTINCT strftime('%Y-%m', t.occurred_at)) AS months
           FROM transactions t
           INNER JOIN merchants m ON m.id = t.merchant_id
           WHERE t.type = 'payment' AND t.status = 'confirmed'
             $accountClause
           GROUP BY t.merchant_id, UPPER(t.currency)
         )
-        -- HEURISTIC recurrence-stability ratio over legacy REAL shadows; this
-        -- is an advisory estimate, not a canonical Money aggregate.
-        WHERE months >= 2 AND (max_a - min_a) <= (avg_amount * 0.15)
-        ORDER BY avg_amount DESC;
+        -- MALI-026 (B8-3 §16 correction): the recurrence-STABILITY gate is a pure
+        -- INTEGER heuristic — |max-min| <= 15% of the exact average — expressed
+        -- as `(max-min)*cnt*100 <= sum*15` so no floating money is constructed.
+        -- The monetary estimate itself (sum/cnt) is built EXACTLY in Dart below.
+        WHERE months >= 2 AND (max_m - min_m) * cnt * 100 <= sum_m * 15
+        ORDER BY sum_m DESC;
       ''',
       variables: _accountVars(accountId),
     ).get();
-    return rows
-        .map((r) => RecurringCandidate(
-              merchantId: r.read<String>('mid'),
-              name: r.read<String>('name'),
-              averageAmount: r.read<double>('avg_amount'),
-              currency: r.read<String>('currency'),
-              monthsSeen: r.read<int>('months'),
-            ))
-        .toList();
+    return rows.map((r) {
+      final currency = r.read<String>('currency');
+      final sumMinor = r.read<int>('sum_m');
+      final cnt = r.read<int>('cnt');
+      // Exact average payment = sum/cnt, ROUND_HALF_AWAY_FROM_ZERO once. Payments
+      // are non-negative, and `rem` is bounded by `cnt` (a row count), so `2*rem`
+      // cannot overflow — no floating average, no lossy double.
+      final q = cnt == 0 ? 0 : sumMinor ~/ cnt;
+      final rem = cnt == 0 ? 0 : sumMinor.remainder(cnt);
+      final avgMinor = (cnt != 0 && 2 * rem >= cnt) ? q + 1 : q;
+      return RecurringCandidate(
+        merchantId: r.read<String>('mid'),
+        name: r.read<String>('name'),
+        estimatedAmountMoney: Money(avgMinor, currency),
+        currency: currency,
+        monthsSeen: r.read<int>('months'),
+      );
+    }).toList();
   }
 
   Future<String?> _defaultAccountId() async {

@@ -76,7 +76,7 @@ void main() {
     expect(recurring, isNotEmpty);
     final netflix = recurring.firstWhere((r) => r.name == 'NETFLIX');
     expect(netflix.monthsSeen, 2);
-    expect(netflix.averageAmount, 56);
+    expect(netflix.estimatedAmountMoney, Money(5600, 'SAR'));
   });
 
   test('عملية واحدة لا تُعدّ اشتراكاً متكرراً', () async {

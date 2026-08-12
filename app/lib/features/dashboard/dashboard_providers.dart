@@ -119,7 +119,7 @@ class DashboardData {
   final Money previousWeekSpend;
   final double projectedMonthSpend;
   final List<RecurringCandidate> subscriptions;
-  final double subscriptionsMonthlyTotal;
+  final Money subscriptionsMonthlyTotal;
   final TransactionsDateRange range;
   final List<CurrencyTotal> currencyTotals;
   final List<DashboardBudgetEntry> budgetProgress;
@@ -596,9 +596,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
           item.currency.toUpperCase() == displayCurrency.toUpperCase())
       .take(3)
       .toList(growable: false);
-  final subscriptionsMonthlyTotal = subscriptions.fold<double>(
-    0,
-    (sum, item) => sum + item.averageAmount,
+  // §16 correction: subscriptions are already filtered to the display currency
+  // above, so the monthly estimate total is an EXACT same-currency Money.sum —
+  // never a double fold, never cross-currency.
+  final subscriptionsMonthlyTotal = Money.sum(
+    subscriptions.map((item) => item.estimatedAmountMoney),
+    displayCurrency,
   );
   final projectedMonthSpend = daysInRange == 0
       ? thisMonthExpenses.toDouble()

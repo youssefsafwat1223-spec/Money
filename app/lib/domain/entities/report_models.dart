@@ -14,14 +14,17 @@ class MerchantSpend {
   final int count;
 }
 
-/// اشتراك متكرر مُكتشَف (نفس المتجر بمبلغ متقارب عبر أشهر). [averageAmount] قيمة
-/// إرشادية (متوسط اكتشاف التكرار) تبقى double — ليست مبلغاً مالياً دقيقاً يُخزَّن
-/// أو يُقارَن كـ Money (B8-3 §14).
+/// اشتراك متكرر مُكتشَف (نفس المتجر بمبلغ متقارب عبر أشهر). MALI-026 (B8-3 §16
+/// correction): the MONETARY estimate ([estimatedAmountMoney]) is EXACT Money
+/// (SUM(minor)/count, rounded half-away-from-zero once) in [currency] — an
+/// estimate is still a Money-denominated value. The recurrence-STABILITY decision
+/// (the 15% rule) stays a separate integer/heuristic gate in the query, not a
+/// floating money amount.
 class RecurringCandidate {
   const RecurringCandidate({
     required this.merchantId,
     required this.name,
-    required this.averageAmount,
+    required this.estimatedAmountMoney,
     required this.currency,
     required this.monthsSeen,
   });
@@ -29,9 +32,9 @@ class RecurringCandidate {
   final String merchantId;
   final String name;
 
-  /// HEURISTIC recurrence-stability average (display estimate) — NOT canonical
-  /// Money. Scoped to [currency] so a cross-currency total is never folded.
-  final double averageAmount;
+  /// Exact monthly monetary estimate (avg payment) in [currency]. Non-authoritative
+  /// (it's an estimate) but exactly represented — never a lossy double.
+  final Money estimatedAmountMoney;
   final String currency;
   final int monthsSeen;
 }

@@ -1565,7 +1565,7 @@ class _SuggestionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '${Formatters.amount(suggestion.averageAmount)} $currencyLabel/شهر',
+                      '${Formatters.amount(suggestion.estimatedAmountMoney.toDouble())} $currencyLabel/شهر',
                       style: AppTypography.caption(c.textMain).copyWith(
                         fontWeight: FontWeight.bold,
                       ),

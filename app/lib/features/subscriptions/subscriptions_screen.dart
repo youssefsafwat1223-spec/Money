@@ -11,6 +11,7 @@ import '../../core/theme/widgets/mali_card.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/finance/money.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/finance/bill_metrics.dart';
 import '../cards/brand_mark.dart';
@@ -529,7 +530,7 @@ class _SuggestionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${Formatters.amount(item.averageAmount as double)} ${Currency.arabicLabel(baseCurrency)}/شهر',
+                  '${Formatters.amount((item.estimatedAmountMoney as Money).toDouble())} ${Currency.arabicLabel(baseCurrency)}/شهر',
                   style: AppTypography.caption(c.textMain).copyWith(
                     fontWeight: FontWeight.bold,
                   ),

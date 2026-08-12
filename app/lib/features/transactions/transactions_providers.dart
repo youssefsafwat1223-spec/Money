@@ -92,13 +92,13 @@ class BillSuggestion {
   const BillSuggestion({
     required this.merchantId,
     required this.name,
-    required this.averageAmount,
+    required this.estimatedAmountMoney,
     required this.monthsSeen,
   });
 
   final String merchantId;
   final String name;
-  final double averageAmount;
+  final Money estimatedAmountMoney;
   final int monthsSeen;
 }
 
@@ -487,7 +487,7 @@ final billsViewProvider = FutureProvider<BillsView>((ref) async {
         (item) => BillSuggestion(
           merchantId: item.merchantId,
           name: item.name,
-          averageAmount: item.averageAmount,
+          estimatedAmountMoney: item.estimatedAmountMoney,
           monthsSeen: item.monthsSeen,
         ),
       )
