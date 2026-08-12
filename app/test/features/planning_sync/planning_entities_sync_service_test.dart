@@ -59,8 +59,34 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
               (comparison == 0 &&
                   (row['id'] as String).compareTo(after.id) > 0);
         })
+        .map(_projectTextAliases)
         .take(limit)
         .toList();
+  }
+
+  // MALI-026 (B8-3 §9): mirror the server's `amount::text` projection — the exact
+  // pull reads `<col>_text` decimal strings. This lets a canonical-pushed row
+  // round-trip through pull exactly, just as PostgREST would return it.
+  static const _moneyTextColumns = [
+    'amount',
+    'last_notified_spent_amount',
+    'target_amount',
+    'saved_amount',
+    'last_notified_saved_amount',
+    'auto_save_amount',
+    'budget_amount',
+    'manual_paid_amount',
+    'total_purchase_amount',
+  ];
+
+  Map<String, dynamic> _projectTextAliases(Map<String, dynamic> row) {
+    final out = Map<String, dynamic>.from(row);
+    for (final col in _moneyTextColumns) {
+      if (out.containsKey(col)) {
+        out.putIfAbsent('${col}_text', () => out[col]?.toString());
+      }
+    }
+    return out;
   }
 
   @override
@@ -298,6 +324,7 @@ void main() {
           // The server stores the portable key, while Drift uses a synthetic
           // local FK id for the all-expenses budget.
           'category_id': BudgetEntity.allExpensesCategoryKey,
+          'currency': 'SAR',
           'amount': 750,
           'period': 'monthly',
           'start_date': DateTime.utc(2026, 7, 1).toIso8601String(),
@@ -367,7 +394,9 @@ void main() {
             'id': 'server-budget-$index',
             'local_id': 'budget-$index',
             'category_id': BudgetEntity.allExpensesCategoryKey,
+            'currency': 'SAR',
             'amount': 100 + index,
+            'last_notified_spent_amount': 0,
             'period': 'monthly',
             'start_date': '2026-07-01T00:00:00.000Z',
             'is_active': true,
@@ -403,8 +432,10 @@ void main() {
           'id': 'server-conflict-goal',
           'local_id': 'conflict-goal',
           'name': 'Remote',
+          'currency': 'SAR',
           'target_amount': 9000,
           'saved_amount': 100,
+          'last_notified_saved_amount': 0,
           'vault_skin': 'classic',
           'status': 'active',
           'created_at': DateTime.utc(2026, 7, 1).toIso8601String(),
@@ -494,6 +525,9 @@ void main() {
       await goals.save(
         _goal('g1').copyWith(savedMoney: Money.parse('777', 'SAR')),
       );
+      // §9: the exact pull reads the server row currency; a canonical server row
+      // carries it (0077). The legacy push fake omits it, so supply it here.
+      remote.rows['user_goals']!['g1']!['currency'] = 'SAR';
 
       final pull = PlanningPullService(
         db: db,
@@ -534,6 +568,7 @@ void main() {
       // Server moves past our base.
       remote.rows['user_goals']!['g1']!['updated_at'] =
           DateTime.utc(2030, 1, 1).toIso8601String();
+      remote.rows['user_goals']!['g1']!['currency'] = 'SAR';
 
       final pull = PlanningPullService(
         db: db,

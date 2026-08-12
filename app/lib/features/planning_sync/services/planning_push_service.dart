@@ -489,6 +489,9 @@ class PlanningPushService {
           'local_account_id': payload['local_account_id'],
           'category_id': payload['category_id'],
           'amount': payload['amount'],
+          // §7/§30: canonical push carries the row currency (server column 0077).
+          // Legacy payloads omit it, so it is only sent when present.
+          if (payload['currency'] != null) 'currency': payload['currency'],
           'period': payload['period'],
           'start_date': payload['start_date'],
           'is_active': payload['is_active'] == true,
@@ -527,6 +530,8 @@ class PlanningPushService {
           'name': payload['name'],
           'target_amount': payload['target_amount'],
           'saved_amount': payload['saved_amount'],
+          // §7/§30: canonical push carries the row currency (server column 0077).
+          if (payload['currency'] != null) 'currency': payload['currency'],
           'deadline': payload['deadline'],
           'vault_skin': payload['vault_skin'],
           'status': payload['status'],

@@ -67,7 +67,10 @@ Map<String, dynamic> _gc(String id, {required String goalServerId, String when =
       'id': id,
       'local_id': id,
       'goal_id': goalServerId,
+      // §9: canonical pull carries the exact NUMERIC::text amount; the parent
+      // goal (seeded 'SAR') is the currency authority.
       'amount': 5.0,
+      'amount_text': '5.00',
       'created_at': when,
       'note': null,
       'updated_at': when,

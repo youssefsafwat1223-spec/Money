@@ -8,6 +8,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
+import '../../../data/db/money_codec.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_repository_support.dart';
@@ -18,6 +19,11 @@ import '../../../engine/parser/capture_money.dart';
 import 'planning_outbox_queue.dart';
 
 const planningChildBillPaymentSelect = '*, amount_text:amount::text';
+// MALI-026 (B8-3 §9): canonical goal-contribution pull projects amount as ::text
+// so it is parsed EXACTLY. The contribution carries no currency of its own — its
+// parent goal is the currency authority (§10), resolved from the already-pulled
+// canonical local goal, never from the base currency.
+const planningChildGoalContributionSelect = '*, amount_text:amount::text';
 
 /// MALI-051n: outcome of applying one child pull-row. `missingParent` means the
 /// parent hasn't synced yet → the row is durably parked (never dropped) so the
@@ -74,8 +80,11 @@ class SupabasePlanningChildRemote implements PlanningChildRemote {
     required SyncCursor after,
     int limit = 200,
   }) async {
-    final query = _client.from(table).select(
-        table == 'user_bill_payments' ? planningChildBillPaymentSelect : '*');
+    final query = _client.from(table).select(switch (table) {
+      'user_bill_payments' => planningChildBillPaymentSelect,
+      'user_goal_contributions' => planningChildGoalContributionSelect,
+      _ => '*',
+    });
     final filtered = after.id.isEmpty
         ? query
         : query.or(
@@ -272,10 +281,34 @@ class PlanningChildSyncService {
     final row = Map<String, dynamic>.from(result['contribution'] as Map);
     final goal = Map<String, dynamic>.from(result['goal'] as Map);
     await _markChildSynced('goal_contributions', item.entityId, row);
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    if (_coordinator.state() == PlanningCutoverState.canonical) {
+      // §8/§9: exact — the 0077-era RPC returns the goal's new saved amount as a
+      // ::text NUMERIC + its currency, so write the `_minor` authority + the REAL
+      // shadow from Money. No `(num).toDouble()` on the canonical path.
+      final currency = goal['currency'];
+      if (currency is! String) {
+        throw const MoneyTransportException(
+            'goal contribution response requires a String goal currency');
+      }
+      final saved =
+          moneyFromPulledValueRequired(goal['saved_amount_text'], currency);
+      await _db.customStatement('''
+        UPDATE goals SET
+          saved_amount = ${kMoneyCodec.sqlRealLiteral(saved)},
+          saved_amount_minor = ${kMoneyCodec.sqlMinorLiteral(saved)},
+          server_updated_at = ${sqlNullableString(goal['updated_at'] as String?)},
+          synced_at = ${sqlString(now)},
+          sync_status = 'synced'
+        WHERE server_id = ${sqlString(goalId)};
+      ''');
+      return;
+    }
+    // LEGACY (pre-cutover) compatibility shape — JSON number.
     await _db.customStatement('''
       UPDATE goals SET saved_amount = ${(goal['saved_amount'] as num).toDouble()},
         server_updated_at = ${sqlNullableString(goal['updated_at'] as String?)},
-        synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
+        synced_at = ${sqlString(now)},
         sync_status = 'synced'
       WHERE server_id = ${sqlString(goalId)};
     ''');
@@ -557,8 +590,14 @@ class PlanningChildSyncService {
     Map<String, dynamic> row,
     _ChildResolveScope scope,
   ) async {
-    final goalLocal = scope.parentLocalId('goals', row['goal_id'] as String?);
+    final goalServerId = row['goal_id'] as String?;
+    final goalLocal = scope.parentLocalId('goals', goalServerId);
     if (goalLocal == null) return _ChildApplyOutcome.missingParent;
+    // §10: the parent goal must be locally CANONICAL (carry a currency) before a
+    // contribution can be canonicalized. If not, park as missing-parent — never
+    // invent a currency, never fall back to base.
+    final currency = scope.parentCurrency(goalServerId);
+    if (currency == null) return _ChildApplyOutcome.missingParent;
     final localId = scope.childLocalId(
       row['id'] as String,
       row['local_id'] as String?,
@@ -567,14 +606,18 @@ class PlanningChildSyncService {
         'goal_contributions', localId, scope.childStatus(localId))) {
       return _ChildApplyOutcome.preservedPending;
     }
+    // §9: parse the ::text amount EXACTLY with the parent goal's currency, then
+    // write amount_minor authority + the REAL shadow derived from Money.
+    final amount = moneyFromPulledValueRequired(row['amount_text'], currency);
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       INSERT INTO goal_contributions(
-        id, goal_id, amount, created_at, note, server_id, synced_at,
-        server_updated_at, sync_status, deleted_at
+        id, goal_id, amount, amount_minor, created_at, note, server_id,
+        synced_at, server_updated_at, sync_status, deleted_at
       ) VALUES (
         ${sqlString(localId)}, ${sqlString(goalLocal)},
-        ${(row['amount'] as num).toDouble()},
+        ${kMoneyCodec.sqlRealLiteral(amount)},
+        ${kMoneyCodec.sqlMinorLiteral(amount)},
         ${sqlString(row['created_at'] as String)},
         ${sqlNullableString(row['note'] as String?)},
         ${sqlString(row['id'] as String)}, ${sqlString(now)},
@@ -582,6 +625,7 @@ class PlanningChildSyncService {
         ${sqlNullableString(row['deleted_at'] as String?)}
       ) ON CONFLICT(id) DO UPDATE SET
         goal_id=excluded.goal_id, amount=excluded.amount,
+        amount_minor=excluded.amount_minor,
         created_at=excluded.created_at, note=excluded.note,
         server_id=excluded.server_id, synced_at=excluded.synced_at,
         server_updated_at=excluded.server_updated_at,
@@ -755,11 +799,36 @@ class PlanningChildSyncService {
   ) async {
     final goals = await _prefetchParentLocals(
         'goals', rows.map((r) => r['goal_id'] as String?));
+    // §10: batch the parent goals' canonical currencies once (no N+1). Only
+    // goals that carry a non-null canonical currency locally are eligible
+    // parents; a contribution whose parent lacks one parks until it does.
+    final goalCurrencies = await _prefetchParentGoalCurrencies(
+        rows.map((r) => r['goal_id'] as String?));
     final child = await _prefetchChildIndex('goal_contributions', rows);
     return _ChildResolveScope(
       parentLocalByServer: {'goals': goals},
+      parentCurrencyByServer: goalCurrencies,
       child: child,
     );
+  }
+
+  /// §10: parent-goal serverId → canonical local currency, in one bounded lookup.
+  /// Goals whose local `currency` is NULL (not yet canonical) are omitted, so a
+  /// contribution referencing them parks instead of inventing a currency.
+  Future<Map<String, String>> _prefetchParentGoalCurrencies(
+    Iterable<String?> serverGoalIds,
+  ) async {
+    final ids = <String>{
+      for (final s in serverGoalIds)
+        if (s != null && s.isNotEmpty) s,
+    };
+    final map = <String, String>{};
+    for (final r in await selectByIdChunks(_db, ids,
+        sql: (ph) => 'SELECT server_id, currency FROM goals '
+            'WHERE server_id IN ($ph) AND currency IS NOT NULL;')) {
+      map[r.read<String>('server_id')] = r.read<String>('currency');
+    }
+    return map;
   }
 
   Future<_ChildResolveScope> _scopeForBillPayments(
@@ -884,19 +953,33 @@ class _ChildResolveScope {
     required Map<String, Map<String, String>> parentLocalByServer,
     required _ChildIndex child,
     Map<String, String?> planLinkStatusByPair = const {},
+    Map<String, String> parentCurrencyByServer = const {},
   })  : _parent = parentLocalByServer,
         _child = child,
-        _planLinkStatus = planLinkStatusByPair;
+        _planLinkStatus = planLinkStatusByPair,
+        _parentCurrency = parentCurrencyByServer;
 
   final Map<String, Map<String, String>> _parent;
   final _ChildIndex _child;
   final Map<String, String?> _planLinkStatus;
+  // MALI-026 (B8-3 §10): parent-goal serverId → its canonical local currency,
+  // prefetched once per page (no N+1). A contribution inherits this currency; a
+  // parent absent here is not yet canonical → the child parks (never a base
+  // fallback, never an invented currency).
+  final Map<String, String> _parentCurrency;
 
   /// Local id of a parent by its server id — null when the parent hasn't synced
   /// yet (→ the child is durably parked), exactly like the old `_localId`.
   String? parentLocalId(String table, String? serverId) {
     if (serverId == null || serverId.isEmpty) return null;
     return _parent[table]?[serverId];
+  }
+
+  /// Canonical currency of a parent goal by its server id — null when the parent
+  /// goal isn't locally canonical yet (→ the child contribution parks).
+  String? parentCurrency(String? serverId) {
+    if (serverId == null || serverId.isEmpty) return null;
+    return _parentCurrency[serverId];
   }
 
   String childLocalId(String serverId, String? preferred) =>

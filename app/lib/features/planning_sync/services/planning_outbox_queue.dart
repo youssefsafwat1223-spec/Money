@@ -224,6 +224,12 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     GoalContributionEntity contribution,
   ) {
+    // MALI-026 (B8-3 §7): canonical contribution push is exact — amount → decimal
+    // STRING. The contribution carries no currency of its own; the parent goal is
+    // the server-side currency authority (§10). Legacy keeps the JSON number.
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object amountWire(Money m) =>
+        canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
     return _enqueue(
       entityType: goalContributionsEntityType,
       entityId: contribution.id,
@@ -232,7 +238,7 @@ class PlanningOutboxQueue {
       payload: _withDelete(op, {
         'local_id': contribution.id,
         'local_goal_id': contribution.goalId,
-        'amount': contribution.amount,
+        'amount': amountWire(contribution.amountMoney),
         'created_at': contribution.createdAt.toUtc().toIso8601String(),
         'note': contribution.note,
       }),
@@ -697,14 +703,22 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     BudgetEntity budget,
   ) {
+    // MALI-026 (B8-3 §7): canonical planning push is exact — money → decimal
+    // STRING (moneyToNumericText) + the row's own currency (server column 0077).
+    // Legacy (pre-cutover) keeps the historical JSON-number shape and no
+    // currency column. NEVER a display double / toDouble on the canonical path.
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object amountWire(Money m) =>
+        canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
     return _withDelete(op, {
       'local_id': budget.id,
       'category_id': budget.categoryId,
-      'amount': budget.amount,
+      'amount': amountWire(budget.amountMoney),
+      if (canonical) 'currency': budget.currency,
       'period': budget.period.name,
       'start_date': budget.startDate.toUtc().toIso8601String(),
       'is_active': budget.isActive,
-      'last_notified_spent_amount': budget.lastNotifiedSpentAmount,
+      'last_notified_spent_amount': amountWire(budget.lastNotifiedSpentMoney),
       'last_notified_period_start':
           budget.lastNotifiedPeriodStart.toUtc().toIso8601String(),
       'show_on_header': budget.showOnHeader,
@@ -752,19 +766,29 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     GoalEntity goal,
   ) {
+    // MALI-026 (B8-3 §7): canonical goal push is exact — every money field →
+    // decimal STRING + the goal's own currency (server column 0077). Legacy keeps
+    // the JSON-number shape. NEVER a display double on the canonical path.
+    final canonical = _coordinator.state() == PlanningCutoverState.canonical;
+    Object amountWire(Money m) =>
+        canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
+    Object? amountWireOrNull(Money? m) => canonical
+        ? moneyToNumericTextOrNull(m)
+        : moneyToLegacyJsonNumberOrNull(m);
     return _withDelete(op, {
       'local_id': goal.id,
       'local_account_id': goal.accountId,
       'name': goal.name,
-      'target_amount': goal.targetAmount,
-      'saved_amount': goal.savedAmount,
+      'target_amount': amountWire(goal.targetMoney),
+      'saved_amount': amountWire(goal.savedMoney),
+      if (canonical) 'currency': goal.currency,
       'deadline': goal.deadline?.toUtc().toIso8601String(),
       'vault_skin': goal.vaultSkin,
       'status': goal.status,
-      'auto_save_amount': goal.autoSaveAmount,
+      'auto_save_amount': amountWireOrNull(goal.autoSaveMoney),
       'auto_save_period': goal.autoSavePeriod,
       'auto_save_last_run': goal.autoSaveLastRun?.toUtc().toIso8601String(),
-      'last_notified_saved_amount': goal.lastNotifiedSavedAmount,
+      'last_notified_saved_amount': amountWire(goal.lastNotifiedSavedMoney),
       'created_at': goal.createdAt.toUtc().toIso8601String(),
     });
   }

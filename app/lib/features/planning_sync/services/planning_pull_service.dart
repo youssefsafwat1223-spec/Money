@@ -18,11 +18,23 @@ const planningSubscriptionsPullSelect = '*, amount_text:amount::text, '
     'manual_paid_amount_text:manual_paid_amount::text, '
     'total_purchase_amount_text:total_purchase_amount::text';
 const planningPlansPullSelect = '*, budget_amount_text:budget_amount::text';
+// MALI-026 (B8-3 §9): canonical budget/goal pull projects every NUMERIC money
+// column as ::text so it is parsed EXACTLY (no double on the path) with the row's
+// own currency (server column 0077). Deferred until the planning-currency + exact
+// pull transport capabilities are both verified.
+const planningBudgetsPullSelect = '*, amount_text:amount::text, '
+    'last_notified_spent_amount_text:last_notified_spent_amount::text';
+const planningGoalsPullSelect = '*, target_amount_text:target_amount::text, '
+    'saved_amount_text:saved_amount::text, '
+    'last_notified_saved_amount_text:last_notified_saved_amount::text, '
+    'auto_save_amount_text:auto_save_amount::text';
 const planningPullOrderColumns = ['updated_at', 'id'];
 
 String planningPullSelectForTable(String table) => switch (table) {
       'user_subscriptions' => planningSubscriptionsPullSelect,
       'user_plans' => planningPlansPullSelect,
+      'user_budgets' => planningBudgetsPullSelect,
+      'user_goals' => planningGoalsPullSelect,
       _ => '*',
     };
 
@@ -52,6 +64,45 @@ Money? deserializePlansPullMoney(Map<String, dynamic> row) {
     throw const MoneyTransportException('plan pull requires a String currency');
   }
   return moneyFromPulledValue(row['budget_amount_text'], currency);
+}
+
+/// MALI-026 (B8-3 §9): exact budget pull money. Amount + last-notified are
+/// required (server NOT NULL) so a missing ::text projection or null fails
+/// closed. The row currency is the sole authority — NEVER a base fallback.
+({Money amountMoney, Money lastNotifiedSpentMoney}) deserializeBudgetsPullMoney(
+    Map<String, dynamic> row) {
+  final currency = row['currency'];
+  if (currency is! String) {
+    throw const MoneyTransportException(
+        'budget pull requires a String currency');
+  }
+  return (
+    amountMoney: moneyFromPulledValueRequired(row['amount_text'], currency),
+    lastNotifiedSpentMoney: moneyFromPulledValueRequired(
+        row['last_notified_spent_amount_text'], currency),
+  );
+}
+
+/// MALI-026 (B8-3 §9): exact goal pull money. Target/saved/last-notified are
+/// required; auto-save is nullable. The row currency is the sole authority.
+({
+  Money targetMoney,
+  Money savedMoney,
+  Money lastNotifiedSavedMoney,
+  Money? autoSaveMoney,
+}) deserializeGoalsPullMoney(Map<String, dynamic> row) {
+  final currency = row['currency'];
+  if (currency is! String) {
+    throw const MoneyTransportException('goal pull requires a String currency');
+  }
+  return (
+    targetMoney:
+        moneyFromPulledValueRequired(row['target_amount_text'], currency),
+    savedMoney: moneyFromPulledValueRequired(row['saved_amount_text'], currency),
+    lastNotifiedSavedMoney: moneyFromPulledValueRequired(
+        row['last_notified_saved_amount_text'], currency),
+    autoSaveMoney: moneyFromPulledValue(row['auto_save_amount_text'], currency),
+  );
 }
 
 class PlanningPullResult {
@@ -450,19 +501,27 @@ class PlanningPullService {
   ) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     final categoryId = ctx.categories.resolve(row);
+    // §9: exact — parse the ::text NUMERIC with the row currency into Money, then
+    // write currency + `_minor` (authority) + the REAL shadow derived FROM Money.
+    final money = deserializeBudgetsPullMoney(row);
+    final currency = money.amountMoney.currency;
     await _db.customStatement('''
       INSERT OR IGNORE INTO budgets(
-        id, category_id, amount, period, start_date, is_active,
-        last_notified_spent_amount, last_notified_period_start, show_on_header, account_id,
+        id, category_id, currency, amount, amount_minor, period, start_date, is_active,
+        last_notified_spent_amount, last_notified_spent_amount_minor,
+        last_notified_period_start, show_on_header, account_id,
         server_id, synced_at, server_updated_at, sync_status, deleted_at
       ) VALUES (
         ${sqlString(id)},
         ${sqlString(categoryId)},
-        ${(row['amount'] as num?)?.toDouble() ?? 0},
+        ${sqlString(currency)},
+        ${kMoneyCodec.sqlRealLiteral(money.amountMoney)},
+        ${kMoneyCodec.sqlMinorLiteral(money.amountMoney)},
         ${sqlString(row['period'] as String? ?? 'monthly')},
         ${sqlString(_dateString(row['start_date']) ?? now)},
         ${row['is_active'] == false ? 0 : 1},
-        ${(row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0},
+        ${kMoneyCodec.sqlRealLiteral(money.lastNotifiedSpentMoney)},
+        ${kMoneyCodec.sqlMinorLiteral(money.lastNotifiedSpentMoney)},
         ${sqlString(row['last_notified_period_start'] as String? ?? '2000-01-01T00:00:00Z')},
         ${row['show_on_header'] == true ? 1 : 0},
         ${sqlNullableString(row['local_account_id'] as String?)},
@@ -481,14 +540,18 @@ class PlanningPullService {
     _PlanningPageContext ctx,
   ) async {
     final categoryId = ctx.categories.resolve(row);
+    final money = deserializeBudgetsPullMoney(row);
     await _db.customStatement('''
       UPDATE budgets
       SET category_id = ${sqlString(categoryId)},
-          amount = ${(row['amount'] as num?)?.toDouble() ?? 0},
+          currency = ${sqlString(money.amountMoney.currency)},
+          amount = ${kMoneyCodec.sqlRealLiteral(money.amountMoney)},
+          amount_minor = ${kMoneyCodec.sqlMinorLiteral(money.amountMoney)},
           period = ${sqlString(row['period'] as String? ?? 'monthly')},
           start_date = ${sqlString(_dateString(row['start_date']) ?? dateTimeToSql(DateTime.now().toUtc()))},
           is_active = ${row['is_active'] == false ? 0 : 1},
-          last_notified_spent_amount = ${(row['last_notified_spent_amount'] as num?)?.toDouble() ?? 0},
+          last_notified_spent_amount = ${kMoneyCodec.sqlRealLiteral(money.lastNotifiedSpentMoney)},
+          last_notified_spent_amount_minor = ${kMoneyCodec.sqlMinorLiteral(money.lastNotifiedSpentMoney)},
           last_notified_period_start = ${sqlString(row['last_notified_period_start'] as String? ?? '2000-01-01T00:00:00Z')},
           show_on_header = ${row['show_on_header'] == true ? 1 : 0},
           account_id = ${sqlNullableString(row['local_account_id'] as String?)},
@@ -742,23 +805,36 @@ class PlanningPullService {
 
   Future<void> _insertGoal(String id, Map<String, dynamic> row) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
+    // §9: exact — parse every ::text NUMERIC with the row currency into Money,
+    // then write currency + `_minor` authority + the REAL shadow from Money.
+    final money = deserializeGoalsPullMoney(row);
     await _db.customStatement('''
       INSERT OR IGNORE INTO goals(
-        id, name, account_id, target_amount, saved_amount, deadline,
-        vault_skin, status, created_at, auto_save_amount, auto_save_period,
+        id, name, account_id, currency,
+        target_amount, target_amount_minor,
+        saved_amount, saved_amount_minor,
+        last_notified_saved_amount, last_notified_saved_amount_minor,
+        deadline, vault_skin, status, created_at,
+        auto_save_amount, auto_save_amount_minor, auto_save_period,
         auto_save_last_run, server_id, synced_at, server_updated_at,
         sync_status, deleted_at
       ) VALUES (
         ${sqlString(id)},
         ${sqlString(row['name'] as String? ?? 'هدف')},
         ${sqlNullableString(row['local_account_id'] as String?)},
-        ${(row['target_amount'] as num?)?.toDouble() ?? 0},
-        ${(row['saved_amount'] as num?)?.toDouble() ?? 0},
+        ${sqlString(money.targetMoney.currency)},
+        ${kMoneyCodec.sqlRealLiteral(money.targetMoney)},
+        ${kMoneyCodec.sqlMinorLiteral(money.targetMoney)},
+        ${kMoneyCodec.sqlRealLiteral(money.savedMoney)},
+        ${kMoneyCodec.sqlMinorLiteral(money.savedMoney)},
+        ${kMoneyCodec.sqlRealLiteral(money.lastNotifiedSavedMoney)},
+        ${kMoneyCodec.sqlMinorLiteral(money.lastNotifiedSavedMoney)},
         ${sqlNullableString(_dateString(row['deadline']))},
         ${sqlString(row['vault_skin'] as String? ?? 'classic')},
         ${sqlString(row['status'] as String? ?? 'active')},
         ${sqlString(_dateString(row['created_at']) ?? now)},
-        ${sqlNullableNum(row['auto_save_amount'] as num?)},
+        ${kMoneyCodec.sqlNullableRealLiteral(money.autoSaveMoney)},
+        ${kMoneyCodec.sqlNullableMinorLiteral(money.autoSaveMoney)},
         ${sqlNullableString(row['auto_save_period'] as String?)},
         ${sqlNullableString(_dateString(row['auto_save_last_run']))},
         ${sqlString(row['id'] as String)},
@@ -771,16 +847,23 @@ class PlanningPullService {
   }
 
   Future<void> _updateGoal(String id, Map<String, dynamic> row) async {
+    final money = deserializeGoalsPullMoney(row);
     await _db.customStatement('''
       UPDATE goals
       SET name = ${sqlString(row['name'] as String? ?? 'هدف')},
           account_id = ${sqlNullableString(row['local_account_id'] as String?)},
-          target_amount = ${(row['target_amount'] as num?)?.toDouble() ?? 0},
-          saved_amount = ${(row['saved_amount'] as num?)?.toDouble() ?? 0},
+          currency = ${sqlString(money.targetMoney.currency)},
+          target_amount = ${kMoneyCodec.sqlRealLiteral(money.targetMoney)},
+          target_amount_minor = ${kMoneyCodec.sqlMinorLiteral(money.targetMoney)},
+          saved_amount = ${kMoneyCodec.sqlRealLiteral(money.savedMoney)},
+          saved_amount_minor = ${kMoneyCodec.sqlMinorLiteral(money.savedMoney)},
+          last_notified_saved_amount = ${kMoneyCodec.sqlRealLiteral(money.lastNotifiedSavedMoney)},
+          last_notified_saved_amount_minor = ${kMoneyCodec.sqlMinorLiteral(money.lastNotifiedSavedMoney)},
           deadline = ${sqlNullableString(_dateString(row['deadline']))},
           vault_skin = ${sqlString(row['vault_skin'] as String? ?? 'classic')},
           status = ${sqlString(row['status'] as String? ?? 'active')},
-          auto_save_amount = ${sqlNullableNum(row['auto_save_amount'] as num?)},
+          auto_save_amount = ${kMoneyCodec.sqlNullableRealLiteral(money.autoSaveMoney)},
+          auto_save_amount_minor = ${kMoneyCodec.sqlNullableMinorLiteral(money.autoSaveMoney)},
           auto_save_period = ${sqlNullableString(row['auto_save_period'] as String?)},
           auto_save_last_run = ${sqlNullableString(_dateString(row['auto_save_last_run']))},
           server_id = ${sqlString(row['id'] as String)},
