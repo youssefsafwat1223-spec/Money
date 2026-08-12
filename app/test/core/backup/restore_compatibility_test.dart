@@ -63,17 +63,18 @@ void main() {
     return BackupSnapshotBuilder(src).build();
   }
 
-  test('v3/current snapshot prepares with no legacy warning', () async {
+  test('v4/current snapshot prepares with no legacy warning', () async {
     final src = await open();
     addTearDown(src.close);
     final snap = await fullSnapshot(src);
     final plan = RestorePreparation.build(
       snapshot: snap,
+      // Crypto envelope stays v3; the BUSINESS snapshot is now v4 (exact minor).
       envelopeVersion: 3,
       sourceBytes: const [3],
-      operationId: 'op-v3',
+      operationId: 'op-v4',
     );
-    expect(plan.snapshotSchemaVersion, 3);
+    expect(plan.snapshotSchemaVersion, 4);
     expect(plan.warnings.where((w) => w.startsWith('legacy_schema')), isEmpty);
   });
 

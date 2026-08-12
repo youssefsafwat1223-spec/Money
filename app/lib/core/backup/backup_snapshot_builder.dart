@@ -13,7 +13,31 @@ class BackupSnapshotBuilder {
   // v3 (MALI-014): adds cards, categories (full-fidelity incl. soft-deleted),
   // user-learned sender_bank_mappings, and the previously-omitted account
   // columns. Reads run in one snapshot transaction. v2 backups still restore.
-  static const currentSchemaVersion = 3;
+  // MALI-026 (B8-3 §1/§2): v4 adds exact minor-unit money (decimal-int STRINGS)
+  // + currency authority to every money field, so a canonical backup no longer
+  // loses exactness by serializing only the REAL shadow. This is the BUSINESS
+  // snapshot schema version and is INDEPENDENT of the crypto envelope version
+  // (which stays v3 — see EncryptedBackupService).
+  static const currentSchemaVersion = 4;
+
+  /// Columns carrying exact minor units. They are read as int64 from Drift and
+  /// emitted on the wire as decimal-integer STRINGS (§2 — never rely on a
+  /// JS-safe-integer JSON number). Nullable minors stay null.
+  static bool _isMinorColumn(String key) => key.endsWith('_minor');
+
+  /// Transform a raw DB row into its wire shape: stringify every `_minor` int so
+  /// the full signed-int64 range survives any JSON decoder. Applied identically
+  /// on BOTH the object path ([build]) and the streaming path
+  /// ([buildEncryptedPlaintext]) so their JSON stays byte-identical.
+  static Map<String, Object?> wireRow(Map<String, Object?> row) {
+    final out = <String, Object?>{};
+    for (final entry in row.entries) {
+      final v = entry.value;
+      out[entry.key] =
+          (_isMinorColumn(entry.key) && v is int) ? v.toString() : v;
+    }
+    return out;
+  }
 
   static const _tables = <String, List<String>>{
     'accounts': [
@@ -26,6 +50,10 @@ class BackupSnapshotBuilder {
       'bank_account_number',
       'credit_limit',
       'available_credit',
+      'initial_balance_minor',
+      'current_balance_minor',
+      'credit_limit_minor',
+      'available_credit_minor',
       'payment_due_day',
       'wallet_provider',
       'exclude_from_totals',
@@ -63,11 +91,17 @@ class BackupSnapshotBuilder {
       'duplicate_status',
       'possible_duplicate_of_transaction_id',
       'duplicate_reason',
+      // MALI-026 (B8-3 §2): v4 exact minor units (decimal-int STRINGS on the
+      // wire). Currency authority: `currency` (own) / `foreign_currency`.
+      'amount_minor',
+      'balance_after_minor',
+      'foreign_amount_minor',
     ],
     'budgets': [
       'id',
       'account_id',
       'category_id',
+      'currency',
       'amount',
       'period',
       'start_date',
@@ -75,11 +109,14 @@ class BackupSnapshotBuilder {
       'last_notified_spent_amount',
       'last_notified_period_start',
       'show_on_header',
+      'amount_minor',
+      'last_notified_spent_amount_minor',
     ],
     'goals': [
       'id',
       'account_id',
       'name',
+      'currency',
       'target_amount',
       'saved_amount',
       'deadline',
@@ -91,6 +128,10 @@ class BackupSnapshotBuilder {
       'auto_save_last_run',
       'last_notified_saved_amount',
       'deleted_at',
+      'target_amount_minor',
+      'saved_amount_minor',
+      'auto_save_amount_minor',
+      'last_notified_saved_amount_minor',
     ],
     'goal_contributions': [
       'id',
@@ -98,6 +139,9 @@ class BackupSnapshotBuilder {
       'amount',
       'created_at',
       'note',
+      // Currency authority: the parent goal (§10); the contribution stores only
+      // its exact minor amount.
+      'amount_minor',
     ],
     'merchant_category_map': [
       'id',
@@ -182,6 +226,9 @@ class BackupSnapshotBuilder {
       'lender_name',
       'interest_rate',
       'deleted_at',
+      'amount_minor',
+      'manual_paid_amount_minor',
+      'total_purchase_amount_minor',
     ],
     'bill_payments': [
       'id',
@@ -194,6 +241,7 @@ class BackupSnapshotBuilder {
       'installment_index',
       'transaction_id',
       'note',
+      'amount_minor',
     ],
     'plans': [
       'id',
@@ -208,6 +256,7 @@ class BackupSnapshotBuilder {
       'icon',
       'created_at',
       'deleted_at',
+      'budget_amount_minor',
     ],
     'plan_transaction_links': [
       'plan_id',
@@ -364,7 +413,7 @@ class BackupSnapshotBuilder {
           final rows = await _db
               .customSelect('SELECT $columns FROM ${entry.key}$where;')
               .get();
-          tables[entry.key] = [for (final row in rows) row.data];
+          tables[entry.key] = [for (final row in rows) wireRow(row.data)];
         }
       }
     });
@@ -448,7 +497,7 @@ class BackupSnapshotBuilder {
             ).get();
             if (page.isEmpty) break;
             for (final row in page) {
-              writeRow(row.data);
+              writeRow(wireRow(row.data));
             }
             if (page.length < _snapshotPageSize) break;
             cursorId = page.last.data['id'] as String?;
@@ -458,7 +507,7 @@ class BackupSnapshotBuilder {
               .customSelect('SELECT $columns FROM ${entry.key}$where;')
               .get();
           for (final row in rows) {
-            writeRow(row.data);
+            writeRow(wireRow(row.data));
           }
         }
         add(']');
@@ -488,7 +537,7 @@ class BackupSnapshotBuilder {
       ).get();
       if (page.isEmpty) break;
       for (final row in page) {
-        rows.add(row.data);
+        rows.add(wireRow(row.data));
       }
       if (page.length < _snapshotPageSize) break;
       cursorId = page.last.data['id'] as String?;

@@ -25,7 +25,10 @@ class RestoreBackupUseCase {
 
   final AppDatabase _db;
   final PlanningCutoverCoordinator _coordinator;
-  static const currentSchemaVersion = 3;
+  // MALI-026 (B8-3 §1/§3): v4 business snapshots carry exact minor units +
+  // currency; v3 and older are the legacy REAL-only shape. Both restore (version
+  // dispatch below); a version ABOVE this is rejected before any mutation.
+  static const currentSchemaVersion = 4;
 
   // accounts must come before tables that FK into it; categories before the
   // rows that reference category_id (merchant_category_map, transactions,
@@ -185,12 +188,18 @@ class RestoreBackupUseCase {
         if (planningRepairDecision != null) {
           await _canonicalizeRestoredPlanning(planningRepairDecision);
         }
-        // MALI-026 (B8-3 §26) — canonicalize restored NON-planning money exactly:
-        // the snapshot carries REAL + currency but no `_minor`, and the v30 reader
-        // is minor-authoritative, so populate `_minor` from the restored REAL via
-        // the SAME exact converter as the v30 upgrade. A bad row throws → the whole
-        // restore rolls back.
-        await backfillNonPlanningMoneyV30(_db);
+        // MALI-026 (B8-3 §3) — version dispatch for NON-planning money:
+        //   • v4+ exact snapshot: the exact `_minor` (+ currency) were inserted
+        //     DIRECTLY as the authority — NOTHING to reconstruct. A REAL→minor
+        //     parity check is deliberately NOT run: the REAL is a derived shadow
+        //     (Money.toDouble) that rounds beyond 2^53, whereas the exact minor is
+        //     preserved verbatim (§5). Envelope authentication guards integrity;
+        //     a malformed minor string already failed closed in _insertRow.
+        //   • v3- legacy snapshot: REAL + currency only, so populate `_minor` from
+        //     the restored REAL via the same exact converter as the v30 upgrade.
+        if (schemaVersion < 4) {
+          await backfillNonPlanningMoneyV30(_db);
+        }
 
         // MALI-026 (B8-3 §26/§8) — reconcile the PLANNING cutover marker with the
         // ACTUAL restored planning data; NEVER trust a marker carried in the
@@ -582,6 +591,22 @@ class RestoreBackupUseCase {
 
   Future<void> _insertRow(String table, Map<String, dynamic> row) async {
     final data = Map<String, dynamic>.from(row);
+    // MALI-026 (B8-3 §2/§3): a v4 snapshot carries every `_minor` as a decimal
+    // integer STRING (JS-safe). Parse it back to an int64 so it lands in the
+    // INTEGER column as the exact minor authority; a malformed value fails the
+    // whole restore closed rather than silently truncating via type affinity.
+    for (final key in data.keys) {
+      final value = data[key];
+      if (key.endsWith('_minor') && value is String) {
+        final parsed = int.tryParse(value);
+        if (parsed == null) {
+          throw BackupException(
+            'تعذّرت الاستعادة: قيمة نقدية غير صالحة ("$key").',
+          );
+        }
+        data[key] = parsed;
+      }
+    }
     if (table == 'transactions') {
       data['raw_message'] = '[restored: raw message intentionally excluded]';
     }

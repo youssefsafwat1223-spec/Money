@@ -155,7 +155,7 @@ void main() {
 
     test('snapshot has required top-level keys', () async {
       final snapshot = await BackupSnapshotBuilder(db).build();
-      expect(snapshot['version'], 3);
+      expect(snapshot['version'], 4);
       expect(snapshot['schemaVersion'],
           BackupSnapshotBuilder.currentSchemaVersion);
       expect(snapshot.containsKey('createdAt'), isTrue);

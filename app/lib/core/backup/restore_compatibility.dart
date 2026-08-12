@@ -43,7 +43,7 @@ class SnapshotSchemaAdapter {
 class RestoreCompatibility {
   const RestoreCompatibility._();
 
-  static const int currentVersion = 3;
+  static const int currentVersion = 4;
 
   // The full restorable table set (current schema).
   static Set<String> get _allTables =>
@@ -51,6 +51,16 @@ class RestoreCompatibility {
 
   /// The explicit adapter registry, by snapshot schema version.
   static final Map<int, SnapshotSchemaAdapter> _adapters = {
+    // MALI-026 (B8-3 §2): v4 adds exact `_minor` (+ budgets/goals currency) to the
+    // uniform restorable column set — same required tables as v3, no warning (it
+    // IS the current shape); the restore's version dispatch consumes the exact
+    // minors directly.
+    4: SnapshotSchemaAdapter(
+      version: 4,
+      requiredTables: const {'categories', 'accounts', 'user_settings'},
+      optionalTables: _allTables.difference(
+          const {'categories', 'accounts', 'user_settings'}),
+    ),
     3: SnapshotSchemaAdapter(
       version: 3,
       requiredTables: const {'categories', 'accounts', 'user_settings'},
