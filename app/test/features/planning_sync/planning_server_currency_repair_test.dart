@@ -33,9 +33,11 @@ class _PageRemote implements PlanningRemoteSource {
 
 /// Fake server for repair: holds mutable rows; models first-writer-wins.
 class _FakeRepairRemote implements PlanningRepairRemote {
-  _FakeRepairRemote(this.rows, {this.throwOnUpdate = false});
+  _FakeRepairRemote(this.rows,
+      {this.throwOnUpdate = false, this.neverResolves = false});
   final Map<String, Map<String, dynamic>> rows; // serverId -> row
   final bool throwOnUpdate;
+  final bool neverResolves; // guarded update always matches 0 rows
   int updates = 0;
 
   @override
@@ -47,6 +49,7 @@ class _FakeRepairRemote implements PlanningRepairRemote {
   }) async {
     updates++;
     if (throwOnUpdate) throw StateError('network down');
+    if (neverResolves) return null;
     final row = rows[serverId];
     if (row == null) return null;
     if (row['currency'] != null) return null; // already resolved → 0 rows
@@ -221,6 +224,42 @@ void main() {
     expect(outcome, PlanningRepairOutcome.unsupportedCurrency);
     expect(remote.updates, 0); // no server write attempted
     expect(await _n(db, "SELECT COUNT(*) n FROM parked_child_rows WHERE server_id='g1'"), 1);
+  });
+
+  test('first-writer-wins BUDGET (direct): persisted KWD wins over attempted SAR',
+      () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _pull(db, _PageRemote({'user_budgets': [_budgetRow('b1', null)]})).pull();
+    // another device already resolved the budget to KWD
+    final server = {'b1': _budgetRow('b1', 'KWD')};
+    final repair = _repair(db, _pull(db, _PageRemote({})), _FakeRepairRemote(server));
+
+    final outcome =
+        await repair.resolve(entityType: 'budget', serverId: 'b1', currency: 'SAR');
+    expect(outcome, PlanningRepairOutcome.resolved);
+    expect(
+        (await db.customSelect("SELECT currency c FROM budgets WHERE server_id='b1'").getSingle())
+            .read<String>('c'),
+        'KWD'); // persisted authority, not our SAR
+    expect(await _n(db, "SELECT COUNT(*) n FROM parked_child_rows WHERE server_id='b1'"), 0);
+  });
+
+  test('quarantine retained on canonical APPLY failure (refetched row still null)',
+      () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _pull(db, _PageRemote({'user_goals': [_goalRow('g1', null)]})).pull();
+    // guarded update matches 0 rows; refetch returns a row whose currency is STILL
+    // null → the canonical apply throws → repair must keep the quarantine.
+    final repair = _repair(db, _pull(db, _PageRemote({})),
+        _FakeRepairRemote({'g1': _goalRow('g1', null)}, neverResolves: true));
+
+    final outcome =
+        await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD');
+    expect(outcome, PlanningRepairOutcome.failedKeepUnresolved);
+    expect(await _n(db, "SELECT COUNT(*) n FROM parked_child_rows WHERE server_id='g1'"), 1);
+    expect(await _n(db, "SELECT COUNT(*) n FROM goals WHERE server_id='g1'"), 0);
   });
 
   test('telemetry decrements correctly across repairs (2 → 1 → 0)', () async {
