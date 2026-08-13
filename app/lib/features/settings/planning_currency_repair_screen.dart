@@ -10,6 +10,7 @@ import '../../core/utils/formatters.dart';
 import '../../data/db/planning_currency_repair.dart';
 import '../../domain/finance/currency_scale.dart';
 import 'planning_currency_repair_providers.dart';
+import 'planning_server_repair_section.dart';
 
 class PlanningCurrencyRepairScreen extends ConsumerStatefulWidget {
   const PlanningCurrencyRepairScreen({super.key});
@@ -43,8 +44,16 @@ class _PlanningCurrencyRepairScreenState
       child: Scaffold(
         backgroundColor: c.bg,
         appBar: AppBar(title: const Text('تأكيد عملة التخطيط')),
-        body: repair.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
+        body: Column(
+          children: [
+            // Server-originated unresolved-currency rows (from the sync quarantine)
+            // surface here regardless of the local-legacy cutover status; renders
+            // nothing when there is no server repair work.
+            const PlanningServerRepairSection(),
+            Expanded(
+              child: repair.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
           error: (error, stackTrace) => _LoadError(
             onRetry: () =>
                 ref.read(planningCurrencyRepairProvider.notifier).refresh(),
@@ -59,6 +68,9 @@ class _PlanningCurrencyRepairScreenState
                 _buildConfirmation(context, data),
             };
           },
+              ),
+            ),
+          ],
         ),
       ),
     );
