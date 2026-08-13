@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart' show QueryRow;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -265,22 +267,49 @@ class PlanningPullService {
               rows,
             );
             for (final row in rows) {
+              final rowServerId = row['id'] as String?;
               if (row['deleted_at'] != null) {
                 if (await _processTombstone(entityType, row, ctx)) {
                   pageTombstoned++;
                 }
+                // §5: a tombstoned parent is never a currency-repair obligation;
+                // clear any stale quarantine so delete-after-quarantine converges.
+                if (_planningCurrencyEntities.contains(entityType)) {
+                  await _clearQuarantine(remoteTable, rowServerId);
+                }
                 continue;
               }
-              final outcome = await _processRow(entityType, row, ctx);
-              switch (outcome) {
-                case _PlanningPullOutcome.imported:
-                  pageImported++;
-                case _PlanningPullOutcome.updated:
-                  pageUpdated++;
-                case _PlanningPullOutcome.conflict:
-                  pageConflicts++;
-                case _PlanningPullOutcome.skipped:
-                  break;
+              try {
+                final outcome = await _processRow(entityType, row, ctx);
+                // §12: a canonical apply that succeeds clears any prior quarantine
+                // (e.g. a repaired row re-pulled with its now-persisted currency).
+                if (_planningCurrencyEntities.contains(entityType) &&
+                    outcome != _PlanningPullOutcome.skipped) {
+                  await _clearQuarantine(remoteTable, rowServerId);
+                }
+                switch (outcome) {
+                  case _PlanningPullOutcome.imported:
+                    pageImported++;
+                  case _PlanningPullOutcome.updated:
+                    pageUpdated++;
+                  case _PlanningPullOutcome.conflict:
+                    pageConflicts++;
+                  case _PlanningPullOutcome.skipped:
+                    break;
+                }
+              } on MoneyTransportException {
+                // MALI-026 (Phase-9F §4): an ACTIVE budget/goal whose persisted
+                // server currency is NULL/unsupported is UNRESOLVED. Quarantine it
+                // durably (NEVER invent currency — no base/account/settings
+                // fallback) and CONTINUE so the healthy rows in this page still
+                // commit and the cursor advances — no head-of-line block. ONLY
+                // this expected unresolved-currency class is quarantined; any
+                // other error still surfaces (rethrow → page rolls back as before).
+                if (_planningCurrencyEntities.contains(entityType)) {
+                  await _quarantineUnresolved(remoteTable, row);
+                  continue;
+                }
+                rethrow;
               }
             }
             if (!admitted()) throw const ReconcilePullCancelled();
@@ -325,6 +354,51 @@ class PlanningPullService {
       conflicts: conflicts,
       tombstoned: tombstoned,
       completedEntities: completedEntities,
+    );
+  }
+
+  /// The planning parents whose per-row server currency may legitimately be
+  /// NULL until the owner repairs it — the ONLY entities eligible for the
+  /// unresolved-currency quarantine.
+  static const _planningCurrencyEntities = {
+    PlanningOutboxQueue.budgetsEntityType,
+    PlanningOutboxQueue.goalsEntityType,
+  };
+
+  /// Durably record an ACTIVE budget/goal server row whose currency is
+  /// unresolved, so pull progress is not blocked and the row can be repaired
+  /// later. Reuses the existing v30 `parked_child_rows` durable table (no schema
+  /// bump); (table_name, server_id) is the natural idempotency key, so a repeated
+  /// pull of the same unresolved row refreshes one entry, never duplicates it.
+  Future<void> _quarantineUnresolved(
+      String remoteTable, Map<String, dynamic> row) async {
+    final serverId = row['id'] as String?;
+    if (serverId == null) return;
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.customStatement('''
+      INSERT INTO parked_child_rows(
+        table_name, server_id, row_json, reason, attempt_count,
+        first_seen_at, updated_at
+      ) VALUES (
+        ${sqlString(remoteTable)}, ${sqlString(serverId)},
+        ${sqlString(jsonEncode(row))}, 'unresolved_currency', 0,
+        ${sqlString(now)}, ${sqlString(now)}
+      ) ON CONFLICT(table_name, server_id) DO UPDATE SET
+        row_json = excluded.row_json,
+        reason = 'unresolved_currency',
+        updated_at = excluded.updated_at;
+    ''');
+  }
+
+  /// Clear a resolved/removed budget/goal from the unresolved-currency
+  /// quarantine (only that reason — never touches child `missing_parent` parks).
+  Future<void> _clearQuarantine(String remoteTable, String? serverId) async {
+    if (serverId == null) return;
+    await _db.customStatement(
+      'DELETE FROM parked_child_rows '
+      'WHERE table_name = ${sqlString(remoteTable)} '
+      'AND server_id = ${sqlString(serverId)} '
+      "AND reason = 'unresolved_currency';",
     );
   }
 
