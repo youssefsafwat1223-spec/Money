@@ -402,6 +402,34 @@ class PlanningPullService {
     );
   }
 
+  /// MALI-026 (Phase-9F-2 §7): apply ONE authoritatively-refetched planning row
+  /// through the SAME canonical decode/apply path production sync uses, then clear
+  /// its unresolved-currency quarantine. Used by the owner-repair flow after a
+  /// guarded server currency resolution — repair converges onto the normal sync
+  /// contract, never onto stale quarantined data. Throws (leaving the quarantine
+  /// intact, applying nothing) if the row is still non-canonical (currency still
+  /// null → MoneyTransportException). A tombstoned row applies deletion semantics
+  /// and clears the repair obligation.
+  Future<void> applyRepairedRow(
+      String entityType, Map<String, dynamic> row) async {
+    final remoteTable = _entityTable[entityType];
+    if (remoteTable == null) return;
+    await _db.transaction(() async {
+      final ctx =
+          await _buildPageContext(entityType, _localTable[entityType], [row]);
+      final serverId = row['id'] as String?;
+      if (row['deleted_at'] != null) {
+        await _processTombstone(entityType, row, ctx);
+        await _clearQuarantine(remoteTable, serverId);
+        return;
+      }
+      final outcome = await _processRow(entityType, row, ctx);
+      if (outcome != _PlanningPullOutcome.skipped) {
+        await _clearQuarantine(remoteTable, serverId);
+      }
+    });
+  }
+
   Future<_PlanningPullOutcome> _processRow(
     String entityType,
     Map<String, dynamic> row,
