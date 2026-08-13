@@ -55,8 +55,7 @@ class LedgerPushService implements LedgerPushAdapter {
     // unchanged. Only canonical mode with an unverified push capability parks.
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
-    ExactTransportCapability Function() pushCapability =
-        _defaultPushCapability,
+    ExactTransportCapability Function() pushCapability = _defaultPushCapability,
   })  : _db = db,
         _queue = queue,
         _isPushEnabled = isPushEnabled,
@@ -345,15 +344,86 @@ class LedgerPushService implements LedgerPushAdapter {
       return _PushOutcome.pushed;
     }
 
-    await _getClient()
-        .from('user_transactions')
-        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()}).eq(
-      'id',
-      serverId,
-    );
+    final deletedAt = DateTime.now().toUtc().toIso8601String();
+    final expectedRevision = payload['server_revision'] as int?;
+    try {
+      // MALI-022 / 0068 (Phase-9K): the tombstone is GUARDED, never the old
+      // unconditional id-only overwrite. CAS on the base revision when known;
+      // otherwise an optimistic updated_at compare. A zero-row result is
+      // classified below — a stale delete can never clobber a newer update.
+      if (_revisionCasEnabled && expectedRevision != null) {
+        final ack = await _getClient()
+            .from('user_transactions')
+            .update({'deleted_at': deletedAt})
+            .eq('id', serverId)
+            .eq('revision', expectedRevision)
+            .select(_casAckCols)
+            .maybeSingle();
+        if (ack != null) {
+          await _queue.markSuccess(item.id);
+          return _PushOutcome.pushed;
+        }
+        return _resolveDeleteConflict(item, serverId);
+      }
 
+      // Never id-only: guard on the last-known updated_at, or (when unknown) on
+      // the row not already being tombstoned. Each branch is a single chained
+      // statement so the guard predicate always travels with the deleted_at write.
+      final base = payload['server_updated_at'] as String?;
+      final ack = base != null
+          ? await _getClient()
+              .from('user_transactions')
+              .update({'deleted_at': deletedAt})
+              .eq('id', serverId)
+              .eq('updated_at', base)
+              .select('id, updated_at')
+              .maybeSingle()
+          : await _getClient()
+              .from('user_transactions')
+              .update({'deleted_at': deletedAt})
+              .eq('id', serverId)
+              .isFilter('deleted_at', null)
+              .select('id, updated_at')
+              .maybeSingle();
+      if (ack != null) {
+        await _queue.markSuccess(item.id);
+        return _PushOutcome.pushed;
+      }
+      return _resolveDeleteConflict(item, serverId);
+    } catch (e) {
+      if (_isConflict(e)) {
+        await _markConflict(item.transactionId);
+        await _queue.markSuccess(item.id);
+        return _PushOutcome.conflict;
+      }
+      rethrow;
+    }
+  }
+
+  /// A guarded tombstone matched zero rows. Classify (Phase-9K §5):
+  ///   A. already tombstoned  → the delete already converged → idempotent success
+  ///   B. still live, advanced → a newer accepted update → conflict, do NOT delete
+  ///   C. absent               → fail-closed → conflict
+  /// On B/C the server row (its newer update) is untouched — the next pull
+  /// re-materialises the transaction, so the update is never lost. Transactions
+  /// soft-delete locally as status='ignored' (the row persists), so the conflict
+  /// flag is durable and recoverable via keep-mine / keep-theirs.
+  Future<_PushOutcome> _resolveDeleteConflict(
+    OutboxItem item,
+    String serverId,
+  ) async {
+    final state = await _getClient()
+        .from('user_transactions')
+        .select('deleted_at')
+        .eq('id', serverId)
+        .maybeSingle();
+    if (state != null && state['deleted_at'] != null) {
+      await _queue.markSuccess(item.id); // A
+      return _PushOutcome.pushed;
+    }
+    await _markConflict(item.transactionId); // B (live) or C (absent)
     await _queue.markSuccess(item.id);
-    return _PushOutcome.pushed;
+    return _PushOutcome.conflict;
   }
 
   Future<String?> _findServerId(String localId, String userId) async {

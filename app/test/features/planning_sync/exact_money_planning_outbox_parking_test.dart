@@ -60,7 +60,24 @@ class _FakeAccountsSink implements AccountsRemoteSink {
   }
 
   @override
-  Future<void> tombstoneAccount(String serverId) async => _recordCall();
+  Future<Map<String, dynamic>?> casTombstoneAccount(
+      String serverId, int expectedRevision) async {
+    _recordCall();
+    return {'id': serverId, 'revision': expectedRevision + 1};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstoneAccount(
+      String serverId, String? expectedUpdatedAt) async {
+    _recordCall();
+    return {'id': serverId};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchAccountState(String serverId) async {
+    _recordCall();
+    return null;
+  }
 
   @override
   Future<String?> fetchAccountUpdatedAt(String serverId) async {

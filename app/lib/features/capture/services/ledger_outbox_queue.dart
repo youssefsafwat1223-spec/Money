@@ -68,30 +68,31 @@ class LedgerOutboxQueue {
     final payload = _buildPayload(op, tx);
 
     // MALI-022 / 0068 — attach the locally-cached server revision as the CAS
-    // base token (updates only; a delete tombstone applies unconditionally).
-    // Null (unknown revision) is left absent → the push uses the guarded
-    // server_updated_at compare, never a blind overwrite.
-    if (op != OutboxOperation.delete) {
-      final revRow = await _db
-          .customSelect(
-            'SELECT server_revision FROM transactions '
-            'WHERE id = ${sqlString(tx.id)} LIMIT 1;',
-          )
-          .getSingleOrNull();
-      final baseRevision = revRow?.readNullable<int>('server_revision');
-      if (baseRevision != null) payload['server_revision'] = baseRevision;
-    }
+    // base token. Phase-9K: deletes carry it too, so the tombstone is a GUARDED
+    // compare-and-set (a stale delete can never overwrite a newer accepted
+    // update), not an unconditional overwrite. Null (unknown revision) is left
+    // absent → the push uses the guarded server_updated_at compare.
+    final revRow = await _db
+        .customSelect(
+          'SELECT server_revision FROM transactions '
+          'WHERE id = ${sqlString(tx.id)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    final baseRevision = revRow?.readNullable<int>('server_revision');
+    if (baseRevision != null) payload['server_revision'] = baseRevision;
 
     await _db.transaction(() async {
       // MALI-052n: coalesce into any existing PENDING row for this transaction.
-      final existing = await _db.customSelect(
-        "SELECT id, operation FROM ledger_sync_outbox "
-        "WHERE transaction_id = ${sqlString(tx.id)} AND status = 'pending' "
-        "ORDER BY created_at ASC LIMIT 1;",
-      ).getSingleOrNull();
+      final existing = await _db
+          .customSelect(
+            "SELECT id, operation FROM ledger_sync_outbox "
+            "WHERE transaction_id = ${sqlString(tx.id)} AND status = 'pending' "
+            "ORDER BY created_at ASC LIMIT 1;",
+          )
+          .getSingleOrNull();
       if (existing != null) {
-        final coalesced =
-            coalesceOutboxOperation(existing.read<String>('operation'), op.name);
+        final coalesced = coalesceOutboxOperation(
+            existing.read<String>('operation'), op.name);
         if (coalesced == null) {
           await _db.customStatement(
             'DELETE FROM ledger_sync_outbox '
@@ -289,6 +290,10 @@ class LedgerOutboxQueue {
       return {
         'local_id': tx.id,
         'server_id': tx.serverId,
+        // Phase-9K optimistic base token: the guarded tombstone compares this
+        // against the live server row when the CAS revision is unknown, so a
+        // stale delete never clobbers a newer accepted update.
+        'server_updated_at': tx.serverUpdatedAt?.toUtc().toIso8601String(),
       };
     }
 

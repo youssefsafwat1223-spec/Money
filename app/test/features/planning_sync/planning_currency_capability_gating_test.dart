@@ -64,7 +64,25 @@ class _RecordingSink implements PlanningRemoteSink {
       null;
 
   @override
-  Future<void> tombstone(String table, String serverId) async => _guard();
+  Future<Map<String, dynamic>?> casTombstone(
+      String table, String serverId, int expectedRevision) async {
+    _guard();
+    return {'id': serverId, 'revision': expectedRevision + 1};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstone(
+      String table, String serverId, String? expectedUpdatedAt) async {
+    _guard();
+    return {'id': serverId};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowState(
+      String table, String serverId) async {
+    _guard();
+    return null;
+  }
 
   @override
   Future<String?> fetchServerUpdatedAt(String table, String serverId) async {
@@ -81,8 +99,11 @@ class _RecordingSink implements PlanningRemoteSink {
   }
 
   @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(String table,
-          String serverId, int expectedRevision, Map<String, dynamic> row) async =>
+  Future<Map<String, dynamic>?> casUpdateByServerId(
+          String table,
+          String serverId,
+          int expectedRevision,
+          Map<String, dynamic> row) async =>
       null;
 }
 
@@ -264,13 +285,15 @@ void main() {
       expect(r.pushed, 0);
       expect(sink.sentTables, isEmpty);
       expect(await q.parkedCount(), 1);
-      final row = await db.customSelect(
-        "SELECT status, failure_class FROM planning_sync_outbox "
-        "WHERE entity_id = 'budget-001';",
-      ).getSingle();
+      final row = await db
+          .customSelect(
+            "SELECT status, failure_class FROM planning_sync_outbox "
+            "WHERE entity_id = 'budget-001';",
+          )
+          .getSingle();
       expect(row.read<String>('status'), 'parked');
-      expect(
-          row.read<String>('failure_class'), exactMoneyTransportUnverifiedReason);
+      expect(row.read<String>('failure_class'),
+          exactMoneyTransportUnverifiedReason);
     });
 
     // Both required — transport unknown parks even with currency verified.

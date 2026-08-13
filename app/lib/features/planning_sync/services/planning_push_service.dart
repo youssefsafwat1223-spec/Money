@@ -45,7 +45,31 @@ abstract class PlanningRemoteSink {
     String localId,
   );
 
-  Future<void> tombstone(String table, String serverId);
+  /// MALI-022 / 0068 (Phase-9K) — atomic compare-and-set tombstone. Sets
+  /// `deleted_at` only if the row's server `revision` still equals
+  /// [expectedRevision]; returns the ack (id/updated_at/revision), or null when
+  /// no row matched — a stale delete that must NOT overwrite a newer update.
+  Future<Map<String, dynamic>?> casTombstone(
+    String table,
+    String serverId,
+    int expectedRevision,
+  );
+
+  /// MALI-022 (Phase-9K) — guarded tombstone without a revision base. Sets
+  /// `deleted_at` only if the row still matches [expectedUpdatedAt] (an
+  /// optimistic timestamp compare); when that is null, only if the row is not
+  /// already tombstoned. Returns the ack, or null when no row matched. NEVER an
+  /// id-only blind overwrite.
+  Future<Map<String, dynamic>?> guardedTombstone(
+    String table,
+    String serverId,
+    String? expectedUpdatedAt,
+  );
+
+  /// MALI-022 (Phase-9K) — the row's current `{deleted_at}` (null if the row is
+  /// gone). Classifies a zero-row guarded tombstone: already-tombstoned (delete
+  /// converged) vs still-live (a newer update advanced past our base) vs absent.
+  Future<Map<String, dynamic>?> fetchRowState(String table, String serverId);
 
   /// MALI-022 — the current server `updated_at` for a known server row, used as
   /// the optimistic-concurrency compare on update. Null if the row is gone.
@@ -90,10 +114,57 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
   }
 
   @override
-  Future<void> tombstone(String table, String serverId) async {
-    await _client.from(table).update({
-      'deleted_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', serverId);
+  Future<Map<String, dynamic>?> casTombstone(
+    String table,
+    String serverId,
+    int expectedRevision,
+  ) async {
+    return await _client
+        .from(table)
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', serverId)
+        .eq('revision', expectedRevision)
+        .select(_ackCols)
+        .maybeSingle();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstone(
+    String table,
+    String serverId,
+    String? expectedUpdatedAt,
+  ) async {
+    // Never id-only: guard on the last-known updated_at, or (when unknown) on
+    // the row not already being tombstoned. Each branch is a single chained
+    // statement so the guard predicate always travels with the deleted_at write.
+    final deletedAt = DateTime.now().toUtc().toIso8601String();
+    return expectedUpdatedAt != null
+        ? await _client
+            .from(table)
+            .update({'deleted_at': deletedAt})
+            .eq('id', serverId)
+            .eq('updated_at', expectedUpdatedAt)
+            .select('id, updated_at')
+            .maybeSingle()
+        : await _client
+            .from(table)
+            .update({'deleted_at': deletedAt})
+            .eq('id', serverId)
+            .isFilter('deleted_at', null)
+            .select('id, updated_at')
+            .maybeSingle();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowState(
+    String table,
+    String serverId,
+  ) async {
+    return await _client
+        .from(table)
+        .select('deleted_at')
+        .eq('id', serverId)
+        .maybeSingle();
   }
 
   @override
@@ -275,7 +346,8 @@ class PlanningPushService {
           }
         } catch (e) {
           failed++;
-          await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
+          await _queue.markFailed(
+              item.id, e.toString(), classifyOutboxError(e));
           if (kDebugMode) debugPrint('[PlanningPush] item error: $e');
         }
       }
@@ -418,12 +490,71 @@ class PlanningPushService {
       userId,
       item.entityId,
     ))?['id'] as String?;
-    if (serverId != null) {
-      await _remoteSink.tombstone(remoteTable, serverId);
+    if (serverId == null) {
+      // Never reached the server — nothing to tombstone.
+      await _markSynced(localTable, item.entityId, null);
+      await _queue.markSuccess(item.id);
+      return _PlanningPushOutcome.pushed;
     }
-    await _markSynced(localTable, item.entityId, serverId);
+
+    try {
+      // MALI-022 / 0068 (Phase-9K): the tombstone is GUARDED, never an
+      // unconditional id-only overwrite. CAS on the base revision when we have
+      // one; otherwise an optimistic updated_at compare. A zero-row result is
+      // classified (already-deleted / advanced / absent) — a stale delete can
+      // never clobber a newer accepted update.
+      final expectedRevision = item.payloadJson['server_revision'] as int?;
+      if (_revisionCasEnabled && expectedRevision != null) {
+        final ack = await _remoteSink.casTombstone(
+            remoteTable, serverId, expectedRevision);
+        if (ack != null) {
+          await _markSynced(localTable, item.entityId, serverId);
+          await _queue.markSuccess(item.id);
+          return _PlanningPushOutcome.pushed;
+        }
+        return _resolveDeleteConflict(remoteTable, serverId, localTable, item);
+      }
+
+      final base = item.payloadJson['server_updated_at'] as String?;
+      final ack =
+          await _remoteSink.guardedTombstone(remoteTable, serverId, base);
+      if (ack != null) {
+        await _markSynced(localTable, item.entityId, serverId);
+        await _queue.markSuccess(item.id);
+        return _PlanningPushOutcome.pushed;
+      }
+      return _resolveDeleteConflict(remoteTable, serverId, localTable, item);
+    } catch (e) {
+      if (_isConflict(e)) {
+        await _markConflict(localTable, item.entityId);
+        await _queue.markSuccess(item.id);
+        return _PlanningPushOutcome.conflict;
+      }
+      rethrow;
+    }
+  }
+
+  /// A guarded tombstone matched zero rows. Classify it (Phase-9K §5):
+  ///   A. already tombstoned  → the delete already converged → idempotent success
+  ///   B. still live, advanced → a newer accepted update → conflict, do NOT delete
+  ///   C. absent               → fail-closed → conflict (surface, never silent)
+  /// On B/C the local (soft-deleted) row stays flagged 'conflict', so the delete
+  /// intent is recoverable via keep-mine / keep-theirs and the server is intact.
+  Future<_PlanningPushOutcome> _resolveDeleteConflict(
+    String remoteTable,
+    String serverId,
+    String localTable,
+    PlanningOutboxItem item,
+  ) async {
+    final state = await _remoteSink.fetchRowState(remoteTable, serverId);
+    if (state != null && state['deleted_at'] != null) {
+      await _markSynced(localTable, item.entityId, serverId); // A
+      await _queue.markSuccess(item.id);
+      return _PlanningPushOutcome.pushed;
+    }
+    await _markConflict(localTable, item.entityId); // B (live) or C (absent)
     await _queue.markSuccess(item.id);
-    return _PlanningPushOutcome.pushed;
+    return _PlanningPushOutcome.conflict;
   }
 
   Future<String?> _serverIdForLocal(String table, String localId) async {

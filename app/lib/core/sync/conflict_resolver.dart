@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import '../../data/db/app_database.dart';
 import '../../data/db/sql_value_codec.dart';
+import '../utils/id_generator.dart';
 import 'conflict_policy.dart';
 
 /// A row stuck in `sync_status='conflict'` — a genuine two-device edit collision
@@ -69,11 +72,13 @@ class UniversalConflictResolver {
     final out = <SyncConflict>[];
     for (final policy in interactiveConflictPolicies) {
       final label = policy.labelSql ?? 'id';
-      final deletedClause = policy.softDelete ? ' AND deleted_at IS NULL' : '';
+      // Phase-9K: list EVERY conflict, including a row that is locally
+      // soft-deleted (a stale-delete-vs-newer-update collision). Hiding those
+      // (the old `deleted_at IS NULL` filter) made delete conflicts unresolvable.
       final rows = await _db
           .customSelect(
             'SELECT id, ($label) AS label FROM ${policy.localTable} '
-            "WHERE sync_status = 'conflict'$deletedClause "
+            "WHERE sync_status = 'conflict' "
             'ORDER BY id;',
           )
           .get();
@@ -121,13 +126,75 @@ class UniversalConflictResolver {
       }
     }
 
-    final reEnqueue = _reEnqueue[entityType];
-    if (reEnqueue != null) await reEnqueue(localId);
+    // Phase-9K: if the local row is in its DELETED state, keeping "mine" means
+    // re-applying the DELETE (rebased), not an update — the typed update
+    // re-enqueue would resurrect the row (and the repos hide deleted rows, so it
+    // would silently no-op). Re-enqueue a guarded tombstone instead.
+    final deleted = await _db
+        .customSelect(
+          'SELECT 1 AS x FROM ${policy.localTable} '
+          'WHERE id = ${sqlString(localId)} AND ${policy.deletedRowSql} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    if (deleted != null) {
+      await _reEnqueueDelete(policy, localId, serverId);
+    } else {
+      final reEnqueue = _reEnqueue[entityType];
+      if (reEnqueue != null) await reEnqueue(localId);
+    }
 
     await _db.customStatement(
       "UPDATE ${policy.localTable} SET sync_status = 'pending' "
       'WHERE id = ${sqlString(localId)};',
     );
+  }
+
+  /// Phase-9K — re-enqueue a DELETE for a kept-local delete conflict, carrying
+  /// the (just-rebased) base tokens so the guarded tombstone compare-and-sets
+  /// against the current server row and cleanly wins.
+  Future<void> _reEnqueueDelete(
+    EntityConflictPolicy policy,
+    String localId,
+    String? serverId,
+  ) async {
+    final row = await _db
+        .customSelect(
+          'SELECT server_updated_at, server_revision FROM ${policy.localTable} '
+          'WHERE id = ${sqlString(localId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    final payload = <String, dynamic>{
+      'local_id': localId,
+      if (serverId != null) 'server_id': serverId,
+      if (row?.readNullable<String>('server_updated_at') != null)
+        'server_updated_at': row!.readNullable<String>('server_updated_at'),
+      if (row?.readNullable<int>('server_revision') != null)
+        'server_revision': row!.readNullable<int>('server_revision'),
+    };
+    // The conflict already consumed the prior outbox row; clear any stray one so
+    // the re-enqueued delete is the single pending mutation.
+    await _removeOutbox(policy, localId);
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    final id = IdGenerator.next();
+    final json = jsonEncode(payload);
+    switch (policy.outbox) {
+      case OutboxKind.ledger:
+        await _db.customStatement(
+          'INSERT INTO ledger_sync_outbox(id, transaction_id, operation, '
+          'payload_json, attempt_count, status, created_at, updated_at) VALUES ('
+          '${sqlString(id)}, ${sqlString(localId)}, ${sqlString('delete')}, '
+          '${sqlString(json)}, 0, ${sqlString('pending')}, ${sqlString(now)}, '
+          '${sqlString(now)});',
+        );
+      case OutboxKind.planning:
+        await _db.customStatement(
+          'INSERT INTO planning_sync_outbox(id, entity_type, entity_id, '
+          'operation, payload_json, attempt_count, status, created_at, '
+          'updated_at) VALUES (${sqlString(id)}, ${sqlString(policy.entityType)}, '
+          '${sqlString(localId)}, ${sqlString('delete')}, ${sqlString(json)}, 0, '
+          '${sqlString('pending')}, ${sqlString(now)}, ${sqlString(now)});',
+        );
+    }
   }
 
   /// Keep the remote edit: drop any queued local change and mark the row synced
@@ -174,7 +241,8 @@ class UniversalConflictResolver {
     return row?.readNullable<String>('server_id');
   }
 
-  Future<void> _removeOutbox(EntityConflictPolicy policy, String localId) async {
+  Future<void> _removeOutbox(
+      EntityConflictPolicy policy, String localId) async {
     switch (policy.outbox) {
       case OutboxKind.ledger:
         await _db.customStatement(

@@ -34,19 +34,43 @@ class _ServerSink implements AccountsRemoteSink {
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row) async {
     upserts++;
     final sid = _sid(row['local_id'] as String);
-    rows[sid] = {...?rows[sid], ...row, 'id': sid, 'is_default': rows[sid]?['is_default'] ?? false, 'updated_at': 'u$upserts'};
+    rows[sid] = {
+      ...?rows[sid],
+      ...row,
+      'id': sid,
+      'is_default': rows[sid]?['is_default'] ?? false,
+      'updated_at': 'u$upserts'
+    };
     return {'id': sid, 'updated_at': rows[sid]!['updated_at']};
   }
 
   @override
-  Future<Map<String, dynamic>?> findAccountByLocalId(String u, String id) async =>
+  Future<Map<String, dynamic>?> findAccountByLocalId(
+          String u, String id) async =>
       rows[_sid(id)];
 
-  @override
-  Future<void> tombstoneAccount(String serverId) async {
+  Future<void> _tombstone(String serverId) async {
     rows[serverId]?['deleted_at'] = 'now';
     rows[serverId]?['is_default'] = false;
   }
+
+  @override
+  Future<Map<String, dynamic>?> casTombstoneAccount(
+      String serverId, int expectedRevision) async {
+    await _tombstone(serverId);
+    return {'id': serverId, 'revision': expectedRevision + 1};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstoneAccount(
+      String serverId, String? expectedUpdatedAt) async {
+    await _tombstone(serverId);
+    return {'id': serverId};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchAccountState(String serverId) async =>
+      null;
 
   @override
   Future<String?> fetchAccountUpdatedAt(String serverId) async =>
@@ -56,13 +80,18 @@ class _ServerSink implements AccountsRemoteSink {
   Future<Map<String, dynamic>> updateAccountByServerId(
       String serverId, Map<String, dynamic> row) async {
     fieldUpdates++;
-    rows[serverId] = {...?rows[serverId], ...row, 'id': serverId, 'updated_at': 'f$fieldUpdates'};
+    rows[serverId] = {
+      ...?rows[serverId],
+      ...row,
+      'id': serverId,
+      'updated_at': 'f$fieldUpdates'
+    };
     return {'id': serverId, 'updated_at': rows[serverId]!['updated_at']};
   }
 
   @override
-  Future<Map<String, dynamic>?> casUpdateAccount(
-          String serverId, int expectedRevision, Map<String, dynamic> row) async =>
+  Future<Map<String, dynamic>?> casUpdateAccount(String serverId,
+          int expectedRevision, Map<String, dynamic> row) async =>
       updateAccountByServerId(serverId, row);
 
   @override
@@ -123,7 +152,8 @@ void main() {
       );
 
   Future<int> outboxCount(String where) async => (await db
-          .customSelect('SELECT COUNT(*) AS n FROM planning_sync_outbox WHERE $where;')
+          .customSelect(
+              'SELECT COUNT(*) AS n FROM planning_sync_outbox WHERE $where;')
           .getSingle())
       .read<int>('n');
 
@@ -142,7 +172,8 @@ void main() {
       1,
     );
     expect(
-      await outboxCount("entity_type = '${PlanningOutboxQueue.accountsEntityType}'"),
+      await outboxCount(
+          "entity_type = '${PlanningOutboxQueue.accountsEntityType}'"),
       0,
       reason: 'a default switch must not rewrite any account field payload',
     );
@@ -166,7 +197,8 @@ void main() {
     expect(payload, isNot(contains('currency')));
   });
 
-  test('a stale device switching default leaves a remote rename untouched '
+  test(
+      'a stale device switching default leaves a remote rename untouched '
       '(nothing is queued that could overwrite fields)', () async {
     await repo.create(_account('a', isDefault: true));
     await repo.create(_account('b'));
@@ -237,7 +269,8 @@ void main() {
     expect(sink.rows['srv-b']?['is_default'], isTrue);
   });
 
-  test('two concurrent default switches converge to a single deterministic '
+  test(
+      'two concurrent default switches converge to a single deterministic '
       'winner (last RPC wins), no field rollback', () async {
     final sink = _ServerSink();
     await repo.create(_account('a', isDefault: true));
@@ -254,7 +287,8 @@ void main() {
     expect(sink.rows['srv-b']?['name'], 'Name b');
   });
 
-  test('deleting the current default promotes a successor — exactly one default',
+  test(
+      'deleting the current default promotes a successor — exactly one default',
       () async {
     final sink = _ServerSink();
     await repo.create(_account('a', isDefault: true));

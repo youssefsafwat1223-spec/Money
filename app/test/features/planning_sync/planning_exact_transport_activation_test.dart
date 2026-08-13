@@ -47,7 +47,16 @@ class _CapturingSink implements PlanningRemoteSink {
           String t, String u, String l) async =>
       null;
   @override
-  Future<void> tombstone(String t, String s) async {}
+  Future<Map<String, dynamic>?> casTombstone(String t, String s, int r) async =>
+      {'id': s, 'revision': r + 1};
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstone(
+          String t, String s, String? u) async =>
+      {'id': s};
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowState(String t, String s) async => null;
   @override
   Future<String?> fetchServerUpdatedAt(String t, String s) async => null;
   @override
@@ -164,7 +173,8 @@ void main() {
 
   // ── §8: canonical PUSH builders emit exact decimal strings + currency ──────
 
-  test('§8 canonical budget enqueue → exact string amounts + currency', () async {
+  test('§8 canonical budget enqueue → exact string amounts + currency',
+      () async {
     final q = canonicalQueue();
     await q.enqueueBudget(PlanningSyncOperation.create, budget());
     final p = await payload('budget');
@@ -209,7 +219,8 @@ void main() {
 
   // ── §11: exact PULL activation writes _minor + REAL shadow, no double ──────
 
-  test('§11 exact budget pull → currency + exact _minor + REAL shadow', () async {
+  test('§11 exact budget pull → currency + exact _minor + REAL shadow',
+      () async {
     final remote = _BudgetPullRemote({
       'id': 'server-b1',
       'local_id': 'b1',
@@ -268,8 +279,12 @@ void main() {
 
     // The page errored → nothing imported, no lossy row written.
     expect(result.imported, 0);
-    expect(await db.customSelect('SELECT COUNT(*) AS n FROM budgets;')
-        .getSingle().then((r) => r.read<int>('n')), 0);
+    expect(
+        await db
+            .customSelect('SELECT COUNT(*) AS n FROM budgets;')
+            .getSingle()
+            .then((r) => r.read<int>('n')),
+        0);
   });
 
   // ── §13: contribution queued while deferred replays EXACTLY ONCE ───────────
@@ -327,7 +342,8 @@ void main() {
     expect(remote.contributionRpcs, 1);
     // Parent goal saved amount applied exactly (minor authority).
     final g = await db
-        .customSelect("SELECT saved_amount_minor AS m FROM goals WHERE id='g1';")
+        .customSelect(
+            "SELECT saved_amount_minor AS m FROM goals WHERE id='g1';")
         .getSingle();
     expect(g.read<int>('m'), 1234);
   });

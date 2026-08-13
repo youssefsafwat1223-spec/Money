@@ -48,8 +48,7 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
     return byId.values.take(limit).toList();
   }
 
-  @override
-  Future<void> tombstoneAccount(String serverId) async {
+  Future<void> _tombstone(String serverId) async {
     deletes++;
     final row = rowsByLocalId.values.firstWhere(
       (item) => item['id'] == serverId,
@@ -62,6 +61,24 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
       tombstones.add(Map<String, dynamic>.from(row));
     }
   }
+
+  @override
+  Future<Map<String, dynamic>?> casTombstoneAccount(
+      String serverId, int expectedRevision) async {
+    await _tombstone(serverId);
+    return {'id': serverId, 'revision': expectedRevision + 1};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstoneAccount(
+      String serverId, String? expectedUpdatedAt) async {
+    await _tombstone(serverId);
+    return {'id': serverId};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchAccountState(String serverId) async =>
+      null;
 
   @override
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row) async {
@@ -371,7 +388,8 @@ void main() {
         isA<Map<String, dynamic>>().having((value) => value, 'value', isEmpty),
       );
       expect(remote.deletes, 0,
-          reason: 'delete-account was created+deleted offline → coalesced away');
+          reason:
+              'delete-account was created+deleted offline → coalesced away');
     });
 
     test(

@@ -36,7 +36,19 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
       rows[table]?[localId];
 
   @override
-  Future<void> tombstone(String table, String serverId) async {}
+  Future<Map<String, dynamic>?> casTombstone(
+          String table, String serverId, int expectedRevision) async =>
+      {'id': serverId, 'revision': expectedRevision + 1};
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstone(
+          String table, String serverId, String? expectedUpdatedAt) async =>
+      {'id': serverId};
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowState(
+          String table, String serverId) async =>
+      null;
 
   @override
   Future<Map<String, dynamic>> upsert(

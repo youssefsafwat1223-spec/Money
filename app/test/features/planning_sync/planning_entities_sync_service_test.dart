@@ -98,8 +98,7 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
     return rows[table]?[localId];
   }
 
-  @override
-  Future<void> tombstone(String table, String serverId) async {
+  Future<void> _tombstone(String table, String serverId) async {
     deletes++;
     final match = rows[table]?.values.firstWhere(
           (row) => row['id'] == serverId,
@@ -111,6 +110,25 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
     match['updated_at'] = deletedAt;
     tombstones.putIfAbsent(table, () => []).add(Map.of(match));
   }
+
+  @override
+  Future<Map<String, dynamic>?> casTombstone(
+      String table, String serverId, int expectedRevision) async {
+    await _tombstone(table, serverId);
+    return {'id': serverId, 'revision': expectedRevision + 1};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstone(
+      String table, String serverId, String? expectedUpdatedAt) async {
+    await _tombstone(table, serverId);
+    return {'id': serverId};
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowState(
+          String table, String serverId) async =>
+      null;
 
   @override
   Future<Map<String, dynamic>> upsert(

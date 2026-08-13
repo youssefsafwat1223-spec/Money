@@ -53,6 +53,7 @@ class EntityConflictPolicy {
     required this.resolution,
     this.labelSql,
     this.softDelete = true,
+    this.deletedRowSql = 'deleted_at IS NOT NULL',
   });
 
   /// Canonical entity key. For planning-managed entities these values MUST match
@@ -81,6 +82,13 @@ class EntityConflictPolicy {
   /// ledger hard-deletes transactions locally (no such column), so its conflict
   /// listing must not filter on it.
   final bool softDelete;
+
+  /// SQL boolean that is true when this entity's local row is in its
+  /// locally-deleted state. Soft-delete tables use `deleted_at IS NOT NULL`;
+  /// transactions have no such column, so they mark `status = 'ignored'`.
+  /// Phase-9K: the universal resolver uses this to re-enqueue a DELETE (not an
+  /// update) when the owner keeps a delete conflict as "mine".
+  final String deletedRowSql;
 
   bool get isInteractive => resolution == ConflictResolution.interactive;
   bool get isDeterministic =>
@@ -124,6 +132,7 @@ const Map<String, EntityConflictPolicy> kConflictPolicies = {
     resolution: ConflictResolution.interactive,
     labelSql: 'COALESCE(raw_merchant, CAST(amount AS TEXT))',
     softDelete: false, // transactions are hard-deleted locally
+    deletedRowSql: "status = 'ignored'", // local soft-delete = status flag
   ),
   ConflictEntities.account: EntityConflictPolicy(
     entityType: ConflictEntities.account,

@@ -55,7 +55,16 @@ class _CasSink implements PlanningRemoteSink {
       null;
 
   @override
-  Future<void> tombstone(String t, String s) async {}
+  Future<Map<String, dynamic>?> casTombstone(String t, String s, int r) async =>
+      {'id': s, 'updated_at': serverUpdatedAt, 'revision': r + 1};
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstone(
+          String t, String s, String? u) async =>
+      {'id': s, 'updated_at': serverUpdatedAt};
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowState(String t, String s) async => null;
 
   @override
   Future<Map<String, dynamic>> updateByServerId(
@@ -292,7 +301,16 @@ class _CasAccountsSink implements AccountsRemoteSink {
       null;
 
   @override
-  Future<void> tombstoneAccount(String s) async {}
+  Future<Map<String, dynamic>?> casTombstoneAccount(String s, int r) async =>
+      {'id': s, 'updated_at': currentUpdatedAt, 'revision': r + 1};
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstoneAccount(
+          String s, String? u) async =>
+      {'id': s, 'updated_at': currentUpdatedAt};
+
+  @override
+  Future<Map<String, dynamic>?> fetchAccountState(String s) async => null;
 
   @override
   Future<String?> fetchAccountUpdatedAt(String s) async => currentUpdatedAt;

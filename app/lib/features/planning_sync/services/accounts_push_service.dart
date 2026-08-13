@@ -38,7 +38,27 @@ class AccountsPushResult {
 abstract class AccountsRemoteSink {
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row);
   Future<Map<String, dynamic>?> findAccountByLocalId(String userId, String id);
-  Future<void> tombstoneAccount(String serverId);
+
+  /// MALI-022 / 0068 (Phase-9K) — atomic compare-and-set tombstone. Sets
+  /// `deleted_at` only if the account's server `revision` still equals
+  /// [expectedRevision]; returns the ack, or null when no row matched (a stale
+  /// delete that must not overwrite a newer accepted update).
+  Future<Map<String, dynamic>?> casTombstoneAccount(
+    String serverId,
+    int expectedRevision,
+  );
+
+  /// MALI-022 (Phase-9K) — guarded tombstone without a revision base: sets
+  /// `deleted_at` only if the account still matches [expectedUpdatedAt] (or, when
+  /// null, only if not already tombstoned). Null when no row matched. Never blind.
+  Future<Map<String, dynamic>?> guardedTombstoneAccount(
+    String serverId,
+    String? expectedUpdatedAt,
+  );
+
+  /// MALI-022 (Phase-9K) — the account's current `{deleted_at}` (null if gone),
+  /// used to classify a zero-row guarded tombstone.
+  Future<Map<String, dynamic>?> fetchAccountState(String serverId);
 
   /// MALI-022 — the current server `updated_at` for a known account, used as the
   /// optimistic-concurrency compare on a guarded update. Null if the row is gone.
@@ -86,10 +106,52 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
   }
 
   @override
-  Future<void> tombstoneAccount(String serverId) async {
-    await _client.from('user_accounts').update({
-      'deleted_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', serverId);
+  Future<Map<String, dynamic>?> casTombstoneAccount(
+    String serverId,
+    int expectedRevision,
+  ) async {
+    return await _client
+        .from('user_accounts')
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', serverId)
+        .eq('revision', expectedRevision)
+        .select(_casAckCols)
+        .maybeSingle();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedTombstoneAccount(
+    String serverId,
+    String? expectedUpdatedAt,
+  ) async {
+    // Never id-only: guard on the last-known updated_at, or (when unknown) on
+    // the row not already being tombstoned. Each branch is a single chained
+    // statement so the guard predicate always travels with the deleted_at write.
+    final deletedAt = DateTime.now().toUtc().toIso8601String();
+    return expectedUpdatedAt != null
+        ? await _client
+            .from('user_accounts')
+            .update({'deleted_at': deletedAt})
+            .eq('id', serverId)
+            .eq('updated_at', expectedUpdatedAt)
+            .select('id, updated_at')
+            .maybeSingle()
+        : await _client
+            .from('user_accounts')
+            .update({'deleted_at': deletedAt})
+            .eq('id', serverId)
+            .isFilter('deleted_at', null)
+            .select('id, updated_at')
+            .maybeSingle();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchAccountState(String serverId) async {
+    return await _client
+        .from('user_accounts')
+        .select('deleted_at')
+        .eq('id', serverId)
+        .maybeSingle();
   }
 
   @override
@@ -312,8 +374,8 @@ class AccountsPushService {
       if (existingServerId == null) {
         final response = await _remoteSink.upsertAccount(row);
         final serverId = response['id'] as String;
-        await _attachServerId(item.entityId, serverId,
-            response['updated_at'] as String?,
+        await _attachServerId(
+            item.entityId, serverId, response['updated_at'] as String?,
             serverRevision: response['revision'] as int?);
         await _queue.markSuccess(item.id);
         return _AccountsPushOutcome.pushed;
@@ -350,8 +412,8 @@ class AccountsPushService {
 
       // The default flag is NOT applied on a field update (MALI-055n) — default
       // changes go exclusively through the dedicated default command.
-      await _attachServerId(item.entityId, serverId,
-          response['updated_at'] as String?,
+      await _attachServerId(
+          item.entityId, serverId, response['updated_at'] as String?,
           serverRevision: response['revision'] as int?);
       await _queue.markSuccess(item.id);
       return _AccountsPushOutcome.pushed;
@@ -372,12 +434,63 @@ class AccountsPushService {
     var serverId = await _serverIdForLocalAccount(item.entityId);
     serverId ??= (await _remoteSink.findAccountByLocalId(
         userId, item.entityId))?['id'] as String?;
-    if (serverId != null) {
-      await _remoteSink.tombstoneAccount(serverId);
+    if (serverId == null) {
+      await _markSynced(item.entityId, null);
+      await _queue.markSuccess(item.id);
+      return _AccountsPushOutcome.pushed;
     }
-    await _markSynced(item.entityId, serverId);
+
+    try {
+      // MALI-022 / 0068 (Phase-9K): GUARDED tombstone — never an unconditional
+      // id-only overwrite. CAS on revision when known; else optimistic
+      // updated_at. A zero-row result is classified, so a stale delete can never
+      // clobber a newer accepted update.
+      final expectedRevision = item.payloadJson['server_revision'] as int?;
+      if (_revisionCasEnabled && expectedRevision != null) {
+        final ack =
+            await _remoteSink.casTombstoneAccount(serverId, expectedRevision);
+        if (ack != null) {
+          await _markSynced(item.entityId, serverId);
+          await _queue.markSuccess(item.id);
+          return _AccountsPushOutcome.pushed;
+        }
+        return _resolveDeleteConflict(serverId, item);
+      }
+
+      final base = item.payloadJson['server_updated_at'] as String?;
+      final ack = await _remoteSink.guardedTombstoneAccount(serverId, base);
+      if (ack != null) {
+        await _markSynced(item.entityId, serverId);
+        await _queue.markSuccess(item.id);
+        return _AccountsPushOutcome.pushed;
+      }
+      return _resolveDeleteConflict(serverId, item);
+    } catch (e) {
+      if (_isConflict(e)) {
+        await _markConflict(item.entityId);
+        await _queue.markSuccess(item.id);
+        return _AccountsPushOutcome.conflict;
+      }
+      rethrow;
+    }
+  }
+
+  /// A guarded account tombstone matched zero rows — classify (Phase-9K §5):
+  /// already-tombstoned → idempotent success; still-live/absent → conflict
+  /// (the local soft-deleted row stays 'conflict', recoverable; server intact).
+  Future<_AccountsPushOutcome> _resolveDeleteConflict(
+    String serverId,
+    PlanningOutboxItem item,
+  ) async {
+    final state = await _remoteSink.fetchAccountState(serverId);
+    if (state != null && state['deleted_at'] != null) {
+      await _markSynced(item.entityId, serverId);
+      await _queue.markSuccess(item.id);
+      return _AccountsPushOutcome.pushed;
+    }
+    await _markConflict(item.entityId);
     await _queue.markSuccess(item.id);
-    return _AccountsPushOutcome.pushed;
+    return _AccountsPushOutcome.conflict;
   }
 
   Future<String?> _serverIdForLocalAccount(String id) async {
