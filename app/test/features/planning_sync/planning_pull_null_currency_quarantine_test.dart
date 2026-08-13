@@ -67,10 +67,31 @@ Map<String, dynamic> _goalRow(String id, String? currency,
       'deleted_at': deleted ? '2026-08-02T00:00:00.000Z' : null,
     };
 
+const _budget = PlanningOutboxQueue.budgetsEntityType;
+
+Map<String, dynamic> _budgetRow(String id, String? currency,
+        {bool deleted = false}) =>
+    {
+      'id': id,
+      'local_id': null,
+      'category_id': 'other',
+      'amount_text': '200.00',
+      'currency': currency,
+      'last_notified_spent_amount_text': '0.00',
+      'period': 'monthly',
+      'start_date': '2026-01-01',
+      'is_active': true,
+      'last_notified_period_start': '2026-01-01T00:00:00Z',
+      'show_on_header': false,
+      'local_account_id': null,
+      'updated_at': '2026-08-01T00:00:00.000Z',
+      'deleted_at': deleted ? '2026-08-02T00:00:00.000Z' : null,
+    };
+
 PlanningPullService _svc(AppDatabase db, PlanningRemoteSource remote) =>
     PlanningPullService(
       db: db,
-      isEnabled: (e) => e == _goal, // test-scoped enable (no provider flip)
+      isEnabled: (e) => e == _goal || e == _budget, // test-scoped (no provider flip)
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
     );
@@ -168,5 +189,29 @@ void main() {
     } finally {
       dir.deleteSync(recursive: true);
     }
+  });
+
+  test('BUDGET (direct): active null-currency quarantines; soft-deleted null '
+      'tombstones without quarantine', () async {
+    // active null-currency budget → quarantined (not applied)
+    final db = await AppDatabase.open(
+        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    addTearDown(db.close);
+    await _svc(db, _PageRemote('user_budgets', [_budgetRow('b-act', null)])).pull();
+    expect(
+        await _count(db,
+            "SELECT COUNT(*) n FROM parked_child_rows WHERE table_name='user_budgets' AND server_id='b-act' AND reason='unresolved_currency'"),
+        1);
+    expect(await _count(db, "SELECT COUNT(*) n FROM budgets WHERE server_id='b-act'"), 0);
+
+    // soft-deleted null-currency budget → tombstone, never a repair obligation
+    final db2 = await AppDatabase.open(
+        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    addTearDown(db2.close);
+    await _svc(db2, _PageRemote('user_budgets', [_budgetRow('b-del', null, deleted: true)]))
+        .pull();
+    expect(
+        await _count(db2, "SELECT COUNT(*) n FROM parked_child_rows WHERE server_id='b-del'"),
+        0);
   });
 }

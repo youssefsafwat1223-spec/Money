@@ -10,7 +10,6 @@ import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_server_currency_repair.dart';
-import 'package:money_companion/features/planning_sync/services/planning_unresolved_currency.dart';
 
 const _budget = PlanningOutboxQueue.budgetsEntityType;
 const _goal = PlanningOutboxQueue.goalsEntityType;
@@ -238,7 +237,7 @@ void main() {
 
     expect((await repair.unresolvedCounts()).total, 2);
     await repair.resolve(entityType: 'budget', serverId: 'b1', currency: 'SAR');
-    var c = await repair.unresolvedCounts();
+    final c = await repair.unresolvedCounts();
     expect(c.budgets, 0);
     expect(c.goals, 1);
     expect(c.total, 1);
