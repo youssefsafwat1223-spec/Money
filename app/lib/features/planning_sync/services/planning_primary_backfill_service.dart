@@ -167,6 +167,11 @@ class PlanningPrimaryBackfillService {
         payload: {
           'category_id': await _categoryKey(row.read<String>('category_id')),
           'amount': _money(row, 'amount', currency),
+          // MALI-026 (Phase-9F / WS-5): a canonical (P3) budget remote write MUST
+          // persist the row's own supported currency. `currency` is the non-null,
+          // repair-set value (the NULL case is deferred above); NEVER a base/
+          // account/settings fallback. Omitting it made the server store NULL.
+          'currency': currency,
           'period': row.read<String>('period'),
           'start_date': row.read<String>('start_date'),
           'is_active': row.read<int>('is_active') == 1,
@@ -216,6 +221,10 @@ class PlanningPrimaryBackfillService {
           'server_account_id': account.$1,
           'target_amount': _money(row, 'target_amount', currency),
           'saved_amount': _money(row, 'saved_amount', currency),
+          // MALI-026 (Phase-9F / WS-5): a canonical (P3) goal remote write MUST
+          // persist the row's own supported currency (never a base/account/
+          // settings fallback). The NULL case is deferred above.
+          'currency': currency,
           'deadline': row.readNullable<String>('deadline'),
           'vault_skin': row.read<String>('vault_skin'),
           'status': row.read<String>('status'),
