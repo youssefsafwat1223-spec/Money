@@ -64,11 +64,13 @@ void main() {
       .readNullable<String>('sync_status');
 
   Future<int?> txRevision() async => (await db
-          .customSelect("SELECT server_revision FROM transactions WHERE id='tx1';")
+          .customSelect(
+              "SELECT server_revision FROM transactions WHERE id='tx1';")
           .getSingle())
       .readNullable<int>('server_revision');
 
-  test('ON + matching revision: sends the revision predicate and stores the '
+  test(
+      'ON + matching revision: sends the revision predicate and stores the '
       'acknowledged new revision', () async {
     final q = await seedSyncedEdit();
     final now = dateTimeToSql(DateTime.now().toUtc());
@@ -79,8 +81,11 @@ void main() {
       accessToken: () async => 'token',
       httpClient: MockClient((request) async {
         path = '${request.url.path}?${request.url.query}';
+        // MALI-026 (Phase-9M): a guarded PATCH decodes the LIST representation.
         return http.Response(
-          jsonEncode({'id': 'srv-tx1', 'updated_at': now, 'revision': 6}),
+          jsonEncode([
+            {'id': 'srv-tx1', 'updated_at': now, 'revision': 6}
+          ]),
           200,
           headers: const {'content-type': 'application/json'},
           request: request,
@@ -104,7 +109,8 @@ void main() {
     expect(await txRevision(), 6, reason: 'acknowledged revision stored');
   });
 
-  test('ON + stale revision: a zero-row CAS becomes a typed conflict, not an '
+  test(
+      'ON + stale revision: a zero-row CAS becomes a typed conflict, not an '
       'overwrite', () async {
     final q = await seedSyncedEdit();
     final client = SupabaseClient(
@@ -112,15 +118,11 @@ void main() {
       'anon',
       accessToken: () async => 'token',
       httpClient: MockClient((request) async {
-        // PostgREST returns PGRST116 when an object was requested but 0 rows
-        // matched — supabase-dart's maybeSingle() maps that to null.
+        // MALI-026 (Phase-9M): a guarded PATCH matching 0 rows returns an EMPTY
+        // LIST (200), version-independently — never a PGRST116 object error.
         return http.Response(
-          jsonEncode({
-            'code': 'PGRST116',
-            'message': 'JSON object requested, multiple (or no) rows returned',
-            'details': 'Results contain 0 rows',
-          }),
-          406,
+          jsonEncode(const <Map<String, dynamic>>[]),
+          200,
           headers: const {'content-type': 'application/json'},
           request: request,
         );
@@ -140,5 +142,39 @@ void main() {
     expect(r.pushed, 0);
     expect(await txStatus(), 'conflict');
     expect(await txRevision(), 5, reason: 'local base revision left untouched');
+  });
+
+  test(
+      'ON + >1 rows (MANY): a PK-guarded CAS matching multiple rows is an '
+      'INVARIANT failure — never a conflict, never a silent success', () async {
+    final q = await seedSyncedEdit();
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'anon',
+      accessToken: () async => 'token',
+      httpClient: MockClient((request) async => http.Response(
+            jsonEncode([
+              {'id': 'srv-tx1', 'updated_at': now, 'revision': 6},
+              {'id': 'srv-tx1', 'updated_at': now, 'revision': 6},
+            ]),
+            200,
+            headers: const {'content-type': 'application/json'},
+            request: request,
+          )),
+    );
+    final r = await LedgerPushService(
+      db: db,
+      queue: q,
+      isPushEnabled: () => true,
+      getAuthUserId: () async => 'user-1',
+      getClient: () => client,
+      revisionCasEnabled: true,
+    ).push();
+
+    expect(r.failed, 1, reason: 'invariant violation surfaces as a failure');
+    expect(r.pushed, 0);
+    expect(r.conflicts, 0, reason: 'a >1 cardinality is NOT a conflict');
+    expect(await txStatus(), isNot('synced'));
   });
 }

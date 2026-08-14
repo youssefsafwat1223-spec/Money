@@ -25,22 +25,21 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String?> readStoredKey() async => 'test-key';
 }
 
+// A single-object body (used for the GET row-state reads, which keep maybeSingle).
 http.Response _object(Map<String, dynamic> m, http.BaseRequest req) =>
     http.Response(jsonEncode(m), 200,
         headers: const {'content-type': 'application/json'}, request: req);
 
-// PostgREST returns PGRST116 (406) when an object was requested but 0 rows
-// matched; supabase-dart's maybeSingle() maps that to null.
-http.Response _zeroRow(http.BaseRequest req) => http.Response(
-      jsonEncode({
-        'code': 'PGRST116',
-        'message': 'JSON object requested, multiple (or no) rows returned',
-        'details': 'Results contain 0 rows',
-      }),
-      406,
-      headers: const {'content-type': 'application/json'},
-      request: req,
-    );
+// MALI-026 (Phase-9M): a LIST body — how a guarded PATCH (and a GET) actually
+// return their affected rows. This models cardinality directly, not an English
+// PGRST116 message.
+http.Response _arr(List<Map<String, dynamic>> l, http.BaseRequest req) =>
+    http.Response(jsonEncode(l), 200,
+        headers: const {'content-type': 'application/json'}, request: req);
+
+// Zero matched rows → an EMPTY LIST (works for both a guarded PATCH → null and a
+// GET maybeSingle → null); version-independent, no PGRST116.
+http.Response _zeroRow(http.BaseRequest req) => _arr(const [], req);
 
 void main() {
   late AppDatabase db;
@@ -127,8 +126,9 @@ void main() {
     await seedSyncedDelete(revision: 5);
     final seen = <String>[];
     final c = client(seen,
-        onPatch: (req) =>
-            _object({'id': 'srv-tx1', 'updated_at': 't2', 'revision': 6}, req));
+        onPatch: (req) => _arr([
+              {'id': 'srv-tx1', 'updated_at': 't2', 'revision': 6}
+            ], req));
     final r = await push(c, casEnabled: true);
     expect(r.pushed, 1);
     expect(r.conflicts, 0);
@@ -191,7 +191,9 @@ void main() {
     await seedSyncedDelete(revision: 5);
     final seen = <String>[];
     final c = client(seen,
-        onPatch: (req) => _object({'id': 'srv-tx1', 'updated_at': 't2'}, req));
+        onPatch: (req) => _arr([
+              {'id': 'srv-tx1', 'updated_at': 't2'}
+            ], req));
     final r = await push(c, casEnabled: false);
     expect(r.pushed, 1);
     final patch = seen.firstWhere((s) => s.startsWith('PATCH'));

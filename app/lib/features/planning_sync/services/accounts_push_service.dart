@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/sync/guarded_mutation.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
@@ -65,8 +66,9 @@ abstract class AccountsRemoteSink {
   Future<String?> fetchAccountUpdatedAt(String serverId);
 
   /// MALI-022 — targeted update of a known account (used only after the base
-  /// guard passes), returning the new id/updated_at(/revision).
-  Future<Map<String, dynamic>> updateAccountByServerId(
+  /// guard passes), returning the new id/updated_at(/revision), or null when
+  /// 0 rows matched (the account vanished in the race window → a conflict).
+  Future<Map<String, dynamic>?> updateAccountByServerId(
     String serverId,
     Map<String, dynamic> row,
   );
@@ -110,13 +112,15 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
     String serverId,
     int expectedRevision,
   ) async {
-    return await _client
+    // MALI-026 (Phase-9M): decode the LIST (0/1/>1); a 0-row CAS is the conflict
+    // branch, not a PGRST116 throw.
+    final rows = await _client
         .from('user_accounts')
         .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
         .eq('id', serverId)
         .eq('revision', expectedRevision)
-        .select(_casAckCols)
-        .maybeSingle();
+        .select(_casAckCols);
+    return guardedAck(rows, 'accounts.casTombstone');
   }
 
   @override
@@ -128,21 +132,20 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
     // the row not already being tombstoned. Each branch is a single chained
     // statement so the guard predicate always travels with the deleted_at write.
     final deletedAt = DateTime.now().toUtc().toIso8601String();
-    return expectedUpdatedAt != null
+    final rows = expectedUpdatedAt != null
         ? await _client
             .from('user_accounts')
             .update({'deleted_at': deletedAt})
             .eq('id', serverId)
             .eq('updated_at', expectedUpdatedAt)
             .select('id, updated_at')
-            .maybeSingle()
         : await _client
             .from('user_accounts')
             .update({'deleted_at': deletedAt})
             .eq('id', serverId)
             .isFilter('deleted_at', null)
-            .select('id, updated_at')
-            .maybeSingle();
+            .select('id, updated_at');
+    return guardedAck(rows, 'accounts.guardedTombstone');
   }
 
   @override
@@ -174,16 +177,18 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
   }
 
   @override
-  Future<Map<String, dynamic>> updateAccountByServerId(
+  Future<Map<String, dynamic>?> updateAccountByServerId(
     String serverId,
     Map<String, dynamic> row,
   ) async {
-    return await _client
+    // MALI-026 (Phase-9M): 0 rows (row vanished after the base-token guard) is a
+    // conflict, decoded from the LIST — never a single-cardinality throw.
+    final rows = await _client
         .from('user_accounts')
         .update(row)
         .eq('id', serverId)
-        .select(_ackCols)
-        .single();
+        .select(_ackCols);
+    return guardedAck(rows, 'accounts.guardedUpdate');
   }
 
   @override
@@ -192,13 +197,13 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
     int expectedRevision,
     Map<String, dynamic> row,
   ) async {
-    return await _client
+    final rows = await _client
         .from('user_accounts')
         .update(row)
         .eq('id', serverId)
         .eq('revision', expectedRevision)
-        .select(_casAckCols)
-        .maybeSingle();
+        .select(_casAckCols);
+    return guardedAck(rows, 'accounts.casUpdate');
   }
 
   @override
@@ -408,6 +413,14 @@ class AccountsPushService {
           }
         }
         response = await _remoteSink.updateAccountByServerId(serverId, row);
+      }
+
+      // MALI-026 (Phase-9M): a 0-row guarded update returns null → conflict, not
+      // an NPE on the ack.
+      if (response == null) {
+        await _markConflict(item.entityId);
+        await _queue.markSuccess(item.id);
+        return _AccountsPushOutcome.conflict;
       }
 
       // The default flag is NOT applied on a field update (MALI-055n) — default

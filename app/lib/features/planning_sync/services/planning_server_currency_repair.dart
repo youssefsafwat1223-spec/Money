@@ -9,6 +9,7 @@ import 'dart:convert';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/sync/guarded_mutation.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/finance/currency_scale.dart';
@@ -84,15 +85,17 @@ class SupabasePlanningRepairRemote implements PlanningRepairRemote {
     // NULL→value only (currency IS NULL), owner-scoped (user_id), first-writer-
     // wins: a row already carrying a currency matches 0 rows and is never
     // overwritten. RLS additionally enforces ownership server-side.
-    final res = await _client
+    // MALI-026 (Phase-9M): decode the LIST (0/1/>1). 0 rows = another client
+    // already resolved the currency (first-writer-wins) → null → caller refetches
+    // the authoritative row. Never `.maybeSingle()` (PGRST116 on 0-row).
+    final rows = await _client
         .from(table)
         .update({'currency': currency})
         .eq('id', serverId)
         .eq('user_id', userId)
         .isFilter('currency', null)
-        .select(planningPullSelectForTable(table))
-        .maybeSingle();
-    return res == null ? null : Map<String, dynamic>.from(res);
+        .select(planningPullSelectForTable(table));
+    return guardedAck(rows, 'planningRepair.resolveCurrencyIfNull[$table]');
   }
 
   @override
@@ -167,8 +170,8 @@ class PlanningServerCurrencyRepairService {
       serverId: serverId,
       firstSeenAt: firstSeenAt,
       title: isGoal ? row['name'] as String? : null,
-      amountText: (isGoal ? row['target_amount_text'] : row['amount_text'])
-          as String?,
+      amountText:
+          (isGoal ? row['target_amount_text'] : row['amount_text']) as String?,
     );
   }
 
@@ -222,7 +225,8 @@ class PlanningServerCurrencyRepairService {
     return PlanningRepairOutcome.resolved;
   }
 
-  Future<void> _clearQuarantine(String table, String serverId) => _db.customStatement(
+  Future<void> _clearQuarantine(String table, String serverId) =>
+      _db.customStatement(
         'DELETE FROM parked_child_rows '
         'WHERE table_name = ${sqlString(table)} '
         'AND server_id = ${sqlString(serverId)} '

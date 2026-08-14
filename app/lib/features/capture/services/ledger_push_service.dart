@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/sync/guarded_mutation.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/sync_capabilities.dart';
 import '../../../data/db/app_database.dart';
@@ -257,13 +258,15 @@ class LedgerPushService implements LedgerPushAdapter {
       // we have a base revision. The server updates only if `revision` still
       // matches; a zero-row result is a genuine conflict, not a lost update.
       if (_revisionCasEnabled && expectedRevision != null) {
-        final updated = await _getClient()
+        // MALI-026 (Phase-9M): decode the LIST (0/1/>1); a 0-row CAS is the
+        // conflict branch, not a PGRST116 throw.
+        final rows = await _getClient()
             .from('user_transactions')
             .update(serverRow)
             .eq('id', serverId)
             .eq('revision', expectedRevision)
-            .select(_casAckCols)
-            .maybeSingle();
+            .select(_casAckCols);
+        final updated = guardedAck(rows, 'ledger.casUpdate');
         if (updated == null) {
           // 0 rows matched → the server moved past our base revision.
           await _markConflict(item.transactionId);
@@ -303,19 +306,24 @@ class LedgerPushService implements LedgerPushAdapter {
         }
       }
 
-      final updated = await _getClient()
+      final rows = await _getClient()
           .from('user_transactions')
           .update(serverRow)
           .eq('id', serverId)
-          .select('updated_at')
-          .maybeSingle();
-
+          .select('updated_at');
+      final updated = guardedAck(rows, 'ledger.guardedUpdate');
+      if (updated == null) {
+        // 0 rows (the row vanished after the base compare) → conflict.
+        await _markConflict(item.transactionId);
+        await _queue.markSuccess(item.id);
+        return _PushOutcome.conflict;
+      }
       await _attachServerId(
         item.transactionId,
         serverId,
         // Store the version our update produced — the next edit's outbox
         // payload carries it as the base token (MALI-009).
-        serverUpdatedAt: updated?['updated_at'] as String?,
+        serverUpdatedAt: updated['updated_at'] as String?,
       );
       await _queue.markSuccess(item.id);
       return _PushOutcome.pushed;
@@ -352,13 +360,15 @@ class LedgerPushService implements LedgerPushAdapter {
       // otherwise an optimistic updated_at compare. A zero-row result is
       // classified below — a stale delete can never clobber a newer update.
       if (_revisionCasEnabled && expectedRevision != null) {
-        final ack = await _getClient()
+        // MALI-026 (Phase-9M): decode the LIST (0/1/>1); a 0-row tombstone flows
+        // to the classifier, not a PGRST116 throw.
+        final rows = await _getClient()
             .from('user_transactions')
             .update({'deleted_at': deletedAt})
             .eq('id', serverId)
             .eq('revision', expectedRevision)
-            .select(_casAckCols)
-            .maybeSingle();
+            .select(_casAckCols);
+        final ack = guardedAck(rows, 'ledger.casTombstone');
         if (ack != null) {
           await _queue.markSuccess(item.id);
           return _PushOutcome.pushed;
@@ -370,21 +380,20 @@ class LedgerPushService implements LedgerPushAdapter {
       // the row not already being tombstoned. Each branch is a single chained
       // statement so the guard predicate always travels with the deleted_at write.
       final base = payload['server_updated_at'] as String?;
-      final ack = base != null
+      final rows = base != null
           ? await _getClient()
               .from('user_transactions')
               .update({'deleted_at': deletedAt})
               .eq('id', serverId)
               .eq('updated_at', base)
               .select('id, updated_at')
-              .maybeSingle()
           : await _getClient()
               .from('user_transactions')
               .update({'deleted_at': deletedAt})
               .eq('id', serverId)
               .isFilter('deleted_at', null)
-              .select('id, updated_at')
-              .maybeSingle();
+              .select('id, updated_at');
+      final ack = guardedAck(rows, 'ledger.guardedTombstone');
       if (ack != null) {
         await _queue.markSuccess(item.id);
         return _PushOutcome.pushed;
