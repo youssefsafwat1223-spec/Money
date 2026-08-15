@@ -1,0 +1,207 @@
+// MALI-COUPONS (Phase C4) — architecture guards.
+//
+// The Coupons feature is an isolated catalog domain. It must never take over,
+// mutate or reshape a closed contract (Money, Planning currency, CAS, financial
+// outboxes, the business backup format, capture, APNs/notification scheduling),
+// its remote requests must never carry financial data, and its ranking must not
+// scan transactions inside a widget build.
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+String _read(String path) => File(path).readAsStringSync();
+
+/// Source with `//` comments stripped, so a scan tests CODE, not prose.
+String _code(String path) => _read(path)
+    .split('\n')
+    .map((l) {
+      final i = l.indexOf('//');
+      return i >= 0 ? l.substring(0, i) : l;
+    })
+    .join('\n');
+
+const _couponSources = <String>[
+  'lib/features/coupons/coupon_models.dart',
+  'lib/features/coupons/coupon_ranking.dart',
+  'lib/features/coupons/coupon_analytics.dart',
+  'lib/features/coupons/coupons_providers.dart',
+  'lib/features/coupons/coupon_widgets.dart',
+  'lib/features/coupons/coupons_screen.dart',
+];
+
+void main() {
+  test('Coupons never write to a financial, planning, sync or capture table', () {
+    // The ONLY table the feature may write is its own catalog cache, and only
+    // through the DAO.
+    for (final path in _couponSources) {
+      final code = _code(path);
+      for (final forbidden in [
+        'transactions',
+        'accounts',
+        'budgets',
+        'goals',
+        'subscriptions',
+        'plans',
+        'ledger_sync_outbox',
+        'planning_sync_outbox',
+        'parked_child_rows',
+        'capture_devices',
+        'amount_minor',
+        'server_revision',
+      ]) {
+        expect(
+          RegExp('''(INSERT INTO|UPDATE|DELETE FROM)\\s+$forbidden''', caseSensitive: false)
+              .hasMatch(code),
+          isFalse,
+          reason: '$path must not mutate $forbidden',
+        );
+      }
+    }
+  });
+
+  test('Coupons add no Money/CAS/backup/APNs coupling', () {
+    for (final path in _couponSources) {
+      final code = _code(path);
+      for (final forbidden in [
+        'Money(',
+        'moneyToNumericText',
+        'kServerRevisionCas',
+        'BackupSnapshotBuilder',
+        'apns',
+        'flutter_local_notifications',
+        'OutboxOperation',
+        'PlanningSyncOperation',
+      ]) {
+        expect(code.contains(forbidden), isFalse,
+            reason: '$path must not reference $forbidden');
+      }
+    }
+  });
+
+  test('the coupon cache is EXCLUDED from the business backup (v4 unchanged)', () {
+    final builder = _read('lib/core/backup/backup_snapshot_builder.dart');
+    // Present in the deliberate-exclusion set…
+    expect(builder.contains("'remote_coupons'"), isTrue);
+    // …and NOT in the backed-up table map. `_tables` maps table -> columns, so a
+    // backed-up table appears as a `'name': [` key.
+    expect(builder.contains("'remote_coupons': ["), isFalse,
+        reason: 'the refetchable catalog cache must never enter the snapshot');
+    // The business snapshot version is untouched by the Drift bump.
+    expect(_read('lib/core/backup/backup_snapshot_builder.dart')
+        .contains('currentSchemaVersion = 4'), isTrue);
+  });
+
+  test('§17 privacy: coupon remote calls carry no financial context', () {
+    final analytics = _code('lib/features/coupons/coupon_analytics.dart');
+    // The only outbound payload in the whole feature.
+    expect(analytics.contains("'p_coupon_id': couponId, 'p_event': event.wireName"),
+        isTrue);
+    for (final forbidden in [
+      'categoryBreakdown',
+      'spendHint',
+      'topSpend',
+      'country',
+      'installId',
+      'deviceId',
+      'balance',
+      'amount',
+    ]) {
+      expect(analytics.contains(forbidden), isFalse,
+          reason: 'the analytics payload must not touch $forbidden');
+    }
+    // The catalog fetch sends no user context either (no country parameter).
+    final sync = _code('lib/data/catalog/catalog_sync_service.dart');
+    final syncCoupons = sync.substring(sync.indexOf('Future<void> syncCoupons('));
+    final body = syncCoupons.substring(0, syncCoupons.indexOf('Future<void> syncCategory('));
+    expect(body.contains('queryParameters'), isFalse,
+        reason: 'catalog-coupons is fetched without any user-derived parameter');
+  });
+
+  test('§16 ranking runs on device from prepared aggregates, never in build()', () {
+    final ranking = _code('lib/features/coupons/coupon_ranking.dart');
+    // Pure: no I/O, no repository, no network in the ranking module.
+    for (final forbidden in ['await', 'Supabase', 'Repository', 'customSelect']) {
+      expect(ranking.contains(forbidden), isFalse,
+          reason: 'ranking must stay a pure function ($forbidden found)');
+    }
+    // Spend aggregates come from a memoized provider that watches a scoped
+    // revision — not from a per-frame query.
+    final providers = _code('lib/features/coupons/coupons_providers.dart');
+    expect(providers.contains('scopedRevisionProvider(kReportsRevisionTables)'), isTrue);
+    expect(providers.contains('categoryBreakdown'), isTrue);
+    // Widgets never call the repository directly.
+    for (final path in [
+      'lib/features/coupons/coupons_screen.dart',
+      'lib/features/coupons/coupon_widgets.dart',
+    ]) {
+      expect(_code(path).contains('categoryBreakdown'), isFalse);
+      expect(_code(path).contains('transactionRepositoryProvider'), isFalse);
+    }
+  });
+
+  test('§36 coupon analytics cannot trigger gamification or engagement awards', () {
+    for (final path in _couponSources) {
+      final code = _code(path);
+      for (final forbidden in [
+        'RecordEngagementUseCase',
+        'recordEngagement',
+        'engagementEventService',
+        'gamification',
+        'kEngagementAward',
+      ]) {
+        expect(code.contains(forbidden), isFalse,
+            reason: '$path must not reach the gamification path');
+      }
+    }
+  });
+
+  test('§37 V1 ships no coupon push/notification surface', () {
+    for (final path in _couponSources) {
+      final code = _code(path);
+      for (final forbidden in [
+        'LocalNotificationService',
+        'showNotification',
+        'scheduleNotification',
+        'NotificationPlanner',
+        'register-push-token',
+      ]) {
+        expect(code.contains(forbidden), isFalse, reason: '$path must not notify');
+      }
+    }
+  });
+
+  test('§38 favourites/dismissals stay deferred: no per-coupon persistence', () {
+    final schema = _read('lib/data/db/app_database.dart');
+    expect(schema.contains('coupon_local_state'), isFalse,
+        reason: 'V1 has exactly ONE coupon table');
+    // The cache table carries no user-state columns.
+    final start = schema.indexOf('CREATE TABLE IF NOT EXISTS remote_coupons(');
+    final ddl = schema.substring(start, schema.indexOf("''')", start));
+    for (final forbidden in ['saved_at', 'dismissed_at', 'is_favorite', 'first_seen_at']) {
+      expect(ddl.contains(forbidden), isFalse, reason: 'no $forbidden column in V1');
+    }
+    for (final path in _couponSources) {
+      final code = _code(path);
+      expect(code.contains('favorite') || code.contains('dismiss'), isFalse,
+          reason: '$path must not implement V1.1 features');
+    }
+  });
+
+  test('§2 no hardcoded catalog remains: production content is server-only', () {
+    final providers = _code('lib/features/coupons/coupons_providers.dart');
+    expect(providers.contains('_sampleCoupons'), isFalse);
+    // The read path goes through the Drift cache DAO, never a literal list.
+    expect(providers.contains('RemoteCouponsDao'), isTrue);
+    for (final path in _couponSources) {
+      expect(_code(path).contains('talabat') || _code(path).contains('Talabat'), isFalse,
+          reason: '$path must not embed demo partner data');
+    }
+  });
+
+  test('the retired ALL country literal is gone from the client', () {
+    for (final path in _couponSources) {
+      expect(_code(path).contains("'ALL'"), isFalse,
+          reason: "$path must use an empty list for global availability");
+    }
+  });
+}
