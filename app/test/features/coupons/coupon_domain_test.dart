@@ -225,6 +225,76 @@ void main() {
     });
   });
 
+  // ---------------------------------------------------------------------
+  // C5.1 — parse a REAL catalog-coupons response shape (captured from the
+  // approved staging project during C5). This is the boundary the live run
+  // proved was broken: the Edge serves image_url, the client consumes it, and
+  // the client composes nothing.
+  // ---------------------------------------------------------------------
+  group('C5.1 real catalog-coupons response', () {
+    // Field-for-field the envelope catalog-coupons returns, with the resolved
+    // absolute asset URL the Edge now supplies.
+    Map<String, Object?> served({Object? imageUrl}) => {
+          'id': '2b8e6fbf-8b73-4aad-a723-41c21978d0ff',
+          'slug': 'c5-live-code',
+          'partner_name': 'شريك',
+          'title_ar': 'عرض',
+          'title_en': 'Live code offer',
+          'description_ar': 'وصف العرض',
+          'description_en': null,
+          'redemption_type': 'code',
+          'code': 'SAVE20',
+          'partner_url': null,
+          'display_category': {'key': 'c5food', 'label_ar': 'مطاعم', 'label_en': 'Food'},
+          'tags': [
+            {'key': 'c5delivery', 'label_ar': 'توصيل', 'label_en': 'Delivery'},
+            {'key': 'c5cashback', 'label_ar': 'استرداد', 'label_en': 'Cashback'},
+          ],
+          'spend_hint_category_keys': <Object?>[],
+          'country_codes': <Object?>[],
+          'accent_hex': '#2563EB',
+          'image_url': imageUrl,
+          'featured': true,
+          'priority': 50,
+          'valid_from': '2026-08-08T00:00:00+00:00',
+          'valid_until': '2026-09-14T00:00:00+00:00',
+          'terms_ar': null,
+        };
+
+    const liveUrl =
+        'https://bdhqjijscwdzqwqanygv.supabase.co/storage/v1/object/public/'
+        'coupon-assets/coupons/2b8e6fbf-8b73-4aad-a723-41c21978d0ff/art.png';
+
+    test('an image-backed coupon exposes EXACTLY the served URL', () {
+      final offer = CouponOffer.parseSnapshot([served(imageUrl: liveUrl)]).single;
+      expect(offer.imageUrl, isNotNull);
+      expect(offer.imageUrl, liveUrl, reason: 'served verbatim, never rebuilt');
+      expect(offer.imageUrl!.startsWith('https://'), isTrue,
+          reason: 'the widget only renders https URLs');
+    });
+
+    test('a coupon with no image parses to null (accent fallback semantics)', () {
+      final offer = CouponOffer.parseSnapshot([served(imageUrl: null)]).single;
+      expect(offer.imageUrl, isNull);
+      // The card still has what the fallback needs.
+      expect(offer.accentHex, '#2563EB');
+      expect(offer.partnerName, 'شريك');
+    });
+
+    test('the whole real response decodes with every field intact', () {
+      final offer = CouponOffer.parseSnapshot([served(imageUrl: liveUrl)]).single;
+      expect(offer.slug, 'c5-live-code');
+      expect(offer.redemptionType, CouponRedemptionType.code);
+      expect(offer.code, 'SAVE20');
+      expect(offer.category.key, 'c5food');
+      expect(offer.tags.map((t) => t.key), ['c5delivery', 'c5cashback']);
+      expect(offer.countryCodes, isEmpty);
+      expect(offer.featured, isTrue);
+      expect(offer.priority, 50);
+      expect(offer.validUntil, isNotNull);
+    });
+  });
+
   group('time eligibility (§41 A–D)', () {
     test('A: before valid_from is hidden', () {
       final offer = _offer(validFrom: _now.add(const Duration(hours: 1)));

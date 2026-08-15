@@ -40,7 +40,14 @@ export interface CouponSnapshotItem {
   /** [] = globally available. ISO-3166-1 alpha-2 uppercase otherwise. */
   country_codes: string[];
   accent_hex: string | null;
-  image_path: string | null;
+  /**
+   * ABSOLUTE public HTTPS URL of the coupon asset, or null when the coupon has
+   * no image. The catalog boundary owns this resolution: the database stores a
+   * storage OBJECT PATH (`coupons/{id}/art.png`) so persisted content is never
+   * coupled to a project hostname or CDN layout, and the mobile client receives
+   * a ready-to-load URL so it never has to know the bucket layout.
+   */
+  image_url: string | null;
   featured: boolean;
   priority: number;
   valid_from: string;
@@ -71,6 +78,42 @@ export const COUPON_SELECT = [
 
 const EVENT_FREE = true; // documents §21: this module records no analytics.
 
+/** The one bucket coupon art may ever come from. */
+export const COUPON_ASSET_BUCKET = 'coupon-assets';
+
+/**
+ * Exactly 0081's `coupons_image_path_shape`. Only a SERVER-CREATED asset path
+ * is resolvable — an arbitrary string (or an absolute URL smuggled into the
+ * column) must never be turned into a link we hand to clients.
+ */
+export const COUPON_ASSET_PATH_RE = /^coupons\/[0-9a-f-]{36}\/[A-Za-z0-9_.-]+$/;
+
+/**
+ * Resolve a stored object path to its canonical public URL.
+ *
+ * `{ ok: true, url: null }`  — the coupon legitimately has no image.
+ * `{ ok: true, url }`        — absolute HTTPS URL under [COUPON_ASSET_BUCKET].
+ * `{ ok: false }`            — malformed path; the CALLER must reject the row
+ *                              rather than emit an unsafe URL.
+ *
+ * The base always comes from the trusted server-side SUPABASE_URL, never from a
+ * request Host header, a client-supplied base, or the database row.
+ */
+export function couponAssetPublicUrl(
+  storageBaseUrl: string,
+  imagePath: unknown,
+): { ok: true; url: string | null } | { ok: false } {
+  if (imagePath === null || imagePath === undefined) return { ok: true, url: null };
+  if (typeof imagePath !== 'string' || !COUPON_ASSET_PATH_RE.test(imagePath)) {
+    return { ok: false };
+  }
+  const base = storageBaseUrl.replace(/\/+$/, '');
+  return {
+    ok: true,
+    url: `${base}/storage/v1/object/public/${COUPON_ASSET_BUCKET}/${imagePath}`,
+  };
+}
+
 const isNonBlank = (v: unknown): v is string =>
   typeof v === 'string' && v.trim().length > 0;
 
@@ -98,7 +141,10 @@ export function orderTags(
  * non-https destination, a legacy 'ALL' country value, …). It is never silently
  * remapped onto some other category.
  */
-export function mapCouponRow(row: Record<string, unknown>): CouponSnapshotItem | null {
+export function mapCouponRow(
+  row: Record<string, unknown>,
+  storageBaseUrl: string,
+): CouponSnapshotItem | null {
   if (!isNonBlank(row.id) || !isNonBlank(row.slug)) return null;
   if (!isNonBlank(row.partner_name)) return null;
   if (!isNonBlank(row.title_ar) || !isNonBlank(row.description_ar)) return null;
@@ -121,6 +167,12 @@ export function mapCouponRow(row: Record<string, unknown>): CouponSnapshotItem |
   const hints = Array.isArray(row.spend_hint_category_keys)
     ? row.spend_hint_category_keys.filter((h): h is string => typeof h === 'string')
     : [];
+
+  // A malformed asset path is a malformed ROW: emitting an unsafe or guessed
+  // URL would be worse than dropping the coupon (same rule as the shape checks
+  // above), and no absolute URL is ever accepted from the database.
+  const asset = couponAssetPublicUrl(storageBaseUrl, row.image_path);
+  if (!asset.ok) return null;
 
   const links = Array.isArray(row.coupon_tag_links) ? row.coupon_tag_links : [];
   const tags = orderTags(
@@ -155,7 +207,7 @@ export function mapCouponRow(row: Record<string, unknown>): CouponSnapshotItem |
     spend_hint_category_keys: hints,
     country_codes: countries as string[],
     accent_hex: (row.accent_hex as string | null) ?? null,
-    image_path: (row.image_path as string | null) ?? null,
+    image_url: asset.url,
     featured: row.featured === true,
     priority: typeof row.priority === 'number' ? row.priority : 0,
     valid_from: row.valid_from as string,
@@ -181,9 +233,12 @@ export function orderCoupons(items: CouponSnapshotItem[]): CouponSnapshotItem[] 
 export function buildSnapshot(
   rows: Array<Record<string, unknown>>,
   generatedAt: string,
+  storageBaseUrl: string,
 ): CouponSnapshot {
   const items = orderCoupons(
-    rows.map(mapCouponRow).filter((i): i is CouponSnapshotItem => i !== null),
+    rows
+      .map((row) => mapCouponRow(row, storageBaseUrl))
+      .filter((i): i is CouponSnapshotItem => i !== null),
   );
   return { items, meta: { count: items.length, generated_at: generatedAt } };
 }
@@ -236,7 +291,7 @@ Deno.serve(async (req) => {
 
     // An empty live catalog is a SUCCESS with an empty collection.
     const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
-    return json(buildSnapshot(rows, now));
+    return json(buildSnapshot(rows, now, supabaseUrl));
   } catch (err) {
     console.error('catalog-coupons failed', err);
     return json({ error: 'Unexpected coupon catalog failure' }, 500);
