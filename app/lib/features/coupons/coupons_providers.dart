@@ -1,90 +1,122 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../data/catalog/catalog_daos.dart';
+import '../common/category_catalog.dart';
+import 'coupon_analytics.dart';
 import 'coupon_models.dart';
+import 'coupon_ranking.dart';
 
-final couponsProvider = FutureProvider<List<CouponOffer>>((ref) async {
+/// MALI-COUPONS (Phase C4) — the Coupons read path.
+///
+/// Production content comes exclusively from the server catalog:
+///   catalog-coupons -> CatalogSyncService -> Drift `remote_coupons` -> here.
+/// There is NO hardcoded fallback catalog: when the cache is empty the UI shows
+/// an empty state rather than inventing offers. (Fixtures live only in tests.)
+
+/// The whole user-facing feature is gated by the existing remote flag, which
+/// is seeded OFF and fails closed.
+final couponsEnabledProvider = Provider<bool>((ref) {
+  return featureFlags.getBool('enable_coupons');
+});
+
+/// The cached catalog, exactly as synced (no eligibility applied yet).
+final cachedCouponsProvider = FutureProvider<List<CouponOffer>>((ref) async {
+  // Catalog writes bump the generic DB revision, so the cache refreshes after a
+  // sync without any manual invalidation.
+  ref.watch(dbRevisionProvider);
+  return RemoteCouponsDao(ref.watch(appDatabaseProvider)).getAll();
+});
+
+/// The user's country for eligibility. Null when it cannot be determined, in
+/// which case ONLY globally-available offers are shown (conservative default).
+final couponCountryProvider = FutureProvider<String?>((ref) async {
+  ref.watch(dbRevisionProvider);
   final settings = await ref.watch(loadUserSettingsUseCaseProvider).call();
   final country = settings.country.trim().toUpperCase();
+  return country.isEmpty ? null : country;
+});
+
+/// The user's strongest local spending categories (stable category KEYS) over
+/// the last 30 days, used only to order offers ON DEVICE.
+///
+/// This is a memoized [FutureProvider] backed by the existing SQL aggregate —
+/// no transaction is ever scanned inside a widget build, and nothing derived
+/// from it ever leaves the device.
+final couponSpendHintsProvider = FutureProvider<List<String>>((ref) async {
+  // Recomputes only when transactions/categories actually change.
+  ref.watch(scopedRevisionProvider(kReportsRevisionTables));
+  final currency = await ref.watch(baseCurrencyProvider.future);
+  final catalog = await ref.watch(categoryCatalogProvider.future);
   final now = DateTime.now();
-  return couponsForCountry(_sampleCoupons(now), country);
+  final breakdown = await ref.watch(transactionRepositoryProvider).categoryBreakdown(
+        from: now.subtract(const Duration(days: 30)),
+        to: now,
+        currency: currency,
+      );
+  // `categoryBreakdown` already returns rows ordered by total DESC.
+  return breakdown
+      .map((row) => catalog.byId(row.categoryId)?.key)
+      .whereType<String>()
+      .take(kCouponSpendHintDepth)
+      .toList(growable: false);
 });
 
+/// Eligible + ranked offers for the Offers screen.
+///
+/// Eligibility is re-applied on the DEVICE (never trusting that the cache is
+/// fresh): the canonical live predicate plus country targeting. So a cached
+/// offer that expired while the user was offline disappears immediately.
+final couponsProvider = FutureProvider<List<CouponOffer>>((ref) async {
+  if (!ref.watch(couponsEnabledProvider)) return const <CouponOffer>[];
+  final offers = await ref.watch(cachedCouponsProvider.future);
+  final country = await ref.watch(couponCountryProvider.future);
+  final hints = await ref.watch(couponSpendHintsProvider.future);
+  return rankCoupons(
+    offers,
+    now: DateTime.now(),
+    countryCode: country,
+    topSpendCategoryKeys: hints,
+  );
+});
+
+/// The dashboard teaser subset — the same ranking, capped.
 final dashboardCouponsProvider = Provider<AsyncValue<List<CouponOffer>>>((ref) {
-  final async = ref.watch(couponsProvider);
-  return async.whenData((offers) => offers.take(3).toList(growable: false));
+  if (!ref.watch(couponsEnabledProvider)) {
+    return const AsyncValue<List<CouponOffer>>.data(<CouponOffer>[]);
+  }
+  return ref
+      .watch(couponsProvider)
+      .whenData((offers) => offers.take(kCouponTeaserLimit).toList(growable: false));
 });
 
-List<CouponOffer> _sampleCoupons(DateTime now) {
-  return [
-    CouponOffer(
-      id: 'qirsh-food-20',
-      partnerName: 'Talabat',
-      title: 'خصم 20% على أول طلب',
-      description: 'استخدم الكود قبل الدفع ووفر على طلبات المطاعم والتوصيل.',
-      code: 'QIRSH20',
-      categoryLabel: 'مطاعم وتوصيل',
-      countryCodes: const ['EG', 'SA', 'AE'],
-      validUntil: now.add(const Duration(days: 12)),
-      accent: const Color(0xFFFF6B35),
-      partnerUrl: 'https://www.talabat.com',
-      featured: true,
-    ),
-    CouponOffer(
-      id: 'qirsh-grocery-15',
-      partnerName: 'Carrefour',
-      title: 'وفر 15% على مشتريات البيت',
-      description:
-          'عرض تجريبي للكوبونات داخل قرش، قابل للاستبدال بشركاء حقيقيين.',
-      code: 'SAVE15',
-      categoryLabel: 'سوبر ماركت',
-      countryCodes: const ['EG', 'SA', 'AE'],
-      validUntil: now.add(const Duration(days: 5)),
-      accent: const Color(0xFF2563EB),
-      partnerUrl: 'https://www.carrefour.com',
-    ),
-    CouponOffer(
-      id: 'qirsh-streaming-10',
-      partnerName: 'Spotify',
-      title: 'شهر موسيقى بتكلفة أقل',
-      description: 'مناسب لو عندك اشتراكات شهرية وعايز تقلل الصرف المتكرر.',
-      code: 'QIRSHMUSIC',
-      categoryLabel: 'اشتراكات',
-      countryCodes: const ['ALL'],
-      validUntil: now.add(const Duration(days: 20)),
-      accent: const Color(0xFF1DB954),
-      partnerUrl: 'https://www.spotify.com',
-    ),
-    CouponOffer(
-      id: 'qirsh-fashion-25',
-      partnerName: 'Zara',
-      title: 'خصم موسمي 25%',
-      description: 'استخدم الكوبون وقت الشراء وخلي قرش يحسب التوفير معاك.',
-      code: 'STYLE25',
-      categoryLabel: 'تسوق',
-      countryCodes: const ['EG', 'SA', 'AE'],
-      validUntil: now.add(const Duration(days: 30)),
-      accent: const Color(0xFF111827),
-      partnerUrl: 'https://www.zara.com',
-    ),
-  ];
-}
+/// The display categories present in the currently eligible offers, in the
+/// order those offers appear (deterministic because the ranking is).
+final couponCategoriesProvider = Provider<AsyncValue<List<CouponCategory>>>((ref) {
+  return ref.watch(couponsProvider).whenData((offers) {
+    final seen = <String>{};
+    return offers
+        .map((o) => o.category)
+        .where((c) => seen.add(c.key))
+        .toList(growable: false);
+  });
+});
 
-List<CouponOffer> couponsForCountry(
-  List<CouponOffer> offers,
-  String countryCode,
-) {
-  final country = countryCode.trim().toUpperCase();
-  return offers
-      .where((offer) =>
-          !offer.isExpired &&
-          (offer.countryCodes.contains('ALL') ||
-              offer.countryCodes.contains(country)))
-      .toList()
-    ..sort((a, b) {
-      if (a.featured != b.featured) return a.featured ? -1 : 1;
-      if (a.expiresSoon != b.expiresSoon) return a.expiresSoon ? -1 : 1;
-      return a.validUntil.compareTo(b.validUntil);
-    });
-}
+/// The tags present in the currently eligible offers, preserving the server's
+/// deterministic per-offer order.
+final couponTagsProvider = Provider<AsyncValue<List<CouponTag>>>((ref) {
+  return ref.watch(couponsProvider).whenData((offers) {
+    final seen = <String>{};
+    return offers
+        .expand((o) => o.tags)
+        .where((t) => seen.add(t.key))
+        .toList(growable: false);
+  });
+});
+
+/// Process-lifetime analytics client (also owns the session impression /
+/// detail-view dedup sets — see [CouponAnalyticsClient]).
+final couponAnalyticsProvider = Provider<CouponAnalyticsClient>((ref) {
+  final loadSettings = ref.watch(loadUserSettingsUseCaseProvider);
+  return CouponAnalyticsClient(loadSettings: loadSettings.call);
+});

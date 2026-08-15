@@ -612,4 +612,102 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get wrongCategoryTap => 'Wrong category? Tap to change it';
+
+  @override
+  String get couponsTitle => 'Offers';
+
+  @override
+  String get couponsSubtitle =>
+      'Partner offers that help you save on everyday spending.';
+
+  @override
+  String get couponsFilterAll => 'All';
+
+  @override
+  String get couponsFeaturedSection => 'Featured offers';
+
+  @override
+  String get couponsEmptyTitle => 'No offers right now';
+
+  @override
+  String get couponsEmptyBody =>
+      'Partner offers will appear here as soon as they are available.';
+
+  @override
+  String get couponsFilterEmptyTitle => 'No offers match this filter';
+
+  @override
+  String get couponsFilterEmptyBody => 'Try a different category or tag.';
+
+  @override
+  String get couponsErrorTitle => 'Couldn\'t load offers';
+
+  @override
+  String get couponsErrorBody => 'Please try again in a moment.';
+
+  @override
+  String get couponsRetry => 'Try again';
+
+  @override
+  String get couponsLoading => 'Loading offers...';
+
+  @override
+  String get couponsCopyCode => 'Copy code';
+
+  @override
+  String couponsCodeCopied(String code) {
+    return 'Code $code copied';
+  }
+
+  @override
+  String get couponsOpenPartner => 'Open partner site';
+
+  @override
+  String get couponsUseOffer => 'Get the offer';
+
+  @override
+  String get couponsOpenFailed => 'Couldn\'t open the link';
+
+  @override
+  String get couponsOfferUnavailable => 'This offer isn\'t available anymore';
+
+  @override
+  String get couponsTerms => 'Terms';
+
+  @override
+  String couponsValidUntil(String date) {
+    return 'Ends $date';
+  }
+
+  @override
+  String get couponsOpenEnded => 'Open-ended';
+
+  @override
+  String get couponsExpiresToday => 'Ends today';
+
+  @override
+  String couponsExpiresInDays(int days) {
+    return '$days days';
+  }
+
+  @override
+  String get couponsAvailableGlobally => 'Available everywhere';
+
+  @override
+  String couponsAvailableIn(String countries) {
+    return 'Available in $countries';
+  }
+
+  @override
+  String couponsCardSemantics(String partner, String title) {
+    return 'Offer from $partner: $title';
+  }
+
+  @override
+  String couponsCodeSemantics(String code) {
+    return 'Discount code $code';
+  }
+
+  @override
+  String get couponsOffline => 'These are the latest offers available offline.';
 }

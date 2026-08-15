@@ -1549,7 +1549,7 @@ class _DashboardCouponsRail extends ConsumerWidget {
   }
 }
 
-class _HomeCouponCard extends StatelessWidget {
+class _HomeCouponCard extends ConsumerWidget {
   const _HomeCouponCard({required this.offer, this.width = 230});
   final CouponOffer offer;
 
@@ -1557,7 +1557,7 @@ class _HomeCouponCard extends StatelessWidget {
   final double? width;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final t = MaliTokens.of(context);
     final card = MaliCard(
@@ -1580,7 +1580,7 @@ class _HomeCouponCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption(t.textOnCanvasMuted)),
-                    Text(offer.title,
+                    Text(offer.title(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
@@ -1598,16 +1598,20 @@ class _HomeCouponCard extends StatelessWidget {
                   color: c.cta.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
-                child: Text(offer.code, style: AppTypography.caption(c.cta)),
+                child: Text(
+                  offer.code ?? offer.category.label(),
+                  style: AppTypography.caption(c.cta),
+                ),
               ),
               const Spacer(),
-              Flexible(
-                child: Text(
-                    Formatters.dateGroupLabel(offer.validUntil, context),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.caption(t.textOnCanvasMuted)),
-              ),
+              if (offer.validUntil != null)
+                Flexible(
+                  child: Text(
+                      Formatters.dateGroupLabel(offer.validUntil!, context),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption(t.textOnCanvasMuted)),
+                ),
             ],
           ),
         ],
@@ -1616,7 +1620,7 @@ class _HomeCouponCard extends StatelessWidget {
     final sized = width == null ? card : SizedBox(width: width, child: card);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => showCouponDetailsSheet(context, offer),
+      onTap: () => showCouponDetailsSheet(context, ref, offer),
       child: sized,
     );
   }

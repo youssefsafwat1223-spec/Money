@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
+import '../../features/coupons/coupon_models.dart';
 
 String _compactSenderToken(String input) =>
     input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u0600-\u06ff]+'), '');
@@ -1633,6 +1634,138 @@ class RemoteGrowthCampaignsDao {
       priority: row.read<int>('priority'),
       isActive: sqlToBool(row.read<int>('is_active')),
       syncedAt: dateTimeFromSql(row.read<String>('synced_at')),
+    );
+  }
+}
+
+
+/// MALI-COUPONS (Phase C4) — the Offers/Coupons catalog cache (schema v31).
+///
+/// Pure refetchable server catalog. [replaceAll] is the ONLY writer and is
+/// atomic: a snapshot either lands whole or leaves the previous cache intact.
+class RemoteCouponsDao {
+  const RemoteCouponsDao(this._db);
+
+  final AppDatabase _db;
+
+  /// Atomically swap the cached catalog for [offers].
+  ///
+  /// Runs inside ONE transaction: the delete and every insert commit together,
+  /// so a decode/insert failure rolls back and the previous snapshot survives
+  /// (there is no window where the catalog is half-old/half-new). An EMPTY list
+  /// is a legitimate snapshot — it clears the cache — and is never confused with
+  /// a failed sync, which does not call this method at all.
+  Future<void> replaceAll(List<CouponOffer> offers) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.transaction(() async {
+      await _db.customStatement('DELETE FROM remote_coupons;');
+      for (final offer in offers) {
+        await _db.customInsert(
+          '''
+          INSERT INTO remote_coupons(
+            id, slug, partner_name, title_ar, title_en, description_ar,
+            description_en, redemption_type, code, partner_url,
+            display_category_key, display_category_label_ar,
+            display_category_label_en, tags_json, spend_hints_json,
+            country_codes_json, accent_hex, image_url, featured, priority,
+            valid_from, valid_until, terms_ar, synced_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?);
+          ''',
+          variables: [
+            Variable.withString(offer.id),
+            Variable.withString(offer.slug),
+            Variable.withString(offer.partnerName),
+            Variable.withString(offer.titleAr),
+            Variable<String>(offer.titleEn),
+            Variable.withString(offer.descriptionAr),
+            Variable<String>(offer.descriptionEn),
+            Variable.withString(offer.redemptionType.name),
+            Variable<String>(offer.code),
+            Variable<String>(offer.partnerUrl),
+            Variable.withString(offer.category.key),
+            Variable.withString(offer.category.labelAr),
+            Variable<String>(offer.category.labelEn),
+            Variable.withString(offer.tagsJson),
+            Variable.withString(offer.spendHintsJson),
+            Variable.withString(offer.countryCodesJson),
+            Variable<String>(offer.accentHex),
+            Variable<String>(offer.imageUrl),
+            Variable.withInt(offer.featured ? 1 : 0),
+            Variable.withInt(offer.priority),
+            Variable.withString(dateTimeToSql(offer.validFrom.toUtc())),
+            Variable<String>(offer.validUntil == null
+                ? null
+                : dateTimeToSql(offer.validUntil!.toUtc())),
+            Variable<String>(offer.termsAr),
+            Variable.withString(now),
+          ],
+        );
+      }
+    });
+  }
+
+  /// Read the cached catalog as typed domain models (widgets never see JSON).
+  Future<List<CouponOffer>> getAll() async {
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM remote_coupons '
+          'ORDER BY featured DESC, priority DESC, valid_from DESC, id ASC;',
+        )
+        .get();
+    return rows.map(_fromRow).whereType<CouponOffer>().toList();
+  }
+
+  Future<int> count() async =>
+      (await _db.customSelect('SELECT COUNT(*) AS n FROM remote_coupons;').getSingle())
+          .read<int>('n');
+
+  static CouponOffer? _fromRow(QueryRow row) {
+    final type = CouponRedemptionType.tryParse(row.read<String>('redemption_type'));
+    final validFrom = DateTime.tryParse(row.read<String>('valid_from'))?.toUtc();
+    if (type == null || validFrom == null) return null;
+    final until = row.readNullable<String>('valid_until');
+
+    List<Object?> decodeList(String column) {
+      final raw = row.read<String>(column);
+      try {
+        final decoded = jsonDecode(raw);
+        return decoded is List ? decoded : const <Object?>[];
+      } catch (_) {
+        return const <Object?>[];
+      }
+    }
+
+    return CouponOffer(
+      id: row.read<String>('id'),
+      slug: row.read<String>('slug'),
+      partnerName: row.read<String>('partner_name'),
+      titleAr: row.read<String>('title_ar'),
+      titleEn: row.readNullable<String>('title_en'),
+      descriptionAr: row.read<String>('description_ar'),
+      descriptionEn: row.readNullable<String>('description_en'),
+      redemptionType: type,
+      code: row.readNullable<String>('code'),
+      partnerUrl: row.readNullable<String>('partner_url'),
+      category: CouponCategory(
+        key: row.read<String>('display_category_key'),
+        labelAr: row.read<String>('display_category_label_ar'),
+        labelEn: row.readNullable<String>('display_category_label_en'),
+      ),
+      tags: decodeList('tags_json')
+          .map(CouponTag.tryParse)
+          .whereType<CouponTag>()
+          .toList(),
+      spendHintCategoryKeys:
+          decodeList('spend_hints_json').whereType<String>().toList(),
+      countryCodes: decodeList('country_codes_json').whereType<String>().toList(),
+      accentHex: row.readNullable<String>('accent_hex'),
+      imageUrl: row.readNullable<String>('image_url'),
+      featured: row.read<int>('featured') == 1,
+      priority: row.read<int>('priority'),
+      validFrom: validFrom,
+      validUntil: until == null ? null : DateTime.tryParse(until)?.toUtc(),
+      termsAr: row.readNullable<String>('terms_ar'),
     );
   }
 }

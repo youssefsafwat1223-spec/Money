@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../db/app_database.dart';
 import 'announcement_service.dart';
 import 'catalog_daos.dart';
+import '../../features/coupons/coupon_models.dart';
 
 class CatalogSyncService {
   CatalogSyncService({
@@ -40,6 +41,7 @@ class CatalogSyncService {
         syncFlags(countryCode: countryCode),
         syncAnnouncements(countryCode: countryCode),
         syncGrowthCampaigns(countryCode: countryCode),
+        syncCoupons(),
       ]);
     } catch (error, stackTrace) {
       debugPrint('Catalog sync skipped: $error');
@@ -137,6 +139,54 @@ class CatalogSyncService {
       await RemoteGrowthCampaignsDao(_database).replaceAll(campaigns);
     } catch (e) {
       debugPrint('Catalog campaigns sync skipped: $e');
+    }
+  }
+
+  /// MALI-COUPONS (Phase C4) — pull the live Offers catalog and replace the
+  /// local cache ATOMICALLY.
+  ///
+  /// Contract:
+  ///   * a successful snapshot replaces the cache in ONE transaction;
+  ///   * an EMPTY successful snapshot legitimately clears the cache — it is
+  ///     never mistaken for a failure;
+  ///   * ANY failure (transport, non-2xx, malformed body, decode/insert error)
+  ///     leaves the previous cache untouched, because `replaceAll` is only ever
+  ///     called with a fully decoded list and rolls back as a unit;
+  ///   * it never throws: coupons are a non-critical feature and must not break
+  ///     catalog sync, startup or any financial flow.
+  ///
+  /// No country is sent: eligibility is a render-time decision on the device,
+  /// so a client-supplied country never becomes a server-side filter.
+  Future<void> syncCoupons() async {
+    try {
+      final response = await _client.functions.invoke(
+        'catalog-coupons',
+        method: supabase.HttpMethod.get,
+        headers: const {
+          'X-App-Version': String.fromEnvironment('APP_VERSION'),
+        },
+      );
+      if (response.status < 200 || response.status >= 300) return;
+      final data = response.data;
+      final items = data is List
+          ? data
+          : data is Map && data['items'] is List
+              ? data['items'] as List
+              : null;
+      // A missing/!unrecognised envelope is a FAILURE, not an empty catalog:
+      // returning here preserves the previous cache.
+      if (items == null) return;
+
+      final offers = items
+          .whereType<Map<Object?, Object?>>()
+          .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))
+          .map(CouponOffer.tryParseSnapshot)
+          .whereType<CouponOffer>()
+          .toList();
+
+      await RemoteCouponsDao(_database).replaceAll(offers);
+    } catch (e) {
+      debugPrint('Catalog coupons sync skipped: $e');
     }
   }
 

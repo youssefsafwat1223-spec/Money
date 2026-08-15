@@ -166,7 +166,12 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/coupons',
       name: 'coupons',
-      builder: (context, state) => const CouponsScreen(),
+      // `?highlight={slug}` focuses one offer (campaigns/notifications can link
+      // straight to it). Eligibility is still enforced by the screen, so the
+      // parameter can never surface an expired or ineligible offer.
+      builder: (context, state) => CouponsScreen(
+        highlightSlug: state.uri.queryParameters['highlight'],
+      ),
     ),
     GoRoute(
       path: '/paste',

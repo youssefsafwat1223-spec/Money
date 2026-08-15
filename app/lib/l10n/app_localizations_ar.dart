@@ -603,4 +603,100 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get wrongCategoryTap => 'الفئة مش صح؟ اضغط لتغييرها';
+
+  @override
+  String get couponsTitle => 'العروض';
+
+  @override
+  String get couponsSubtitle => 'عروض شركاء تساعدك توفر في مصروفاتك اليومية.';
+
+  @override
+  String get couponsFilterAll => 'الكل';
+
+  @override
+  String get couponsFeaturedSection => 'عروض مميزة';
+
+  @override
+  String get couponsEmptyTitle => 'لا توجد عروض حالياً';
+
+  @override
+  String get couponsEmptyBody => 'هنعرض لك عروض الشركاء هنا أول ما تكون متاحة.';
+
+  @override
+  String get couponsFilterEmptyTitle => 'لا توجد عروض بهذا الفلتر';
+
+  @override
+  String get couponsFilterEmptyBody => 'جرّب فئة أو وسم مختلف.';
+
+  @override
+  String get couponsErrorTitle => 'تعذر تحميل العروض';
+
+  @override
+  String get couponsErrorBody => 'حاول مرة أخرى بعد لحظات.';
+
+  @override
+  String get couponsRetry => 'إعادة المحاولة';
+
+  @override
+  String get couponsLoading => 'تحميل العروض...';
+
+  @override
+  String get couponsCopyCode => 'نسخ الكود';
+
+  @override
+  String couponsCodeCopied(String code) {
+    return 'تم نسخ الكود $code';
+  }
+
+  @override
+  String get couponsOpenPartner => 'فتح موقع الشريك';
+
+  @override
+  String get couponsUseOffer => 'احصل على العرض';
+
+  @override
+  String get couponsOpenFailed => 'تعذّر فتح الرابط';
+
+  @override
+  String get couponsOfferUnavailable => 'العرض ده مش متاح دلوقتي';
+
+  @override
+  String get couponsTerms => 'الشروط';
+
+  @override
+  String couponsValidUntil(String date) {
+    return 'ينتهي $date';
+  }
+
+  @override
+  String get couponsOpenEnded => 'مفتوح';
+
+  @override
+  String get couponsExpiresToday => 'ينتهي اليوم';
+
+  @override
+  String couponsExpiresInDays(int days) {
+    return '$days يوم';
+  }
+
+  @override
+  String get couponsAvailableGlobally => 'متاح في كل الدول';
+
+  @override
+  String couponsAvailableIn(String countries) {
+    return 'متاح في $countries';
+  }
+
+  @override
+  String couponsCardSemantics(String partner, String title) {
+    return 'عرض من $partner: $title';
+  }
+
+  @override
+  String couponsCodeSemantics(String code) {
+    return 'كود الخصم $code';
+  }
+
+  @override
+  String get couponsOffline => 'دي آخر عروض متاحة عندك بدون إنترنت.';
 }

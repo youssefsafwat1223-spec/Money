@@ -6,8 +6,12 @@
   "setupStepLabel": "Step {current} of {total}",
   "@setupStepLabel": {
     "placeholders": {
-      "current": {"type": "int"},
-      "total": {"type": "int"}
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
   "setupCountryTitle": "Your country and currency",
@@ -28,7 +32,9 @@
   "setupShortcutStep3Body": "Tap \"Message Contents\" and type your currency code, like {currency}.",
   "@setupShortcutStep3Body": {
     "placeholders": {
-      "currency": {"type": "String"}
+      "currency": {
+        "type": "String"
+      }
     }
   },
   "setupShortcutStep4Title": "No confirmation",
@@ -76,7 +82,6 @@
   "welcomeSubtitle": "Your buddy with your money",
   "today": "Today",
   "yesterday": "Yesterday",
-
   "welcomeDescription": "Know where your money went, and save automatically in a smart and easy way.",
   "secureOnDevice": "Secure · On your device",
   "effortless": "Effortless",
@@ -130,7 +135,6 @@
   "privacyRule1": "Qirsh processes bank messages you share through its server and AI",
   "privacyRule2": "We only process bank messages you share or paste yourself",
   "privacyRule3": "We never sell your data, and you have full freedom to delete it",
-
   "enableAutoTracking": "Share bank messages with Qirsh",
   "setupAppleShortcut": "Setup Apple Shortcut",
   "autoTrackingSubtitleAndroid": "From Messages, share a bank SMS to Qirsh. We parse it on your device and add the transaction.",
@@ -142,7 +146,6 @@
   "laterAddManually": "Later, I will add manually",
   "shortcutSetupGuide": "Shortcut Setup Guide",
   "doStepsOnceFromShortcuts": "Perform these steps once from Apple Shortcuts app.",
-
   "signInToStart": "Sign In to Start",
   "signInSubtitle": "Sign in only to identify you and sync your settings. Your financial data stays secure on your device.",
   "noPassword": "No Password",
@@ -153,13 +156,11 @@
   "email": "Email",
   "sendOtpCode": "Send Secure Login Code",
   "byContinuingAgree": "By continuing, you agree to Qirsh's Terms of Service and Privacy Policy.",
-
   "enterOtpCode": "Enter Verification Code",
   "otpSentTo": "We sent a 6-digit verification code to the email:",
   "verifyCode": "Verify Code",
   "demoOtpCode": "For testing: use code 123456",
   "invalidOtpCode": "Invalid Code",
-
   "enterPasswordOrRecoveryCodeError": "Type the backup password or recovery code.",
   "recoveryCodeIncorrect": "The recovery code is incorrect or doesn't match the backup.",
   "backupPasswordIncorrect": "The backup password is incorrect.",
@@ -175,34 +176,56 @@
   "startFresh": "Start Fresh",
   "notNow": "Not Now",
   "restoreNotEnabled": "Cloud restore is not enabled in this build.",
-
   "appleSecuritySteps": "Apple Security Steps",
   "iosShortcutSubtitle": "Due to iOS limitations, we use Apple's official Shortcuts app to pass bank messages to Qirsh automatically and securely.",
   "stepsLabel": "Steps:",
   "multipleCurrenciesQuestion": "Deal with multiple currencies?",
   "multipleCurrenciesDesc": "If you receive bank messages in different currencies, repeat the same steps for each currency.",
-
   "continueWithoutAccount": "Continue without account",
   "continueWithoutAccountSub": "Your data stays local on your device.",
-
   "smsPermissionRationaleTitle": "We just need permission to read bank messages",
   "smsPermissionRationaleBody": "Qirsh reads bank SMS on your device only to log your transactions automatically. We don't read personal messages and nothing leaves your phone.",
-
   "listeningTitle": "Armed — waiting for your first message",
   "listeningSubtitle": "Make any card purchase and it will appear here automatically.",
   "pasteMessageInstead": "Paste a bank message instead",
   "skipForNow": "Skip for now",
-
   "shortcutVerifyTitle": "Let's confirm the Shortcut works",
   "shortcutVerifyBody": "Go back to the Shortcuts app, send yourself a message with your currency keyword, then come back here.",
   "shortcutVerifyWaiting": "Waiting for a message...",
   "recheckSetup": "Re-check setup",
   "filterKeywordsLabel": "Keyword:",
-
   "firstTxTitle": "First transaction — captured automatically!",
   "firstTxTrustLine": "You did nothing — Qirsh read your bank's SMS and logged it.",
   "firstTxContinue": "Continue",
   "firstTxNeedsCheck": "Needs a quick check",
   "firstTxNeedsCheckSub": "Qirsh isn't 100% sure — review it quickly.",
-  "wrongCategoryTap": "Wrong category? Tap to change it"
+  "wrongCategoryTap": "Wrong category? Tap to change it",
+  "couponsTitle": "Offers",
+  "couponsSubtitle": "Partner offers that help you save on everyday spending.",
+  "couponsFilterAll": "All",
+  "couponsFeaturedSection": "Featured offers",
+  "couponsEmptyTitle": "No offers right now",
+  "couponsEmptyBody": "Partner offers will appear here as soon as they are available.",
+  "couponsFilterEmptyTitle": "No offers match this filter",
+  "couponsFilterEmptyBody": "Try a different category or tag.",
+  "couponsErrorTitle": "Couldn't load offers",
+  "couponsErrorBody": "Please try again in a moment.",
+  "couponsRetry": "Try again",
+  "couponsLoading": "Loading offers...",
+  "couponsCopyCode": "Copy code",
+  "couponsCodeCopied": "Code {code} copied",
+  "couponsOpenPartner": "Open partner site",
+  "couponsUseOffer": "Get the offer",
+  "couponsOpenFailed": "Couldn't open the link",
+  "couponsOfferUnavailable": "This offer isn't available anymore",
+  "couponsTerms": "Terms",
+  "couponsValidUntil": "Ends {date}",
+  "couponsOpenEnded": "Open-ended",
+  "couponsExpiresToday": "Ends today",
+  "couponsExpiresInDays": "{days} days",
+  "couponsAvailableGlobally": "Available everywhere",
+  "couponsAvailableIn": "Available in {countries}",
+  "couponsCardSemantics": "Offer from {partner}: {title}",
+  "couponsCodeSemantics": "Discount code {code}",
+  "couponsOffline": "These are the latest offers available offline."
 }

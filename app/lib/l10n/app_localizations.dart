@@ -1194,6 +1194,174 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'الفئة مش صح؟ اضغط لتغييرها'**
   String get wrongCategoryTap;
+
+  /// No description provided for @couponsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'العروض'**
+  String get couponsTitle;
+
+  /// No description provided for @couponsSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'عروض شركاء تساعدك توفر في مصروفاتك اليومية.'**
+  String get couponsSubtitle;
+
+  /// No description provided for @couponsFilterAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'الكل'**
+  String get couponsFilterAll;
+
+  /// No description provided for @couponsFeaturedSection.
+  ///
+  /// In ar, this message translates to:
+  /// **'عروض مميزة'**
+  String get couponsFeaturedSection;
+
+  /// No description provided for @couponsEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عروض حالياً'**
+  String get couponsEmptyTitle;
+
+  /// No description provided for @couponsEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'هنعرض لك عروض الشركاء هنا أول ما تكون متاحة.'**
+  String get couponsEmptyBody;
+
+  /// No description provided for @couponsFilterEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عروض بهذا الفلتر'**
+  String get couponsFilterEmptyTitle;
+
+  /// No description provided for @couponsFilterEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'جرّب فئة أو وسم مختلف.'**
+  String get couponsFilterEmptyBody;
+
+  /// No description provided for @couponsErrorTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحميل العروض'**
+  String get couponsErrorTitle;
+
+  /// No description provided for @couponsErrorBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'حاول مرة أخرى بعد لحظات.'**
+  String get couponsErrorBody;
+
+  /// No description provided for @couponsRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة المحاولة'**
+  String get couponsRetry;
+
+  /// No description provided for @couponsLoading.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحميل العروض...'**
+  String get couponsLoading;
+
+  /// No description provided for @couponsCopyCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسخ الكود'**
+  String get couponsCopyCode;
+
+  /// No description provided for @couponsCodeCopied.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم نسخ الكود {code}'**
+  String couponsCodeCopied(String code);
+
+  /// No description provided for @couponsOpenPartner.
+  ///
+  /// In ar, this message translates to:
+  /// **'فتح موقع الشريك'**
+  String get couponsOpenPartner;
+
+  /// No description provided for @couponsUseOffer.
+  ///
+  /// In ar, this message translates to:
+  /// **'احصل على العرض'**
+  String get couponsUseOffer;
+
+  /// No description provided for @couponsOpenFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر فتح الرابط'**
+  String get couponsOpenFailed;
+
+  /// No description provided for @couponsOfferUnavailable.
+  ///
+  /// In ar, this message translates to:
+  /// **'العرض ده مش متاح دلوقتي'**
+  String get couponsOfferUnavailable;
+
+  /// No description provided for @couponsTerms.
+  ///
+  /// In ar, this message translates to:
+  /// **'الشروط'**
+  String get couponsTerms;
+
+  /// No description provided for @couponsValidUntil.
+  ///
+  /// In ar, this message translates to:
+  /// **'ينتهي {date}'**
+  String couponsValidUntil(String date);
+
+  /// No description provided for @couponsOpenEnded.
+  ///
+  /// In ar, this message translates to:
+  /// **'مفتوح'**
+  String get couponsOpenEnded;
+
+  /// No description provided for @couponsExpiresToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'ينتهي اليوم'**
+  String get couponsExpiresToday;
+
+  /// No description provided for @couponsExpiresInDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'{days} يوم'**
+  String couponsExpiresInDays(int days);
+
+  /// No description provided for @couponsAvailableGlobally.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاح في كل الدول'**
+  String get couponsAvailableGlobally;
+
+  /// No description provided for @couponsAvailableIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاح في {countries}'**
+  String couponsAvailableIn(String countries);
+
+  /// No description provided for @couponsCardSemantics.
+  ///
+  /// In ar, this message translates to:
+  /// **'عرض من {partner}: {title}'**
+  String couponsCardSemantics(String partner, String title);
+
+  /// No description provided for @couponsCodeSemantics.
+  ///
+  /// In ar, this message translates to:
+  /// **'كود الخصم {code}'**
+  String couponsCodeSemantics(String code);
+
+  /// No description provided for @couponsOffline.
+  ///
+  /// In ar, this message translates to:
+  /// **'دي آخر عروض متاحة عندك بدون إنترنت.'**
+  String get couponsOffline;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

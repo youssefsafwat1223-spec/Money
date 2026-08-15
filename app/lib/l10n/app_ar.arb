@@ -6,8 +6,12 @@
   "setupStepLabel": "الخطوة {current} من {total}",
   "@setupStepLabel": {
     "placeholders": {
-      "current": {"type": "int"},
-      "total": {"type": "int"}
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
   "setupCountryTitle": "دولتك وعملتك",
@@ -28,7 +32,9 @@
   "setupShortcutStep3Body": "اضغط «Message Contents» واكتب رمز عملتك مثل {currency}.",
   "@setupShortcutStep3Body": {
     "placeholders": {
-      "currency": {"type": "String"}
+      "currency": {
+        "type": "String"
+      }
     }
   },
   "setupShortcutStep4Title": "بدون تأكيد",
@@ -76,7 +82,6 @@
   "welcomeSubtitle": "صاحبك في فلوسك",
   "today": "اليوم",
   "yesterday": "أمس",
-
   "welcomeDescription": "اعرف وين راحت فلوسك، ووفّر أوتوماتيكياً بطريقة ذكية وسهلة.",
   "secureOnDevice": "آمن · على جهازك",
   "effortless": "بدون مجهود",
@@ -130,7 +135,6 @@
   "privacyRule1": "يعالج قِرش رسائل البنك التي تشاركها عبر خادمه والذكاء الاصطناعي",
   "privacyRule2": "نعالج فقط رسائل البنك التي تشاركها أو تلصقها بنفسك",
   "privacyRule3": "ما نبيع بياناتك أبداً، ولك كامل الحرية في حذفها",
-
   "enableAutoTracking": "شارك رسائل البنك مع قرش",
   "setupAppleShortcut": "إعداد اختصار Apple",
   "autoTrackingSubtitleAndroid": "من تطبيق الرسائل، اختر رسالة البنك ثم مشاركة إلى قرش. سنحللها على جهازك ونضيف العملية.",
@@ -142,7 +146,6 @@
   "laterAddManually": "لاحقاً، سأقوم بالإضافة يدوياً",
   "shortcutSetupGuide": "دليل إعداد الاختصار",
   "doStepsOnceFromShortcuts": "اعمل الخطوات دي مرة واحدة من تطبيق Apple Shortcuts.",
-
   "signInToStart": "سجّل دخولك للبدء",
   "signInSubtitle": "الدخول لتحديد هويتك ومزامنة إعداداتك فقط. بياناتك المالية تبقى آمنة على جهازك.",
   "noPassword": "بدون كلمة مرور",
@@ -153,13 +156,11 @@
   "email": "البريد الإلكتروني",
   "sendOtpCode": "إرسال رمز الدخول الآمن",
   "byContinuingAgree": "بالمتابعة توافق على شروط الخدمة وسياسة الخصوصية الخاصة بـ قرش.",
-
   "enterOtpCode": "أدخل رمز التحقق",
   "otpSentTo": "أرسلنا رمز التحقق المكون من 6 أرقام إلى البريد الإلكتروني:",
   "verifyCode": "تأكيد الرمز",
   "demoOtpCode": "للتجربة: الرمز 123456",
   "invalidOtpCode": "الرمز غير صحيح",
-
   "enterPasswordOrRecoveryCodeError": "اكتب كلمة مرور النسخة أو رمز الاسترداد.",
   "recoveryCodeIncorrect": "رمز الاسترداد غير صحيح أو لا يطابق النسخة.",
   "backupPasswordIncorrect": "كلمة مرور النسخة الاحتياطية غير صحيحة.",
@@ -175,34 +176,101 @@
   "startFresh": "ابدأ جديد",
   "notNow": "ليس الآن",
   "restoreNotEnabled": "الاستعادة السحابية غير مفعّلة في هذا البناء.",
-
   "appleSecuritySteps": "خطوات الأمان لآبل",
   "iosShortcutSubtitle": "بسبب قيود نظام iOS، نستخدم تطبيق الاختصارات الرسمي من Apple لتمرير رسائل البنك لـ قرش تلقائياً وبأمان تام.",
   "stepsLabel": "الخطوات:",
   "multipleCurrenciesQuestion": "تتعامل بأكثر من عملة؟",
   "multipleCurrenciesDesc": "إذا كانت تصلك رسائل بنكية بعملات مختلفة، كرّر نفس الخطوات لكل عملة.",
-
   "continueWithoutAccount": "أكمل بدون حساب",
   "continueWithoutAccountSub": "بياناتك تبقى محلية على جهازك.",
-
   "smsPermissionRationaleTitle": "محتاجين إذن قراءة رسائل البنك بس",
   "smsPermissionRationaleBody": "قرش يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.",
-
   "listeningTitle": "جاهزين — بنستنى رسالتك الأولى",
   "listeningSubtitle": "اعمل أي شراء بكارتك وهيظهر هنا تلقائياً.",
   "pasteMessageInstead": "ألصق رسالة بنك بدلاً من كده",
   "skipForNow": "تخطي الآن",
-
   "shortcutVerifyTitle": "خلينا نتأكد إن الاختصار شغّال",
   "shortcutVerifyBody": "ارجع لتطبيق Shortcuts وابعت نفسك رسالة فيها كلمة العملة، ثم ارجع هنا.",
   "shortcutVerifyWaiting": "بنستنى رسالة...",
   "recheckSetup": "راجع الإعداد",
   "filterKeywordsLabel": "كلمة المفتاح:",
-
   "firstTxTitle": "أول عملية اتسجّلت لوحدها!",
   "firstTxTrustLine": "إنت معملتش حاجة — قرش قرأ رسالة بنكك وسجّلها.",
   "firstTxContinue": "تمام، كمّل",
   "firstTxNeedsCheck": "محتاجة تأكيد سريع",
   "firstTxNeedsCheckSub": "قرش مش متأكد 100% — راجعها بسرعة.",
-  "wrongCategoryTap": "الفئة مش صح؟ اضغط لتغييرها"
+  "wrongCategoryTap": "الفئة مش صح؟ اضغط لتغييرها",
+  "couponsTitle": "العروض",
+  "couponsSubtitle": "عروض شركاء تساعدك توفر في مصروفاتك اليومية.",
+  "couponsFilterAll": "الكل",
+  "couponsFeaturedSection": "عروض مميزة",
+  "couponsEmptyTitle": "لا توجد عروض حالياً",
+  "couponsEmptyBody": "هنعرض لك عروض الشركاء هنا أول ما تكون متاحة.",
+  "couponsFilterEmptyTitle": "لا توجد عروض بهذا الفلتر",
+  "couponsFilterEmptyBody": "جرّب فئة أو وسم مختلف.",
+  "couponsErrorTitle": "تعذر تحميل العروض",
+  "couponsErrorBody": "حاول مرة أخرى بعد لحظات.",
+  "couponsRetry": "إعادة المحاولة",
+  "couponsLoading": "تحميل العروض...",
+  "couponsCopyCode": "نسخ الكود",
+  "couponsCodeCopied": "تم نسخ الكود {code}",
+  "@couponsCodeCopied": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsOpenPartner": "فتح موقع الشريك",
+  "couponsUseOffer": "احصل على العرض",
+  "couponsOpenFailed": "تعذّر فتح الرابط",
+  "couponsOfferUnavailable": "العرض ده مش متاح دلوقتي",
+  "couponsTerms": "الشروط",
+  "couponsValidUntil": "ينتهي {date}",
+  "@couponsValidUntil": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsOpenEnded": "مفتوح",
+  "couponsExpiresToday": "ينتهي اليوم",
+  "couponsExpiresInDays": "{days} يوم",
+  "@couponsExpiresInDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "couponsAvailableGlobally": "متاح في كل الدول",
+  "couponsAvailableIn": "متاح في {countries}",
+  "@couponsAvailableIn": {
+    "placeholders": {
+      "countries": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsCardSemantics": "عرض من {partner}: {title}",
+  "@couponsCardSemantics": {
+    "placeholders": {
+      "partner": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsCodeSemantics": "كود الخصم {code}",
+  "@couponsCodeSemantics": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsOffline": "دي آخر عروض متاحة عندك بدون إنترنت."
 }
