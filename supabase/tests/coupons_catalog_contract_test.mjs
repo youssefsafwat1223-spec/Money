@@ -228,11 +228,13 @@ test('0081 modifies no financial / sync / backup / capture contract', () => {
   assert.doesNotMatch(sql, /\bALTER COLUMN\b/i);
 });
 
-test('the coupon domain is the newest migration and 0082 is not present yet', () => {
+test('the catalog migration exists and the client schema is untouched by it', () => {
   const files = readdirSync(new URL('supabase/migrations/', root)).filter((f) => f.endsWith('.sql'));
   assert.ok(files.includes('0081_coupons.sql'));
-  assert.equal(files.filter((f) => f.startsWith('0082')).length, 0, '0082 belongs to a later phase');
-  // Client Drift schema stays v30 during C1 (server-only checkpoint).
+  // Analytics live in their own migration (0082, Phase C2) — never folded into
+  // the catalog one. The C2 contract test owns the next phase boundary.
+  assert.doesNotMatch(sql, /coupon_metrics_daily|record_coupon_event/i);
+  // Client Drift schema is untouched by the server phases (mobile phase owns v31).
   const db = read('app/lib/data/db/app_database.dart');
   assert.match(db, /const int _targetSchemaVersion = 30;/);
 });
