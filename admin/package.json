@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --port 3001",
     "lint": "next lint",
-    "test:auth": "node --test tests/admin-authorization.test.mjs",
+    "test:auth": "node --test tests/*.test.mjs",
     "build:parser-lab": "dart compile js ../app/tool/parser_lab_entry.dart -O2 -o public/parser_lab.js"
   },
   "dependencies": {

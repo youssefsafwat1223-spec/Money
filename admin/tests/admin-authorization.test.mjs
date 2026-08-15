@@ -26,6 +26,11 @@ test("all admin API handlers invoke the server authorization guard", () => {
     "app/api/admin-data/route.ts",
     "app/api/announcements/route.ts",
     "app/api/campaigns/route.ts",
+    "app/api/coupons/route.ts",
+    "app/api/coupons/image/route.ts",
+    "app/api/coupon-categories/route.ts",
+    "app/api/coupon-tags/route.ts",
+    "app/api/coupon-analytics/route.ts",
   ]) {
     const source = read(path);
     const handlers = [...source.matchAll(/export async function (GET|POST|PATCH|DELETE)[\s\S]*?(?=export async function|$)/g)];
