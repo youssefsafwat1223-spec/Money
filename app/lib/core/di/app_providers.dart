@@ -264,6 +264,7 @@ const kOperationalOnlyTables = <String>{
   'remote_feature_flags',
   'remote_announcements',
   'remote_growth_campaigns',
+  'remote_coupons',
 };
 
 /// Domain table sets (sorted, comma-joined → stable family keys).

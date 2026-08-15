@@ -10,7 +10,7 @@
 # lists the offending lines.
 #
 # Guards (all against app/lib — production code only):
-#   1. DB schema stays at 29 (_targetSchemaVersion). Batch-3 must not bump schema.
+#   1. DB schema stays at 31 (_targetSchemaVersion) — no unapproved bump.
 #   2. No *_supabase_primary authority-switch flag keys are read (quoted selectors).
 #   3. No FinancialCacheRepairService is imported or constructed.
 #   4. No legacy Supabase financial repository is imported or constructed.
@@ -30,12 +30,15 @@ hits() { grep -rnE "$1" "$LIB" 2>/dev/null; }
 
 echo "══ MALI-034 architecture guard ══"
 
-# 1. Schema pinned at 30 (Phase-8 B8-3 fixed-precision cutover) ----------------
+# 1. Schema pinned at 31 --------------------------------------------------------
+# v30 = Phase-8 B8-3 fixed-precision cutover (the money authority).
+# v31 = Coupons C4: ONE additive, refetchable catalog cache table
+#       (remote_coupons). No further bump is authorized without approval.
 schema_line="$(grep -E 'const int _targetSchemaVersion = [0-9]+;' "$LIB/data/db/app_database.dart" 2>/dev/null)"
-if echo "$schema_line" | grep -qE '= 30;'; then
-  okc "schema pinned at 30"
+if echo "$schema_line" | grep -qE '= 31;'; then
+  okc "schema pinned at 31"
 else
-  fail "schema is not 30 (found: ${schema_line:-<missing>}) — B8-3 is the authorized v30 cutover"
+  fail "schema is not 31 (found: ${schema_line:-<missing>}) — v30 money cutover + v31 coupon cache are the authorized versions"
 fi
 
 # 2. No *_supabase_primary flag SELECTORS (quoted keys are code; comments aren't) --

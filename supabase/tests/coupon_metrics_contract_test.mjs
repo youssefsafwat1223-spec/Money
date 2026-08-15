@@ -176,8 +176,9 @@ test('C2 touches no closed contract and bumps no client schema', () => {
   }
   const alters = sql.match(/ALTER TABLE (\w+)/gi) || [];
   assert.deepEqual(alters, ['ALTER TABLE coupon_metrics_daily']);
-  // Drift stays v30 in C2 (mobile phase owns v31).
-  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 30;/);
+  // The client schema is owned by the mobile phase (C4, Drift v31); 0082 never
+  // bumps or references it.
+  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 31;/);
 });
 
 test('migration numbering: 0082 is the newest and 0083 does not exist', () => {

@@ -51,9 +51,11 @@ void main() {
     expect(await _columns(db, 'goals'), contains('currency'));
     expect(await _columns(db, 'user_settings'), contains('planning_cutover_state'));
 
-    // Schema version pinned at 30.
+    // The database converges on the app's current target version. The v30 MONEY
+    // contract asserted above is unchanged by later additive bumps (v31 added
+    // only the refetchable coupon catalog cache).
     final v = await db.customSelect('PRAGMA user_version;').getSingle();
-    expect(v.read<int>('user_version'), 30);
+    expect(v.read<int>('user_version'), 31);
   });
 
   // ── §2 deterministic migration repeatability ──────────────────────────────

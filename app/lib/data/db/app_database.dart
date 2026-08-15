@@ -18,7 +18,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 30;
+const int _targetSchemaVersion = 31;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -1282,6 +1282,7 @@ class AppDatabase extends GeneratedDatabase {
     await _createRemoteFeatureFlagsTable();
     await _createRemoteAnnouncementsTable();
     await _createRemoteGrowthCampaignsTable();
+    await _createRemoteCouponsTable();
 
     await customStatement('''
       CREATE TABLE IF NOT EXISTS user_settings(
@@ -1637,6 +1638,11 @@ class AppDatabase extends GeneratedDatabase {
     if (version < 4) {
       await _createRemoteFeatureFlagsTable();
       await _createRemoteAnnouncementsTable();
+    }
+    // v31 (MALI-COUPONS C4): additive catalog cache only. No business table is
+    // touched, no Money/Planning/CAS/backup/capture data is converted.
+    if (version < 31) {
+      await _createRemoteCouponsTable();
     }
     if (version < 5) {
       await _createDedupHashesTable();
@@ -2274,6 +2280,49 @@ class AppDatabase extends GeneratedDatabase {
         once_per_user INTEGER NOT NULL DEFAULT 0,
         priority INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
+        synced_at TEXT NOT NULL
+      );
+    ''');
+  }
+
+  /// MALI-COUPONS (Phase C4, schema v31) — the Offers/Coupons catalog cache.
+  ///
+  /// Pure REFETCHABLE server catalog: it is replaced wholesale by every
+  /// successful `catalog-coupons` snapshot and is deliberately EXCLUDED from the
+  /// business backup (see BackupSnapshotBuilder.intentionallyExcluded) and from
+  /// the sign-out wipe, exactly like every other `remote_*` table. It holds no
+  /// user-authored data and no per-user state: V1 has no favourites, dismissals
+  /// or persisted impression state.
+  ///
+  /// Embedded collections arrive as deterministic JSON text (tags keep the
+  /// server's order); ALL decoding happens at the repository boundary so no
+  /// widget ever parses JSON.
+  Future<void> _createRemoteCouponsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_coupons(
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        partner_name TEXT NOT NULL,
+        title_ar TEXT NOT NULL,
+        title_en TEXT NULL,
+        description_ar TEXT NOT NULL,
+        description_en TEXT NULL,
+        redemption_type TEXT NOT NULL,
+        code TEXT NULL,
+        partner_url TEXT NULL,
+        display_category_key TEXT NOT NULL,
+        display_category_label_ar TEXT NOT NULL,
+        display_category_label_en TEXT NULL,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        spend_hints_json TEXT NOT NULL DEFAULT '[]',
+        country_codes_json TEXT NOT NULL DEFAULT '[]',
+        accent_hex TEXT NULL,
+        image_url TEXT NULL,
+        featured INTEGER NOT NULL DEFAULT 0,
+        priority INTEGER NOT NULL DEFAULT 0,
+        valid_from TEXT NOT NULL,
+        valid_until TEXT NULL,
+        terms_ar TEXT NULL,
         synced_at TEXT NOT NULL
       );
     ''');

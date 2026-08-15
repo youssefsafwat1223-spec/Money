@@ -375,6 +375,7 @@ class BackupSnapshotBuilder {
     'remote_banks',
     'remote_categories',
     'remote_countries',
+    'remote_coupons',
     'remote_currencies',
     'remote_feature_flags',
     'remote_growth_campaigns',
