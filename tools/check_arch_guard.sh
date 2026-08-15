@@ -41,6 +41,18 @@ else
   fail "schema is not 31 (found: ${schema_line:-<missing>}) — v30 money cutover + v31 coupon cache are the authorized versions"
 fi
 
+# 1b. …and the developer documentation says the SAME number ---------------------
+# app/CLAUDE.md rule 6 states the authoritative schema version. It silently went
+# stale across the v30 cutover; this ties it to the source of truth so a bump
+# cannot land without updating the doc in the same commit.
+schema_version="$(echo "$schema_line" | grep -oE '[0-9]+')"
+doc_line="$(grep -nE '_targetSchemaVersion.*\(currently [0-9]+\)' "$ROOT/app/CLAUDE.md" 2>/dev/null)"
+if [ -n "$schema_version" ] && echo "$doc_line" | grep -qE "\(currently ${schema_version}\)"; then
+  okc "app/CLAUDE.md documents schema $schema_version"
+else
+  fail "app/CLAUDE.md schema statement is stale (want 'currently ${schema_version:-?}', found: ${doc_line:-<missing>})"
+fi
+
 # 2. No *_supabase_primary flag SELECTORS (quoted keys are code; comments aren't) --
 m="$(hits "['\"][a-z_]*_supabase_primary['\"]")"
 if [ -z "$m" ]; then okc "no *_supabase_primary flag selectors"; else

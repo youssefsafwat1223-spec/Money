@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../db/app_database.dart';
 import 'announcement_service.dart';
 import 'catalog_daos.dart';
+import '../../core/observability/diagnostics.dart';
+import '../../core/observability/telemetry_error.dart';
 import '../../features/coupons/coupon_models.dart';
 
 class CatalogSyncService {
@@ -173,22 +175,44 @@ class CatalogSyncService {
           : data is Map && data['items'] is List
               ? data['items'] as List
               : null;
-      // A missing/!unrecognised envelope is a FAILURE, not an empty catalog:
+      // A missing/unrecognised envelope is a FAILURE, not an empty catalog:
       // returning here preserves the previous cache.
-      if (items == null) return;
+      if (items == null) {
+        Diag.error('[CatalogCoupons] $_couponSnapshotTelemetry',
+            'malformed envelope — previous cache preserved');
+        return;
+      }
 
-      final offers = items
-          .whereType<Map<Object?, Object?>>()
-          .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))
-          .map(CouponOffer.tryParseSnapshot)
-          .whereType<CouponOffer>()
-          .toList();
+      // ALL-OR-NOTHING. The whole snapshot is validated and mapped BEFORE the
+      // database is touched: `replaceAll` only ever receives a fully typed,
+      // fully validated catalog, so a destructive replace can never begin
+      // against a payload that turns out to be invalid partway through.
+      final List<CouponOffer> offers;
+      try {
+        offers = CouponOffer.parseSnapshot(items);
+      } on CouponSnapshotException catch (error) {
+        // A catalog-CONTRACT error, not a transport error. One bad row rejects
+        // the entire snapshot and the last-known-good cache survives untouched
+        // — a partially-valid catalog must never replace a good one.
+        Diag.error('[CatalogCoupons] $_couponSnapshotTelemetry', error);
+        return;
+      }
 
       await RemoteCouponsDao(_database).replaceAll(offers);
     } catch (e) {
-      debugPrint('Catalog coupons sync skipped: $e');
+      Diag.error('[CatalogCoupons]', e);
     }
   }
+
+  /// Stable, data-free telemetry identity for a rejected coupon catalog
+  /// snapshot. Only the code plus the allowlisted module/operation survive the
+  /// Sentry boundary — no server content and no user data.
+  static const TelemetryError _couponSnapshotTelemetry = TelemetryError(
+    TelemetryCodes.syncDecodeFailed,
+    module: 'sync',
+    operation: 'catalog_coupons',
+    retryable: false,
+  );
 
   Future<void> syncCategory(
     String category, {

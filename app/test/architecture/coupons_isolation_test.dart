@@ -198,6 +198,63 @@ void main() {
     }
   });
 
+  test('C4.1: the catalog snapshot is ALL-OR-NOTHING — no row-dropping decode', () {
+    final sync = _code('lib/data/catalog/catalog_sync_service.dart');
+    final syncCoupons = sync.substring(sync.indexOf('Future<void> syncCoupons('));
+    final body = syncCoupons.substring(0, syncCoupons.indexOf('Future<void> syncCategory('));
+
+    // The whole snapshot is parsed by ONE all-or-nothing entry point…
+    expect(body.contains('CouponOffer.parseSnapshot('), isTrue);
+    // …and never by a per-row decode that silently discards failures. These are
+    // the exact shapes that let a partially-valid snapshot replace a good cache.
+    for (final forbidden in [
+      'whereType<CouponOffer>()',
+      'tryParseSnapshot',
+      '.map(CouponOffer.',
+    ]) {
+      expect(body.contains(forbidden), isFalse,
+          reason: 'syncCoupons must not drop malformed rows ($forbidden)');
+    }
+    // The row-level fail-safe decoder must not exist at all — keeping it would
+    // leave the footgun one call site away.
+    expect(_code('lib/features/coupons/coupon_models.dart').contains('tryParseSnapshot'),
+        isFalse);
+
+    // Validation must COMPLETE before the destructive replace begins: the DAO
+    // is only reachable after parseSnapshot has returned a typed list.
+    expect(body.indexOf('CouponOffer.parseSnapshot(') <
+        body.indexOf('RemoteCouponsDao(_database).replaceAll('), isTrue);
+    // replaceAll takes typed offers, never raw JSON.
+    final dao = _code('lib/data/catalog/catalog_daos.dart');
+    expect(dao.contains('Future<void> replaceAll(List<CouponOffer> offers)'), isTrue);
+  });
+
+  test('C4.1: snapshot rejection telemetry carries no user or server content', () {
+    final sync = _code('lib/data/catalog/catalog_sync_service.dart');
+    // A stable, allowlisted code — not a free-form message — identifies the
+    // failure at the Sentry boundary.
+    expect(sync.contains('TelemetryCodes.syncDecodeFailed'), isTrue);
+    expect(sync.contains("operation: 'catalog_coupons'"), isTrue);
+    // Logging goes through the redacting sink, never a raw print of the payload.
+    final syncCoupons = sync.substring(sync.indexOf('Future<void> syncCoupons('));
+    final body = syncCoupons.substring(0, syncCoupons.indexOf('Future<void> syncCategory('));
+    expect(body.contains('Diag.error'), isTrue);
+    expect(body.contains('debugPrint'), isFalse,
+        reason: 'use the redacting sink, not a raw print');
+    // No LOG call may pass the payload itself — only the typed exception (whose
+    // toString is a fixed reason + row index + static id) or a literal.
+    final logCalls = RegExp(r'Diag\.(error|log)\([^;]*;')
+        .allMatches(body)
+        .map((m) => m.group(0)!);
+    expect(logCalls, isNotEmpty);
+    for (final call in logCalls) {
+      for (final forbidden in ['data', 'items', 'response', 'json', 'stackTrace']) {
+        expect(call.contains(forbidden), isFalse,
+            reason: 'log call must not carry $forbidden: $call');
+      }
+    }
+  });
+
   test('the retired ALL country literal is gone from the client', () {
     for (final path in _couponSources) {
       expect(_code(path).contains("'ALL'"), isFalse,

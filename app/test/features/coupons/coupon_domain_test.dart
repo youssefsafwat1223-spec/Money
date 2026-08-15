@@ -1,6 +1,7 @@
 // MALI-COUPONS (Phase C4) — snapshot decoding (§40 G–J) and on-device
 // eligibility + contextual ranking (§41 A–L). Pure logic: no DB, no network.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/observability/privacy_redactor.dart';
 import 'package:money_companion/features/coupons/coupon_models.dart';
 import 'package:money_companion/features/coupons/coupon_ranking.dart';
 
@@ -66,49 +67,143 @@ CouponOffer _offer({
       spendHintCategoryKeys: hints,
     );
 
+/// Decode a single-row snapshot. Row helpers stay row-shaped for readability,
+/// but every assertion goes through the REAL snapshot entry point.
+CouponOffer _one(Map<String, Object?> row) => CouponOffer.parseSnapshot([row]).single;
+
+/// Asserts the whole snapshot is rejected, with the expected data-free reason.
+void _expectRejected(Map<String, Object?> row, CouponSnapshotRejection reason) {
+  expect(
+    () => CouponOffer.parseSnapshot(<Object?>[row]),
+    throwsA(isA<CouponSnapshotException>()
+        .having((e) => e.reason, 'reason', reason)),
+  );
+}
+
 void main() {
   group('snapshot decode (§40 G–J)', () {
     test('G: a code offer decodes with its code; a link offer with its url', () {
-      final code = CouponOffer.tryParseSnapshot(_snapshot())!;
+      final code = _one(_snapshot());
       expect(code.redemptionType, CouponRedemptionType.code);
       expect(code.code, 'SAVE20');
 
-      final link = CouponOffer.tryParseSnapshot(
-        _snapshot(type: 'link', code: null, url: 'https://example.com'),
-      )!;
+      final link = _one(_snapshot(type: 'link', code: null, url: 'https://example.com'));
       expect(link.redemptionType, CouponRedemptionType.link);
       expect(link.code, isNull);
       expect(link.partnerUrl, 'https://example.com');
     });
 
-    test('G: contradictory or unsafe rows are dropped, never rendered broken', () {
-      // code without a code
-      expect(CouponOffer.tryParseSnapshot(_snapshot(code: null)), isNull);
-      // link without a destination
-      expect(
-          CouponOffer.tryParseSnapshot(_snapshot(type: 'link', code: null)), isNull);
-      // link carrying a contradictory code
-      expect(
-        CouponOffer.tryParseSnapshot(
-            _snapshot(type: 'link', code: 'X', url: 'https://e.com')),
-        isNull,
-      );
-      // non-https destinations
+    test('C4.1 §8: the validation-failure matrix each rejects the SNAPSHOT', () {
+      // Redemption shape ---------------------------------------------------
+      _expectRejected(_snapshot(code: null), // code without a code
+          CouponSnapshotRejection.invalidRedemptionShape);
+      _expectRejected(_snapshot(type: 'link', code: null), // link, no destination
+          CouponSnapshotRejection.invalidRedemptionShape);
+      _expectRejected(
+          _snapshot(type: 'link', code: 'X', url: 'https://e.com'), // contradictory
+          CouponSnapshotRejection.invalidRedemptionShape);
+      _expectRejected(_snapshot(type: 'voucher'), // unknown type
+          CouponSnapshotRejection.invalidRedemptionShape);
+
+      // Non-HTTPS destinations ---------------------------------------------
       for (final bad in ['http://e.com', 'javascript:alert(1)', 'data:text/html,x']) {
-        expect(CouponOffer.tryParseSnapshot(_snapshot(url: bad)), isNull, reason: bad);
+        _expectRejected(_snapshot(url: bad), CouponSnapshotRejection.insecureUrl);
       }
-      // unknown redemption type / missing category / bad dates
-      expect(CouponOffer.tryParseSnapshot(_snapshot(type: 'voucher')), isNull);
-      expect(CouponOffer.tryParseSnapshot(_snapshot(category: null)), isNull);
-      expect(CouponOffer.tryParseSnapshot(_snapshot(validFrom: 'nope')), isNull);
+
+      // Timestamps ----------------------------------------------------------
+      _expectRejected(
+          _snapshot(validFrom: 'nope'), CouponSnapshotRejection.invalidTimestamp);
+      _expectRejected(_snapshot(validUntil: 'not-a-date'),
+          CouponSnapshotRejection.invalidTimestamp);
+      _expectRejected(
+          _snapshot(validUntil: 12345), CouponSnapshotRejection.invalidTimestamp);
+
+      // Country representation ---------------------------------------------
+      _expectRejected(_snapshot(countries: ['ALL']), // the retired literal
+          CouponSnapshotRejection.invalidCountryCodes);
+      _expectRejected(_snapshot(countries: ['sa']), // wrong case
+          CouponSnapshotRejection.invalidCountryCodes);
+      _expectRejected(_snapshot(countries: ['SAU']), // alpha-3
+          CouponSnapshotRejection.invalidCountryCodes);
+      _expectRejected(_snapshot(countries: [42]), // wrong type
+          CouponSnapshotRejection.invalidCountryCodes);
+
+      // Category structure --------------------------------------------------
+      _expectRejected(
+          _snapshot(category: null), CouponSnapshotRejection.invalidCategory);
+      _expectRejected(_snapshot(category: 'food'), // not an object
+          CouponSnapshotRejection.invalidCategory);
+      _expectRejected(_snapshot(category: const {'label_ar': 'مطاعم'}), // no key
+          CouponSnapshotRejection.invalidCategory);
+
+      // Tag structure -------------------------------------------------------
+      _expectRejected(_snapshot(tags: const [{'key': '', 'label_ar': 'broken'}]),
+          CouponSnapshotRejection.invalidTags);
+      _expectRejected(_snapshot(tags: const ['food']), // not an object
+          CouponSnapshotRejection.invalidTags);
+
+      // Identity / content --------------------------------------------------
+      _expectRejected(_snapshot(id: ''), CouponSnapshotRejection.missingIdentity);
+      _expectRejected(_snapshot(slug: ''), CouponSnapshotRejection.missingIdentity);
+    });
+
+    test('C4.1: a non-object row rejects the snapshot', () {
+      expect(
+        () => CouponOffer.parseSnapshot(<Object?>['not-a-row']),
+        throwsA(isA<CouponSnapshotException>()
+            .having((e) => e.reason, 'reason', CouponSnapshotRejection.notAnObject)),
+      );
+    });
+
+    test('C4.1: ONE malformed row rejects the WHOLE snapshot (no partial accept)',
+        () {
+      final items = <Object?>[
+        _snapshot(id: 'd', slug: 'd'),
+        _snapshot(id: 'e', slug: 'e', code: null), // malformed
+        _snapshot(id: 'f', slug: 'f'),
+      ];
+      expect(() => CouponOffer.parseSnapshot(items),
+          throwsA(isA<CouponSnapshotException>()));
+      // …and nothing partial is returned in place of the failure.
+      try {
+        CouponOffer.parseSnapshot(items);
+        fail('snapshot must not parse');
+      } on CouponSnapshotException catch (error) {
+        expect(error.index, 1, reason: 'names the offending row');
+        expect(error.identifier, 'e', reason: 'slug is a safe static diagnostic');
+      }
+    });
+
+    test('C4.1: the rejection carries data-free diagnostics only', () {
+      const error = CouponSnapshotException(
+        CouponSnapshotRejection.insecureUrl,
+        index: 3,
+        identifier: 'partner-offer',
+      );
+      expect(error.toString(),
+          'CouponSnapshotException(insecure_url at row 3, partner-offer)');
+      // Every reason is a stable snake_case token — never server content…
+      for (final reason in CouponSnapshotRejection.values) {
+        expect(RegExp(r'^[a-z][a-z_]*$').hasMatch(reason.wireName), isTrue,
+            reason: reason.name);
+        // …and short enough to survive PrivacyRedactor, which collapses any
+        // 24+ char identifier-shaped run to '[id]'. A longer token would be
+        // erased on its way to the log and stop being diagnosable.
+        expect(reason.wireName.length, lessThan(24), reason: reason.name);
+        expect(PrivacyRedactor.redactText(reason.wireName), reason.wireName,
+            reason: '${reason.name} must survive redaction verbatim');
+      }
+    });
+
+    test('C4.1: an empty snapshot is VALID (distinct from a malformed one)', () {
+      expect(CouponOffer.parseSnapshot(const <Object?>[]), isEmpty);
     });
 
     test('H: category labels and ordered tags map through unchanged', () {
-      final offer = CouponOffer.tryParseSnapshot(_snapshot(tags: [
+      final offer = _one(_snapshot(tags: const [
         {'key': 'food', 'label_ar': 'مطاعم', 'label_en': 'Food'},
         {'key': 'delivery', 'label_ar': 'توصيل'},
-        {'key': '', 'label_ar': 'broken'}, // malformed -> dropped
-      ]))!;
+      ]));
       expect(offer.category.key, 'food');
       expect(offer.category.label(), 'مطاعم');
       expect(offer.category.label(preferEnglish: true), 'Food');
@@ -119,19 +214,13 @@ void main() {
       expect(offer.tags[1].label(preferEnglish: true), 'توصيل');
     });
 
-    test('I/J: [] means global; a legacy "ALL" value invalidates the row', () {
-      expect(CouponOffer.tryParseSnapshot(_snapshot())!.countryCodes, isEmpty);
-      expect(
-        CouponOffer.tryParseSnapshot(_snapshot(countries: ['SA', 'AE']))!.countryCodes,
-        ['SA', 'AE'],
-      );
-      expect(CouponOffer.tryParseSnapshot(_snapshot(countries: ['ALL'])), isNull);
-      expect(CouponOffer.tryParseSnapshot(_snapshot(countries: ['sa'])), isNull);
+    test('I/J: [] means global; a valid allowlist maps through', () {
+      expect(_one(_snapshot()).countryCodes, isEmpty);
+      expect(_one(_snapshot(countries: ['SA', 'AE'])).countryCodes, ['SA', 'AE']);
     });
 
     test('spend hints decode as opaque strings (no validation, no FK)', () {
-      final offer = CouponOffer.tryParseSnapshot(
-          _snapshot(hints: ['restaurants', 'legacy_removed_key']))!;
+      final offer = _one(_snapshot(hints: ['restaurants', 'legacy_removed_key']));
       expect(offer.spendHintCategoryKeys, ['restaurants', 'legacy_removed_key']);
     });
   });

@@ -9,9 +9,67 @@ import 'package:flutter/material.dart';
 /// (JSON columns, enums, colours, dates) happens HERE and in the DAO, never in
 /// a widget.
 
+/// Why a catalog snapshot was rejected.
+///
+/// A stable, data-free vocabulary: these values are safe to log verbatim. They
+/// describe WHICH contract the row broke, never what the row contained.
+///
+/// Each token MUST stay under 24 characters: `PrivacyRedactor` collapses any
+/// longer `[A-Za-z0-9_-]` run to `[id]`, which would erase the diagnostic on
+/// its way to the log. A test locks this.
+enum CouponSnapshotRejection {
+  notAnObject('not_an_object'),
+  missingIdentity('missing_identity'),
+  missingContent('missing_content'),
+  invalidRedemptionShape('invalid_redemption'),
+  insecureUrl('insecure_url'),
+  invalidCategory('invalid_category'),
+  invalidTimestamp('invalid_timestamp'),
+  invalidCountryCodes('invalid_country_codes'),
+  invalidTags('invalid_tags'),
+  invalidSpendHints('invalid_spend_hints');
+
+  const CouponSnapshotRejection(this.wireName);
+
+  final String wireName;
+}
+
+/// Raised when ANY row of a `catalog-coupons` snapshot fails validation.
+///
+/// The snapshot is ONE authoritative unit. A single bad row rejects the whole
+/// payload, so a partially-valid catalog can never replace the last-known-good
+/// cache — silently dropping rows would shrink a user's catalog while still
+/// looking like a successful sync.
+///
+/// Carries only data-free diagnostics: the fixed [reason], the row [index], and
+/// the server's static coupon identifier. Never server content, never user
+/// data, never a stack trace — and it is never surfaced to the user.
+class CouponSnapshotException implements Exception {
+  const CouponSnapshotException(
+    this.reason, {
+    required this.index,
+    this.identifier,
+  });
+
+  final CouponSnapshotRejection reason;
+
+  /// Position of the offending row within the snapshot.
+  final int index;
+
+  /// The row's `slug` (preferred) or `id`, when it was readable as a plain
+  /// string before validation failed. Bounded so a pathological value cannot
+  /// dominate a log line.
+  final String? identifier;
+
+  @override
+  String toString() => 'CouponSnapshotException(${reason.wireName} at row '
+      '$index${identifier == null ? '' : ', $identifier'})';
+}
+
 /// How an offer is redeemed. The server guarantees exactly one shape per row
 /// (0081 `coupons_redemption_shape`), and the client re-checks it while
-/// decoding so a malformed row is dropped rather than rendered broken.
+/// decoding so a malformed row rejects the snapshot rather than rendering
+/// something broken.
 enum CouponRedemptionType {
   /// Copy a code; an optional partner link may be offered as a secondary CTA.
   code,
@@ -186,52 +244,139 @@ class CouponOffer {
     return until.difference(now).inDays <= 7;
   }
 
-  /// Decode one `catalog-coupons` snapshot item. Returns null for a malformed or
-  /// contradictory row (fail-safe: drop it rather than render something broken)
-  /// — the same rule the Edge mapper applies server-side.
-  static CouponOffer? tryParseSnapshot(Map<String, Object?> json) {
+  /// Decode an ENTIRE `catalog-coupons` snapshot — all-or-nothing.
+  ///
+  /// Returns the fully typed catalog, or throws [CouponSnapshotException] on the
+  /// first invalid row, in which case the caller MUST keep its previous cache.
+  /// There is deliberately no "drop the bad rows" mode: a partially-valid
+  /// snapshot would replace a good catalog with a smaller one and still report
+  /// success. An empty [items] list is a legitimate snapshot (an empty
+  /// catalog) — that is the only way this returns an empty result.
+  ///
+  /// Validation runs to completion BEFORE any caller touches the database, so
+  /// the destructive replace can never begin against a snapshot that turns out
+  /// to be invalid halfway through.
+  static List<CouponOffer> parseSnapshot(List<Object?> items) {
+    final offers = <CouponOffer>[];
+    for (var index = 0; index < items.length; index++) {
+      offers.add(_parseRow(items[index], index));
+    }
+    return List<CouponOffer>.unmodifiable(offers);
+  }
+
+  /// Decode and validate one snapshot row, or throw. Every check here is a
+  /// contract the server also enforces (0081) — this is defence in depth, not a
+  /// substitute for it.
+  static CouponOffer _parseRow(Object? raw, int index) {
+    if (raw is! Map) {
+      throw CouponSnapshotException(
+        CouponSnapshotRejection.notAnObject,
+        index: index,
+      );
+    }
+    final json = raw.map((k, v) => MapEntry(k.toString(), v));
+
     String? str(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
 
+    // Resolved first so every rejection below can name the offending row.
     final id = str(json['id']);
     final slug = str(json['slug']);
+    final label = slug ?? id;
+    final identifier =
+        label == null ? null : (label.length <= 64 ? label : label.substring(0, 64));
+
+    Never reject(CouponSnapshotRejection reason) => throw CouponSnapshotException(
+          reason,
+          index: index,
+          identifier: identifier,
+        );
+
     final partner = str(json['partner_name']);
+    if (id == null || slug == null || partner == null) {
+      reject(CouponSnapshotRejection.missingIdentity);
+    }
+
     final titleAr = str(json['title_ar']);
     final descriptionAr = str(json['description_ar']);
-    final type = CouponRedemptionType.tryParse(json['redemption_type']);
-    if (id == null || slug == null || partner == null) return null;
-    if (titleAr == null || descriptionAr == null || type == null) return null;
+    if (titleAr == null || descriptionAr == null) {
+      reject(CouponSnapshotRejection.missingContent);
+    }
 
+    final type = CouponRedemptionType.tryParse(json['redemption_type']);
     final code = str(json['code']);
     final url = str(json['partner_url']);
-    if (type == CouponRedemptionType.code && code == null) return null;
+    if (type == null) reject(CouponSnapshotRejection.invalidRedemptionShape);
+    if (type == CouponRedemptionType.code && code == null) {
+      reject(CouponSnapshotRejection.invalidRedemptionShape);
+    }
     if (type == CouponRedemptionType.link && (url == null || code != null)) {
-      return null;
+      reject(CouponSnapshotRejection.invalidRedemptionShape);
     }
     // Only https destinations are ever accepted (defence in depth: the server
     // enforces it too).
-    if (url != null && !url.startsWith('https://')) return null;
+    if (url != null && !url.startsWith('https://')) {
+      reject(CouponSnapshotRejection.insecureUrl);
+    }
 
     final rawCategory = json['display_category'];
-    if (rawCategory is! Map) return null;
+    if (rawCategory is! Map) reject(CouponSnapshotRejection.invalidCategory);
     final categoryKey = str(rawCategory['key']);
     final categoryLabelAr = str(rawCategory['label_ar']);
-    if (categoryKey == null || categoryLabelAr == null) return null;
+    if (categoryKey == null || categoryLabelAr == null) {
+      reject(CouponSnapshotRejection.invalidCategory);
+    }
 
-    final validFrom = DateTime.tryParse(json['valid_from'] as String? ?? '');
-    if (validFrom == null) return null;
-    final rawUntil = json['valid_until'] as String?;
-    final validUntil = rawUntil == null ? null : DateTime.tryParse(rawUntil);
-    if (rawUntil != null && validUntil == null) return null;
+    final rawFrom = json['valid_from'];
+    final validFrom = rawFrom is String ? DateTime.tryParse(rawFrom) : null;
+    if (validFrom == null) reject(CouponSnapshotRejection.invalidTimestamp);
+    final rawUntil = json['valid_until'];
+    if (rawUntil != null && rawUntil is! String) {
+      reject(CouponSnapshotRejection.invalidTimestamp);
+    }
+    final validUntil =
+        rawUntil == null ? null : DateTime.tryParse(rawUntil as String);
+    if (rawUntil != null && validUntil == null) {
+      reject(CouponSnapshotRejection.invalidTimestamp);
+    }
 
-    final countries = (json['country_codes'] as List?)
+    final rawCountries = json['country_codes'];
+    if (rawCountries != null && rawCountries is! List) {
+      reject(CouponSnapshotRejection.invalidCountryCodes);
+    }
+    final countryList = rawCountries as List?;
+    final countries = countryList
             ?.whereType<String>()
             .where((c) => RegExp(r'^[A-Z]{2}$').hasMatch(c))
             .toList() ??
         const <String>[];
     // A legacy/other value (e.g. the retired 'ALL' literal) makes the row
     // untrustworthy rather than silently global.
-    final rawCountries = (json['country_codes'] as List?)?.length ?? 0;
-    if (countries.length != rawCountries) return null;
+    if (countries.length != (countryList?.length ?? 0)) {
+      reject(CouponSnapshotRejection.invalidCountryCodes);
+    }
+
+    final rawTags = json['tags'];
+    if (rawTags != null && rawTags is! List) {
+      reject(CouponSnapshotRejection.invalidTags);
+    }
+    final tags = <CouponTag>[];
+    for (final rawTag in (rawTags as List?) ?? const <Object?>[]) {
+      final tag = CouponTag.tryParse(rawTag);
+      // A malformed tag is a malformed ROW: dropping it would quietly change
+      // what the offer is filed under.
+      if (tag == null) reject(CouponSnapshotRejection.invalidTags);
+      tags.add(tag);
+    }
+
+    final rawHints = json['spend_hint_category_keys'];
+    if (rawHints != null && rawHints is! List) {
+      reject(CouponSnapshotRejection.invalidSpendHints);
+    }
+    final hintList = rawHints as List?;
+    final hints = hintList?.whereType<String>().toList() ?? const <String>[];
+    if (hints.length != (hintList?.length ?? 0)) {
+      reject(CouponSnapshotRejection.invalidSpendHints);
+    }
 
     return CouponOffer(
       id: id,

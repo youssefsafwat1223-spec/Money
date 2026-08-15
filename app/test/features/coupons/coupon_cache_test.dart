@@ -1,13 +1,23 @@
 // MALI-COUPONS (Phase C4) — Drift v31 migration (§39) and the atomic catalog
 // cache replace (§40 A–F) against a REAL database.
+//
+// C4.1 adds the SNAPSHOT ATOMICITY regressions: the catalog-coupons response is
+// one authoritative unit, so a single malformed row must reject the entire
+// snapshot and leave the last-known-good cache byte-for-byte intact.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:money_companion/data/catalog/announcement_service.dart';
 import 'package:money_companion/data/catalog/catalog_daos.dart';
+import 'package:money_companion/data/catalog/catalog_sync_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/features/coupons/coupon_models.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -203,6 +213,155 @@ void main() {
         throwsA(anything),
       );
       expect(await dao.count(), 0, reason: 'rolled back, not partially applied');
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // C4.1 — snapshot validation atomicity, driven through the REAL sync path
+  // ---------------------------------------------------------------------
+  group('snapshot atomicity (C4.1 §5–§9)', () {
+    late AppDatabase db;
+    late RemoteCouponsDao dao;
+
+    setUp(() async {
+      db = await AppDatabase.open(
+          executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+      dao = RemoteCouponsDao(db);
+    });
+    tearDown(() => db.close());
+
+    /// A snapshot row as `catalog-coupons` serialises it.
+    Map<String, Object?> row(String id, {bool malformed = false}) => {
+          'id': id,
+          'slug': id,
+          'partner_name': 'Partner',
+          'title_ar': 'عنوان',
+          'description_ar': 'وصف',
+          // A `code` offer with no code is the canonical contract violation.
+          'redemption_type': 'code',
+          'code': malformed ? null : 'CODE-$id',
+          'display_category': const {'key': 'food', 'label_ar': 'مطاعم'},
+          'tags': const <Object?>[],
+          'spend_hint_category_keys': const <Object?>[],
+          'country_codes': const <Object?>[],
+          'valid_from': '2026-08-01T00:00:00.000Z',
+          'valid_until': null,
+        };
+
+    /// Builds the real service over a canned Edge response.
+    CatalogSyncService serviceReturning(Object body, {int status = 200}) {
+      final client = supabase.SupabaseClient(
+        'https://example.supabase.co',
+        'anon',
+        httpClient: MockClient((request) async => http.Response(
+              jsonEncode(body),
+              status,
+              headers: const {'content-type': 'application/json'},
+              request: request,
+            )),
+      );
+      addTearDown(client.dispose);
+      return CatalogSyncService(
+        database: db,
+        client: client,
+        metadataDao: CatalogMetadataDao(db),
+        announcementService:
+            AnnouncementService(dao: RemoteAnnouncementsDao(db)),
+      );
+    }
+
+    Future<List<String>> cachedIds() async =>
+        (await dao.getAll()).map((c) => c.id).toList()..sort();
+
+    test('§5: D valid / E malformed / F valid leaves the previous cache EXACTLY '
+        'as it was — no partial replacement', () async {
+      await dao.replaceAll([_offer('A'), _offer('B'), _offer('C')]);
+      expect(await cachedIds(), ['A', 'B', 'C']);
+
+      await serviceReturning({
+        'items': [row('D'), row('E', malformed: true), row('F')],
+      }).syncCoupons();
+
+      // The whole snapshot was rejected: no D, no F, and A/B/C untouched.
+      expect(await cachedIds(), ['A', 'B', 'C']);
+    });
+
+    test('§6: a structurally valid empty snapshot SUCCEEDS and clears the cache',
+        () async {
+      await dao.replaceAll([_offer('A'), _offer('B')]);
+      await serviceReturning(const {'items': <Object?>[]}).syncCoupons();
+      // Proves malformed and empty stay distinct outcomes.
+      expect(await dao.count(), 0);
+    });
+
+    test('§7: a malformed row on the FIRST ever sync fails safely — cache stays '
+        'empty, nothing throws', () async {
+      expect(await dao.count(), 0);
+      await expectLater(
+        serviceReturning({'items': [row('only', malformed: true)]}).syncCoupons(),
+        completes,
+      );
+      expect(await dao.count(), 0);
+    });
+
+    test('§5: a malformed ENVELOPE also preserves the cache', () async {
+      await dao.replaceAll([_offer('A')]);
+      for (final envelope in <Object>[
+        const {'coupons': <Object?>[]}, // unrecognised key
+        const {'items': 'nope'}, // wrong type
+        const {}, // empty object
+      ]) {
+        await serviceReturning(envelope).syncCoupons();
+        expect(await cachedIds(), ['A'], reason: '$envelope');
+      }
+    });
+
+    test('§8: every validation-failure mode rejects the snapshot at the SYNC '
+        'boundary, not just in the parser', () async {
+      await dao.replaceAll([_offer('A')]);
+      final broken = <String, Map<String, Object?>>{
+        'redemption shape': row('x')..['redemption_type'] = 'voucher',
+        'non-https link': row('x')
+          ..['redemption_type'] = 'link'
+          ..['code'] = null
+          ..['partner_url'] = 'http://insecure.example',
+        'invalid timestamp': row('x')..['valid_from'] = 'not-a-date',
+        'invalid country': row('x')..['country_codes'] = <Object?>['ALL'],
+        'malformed tag': row('x')
+          ..['tags'] = <Object?>[
+            const {'key': '', 'label_ar': 'broken'}
+          ],
+        'malformed category': row('x')..['display_category'] = 'food',
+      };
+      for (final entry in broken.entries) {
+        await serviceReturning({
+          'items': [row('good'), entry.value],
+        }).syncCoupons();
+        expect(await cachedIds(), ['A'],
+            reason: '${entry.key} must reject the whole snapshot');
+      }
+    });
+
+    test('§9: a rejected snapshot stays Coupon-domain-only — financial rows and '
+        'the schema version are untouched', () async {
+      await db.customStatement(
+        "INSERT INTO accounts(id, name, currency, type, created_at, updated_at) "
+        "VALUES ('acc-1', 'Bank', 'SAR', 'bank', '2026-01-01', '2026-01-01');",
+      );
+      await dao.replaceAll([_offer('A')]);
+
+      await serviceReturning({
+        'items': [row('bad', malformed: true)],
+      }).syncCoupons();
+
+      // Coupon cache preserved…
+      expect(await cachedIds(), ['A']);
+      // …and nothing outside the Coupon domain moved.
+      final account = await db
+          .customSelect("SELECT name FROM accounts WHERE id = 'acc-1';")
+          .getSingleOrNull();
+      expect(account?.read<String>('name'), 'Bank');
+      expect(await _userVersion(db), 31);
     });
   });
 }
