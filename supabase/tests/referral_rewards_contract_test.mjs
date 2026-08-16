@@ -967,3 +967,62 @@ test('R1.1 §24: the Admin authority raises controlled tokens, never raw SQL', (
     assert.deepEqual(granted(fn), new Set(['service_role']), fn);
   }
 });
+
+// ===========================================================================
+// R2 §0 — client-reachable error tokens must survive Flutter's PrivacyRedactor
+// ===========================================================================
+
+test('referral_user_error_tokens_are_redactor_safe', () => {
+  // app/lib/core/observability/privacy_redactor.dart rewrites any run of
+  // [A-Za-z0-9_-]{24,} to '[id]'. A machine token at or over that length is
+  // therefore erased from mobile diagnostics precisely when it matters, which
+  // is the same defect class as C4.1's 'invalid_redemption_shape'.
+  const REDACTOR = /^[A-Za-z0-9_-]{24,}$/;
+
+  // Everything the mobile client can provoke: the four granted RPCs plus the
+  // shared qualification path, whose jsonb reasons are returned through them.
+  const clientReachable = [
+    'apply_referral_code', 'request_referral_qualification',
+    'get_referral_summary', 'get_entitlement_decision',
+    'qualify_referral_internal',
+  ];
+
+  const seen = new Set();
+  for (const fn of clientReachable) {
+    const body = fnBody(fn);
+    const tokens = [
+      ...[...body.matchAll(/RAISE EXCEPTION '([a-z0-9_]+)'/g)].map((m) => m[1]),
+      ...[...body.matchAll(/'reason',\s*'([a-z0-9_]+)'/g)].map((m) => m[1]),
+    ];
+    for (const t of tokens) {
+      seen.add(t);
+      assert.doesNotMatch(t, REDACTOR,
+        `${fn} raises '${t}' (${t.length} chars) — the redactor would erase it`);
+    }
+  }
+
+  // Guard the guard: if the extraction ever stops finding tokens the assertion
+  // above becomes vacuous, so pin the ones we know are reachable.
+  assert.ok(seen.size >= 8, `expected several tokens, found ${[...seen]}`);
+  for (const t of ['bad_entitlement_type', 'unauthenticated', 'invalid_code',
+                   'awaiting_active_rule', 'identity_unverified']) {
+    assert.ok(seen.has(t), `expected '${t}' among client-reachable tokens`);
+  }
+  // The renamed token must not come back.
+  assert.doesNotMatch(sql, /invalid_entitlement_type/);
+});
+
+test('R2 §0: Admin-only tokens are exempt and were left alone', () => {
+  // Admin RPCs are service_role only and are consumed by the Next.js route,
+  // which has no PrivacyRedactor — so length is irrelevant there and the long
+  // descriptive names were deliberately NOT shortened.
+  const adminOnly = ['missing_operation_arguments', 'adjustment_crosses_milestone',
+                     'referral_code_generation_failed'];
+  for (const t of adminOnly) {
+    assert.ok(sql.includes(`'${t}'`), `${t} should still exist verbatim`);
+    assert.ok(t.length >= 24, `${t} is the exempt long-token case`);
+  }
+  for (const fn of SERVICE_ROLE_ADMIN_RPC) {
+    assert.deepEqual(granted(fn), new Set(['service_role']), fn);
+  }
+});

@@ -975,8 +975,12 @@ BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'unauthenticated' USING ERRCODE = 'insufficient_privilege';
   END IF;
+  -- Token kept UNDER 24 chars deliberately. This RPC is client-reachable, and
+  -- Flutter's PrivacyRedactor rewrites any [A-Za-z0-9_-]{24,} run to '[id]';
+  -- a 24-char token would therefore vanish from mobile diagnostics exactly
+  -- when it is needed. referral_user_error_tokens_are_redactor_safe guards it.
   IF p_entitlement_type IS DISTINCT FROM 'report_export_ad_free' THEN
-    RAISE EXCEPTION 'invalid_entitlement_type' USING ERRCODE = 'data_exception';
+    RAISE EXCEPTION 'bad_entitlement_type' USING ERRCODE = 'data_exception';
   END IF;
 
   SELECT * INTO v_ent FROM public.user_entitlement_state
@@ -1167,7 +1171,7 @@ BEGIN
   -- Typed, mappable error instead of letting entitlement_events_type_shape
   -- surface a raw constraint violation to the Admin route.
   IF p_entitlement_type IS DISTINCT FROM 'report_export_ad_free' THEN
-    RAISE EXCEPTION 'invalid_entitlement_type' USING ERRCODE = 'data_exception';
+    RAISE EXCEPTION 'bad_entitlement_type' USING ERRCODE = 'data_exception';
   END IF;
   v_reason := public.referral_admin_require_reason(p_reason);
 
