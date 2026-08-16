@@ -131,7 +131,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
           id: idFor(category.id) ?? IdGenerator.next(),
           categoryId: category.id,
           currency: currency,
-          amountMoney: parseLocalizedMoney(_ctrl(entry.key).text.trim(), currency),
+          amountMoney:
+              parseLocalizedMoney(_ctrl(entry.key).text.trim(), currency),
           lastNotifiedSpentMoney: Money(0, currency),
           period: BudgetPeriod.monthly,
           startDate: now,
@@ -162,8 +163,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
         // The auto-save amount is in the GOAL's own currency, parsed exactly.
         await goalRepo.save(
           goal.copyWith(
-            autoSaveMoney:
-                parseLocalizedMoney(_savingsController.text.trim(), goal.currency),
+            autoSaveMoney: parseLocalizedMoney(
+                _savingsController.text.trim(), goal.currency),
             autoSavePeriod: 'monthly',
             autoSaveLastRun: goal.autoSaveLastRun ?? now,
           ),

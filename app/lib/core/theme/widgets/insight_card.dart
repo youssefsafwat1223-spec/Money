@@ -60,8 +60,7 @@ class InsightCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: onAccent.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(14),
-                  border:
-                      Border.all(color: onAccent.withValues(alpha: 0.24)),
+                  border: Border.all(color: onAccent.withValues(alpha: 0.24)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,

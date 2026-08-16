@@ -13,6 +13,7 @@ import '../../core/theme/widgets/calm_chip.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/glass_selector.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/category_glyph.dart';
@@ -239,19 +240,26 @@ class TransactionsScreen extends ConsumerWidget {
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _TabBarDelegate(
-                        child: Container(
-                          height: 64.0,
-                          color: context.colors.bg,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.gutter,
-                          ),
-                          alignment: Alignment.center,
-                          child: AppPillTabBar(
-                            tabs: const ['العمليات', 'الفواتير'],
-                            selectedIndex: tab,
-                            onSelected: (value) => ref
-                                .read(transactionsPageTabProvider.notifier)
-                                .state = value,
+                        // MaliGlass pilot: frosted pinned strip — content
+                        // scrolls under it instead of vanishing at a hard
+                        // opaque edge. Full-bleed, so radius 0.
+                        child: MaliGlass(
+                          variant: MaliGlassVariant.card,
+                          radius: 0,
+                          padding: EdgeInsets.zero,
+                          child: Container(
+                            height: 64.0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.gutter,
+                            ),
+                            alignment: Alignment.center,
+                            child: AppPillTabBar(
+                              tabs: const ['العمليات', 'الفواتير'],
+                              selectedIndex: tab,
+                              onSelected: (value) => ref
+                                  .read(transactionsPageTabProvider.notifier)
+                                  .state = value,
+                            ),
                           ),
                         ),
                       ),
@@ -1652,20 +1660,18 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MaliGlass(
+      variant: MaliGlassVariant.headerAction,
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
         ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }

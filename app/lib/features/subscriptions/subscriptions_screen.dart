@@ -8,6 +8,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -88,42 +89,46 @@ class SubscriptionsScreen extends ConsumerWidget {
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _TabBarDelegate(
-                        child: Container(
-                          height: 64.0,
-                          color: context.colors.bg,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.gutter,
-                          ),
-                          alignment: Alignment.center,
+                        child: MaliGlass(
+                          variant: MaliGlassVariant.card,
+                          radius: 0,
+                          padding: EdgeInsets.zero,
                           child: Container(
-                            height: 48,
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: context.colors.surface2,
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.pill),
+                            height: 64.0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.gutter,
                             ),
-                            child: TabBar(
-                              indicatorSize: TabBarIndicatorSize.tab,
-                              dividerColor: Colors.transparent,
-                              labelColor: Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? context.colors.accent
-                                  : Colors.white,
-                              unselectedLabelColor: context.colors.textLight,
-                              indicator: BoxDecoration(
-                                color: Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? context.colors.accent
-                                        .withValues(alpha: 0.22)
-                                    : context.colors.primary,
+                            alignment: Alignment.center,
+                            child: Container(
+                              height: 48,
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: context.colors.surface2,
                                 borderRadius:
                                     BorderRadius.circular(AppRadius.pill),
                               ),
-                              tabs: [
-                                Tab(text: 'الاشتراكات (${subs.length})'),
-                                Tab(text: 'الأقساط (${insts.length})'),
-                              ],
+                              child: TabBar(
+                                indicatorSize: TabBarIndicatorSize.tab,
+                                dividerColor: Colors.transparent,
+                                labelColor: Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? context.colors.accent
+                                    : Colors.white,
+                                unselectedLabelColor: context.colors.textLight,
+                                indicator: BoxDecoration(
+                                  color: Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? context.colors.accent
+                                          .withValues(alpha: 0.22)
+                                      : context.colors.primary,
+                                  borderRadius:
+                                      BorderRadius.circular(AppRadius.pill),
+                                ),
+                                tabs: [
+                                  Tab(text: 'الاشتراكات (${subs.length})'),
+                                  Tab(text: 'الأقساط (${insts.length})'),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -221,20 +226,18 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MaliGlass(
+      variant: MaliGlassVariant.headerAction,
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
         ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }

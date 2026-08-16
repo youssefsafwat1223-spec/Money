@@ -74,6 +74,10 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
+  # MaliGlass Tier 3 (EXPERIMENTAL, /design gallery only) — loaded lazily via
+  # FragmentProgram.fromAsset when the gallery demo is opened; never at startup.
+  shaders:
+    - shaders/liquid_glass.frag
   assets:
     - assets/logo/logo_light.png
     - assets/logo/logo_dark.png

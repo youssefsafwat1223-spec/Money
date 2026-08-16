@@ -85,8 +85,7 @@ class GoalsScreen extends ConsumerWidget {
                       for (final goal in visibleGoals) ...[
                         _GoalCard(
                           goal: goal,
-                          currencyLabel:
-                              Currency.arabicLabel(goal.currency),
+                          currencyLabel: Currency.arabicLabel(goal.currency),
                         ),
                         const SizedBox(height: AppSpacing.s4),
                       ],

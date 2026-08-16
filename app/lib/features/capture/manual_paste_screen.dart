@@ -8,6 +8,7 @@ import '../../core/backend/supabase_config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
@@ -58,29 +59,16 @@ class _ManualPasteSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(28),
         ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
+          child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.78,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.9)
-                  : Colors.white.withValues(alpha: 0.92),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
-              ),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
             child: Column(
               children: [
                 const SizedBox(height: AppSpacing.s3),
@@ -661,28 +649,16 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final summary =
         _BatchSummary.from(widget.items, confirmedIds: _confirmedIds);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
+          child: SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.72,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.94)
-                  : Colors.white.withValues(alpha: 0.96),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
             child: SafeArea(
               top: false,
               child: Padding(

@@ -17,6 +17,7 @@ import '../../core/theme/widgets/budget_ring_rail.dart';
 import '../../core/theme/widgets/glass_selector.dart';
 import '../../core/theme/widgets/insight_card.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/mali_screen.dart';
 import '../../core/theme/widgets/ring_progress.dart';
 import '../../core/theme/widgets/section_header.dart';
@@ -704,20 +705,18 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MaliGlass(
+      variant: MaliGlassVariant.headerAction,
       onTap: () {
         HapticFeedback.selectionClick();
         showCaptureEntrySheet(context);
       },
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
         ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }

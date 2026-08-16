@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -17,6 +19,7 @@ import '../../core/theme/widgets/glass_surface.dart';
 import '../../core/theme/widgets/insight_card.dart';
 import '../../core/theme/widgets/ledger_row.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/mali_screen.dart';
 import '../../core/theme/widgets/merchant_bar.dart';
 import '../../core/theme/widgets/pulse_row.dart';
@@ -105,6 +108,8 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                       const _CardSection(),
                       const SizedBox(height: AppSpacing.s6),
                       const _GlassSection(),
+                      const SizedBox(height: AppSpacing.s6),
+                      const _LiquidGlassSection(),
                       const SizedBox(height: AppSpacing.s6),
                       const _MotionSection(),
                       const SizedBox(height: AppSpacing.s9),
@@ -798,6 +803,222 @@ class _GlassSection extends StatelessWidget {
       ),
     );
   }
+}
+
+/// MaliGlass pilot — every variant/tier over a vivid demo backdrop so the
+/// blur, rim, sheen (and the Tier 3 refraction prototype) are actually
+/// visible. Review with the mode toggle for light + dark.
+class _LiquidGlassSection extends StatelessWidget {
+  const _LiquidGlassSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = MaliTokens.of(context);
+    final shaderOk = ui.ImageFilter.isShaderFilterSupported;
+    return _GallerySection(
+      title: 'MaliGlass (Liquid Glass pilot)',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _GlassDemo(
+            label: 'pill — Tier 1 (static)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.pill,
+              child: Text('الحساب الجاري',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'pill — Tier 2 (interactive: press me)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.pill,
+              onTap: () {},
+              child: Text('آخر ٣٠ يوم',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'card — Tier 1 (static)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              child: Text('بطاقة زجاجية — المحتوى يبقى واضحًا',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'navigation — Tier 1 container (tabs supply Tier 2)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.navigation,
+              child: SizedBox(
+                height: AppSpacing.navBarHeight - 12,
+                child: Row(
+                  children: [
+                    for (final icon in const [
+                      Icons.home_rounded,
+                      Icons.receipt_long_rounded,
+                      Icons.pie_chart_rounded,
+                    ])
+                      Expanded(
+                        child:
+                            Icon(icon, size: 20, color: t.textOnCanvasPrimary),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'headerAction — on-accent circle, rim + press, no blur',
+            child: MaliGlass(
+              variant: MaliGlassVariant.headerAction,
+              onTap: () {},
+              child: const SizedBox(
+                width: 44,
+                height: 44,
+                child: Center(
+                  child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'sheet — near-opaque body, translucent top band',
+            child: SizedBox(
+              height: 140,
+              width: double.infinity,
+              child: MaliGlass(
+                variant: MaliGlassVariant.sheet,
+                child: Column(
+                  children: [
+                    const SizedBox(height: AppSpacing.s3),
+                    Container(
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: t.textOnCanvasMuted.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s4),
+                    Text('عملية جديدة',
+                        style: AppTypography.cardTitle(t.textOnCanvasPrimary)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'reduce-motion — press: static state, no scale',
+            child: Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: true),
+                child: MaliGlass(
+                  variant: MaliGlassVariant.pill,
+                  onTap: () {},
+                  child: Text('بدون حركة',
+                      style: AppTypography.subhead(t.textOnCanvasPrimary)),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'high-contrast — opaque fallback, no blur',
+            child: Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(highContrast: true),
+                child: MaliGlass(
+                  variant: MaliGlassVariant.card,
+                  child: Text('تباين عالٍ — خلفية معتمة',
+                      style: AppTypography.subhead(t.textOnCanvasPrimary)),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'EXPERIMENTAL / REFRACTIVE — Tier 3 prototype '
+                '(${shaderOk ? 'shader filters: supported' : 'unsupported here → Tier 2 fallback'})',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              refractive: true,
+              onTap: () {},
+              child: Text('انكسار حافّي + انزياح لوني طفيف',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A vivid backdrop (accent gradient + off-accent dots + a sample amount) so
+/// glass demos have real content to blur/refract behind them.
+class _GlassDemo extends StatelessWidget {
+  const _GlassDemo({required this.label, required this.child});
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = MaliTokens.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTypography.caption(t.textOnCanvasMuted)),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              const Positioned.fill(
+                child: DecoratedBox(
+                  decoration:
+                      BoxDecoration(gradient: MaliTokens.accentGradient),
+                ),
+              ),
+              Positioned(
+                top: -18,
+                left: 24,
+                child: _dot(const Color(0xFFFBC926), 64),
+              ),
+              Positioned(
+                bottom: -14,
+                right: 36,
+                child: _dot(const Color(0xFF22C55E), 48),
+              ),
+              Positioned(
+                top: 10,
+                right: 14,
+                child: Text(
+                  '١٢٬٣٤٥٫٦٧ ر.س',
+                  style: AppTypography.amountSmall(Colors.white),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.s6),
+                child: child,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  static Widget _dot(Color color, double size) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      );
 }
 
 class _MotionSection extends StatelessWidget {

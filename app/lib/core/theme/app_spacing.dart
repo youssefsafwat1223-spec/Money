@@ -35,7 +35,8 @@ class AppSpacing {
 
   // Component density tokens (Compact UI system).
   static const double headerTopInset = 44; // CalmPageHeader top (was 64)
-  static const double rowPaddingV = 11; // list-row vertical padding (≈ 58–62px row)
+  static const double rowPaddingV =
+      11; // list-row vertical padding (≈ 58–62px row)
   static const double navBarHeight = 54; // glass nav (was 62)
 
   // Legacy aliases

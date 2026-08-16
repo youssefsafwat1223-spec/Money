@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../app_typography.dart';
 import '../mali_tokens.dart';
-import 'glass_surface.dart';
+import 'mali_glass.dart';
 
 /// GlassSelector — the shared frosted selector chip (account / date-range /
-/// currency …): a muted icon, a label, and a chevron, on a real backdrop-blur
-/// glass surface. Tapping runs [onTap] (usually opening a picker sheet).
+/// currency …): a muted icon, a label, and a chevron, on [MaliGlass].
+/// Tapping runs [onTap] (usually opening a picker sheet); the material adds
+/// the Tier 2 press response and button semantics.
 ///
 /// This is the single implementation used by Home, Transactions, and every
 /// other screen — edit it here to restyle every selector at once.
@@ -25,30 +26,28 @@ class GlassSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = MaliTokens.of(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return MaliGlass(
+      variant: MaliGlassVariant.pill,
+      radius: 16,
       onTap: onTap,
-      child: GlassSurface(
-        borderRadius: BorderRadius.circular(16),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: t.textOnCanvasSecondary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                // 12.5px per the mockup `.sel` (subhead is 14).
-                style: AppTypography.subhead(t.textOnCanvasPrimary)
-                    .copyWith(fontSize: 12.5),
-              ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: t.textOnCanvasSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              // 12.5px per the mockup `.sel` (subhead is 14).
+              style: AppTypography.subhead(t.textOnCanvasPrimary)
+                  .copyWith(fontSize: 12.5),
             ),
-            Icon(Icons.keyboard_arrow_down_rounded,
-                size: 18, color: t.textOnCanvasMuted),
-          ],
-        ),
+          ),
+          Icon(Icons.keyboard_arrow_down_rounded,
+              size: 18, color: t.textOnCanvasMuted),
+        ],
       ),
     );
   }

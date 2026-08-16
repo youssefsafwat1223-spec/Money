@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../app_colors.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
-import 'premium_glass_container.dart';
+import 'mali_glass.dart';
 
 /// A premium top-floating toast notification system.
 class AppToast {
@@ -79,6 +79,8 @@ class _ToastWidgetState extends State<_ToastWidget>
   late final AnimationController _controller;
   late final Animation<double> _slideAnimation;
 
+  bool _entered = false;
+
   @override
   void initState() {
     super.initState();
@@ -90,6 +92,16 @@ class _ToastWidgetState extends State<_ToastWidget>
       parent: _controller,
       curve: Curves.easeOutBack,
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_entered) return;
+    _entered = true;
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduceMotion) _controller.duration = Duration.zero;
     _controller.forward();
   }
 
@@ -133,34 +145,39 @@ class _ToastWidgetState extends State<_ToastWidget>
                 _dismiss();
               }
             },
-            child: PremiumGlassContainer(
-              blurSigma: 15,
-              noiseOpacity: 0.05,
-              backgroundColor: widget.isError
-                  ? Colors.red.withValues(alpha: 0.15)
-                  : c.surface.withValues(alpha: 0.6),
-              borderColor: widget.isError
-                  ? Colors.red.withValues(alpha: 0.3)
-                  : Colors.white.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(100),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              child: Row(
-                children: [
-                  Icon(
-                    widget.isError
-                        ? Icons.error_outline
-                        : Icons.check_circle_outline,
-                    color: widget.isError ? Colors.redAccent : c.success,
-                    size: 22,
+            child: MaliGlass(
+              variant: MaliGlassVariant.pill,
+              padding: EdgeInsets.zero,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  // Error state keeps its red wash over the glass fill.
+                  color: widget.isError
+                      ? Colors.red.withValues(alpha: 0.14)
+                      : null,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(
+                        widget.isError
+                            ? Icons.error_outline
+                            : Icons.check_circle_outline,
+                        color: widget.isError ? Colors.redAccent : c.success,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.message,
+                          style: AppTypography.bodyStrong(c.textMain),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      widget.message,
-                      style: AppTypography.bodyStrong(c.textMain),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

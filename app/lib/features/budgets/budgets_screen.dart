@@ -23,6 +23,7 @@ import '../common/app_pill_tab_bar.dart';
 import '../common/app_card.dart';
 import '../common/app_empty_state.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -151,19 +152,23 @@ class BudgetsScreen extends ConsumerWidget {
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _TabBarDelegate(
-                        child: Container(
-                          height: 64.0,
-                          color: context.colors.bg,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.gutter,
-                          ),
-                          alignment: Alignment.center,
-                          child: AppPillTabBar(
-                            tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
-                            selectedIndex: tab,
-                            onSelected: (value) => ref
-                                .read(budgetsPageTabProvider.notifier)
-                                .state = value,
+                        child: MaliGlass(
+                          variant: MaliGlassVariant.card,
+                          radius: 0,
+                          padding: EdgeInsets.zero,
+                          child: Container(
+                            height: 64.0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.gutter,
+                            ),
+                            alignment: Alignment.center,
+                            child: AppPillTabBar(
+                              tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
+                              selectedIndex: tab,
+                              onSelected: (value) => ref
+                                  .read(budgetsPageTabProvider.notifier)
+                                  .state = value,
+                            ),
                           ),
                         ),
                       ),
@@ -486,20 +491,18 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MaliGlass(
+      variant: MaliGlassVariant.headerAction,
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
         ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }

@@ -8,6 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -74,36 +75,40 @@ class ReportsScreen extends ConsumerWidget {
                       SliverPersistentHeader(
                         pinned: true,
                         delegate: _TabBarDelegate(
-                          child: Container(
-                            height: 64.0,
-                            color: c.bg,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter,
-                            ),
-                            alignment: Alignment.center,
+                          child: MaliGlass(
+                            variant: MaliGlassVariant.card,
+                            radius: 0,
+                            padding: EdgeInsets.zero,
                             child: Container(
-                              height: 48,
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: c.surface2,
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.pill),
+                              height: 64.0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.gutter,
                               ),
-                              child: TabBar(
-                                indicatorSize: TabBarIndicatorSize.tab,
-                                dividerColor: Colors.transparent,
-                                labelColor: Colors.white,
-                                unselectedLabelColor: c.textLight,
-                                indicator: BoxDecoration(
-                                  color: c.primary,
+                              alignment: Alignment.center,
+                              child: Container(
+                                height: 48,
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: c.surface2,
                                   borderRadius:
                                       BorderRadius.circular(AppRadius.pill),
                                 ),
-                                tabs: const [
-                                  Tab(text: 'نظرة عامة'),
-                                  Tab(text: 'الاتجاهات'),
-                                  Tab(text: 'التفاصيل'),
-                                ],
+                                child: TabBar(
+                                  indicatorSize: TabBarIndicatorSize.tab,
+                                  dividerColor: Colors.transparent,
+                                  labelColor: Colors.white,
+                                  unselectedLabelColor: c.textLight,
+                                  indicator: BoxDecoration(
+                                    color: c.primary,
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadius.pill),
+                                  ),
+                                  tabs: const [
+                                    Tab(text: 'نظرة عامة'),
+                                    Tab(text: 'الاتجاهات'),
+                                    Tab(text: 'التفاصيل'),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -779,18 +784,16 @@ class _ReportButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MaliGlass(
+      variant: MaliGlassVariant.headerAction,
       onTap: onTap,
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Icon(Icons.picture_as_pdf_outlined,
+              color: Colors.white, size: 22),
         ),
-        child: const Icon(Icons.picture_as_pdf_outlined,
-            color: Colors.white, size: 22),
       ),
     );
   }

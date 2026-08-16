@@ -42,8 +42,7 @@ class BalanceStatement extends StatelessWidget {
         // Line 1 — label + eye, with the trend pushed to the far end.
         Row(
           children: [
-            Text(label,
-                style: AppTypography.callout(t.textOnCanvasSecondary)),
+            Text(label, style: AppTypography.callout(t.textOnCanvasSecondary)),
             if (labelTrailing != null) ...[
               const SizedBox(width: 8),
               labelTrailing!,

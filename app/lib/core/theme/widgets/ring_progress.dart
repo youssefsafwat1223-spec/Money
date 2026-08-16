@@ -46,9 +46,8 @@ class RingProgress extends StatelessWidget {
     final resolvedColor = isIndeterminate
         ? t.ringIndeterminate
         : (color ?? MaliTokens.accentStart);
-    final resolvedTrack = isIndeterminate
-        ? t.ringTrackNeutral
-        : (trackColor ?? t.surfaceRaised);
+    final resolvedTrack =
+        isIndeterminate ? t.ringTrackNeutral : (trackColor ?? t.surfaceRaised);
 
     Widget ring(double animatedValue) {
       return CustomPaint(

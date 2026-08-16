@@ -26,6 +26,11 @@ class MaliTokens {
     required this.surfaceFloating,
     required this.surfaceGlassFill,
     required this.surfaceGlassStroke,
+    required this.glassFillTop,
+    required this.glassFillBottom,
+    required this.glassStroke,
+    required this.glassSheen,
+    required this.glassSheetFill,
     required this.strokeSoft,
     required this.cardBorder,
     required this.textOnCanvasPrimary,
@@ -50,6 +55,22 @@ class MaliTokens {
   final Color surfaceFloating;
   final Color surfaceGlassFill;
   final Color surfaceGlassStroke;
+
+  /// Liquid glass ([MaliGlass]) — the *real* backdrop-blurred material.
+  /// Fill is a vertical [glassFillTop]→[glassFillBottom] gradient painted over
+  /// the blurred backdrop; [glassStroke] is the 1px rim (white on dark, ink on
+  /// light — light-mode definition comes from ink + shadow, not white glow);
+  /// [glassSheen] is the top specular edge highlight.
+  final Color glassFillTop;
+  final Color glassFillBottom;
+  final Color glassStroke;
+  final Color glassSheen;
+
+  /// Near-opaque body fill for the `sheet` glass variant. Sheets carry forms
+  /// and financial input, so only a thin band at the top edge stays properly
+  /// translucent; the body must read as solid.
+  final Color glassSheetFill;
+
   final Color strokeSoft;
 
   /// Hairline edge for a floating card. Barely-there on dark (elevation via
@@ -102,6 +123,11 @@ class MaliTokens {
     surfaceFloating: Color(0x12FFFFFF), // white @ ~7%
     surfaceGlassFill: Color(0x14FFFFFF), // white @ ~8%
     surfaceGlassStroke: Color(0x24FFFFFF), // white @ ~14%
+    glassFillTop: Color(0x14FFFFFF), // white @ ~8% (matches nav fallback)
+    glassFillBottom: Color(0x80121317), // surface @ 50% (matches nav fallback)
+    glassStroke: Color(0x24FFFFFF), // white @ ~14%
+    glassSheen: Color(0x73FFFFFF), // white @ ~45% — top specular edge
+    glassSheetFill: Color(0xE6121317), // surface @ 90% (matches blurred sheets)
     strokeSoft: Color(0x1AFFFFFF), // white @ ~10%
     cardBorder: Color(0x0FFFFFFF), // white @ ~6%
     textOnCanvasPrimary: Color(0xFFFFFFFF),
@@ -112,7 +138,8 @@ class MaliTokens {
     // --float-shadow (dark): 0 8/28 @ .45 + 0 20/48 @ .30
     floatShadow: [
       BoxShadow(color: Color(0x73000000), blurRadius: 28, offset: Offset(0, 8)),
-      BoxShadow(color: Color(0x4D000000), blurRadius: 48, offset: Offset(0, 20)),
+      BoxShadow(
+          color: Color(0x4D000000), blurRadius: 48, offset: Offset(0, 20)),
     ],
     auroraTop: Color(0x3D2E6BFF), // accent @ ~24% — top glow
     auroraA: Color(0x2E2E6BFF), // accent @ ~18%
@@ -130,6 +157,11 @@ class MaliTokens {
     surfaceFloating: Color(0xFFFFFFFF),
     surfaceGlassFill: Color(0xB8FFFFFF), // white @ ~72%
     surfaceGlassStroke: Color(0x0F0F172A), // ink @ ~6%
+    glassFillTop: Color(0x85FFFFFF), // white @ ~52% (matches nav fallback)
+    glassFillBottom: Color(0x9EFFFFFF), // white @ ~62% (matches nav fallback)
+    glassStroke: Color(0x1A0F172A), // ink @ ~10% — definition, not white glow
+    glassSheen: Color(0xE6FFFFFF), // white @ ~90% — top specular edge
+    glassSheetFill: Color(0xEBFFFFFF), // white @ 92% (matches blurred sheets)
     strokeSoft: Color(0xFFEAF0F7),
     cardBorder: Color(0xFFEDF1F7),
     textOnCanvasPrimary: Color(0xFF0F172A),
@@ -139,7 +171,8 @@ class MaliTokens {
     ringIndeterminate: Color(0x330F172A), // ink @ ~20%
     // --float-shadow (light): navy 0 12/40 @ .08 + 0 2/8 @ .05
     floatShadow: [
-      BoxShadow(color: Color(0x140D1E4B), blurRadius: 40, offset: Offset(0, 12)),
+      BoxShadow(
+          color: Color(0x140D1E4B), blurRadius: 40, offset: Offset(0, 12)),
       BoxShadow(color: Color(0x0D0D1E4B), blurRadius: 8, offset: Offset(0, 2)),
     ],
     auroraTop: Color(0x1A2E6BFF), // accent @ ~10% (subtler in light)

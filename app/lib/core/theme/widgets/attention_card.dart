@@ -67,8 +67,7 @@ class AttentionCard extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         subtitle!,
-                        style:
-                            AppTypography.caption(t.textOnCanvasSecondary),
+                        style: AppTypography.caption(t.textOnCanvasSecondary),
                       ),
                     ],
                   ],

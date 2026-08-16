@@ -91,8 +91,7 @@ class AccountCard extends StatelessWidget {
                   children: [
                     Text(
                       balance,
-                      style:
-                          AppTypography.amountSmall(t.textOnCanvasPrimary),
+                      style: AppTypography.amountSmall(t.textOnCanvasPrimary),
                     ),
                     const SizedBox(height: 2),
                     Text(

@@ -29,6 +29,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/captured_message.dart';
@@ -303,7 +304,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     // resumes don't re-run them each time. Safety-critical work below (reconcile,
     // capture import of NEW shared input, the SyncGate-coalesced sync) always
     // runs regardless.
-    final runNonCritical = _resumeCoalescer.shouldRunNonCritical(DateTime.now());
+    final runNonCritical =
+        _resumeCoalescer.shouldRunNonCritical(DateTime.now());
     unawaited(_syncRemoteOnboardingCompletion());
     if (runNonCritical) await syncCatalog(ref);
     // Reconciles writes that landed through a connection other than this
@@ -610,7 +612,10 @@ class _AppShellState extends ConsumerState<AppShell> {
   Future<bool> _networkStalledOutbox() async {
     try {
       final db = ref.read(appDatabaseProvider);
-      for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+      for (final table in const [
+        'ledger_sync_outbox',
+        'planning_sync_outbox'
+      ]) {
         final row = await db
             .customSelect(
               "SELECT 1 AS x FROM $table WHERE status = 'pending' "
@@ -1494,7 +1499,6 @@ class _FlutterGlassBottomBar extends StatelessWidget {
     final selectedVisualIndex = items.indexWhere(
       (item) => item.page == currentIndex,
     );
-    const barRadius = 26.0;
 
     return SafeArea(
       top: false,
@@ -1506,59 +1510,37 @@ class _FlutterGlassBottomBar extends StatelessWidget {
           AppSpacing.s5,
           safeBottom > 0 ? safeBottom + AppSpacing.s2 : AppSpacing.s5,
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(barRadius),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: Container(
-              height: AppSpacing.navBarHeight,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: c.surface.withValues(alpha: isDark ? 0.66 : 0.72),
-                borderRadius: BorderRadius.circular(barRadius),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.white.withValues(alpha: isDark ? 0.08 : 0.52),
-                    c.surface.withValues(alpha: isDark ? 0.50 : 0.62),
+        // MaliGlass pilot: same geometry (radius 26, blur 24, height 54,
+        // padding 8/6) with the material's saturation + rim + specular edge.
+        child: MaliGlass(
+          variant: MaliGlassVariant.navigation,
+          padding: EdgeInsets.zero,
+          child: Container(
+            height: AppSpacing.navBarHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Stack(
+              children: [
+                _GlassTabIndicator(
+                  selectedIndex:
+                      selectedVisualIndex == -1 ? 0 : selectedVisualIndex,
+                  tabCount: items.length,
+                  isDark: isDark,
+                  accent: c.cta,
+                ),
+                Row(
+                  textDirection: TextDirection.ltr,
+                  children: [
+                    for (final item in items)
+                      Expanded(
+                        child: _NavTab(
+                          item: item,
+                          selected: item.page == currentIndex,
+                          onTap: onSelect,
+                        ),
+                      ),
                   ],
                 ),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: isDark ? 0.14 : 0.66),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.42 : 0.13),
-                    blurRadius: 30,
-                    offset: const Offset(0, 14),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  _GlassTabIndicator(
-                    selectedIndex:
-                        selectedVisualIndex == -1 ? 0 : selectedVisualIndex,
-                    tabCount: items.length,
-                    isDark: isDark,
-                    accent: c.cta,
-                  ),
-                  Row(
-                    textDirection: TextDirection.ltr,
-                    children: [
-                      for (final item in items)
-                        Expanded(
-                          child: _NavTab(
-                            item: item,
-                            selected: item.page == currentIndex,
-                            onTap: onSelect,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
         ),

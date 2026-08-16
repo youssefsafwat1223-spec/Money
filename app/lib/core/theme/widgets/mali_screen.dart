@@ -58,9 +58,8 @@ class MaliScreen extends StatelessWidget {
             enabled: safeArea,
             child: Padding(
               padding: padding,
-              child: slivers != null
-                  ? CustomScrollView(slivers: slivers!)
-                  : child,
+              child:
+                  slivers != null ? CustomScrollView(slivers: slivers!) : child,
             ),
           ),
         ),

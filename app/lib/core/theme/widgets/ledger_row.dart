@@ -64,16 +64,15 @@ class LedgerRow extends StatelessWidget {
                             title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: AppTypography.bodyStrong(
-                                t.textOnCanvasPrimary),
+                            style:
+                                AppTypography.bodyStrong(t.textOnCanvasPrimary),
                           ),
                         ),
                         // Compact pills — a dense timeline row can't afford a
                         // long "قيد المراجعة" here (it would crowd out the
                         // merchant name); the full label lives on the details
                         // screen.
-                        if (isPending)
-                          _Badge(text: 'مراجعة', color: c.warning),
+                        if (isPending) _Badge(text: 'مراجعة', color: c.warning),
                         if (isAi) _Badge(text: 'ذكاء', color: c.cta),
                       ],
                     ),

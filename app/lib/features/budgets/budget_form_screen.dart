@@ -9,6 +9,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/id_generator.dart';
@@ -70,27 +71,15 @@ class _BudgetFormSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
+          child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.85,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.9)
-                  : Colors.white.withValues(alpha: 0.92),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
             child: Column(
               children: [
                 const SizedBox(height: 12),

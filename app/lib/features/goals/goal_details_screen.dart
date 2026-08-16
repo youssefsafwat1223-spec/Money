@@ -7,6 +7,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -58,7 +59,6 @@ class _GoalDetailsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final media = MediaQuery.of(context);
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -66,20 +66,10 @@ class _GoalDetailsSheet extends StatelessWidget {
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(28),
         ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
           child: Material(
-            color: isDark
-                ? c.surface.withValues(alpha: 0.9)
-                : Colors.white.withValues(alpha: 0.92),
-            shape: RoundedRectangleBorder(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              side: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
+            color: Colors.transparent,
             child: SizedBox(
               height: media.size.height * 0.86,
               child: Column(
@@ -384,27 +374,15 @@ Future<void> _showAddContributionSheet(
             child: ClipRRect(
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(28)),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Container(
+              child: MaliGlass(
+                variant: MaliGlassVariant.sheet,
+                child: Padding(
                   padding: EdgeInsets.only(
                     left: AppSpacing.gutter,
                     right: AppSpacing.gutter,
                     top: AppSpacing.s3,
                     bottom: MediaQuery.of(context).viewInsets.bottom +
                         AppSpacing.s5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? c.surface.withValues(alpha: 0.9)
-                        : Colors.white.withValues(alpha: 0.92),
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(28)),
-                    border: Border.all(
-                      color:
-                          Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                      width: 1.5,
-                    ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
