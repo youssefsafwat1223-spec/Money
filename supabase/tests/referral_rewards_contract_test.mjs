@@ -433,44 +433,85 @@ test('NO client write policy exists on any referral table', () => {
   assert.doesNotMatch(sql, /GRANT (SELECT|INSERT|UPDATE|DELETE|ALL)[^;]*TO (anon|authenticated)/i);
 });
 
-test('function EXECUTE matrix: internals are locked, only 4 user RPCs are granted', () => {
-  const internal = [
-    'public.generate_referral_code()',
-    'public.ensure_referral_code(UUID)',
-    'public.active_referral_rule(TEXT)',
-    'public.qualify_referral_internal(UUID)',
-    'public.referral_audit_allowlist(JSONB)',
-  ];
-  for (const fn of internal) {
-    const esc = fn.replace(/[().]/g, (c) => `\\${c}`);
-    assert.match(sql, new RegExp(`REVOKE ALL ON FUNCTION ${esc}\\s+FROM PUBLIC, anon, authenticated`, 'i'), fn);
-    assert.doesNotMatch(sql, new RegExp(`GRANT EXECUTE ON FUNCTION ${esc}\\s+TO authenticated`, 'i'),
-      `${fn} must NOT be user-callable`);
+// The §17 three-class EXECUTE matrix. Roles are PARSED out of the shipped
+// REVOKE/GRANT statements rather than pattern-spotted, so a function that
+// silently gains a role — or is added without any classification — fails here.
+const INTERNAL_ONLY = [
+  'generate_referral_code', 'ensure_referral_code', 'active_referral_rule',
+  'qualify_referral_internal', 'referral_audit_allowlist',
+  'referral_norm_reason', 'referral_admin_require_reason',
+  'referral_admin_fingerprint', 'referral_admin_claim',
+  'apply_entitlement_mutation',
+];
+const AUTHENTICATED_SELF_RPC = [
+  'apply_referral_code', 'request_referral_qualification',
+  'get_referral_summary', 'get_entitlement_decision',
+];
+const SERVICE_ROLE_ADMIN_RPC = [
+  'admin_mutate_entitlement', 'admin_reject_referral', 'admin_reverse_referral',
+  'admin_adjust_referral_progress', 'admin_rotate_referral_code',
+  'admin_publish_reward_rule', 'admin_deactivate_reward_rule',
+];
+
+/** Roles a statement names, parsed from within a single `;`-terminated stmt. */
+function roles(kind, name, keyword) {
+  const re = new RegExp(
+    `${kind} ON FUNCTION public\\.${name}\\([^;]*?${keyword}\\s+([A-Za-z_, \\n]+);`, 'i');
+  const m = sql.match(re);
+  return m ? new Set(m[1].split(',').map((r) => r.trim()).filter(Boolean)) : null;
+}
+const revoked = (n) => roles('REVOKE ALL', n, 'FROM');
+const granted = (n) => roles('GRANT EXECUTE', n, 'TO');
+
+test('R1.1 §17: INTERNAL_ONLY functions are executable by NO role', () => {
+  for (const fn of INTERNAL_ONLY) {
+    assert.deepEqual(revoked(fn), new Set(['PUBLIC', 'anon', 'authenticated', 'service_role']),
+      `${fn} must be revoked from every role`);
+    assert.equal(granted(fn), null, `${fn} must have no GRANT at all`);
   }
-  // apply_entitlement_mutation is service-only despite its long signature.
-  assert.match(sql, /REVOKE ALL ON FUNCTION public\.apply_entitlement_mutation\([\s\S]*?FROM PUBLIC, anon, authenticated/i);
+});
+
+test('R1.1 §1: the entitlement primitive did NOT become the Admin entry point', () => {
+  // The gap could have been "fixed" by granting this to service_role. That was
+  // explicitly rejected: it would be a generic, unaudited state-update endpoint.
+  assert.ok(revoked('apply_entitlement_mutation').has('service_role'));
   assert.doesNotMatch(sql, /GRANT EXECUTE ON FUNCTION public\.apply_entitlement_mutation/i);
+  // …and the audited wrapper is the only thing that calls it.
+  const callers = [...sql.matchAll(/CREATE OR REPLACE FUNCTION public\.(\w+)\(/g)]
+    .map((m) => m[1])
+    .filter((fn) => {
+      const body = sql.slice(sql.indexOf(`FUNCTION public.${fn}(`));
+      return body.slice(0, body.indexOf('$$;')).includes('public.apply_entitlement_mutation(');
+    });
+  assert.deepEqual(callers.sort(),
+    ['admin_mutate_entitlement', 'apply_entitlement_mutation', 'qualify_referral_internal']);
+});
 
-  const userRpcs = [
-    'public.apply_referral_code(TEXT)',
-    'public.request_referral_qualification()',
-    'public.get_referral_summary()',
-    'public.get_entitlement_decision(TEXT)',
-  ];
-  for (const fn of userRpcs) {
-    const esc = fn.replace(/[().]/g, (c) => `\\${c}`);
-    assert.match(sql, new RegExp(`REVOKE ALL ON FUNCTION ${esc}\\s+FROM PUBLIC, anon`, 'i'), fn);
-    assert.match(sql, new RegExp(`GRANT EXECUTE ON FUNCTION ${esc}\\s+TO authenticated`, 'i'), fn);
+test('R1.1 §17: the four user RPCs are the entire authenticated surface', () => {
+  for (const fn of AUTHENTICATED_SELF_RPC) {
+    assert.deepEqual(revoked(fn), new Set(['PUBLIC', 'anon', 'service_role']), fn);
+    assert.deepEqual(granted(fn), new Set(['authenticated']), fn);
   }
+  const allGrantedToAuth = [...sql.matchAll(
+    /GRANT EXECUTE ON FUNCTION public\.(\w+)\([^;]*?TO[^;]*?authenticated[^;]*?;/gi)].map((m) => m[1]);
+  assert.deepEqual(allGrantedToAuth.sort(), [...AUTHENTICATED_SELF_RPC].sort());
+});
 
-  // Every function in the file must appear in the EXECUTE matrix above.
-  const defined = [...sql.matchAll(/CREATE OR REPLACE FUNCTION (public\.\w+)\(/g)]
+test('R1.1 §17: Admin RPCs are service-role only, never authenticated', () => {
+  for (const fn of SERVICE_ROLE_ADMIN_RPC) {
+    assert.deepEqual(revoked(fn), new Set(['PUBLIC', 'anon', 'authenticated']), fn);
+    assert.deepEqual(granted(fn), new Set(['service_role']), fn);
+  }
+});
+
+test('R1.1 §17: every function in 0083 is classified exactly once', () => {
+  const defined = [...sql.matchAll(/CREATE OR REPLACE FUNCTION public\.(\w+)\(/g)]
     .map((m) => m[1]);
-  const known = new Set([...internal, ...userRpcs]
-    .map((f) => f.slice(0, f.indexOf('(')))
-    .concat(['public.apply_entitlement_mutation', 'public.purge_user_data']));
+  const classified = [...INTERNAL_ONLY, ...AUTHENTICATED_SELF_RPC, ...SERVICE_ROLE_ADMIN_RPC];
+  assert.equal(new Set(classified).size, classified.length, 'no function in two classes');
   for (const fn of defined) {
-    assert.ok(known.has(fn), `${fn} is not covered by the EXECUTE matrix`);
+    if (fn === 'purge_user_data') continue; // inherited 0065 authority
+    assert.ok(classified.includes(fn), `${fn} is not covered by the EXECUTE matrix`);
   }
 });
 
@@ -577,7 +618,9 @@ test('R1 stores no install-id / device fingerprint', () => {
   // 'fingerprint' appears ONLY as operation_fingerprint — the Admin idempotency
   // key — and never as a device/install correlation value.
   for (const m of referralOwned.match(/\w*fingerprint\w*/gi) ?? []) {
-    assert.ok(['operation_fingerprint', 'v_fingerprint'].includes(m.toLowerCase()),
+    assert.ok(['operation_fingerprint', 'v_fingerprint',
+               'referral_admin_fingerprint', 'p_fingerprint',
+               'v_fp'].includes(m.toLowerCase()),
       `unexpected fingerprint identifier: ${m}`);
   }
 });
@@ -629,4 +672,298 @@ test('R1 changes no report generation code', () => {
 
 test('no google_mobile_ads dependency was added', () => {
   assert.doesNotMatch(read('app/pubspec.yaml'), /google_mobile_ads|admob/i);
+});
+
+// ===========================================================================
+// R1.1 §23 — Admin mutation authority regressions
+// ===========================================================================
+
+/** The body of one function, comments already stripped by `sql`. */
+function fnBody(name) {
+  const i = sql.indexOf(`FUNCTION public.${name}(`);
+  assert.ok(i > 0, `${name} must exist`);
+  const rest = sql.slice(i);
+  return rest.slice(0, rest.indexOf('$$;'));
+}
+
+// ── A/B: rotation history is retained and unambiguous ──────────────────────
+test('R1.1 §23A/B: a rotated code is retained, and exactly one code is active', () => {
+  const t = sql.slice(sql.indexOf('CREATE TABLE IF NOT EXISTS public.referral_codes'));
+  const table = t.slice(0, t.indexOf('\n);'));
+
+  // The ROW is the identity now — a user_id PK could not hold history at all.
+  assert.match(table, /id\s+UUID PRIMARY KEY DEFAULT gen_random_uuid\(\)/i);
+  assert.match(table, /user_id\s+UUID NOT NULL REFERENCES auth\.users\(id\) ON DELETE CASCADE/i);
+  assert.doesNotMatch(table, /user_id\s+UUID PRIMARY KEY/i);
+
+  // …and "active" is still single-valued, via a PARTIAL unique index.
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS referral_codes_one_active_per_user\s+ON public\.referral_codes \(user_id\)\s+WHERE status = 'active'/i);
+
+  // rotated_at pairs with status in BOTH directions.
+  assert.match(table, /CONSTRAINT referral_codes_rotated_at_shape CHECK \(\s*\(status = 'active'\s+AND rotated_at IS NULL\)\s*OR\s*\(status = 'rotated' AND rotated_at IS NOT NULL\)\)/i);
+});
+
+test('R1.1 §23A: a retired code keeps its UNIQUE reservation forever', () => {
+  const t = sql.slice(sql.indexOf('CREATE TABLE IF NOT EXISTS public.referral_codes'));
+  const table = t.slice(0, t.indexOf('\n);'));
+  // Global, status-independent: the reservation covers rotated rows too, which
+  // is what stops a retired code being re-issued to a different person.
+  assert.match(table, /code\s+TEXT NOT NULL UNIQUE/i);
+  assert.doesNotMatch(sql, /UNIQUE INDEX[^;]*\(code\)[^;]*WHERE/i);
+});
+
+// ── C/D: only an ACTIVE code attributes ────────────────────────────────────
+test('R1.1 §23C/D: apply_referral_code accepts active codes only', () => {
+  const body = fnBody('apply_referral_code');
+  assert.match(body, /FROM public\.referral_codes\s+WHERE code = v_code AND status = 'active'/i);
+  // A rotated code must be indistinguishable from a nonexistent one.
+  assert.match(body, /IF v_owner IS NULL THEN\s*RETURN jsonb_build_object\('ok', false, 'reason', 'invalid_code'\)/i);
+
+  // The user-facing code lookup is likewise active-scoped.
+  const ensure = fnBody('ensure_referral_code');
+  assert.match(ensure, /WHERE user_id = p_user_id AND status = 'active'/i);
+  assert.match(ensure, /ON CONFLICT \(user_id\) WHERE status = 'active' DO NOTHING/i);
+});
+
+// ── E/F: rotation replay + mismatch ────────────────────────────────────────
+test('R1.1 §23E: a rotation replay does not rotate a second time', () => {
+  const body = fnBody('admin_rotate_referral_code');
+  const claim = body.indexOf('public.referral_admin_claim(');
+  const dup = body.indexOf("'duplicate', true");
+  const retire = body.indexOf("SET status = 'rotated'");
+  const mint = body.indexOf('INSERT INTO public.referral_codes');
+  assert.ok(claim < dup && dup < retire && dup < mint,
+    'the replay return must precede both the retirement and the new code');
+  // A replay reports live state and never re-mints.
+  assert.match(body, /'current_active_code', v_current/);
+});
+
+test('R1.1 §23F: rotation binds the target, so a reused id with a new target mismatches', () => {
+  const body = fnBody('admin_rotate_referral_code');
+  const fp = body.slice(body.indexOf('v_fp :='), body.indexOf('SELECT * INTO v_old'));
+  assert.match(fp, /'action',\s*'rotate_code'/);
+  assert.match(fp, /'target_user', lower\(p_user_id::text\)/);
+  assert.match(fp, /'actor',\s*lower\(p_actor_admin_id::text\)/);
+  assert.match(fp, /'reason',\s*v_reason/);
+  // No derived state in the digest, or a genuine retry would never match.
+  for (const derived of ['now()', 'v_old.id', 'v_code', 'v_new_id']) {
+    assert.equal(fp.includes(derived), false, `fingerprint must exclude ${derived}`);
+  }
+});
+
+test('R1.1 §23: the operator can never choose the replacement code', () => {
+  const body = fnBody('admin_rotate_referral_code');
+  const sig = sql.slice(sql.indexOf('FUNCTION public.admin_rotate_referral_code('));
+  assert.doesNotMatch(sig.slice(0, sig.indexOf(')')), /p_code|p_new_code/i);
+  assert.match(body, /v_code := public\.generate_referral_code\(\)/);
+});
+
+// ── G/H: entitlement replay + mismatch ─────────────────────────────────────
+test('R1.1 §23G/H: an Admin entitlement replay applies exactly one mutation', () => {
+  const body = fnBody('admin_mutate_entitlement');
+  const claim = body.indexOf('public.referral_admin_claim(');
+  const dup = body.indexOf("'duplicate', true");
+  const apply = body.indexOf('public.apply_entitlement_mutation(');
+  assert.ok(claim < dup && dup < apply,
+    'the replay return must precede the entitlement mutation');
+
+  const fp = body.slice(body.indexOf('v_fp :='), body.indexOf('SELECT * INTO v_prev'));
+  for (const field of ['action', 'actor', 'duration_days', 'entitlement_type',
+                       'reason', 'target_user']) {
+    assert.ok(fp.includes(`'${field}'`), `fingerprint must bind ${field}`);
+  }
+  // Only the four enumerated actions exist — no generic state write.
+  assert.match(body, /p_action NOT IN \('grant', 'extend', 'shorten', 'revoke'\)/);
+  assert.doesNotMatch(body, /UPDATE public\.user_entitlement_state/);
+});
+
+// ── I/J/K/L: reject and reverse ────────────────────────────────────────────
+test('R1.1 §23I: rejection is a guarded transition and never a delete', () => {
+  const body = fnBody('admin_reject_referral');
+  assert.match(body, /UPDATE public\.referrals\s+SET status = 'rejected', rejection_reason = v_reason\s+WHERE id = p_referral_id AND status = 'attributed'/i);
+  assert.match(body, /v_rowcount = 0 THEN\s*RAISE EXCEPTION 'referral_not_rejectable'/);
+  assert.doesNotMatch(body, /DELETE FROM public\.referrals/i);
+  const claim = body.indexOf('public.referral_admin_claim(');
+  assert.ok(claim < body.indexOf('UPDATE public.referrals'));
+});
+
+test('R1.1 §23J/K/L: reversal records the finding and nothing else', () => {
+  const body = fnBody('admin_reverse_referral');
+  assert.match(body, /WHERE id = p_referral_id AND status = 'qualified'/i);
+  assert.match(body, /v_rowcount = 0 THEN\s*RAISE EXCEPTION 'referral_not_reversible'/);
+  // qualified_at survives — the CHECK requires it for 'reversed'.
+  assert.doesNotMatch(body, /qualified_at\s*=/);
+
+  // K + L: no implicit entitlement change, no implicit progress adjustment,
+  // and no rewriting of immutable reward history.
+  for (const forbidden of ['user_entitlement_state', 'entitlement_events',
+                           'referral_reward_progress', 'referral_reward_grants',
+                           'apply_entitlement_mutation']) {
+    assert.equal(body.includes(forbidden), false,
+      `reversal must not touch ${forbidden} — that is a separate operator intent`);
+  }
+});
+
+// ── M: progress adjustment invariants ──────────────────────────────────────
+test('R1.1 §23M: progress adjustment cannot cross a milestone or a closed cycle', () => {
+  const body = fnBody('admin_adjust_referral_progress');
+  assert.match(body, /v_prog\.cycle_state <> 'open' THEN\s*RAISE EXCEPTION 'cycle_not_adjustable'/);
+  assert.match(body, /p_qualified_in_cycle < 0 OR p_qualified_in_cycle >= v_rule\.required_referrals[\s\S]{0,120}adjustment_crosses_milestone/);
+  // Only the counter moves: the cycle and its pinned rule are history.
+  const upd = body.slice(body.indexOf('UPDATE public.referral_reward_progress'));
+  const stmt = upd.slice(0, upd.indexOf(';'));
+  assert.match(stmt, /SET qualified_in_cycle = p_qualified_in_cycle/);
+  for (const frozen of ['cycle_index', 'pinned_rule_id', 'pinned_rule_version', 'cycle_state']) {
+    assert.equal(stmt.includes(frozen), false, `adjustment must not rewrite ${frozen}`);
+  }
+});
+
+// ── N/O/P: rule publication ────────────────────────────────────────────────
+test('R1.1 §23N: rule publication is one atomic, serialized operation', () => {
+  const body = fnBody('admin_publish_reward_rule');
+  // Serialized per reward_type so version numbering cannot race even when no
+  // rule rows exist yet to lock.
+  assert.match(body, /pg_advisory_xact_lock\(hashtext\('referral_rule_publish:' \|\| p_reward_type\)\)/);
+  assert.match(body, /SELECT coalesce\(max\(version\), 0\) \+ 1 INTO v_version/);
+  // Deactivate-old and insert-new live in the SAME function body: the partial
+  // unique index makes two separate PostgREST calls unsafe.
+  const off = body.indexOf('SET is_active = false');
+  const ins = body.indexOf('INSERT INTO public.referral_reward_rules');
+  assert.ok(off > 0 && ins > off, 'the old rule is deactivated before the new one is inserted');
+
+  // A used rule is never rewritten — only its is_active flag flips.
+  const stmt = body.slice(off - 60, body.indexOf(';', off));
+  for (const frozen of ['required_referrals', 'reward_days', 'repeatable', 'version =']) {
+    assert.equal(stmt.includes(frozen), false, `publication must not rewrite ${frozen}`);
+  }
+});
+
+test('R1.1 §23O/P: rule publication replays and rejects a reused id', () => {
+  for (const fn of ['admin_publish_reward_rule', 'admin_deactivate_reward_rule']) {
+    const body = fnBody(fn);
+    const claim = body.indexOf('public.referral_admin_claim(');
+    const dup = body.indexOf("'duplicate', true");
+    const write = body.search(/(?:UPDATE|INSERT INTO) public\.referral_reward_rules/);
+    assert.ok(claim < dup && dup < write, `${fn} must return the stored result before writing`);
+  }
+  // Deactivation stops NEW attribution only; pinned cycles are untouched.
+  const de = fnBody('admin_deactivate_reward_rule');
+  assert.doesNotMatch(de, /referral_reward_progress/);
+  assert.match(de, /v_prev\.id IS NULL THEN\s*RAISE EXCEPTION 'no_active_rule'/);
+});
+
+test('R1.1 §13: ambiguous rule configuration stays impossible and fail-closed', () => {
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS referral_rules_one_active_per_type/i);
+  assert.match(fnBody('active_referral_rule'), /v_count > 1 THEN\s*RAISE EXCEPTION 'ambiguous_rule_configuration'/);
+});
+
+// ── Q/R: audit coverage and the system/Admin split ─────────────────────────
+test('R1.1 §23Q: every Admin action writes exactly one audit row, via the gate', () => {
+  for (const fn of SERVICE_ROLE_ADMIN_RPC) {
+    const body = fnBody(fn);
+    assert.equal((body.match(/public\.referral_admin_claim\(/g) || []).length, 1, fn);
+    assert.equal((body.match(/INSERT INTO public\.referral_admin_audit/g) || []).length, 0,
+      `${fn} must not write its own audit row`);
+    assert.equal((body.match(/UPDATE public\.referral_admin_audit/g) || []).length, 1,
+      `${fn} must complete exactly one audit row`);
+  }
+  // The gate is the sole inserter, and the claim is the serialization point.
+  const gate = fnBody('referral_admin_claim');
+  assert.equal((gate.match(/INSERT INTO public\.referral_admin_audit/g) || []).length, 1);
+  assert.match(gate, /ON CONFLICT \(operation_id\) DO NOTHING/);
+  assert.equal((gate.match(/idempotency_mismatch/g) || []).length, 2,
+    'mismatch is checked on both the pre-claim and lost-race paths');
+
+  // The audit action vocabulary is exactly the approved set.
+  const action = sql.match(/CONSTRAINT referral_audit_action_shape CHECK \(action IN \(([\s\S]*?)\)\)/);
+  const allowed = action[1].split(',').map((a) => a.trim().replace(/'/g, '')).filter(Boolean);
+  assert.deepEqual(allowed.sort(), [
+    'adjust_progress', 'extend', 'grant', 'reject_referral', 'reverse_referral',
+    'revoke', 'rotate_code', 'rule_change', 'shorten'].sort());
+});
+
+test('R1.1 §23R/§16: a system referral reward writes NO Admin audit row', () => {
+  const q = fnBody('qualify_referral_internal');
+  assert.doesNotMatch(q, /referral_admin_audit/);
+  assert.doesNotMatch(q, /p_actor_admin_id/);
+  // …but the entitlement event is still mandatory for the system path.
+  assert.match(q, /public\.apply_entitlement_mutation\(/);
+  assert.match(q, /p_source\s*=>\s*'referral_reward'/);
+  // Admin traffic is the mirror image: actor present, source admin_grant.
+  assert.match(fnBody('admin_mutate_entitlement'), /p_source\s*=>\s*'admin_grant'/);
+  assert.match(fnBody('admin_mutate_entitlement'), /p_actor_admin_id\s*=>\s*p_actor_admin_id/);
+});
+
+// ── Cross-cutting: claim-before-mutate, the invariant replay safety rests on ─
+test('R1.1 §15: every Admin wrapper claims BEFORE it mutates anything', () => {
+  for (const fn of SERVICE_ROLE_ADMIN_RPC) {
+    const body = fnBody(fn);
+    const dup = body.indexOf("'duplicate', true");
+    assert.ok(dup > body.indexOf('public.referral_admin_claim('), fn);
+
+    const marks = [...body.matchAll(/(?:UPDATE|INSERT INTO) public\.(\w+)/g)]
+      .filter((m) => m[1] !== 'referral_admin_audit')
+      .map((m) => m.index);
+    const call = body.indexOf('public.apply_entitlement_mutation(');
+    if (call > 0) marks.push(call);
+    assert.ok(marks.length > 0, `${fn} should mutate something`);
+    for (const at of marks) {
+      assert.ok(at > dup, `${fn} mutates before returning the stored replay result`);
+    }
+  }
+});
+
+test('R1.1 §3/§4: the Admin fingerprint is canonical SHA-256 over intent', () => {
+  const fp = fnBody('referral_admin_fingerprint');
+  assert.match(fp, /digest\(convert_to\(p_intent::text, 'UTF8'\), 'sha256'\)/);
+  assert.doesNotMatch(sql, /md5\(/i);
+  // Reason normalization is defined once and reused, so cosmetic whitespace
+  // cannot make a retry look like a new intent.
+  assert.match(fnBody('referral_admin_require_reason'), /public\.referral_norm_reason\(p_reason\)/);
+  for (const fn of SERVICE_ROLE_ADMIN_RPC) {
+    assert.match(fnBody(fn), /v_reason := public\.referral_admin_require_reason\(p_reason\)/, fn);
+    assert.match(fnBody(fn), /'reason',\s*v_reason/, `${fn} binds the normalized reason`);
+  }
+});
+
+test('R1.1 §18: the amendment did not weaken the zero-policy client model', () => {
+  assert.equal((sql.match(/CREATE POLICY/g) || []).length, 0);
+  assert.equal((sql.match(/GRANT [A-Z]+ ON TABLE/g) || []).length, 0);
+  assert.match(sql, /REVOKE ALL ON TABLE/);
+});
+
+// ── §19: account deletion after the referral_codes redesign ────────────────
+test('R1.1 §19: purge still removes every code row and leaves nothing dangling', () => {
+  const purge = raw.slice(raw.indexOf('create or replace function public.purge_user_data'));
+  // user_id survived the redesign as a plain column, so the existing purge
+  // clause still reaches BOTH the active row and the rotation history.
+  assert.match(purge, /delete from public\.referral_codes\s+where user_id = p_user_id;/i);
+  // The referrer's referral rows go with them, so no retained row can point at
+  // a code string whose reservation has just been released.
+  assert.match(purge, /delete from public\.referrals\s+where referrer_user_id = p_user_id;/i);
+  // Audit rows survive de-identified; they never stored a code string, only the
+  // retired ROW id, which this clears.
+  assert.match(purge, /update public\.referral_admin_audit\s+set target_user_id = null, target_ref = null/i);
+  for (const fn of SERVICE_ROLE_ADMIN_RPC) {
+    const body = fnBody(fn);
+    assert.doesNotMatch(body, /'code',\s*v_code/, `${fn} must not persist a code string`);
+  }
+});
+
+test('R1.1 §24: the Admin authority raises controlled tokens, never raw SQL', () => {
+  const admin = sql.slice(sql.indexOf('FUNCTION public.referral_norm_reason'));
+  const raises = [...admin.matchAll(/RAISE EXCEPTION '([^']+)'([^;]*);/g)];
+  assert.ok(raises.length >= 12);
+  for (const [, token, tail] of raises) {
+    // A stable snake_case token the Admin route can map to a message…
+    assert.match(token, /^[a-z][a-z0-9_]*$/, `${token} must be a mappable token`);
+    // …carrying a deliberate SQLSTATE, never an unclassified server error.
+    assert.match(tail, /USING ERRCODE = 'data_exception'/, token);
+  }
+  // Admin-surface tokens are consumed by the Next.js route, which has no
+  // PrivacyRedactor; the >=24-char redaction trap applies only to tokens the
+  // FLUTTER client can observe, and no Admin RPC is client-reachable.
+  for (const fn of SERVICE_ROLE_ADMIN_RPC) {
+    assert.deepEqual(granted(fn), new Set(['service_role']), fn);
+  }
 });
