@@ -181,8 +181,15 @@ test('C2 touches no closed contract and bumps no client schema', () => {
   assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 31;/);
 });
 
-test('migration numbering: 0082 is the newest and 0083 does not exist', () => {
+test('migration numbering: 0082 is the Coupon ceiling and stays unique', () => {
   const files = readdirSync(new URL('supabase/migrations/', root)).filter((f) => f.endsWith('.sql'));
   assert.ok(files.includes('0082_coupon_metrics.sql'));
-  assert.equal(files.filter((f) => f.startsWith('0083')).length, 0);
+  // The durable invariant is that 0082 is the LAST Coupon migration and no
+  // number is ever reused — not that the project stops at 0082. (Later domains
+  // legitimately add higher numbers; R1 added 0083_referral_rewards.)
+  assert.equal(files.filter((f) => f.startsWith('0082')).length, 1);
+  const coupon = files.filter((f) => /coupon/i.test(f)).sort();
+  assert.deepEqual(coupon, ['0081_coupons.sql', '0082_coupon_metrics.sql']);
+  const numbers = files.map((f) => f.slice(0, 4));
+  assert.equal(new Set(numbers).size, numbers.length, 'no duplicate migration number');
 });
