@@ -73,6 +73,69 @@ test('operation_id is unique and bound to a canonical fingerprint', () => {
   assert.ok(mismatches.length >= 2, 'checked before AND after the claim');
 });
 
+test('R1.1: the fingerprint is a canonical SHA-256 of the REQUESTED intent', () => {
+  const fn = sql.slice(sql.indexOf('FUNCTION public.apply_entitlement_mutation'));
+  const body = fn.slice(0, fn.indexOf('$$;'));
+  const fp = body.slice(body.indexOf('v_fingerprint :='),
+                        body.indexOf("'hex');") + 7);
+
+  // SHA-256 via pgcrypto — MD5 is gone.
+  assert.match(fp, /digest\(/);
+  assert.match(fp, /'sha256'/);
+  assert.doesNotMatch(body, /md5\(/i);
+  assert.match(fp, /convert_to\([\s\S]*?'UTF8'\)/);
+  assert.match(fp, /encode\(/);
+
+  // Canonical structured payload, NOT delimiter-joined concatenation — with a
+  // separator, ('a|b','c') and ('a','b|c') would collide onto one fingerprint.
+  assert.match(fp, /jsonb_build_object\(/);
+  assert.doesNotMatch(fp, /concat_ws/);
+
+  // Every field needed to distinguish one mutation from another is bound in.
+  for (const field of ['actor', 'target_user', 'entitlement_type', 'event_type',
+                       'source', 'duration_days', 'source_reference',
+                       'rule_id', 'rule_version', 'cycle_index', 'reason']) {
+    assert.ok(fp.includes(`'${field}'`), `fingerprint must bind ${field}`);
+  }
+
+  // …and NOTHING derived from current state, or a replay would never match.
+  for (const derived of ['resulting_ends_at', 'resulting_status', 'v_new_ends',
+                         'v_new_status', 'v_prev', 'now()']) {
+    assert.equal(fp.includes(derived), false, `fingerprint must exclude ${derived}`);
+  }
+
+  // Normalization: canonical case for enums/uuids, deterministic reason.
+  assert.match(fp, /lower\(p_user_id::text\)/);
+  assert.match(fp, /lower\(p_entitlement_type\)/);
+  assert.match(fp, /lower\(p_event_type\)/);
+  assert.match(fp, /lower\(p_actor_admin_id::text\), 'system'/);
+  assert.match(fp, /btrim\(regexp_replace\(coalesce\(p_reason, ''\), '\\s\+', ' ', 'g'\)\)/);
+});
+
+test('R1.1: replay/mismatch semantics are enforced on both paths', () => {
+  const fn = sql.slice(sql.indexOf('FUNCTION public.apply_entitlement_mutation'));
+  const body = fn.slice(0, fn.indexOf('$$;'));
+
+  // Pre-claim path: existing row with a DIFFERENT intent → mismatch, no write.
+  const pre = body.slice(0, body.indexOf('INSERT INTO public.entitlement_events'));
+  assert.match(pre, /operation_fingerprint <> v_fingerprint[\s\S]{0,160}idempotency_mismatch/i);
+  assert.match(pre, /'duplicate', true/); // same intent → stored result
+  // The mismatch raises BEFORE any state mutation is computed or applied.
+  assert.ok(pre.indexOf('idempotency_mismatch')
+          < body.indexOf('INSERT INTO public.user_entitlement_state'));
+
+  // Post-claim path (the concurrent racer that lost the unique claim) repeats
+  // the same comparison, so a conflicting concurrent intent also mismatches.
+  const post = body.slice(body.indexOf('GET DIAGNOSTICS v_rowcount = ROW_COUNT'));
+  assert.match(post, /v_rowcount = 0[\s\S]*?operation_fingerprint <> v_fingerprint[\s\S]{0,160}idempotency_mismatch/i);
+
+  // A duplicate never reaches the state upsert.
+  const dupReturn = post.indexOf("'duplicate', true");
+  const stateUpsert = post.indexOf('INSERT INTO public.user_entitlement_state');
+  assert.ok(dupReturn !== -1 && dupReturn < stateUpsert,
+    'the duplicate path returns before the state upsert');
+});
+
 test('at most one active rule per reward type is structurally enforced', () => {
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS referral_rules_one_active_per_type[\s\S]*?WHERE is_active/i);
   // …and the reader still fails closed rather than picking an arbitrary row.
@@ -101,13 +164,52 @@ test('referral codes are 8 chars, canonical, and exclude ambiguous glyphs', () =
   }
 });
 
-test('code generation uses a CSPRNG with an unbiased alphabet and bounded retry', () => {
+test('R1.1: code generation is CSPRNG + UNBIASED rejection sampling', () => {
   assert.match(sql, /gen_random_bytes\(/);
   assert.doesNotMatch(sql, /\brandom\(\)/); // never the non-crypto PRNG
-  // The alphabet length is asserted at runtime rather than assumed.
-  assert.match(sql, /referral_code_alphabet_invalid/);
-  assert.match(sql, /WHILE attempt < 5 LOOP/i);
-  assert.match(sql, /referral_code_generation_failed/);
+
+  const fn = sql.slice(sql.indexOf('FUNCTION public.generate_referral_code'));
+  const body = fn.slice(0, fn.indexOf('END $$;'));
+
+  // A rejection boundary must exist and must be a multiple of the alphabet
+  // size — that is exactly what removes the modulo bias.
+  const limit = Number(body.match(/v_limit\s+CONSTANT INTEGER := (\d+)/)[1]);
+  const n = Number(body.match(/v_n\s+CONSTANT INTEGER := (\d+)/)[1]);
+  assert.equal(n, 30, 'alphabet size');
+  assert.equal(limit % n, 0, 'rejection boundary divides the alphabet evenly');
+  assert.equal(limit, 240, 'largest multiple of 30 within a byte');
+  assert.ok(limit <= 256);
+  // Bytes at or above the boundary are discarded, not folded in.
+  assert.match(body, /CONTINUE WHEN v_byte >= v_limit/i);
+  // Naive biased mapping over the full byte range must not reappear.
+  assert.doesNotMatch(body, /get_byte\([^)]*\) % 30/);
+  // The invariants are asserted at runtime too, not just trusted here.
+  assert.match(body, /char_length\(v_alphabet\) <> v_n OR v_limit % v_n <> 0/);
+  assert.match(body, /referral_code_alphabet_invalid/);
+  // Exactly 8 characters, and a bounded loop guard.
+  assert.match(body, /char_length\(v_code\) < 8 LOOP/);
+  assert.match(body, /char_length\(v_code\) >= 8/);
+  assert.match(body, /guard > 64/);
+  assert.match(body, /referral_code_generation_failed/);
+
+  // The alphabet literal is exactly the approved 30 symbols, no ambiguity.
+  const alphabet = body.match(/v_alphabet CONSTANT TEXT\s+:= '([^']+)'/)[1];
+  assert.equal(alphabet.length, 30);
+  assert.equal(new Set(alphabet).size, 30, 'no duplicate symbols');
+  for (const ambiguous of ['O', '0', 'I', '1', 'L']) {
+    assert.equal(alphabet.includes(ambiguous), false, ambiguous);
+  }
+  assert.match(alphabet, /^[2-9A-HJKMNP-TV-Z]+$/);
+});
+
+test('R1.1: the DB UNIQUE remains the final collision authority', () => {
+  assert.match(sql, /code       TEXT NOT NULL UNIQUE/i);
+  // ensure_referral_code retries on collision, bounded, and never degrades.
+  const fn = sql.slice(sql.indexOf('FUNCTION public.ensure_referral_code'));
+  const body = fn.slice(0, fn.indexOf('END $$;'));
+  assert.match(body, /WHILE attempt < 5 LOOP/i);
+  assert.match(body, /EXCEPTION WHEN unique_violation/i);
+  assert.match(body, /referral_code_generation_failed/);
 });
 
 test('a user cannot choose or derive their own code', () => {
@@ -122,6 +224,52 @@ test('a user cannot choose or derive their own code', () => {
 // ---------------------------------------------------------------------------
 test('referral statuses are exactly the approved four', () => {
   assert.match(sql, /status IN \('attributed', 'qualified', 'rejected', 'reversed'\)/i);
+});
+
+/**
+ * Parse the real qualified_at CHECK out of the migration into
+ * `{ statuses[], requiresTimestamp }` clauses, so the lifecycle table below is
+ * DERIVED from the shipped SQL rather than restated alongside it.
+ */
+function qualifiedAtClauses() {
+  const block = sql.slice(sql.indexOf('CONSTRAINT referrals_qualified_at_shape'));
+  const body = block.slice(0, block.indexOf('\n  )') + 3);
+  const clauses = [...body.matchAll(
+    /status IN \(([^)]*)\)\s+AND qualified_at IS (NOT )?NULL/gi)]
+    .map((m) => ({
+      statuses: m[1].split(',').map((x) => x.trim().replace(/'/g, '')),
+      requiresTimestamp: Boolean(m[2]),
+    }));
+  assert.equal(clauses.length, 2, 'exactly two lifecycle clauses');
+  return clauses;
+}
+
+/** Evaluate the parsed CHECK for one (status, qualified_at) pair. */
+function checkAllows(status, hasTimestamp) {
+  return qualifiedAtClauses().some(
+    (c) => c.statuses.includes(status) && c.requiresTimestamp === hasTimestamp);
+}
+
+test('lifecycle: qualified_at is required exactly for qualified and reversed', () => {
+  // A–D: valid combinations
+  assert.equal(checkAllows('attributed', false), true, 'A attributed + NULL');
+  assert.equal(checkAllows('rejected',   false), true, 'B rejected + NULL');
+  assert.equal(checkAllows('qualified',  true),  true, 'C qualified + timestamp');
+  assert.equal(checkAllows('reversed',   true),  true, 'D reversed + timestamp');
+  // E–H: rejected combinations
+  assert.equal(checkAllows('qualified',  false), false, 'E qualified + NULL');
+  assert.equal(checkAllows('reversed',   false), false, 'F reversed + NULL');
+  assert.equal(checkAllows('attributed', true),  false, 'G attributed + timestamp');
+  assert.equal(checkAllows('rejected',   true),  false, 'H rejected + timestamp');
+});
+
+test('fraud reversal preserves the original qualification timestamp', () => {
+  // 'reversed' REQUIRES qualified_at, so a reversal that cleared it would be
+  // rejected by the database — the evidence cannot be erased.
+  assert.equal(checkAllows('reversed', false), false);
+  // …and nothing in the migration ever nulls qualified_at.
+  assert.doesNotMatch(sql, /qualified_at\s*=\s*NULL/i);
+  assert.doesNotMatch(sql, /SET[^;]*qualified_at\s*=\s*null/i);
 });
 
 test('V1 attribution is manual_code (direct_link reserved, not used)', () => {
@@ -245,27 +393,44 @@ test('RLS is enabled on all eight tables', () => {
   }
 });
 
-test('users may read only their own referral state; nothing else is readable', () => {
-  assert.match(sql, /CREATE POLICY referral_codes_owner_select[\s\S]*?USING \(user_id = auth\.uid\(\)\)/i);
-  assert.match(sql, /CREATE POLICY referrals_party_select[\s\S]*?referrer_user_id = auth\.uid\(\) OR referred_user_id = auth\.uid\(\)/i);
-  assert.match(sql, /CREATE POLICY entitlement_state_owner_select[\s\S]*?USING \(user_id = auth\.uid\(\)\)/i);
-  // Rules / progress / grants / events / audit have RLS on and NO policy.
-  for (const t of ['referral_reward_rules', 'referral_reward_progress',
-                   'referral_reward_grants', 'referral_admin_audit']) {
-    assert.doesNotMatch(sql, new RegExp(`CREATE POLICY[^;]*ON public\\.${t}`, 'i'), t);
+test('R1.1: there is NO direct table read surface — RPC only', () => {
+  // RLS is enabled everywhere with ZERO policies, so a direct table read
+  // returns nothing no matter who asks.
+  assert.doesNotMatch(sql, /CREATE POLICY/i);
+  assert.doesNotMatch(sql, /GRANT SELECT ON TABLE/i);
+  assert.match(sql, /REVOKE ALL ON TABLE[\s\S]*?FROM anon, authenticated/i);
+});
+
+test('R1.1: referrer/referee cannot read referrals and learn the other party', () => {
+  // A referrals row necessarily holds BOTH user ids, so any owner-read policy
+  // would disclose a cross-account identifier. There must be none.
+  assert.doesNotMatch(sql, /referrals_party_select/i);
+  assert.doesNotMatch(sql, /referrer_user_id = auth\.uid\(\) OR referred_user_id = auth\.uid\(\)/i);
+  // The self-only summary RETURNS counts/status — never a counterpart id.
+  // (Column names may legitimately appear in WHERE clauses that filter to the
+  //  CALLER's own id; what matters is the payload that leaves the function.)
+  const fn = sql.slice(sql.indexOf('FUNCTION public.get_referral_summary'));
+  const body = fn.slice(0, fn.indexOf('$$;'));
+  const payload = body.slice(body.lastIndexOf('RETURN jsonb_build_object'));
+  for (const leak of ['referrer_user_id', 'referred_user_id', 'user_id',
+                      'email', 'phone', 'uuid']) {
+    assert.doesNotMatch(payload, new RegExp(leak, 'i'), leak);
   }
+  // Every referrals/progress read is scoped to the caller.
+  for (const m of body.match(/referred_user_id\s*=\s*\S+/g) ?? []) {
+    assert.match(m, /=\s*v_uid/, `unscoped referrals read: ${m}`);
+  }
+  for (const m of body.match(/referrer_user_id\s*=\s*\S+/g) ?? []) {
+    assert.match(m, /=\s*v_uid/, `unscoped progress read: ${m}`);
+  }
+  // The referee's own attribution is exposed as a STATUS, not an identity.
+  assert.match(payload, /'attribution_status'/);
 });
 
 test('NO client write policy exists on any referral table', () => {
-  const policies = [...sql.matchAll(/CREATE POLICY[\s\S]*?;/g)].map((m) => m[0]);
-  assert.ok(policies.length >= 3, 'the three owner-read policies exist');
-  for (const policy of policies) {
-    assert.match(policy, /FOR SELECT/i, `read-only policy expected: ${policy.slice(0, 60)}`);
-    assert.doesNotMatch(policy, /FOR (INSERT|UPDATE|DELETE|ALL)\b/i);
-  }
+  assert.doesNotMatch(sql, /CREATE POLICY/i); // no policies at all (R1.1)
   assert.match(sql, /REVOKE ALL ON TABLE[\s\S]*?FROM anon, authenticated/i);
-  assert.match(sql, /GRANT SELECT ON TABLE[\s\S]*?TO authenticated/i);
-  assert.doesNotMatch(sql, /GRANT (INSERT|UPDATE|DELETE|ALL)[^;]*TO (anon|authenticated)/i);
+  assert.doesNotMatch(sql, /GRANT (SELECT|INSERT|UPDATE|DELETE|ALL)[^;]*TO (anon|authenticated)/i);
 });
 
 test('function EXECUTE matrix: internals are locked, only 4 user RPCs are granted', () => {
@@ -337,9 +502,10 @@ test('apply_referral_code leaks no referrer identity and is self-only', () => {
 test('get_referral_summary returns counts and status, not referee identities', () => {
   const fn = sql.slice(sql.indexOf('FUNCTION public.get_referral_summary'));
   const body = fn.slice(0, fn.indexOf('$$;'));
-  assert.match(body, /'server_now',\s+now\(\)/);
-  for (const leak of ['email', 'phone', 'referred_user_id']) {
-    assert.doesNotMatch(body, new RegExp(leak, 'i'), leak);
+  const payload = body.slice(body.lastIndexOf('RETURN jsonb_build_object'));
+  assert.match(payload, /'server_now',\s+now\(\)/);
+  for (const leak of ['email', 'phone', 'referred_user_id', 'referrer_user_id']) {
+    assert.doesNotMatch(payload, new RegExp(leak, 'i'), leak);
   }
 });
 

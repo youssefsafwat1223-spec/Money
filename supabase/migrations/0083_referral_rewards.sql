@@ -120,10 +120,15 @@ CREATE TABLE IF NOT EXISTS public.referrals (
   -- that phase needs no schema change.
   CONSTRAINT referrals_attribution_method_shape
     CHECK (attribution_method IN ('manual_code', 'direct_link')),
-  -- qualified_at exists iff the row reached (or passed through) qualification.
-  CONSTRAINT referrals_qualified_at_shape
-    CHECK ((status = 'qualified' AND qualified_at IS NOT NULL)
-        OR (status <> 'qualified'))
+  -- qualified_at is the historical evidence that this referral once qualified,
+  -- so it is REQUIRED for 'reversed' too: a fraud reversal must never erase the
+  -- original qualification timestamp. 'reversed' is reachable only from
+  -- 'qualified', so the pairing is exact in both directions.
+  CONSTRAINT referrals_qualified_at_shape CHECK (
+    (status IN ('attributed', 'rejected') AND qualified_at IS NULL)
+    OR
+    (status IN ('qualified', 'reversed')  AND qualified_at IS NOT NULL)
+  )
 );
 
 CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON public.referrals(referrer_user_id);
@@ -310,25 +315,21 @@ ALTER TABLE public.entitlement_events       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.referral_reward_grants   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.referral_admin_audit     ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS referral_codes_owner_select ON public.referral_codes;
-CREATE POLICY referral_codes_owner_select ON public.referral_codes
-  FOR SELECT TO authenticated USING (user_id = auth.uid());
-
--- A referrer sees their own referrals (for progress); a referee sees their one
--- row. Neither can see anything about the other party beyond these columns.
-DROP POLICY IF EXISTS referrals_party_select ON public.referrals;
-CREATE POLICY referrals_party_select ON public.referrals
-  FOR SELECT TO authenticated
-  USING (referrer_user_id = auth.uid() OR referred_user_id = auth.uid());
-
-DROP POLICY IF EXISTS entitlement_state_owner_select ON public.user_entitlement_state;
-CREATE POLICY entitlement_state_owner_select ON public.user_entitlement_state
-  FOR SELECT TO authenticated USING (user_id = auth.uid());
-
--- referral_reward_rules, referral_reward_progress, entitlement_events,
--- referral_reward_grants and referral_admin_audit intentionally have NO policy:
--- RLS is enabled with zero policies, so anon/authenticated see nothing at all.
--- Progress reaches the user only through get_referral_summary().
+-- NO table in this domain carries ANY policy, for anon or authenticated.
+-- RLS is enabled with ZERO policies everywhere, so a direct table read returns
+-- nothing regardless of who asks.
+--
+-- The earlier draft let a referrer/referee SELECT their own `referrals` row.
+-- That was wrong: the row necessarily contains the OTHER party's user id, so
+-- "read your own row" is a cross-account identifier disclosure — the referrer
+-- learns the referee's UUID and vice-versa. Nothing in the V1 UX needs it.
+--
+-- referral_codes and user_entitlement_state lost their owner-read policies for
+-- a simpler reason: get_referral_summary() and get_entitlement_decision()
+-- already return everything the client needs, so a direct grant would only
+-- widen the surface for convenience.
+--
+-- The complete authenticated read surface is therefore FOUR RPCs, nothing else.
 
 REVOKE ALL ON TABLE
   public.referral_codes, public.referrals, public.referral_reward_rules,
@@ -336,10 +337,6 @@ REVOKE ALL ON TABLE
   public.entitlement_events, public.referral_reward_grants,
   public.referral_admin_audit
   FROM anon, authenticated;
-
-GRANT SELECT ON TABLE
-  public.referral_codes, public.referrals, public.user_entitlement_state
-  TO authenticated;
 
 -- ===========================================================================
 -- 10 ── active-rule authority (fail closed on ambiguity) ────────────────────
@@ -390,23 +387,42 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
-  -- Exactly 32 symbols: Crockford base32 minus O, 0, I, 1, L. 256 % 32 = 0, so
-  -- byte % 32 is uniform — no modulo bias.
-  v_alphabet CONSTANT TEXT := '23456789ABCDEFGHJKMNPQRSTVWXYZ';
-  v_full     CONSTANT TEXT := '23456789ABCDEFGHJKMNPQRSTVWXYZ';
+  -- 30 symbols: Crockford base32 minus the ambiguous O, 0, I, 1, L.
+  v_alphabet CONSTANT TEXT    := '23456789ABCDEFGHJKMNPQRSTVWXYZ';
+  v_n        CONSTANT INTEGER := 30;
+  -- REJECTION SAMPLING. 256 % 30 = 16, so a plain `byte % 30` is biased: the
+  -- first 16 symbols would appear 9 times per 256 values and the rest only 8.
+  -- 240 is the largest multiple of 30 that fits in a byte, so bytes >= 240 are
+  -- discarded and only the uniform range 0..239 is mapped.
+  v_limit    CONSTANT INTEGER := 240;   -- 240 % 30 = 0
+  v_code     TEXT := '';
   v_bytes    BYTEA;
-  v_code     TEXT;
+  v_byte     INTEGER;
   i          INTEGER;
+  guard      INTEGER := 0;
 BEGIN
-  -- Guard the uniformity assumption rather than assuming it.
-  IF char_length(v_full) <> 30 THEN
+  -- Guard the uniformity assumption rather than trusting the literals.
+  IF char_length(v_alphabet) <> v_n OR v_limit % v_n <> 0 THEN
     RAISE EXCEPTION 'referral_code_alphabet_invalid';
   END IF;
-  v_bytes := gen_random_bytes(8);
-  v_code := '';
-  FOR i IN 0..7 LOOP
-    v_code := v_code || substr(v_full, (get_byte(v_bytes, i) % 30) + 1, 1);
+
+  -- Draw in blocks; ~6.25% of bytes are rejected, so 8 accepted symbols
+  -- normally need one or two blocks. The guard bounds a pathological CSPRNG.
+  WHILE char_length(v_code) < 8 LOOP
+    guard := guard + 1;
+    IF guard > 64 THEN
+      RAISE EXCEPTION 'referral_code_generation_failed'
+        USING ERRCODE = 'data_exception';
+    END IF;
+    v_bytes := gen_random_bytes(16);
+    FOR i IN 0..15 LOOP
+      EXIT WHEN char_length(v_code) >= 8;
+      v_byte := get_byte(v_bytes, i);
+      CONTINUE WHEN v_byte >= v_limit;          -- reject the biased tail
+      v_code := v_code || substr(v_alphabet, (v_byte % v_n) + 1, 1);
+    END LOOP;
   END LOOP;
+
   RETURN v_code;
 END $$;
 
@@ -490,12 +506,40 @@ BEGIN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
   END IF;
 
-  -- Canonical intent. Two different intents may never share an operation_id.
-  v_fingerprint := md5(concat_ws('|',
-    coalesce(p_actor_admin_id::text, 'system'),
-    p_user_id::text, p_entitlement_type, p_event_type, p_source,
-    coalesce(p_duration_days::text, ''), coalesce(p_source_reference, ''),
-    coalesce(p_rule_id::text, ''), coalesce(p_cycle_index::text, '')));
+  -- CANONICAL REQUESTED INTENT, hashed with SHA-256.
+  --
+  -- Delimiter-joined concatenation was replaced because it is ambiguous: with a
+  -- '|' separator the fields ('a|b', 'c') and ('a', 'b|c') produce an identical
+  -- string, so two different operations could collide onto one fingerprint.
+  -- jsonb is unambiguous AND canonically ordered by Postgres, so a harmless
+  -- change in key order cannot change the hash.
+  --
+  -- This describes the REQUEST, never the outcome: resulting_ends_at and
+  -- resulting_status are deliberately excluded because they depend on current
+  -- state, and the same request must fingerprint identically whenever it is
+  -- replayed.
+  v_fingerprint := encode(
+    digest(
+      convert_to(
+        jsonb_build_object(
+          'actor',            coalesce(lower(p_actor_admin_id::text), 'system'),
+          'target_user',      lower(p_user_id::text),
+          'entitlement_type', lower(p_entitlement_type),
+          'event_type',       lower(p_event_type),
+          'source',           lower(p_source),
+          'duration_days',    p_duration_days,
+          'source_reference', p_source_reference,
+          'rule_id',          lower(p_rule_id::text),
+          'rule_version',     p_rule_version,
+          'cycle_index',      p_cycle_index,
+          -- Reason is part of an Admin operation's intent, so a materially
+          -- different reason is a different operation. Normalized (trimmed,
+          -- internal whitespace collapsed) so cosmetic edits do not diverge.
+          'reason',           nullif(btrim(regexp_replace(coalesce(p_reason, ''), '\s+', ' ', 'g')), '')
+        )::text,
+        'UTF8'),
+      'sha256'),
+    'hex');
 
   SELECT * INTO v_existing
     FROM public.entitlement_events WHERE operation_id = p_operation_id;
@@ -838,12 +882,20 @@ DECLARE
   v_prog public.referral_reward_progress%ROWTYPE;
   v_rule public.referral_reward_rules%ROWTYPE;
   v_ent  public.user_entitlement_state%ROWTYPE;
+  v_attr TEXT;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'unauthenticated' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
   v_code := public.ensure_referral_code(v_uid);
+
+  -- The caller's OWN attribution, as a bare status. This is the entire reason
+  -- the referrals table needs no direct read policy: the UX needs "was my code
+  -- accepted / has it qualified", never the counterpart's identity. No user id
+  -- of the other party is selected, returned, or derivable from this.
+  SELECT status INTO v_attr
+    FROM public.referrals WHERE referred_user_id = v_uid;
 
   SELECT * INTO v_prog FROM public.referral_reward_progress
    WHERE referrer_user_id = v_uid AND reward_type = 'report_export_ad_free';
@@ -866,6 +918,7 @@ BEGIN
     'cycle_index',         coalesce(v_prog.cycle_index, 1),
     'cycle_state',         coalesce(v_prog.cycle_state, 'open'),
     'referrals_available', (public.active_referral_rule('report_export_ad_free')).id IS NOT NULL,
+    'attribution_status',  coalesce(v_attr, 'none'),
     'entitlement_status',  coalesce(v_ent.status, 'none'),
     'entitlement_ends_at', v_ent.ends_at,
     'server_now',          now());
