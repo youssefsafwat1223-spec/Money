@@ -134,7 +134,12 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (SupabaseConfig.isConfigured &&
         AppSession.instance.status == SessionStatus.authenticated) {
       _openedRestoreGate = true;
-      appDataRestoring.value = true;
+      // Deferred one frame: initState runs during the parent's build, and the
+      // gate's ValueListenableBuilder sits above this widget — setting the
+      // notifier synchronously here is a setState-during-build error.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _openedRestoreGate) appDataRestoring.value = true;
+      });
       unawaited(_resolveRestoreGate());
       _restoreGateTimeout = Timer(const Duration(seconds: 20), () {
         // Safety: never trap the user behind the loader (e.g. offline).
