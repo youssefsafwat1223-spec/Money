@@ -18,12 +18,18 @@ class AppPillTabBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     this.height = 44,
+    this.advanced = false,
   });
 
   final List<String> tabs;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final double height;
+
+  /// Routes the unselected capsules through MaliGlass's advanced shader
+  /// tier. Pilot-gated: only the Transactions pinned strip sets this (inside
+  /// a [MaliGlassRegion] so the capsules share one render pass).
+  final bool advanced;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +67,7 @@ class AppPillTabBar extends StatelessWidget {
                       )
                     : MaliGlass(
                         variant: MaliGlassVariant.pill,
+                        advancedRefraction: advanced,
                         padding: EdgeInsets.zero,
                         onTap: () => onSelected(i),
                         child: Center(

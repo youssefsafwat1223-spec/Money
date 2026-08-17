@@ -8,6 +8,7 @@ import '../app_motion.dart';
 import '../app_spacing.dart';
 import '../mali_tokens.dart';
 import 'liquid_glass/shader_utils.dart';
+import 'mali_glass_advanced.dart';
 import 'native_glass.dart';
 
 /// MaliGlass — the Liquid Glass material (pilot).
@@ -58,6 +59,7 @@ class MaliGlass extends StatefulWidget {
     this.onTap,
     this.enabled = true,
     this.refractive,
+    this.advancedRefraction = false,
   });
 
   final Widget child;
@@ -80,6 +82,13 @@ class MaliGlass extends StatefulWidget {
   /// Tier 3 control: null = auto (on for every variant except `sheet` when
   /// the device supports shader image filters), true/false to force.
   final bool? refractive;
+
+  /// ADVANCED SHADER TIER (liquid_glass_renderer behind the Qirsh adapter —
+  /// see mali_glass_advanced.dart). Pilot-gated: set true ONLY on the
+  /// approved pilot surfaces (Flutter fallback bottom nav, Transactions
+  /// pinned strip capsules). Falls back to Qirsh frost when the runtime has
+  /// no shader support; high contrast always wins with the opaque surface.
+  final bool advancedRefraction;
 
   @override
   State<MaliGlass> createState() => _MaliGlassState();
@@ -258,6 +267,30 @@ class _MaliGlassState extends State<MaliGlass> {
           layered,
         ],
       );
+    } else if (resolveGlassTier(
+          advancedRequested: widget.advancedRefraction && !isSheet,
+          shaderSupported: advancedShaderSupported,
+          highContrast: highContrast,
+          nativeGlassActive: false,
+        ) ==
+        GlassTier.advanced) {
+      // ADVANCED TIER: package-backed refraction (pilot surfaces only).
+      // The package renders body + lighting; Qirsh keeps the token rim,
+      // press affordances, semantics, and every fallback decision.
+      surface = buildAdvancedGlassSurface(
+        context: context,
+        cornerRadius: _maxCorner(br),
+        isDark: isDark,
+        child: layered,
+      );
+      surface = CustomPaint(
+        foregroundPainter: _GlassRimPainter(
+          borderRadius: br,
+          stroke: spec.stroke ?? t.glassStroke,
+          sheen: sheen,
+        ),
+        child: surface,
+      );
     } else {
       // Fill + press highlight. The highlight is our own (token sheen)
       // overlay, kept as an instant static state under reduce-motion.
@@ -279,8 +312,7 @@ class _MaliGlassState extends State<MaliGlass> {
                   ],
                   stops: isSheet ? const [0.0, 0.06] : null,
                 ),
-          color:
-              highContrast ? (isDark ? c.surfaceElevated : c.surface) : null,
+          color: highContrast ? (isDark ? c.surfaceElevated : c.surface) : null,
         ),
         child: layered,
       );
@@ -308,9 +340,8 @@ class _MaliGlassState extends State<MaliGlass> {
     surface = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: br,
-        boxShadow: !highContrast && _refractionReady
-            ? _refractiveShadow
-            : spec.shadow,
+        boxShadow:
+            !highContrast && _refractionReady ? _refractiveShadow : spec.shadow,
       ),
       child: ClipRRect(borderRadius: br, child: surface),
     );
@@ -561,8 +592,7 @@ class _GlassRimPainter extends CustomPainter {
       // Layer 1 alphas pre-multiplied by the span's opacity: 0.2.
       canvas.drawRRect(
           ring, layer(const [0, 0.024, 0.08, 0], BlendMode.screen));
-      canvas.drawRRect(
-          ring, layer(const [0, 0.32, 0.6, 0], BlendMode.overlay));
+      canvas.drawRRect(ring, layer(const [0, 0.32, 0.6, 0], BlendMode.overlay));
       return;
     }
     final rrect = borderRadius.toRRect(rect).deflate(0.5);

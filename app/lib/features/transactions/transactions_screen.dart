@@ -14,6 +14,7 @@ import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/glass_selector.dart';
 import '../../core/theme/widgets/mali_card.dart';
 import '../../core/theme/widgets/mali_glass.dart';
+import '../../core/theme/widgets/mali_glass_advanced.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/category_glyph.dart';
@@ -242,18 +243,25 @@ class TransactionsScreen extends ConsumerWidget {
                       delegate: _TabBarDelegate(
                         // iOS 26 style: no bar box at all — the tabs float
                         // as individual glass capsules over the content.
+                        // Pilot surface B: the capsules use the advanced
+                        // shader tier, sharing ONE render pass via the
+                        // region (glass over moving content without
+                        // per-row filter cost).
                         child: Container(
                           height: 64.0,
                           padding: const EdgeInsets.symmetric(
                             horizontal: AppSpacing.gutter,
                           ),
                           alignment: Alignment.center,
-                          child: AppPillTabBar(
-                            tabs: const ['العمليات', 'الفواتير'],
-                            selectedIndex: tab,
-                            onSelected: (value) => ref
-                                .read(transactionsPageTabProvider.notifier)
-                                .state = value,
+                          child: MaliGlassRegion(
+                            child: AppPillTabBar(
+                              advanced: true,
+                              tabs: const ['العمليات', 'الفواتير'],
+                              selectedIndex: tab,
+                              onSelected: (value) => ref
+                                  .read(transactionsPageTabProvider.notifier)
+                                  .state = value,
+                            ),
                           ),
                         ),
                       ),

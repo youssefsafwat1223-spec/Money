@@ -981,6 +981,16 @@ class _LiquidGlassSection extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           _GlassDemo(
+            label: 'SPIKE D — MaliGlass(advancedRefraction) عبر الـ adapter',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              advancedRefraction: true,
+              child: Text('بطاقة زجاجية — MaliGlass advanced',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
             label: 'high-contrast — opaque fallback, no blur',
             child: Builder(
               builder: (context) => MediaQuery(

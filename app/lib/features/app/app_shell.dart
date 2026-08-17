@@ -1519,6 +1519,9 @@ class _FlutterGlassBottomBar extends StatelessWidget {
         // padding 8/6) with the material's saturation + rim + specular edge.
         child: MaliGlass(
           variant: MaliGlassVariant.navigation,
+          // Pilot surface A: package-backed advanced tier (visual only —
+          // navigation logic/semantics unchanged; auto-frost fallback).
+          advancedRefraction: true,
           padding: EdgeInsets.zero,
           child: Container(
             height: AppSpacing.navBarHeight,
