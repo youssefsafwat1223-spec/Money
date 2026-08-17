@@ -34,8 +34,39 @@ import '../mali_tokens.dart';
 ///   when disabled/unsupported, and the layer only repaints when its shapes
 ///   or the backdrop behind the region change — children OUTSIDE the region
 ///   are never wrapped and cannot be repainted by it.
+/// TEMPORARY rollout safety gate: the package has open Android rendering
+/// issues and NO real-device evidence yet, so Android production surfaces
+/// must resolve to Qirsh frost even where shader filters are technically
+/// supported. Flip only after the device gate in
+/// docs/LIQUID_GLASS_PACKAGE.md passes. This is a rollout hold, not a
+/// package rejection.
+const bool kAndroidAdvancedRefractionEnabled = false;
+
+/// Platform half of the advanced-tier gate. Uses [defaultTargetPlatform] so
+/// tests can simulate platforms via `debugDefaultTargetPlatformOverride`.
+/// macOS stays allowed as the desktop/Impeller verification bench.
+bool get advancedTierAllowedOnPlatform {
+  if (kIsWeb) return false;
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android:
+      return kAndroidAdvancedRefractionEnabled;
+    case TargetPlatform.iOS:
+    case TargetPlatform.macOS:
+      return true;
+    case TargetPlatform.fuchsia:
+    case TargetPlatform.linux:
+    case TargetPlatform.windows:
+      return false;
+  }
+}
+
 enum GlassTier {
-  /// iOS 26 native UIGlassEffect platform view (handled before this file).
+  /// Native UIGlassEffect platform view. NOT selected by generic MaliGlass:
+  /// native ownership belongs to explicit native hosts only (today: the
+  /// pre-existing iOS 26 bottom-navigation host outside MaliGlass). The
+  /// tier exists in the resolver so an explicit host can declare itself via
+  /// [resolveGlassTier]'s `nativeGlassActive` — generic surfaces always
+  /// pass false, regardless of OS version.
   native,
 
   /// Package-backed refraction (pilot surfaces only).
@@ -54,12 +85,15 @@ enum GlassTier {
 GlassTier resolveGlassTier({
   required bool advancedRequested,
   required bool shaderSupported,
+  required bool platformAllowed,
   required bool highContrast,
   required bool nativeGlassActive,
 }) {
   if (highContrast) return GlassTier.opaque;
   if (nativeGlassActive) return GlassTier.native;
-  if (advancedRequested && shaderSupported) return GlassTier.advanced;
+  if (advancedRequested && shaderSupported && platformAllowed) {
+    return GlassTier.advanced;
+  }
   return GlassTier.frost;
 }
 
@@ -110,7 +144,9 @@ class MaliGlassRegion extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!advancedShaderSupported) return child;
+    if (!advancedShaderSupported || !advancedTierAllowedOnPlatform) {
+      return child;
+    }
     final t = MaliTokens.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return lgr.LiquidGlassLayer(

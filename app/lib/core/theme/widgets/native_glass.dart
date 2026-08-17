@@ -8,9 +8,15 @@ import 'package:flutter/widgets.dart';
 /// `UIGlassEffect`, exposed by the Runner as the `mali_glass_native`
 /// platform view (ported from callstack/liquid-glass).
 ///
+/// RESERVED PRIMITIVE — not auto-selected anywhere. Native glass ownership
+/// belongs to explicit native hosts only (today: the pre-existing iOS 26
+/// bottom-navigation host, which lives outside MaliGlass entirely). Generic
+/// `MaliGlass` surfaces must never become platform views merely because the
+/// OS is iOS 26; they resolve opaque → advanced → frost. Enforced by
+/// `mali_glass_test.dart` ("generic MaliGlass never selects native").
+///
 /// The answer is cached process-wide. [isSupported] stays false until
-/// [probe] resolves, so callers render their shader/blur fallback for the
-/// first frames and upgrade seamlessly.
+/// [probe] resolves.
 class NativeGlassSupport {
   NativeGlassSupport._();
 

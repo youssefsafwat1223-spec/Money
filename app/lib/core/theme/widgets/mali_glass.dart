@@ -9,7 +9,6 @@ import '../app_spacing.dart';
 import '../mali_tokens.dart';
 import 'liquid_glass/shader_utils.dart';
 import 'mali_glass_advanced.dart';
-import 'native_glass.dart';
 
 /// MaliGlass — the Liquid Glass material (pilot).
 ///
@@ -131,11 +130,6 @@ class _MaliGlassState extends State<MaliGlass> {
   @override
   void initState() {
     super.initState();
-    // Both capability paths resolve async and cache process-wide; whichever
-    // applies upgrades this surface on its first setState.
-    NativeGlassSupport.probe().then((supported) {
-      if (mounted && supported) setState(() {});
-    });
     _maybeLoadShader();
   }
 
@@ -161,8 +155,6 @@ class _MaliGlassState extends State<MaliGlass> {
 
   void _maybeLoadShader() {
     if (!_wantsRefraction) return;
-    // The real material supersedes the shader emulation on this device.
-    if (NativeGlassSupport.isSupported) return;
     // Runtime capability, not platform name: shader image filters exist only
     // on Impeller. Off Impeller this never loads and Tier 2 renders instead.
     if (!ui.ImageFilter.isShaderFilterSupported) return;
@@ -247,29 +239,15 @@ class _MaliGlassState extends State<MaliGlass> {
           )
         : content;
 
-    // Real Apple Liquid Glass (iOS 26 UIGlassEffect) when the device has it:
-    // the system material draws its own fill, rim, blur, and refraction, so
-    // the emulated layers below are skipped entirely. Sheets keep the drawn
-    // near-opaque body (forms), and high contrast keeps the opaque fallback.
-    final nativeGlass =
-        !highContrast && !isSheet && NativeGlassSupport.isSupported;
-
+    // Generic MaliGlass NEVER self-selects the native platform-view tier:
+    // native UIGlassEffect ownership lives with explicit native hosts only
+    // (today: the pre-existing iOS 26 bottom-navigation host outside this
+    // widget). Generic surfaces resolve: opaque → advanced → frost.
     Widget surface;
-    if (nativeGlass) {
-      surface = Stack(
-        children: [
-          Positioned.fill(
-            child: NativeGlassBackdrop(
-              radius: _maxCorner(br),
-              dark: isDark,
-            ),
-          ),
-          layered,
-        ],
-      );
-    } else if (resolveGlassTier(
+    if (resolveGlassTier(
           advancedRequested: widget.advancedRefraction && !isSheet,
           shaderSupported: advancedShaderSupported,
+          platformAllowed: advancedTierAllowedOnPlatform,
           highContrast: highContrast,
           nativeGlassActive: false,
         ) ==
@@ -284,6 +262,7 @@ class _MaliGlassState extends State<MaliGlass> {
         child: layered,
       );
       surface = CustomPaint(
+        key: const ValueKey('MaliGlassAdvancedSurface'),
         foregroundPainter: _GlassRimPainter(
           borderRadius: br,
           stroke: spec.stroke ?? t.glassStroke,

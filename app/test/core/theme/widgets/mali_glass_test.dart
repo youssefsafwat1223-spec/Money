@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
@@ -211,34 +212,32 @@ void main() {
   });
 
   testWidgets(
-      'native glass (iOS 26) replaces the emulated layers with the platform '
-      'view backdrop', (tester) async {
+      'generic MaliGlass never selects the native tier — even on iOS 26 '
+      'with native support present', (tester) async {
+    // Simulate "iOS 26 with the native capability available". The platform
+    // override is a foundation debug variable — reset in the body (finally),
+    // before flutter_test's invariant check.
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     NativeGlassSupport.debugOverride = true;
     addTearDown(() => NativeGlassSupport.debugOverride = null);
-    await tester.pumpWidget(
-      harness(const MaliGlass(
-        variant: MaliGlassVariant.card,
-        child: Text('x'),
-      )),
-    );
-    expect(find.byType(NativeGlassBackdrop), findsOneWidget);
-    expect(find.byType(BackdropFilter), findsNothing);
-    expect(fillDecoration(tester), isNull);
-    expect(find.text('x'), findsOneWidget);
-  });
-
-  testWidgets('sheet keeps the drawn near-opaque body even with native glass',
-      (tester) async {
-    NativeGlassSupport.debugOverride = true;
-    addTearDown(() => NativeGlassSupport.debugOverride = null);
-    await tester.pumpWidget(
-      harness(const MaliGlass(
-        variant: MaliGlassVariant.sheet,
-        child: Text('x'),
-      )),
-    );
-    expect(find.byType(NativeGlassBackdrop), findsNothing);
-    expect(find.byType(BackdropFilter), findsOneWidget);
+    try {
+      for (final variant in [
+        MaliGlassVariant.card,
+        MaliGlassVariant.pill,
+        MaliGlassVariant.navigation,
+      ]) {
+        await tester.pumpWidget(
+          harness(MaliGlass(variant: variant, child: const Text('x'))),
+        );
+        // Native ownership stays outside generic MaliGlass: no platform-view
+        // backdrop; the Qirsh frost path renders instead.
+        expect(find.byType(NativeGlassBackdrop), findsNothing);
+        expect(find.byType(BackdropFilter), findsOneWidget);
+        expect(find.text('x'), findsOneWidget);
+      }
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('high contrast renders opaque with no backdrop blur',

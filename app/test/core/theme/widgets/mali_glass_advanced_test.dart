@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/core/theme/widgets/mali_glass.dart';
 import 'package:money_companion/core/theme/widgets/mali_glass_advanced.dart';
+
+const _advancedKey = ValueKey('MaliGlassAdvancedSurface');
 
 void main() {
   Widget harness(Widget child, {MediaQueryData Function(MediaQueryData)? mq}) {
@@ -17,115 +20,179 @@ void main() {
     return MaterialApp(theme: AppTheme.light, home: Scaffold(body: body));
   }
 
+  // The platform override is a foundation debug variable: flutter_test
+  // verifies it is reset BEFORE tearDowns run, so tests must clear it at the
+  // end of their own body (helper below guarantees it via finally).
+  Future<void> onPlatform(
+    TargetPlatform platform,
+    Future<void> Function() body, {
+    bool? shaderSupported,
+  }) async {
+    debugDefaultTargetPlatformOverride = platform;
+    debugAdvancedShaderOverride = shaderSupported;
+    try {
+      await body();
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+      debugAdvancedShaderOverride = null;
+    }
+  }
+
+  GlassTier resolve({
+    bool advancedRequested = true,
+    bool shaderSupported = true,
+    bool platformAllowed = true,
+    bool highContrast = false,
+    bool nativeGlassActive = false,
+  }) =>
+      resolveGlassTier(
+        advancedRequested: advancedRequested,
+        shaderSupported: shaderSupported,
+        platformAllowed: platformAllowed,
+        highContrast: highContrast,
+        nativeGlassActive: nativeGlassActive,
+      );
+
   group(
-      'resolveGlassTier — the decision layer never reaches the package '
-      'unsupported', () {
+      'resolveGlassTier matrix — the package is never reached outside the '
+      'approved window', () {
     test('high contrast always wins with opaque', () {
-      expect(
-        resolveGlassTier(
-          advancedRequested: true,
-          shaderSupported: true,
-          highContrast: true,
-          nativeGlassActive: true,
-        ),
-        GlassTier.opaque,
-      );
+      expect(resolve(highContrast: true, nativeGlassActive: true),
+          GlassTier.opaque);
     });
 
-    test('native wins over advanced when active', () {
-      expect(
-        resolveGlassTier(
-          advancedRequested: true,
-          shaderSupported: true,
-          highContrast: false,
-          nativeGlassActive: true,
-        ),
-        GlassTier.native,
-      );
+    test('explicit native host wins over advanced', () {
+      expect(resolve(nativeGlassActive: true), GlassTier.native);
     });
 
-    test('advanced only when requested AND supported', () {
-      expect(
-        resolveGlassTier(
-          advancedRequested: true,
-          shaderSupported: true,
-          highContrast: false,
-          nativeGlassActive: false,
-        ),
-        GlassTier.advanced,
+    test('advanced needs request AND shader AND platform', () {
+      expect(resolve(), GlassTier.advanced);
+      expect(resolve(shaderSupported: false), GlassTier.frost);
+      expect(resolve(advancedRequested: false), GlassTier.frost);
+      expect(resolve(platformAllowed: false), GlassTier.frost);
+    });
+
+    test('temporary Android gate is closed', () {
+      expect(kAndroidAdvancedRefractionEnabled, isFalse,
+          reason: 'Flip only after the real-device gate in '
+              'docs/LIQUID_GLASS_PACKAGE.md passes.');
+    });
+
+    test('platform gate: Android blocked, iOS/macOS allowed', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      expect(advancedTierAllowedOnPlatform, isFalse);
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      expect(advancedTierAllowedOnPlatform, isTrue);
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      expect(advancedTierAllowedOnPlatform, isTrue);
+      debugDefaultTargetPlatformOverride = null;
+    });
+  });
+
+  testWidgets(
+      'ANDROID GATE: shader-supported + opted-in still resolves to Qirsh '
+      'frost while the device gate is closed', (tester) async {
+    await onPlatform(TargetPlatform.android, shaderSupported: true, () async {
+      await tester.pumpWidget(
+        harness(const MaliGlass(
+          variant: MaliGlassVariant.navigation,
+          advancedRefraction: true,
+          child: Text('nav'),
+        )),
       );
-      expect(
-        resolveGlassTier(
-          advancedRequested: true,
-          shaderSupported: false,
-          highContrast: false,
-          nativeGlassActive: false,
-        ),
-        GlassTier.frost,
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_advancedKey), findsNothing);
+      expect(find.byType(BackdropFilter), findsOneWidget);
+      expect(find.text('nav'), findsOneWidget);
+    });
+  });
+
+  testWidgets(
+      'iOS + supported + explicit opt-in selects the advanced package path',
+      (tester) async {
+    await onPlatform(TargetPlatform.iOS, shaderSupported: true, () async {
+      await tester.pumpWidget(
+        harness(const MaliGlass(
+          variant: MaliGlassVariant.navigation,
+          advancedRefraction: true,
+          child: Text('nav'),
+        )),
       );
-      expect(
-        resolveGlassTier(
-          advancedRequested: false,
-          shaderSupported: true,
-          highContrast: false,
-          nativeGlassActive: false,
-        ),
-        GlassTier.frost,
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_advancedKey), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsNothing);
+      expect(find.text('nav'), findsOneWidget);
+    });
+  });
+
+  testWidgets('sheet refuses the advanced tier even when opted in',
+      (tester) async {
+    await onPlatform(TargetPlatform.iOS, shaderSupported: true, () async {
+      await tester.pumpWidget(
+        harness(const MaliGlass(
+          variant: MaliGlassVariant.sheet,
+          advancedRefraction: true,
+          child: Text('sheet'),
+        )),
       );
+      expect(find.byKey(_advancedKey), findsNothing);
+      expect(find.byType(BackdropFilter), findsOneWidget);
     });
   });
 
   testWidgets(
       'advancedRefraction on an unsupported runtime falls back to Qirsh '
       'frost — no assertion, no blank, no crash', (tester) async {
-    debugAdvancedShaderOverride = false;
-    addTearDown(() => debugAdvancedShaderOverride = null);
-    await tester.pumpWidget(
-      harness(const MaliGlass(
-        variant: MaliGlassVariant.navigation,
-        advancedRefraction: true,
-        child: Text('nav'),
-      )),
-    );
-    expect(tester.takeException(), isNull);
-    expect(find.text('nav'), findsOneWidget);
-    // The Qirsh frost path (BackdropFilter) rendered instead of the package.
-    expect(find.byType(BackdropFilter), findsOneWidget);
+    await onPlatform(TargetPlatform.iOS, shaderSupported: false, () async {
+      await tester.pumpWidget(
+        harness(const MaliGlass(
+          variant: MaliGlassVariant.navigation,
+          advancedRefraction: true,
+          child: Text('nav'),
+        )),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_advancedKey), findsNothing);
+      expect(find.text('nav'), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsOneWidget);
+    });
   });
 
-  testWidgets('MaliGlassRegion is a passthrough when unsupported',
+  testWidgets('MaliGlassRegion is a passthrough when gated off',
       (tester) async {
-    debugAdvancedShaderOverride = false;
-    addTearDown(() => debugAdvancedShaderOverride = null);
-    await tester.pumpWidget(
-      harness(const MaliGlassRegion(child: Text('inside'))),
-    );
-    expect(tester.takeException(), isNull);
-    expect(find.text('inside'), findsOneWidget);
+    await onPlatform(TargetPlatform.android, shaderSupported: true, () async {
+      await tester.pumpWidget(
+        harness(const MaliGlassRegion(child: Text('inside'))),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.text('inside'), findsOneWidget);
+    });
   });
 
   testWidgets(
       'high contrast beats advancedRefraction: opaque surface, no filters',
       (tester) async {
-    debugAdvancedShaderOverride = true;
-    addTearDown(() => debugAdvancedShaderOverride = null);
-    await tester.pumpWidget(
-      harness(
-        const MaliGlass(
-          variant: MaliGlassVariant.navigation,
-          advancedRefraction: true,
-          child: Text('nav'),
+    await onPlatform(TargetPlatform.iOS, shaderSupported: true, () async {
+      await tester.pumpWidget(
+        harness(
+          const MaliGlass(
+            variant: MaliGlassVariant.navigation,
+            advancedRefraction: true,
+            child: Text('nav'),
+          ),
+          mq: (d) => d.copyWith(highContrast: true),
         ),
-        mq: (d) => d.copyWith(highContrast: true),
-      ),
-    );
-    expect(tester.takeException(), isNull);
-    expect(find.byType(BackdropFilter), findsNothing);
-    expect(find.text('nav'), findsOneWidget);
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_advancedKey), findsNothing);
+      expect(find.byType(BackdropFilter), findsNothing);
+      expect(find.text('nav'), findsOneWidget);
+    });
   });
 
-  testWidgets('reduce-motion with advancedRefraction stays structurally static',
-      (tester) async {
+  testWidgets(
+      'reduce-motion with advancedRefraction stays structurally '
+      'static', (tester) async {
     debugAdvancedShaderOverride = false;
     addTearDown(() => debugAdvancedShaderOverride = null);
     await tester.pumpWidget(

@@ -1,5 +1,22 @@
 # liquid_glass_renderer — adoption note
 
+**Status: `PACKAGE_ADAPTER_ACCEPTED` ·
+`ANDROID_ADVANCED_REFRACTION_DISABLED_PENDING_DEVICE_GATE`**
+
+The adapter architecture is accepted and the dependency is in, behind
+`MaliGlass`. Android production surfaces resolve to Qirsh frost regardless of
+shader support (`kAndroidAdvancedRefractionEnabled = false` in
+`mali_glass_advanced.dart`) — a temporary rollout hold, **not a package
+rejection**. Native tier scope: generic `MaliGlass` never self-selects the
+native platform view; native UIGlassEffect belongs only to the pre-existing
+iOS 26 bottom-navigation host.
+
+**Required evidence before enabling the Android advanced tier** (then flip the
+flag): real mid-range Android device · shader/renderer capability status ·
+first-render check · fast Transactions scroll · tab navigation · app
+resume/background · light/dark · RTL · meaningful frame/performance
+observation.
+
 - **Status**: prerelease, pinned EXACTLY to `0.2.0-dev.4` in pubspec (a `^dev`
   range could silently pull a materially different dev build).
 - **Boundary**: wrapped behind `MaliGlass`; the only files allowed to import
