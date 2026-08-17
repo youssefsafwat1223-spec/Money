@@ -152,23 +152,18 @@ class BudgetsScreen extends ConsumerWidget {
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _TabBarDelegate(
-                        child: MaliGlass(
-                          variant: MaliGlassVariant.card,
-                          radius: 0,
-                          padding: EdgeInsets.zero,
-                          child: Container(
-                            height: 64.0,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter,
-                            ),
-                            alignment: Alignment.center,
-                            child: AppPillTabBar(
-                              tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
-                              selectedIndex: tab,
-                              onSelected: (value) => ref
-                                  .read(budgetsPageTabProvider.notifier)
-                                  .state = value,
-                            ),
+                        child: Container(
+                          height: 64.0,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.gutter,
+                          ),
+                          alignment: Alignment.center,
+                          child: AppPillTabBar(
+                            tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
+                            selectedIndex: tab,
+                            onSelected: (value) => ref
+                                .read(budgetsPageTabProvider.notifier)
+                                .state = value,
                           ),
                         ),
                       ),

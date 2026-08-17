@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 
 /// شريط تبويب حبة الدواء — سيطرة قطعية قابلة لإعادة الاستخدام.
 ///
+/// iOS 26 style: no containing track — each tab is its own floating capsule.
+/// The selected tab is a solid [c.cta] capsule; unselected tabs are real
+/// liquid-glass capsules ([MaliGlass] — the native Apple material on iOS 26).
 /// يستخدم [c.cta] للتبويب النشط، آمن في وضع RTL، ودعم إمكانية الوصول.
 /// لا يعتمد على [TabController] أو أي شاشة بعينها.
 class AppPillTabBar extends StatelessWidget {
@@ -24,18 +28,12 @@ class AppPillTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
+    return SizedBox(
       height: height,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        // Translucent so the glass strip reads as one liquid surface instead
-        // of an opaque box floating on it.
-        color: c.surface2.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
       child: Row(
         children: [
-          for (var i = 0; i < tabs.length; i++)
+          for (var i = 0; i < tabs.length; i++) ...[
+            if (i > 0) const SizedBox(width: AppSpacing.s2),
             Expanded(
               child: Semantics(
                 label: tabs[i],
@@ -43,26 +41,40 @@ class AppPillTabBar extends StatelessWidget {
                 button: true,
                 onTap: () => onSelected(i),
                 excludeSemantics: true,
-                child: GestureDetector(
-                  onTap: () => onSelected(i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    decoration: BoxDecoration(
-                      color: selectedIndex == i ? c.cta : Colors.transparent,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      tabs[i],
-                      textAlign: TextAlign.center,
-                      style: AppTypography.caption(
-                        selectedIndex == i ? Colors.white : c.textMuted,
-                      ).copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
+                child: selectedIndex == i
+                    ? GestureDetector(
+                        onTap: () => onSelected(i),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          decoration: BoxDecoration(
+                            color: c.cta,
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            tabs[i],
+                            textAlign: TextAlign.center,
+                            style: AppTypography.caption(Colors.white)
+                                .copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      )
+                    : MaliGlass(
+                        variant: MaliGlassVariant.pill,
+                        padding: EdgeInsets.zero,
+                        onTap: () => onSelected(i),
+                        child: Center(
+                          child: Text(
+                            tabs[i],
+                            textAlign: TextAlign.center,
+                            style: AppTypography.caption(c.textMuted)
+                                .copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
               ),
             ),
+          ],
         ],
       ),
     );

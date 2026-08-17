@@ -9,6 +9,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
 import '../../core/theme/widgets/mali_glass.dart';
+import '../common/app_pill_tab_bar.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -36,7 +37,6 @@ class ReportsScreen extends ConsumerWidget {
         );
     final currencyLabel = Currency.arabicLabel(
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
-    final c = context.colors;
 
     return DefaultTabController(
       length: 3,
@@ -75,42 +75,30 @@ class ReportsScreen extends ConsumerWidget {
                       SliverPersistentHeader(
                         pinned: true,
                         delegate: _TabBarDelegate(
-                          child: MaliGlass(
-                            variant: MaliGlassVariant.card,
-                            radius: 0,
-                            padding: EdgeInsets.zero,
-                            child: Container(
-                              height: 64.0,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.gutter,
-                              ),
-                              alignment: Alignment.center,
-                              child: Container(
-                                height: 48,
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color:
-                                      c.surface2.withValues(alpha: 0.45),
-                                  borderRadius:
-                                      BorderRadius.circular(AppRadius.pill),
-                                ),
-                                child: TabBar(
-                                  indicatorSize: TabBarIndicatorSize.tab,
-                                  dividerColor: Colors.transparent,
-                                  labelColor: Colors.white,
-                                  unselectedLabelColor: c.textLight,
-                                  indicator: BoxDecoration(
-                                    color: c.primary,
-                                    borderRadius:
-                                        BorderRadius.circular(AppRadius.pill),
+                          // iOS 26 style: floating glass capsules, no bar box.
+                          child: Container(
+                            height: 64.0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.gutter,
+                            ),
+                            alignment: Alignment.center,
+                            child: Builder(
+                              builder: (context) {
+                                final controller =
+                                    DefaultTabController.of(context);
+                                return AnimatedBuilder(
+                                  animation: controller,
+                                  builder: (context, _) => AppPillTabBar(
+                                    tabs: const [
+                                      'نظرة عامة',
+                                      'الاتجاهات',
+                                      'التفاصيل',
+                                    ],
+                                    selectedIndex: controller.index,
+                                    onSelected: controller.animateTo,
                                   ),
-                                  tabs: const [
-                                    Tab(text: 'نظرة عامة'),
-                                    Tab(text: 'الاتجاهات'),
-                                    Tab(text: 'التفاصيل'),
-                                  ],
-                                ),
-                              ),
+                                );
+                              },
                             ),
                           ),
                         ),

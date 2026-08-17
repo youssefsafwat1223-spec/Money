@@ -240,26 +240,20 @@ class TransactionsScreen extends ConsumerWidget {
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _TabBarDelegate(
-                        // MaliGlass pilot: frosted pinned strip — content
-                        // scrolls under it instead of vanishing at a hard
-                        // opaque edge. Full-bleed, so radius 0.
-                        child: MaliGlass(
-                          variant: MaliGlassVariant.card,
-                          radius: 0,
-                          padding: EdgeInsets.zero,
-                          child: Container(
-                            height: 64.0,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter,
-                            ),
-                            alignment: Alignment.center,
-                            child: AppPillTabBar(
-                              tabs: const ['العمليات', 'الفواتير'],
-                              selectedIndex: tab,
-                              onSelected: (value) => ref
-                                  .read(transactionsPageTabProvider.notifier)
-                                  .state = value,
-                            ),
+                        // iOS 26 style: no bar box at all — the tabs float
+                        // as individual glass capsules over the content.
+                        child: Container(
+                          height: 64.0,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.gutter,
+                          ),
+                          alignment: Alignment.center,
+                          child: AppPillTabBar(
+                            tabs: const ['العمليات', 'الفواتير'],
+                            selectedIndex: tab,
+                            onSelected: (value) => ref
+                                .read(transactionsPageTabProvider.notifier)
+                                .state = value,
                           ),
                         ),
                       ),
