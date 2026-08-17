@@ -30,11 +30,13 @@ class GlassSelector extends StatelessWidget {
       variant: MaliGlassVariant.pill,
       radius: 16,
       onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      // Compact premium control (not a card): tighter padding, smaller
+      // glyphs. MaliGlass still guarantees the ≥44px touch target.
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: t.textOnCanvasSecondary),
-          const SizedBox(width: 8),
+          Icon(icon, size: 15, color: t.textOnCanvasSecondary),
+          const SizedBox(width: 7),
           Expanded(
             child: Text(
               label,
@@ -46,7 +48,7 @@ class GlassSelector extends StatelessWidget {
             ),
           ),
           Icon(Icons.keyboard_arrow_down_rounded,
-              size: 18, color: t.textOnCanvasMuted),
+              size: 16, color: t.textOnCanvasMuted),
         ],
       ),
     );

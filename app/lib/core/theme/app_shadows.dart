@@ -78,9 +78,9 @@ class AppShadows {
   /// hero itself, which stays directly on canvas — see design doc §0.
   static const List<BoxShadow> heroGlow = [
     BoxShadow(
-      color: Color(0x4D2E6BFF), // accent @ 30% — mockup --hero-glow
-      blurRadius: 48,
-      offset: Offset(0, 16),
+      color: Color(0x332E6BFF), // accent @ 20% — softened (calm, not neon)
+      blurRadius: 32,
+      offset: Offset(0, 10),
     ),
   ];
 }

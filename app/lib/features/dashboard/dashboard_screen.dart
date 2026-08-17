@@ -277,19 +277,21 @@ class _HomeBody extends ConsumerWidget {
           const SizedBox(height: AppSpacing.s3),
         ],
         // Compact "safe to spend" — a thin raised bar (not a floating card).
+        // Hierarchy: small contextual label → main status → ring indicator.
         Container(
           padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s3, vertical: AppSpacing.s3),
+              horizontal: AppSpacing.s3, vertical: 10),
           decoration: BoxDecoration(
             color: t.surfaceRaised,
             borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: t.cardBorder),
           ),
           child: Row(
             children: [
               RingProgress(
                 value: remaining,
-                size: 40,
-                strokeWidth: 5,
+                size: 36,
+                strokeWidth: 4,
                 color: ringColor,
                 child: Text(
                   remaining == null ? '—' : '${(remaining * 100).round()}%',
@@ -303,7 +305,7 @@ class _HomeBody extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('متاح من ميزانية الشهر',
-                        style: AppTypography.caption(t.textOnCanvasSecondary)),
+                        style: AppTypography.caption(t.textOnCanvasMuted)),
                     const SizedBox(height: 2),
                     Text(verdict,
                         style: AppTypography.subhead(
@@ -525,9 +527,7 @@ class _BlueZone extends ConsumerWidget {
 
     final heroValue = data.rangeExpense;
     final ratio = data.weekChangeRatio;
-    final trendText = (ratio.abs() > 0.001)
-        ? '${(ratio.abs() * 100).round()}% عن الأسبوع الماضي'
-        : null;
+    final hasTrend = ratio.abs() > 0.001;
     final todayNet = data.todayIncome - data.todaySpend;
     String signed(Money value) =>
         '${value.isNegative ? '−' : '+'}${Formatters.amount((value.isNegative ? -value : value).toDouble())}';
@@ -544,125 +544,212 @@ class _BlueZone extends ConsumerWidget {
               : const [Color(0xFF1E74F0), Color(0xFF3E8CF7), Color(0xFF7FB2FF)],
         ),
       ),
-      padding: EdgeInsets.fromLTRB(20, topPad + 12, 20, 36),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      // Depth pass (static, reduce-motion safe): a soft ambient light from
+      // the top corner and a gentle darkening toward the sheet seam — the
+      // hero reads dimensional instead of flat, with no texture noise.
+      // Painted BEHIND the content (nested DecoratedBox, not foreground).
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0.95, -1.1),
+            radius: 1.35,
+            colors: [
+              Colors.white.withValues(alpha: isDark ? 0.09 : 0.16),
+              Colors.white.withValues(alpha: 0),
+              const Color(0xFF06122E).withValues(alpha: isDark ? 0.30 : 0.12),
+            ],
+            stops: const [0.0, 0.55, 1.0],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20, topPad + 12, 20, 34),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  shape: BoxShape.circle,
-                ),
-                child: hasImage
-                    ? Image.file(file, fit: BoxFit.cover)
-                    : Text(_initials(name),
-                        style: AppTypography.subhead(Colors.white)),
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.22)),
+                    ),
+                    child: hasImage
+                        ? Image.file(file, fit: BoxFit.cover)
+                        : Text(_initials(name),
+                            style: AppTypography.subhead(Colors.white)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('مرحباً 👋',
+                            style: AppTypography.footnote(
+                                Colors.white.withValues(alpha: 0.75))),
+                        const SizedBox(height: 2),
+                        Text(name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.cardTitle(Colors.white)),
+                      ],
+                    ),
+                  ),
+                  const _AddButton(),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('مرحباً 👋',
-                        style: AppTypography.footnote(
-                            Colors.white.withValues(alpha: 0.75))),
-                    const SizedBox(height: 2),
-                    Text(name,
+              const SizedBox(height: 20),
+              // Financial hierarchy: label → amount (the clear focus) → trend.
+              Row(
+                children: [
+                  Text('إجمالي المصروفات',
+                      style: AppTypography.caption(
+                          Colors.white.withValues(alpha: 0.75))),
+                  const SizedBox(width: 6),
+                  _eye(context, ref),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Flexible(
+                    // FittedBox: at large text scales the full value scales down
+                    // to fit — a financial figure is never truncated.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        privacyMode
+                            ? '••••••'
+                            : Formatters.amount(heroValue.toDouble()),
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.cardTitle(Colors.white)),
+                        style: AppTypography.amountHero(Colors.white)
+                            .copyWith(fontSize: 40, height: 1.0),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Text(currencyLabel,
+                        style: AppTypography.footnote(
+                            Colors.white.withValues(alpha: 0.72))),
+                  ),
+                ],
+              ),
+              if (hasTrend) ...[
+                const SizedBox(height: 9),
+                _trendChip(ratio),
+              ],
+              const SizedBox(height: 14),
+              // Today's pulse — restrained glass chrome on the hero: translucent
+              // fill + hairline rim + top sheen. No BackdropFilter on purpose:
+              // blurring the flat gradient behind it is invisible cost (same
+              // rationale as MaliGlass headerAction).
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.14),
+                      Colors.white.withValues(alpha: 0.08),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.16)),
+                ),
+                child: Row(
+                  children: [
+                    _pulseCell(
+                        'دخل اليوم',
+                        privacyMode
+                            ? '••••'
+                            : '+${Formatters.amount(data.todayIncome.toDouble())}',
+                        _income),
+                    _pulseDivider(),
+                    _pulseCell(
+                        'مصروف اليوم',
+                        privacyMode
+                            ? '••••'
+                            : '−${Formatters.amount(data.todaySpend.toDouble())}',
+                        Colors.white),
+                    _pulseDivider(),
+                    _pulseCell(
+                        'الصافي',
+                        privacyMode ? '••••' : signed(todayNet),
+                        todayNet.isNegative ? _expenseNet : _income),
                   ],
                 ),
               ),
-              const _AddButton(),
             ],
           ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Text('إجمالي المصروفات',
-                  style: AppTypography.caption(
-                      Colors.white.withValues(alpha: 0.78))),
-              const SizedBox(width: 6),
-              _eye(context, ref),
-              const Spacer(),
-              if (trendText != null)
-                Text(trendText,
-                    style: AppTypography.caption(
-                        Colors.white.withValues(alpha: 0.70))),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Flexible(
-                child: Text(
-                  privacyMode
-                      ? '••••••'
-                      : Formatters.amount(heroValue.toDouble()),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.amountHero(Colors.white)
-                      .copyWith(fontSize: 38, height: 1.0),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(currencyLabel,
-                    style: AppTypography.subhead(
-                        Colors.white.withValues(alpha: 0.82))),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Row(
-              children: [
-                _pulseCell(
-                    'دخل اليوم',
-                    privacyMode
-                        ? '••••'
-                        : '+${Formatters.amount(data.todayIncome.toDouble())}',
-                    _income),
-                _pulseDivider(),
-                _pulseCell(
-                    'مصروف اليوم',
-                    privacyMode
-                        ? '••••'
-                        : '−${Formatters.amount(data.todaySpend.toDouble())}',
-                    Colors.white),
-                _pulseDivider(),
-                _pulseCell('الصافي', privacyMode ? '••••' : signed(todayNet),
-                    todayNet.isNegative ? _expenseNet : _income),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
+    );
+  }
+
+  /// Secondary weekly-comparison chip under the hero amount. Percentages are
+  /// capped for display so an unusual spike can never break the layout.
+  Widget _trendChip(double ratio) {
+    final spentMore = ratio > 0;
+    final pct = (ratio.abs() * 100).round();
+    final label = pct > 999 ? '+999%' : '$pct%';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                spentMore
+                    ? Icons.arrow_upward_rounded
+                    : Icons.arrow_downward_rounded,
+                size: 12,
+                color: spentMore ? _expenseNet : _income,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '$label عن الأسبوع الماضي',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    AppTypography.micro(Colors.white.withValues(alpha: 0.85)),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   Widget _pulseCell(String label, String value, Color color) => Expanded(
         child: Column(
           children: [
-            Text(value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.subhead(color)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              // Full amounts always visible — scale down, never truncate.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(value,
+                    maxLines: 1, style: AppTypography.subhead(color)),
+              ),
+            ),
             const SizedBox(height: 2),
             Text(label,
                 style:
@@ -673,8 +760,8 @@ class _BlueZone extends ConsumerWidget {
 
   Widget _pulseDivider() => Container(
         width: 1,
-        height: 26,
-        color: Colors.white.withValues(alpha: 0.18),
+        height: 24,
+        color: Colors.white.withValues(alpha: 0.14),
       );
 
   Widget _eye(BuildContext context, WidgetRef ref) => InkWell(
@@ -736,14 +823,24 @@ class _Sheet extends StatelessWidget {
     // not the near-black #08090C from the mockup.
     final sheetBg = isDark ? context.colors.bg : const Color(0xFFF5F7FB);
     return Transform.translate(
-      offset: const Offset(0, -18),
+      offset: const Offset(0, -20),
       child: Container(
         decoration: BoxDecoration(
           color: sheetBg,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          // Soft seam: a whisper of upward ambient shadow separates the
+          // sheet from the hero without a heavy elevation ring.
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF06122E)
+                  .withValues(alpha: isDark ? 0.35 : 0.10),
+              blurRadius: 22,
+              offset: const Offset(0, -8),
+            ),
+          ],
         ),
         padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter, 20, AppSpacing.gutter, 120),
+            AppSpacing.gutter, 16, AppSpacing.gutter, 112),
         child: child,
       ),
     );
@@ -773,9 +870,12 @@ class _RecentSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
+        // One quiet grouped surface instead of a floating slab — rows
+        // separated by subtle indented dividers ("raised" = list grouping
+        // per the design system, no drop shadow).
         MaliCard(
-          style: MaliSurfaceStyle.floating,
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+          style: MaliSurfaceStyle.raised,
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
           child: recent.isEmpty
               ? Padding(
                   padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -786,12 +886,24 @@ class _RecentSection extends ConsumerWidget {
                 )
               : Column(
                   children: [
-                    for (final tx in recent)
+                    for (var i = 0; i < recent.length; i++) ...[
+                      if (i > 0)
+                        Padding(
+                          padding: const EdgeInsetsDirectional.only(
+                              start: 63, end: 12),
+                          child: Container(
+                            height: 1,
+                            color: MaliTokens.of(context)
+                                .cardBorder
+                                .withValues(alpha: 0.6),
+                          ),
+                        ),
                       _TxRow(
-                        tx: tx,
-                        category: data.catalog.byId(tx.categoryId),
+                        tx: recent[i],
+                        category: data.catalog.byId(recent[i].categoryId),
                         privacyMode: privacyMode,
                       ),
+                    ],
                   ],
                 ),
         ),
@@ -831,28 +943,30 @@ class _TxRow extends StatelessWidget {
       child: InkWell(
         onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
+              // Normalized avatar: one 40px box, one radius, for both brand
+              // marks and category glyph tiles.
               (merchant != null && BrandMark.hasBrand(merchant))
-                  ? BrandMark(name: merchant, size: 42)
+                  ? BrandMark(name: merchant, size: 40)
                   : Container(
-                      width: 42,
-                      height: 42,
+                      width: 40,
+                      height: 40,
                       alignment: Alignment.center,
                       decoration: ShapeDecoration(
                         color: catColor,
                         shape: RoundedSuperellipseBorder(
-                          borderRadius: BorderRadius.circular(13),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       child: CategoryGlyph(
                         name: category?.iconName ?? 'receipt-text',
-                        size: 20,
+                        size: 19,
                         color: Colors.white,
                       ),
                     ),
-              const SizedBox(width: 13),
+              const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
