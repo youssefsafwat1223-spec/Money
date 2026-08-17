@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart' as lgr;
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
@@ -924,6 +925,57 @@ class _LiquidGlassSection extends StatelessWidget {
                   child: Text('بدون حركة',
                       style: AppTypography.subhead(t.textOnCanvasPrimary)),
                 ),
+              ),
+            ),
+          ),
+          // ── SPIKE (gallery-only): liquid_glass_renderer A/B/C vs MaliGlass.
+          // Same stage, same child, same 28 radius, both themes via the
+          // gallery toggle. Not used on any production surface.
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'SPIKE A — MaliGlass card (custom)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              child: Text('بطاقة زجاجية — MaliGlass',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'SPIKE B — liquid_glass_renderer '
+                '(${ui.ImageFilter.isShaderFilterSupported ? 'live' : 'Impeller only — unsupported here'})',
+            child: ui.ImageFilter.isShaderFilterSupported
+                ? lgr.LiquidGlass.withOwnLayer(
+                    shape:
+                        const lgr.LiquidRoundedSuperellipse(borderRadius: 28),
+                    settings: const lgr.LiquidGlassSettings(
+                      thickness: 24,
+                      blur: 6,
+                      saturation: 1.4,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                      child: Text('بطاقة زجاجية — liquid_glass_renderer',
+                          style: AppTypography.subhead(t.textOnCanvasPrimary)),
+                    ),
+                  )
+                : Text('يتطلب Impeller — هنا يعمل التراجع لدينا فقط',
+                    style: AppTypography.caption(t.textOnCanvasMuted)),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'SPIKE C — FakeGlass (تراجع الحزمة الخفيف)',
+            child: lgr.FakeGlass(
+              shape: const lgr.LiquidRoundedSuperellipse(borderRadius: 28),
+              settings: const lgr.LiquidGlassSettings(
+                thickness: 24,
+                blur: 6,
+                saturation: 1.4,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                child: Text('بطاقة زجاجية — FakeGlass',
+                    style: AppTypography.subhead(t.textOnCanvasPrimary)),
               ),
             ),
           ),

@@ -52,6 +52,7 @@ dependencies:
     path: packages/native_glass_navbar
   pdf: ^3.12.0
   printing: ^5.14.3
+  liquid_glass_renderer: ^0.2.0-dev.4
   # dio: ^5.5.0
   # flutter_local_notifications: ^17.2.0
   # timezone: ^0.9.4
