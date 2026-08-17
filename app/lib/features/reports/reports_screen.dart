@@ -89,7 +89,8 @@ class ReportsScreen extends ConsumerWidget {
                                 height: 48,
                                 padding: const EdgeInsets.all(4),
                                 decoration: BoxDecoration(
-                                  color: c.surface2,
+                                  color:
+                                      c.surface2.withValues(alpha: 0.45),
                                   borderRadius:
                                       BorderRadius.circular(AppRadius.pill),
                                 ),

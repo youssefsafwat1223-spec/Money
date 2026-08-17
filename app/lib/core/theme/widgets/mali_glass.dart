@@ -97,7 +97,9 @@ class _MaliGlassState extends State<MaliGlass> {
   // rdev/liquid-glass-react `LiquidGlass` defaults, verbatim:
   //   displacementScale: 70, aberrationIntensity: 2,
   //   backdropFilter: blur(4 + blurAmount(0.0625) * 32 = 6px) saturate(140%).
-  static const double _displacementScale = 70.0;
+  // 100 = the reference demo page's slider default (the look Youssef wants);
+  // the library's own default is 70.
+  static const double _displacementScale = 100.0;
   static const double _aberrationIntensity = 2.0;
   static const double _refractiveBlurSigma = 6.0;
   static const double _refractiveSaturation = 1.40;

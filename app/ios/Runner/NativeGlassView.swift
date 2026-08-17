@@ -43,7 +43,18 @@ private final class GlassEffectView: UIVisualEffectView {
   override func layoutSubviews() {
     super.layoutSubviews()
     let cap = min(bounds.width, bounds.height) / 2
-    layer.cornerRadius = min(requestedRadius, max(cap, 0))
+    let clamped = min(requestedRadius, max(cap, 0))
+    layer.cornerRadius = clamped
+    // iOS 26: the glass material's own rim follows `cornerConfiguration`,
+    // not `layer.cornerRadius` — without this the rim renders as an ugly
+    // rectangular frame around rounded surfaces.
+    #if compiler(>=6.2)
+    if #available(iOS 26.0, *) {
+      cornerConfiguration = requestedRadius >= cap
+        ? .capsule()
+        : .corners(radius: .fixed(clamped))
+    }
+    #endif
   }
 }
 

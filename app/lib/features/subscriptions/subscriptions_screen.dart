@@ -103,7 +103,8 @@ class SubscriptionsScreen extends ConsumerWidget {
                               height: 48,
                               padding: const EdgeInsets.all(4),
                               decoration: BoxDecoration(
-                                color: context.colors.surface2,
+                                color: context.colors.surface2
+                                    .withValues(alpha: 0.45),
                                 borderRadius:
                                     BorderRadius.circular(AppRadius.pill),
                               ),

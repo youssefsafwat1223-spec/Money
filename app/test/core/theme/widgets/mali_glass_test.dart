@@ -197,7 +197,7 @@ void main() {
     ]);
   });
 
-  testWidgets('sheet body is near-opaque (forms never sit on clear glass)',
+  testWidgets('sheet body keeps a legibility floor (forms never fully clear)',
       (tester) async {
     await tester.pumpWidget(
       harness(const MaliGlass(
@@ -207,7 +207,7 @@ void main() {
     );
     final gradient = fillDecoration(tester)!.gradient! as LinearGradient;
     expect(gradient.colors.last, MaliTokens.light.glassSheetFill);
-    expect(gradient.colors.last.a, greaterThan(0.85));
+    expect(gradient.colors.last.a, greaterThan(0.6));
   });
 
   testWidgets(

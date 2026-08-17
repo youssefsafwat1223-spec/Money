@@ -28,7 +28,9 @@ class AppPillTabBar extends StatelessWidget {
       height: height,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: c.surface2,
+        // Translucent so the glass strip reads as one liquid surface instead
+        // of an opaque box floating on it.
+        color: c.surface2.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
       child: Row(

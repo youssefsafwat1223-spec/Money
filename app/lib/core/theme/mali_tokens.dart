@@ -127,7 +127,7 @@ class MaliTokens {
     glassFillBottom: Color(0x80121317), // surface @ 50% (matches nav fallback)
     glassStroke: Color(0x24FFFFFF), // white @ ~14%
     glassSheen: Color(0x73FFFFFF), // white @ ~45% — top specular edge
-    glassSheetFill: Color(0xE6121317), // surface @ 90% (matches blurred sheets)
+    glassSheetFill: Color(0xB8121317), // surface @ 72% — liquid, forms legible
     strokeSoft: Color(0x1AFFFFFF), // white @ ~10%
     cardBorder: Color(0x0FFFFFFF), // white @ ~6%
     textOnCanvasPrimary: Color(0xFFFFFFFF),
@@ -161,7 +161,7 @@ class MaliTokens {
     glassFillBottom: Color(0x9EFFFFFF), // white @ ~62% (matches nav fallback)
     glassStroke: Color(0x1A0F172A), // ink @ ~10% — definition, not white glow
     glassSheen: Color(0xE6FFFFFF), // white @ ~90% — top specular edge
-    glassSheetFill: Color(0xEBFFFFFF), // white @ 92% (matches blurred sheets)
+    glassSheetFill: Color(0xC7FFFFFF), // white @ 78% — liquid, forms legible
     strokeSoft: Color(0xFFEAF0F7),
     cardBorder: Color(0xFFEDF1F7),
     textOnCanvasPrimary: Color(0xFF0F172A),
