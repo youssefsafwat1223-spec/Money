@@ -59,7 +59,7 @@ class PlansScreen extends ConsumerWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
                 child: AppEmptyState(
-                  icon: Icons.luggage_rounded,
+                  icon: AppLucideIcons.luggage,
                   title: 'لا توجد خطط بعد',
                   subtitle:
                       'أنشئ خطة لرحلة أو مناسبة: ميزانية + فترة + الكروت اللي هتصرف منها، وقرش يتابعها لك.',
@@ -110,11 +110,11 @@ class _PlanCard extends ConsumerWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  gradient: c.primaryGradient,
+                  // تايل هادي مصبوغ بدل التدرّج الأزرق القديم.
+                  color: c.cta.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: const Icon(Icons.luggage_rounded,
-                    color: Colors.white, size: 22),
+                child: Icon(AppLucideIcons.luggage, color: c.cta, size: 22),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
@@ -134,7 +134,7 @@ class _PlanCard extends ConsumerWidget {
               ),
               IconButton(
                 tooltip: 'حذف',
-                icon: Icon(Icons.delete_outline, color: c.textLight, size: 20),
+                icon: Icon(AppLucideIcons.trash2, color: c.textLight, size: 20),
                 onPressed: () => _confirmDelete(context, ref),
               ),
             ],
@@ -282,7 +282,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => PlanFormSheet.show(context, existing: plan),
-                  icon: const Icon(Icons.edit_outlined),
+                  icon: const Icon(AppLucideIcons.pencil),
                   label: const Text('تعديل'),
                 ),
               ),
@@ -295,7 +295,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
                     plan,
                     txAsync.valueOrNull ?? const [],
                   ),
-                  icon: const Icon(Icons.add_link_rounded),
+                  icon: const Icon(AppLucideIcons.link2),
                   label: const Text('ربط عملية'),
                 ),
               ),
@@ -340,7 +340,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
                 data: (transactions) {
                   if (transactions.isEmpty) {
                     return AppEmptyState(
-                      icon: Icons.receipt_long_outlined,
+                      icon: AppLucideIcons.receipt,
                       title: 'لا توجد عمليات مرتبطة',
                       subtitle: 'اربط عملية موجودة أو اختار حساب/كارت للخطة.',
                       primaryLabel: 'ربط عملية',
@@ -387,7 +387,7 @@ class _PlanTransactionTile extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpacing.s3),
       child: Row(
         children: [
-          Icon(Icons.receipt_long_outlined, color: c.cta),
+          Icon(AppLucideIcons.receipt, color: c.cta),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(
@@ -460,7 +460,7 @@ Future<void> _showLinkTransactionSheet(
                   .toList(growable: false);
               if (transactions.isEmpty) {
                 return const AppEmptyState(
-                  icon: Icons.link_off_rounded,
+                  icon: AppLucideIcons.unlink,
                   title: 'لا توجد عمليات مناسبة',
                   subtitle: 'كل العمليات المناسبة مرتبطة بالفعل أو غير مؤكدة.',
                 );

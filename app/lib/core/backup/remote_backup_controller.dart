@@ -44,7 +44,8 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
     state = RemoteBackupState.disabled;
   }
 
-  Future<String?> enable({required String passphrase}) => _run<String>(() async {
+  Future<String?> enable({required String passphrase}) =>
+      _run<String>(() async {
         if (!_consentGranted()) {
           state = RemoteBackupState.consentRequired;
           return null;
@@ -80,7 +81,10 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
       });
 
   Future<T?> _run<T>(Future<T?> Function() op) async {
-    if (_busy) return null; // one operation at a time — no duplicate generations
+    // one operation at a time — no duplicate generations
+    if (_busy) {
+      return null;
+    }
     _busy = true;
     try {
       return await op();

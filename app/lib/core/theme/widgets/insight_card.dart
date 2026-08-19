@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_typography.dart';
 import 'mali_card.dart';
+import '../../utils/app_lucide_icons.dart';
 
 /// InsightCard — the one accent-gradient surface per screen (AI insight /
 /// ملخص الأسبوع). Restraint is deliberate: the balance hero and everything
@@ -14,7 +15,7 @@ class InsightCard extends StatelessWidget {
     required this.message,
     this.ctaText,
     this.onTap,
-    this.icon = Icons.auto_awesome,
+    this.icon = AppLucideIcons.sparkles,
   });
 
   /// Small uppercase eyebrow, e.g. "مساعد مالي".
@@ -81,7 +82,7 @@ class InsightCard extends StatelessWidget {
                   children: [
                     Text(ctaText!, style: AppTypography.subhead(onAccent)),
                     const SizedBox(width: 6),
-                    const Icon(Icons.chevron_left_rounded,
+                    const Icon(AppLucideIcons.chevronLeft,
                         color: onAccent, size: 18),
                   ],
                 ),

@@ -113,14 +113,17 @@ class ShaderDisplacementGenerator {
       }
     }
 
-    return ui.ImmutableBuffer.fromUint8List(data).then(
-      (buffer) => ui.ImageDescriptor.raw(
-        buffer,
-        width: w,
-        height: h,
-        pixelFormat: ui.PixelFormat.rgba8888,
-      ).instantiateCodec(),
-    ).then((codec) => codec.getNextFrame()).then((frame) => frame.image);
+    return ui.ImmutableBuffer.fromUint8List(data)
+        .then(
+          (buffer) => ui.ImageDescriptor.raw(
+            buffer,
+            width: w,
+            height: h,
+            pixelFormat: ui.PixelFormat.rgba8888,
+          ).instantiateCodec(),
+        )
+        .then((codec) => codec.getNextFrame())
+        .then((frame) => frame.image);
   }
 
   int getScale() => canvasDPI;

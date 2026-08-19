@@ -9,6 +9,7 @@ import '../common/widgets.dart';
 import 'coupon_models.dart';
 import 'coupon_widgets.dart';
 import 'coupons_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// MALI-COUPONS (Phase C4) — the Offers screen, backed by the real catalog.
 ///
@@ -50,7 +51,8 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
     final c = context.colors;
     final english = Localizations.localeOf(context).languageCode == 'en';
     final coupons = ref.watch(couponsProvider);
-    final categories = ref.watch(couponCategoriesProvider).valueOrNull ?? const [];
+    final categories =
+        ref.watch(couponCategoriesProvider).valueOrNull ?? const [];
     final tags = ref.watch(couponTagsProvider).valueOrNull ?? const [];
 
     return AppScreenScaffold(
@@ -83,7 +85,7 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
             ),
             IconButton(
               onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.close_rounded),
+              icon: const Icon(AppLucideIcons.x),
             ),
           ],
         ),
@@ -101,20 +103,26 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
           _maybeOpenHighlight(offers);
           if (offers.isEmpty) {
             return AppEmptyState(
-              icon: Icons.local_offer_outlined,
+              icon: AppLucideIcons.tag,
               title: l10n.couponsEmptyTitle,
               subtitle: l10n.couponsEmptyBody,
             );
           }
 
           final filtered = offers.where((o) {
-            if (_categoryKey != null && o.category.key != _categoryKey) return false;
-            if (_tagKey != null && !o.tags.any((t) => t.key == _tagKey)) return false;
+            if (_categoryKey != null && o.category.key != _categoryKey) {
+              return false;
+            }
+            if (_tagKey != null && !o.tags.any((t) => t.key == _tagKey)) {
+              return false;
+            }
             return true;
           }).toList(growable: false);
 
-          final featured = filtered.where((o) => o.featured).toList(growable: false);
-          final rest = filtered.where((o) => !o.featured).toList(growable: false);
+          final featured =
+              filtered.where((o) => o.featured).toList(growable: false);
+          final rest =
+              filtered.where((o) => !o.featured).toList(growable: false);
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -137,7 +145,7 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
               const SizedBox(height: AppSpacing.s3),
               if (filtered.isEmpty)
                 AppEmptyState(
-                  icon: Icons.filter_alt_off_outlined,
+                  icon: AppLucideIcons.filterX,
                   title: l10n.couponsFilterEmptyTitle,
                   subtitle: l10n.couponsFilterEmptyBody,
                 )
@@ -215,7 +223,8 @@ class _FilterRow extends StatelessWidget {
               selected: selectedCategory == category.key,
               onTap: () {
                 onTag(null);
-                onCategory(selectedCategory == category.key ? null : category.key);
+                onCategory(
+                    selectedCategory == category.key ? null : category.key);
               },
             ),
           for (final tag in tags.take(8))
@@ -234,7 +243,8 @@ class _FilterRow extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.label, required this.selected, required this.onTap});
+  const _Chip(
+      {required this.label, required this.selected, required this.onTap});
 
   final String label;
   final bool selected;

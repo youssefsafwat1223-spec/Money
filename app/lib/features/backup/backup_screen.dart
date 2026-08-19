@@ -11,6 +11,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class BackupScreen extends ConsumerWidget {
   const BackupScreen({super.key});
@@ -105,7 +106,7 @@ class _GuestBackupGate extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
-        Icon(Icons.person_add_alt_1_outlined, size: 48, color: c.primary),
+        Icon(AppLucideIcons.userPlus, size: 48, color: c.primary),
         const SizedBox(height: AppSpacing.s3),
         Text('أنشئ حسابًا لتفعيل النسخ الاحتياطي',
             style: AppTypography.headline(c.textMain)),
@@ -142,9 +143,7 @@ class _EnabledView extends ConsumerWidget {
         Row(
           children: [
             Icon(
-              state.isProtected
-                  ? Icons.cloud_done_outlined
-                  : Icons.cloud_sync_outlined,
+              state.isProtected ? AppLucideIcons.cloud : AppLucideIcons.cloud,
               color: state.isProtected ? c.success : c.textLight,
             ),
             const SizedBox(width: AppSpacing.s3),
@@ -247,7 +246,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: [
-        Icon(Icons.lock_outline, size: 48, color: c.primary),
+        Icon(AppLucideIcons.lock, size: 48, color: c.primary),
         const SizedBox(height: AppSpacing.s3),
         Text('نسخة مشفّرة لا نقدر نقرأها',
             style: AppTypography.headline(c.textMain)),
@@ -295,7 +294,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.error_outline_rounded, color: c.danger, size: 20),
+                  Icon(AppLucideIcons.alertCircle, color: c.danger, size: 20),
                   const SizedBox(width: AppSpacing.s2),
                   Expanded(
                     child: Text(
@@ -313,12 +312,10 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
             child: FilledButton(
               onPressed: _busy ? null : _generate,
               style: FilledButton.styleFrom(
-                backgroundColor: c.primary,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
               ),
-              child:
-                  Text('متابعة', style: AppTypography.bodyStrong(Colors.white)),
+              child: Text('متابعة', style: AppTypography.bodyStrong(c.onInk)),
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -343,7 +340,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
           OutlinedButton.icon(
             onPressed: () =>
                 Clipboard.setData(ClipboardData(text: _recoveryCode!)),
-            icon: const Icon(Icons.copy, size: 18),
+            icon: const Icon(AppLucideIcons.copy, size: 18),
             label: const Text('نسخ الرمز'),
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -355,7 +352,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
             ),
             child: Row(
               children: [
-                Icon(Icons.warning_amber_rounded, color: c.accent, size: 20),
+                Icon(AppLucideIcons.alertTriangle, color: c.accent, size: 20),
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
                   child: Text(
@@ -387,12 +384,10 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
                     }
                   : null,
               style: FilledButton.styleFrom(
-                backgroundColor: c.primary,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
               ),
-              child:
-                  Text('تفعيل', style: AppTypography.bodyStrong(Colors.white)),
+              child: Text('تفعيل', style: AppTypography.bodyStrong(c.onInk)),
             ),
           ),
         ],
@@ -409,7 +404,7 @@ class _RestoreBackupButton extends StatelessWidget {
     final c = context.colors;
     return OutlinedButton.icon(
       onPressed: () => context.push('/backup/restore'),
-      icon: const Icon(Icons.restore_rounded, size: 18),
+      icon: const Icon(AppLucideIcons.rotateCcw, size: 18),
       label: Text(
         'استعادة من نسخة احتياطية',
         style: AppTypography.bodyStrong(c.primary),

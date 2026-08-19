@@ -17,8 +17,10 @@ import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/finance/money_input.dart';
+import '../../domain/entities/account_entity.dart';
 import '../achievements/achievements_providers.dart';
 import '../budgets/budgets_providers.dart';
+import '../cards/mini_card_art.dart';
 import '../capture/services/captured_message_processor.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../common/category_catalog.dart';
@@ -26,6 +28,7 @@ import '../dashboard/dashboard_providers.dart';
 import '../subscriptions/subscriptions_providers.dart';
 import 'transactions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class ManualTransactionSheet extends ConsumerStatefulWidget {
   const ManualTransactionSheet({
@@ -342,15 +345,15 @@ class _ManualTransactionSheetState
             SegmentOption(
                 value: TransactionTypeEntity.payment,
                 label: 'مصروف',
-                icon: Icons.remove),
+                icon: AppLucideIcons.minus),
             SegmentOption(
                 value: TransactionTypeEntity.income,
                 label: 'دخل',
-                icon: Icons.add),
+                icon: AppLucideIcons.plus),
             SegmentOption(
                 value: TransactionTypeEntity.transfer,
                 label: 'تحويل',
-                icon: Icons.swap_horiz_rounded),
+                icon: AppLucideIcons.arrowLeftRight),
           ],
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -380,14 +383,35 @@ class _ManualTransactionSheetState
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'الحساب',
-                    prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                    prefixIcon: Icon(AppLucideIcons.wallet),
                   ),
                   items: [
                     for (final account in accounts)
                       DropdownMenuItem(
                         value: account.id,
-                        child: Text(
-                          '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // بنك/بطاقة بيتمثّلوا ببطاقة مصغّرة حقيقية بدل
+                            // نص مجرد — نفس لغة صفوف البطاقات.
+                            if (account.type == AccountType.bank ||
+                                account.type == AccountType.card) ...[
+                              MiniCardArt(
+                                width: 36,
+                                themeKey: account.type == AccountType.bank
+                                    ? 'navy'
+                                    : 'graphite',
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Flexible(
+                              child: Text(
+                                '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -408,7 +432,7 @@ class _ManualTransactionSheetState
           value: _categoryKey ?? catalog.byId(_categoryId)?.key,
           decoration: const InputDecoration(
             labelText: 'التصنيف',
-            prefixIcon: Icon(Icons.category_outlined),
+            prefixIcon: Icon(AppLucideIcons.shapes),
           ),
           items: categories
               .map(
@@ -437,13 +461,13 @@ class _ManualTransactionSheetState
           controller: _merchant,
           decoration: const InputDecoration(
             labelText: 'المتجر أو المصدر (اختياري)',
-            prefixIcon: Icon(Icons.storefront_outlined),
+            prefixIcon: Icon(AppLucideIcons.store),
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
         OutlinedButton.icon(
           onPressed: _pickDateTime,
-          icon: const Icon(Icons.calendar_today_outlined),
+          icon: const Icon(AppLucideIcons.calendar),
           label: Text(
             '${_occurredAt.year}/${_occurredAt.month.toString().padLeft(2, '0')}/${_occurredAt.day.toString().padLeft(2, '0')} · ${_occurredAt.hour.toString().padLeft(2, '0')}:${_occurredAt.minute.toString().padLeft(2, '0')}',
           ),
@@ -455,7 +479,7 @@ class _ManualTransactionSheetState
           maxLines: 4,
           decoration: const InputDecoration(
             labelText: 'ملاحظة (اختياري)',
-            prefixIcon: Icon(Icons.notes_outlined),
+            prefixIcon: Icon(AppLucideIcons.fileText),
           ),
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -467,7 +491,7 @@ class _ManualTransactionSheetState
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.check),
+              : const Icon(AppLucideIcons.check),
           label: Text(_isEditing ? 'حفظ التعديلات' : 'إضافة العملية'),
         ),
         if (_isEditing) ...[
@@ -479,8 +503,8 @@ class _ManualTransactionSheetState
                 : _confirmTransaction,
             icon: Icon(
               widget.transaction!.status == TransactionStatus.confirmed
-                  ? Icons.verified_rounded
-                  : Icons.verified_outlined,
+                  ? AppLucideIcons.badgeCheck
+                  : AppLucideIcons.badgeCheck,
             ),
             label: Text(
               widget.transaction!.status == TransactionStatus.confirmed
@@ -491,7 +515,7 @@ class _ManualTransactionSheetState
           const SizedBox(height: AppSpacing.s2),
           OutlinedButton.icon(
             onPressed: _busy ? null : _delete,
-            icon: Icon(Icons.delete_outline, color: c.danger),
+            icon: Icon(AppLucideIcons.trash2, color: c.danger),
             label: Text('حذف العملية', style: TextStyle(color: c.danger)),
             style: OutlinedButton.styleFrom(
               side: BorderSide(color: c.danger),

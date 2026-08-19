@@ -11,6 +11,7 @@ import '../../settings/settings_providers.dart';
 import '../providers/report_providers.dart';
 import '../services/report_generation_controller.dart';
 import 'report_preview_screen.dart';
+import '../../../core/utils/app_lucide_icons.dart';
 
 enum _PeriodKind { weekly, monthly, yearly, custom }
 
@@ -92,7 +93,8 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
   @override
   Widget build(BuildContext context) {
     final isAr = Localizations.localeOf(context).languageCode != 'en';
-    final accounts = ref.watch(accountsProvider).valueOrNull ?? const <AccountEntity>[];
+    final accounts =
+        ref.watch(accountsProvider).valueOrNull ?? const <AccountEntity>[];
     final canGenerate = _period != _PeriodKind.custom || _customRange != null;
 
     return Padding(
@@ -110,7 +112,6 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
             Text(_t(isAr, 'إنشاء تقرير مالي', 'Create financial report'),
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
-
             _label(isAr, 'الفترة', 'Period'),
             Wrap(
               spacing: 8,
@@ -125,7 +126,7 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.date_range, size: 18),
+                  icon: const Icon(AppLucideIcons.calendarRange, size: 18),
                   label: Text(_customRange == null
                       ? _t(isAr, 'اختر المدى', 'Pick a range')
                       : '${_customRange!.start.toString().split(' ').first}'
@@ -143,7 +144,6 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
                 ),
               ),
             const SizedBox(height: 16),
-
             _label(isAr, 'الحسابات', 'Accounts'),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -162,7 +162,6 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
                 onChanged: (v) => setState(() => _accountId = v),
               ),
             const SizedBox(height: 12),
-
             _label(isAr, 'اللغة', 'Language'),
             SegmentedButton<String>(
               segments: const <ButtonSegment<String>>[
@@ -173,23 +172,23 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
               onSelectionChanged: (s) => setState(() => _lang = s.first),
             ),
             const SizedBox(height: 8),
-
             _switch(isAr, 'تفاصيل العمليات', 'Transaction details', _details,
                 (v) => _details = v),
             _switch(isAr, 'أسماء المتاجر', 'Merchant names', _merchants,
                 (v) => _merchants = v),
             _switch(isAr, 'أسماء الحسابات', 'Account names', _accounts,
                 (v) => _accounts = v),
-            _switch(isAr, 'الأرصدة', 'Balances', _balances, (v) => _balances = v),
-            _switch(isAr, 'الملاحظات', 'Insights', _insights, (v) => _insights = v),
+            _switch(
+                isAr, 'الأرصدة', 'Balances', _balances, (v) => _balances = v),
+            _switch(
+                isAr, 'الملاحظات', 'Insights', _insights, (v) => _insights = v),
             _switch(isAr, 'وضع الخصوصية (إخفاء المبالغ)',
                 'Privacy mode (mask amounts)', _privacy, (v) => _privacy = v),
-
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                icon: const Icon(Icons.picture_as_pdf, size: 18),
+                icon: const Icon(AppLucideIcons.fileText, size: 18),
                 label: Text(_t(isAr, 'إنشاء التقرير', 'Generate report')),
                 onPressed: canGenerate
                     ? () => Navigator.of(context).pop(_buildRequest())
@@ -243,8 +242,8 @@ Future<void> runReportGeneration(
   showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (dialogContext) => _ProgressDialog(
-        progress: progress, cancel: cancel, isAr: isAr),
+    builder: (dialogContext) =>
+        _ProgressDialog(progress: progress, cancel: cancel, isAr: isAr),
   );
 
   try {
@@ -267,8 +266,8 @@ Future<void> runReportGeneration(
     if (!context.mounted) return;
     Navigator.of(context).pop(); // dismiss progress
     if (e.kind == ReportErrorKind.cancelled) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_errorText(e.kind, isAr))));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(_errorText(e.kind, isAr))));
   } finally {
     progress.dispose();
   }

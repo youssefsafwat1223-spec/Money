@@ -24,6 +24,7 @@ import '../transactions/transactions_screen.dart'
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 import '../common/top_banner.dart';
 import 'manual_paste_splitter.dart';
+import '../common/app_header.dart';
 
 class ManualPasteScreen extends ConsumerStatefulWidget {
   const ManualPasteScreen({super.key, this.onTransactionAdded});
@@ -94,7 +95,7 @@ class _ManualPasteSheet extends StatelessWidget {
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close),
+                        icon: const Icon(AppLucideIcons.x),
                         style: IconButton.styleFrom(
                           backgroundColor: c.surface.withValues(alpha: 0.4),
                         ),
@@ -450,7 +451,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     );
     if (!widget.fullScreen) return content;
     return Scaffold(
-      appBar: AppBar(title: const Text('ألصق رسالة البنك')),
+      appBar: const AppHeader(title: 'ألصق رسالة البنك'),
       body: content,
     );
   }
@@ -570,7 +571,7 @@ class _BatchProgressCard extends StatelessWidget {
           Row(
             children: [
               Icon(
-                busy ? Icons.auto_awesome_rounded : Icons.done_all_rounded,
+                busy ? AppLucideIcons.sparkles : AppLucideIcons.checkCheck,
                 color: busy ? c.cta : c.success,
                 size: 18,
               ),
@@ -692,7 +693,7 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
                             color: c.success.withValues(alpha: 0.12),
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(Icons.done_all_rounded,
+                          child: Icon(AppLucideIcons.checkCheck,
                               color: c.success, size: 22),
                         ),
                         const SizedBox(width: AppSpacing.s3),

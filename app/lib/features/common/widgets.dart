@@ -4,8 +4,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
+import 'app_avatar.dart';
 import 'category_catalog.dart';
-import 'category_avatar.dart';
 import 'transaction_direction.dart';
 
 export 'app_error_state.dart';
@@ -23,7 +23,7 @@ export 'app_screen_scaffold.dart';
 export 'app_sheet_scaffold.dart';
 export 'app_status_pill.dart';
 export 'app_transaction_row.dart';
-export 'category_avatar.dart';
+export 'app_avatar.dart';
 export 'charts/spending_charts.dart';
 export 'section_hero_header.dart';
 export 'section_header.dart';
@@ -72,10 +72,9 @@ class TransactionRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                CategoryAvatar(
+                AppAvatar.category(
                   merchantName: transaction.rawMerchant,
                   category: category,
-                  size: 44,
                 ),
                 const SizedBox(width: 12),
                 Expanded(

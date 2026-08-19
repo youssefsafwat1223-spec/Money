@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../data/db/planning_cutover.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// MALI-026 (Phase-8 B8-2.10 §3) — the planning navigation repair gate.
 ///
@@ -45,7 +46,7 @@ class PlanningRepairRequiredView extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.lock_clock_outlined, size: 48),
+                  const Icon(AppLucideIcons.lock, size: 48),
                   const SizedBox(height: 16),
                   const Text(
                     'التخطيط غير متاح مؤقتاً',

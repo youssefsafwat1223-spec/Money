@@ -4,6 +4,7 @@ import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/core/theme/widgets/calm_chip.dart';
 import 'package:money_companion/core/theme/widgets/calm_page_header.dart';
 import 'package:money_companion/core/theme/widgets/glass_selector.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 
 Widget _host(Widget child, {ThemeData? theme}) => MaterialApp(
       theme: theme ?? AppTheme.light,
@@ -11,7 +12,8 @@ Widget _host(Widget child, {ThemeData? theme}) => MaterialApp(
     );
 
 void main() {
-  testWidgets('CalmPageHeader renders title, subtitle, amount + currency, '
+  testWidgets(
+      'CalmPageHeader renders title, subtitle, amount + currency, '
       'and the metric strip', (tester) async {
     await tester.pumpWidget(_host(const CalmPageHeader(
       title: 'العمليات',
@@ -34,8 +36,8 @@ void main() {
 
   testWidgets('CalmPageHeader works with title only (no amount/metrics)',
       (tester) async {
-    await tester
-        .pumpWidget(_host(const CalmPageHeader(title: 'الإعدادات', topInset: 0)));
+    await tester.pumpWidget(
+        _host(const CalmPageHeader(title: 'الإعدادات', topInset: 0)));
     expect(find.text('الإعدادات'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -54,7 +56,7 @@ void main() {
   testWidgets('GlassSelector shows its label and is tappable', (tester) async {
     var tapped = false;
     await tester.pumpWidget(_host(GlassSelector(
-      icon: Icons.calendar_month_rounded,
+      icon: AppLucideIcons.calendarDays,
       label: 'هذا الشهر',
       onTap: () => tapped = true,
     )));
@@ -65,7 +67,8 @@ void main() {
 
   testWidgets('shared components render on the dark theme', (tester) async {
     await tester.pumpWidget(_host(
-      const CalmPageHeader(title: 'التقارير', amount: '1,200', currency: 'ريال', topInset: 0),
+      const CalmPageHeader(
+          title: 'التقارير', amount: '1,200', currency: 'ريال', topInset: 0),
       theme: AppTheme.dark,
     ));
     expect(find.text('التقارير'), findsOneWidget);

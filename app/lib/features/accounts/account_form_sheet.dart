@@ -17,6 +17,7 @@ import '../../domain/finance/money_input.dart';
 import '../../domain/usecases/account_deletion.dart';
 import 'account_deletion_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 String accountTypeLabel(AccountType type) => switch (type) {
       AccountType.cash => 'نقدي',
@@ -27,10 +28,10 @@ String accountTypeLabel(AccountType type) => switch (type) {
     };
 
 IconData accountTypeIcon(AccountType type) => switch (type) {
-      AccountType.cash => Icons.payments_outlined,
-      AccountType.bank => Icons.account_balance_outlined,
-      AccountType.wallet => Icons.account_balance_wallet_outlined,
-      AccountType.card => Icons.credit_card_outlined,
+      AccountType.cash => AppLucideIcons.banknote,
+      AccountType.bank => AppLucideIcons.landmark,
+      AccountType.wallet => AppLucideIcons.wallet,
+      AccountType.card => AppLucideIcons.creditCard,
     };
 
 /// مزوّدو المحافظ الإلكترونية الشائعون (key → label).
@@ -447,23 +448,22 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
               key: const ValueKey('account-save-button'),
               onPressed: _busy ? null : _save,
               style: FilledButton.styleFrom(
-                backgroundColor: c.primary,
                 minimumSize: const Size.fromHeight(52),
               ),
               child: _busy
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 22,
                       height: 22,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.white))
+                          strokeWidth: 2.5, color: c.onInk))
                   : Text(editing ? 'حفظ' : 'إضافة',
-                      style: AppTypography.bodyStrong(Colors.white)),
+                      style: AppTypography.bodyStrong(c.onInk)),
             ),
             if (editing && !widget.account!.isDefault) ...[
               const SizedBox(height: AppSpacing.s2),
               TextButton.icon(
                 onPressed: _busy ? null : _delete,
-                icon: Icon(Icons.delete_outline, color: c.danger),
+                icon: Icon(AppLucideIcons.trash2, color: c.danger),
                 label: Text('حذف الحساب', style: AppTypography.body(c.danger)),
               ),
             ],
@@ -600,8 +600,12 @@ class _AdvancedSection extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.s2),
             child: Row(
               children: [
-                Icon(open ? Icons.expand_less : Icons.expand_more,
-                    color: c.textLight, size: 20),
+                Icon(
+                    open
+                        ? AppLucideIcons.chevronUp
+                        : AppLucideIcons.chevronDown,
+                    color: c.textLight,
+                    size: 20),
                 const SizedBox(width: 6),
                 Text('خيارات متقدمة', style: AppTypography.body(c.textMain)),
               ],

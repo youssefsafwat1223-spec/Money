@@ -14,6 +14,7 @@ import '../../engine/parser/card_network.dart';
 import 'card_network_badge.dart';
 import 'card_theme.dart';
 import 'cards_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// شيت إضافة/تعديل بطاقة. [accountId] اختياري: مرَّره لربط مبدئي بحساب، أو
 /// اتركه null للإضافة من صفحة البطاقات (يختار المستخدم الحساب أو «بدون»).
@@ -276,23 +277,22 @@ class _CardFormState extends ConsumerState<_CardForm> {
             FilledButton(
               onPressed: _busy ? null : _save,
               style: FilledButton.styleFrom(
-                backgroundColor: c.primary,
                 minimumSize: const Size.fromHeight(52),
               ),
               child: _busy
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 22,
                       height: 22,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.white))
+                          strokeWidth: 2.5, color: c.onInk))
                   : Text(editing ? 'حفظ' : 'إضافة',
-                      style: AppTypography.bodyStrong(Colors.white)),
+                      style: AppTypography.bodyStrong(c.onInk)),
             ),
             if (editing) ...[
               const SizedBox(height: AppSpacing.s2),
               TextButton.icon(
                 onPressed: _busy ? null : _delete,
-                icon: Icon(Icons.delete_outline, color: c.danger),
+                icon: Icon(AppLucideIcons.trash2, color: c.danger),
                 label: Text('حذف البطاقة', style: AppTypography.body(c.danger)),
               ),
             ],
@@ -325,7 +325,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
         children: [
           Row(
             children: [
-              Icon(Icons.contactless,
+              Icon(AppLucideIcons.wifi,
                   color: Colors.white.withValues(alpha: 0.85), size: 20),
               const Spacer(),
               CardNetworkBadge(network: _network),
@@ -399,7 +399,8 @@ class _CardFormState extends ConsumerState<_CardForm> {
               ),
             ),
             child: selected
-                ? const Icon(Icons.check, color: Colors.white, size: 18)
+                ? const Icon(AppLucideIcons.check,
+                    color: Colors.white, size: 18)
                 : null,
           ),
           const SizedBox(height: 4),
@@ -427,7 +428,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
               width: _accentHex == null ? 2.5 : 1,
             ),
           ),
-          child: Icon(Icons.block, size: 16, color: c.textLight),
+          child: Icon(AppLucideIcons.ban, size: 16, color: c.textLight),
         ),
       ),
       for (final hex in kCardAccentSwatches)
@@ -445,7 +446,8 @@ class _CardFormState extends ConsumerState<_CardForm> {
               ),
             ),
             child: _accentHex == hex
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
+                ? const Icon(AppLucideIcons.check,
+                    color: Colors.white, size: 16)
                 : null,
           ),
         ),

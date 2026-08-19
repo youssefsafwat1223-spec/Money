@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_colors.dart';
 import '../app_typography.dart';
 import '../mali_tokens.dart';
 
@@ -13,8 +14,8 @@ class SegmentOption<T> {
 }
 
 /// SegmentedControl — a calm pill selector (add-sheet type, report tabs). The
-/// selected segment lifts on [MaliTokens.surfaceFloating] (or the accent
-/// gradient when [accent] is set). Pure presentation + a callback.
+/// selected segment lifts on [MaliTokens.surfaceFloating] (or the solid ink
+/// surface when [accent] is set). Pure presentation + a callback.
 class SegmentedControl<T> extends StatelessWidget {
   const SegmentedControl({
     super.key,
@@ -32,6 +33,12 @@ class SegmentedControl<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = MaliTokens.of(context);
+    final c = context.colors;
+    Color fg(T v) {
+      if (value == v) return accent ? c.onInk : t.textOnCanvasPrimary;
+      return t.textOnCanvasSecondary;
+    }
+
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -50,12 +57,9 @@ class SegmentedControl<T> extends StatelessWidget {
                   curve: Curves.easeOut,
                   padding: const EdgeInsets.symmetric(vertical: 11),
                   decoration: BoxDecoration(
-                    color: value == o.value && !accent
-                        ? t.surfaceFloating
+                    color: value == o.value
+                        ? (accent ? c.ink : t.surfaceFloating)
                         : Colors.transparent,
-                    gradient: value == o.value && accent
-                        ? MaliTokens.accentGradient
-                        : null,
                     borderRadius: BorderRadius.circular(11),
                   ),
                   child: Row(
@@ -65,7 +69,7 @@ class SegmentedControl<T> extends StatelessWidget {
                         Icon(
                           o.icon,
                           size: 16,
-                          color: _fg(t, o.value),
+                          color: fg(o.value),
                         ),
                         const SizedBox(width: 6),
                       ],
@@ -74,7 +78,7 @@ class SegmentedControl<T> extends StatelessWidget {
                           o.label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppTypography.subhead(_fg(t, o.value)),
+                          style: AppTypography.subhead(fg(o.value)),
                         ),
                       ),
                     ],
@@ -85,12 +89,5 @@ class SegmentedControl<T> extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Color _fg(MaliTokens t, T v) {
-    if (value == v) {
-      return accent ? Colors.white : t.textOnCanvasPrimary;
-    }
-    return t.textOnCanvasSecondary;
   }
 }

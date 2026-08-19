@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/entities/account_entity.dart';
 import '../../domain/usecases/account_deletion.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// MALI-016 — the dependency-aware account-deletion confirmation.
 ///
@@ -155,7 +156,7 @@ class _SummaryLine extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
           children: [
-            const Icon(Icons.chevron_left, size: 18),
+            const Icon(AppLucideIcons.chevronLeft, size: 18),
             const SizedBox(width: 4),
             Expanded(child: Text(text)),
           ],

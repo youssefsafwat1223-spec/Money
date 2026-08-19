@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/backup/planning_restore_preflight.dart';
 import '../../data/db/planning_currency_repair.dart' show PlanningRepairMode;
 import '../../domain/finance/currency_scale.dart';
+import '../common/app_header.dart';
 
 /// MALI-026 (Phase-8 B8-2.10 §6) — the RESTORE_PAYLOAD-scoped currency repair UX.
 ///
@@ -88,7 +89,7 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         key: const Key('restore_payload_repair_view'),
-        appBar: AppBar(title: const Text('عملة بيانات النسخة الاحتياطية')),
+        appBar: const AppHeader(title: 'عملة بيانات النسخة الاحتياطية'),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [

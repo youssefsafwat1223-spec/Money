@@ -15,9 +15,12 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../common/app_button.dart';
 import '../common/category_catalog.dart';
 import 'budgets_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../common/app_header.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -54,9 +57,8 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title:
-            Text(widget.budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية'),
+      appBar: AppHeader(
+        title: widget.budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية',
       ),
       body: _BudgetFormContent(budgetId: widget.budgetId, fullScreen: true),
     );
@@ -102,7 +104,7 @@ class _BudgetFormSheet extends StatelessWidget {
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        icon: Icon(Icons.close_rounded, color: c.textMain),
+                        icon: Icon(AppLucideIcons.x, color: c.textMain),
                         style: IconButton.styleFrom(
                           backgroundColor: c.surface.withValues(alpha: 0.4),
                         ),
@@ -334,36 +336,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                   ],
                   const SizedBox(height: AppSpacing.s4),
                   const SizedBox(height: AppSpacing.s5),
-                  SizedBox(
+                  // زر النظام الأسود (ink) — بدل التدرّج الأزرق القديم.
+                  AppPrimaryButton(
+                    label: 'حفظ الميزانية',
+                    onTap: () => _submit(budget),
+                    loading: _saving,
                     height: 52,
-                    width: double.infinity,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: c.primaryGradient,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: c.primary.withValues(alpha: 0.25),
-                            blurRadius: 15,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: ElevatedButton(
-                        onPressed: _saving ? null : () => _submit(budget),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        child: Text(
-                          'حفظ الميزانية',
-                          style: _alex(15, FontWeight.w700, 1.2, Colors.white),
-                        ),
-                      ),
-                    ),
                   ),
                   if (budget != null) ...[
                     const SizedBox(height: AppSpacing.s3),
@@ -631,7 +609,7 @@ class _BudgetSuggestionCard extends StatelessWidget {
                     padding: EdgeInsets.all(10),
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Icon(Icons.auto_awesome_outlined, color: c.primary),
+                : Icon(AppLucideIcons.sparkles, color: c.primary),
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(

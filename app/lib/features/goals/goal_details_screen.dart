@@ -21,6 +21,7 @@ import '../dashboard/dashboard_providers.dart';
 import 'goal_form_screen.dart';
 import 'goals_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class GoalDetailsScreen extends ConsumerWidget {
   const GoalDetailsScreen({super.key, required this.goalId});
@@ -45,7 +46,7 @@ class GoalDetailsScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddContributionSheet(context, ref, goalId),
         label: const Text('أضف للهدف'),
-        icon: const Icon(Icons.add),
+        icon: const Icon(AppLucideIcons.plus),
       ),
     );
   }
@@ -97,7 +98,7 @@ class _GoalDetailsSheet extends StatelessWidget {
                         const Spacer(),
                         IconButton(
                           onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
+                          icon: const Icon(AppLucideIcons.x),
                           style: IconButton.styleFrom(
                             backgroundColor: c.surface.withValues(alpha: 0.4),
                           ),
@@ -190,10 +191,9 @@ class _GoalDetailsContent extends ConsumerWidget {
                       child: FilledButton.icon(
                         onPressed: () =>
                             _showAddContributionSheet(context, ref, goalId),
-                        icon: const Icon(Icons.add),
+                        icon: const Icon(AppLucideIcons.plus),
                         label: const Text('أضف للهدف'),
                         style: FilledButton.styleFrom(
-                          backgroundColor: c.primary,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -210,7 +210,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                           context,
                           goal: data.goal,
                         ),
-                        icon: const Icon(Icons.edit_outlined),
+                        icon: const Icon(AppLucideIcons.pencil),
                         label: const Text('تعديل'),
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(color: c.border),
@@ -234,7 +234,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                icon: const Icon(Icons.delete_outline),
+                icon: const Icon(AppLucideIcons.trash2),
                 label: const Text('حذف الهدف'),
               ),
             ],
@@ -404,7 +404,7 @@ Future<void> _showAddContributionSheet(
                             const Spacer(),
                             IconButton(
                               onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.close),
+                              icon: const Icon(AppLucideIcons.x),
                               style: IconButton.styleFrom(
                                 backgroundColor:
                                     c.surface.withValues(alpha: 0.4),
@@ -472,23 +472,21 @@ Future<void> _showAddContributionSheet(
                         child: FilledButton(
                           onPressed: saving ? null : saveContribution,
                           style: FilledButton.styleFrom(
-                            backgroundColor: c.primary,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
                           ),
                           child: saving
-                              ? const SizedBox(
+                              ? SizedBox(
                                   width: 22,
                                   height: 22,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.5,
-                                    color: Colors.white,
+                                    color: c.onInk,
                                   ),
                                 )
                               : Text('حفظ المساهمة',
-                                  style:
-                                      AppTypography.bodyStrong(Colors.white)),
+                                  style: AppTypography.bodyStrong(c.onInk)),
                         ),
                       ),
                     ],

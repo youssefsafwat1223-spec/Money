@@ -10,6 +10,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/l10n_ext.dart';
 import 'widgets/premium_ui.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -49,75 +50,75 @@ class IosShortcutGuide extends StatelessWidget {
         const _ShortcutStep(
             'Open Shortcuts app',
             'Go to Shortcuts then Automation tab at the bottom.',
-            Icons.auto_awesome_motion_rounded),
+            AppLucideIcons.layers),
         const _ShortcutStep(
             'Create new Automation',
             'Press New Automation or +, then select Message.',
-            Icons.add_circle_outline_rounded),
+            AppLucideIcons.plusCircle),
         _ShortcutStep(
             'Select bank messages',
             'In Message Contents type currency code e.g. $currencyCode, repeat later for additional currencies.',
-            Icons.filter_alt_outlined),
+            AppLucideIcons.filter),
         const _ShortcutStep(
             'Run Immediately',
             'Select Run Immediately. If Notify When Run appears, turn it off, then press Next.',
-            Icons.bolt_rounded),
+            AppLucideIcons.zap),
         const _ShortcutStep(
             'Choose Qirsh Shortcut',
             'Press New Blank Automation, and search for Process Bank SMS.',
-            Icons.send_rounded),
+            AppLucideIcons.send),
         const _ShortcutStep(
             'Pass message text',
             'The action should show SMS Text. Set SMS Text to Shortcut Input. '
                 'Also expand the action and set Date Received to the '
                 'message\'s received date — it prevents duplicate imports '
                 'when the automation runs twice for the same SMS.',
-            Icons.text_snippet_outlined),
+            AppLucideIcons.fileText),
         const _ShortcutStep(
             'Match the final shape',
             'It should be: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input. Open action details and turn off Show When Run if visible.',
-            Icons.volume_off_rounded),
+            AppLucideIcons.volumeX),
         const _ShortcutStep(
             'Save shortcut',
             'Press Done. Then any matching bank message will be converted to a transaction inside Qirsh.',
-            Icons.check_circle_outline_rounded),
+            AppLucideIcons.checkCircle),
       ];
     }
     return [
       const _ShortcutStep(
           'افتح تطبيق الاختصارات',
           'ادخل على Shortcuts ثم تبويب Automation من الأسفل.',
-          Icons.auto_awesome_motion_rounded),
+          AppLucideIcons.layers),
       const _ShortcutStep(
           'أنشئ Automation جديد',
           'اضغط New Automation أو علامة +، ثم اختر Message.',
-          Icons.add_circle_outline_rounded),
+          AppLucideIcons.plusCircle),
       _ShortcutStep(
           'حدّد رسائل البنك',
           'في Message Contents اكتب رمز العملة مثل $currencyCode، وكرّر لاحقاً لأي عملة إضافية.',
-          Icons.filter_alt_outlined),
+          AppLucideIcons.filter),
       const _ShortcutStep(
           'خلّيه يعمل فوراً',
           'اختَر Run Immediately. لو ظهر Notify When Run اقفله، ثم اضغط Next.',
-          Icons.bolt_rounded),
+          AppLucideIcons.zap),
       const _ShortcutStep(
           'اختَر اختصار قرش',
           'اضغط New Blank Automation، وابحث عن Process Bank SMS.',
-          Icons.send_rounded),
+          AppLucideIcons.send),
       const _ShortcutStep(
           'مرّر نص الرسالة',
           'لازم يظهر حقل SMS Text. اختَر له Shortcut Input. '
               'وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام '
               'الرسالة — يمنع تكرار العملية لو اشتغل الأتمتة مرتين لنفس الرسالة.',
-          Icons.text_snippet_outlined),
+          AppLucideIcons.fileText),
       const _ShortcutStep(
           'طابق الشكل النهائي',
           'لازم يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input. افتح تفاصيل الأكشن واقفل Show When Run لو ظهر.',
-          Icons.volume_off_rounded),
+          AppLucideIcons.volumeX),
       const _ShortcutStep(
           'احفظ الاختصار',
           'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل قرش.',
-          Icons.check_circle_outline_rounded),
+          AppLucideIcons.checkCircle),
     ];
   }
 
@@ -267,7 +268,7 @@ class _IosShortcutSheet extends ConsumerWidget {
                     ),
                   ),
                   child: const Icon(
-                    Icons.ios_share_rounded,
+                    AppLucideIcons.share,
                     color: Colors.white,
                     size: 30,
                   ),

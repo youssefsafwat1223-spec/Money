@@ -34,6 +34,10 @@ class AppSpacing {
   static const double sheetTopGap = s3; // 12 (was 16)
 
   // Component density tokens (Compact UI system).
+  static const double avatar =
+      40; // standard avatar / leading tile (hero, rows)
+  static const double avatarSm = 32; // compact avatar (dense chips, sub-rows)
+  static const double avatarLg = 56; // hero / detail-screen tile
   static const double headerTopInset = 44; // CalmPageHeader top (was 64)
   static const double rowPaddingV =
       11; // list-row vertical padding (≈ 58–62px row)

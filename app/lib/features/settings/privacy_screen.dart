@@ -16,6 +16,7 @@ import '../../domain/errors/repo_exceptions.dart';
 import '../onboarding/widgets/neon_illustration.dart';
 import 'settings_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
@@ -40,23 +41,23 @@ class PrivacyScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.s4),
                 const Center(
                   child: NeonIllustration(
-                    icon: Icons.shield_rounded,
+                    icon: AppLucideIcons.shield,
                     size: 140,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s6),
                 _PrivacyCard(
-                  icon: Icons.description_outlined,
+                  icon: AppLucideIcons.fileText,
                   title: 'سياسة الخصوصية',
                   onTap: () => _openExternalLink(context, _privacyPolicyUrl),
                 ),
                 _PrivacyCard(
-                  icon: Icons.gavel_outlined,
+                  icon: AppLucideIcons.gavel,
                   title: 'الشروط والأحكام',
                   onTap: () => _openExternalLink(context, _termsUrl),
                 ),
                 _PrivacyCard(
-                  icon: Icons.swap_vert_circle_outlined,
+                  icon: AppLucideIcons.arrowUpDown,
                   title: 'نقل واستيراد بياناتي',
                   onTap: () => context.push('/data-transfer'),
                 ),
@@ -68,7 +69,7 @@ class PrivacyScreen extends ConsumerWidget {
                       data: (settings) => Column(
                         children: [
                           _ConsentSwitchCard(
-                            icon: Icons.cloud_outlined,
+                            icon: AppLucideIcons.cloud,
                             title: 'المعالجة السحابية والمزامنة',
                             subtitle:
                                 'رفع رسائل البنك الملتقطة ومزامنة بياناتك مع خوادمنا. '
@@ -86,7 +87,7 @@ class PrivacyScreen extends ConsumerWidget {
                             ),
                           ),
                           _ConsentSwitchCard(
-                            icon: Icons.auto_awesome_outlined,
+                            icon: AppLucideIcons.sparkles,
                             title: 'التحليل بالذكاء الاصطناعي',
                             subtitle:
                                 'استخدام نماذج ذكاء اصطناعي سحابية لفهم الرسائل غير المألوفة وتصنيفها. '
@@ -120,7 +121,7 @@ class PrivacyScreen extends ConsumerWidget {
                     ),
                 const SizedBox(height: AppSpacing.s2),
                 _PrivacyCard(
-                  icon: Icons.delete_outline,
+                  icon: AppLucideIcons.trash2,
                   title: 'حذف الحساب وكل بياناتي',
                   onTap: () => _confirmDelete(context, ref),
                   danger: true,
@@ -417,7 +418,7 @@ class _PrivacyCard extends StatelessWidget {
             title,
             style: AppTypography.bodyStrong(danger ? c.danger : c.textMain),
           ),
-          trailing: Icon(Icons.chevron_left_rounded, color: c.textMuted),
+          trailing: Icon(AppLucideIcons.chevronLeft, color: c.textMuted),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           onTap: onTap,

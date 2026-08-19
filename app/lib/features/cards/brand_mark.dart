@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../engine/parser/payment_aggregators.dart';
+import '../common/app_avatar.dart';
 import '../settings/settings_providers.dart';
 
 /// MALI-071n — whether merchant logos may be fetched from a third party.
@@ -98,7 +99,8 @@ class BrandMark extends ConsumerWidget {
   static void registerAssetSlugs(Iterable<String> slugs) {
     _assetSlugs = slugs.map((s) => s.toLowerCase()).toList()
       ..sort((a, b) => b.length.compareTo(a.length));
-    _stableCache.clear(); // asset slugs feed _resolveSlug → invalidate the index
+    _stableCache
+        .clear(); // asset slugs feed _resolveSlug → invalidate the index
   }
 
   // B2-C — the brand catalogs (`_brandSvgs`, `_assetSlugs`, `_merchantDomains`,
@@ -439,9 +441,9 @@ class BrandMark extends ConsumerWidget {
       width: size,
       height: size,
       padding: EdgeInsets.all(size * 0.18),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(size * 0.28),
+        shape: AppAvatar.shapeFor(size),
       ),
       child: SvgPicture.asset(
         'assets/brands/$slug.svg',
@@ -456,9 +458,9 @@ class BrandMark extends ConsumerWidget {
       width: size,
       height: size,
       padding: EdgeInsets.all(size * 0.14),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(size * 0.28),
+        shape: AppAvatar.shapeFor(size),
       ),
       child: Image.network(
         url,
@@ -483,9 +485,9 @@ class BrandMark extends ConsumerWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(size * 0.28),
+        shape: AppAvatar.shapeFor(size),
       ),
       alignment: Alignment.center,
       child: Text(

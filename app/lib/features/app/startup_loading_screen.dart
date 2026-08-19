@@ -148,10 +148,9 @@ class _ErrorBody extends StatelessWidget {
           width: double.infinity,
           child: FilledButton(
             onPressed: onRetry,
+            // سطح ink الموحّد من الثيم (كان primary الكحلي القديم).
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
-              backgroundColor: c.primary,
-              foregroundColor: Colors.white,
             ),
             child: const Text('إعادة المحاولة'),
           ),

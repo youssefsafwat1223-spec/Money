@@ -15,7 +15,8 @@ abstract class LedgerPushAdapter {
 abstract class LedgerPullAdapter {
   /// [from]/[isAdmitted] support a Batch-3 in-slot legacy epoch reconciliation
   /// pull; normal callers pass neither and get today's incremental behaviour.
-  Future<LedgerSyncResult> pull({SyncCursor? from, bool Function()? isAdmitted});
+  Future<LedgerSyncResult> pull(
+      {SyncCursor? from, bool Function()? isAdmitted});
 }
 
 /// Coordinates push → pull in a single call.

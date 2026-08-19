@@ -72,13 +72,12 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
       return;
     }
     setState(() => _busy = true);
-    final outcome = await ref
-        .read(planningServerCurrencyRepairServiceProvider)
-        .resolve(
-          entityType: widget.item.entityType,
-          serverId: widget.item.serverId,
-          currency: code,
-        );
+    final outcome =
+        await ref.read(planningServerCurrencyRepairServiceProvider).resolve(
+              entityType: widget.item.entityType,
+              serverId: widget.item.serverId,
+              currency: code,
+            );
     if (!mounted) return;
     setState(() => _busy = false);
     final ok = outcome == PlanningRepairOutcome.resolved ||

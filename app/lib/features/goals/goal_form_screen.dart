@@ -15,10 +15,13 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../common/app_button.dart';
 import '../budgets/budgets_providers.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'goals_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../common/app_header.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -54,8 +57,8 @@ class GoalFormScreen extends ConsumerStatefulWidget {
 class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: Text(widget.goal == null ? 'هدف جديد' : 'تعديل الهدف'),
+        appBar: AppHeader(
+          title: widget.goal == null ? 'هدف جديد' : 'تعديل الهدف',
         ),
         body: _GoalFormContent(
           fullScreen: true,
@@ -103,7 +106,7 @@ class _GoalFormSheet extends StatelessWidget {
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        icon: Icon(Icons.close_rounded, color: c.textMain),
+                        icon: Icon(AppLucideIcons.x, color: c.textMain),
                         style: IconButton.styleFrom(
                           backgroundColor: c.surface.withValues(alpha: 0.4),
                         ),
@@ -255,8 +258,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                       : Formatters.fullDate(_deadline!, context),
                   style: _alex(12, FontWeight.w500, 1.2, c.textLight),
                 ),
-                trailing: Icon(Icons.calendar_today_outlined,
-                    color: c.textLight, size: 20),
+                trailing:
+                    Icon(AppLucideIcons.calendar, color: c.textLight, size: 20),
                 onTap: _pickDeadline,
               ),
             ),
@@ -276,8 +279,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               children: [
                 Icon(
                   recommended == null
-                      ? Icons.info_outline_rounded
-                      : Icons.lightbulb_outline_rounded,
+                      ? AppLucideIcons.info
+                      : AppLucideIcons.lightbulb,
                   color: recommended == null ? c.primary : c.success,
                   size: 18,
                 ),
@@ -376,44 +379,12 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
             ),
           ),
           const SizedBox(height: AppSpacing.s5),
-          SizedBox(
+          // زر النظام الأسود (ink) — بدل التدرّج الأزرق القديم بظلّه الكحلي.
+          AppPrimaryButton(
+            label: widget.goal == null ? 'أنشئ الهدف' : 'حفظ التعديل',
+            onTap: _submit,
+            loading: _saving,
             height: 52,
-            width: double.infinity,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: c.primaryGradient,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: c.primary.withValues(alpha: 0.25),
-                    blurRadius: 15,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: _saving ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: _saving
-                    ? const SizedBox.square(
-                        dimension: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text(
-                        widget.goal == null ? 'أنشئ الهدف' : 'حفظ التعديل',
-                        style: _alex(15, FontWeight.w700, 1.2, Colors.white),
-                      ),
-              ),
-            ),
           ),
         ],
       ),

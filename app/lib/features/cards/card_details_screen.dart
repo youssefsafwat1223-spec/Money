@@ -16,6 +16,7 @@ import '../../engine/parser/card_network.dart';
 import 'card_network_badge.dart';
 import 'card_theme.dart';
 import 'cards_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// شاشة تفاصيل البطاقة (بآخر 4 أرقام): بطاقة مُشتقّة من العمليات، تُفتح عبر
 /// المسار `/card/:last4`. كانت سابقًا bottom sheet زجاجية بارتفاع 86% —
@@ -149,7 +150,7 @@ class _CardHeader extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.contactless,
+              Icon(AppLucideIcons.wifi,
                   color: Colors.white.withValues(alpha: 0.8)),
               const Spacer(),
               CardNetworkBadge(network: network, height: 26),

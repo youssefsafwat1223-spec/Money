@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// Shows a dismissible error message as a banner pinned to the **top** of the
 /// screen (a [MaterialBanner], unlike the bottom snackbars used elsewhere).
@@ -20,7 +21,7 @@ void showTopError(BuildContext context, String message) {
       content: _TopBannerSurface(
         color: c.danger,
         background: c.dangerBg,
-        icon: Icons.error_outline_rounded,
+        icon: AppLucideIcons.alertCircle,
         message: message,
       ),
       actions: [
@@ -53,7 +54,7 @@ void showTopInfo(BuildContext context, String message) {
       content: _TopBannerSurface(
         color: c.success,
         background: c.successBg,
-        icon: Icons.check_circle_outline_rounded,
+        icon: AppLucideIcons.checkCircle,
         message: message,
       ),
       actions: [

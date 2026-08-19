@@ -163,12 +163,11 @@ class _LockScreen extends StatelessWidget {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.lock_open_rounded),
+                        : const Icon(AppLucideIcons.unlock),
                     label: Text(authenticating ? 'جاري التحقق...' : 'فتح قرش'),
+                    // سطح ink الموحّد (كان primary الكحلي القديم).
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
-                      backgroundColor: c.primary,
-                      foregroundColor: Colors.white,
                     ),
                   ),
                 ],

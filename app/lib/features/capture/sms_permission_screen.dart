@@ -70,7 +70,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                     alignment: Alignment.topLeft,
                     child: IconButton(
                       onPressed: () => Navigator.of(context).pop(false),
-                      icon: const Icon(Icons.close),
+                      icon: const Icon(AppLucideIcons.x),
                       style: IconButton.styleFrom(
                         backgroundColor: c.surface.withValues(alpha: 0.4),
                       ),

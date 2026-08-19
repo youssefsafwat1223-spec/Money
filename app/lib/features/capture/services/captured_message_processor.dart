@@ -91,9 +91,10 @@ class CapturedMessageProcessor {
       final settingsRepository = DriftUserSettingsRepository(db);
       // MALI-060n — the AI/enrichment endpoints authenticate on the server-
       // verified device secret. Read it once here and hand it to each client.
-      final deviceRegistration =
-          CaptureDeviceRegistrationService(settingsRepository: settingsRepository);
-      Future<String?> loadDeviceSecret() => deviceRegistration.readDeviceSecret();
+      final deviceRegistration = CaptureDeviceRegistrationService(
+          settingsRepository: settingsRepository);
+      Future<String?> loadDeviceSecret() =>
+          deviceRegistration.readDeviceSecret();
       // Background/native captures must enter the sync pipeline like every
       // other write. The queues are auth-gated internally (guest → local-only).
       final ledgerOutbox = buildLedgerOutboxQueue(db);

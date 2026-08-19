@@ -34,5 +34,7 @@ final serverUnresolvedPlanningItemsProvider =
 final serverUnresolvedPlanningCountsProvider =
     FutureProvider<UnresolvedPlanningCurrencyCounts>((ref) async {
   ref.watch(dbRevisionProvider);
-  return ref.watch(planningServerCurrencyRepairServiceProvider).unresolvedCounts();
+  return ref
+      .watch(planningServerCurrencyRepairServiceProvider)
+      .unresolvedCounts();
 });

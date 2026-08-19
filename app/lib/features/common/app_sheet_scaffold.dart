@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/mali_glass.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class AppSheetScaffold extends StatelessWidget {
   const AppSheetScaffold({
@@ -138,7 +139,7 @@ class AppSheetScaffold extends StatelessWidget {
                           child: Center(
                             child: IconButton(
                               onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.close_rounded),
+                              icon: const Icon(AppLucideIcons.x),
                               color: c.textSecondary,
                             ),
                           ),

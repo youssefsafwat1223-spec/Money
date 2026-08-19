@@ -72,7 +72,8 @@ class CaptureBackendClient {
         )
         .timeout(const Duration(seconds: 12));
     if (response.statusCode != 200) {
-      throw CaptureBackendException('set_consent_failed_${response.statusCode}');
+      throw CaptureBackendException(
+          'set_consent_failed_${response.statusCode}');
     }
   }
 

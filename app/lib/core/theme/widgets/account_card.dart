@@ -20,10 +20,15 @@ class AccountCard extends StatelessWidget {
     required this.balanceCurrency,
     this.isDefault = false,
     this.onTap,
+    this.leading,
   });
 
   final IconData icon;
   final Color tint;
+
+  /// Optional leading visual (e.g. a MiniCardArt for card-backed accounts) —
+  /// replaces the default tinted icon tile.
+  final Widget? leading;
   final String name;
   final String subtitle;
   final String balance;
@@ -47,15 +52,16 @@ class AccountCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             child: Row(
               children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: tint.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(icon, color: tint, size: 22),
-                ),
+                leading ??
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: tint.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(icon, color: tint, size: 22),
+                    ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(

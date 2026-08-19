@@ -15,6 +15,7 @@ import '../cards/brand_mark.dart';
 import '../common/top_banner.dart';
 import 'coupon_models.dart';
 import 'coupons_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// MALI-COUPONS (Phase C4) — Coupon presentation.
 ///
@@ -43,7 +44,8 @@ class CouponVisibilityReporter extends StatefulWidget {
   final Duration minDuration;
 
   @override
-  State<CouponVisibilityReporter> createState() => _CouponVisibilityReporterState();
+  State<CouponVisibilityReporter> createState() =>
+      _CouponVisibilityReporterState();
 }
 
 class _CouponVisibilityReporterState extends State<CouponVisibilityReporter> {
@@ -129,8 +131,8 @@ class CouponCard extends ConsumerWidget {
     final accent = offer.accentColor ?? c.cta;
 
     return CouponVisibilityReporter(
-      onVisible: () =>
-          unawaited(ref.read(couponAnalyticsProvider).recordImpression(offer.id)),
+      onVisible: () => unawaited(
+          ref.read(couponAnalyticsProvider).recordImpression(offer.id)),
       child: Semantics(
         label: l10n.couponsCardSemantics(
           offer.partnerName,
@@ -230,7 +232,8 @@ class CouponCard extends ConsumerWidget {
 /// Partner artwork with an accent fallback. Never blocks first paint and never
 /// retains a large decoded bitmap (it is capped to the rendered size).
 class _CouponArtwork extends StatelessWidget {
-  const _CouponArtwork({required this.offer, required this.size, required this.accent});
+  const _CouponArtwork(
+      {required this.offer, required this.size, required this.accent});
 
   final CouponOffer offer;
   final double size;
@@ -307,7 +310,9 @@ class _ExpiryPill extends StatelessWidget {
       label = l10n.couponsOpenEnded;
     } else {
       final days = until.difference(now).inDays;
-      label = days <= 0 ? l10n.couponsExpiresToday : l10n.couponsExpiresInDays(days);
+      label = days <= 0
+          ? l10n.couponsExpiresToday
+          : l10n.couponsExpiresInDays(days);
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
@@ -317,7 +322,8 @@ class _ExpiryPill extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: AppTypography.caption(color).copyWith(fontWeight: FontWeight.w700),
+        style:
+            AppTypography.caption(color).copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -359,7 +365,8 @@ class CouponDetailsSheet extends ConsumerWidget {
     await HapticFeedback.selectionClick();
     if (context.mounted) {
       // Announced to screen readers as well as shown.
-      SemanticsService.announce(l10n.couponsCodeCopied(code), TextDirection.rtl);
+      SemanticsService.announce(
+          l10n.couponsCodeCopied(code), TextDirection.rtl);
       showTopInfo(context, l10n.couponsCodeCopied(code));
     }
     // Analytics run AFTER the copy already succeeded and are never awaited:
@@ -445,7 +452,8 @@ class CouponDetailsSheet extends ConsumerWidget {
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  _MetaChip(label: offer.category.label(preferEnglish: english)),
+                  _MetaChip(
+                      label: offer.category.label(preferEnglish: english)),
                   for (final tag in offer.tags)
                     _MetaChip(label: '#${tag.label(preferEnglish: english)}'),
                 ],
@@ -472,21 +480,21 @@ class CouponDetailsSheet extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.s3),
                 FilledButton.icon(
                   onPressed: () => _copyCode(context, ref),
-                  icon: const Icon(Icons.copy_rounded),
+                  icon: const Icon(AppLucideIcons.copy),
                   label: Text(l10n.couponsCopyCode),
                 ),
                 if (offer.partnerUrl != null) ...[
                   const SizedBox(height: AppSpacing.s2),
                   OutlinedButton.icon(
                     onPressed: () => _openPartner(context, ref),
-                    icon: const Icon(Icons.open_in_new_rounded),
+                    icon: const Icon(AppLucideIcons.externalLink),
                     label: Text(l10n.couponsOpenPartner),
                   ),
                 ],
               ] else
                 FilledButton.icon(
                   onPressed: () => _openPartner(context, ref),
-                  icon: const Icon(Icons.open_in_new_rounded),
+                  icon: const Icon(AppLucideIcons.externalLink),
                   label: Text(l10n.couponsUseOffer),
                 ),
             ],

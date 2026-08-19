@@ -5,7 +5,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../cards/brand_mark.dart';
-import 'category_avatar.dart';
+import 'app_avatar.dart';
 
 /// صف معاملة قياسي — UI فقط، لا يستورد طبقة البيانات.
 ///
@@ -92,12 +92,14 @@ class AppTransactionRow extends StatelessWidget {
             child: Row(
               children: [
                 (brandLogoUrl != null || BrandMark.hasBrand(title))
-                    ? BrandMark(name: title, size: 44, logoUrl: brandLogoUrl)
-                    : CategoryAvatar(
-                        icon: categoryIcon,
-                        iconName: categoryIconName,
-                        color: categoryColor,
-                      ),
+                    ? AppAvatar.brand(name: title, logoUrl: brandLogoUrl)
+                    : categoryIcon != null
+                        ? AppAvatar.icon(
+                            icon: categoryIcon!, color: categoryColor)
+                        : AppAvatar.category(
+                            iconName: categoryIconName,
+                            color: categoryColor,
+                          ),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(

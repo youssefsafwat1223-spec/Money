@@ -9,10 +9,12 @@ import 'package:money_companion/core/theme/widgets/merchant_bar.dart';
 import 'package:money_companion/core/theme/widgets/score_gauge.dart';
 import 'package:money_companion/core/theme/widgets/segmented_control.dart';
 import 'package:money_companion/core/theme/widgets/sheet_field.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 
 Widget _host(Widget child) => MaterialApp(
       theme: AppTheme.light,
-      home: Scaffold(body: Padding(padding: const EdgeInsets.all(16), child: child)),
+      home: Scaffold(
+          body: Padding(padding: const EdgeInsets.all(16), child: child)),
     );
 
 void main() {
@@ -23,7 +25,7 @@ void main() {
       amount: '48,250.00',
       currency: 'ريال',
       trendText: '2.4% هذا الشهر',
-      trendIcon: Icons.trending_up_rounded,
+      trendIcon: AppLucideIcons.trendingUp,
     )));
     expect(find.text('الرصيد الكلي'), findsOneWidget);
     expect(find.text('48,250.00'), findsOneWidget);
@@ -47,14 +49,16 @@ void main() {
       DonutSegment(value: 22, color: Colors.indigo),
     ], animate: false)));
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(_host(const DonutChart(segments: [], animate: false)));
+    await tester
+        .pumpWidget(_host(const DonutChart(segments: [], animate: false)));
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('MerchantBar / SegmentedControl / SheetField render',
       (tester) async {
     await tester.pumpWidget(_host(Column(children: [
-      const MerchantBar(name: 'نون', amount: '1,240', fraction: 1.0, meta: '8 عمليات'),
+      const MerchantBar(
+          name: 'نون', amount: '1,240', fraction: 1.0, meta: '8 عمليات'),
       SegmentedControl<int>(
         value: 0,
         onChanged: (_) {},
@@ -64,7 +68,10 @@ void main() {
           SegmentOption(value: 2, label: 'تحويل'),
         ],
       ),
-      const SheetField(icon: Icons.wallet_outlined, label: 'الحساب', value: 'بنك مصر · ريال'),
+      const SheetField(
+          icon: AppLucideIcons.wallet,
+          label: 'الحساب',
+          value: 'بنك مصر · ريال'),
     ])));
     expect(find.text('نون'), findsOneWidget);
     expect(find.text('مصروف'), findsOneWidget);
@@ -89,7 +96,7 @@ void main() {
         ]),
         const SizedBox(height: 12),
         AccountCard(
-          icon: Icons.account_balance_rounded,
+          icon: AppLucideIcons.landmark,
           tint: Colors.blue,
           name: 'بنك مصر',
           subtitle: 'بنك · ريال (SAR)',

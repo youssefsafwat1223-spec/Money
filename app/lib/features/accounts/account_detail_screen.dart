@@ -18,6 +18,7 @@ import '../common/category_catalog.dart';
 import '../common/widgets.dart';
 import 'account_form_sheet.dart';
 import 'accounts_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// تفاصيل حساب: بطاقاته المُكتشفة بثقة داخله + آخر عملياته. المسار `/account/:id`.
 class AccountDetailScreen extends ConsumerWidget {
@@ -57,7 +58,7 @@ class AccountDetailScreen extends ConsumerWidget {
         title: account.name,
         trailing: IconButton(
           tooltip: 'تعديل',
-          icon: const Icon(Icons.edit_outlined),
+          icon: const Icon(AppLucideIcons.pencil),
           onPressed: () => showAccountForm(context, ref, account: account),
         ),
       ),
@@ -74,7 +75,7 @@ class AccountDetailScreen extends ConsumerWidget {
               TextButton.icon(
                 onPressed: () =>
                     showCardForm(context, ref, accountId: accountId),
-                icon: const Icon(Icons.add, size: 18),
+                icon: const Icon(AppLucideIcons.plus, size: 18),
                 label: const Text('إضافة بطاقة'),
               ),
             ],
@@ -201,7 +202,7 @@ class _ManagedCardRow extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.credit_card, color: c.primary, size: 22),
+            Icon(AppLucideIcons.creditCard, color: c.primary, size: 22),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Column(
@@ -226,7 +227,7 @@ class _ManagedCardRow extends ConsumerWidget {
             ),
             IconButton(
               tooltip: 'تعديل',
-              icon: Icon(Icons.edit_outlined, color: c.textLight, size: 20),
+              icon: Icon(AppLucideIcons.pencil, color: c.textLight, size: 20),
               onPressed: () =>
                   showCardForm(context, ref, accountId: accountId, card: card),
             ),

@@ -5,6 +5,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../common/app_button.dart';
 import 'premium_ui.dart';
+import '../../../core/utils/app_lucide_icons.dart';
 
 TextStyle obFont(double size, FontWeight w, double h, Color color) {
   return AppTypography.custom(
@@ -67,7 +68,8 @@ class OnboardingScaffold extends StatelessWidget {
         Text(
           title,
           textAlign: centerTitle ? TextAlign.center : TextAlign.start,
-          style: obFont(26, FontWeight.w800, 1.25, c.textPrimary),
+          // w700 سقف النظام الهادي — كان w800 قبل توحيد الأوزان (خطة الدفعة 3.8).
+          style: obFont(26, FontWeight.w700, 1.25, c.textPrimary),
         ),
         if (subtitle != null) ...[
           const SizedBox(height: AppSpacing.s2),
@@ -104,8 +106,8 @@ class OnboardingScaffold extends StatelessWidget {
                   if (onBack != null)
                     _RoundIconButton(
                       icon: isRtl
-                          ? Icons.arrow_forward_rounded
-                          : Icons.arrow_back_rounded,
+                          ? AppLucideIcons.arrowRight
+                          : AppLucideIcons.arrowLeft,
                       onTap: onBack!,
                     )
                   else

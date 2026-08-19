@@ -13,9 +13,11 @@ import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/card_summary.dart';
 import '../cards/bank_mark.dart';
 import '../cards/card_network_badge.dart';
+import '../cards/mini_card_art.dart';
 import '../cards/cards_providers.dart';
 import 'account_form_sheet.dart';
 import '../../core/di/app_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class AccountsScreen extends ConsumerWidget {
   const AccountsScreen({super.key});
@@ -52,7 +54,7 @@ class AccountsScreen extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.s3),
                   OutlinedButton.icon(
                     onPressed: () => showAccountForm(context, ref),
-                    icon: const Icon(Icons.add),
+                    icon: const Icon(AppLucideIcons.plus),
                     label: const Text('إضافة حساب'),
                     style: OutlinedButton.styleFrom(
                       minimumSize:
@@ -105,11 +107,21 @@ class _AccountCard extends ConsumerWidget {
         padding: const EdgeInsets.all(AppSpacing.s4),
         child: Row(
           children: [
-            BankMark(
-              accountName: account.name,
-              accountType: account.type,
-              size: 46,
-            ),
+            // بنك/بطاقة = بطاقة مصغّرة واقعية؛ كاش/محفظة تفضل بعلامة النوع —
+            // مفيش بطاقة فيزيائية تتمثّل.
+            if (account.type == AccountType.bank ||
+                account.type == AccountType.card)
+              MiniCardArt(
+                width: 54,
+                themeKey:
+                    account.type == AccountType.bank ? 'navy' : 'graphite',
+              )
+            else
+              BankMark(
+                accountName: account.name,
+                accountType: account.type,
+                size: 46,
+              ),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Column(
@@ -149,7 +161,7 @@ class _AccountCard extends ConsumerWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_left, color: c.textLight, size: 20),
+            Icon(AppLucideIcons.chevronLeft, color: c.textLight, size: 20),
           ],
         ),
       ),
@@ -203,7 +215,7 @@ class _UnassignedCardTile extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.s4),
         child: Row(
           children: [
-            Icon(Icons.credit_card, color: c.textLight, size: 22),
+            Icon(AppLucideIcons.creditCard, color: c.textLight, size: 22),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Row(
@@ -220,7 +232,7 @@ class _UnassignedCardTile extends StatelessWidget {
             Text(Formatters.amount(net.toDouble()),
                 style: AppTypography.caption(c.textLight)),
             const SizedBox(width: 6),
-            Icon(Icons.chevron_left, color: c.textLight, size: 20),
+            Icon(AppLucideIcons.chevronLeft, color: c.textLight, size: 20),
           ],
         ),
       ),

@@ -29,8 +29,15 @@ import '../../core/theme/widgets/score_gauge.dart';
 import '../../core/theme/widgets/section_header.dart';
 import '../../core/theme/widgets/segmented_control.dart';
 import '../../core/theme/widgets/sheet_field.dart';
+import '../../core/theme/widgets/liquid_bar.dart';
 import '../../core/theme/widgets/sparkline.dart';
+import '../../engine/parser/card_network.dart';
+import '../cards/mini_card_art.dart';
+import '../common/app_button.dart';
+import '../common/app_check_mark.dart';
 import '../common/motion.dart';
+import '../common/premium_loading.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// DesignGalleryScreen — debug-only review surface for the Mali flagship
 /// design system (docs/MALI_DESIGN_SYSTEM.md). Registered behind
@@ -98,6 +105,8 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                       const SizedBox(height: AppSpacing.s6),
                       const _ShadowSection(),
                       const SizedBox(height: AppSpacing.s6),
+                      const _BatchPrimitivesSection(),
+                      const SizedBox(height: AppSpacing.s6),
                       const _RingSection(),
                       const SizedBox(height: AppSpacing.s6),
                       const _SparklineSection(),
@@ -147,7 +156,7 @@ class _ModeToggle extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+            Icon(dark ? AppLucideIcons.moon : AppLucideIcons.sun,
                 size: 16, color: t.textOnCanvasSecondary),
             const SizedBox(width: 6),
             Text(dark ? 'داكن' : 'فاتح',
@@ -185,6 +194,8 @@ class _CompactSection extends StatelessWidget {
             child: CalmPageHeader(
               topInset: 16,
               useSafeAreaTop: false,
+              // معرض مكوّنات: الهيدر داخل شريحة لوحده فمينفعش يمتد تحت.
+              meltOverflow: 0,
               title: 'الميزانيات',
               subtitle: 'إجمالي المرصود هذا الشهر',
               amount: '4,820',
@@ -212,7 +223,7 @@ class _CompactSection extends StatelessWidget {
           const TextField(
             decoration: InputDecoration(
               labelText: 'المبلغ',
-              prefixIcon: Icon(Icons.payments_outlined),
+              prefixIcon: Icon(AppLucideIcons.banknote),
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -253,6 +264,60 @@ class _GallerySection extends StatelessWidget {
         const SizedBox(height: AppSpacing.s4),
         child,
       ],
+    );
+  }
+}
+
+/// The 2026 UI batch primitives, side by side in both modes: the ink button,
+/// LiquidBar, MiniCardArt, AppCheckMark and the row-shaped skeleton.
+class _BatchPrimitivesSection extends StatelessWidget {
+  const _BatchPrimitivesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final t = MaliTokens.of(context);
+    return _GallerySection(
+      title: 'Batch primitives — ink · liquid · mini cards',
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const AppPrimaryButton(label: 'متابعة'),
+            const SizedBox(height: AppSpacing.s4),
+            LiquidBar(value: 0.62, color: c.income),
+            const SizedBox(height: AppSpacing.s2),
+            const LiquidBar(value: null),
+            const SizedBox(height: AppSpacing.s4),
+            const Row(
+              children: [
+                MiniCardArt(
+                    network: CardNetwork.mastercard, themeKey: 'graphite'),
+                SizedBox(width: AppSpacing.s3),
+                MiniCardArt(network: CardNetwork.visa, themeKey: 'navy'),
+                SizedBox(width: AppSpacing.s3),
+                MiniCardArt(network: CardNetwork.mada, themeKey: 'emerald'),
+                Spacer(),
+                AppCheckMark(selected: true),
+                SizedBox(width: AppSpacing.s3),
+                AppCheckMark(selected: false),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            Text('SkeletonRow',
+                style: AppTypography.micro(t.textOnCanvasMuted)),
+            // عيّنة ساكنة عمدًا: المعرض بيعرض الشكل، والنبض اللانهائي كان
+            // يعلّق pumpAndSettle في اختبارات المعرض.
+            Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: true),
+                child: const SkeletonRow(),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -529,7 +594,7 @@ class _ArchetypesSection extends StatelessWidget {
           ]),
           const SizedBox(height: AppSpacing.s3),
           const AttentionCard(
-            icon: Icons.warning_amber_rounded,
+            icon: AppLucideIcons.alertTriangle,
             title: '٣ عمليات في انتظار مراجعتك',
             subtitle: 'راجعها عشان أرصدتك تفضل مظبوطة',
           ),
@@ -548,14 +613,14 @@ class _ArchetypesSection extends StatelessWidget {
             child: Column(
               children: [
                 LedgerRow(
-                  icon: Icons.shopping_bag_outlined,
+                  icon: AppLucideIcons.shoppingBag,
                   iconTint: c.expense,
                   title: 'نون · تسوّق',
                   subtitle: '2:14 م · تسوق',
                   amount: '−320.00',
                 ),
                 LedgerRow(
-                  icon: Icons.coffee_outlined,
+                  icon: AppLucideIcons.coffee,
                   iconTint: c.warning,
                   title: 'ستاربكس',
                   subtitle: '8:10 ص · كافيهات',
@@ -563,7 +628,7 @@ class _ArchetypesSection extends StatelessWidget {
                   isPending: true,
                 ),
                 LedgerRow(
-                  icon: Icons.south_west_rounded,
+                  icon: AppLucideIcons.arrowDownLeft,
                   iconTint: c.income,
                   title: 'تحويل وارد',
                   subtitle: '1:05 م · تحويلات',
@@ -597,7 +662,7 @@ class _Archetypes2Section extends StatelessWidget {
             amount: '48,250.00',
             currency: 'ريال',
             trendText: '2.4% هذا الشهر',
-            trendIcon: Icons.trending_up_rounded,
+            trendIcon: AppLucideIcons.trendingUp,
           ),
           const SizedBox(height: AppSpacing.s5),
           MaliCard(
@@ -687,7 +752,7 @@ class _Archetypes2Section extends StatelessWidget {
           ]),
           const SizedBox(height: AppSpacing.s3),
           AccountCard(
-            icon: Icons.account_balance_rounded,
+            icon: AppLucideIcons.landmark,
             tint: MaliTokens.accentStart,
             name: 'بنك مصر',
             subtitle: 'بنك · ريال (SAR)',
@@ -702,15 +767,18 @@ class _Archetypes2Section extends StatelessWidget {
             accent: true,
             onChanged: (_) {},
             options: const [
-              SegmentOption(value: 0, label: 'مصروف', icon: Icons.remove),
-              SegmentOption(value: 1, label: 'دخل', icon: Icons.add),
               SegmentOption(
-                  value: 2, label: 'تحويل', icon: Icons.swap_horiz_rounded),
+                  value: 0, label: 'مصروف', icon: AppLucideIcons.minus),
+              SegmentOption(value: 1, label: 'دخل', icon: AppLucideIcons.plus),
+              SegmentOption(
+                  value: 2,
+                  label: 'تحويل',
+                  icon: AppLucideIcons.arrowLeftRight),
             ],
           ),
           const SizedBox(height: AppSpacing.s3),
           SheetField(
-            icon: Icons.wallet_outlined,
+            icon: AppLucideIcons.wallet,
             label: 'الحساب',
             value: 'بنك مصر · ريال',
             onTap: () {},
@@ -858,9 +926,9 @@ class _LiquidGlassSection extends StatelessWidget {
                 child: Row(
                   children: [
                     for (final icon in const [
-                      Icons.home_rounded,
-                      Icons.receipt_long_rounded,
-                      Icons.pie_chart_rounded,
+                      AppLucideIcons.home,
+                      AppLucideIcons.receipt,
+                      AppLucideIcons.pieChart,
                     ])
                       Expanded(
                         child:
@@ -881,7 +949,8 @@ class _LiquidGlassSection extends StatelessWidget {
                 width: 44,
                 height: 44,
                 child: Center(
-                  child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
+                  child:
+                      Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
                 ),
               ),
             ),

@@ -133,7 +133,13 @@ class _VaultWidgetState extends State<VaultWidget>
     );
 
     if (shouldReduceMotion(context)) {
+      // سكون بنيوي كامل: مش بس نوقف الحركة بصريًا — نوقف الـ ticker نفسه
+      // (نفس عقد _SkeletonBlock) بدل ما يفضل يدور على الفاضي.
+      _controller.stop();
       return childWidget;
+    }
+    if (!_controller.isAnimating) {
+      _controller.repeat(reverse: true);
     }
 
     return AnimatedBuilder(
