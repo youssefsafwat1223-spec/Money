@@ -7,7 +7,6 @@ import 'core/router/app_router.dart';
 import 'core/security/app_lock_gate.dart';
 import 'features/app/app_boot_loader.dart';
 import 'core/theme/app_theme.dart';
-import 'core/theme/app_typography.dart';
 import 'core/theme/theme_mode_controller.dart';
 import 'core/i18n/locale_provider.dart';
 
@@ -43,11 +42,14 @@ class MoneyApp extends ConsumerWidget {
         final mediaQuery = MediaQuery.of(context);
         return MediaQuery(
           data: mediaQuery.copyWith(
-            // Fixed type size by product decision: Qirsh's typography is
-            // laid out for exact financial hierarchy, so the OS text-size
-            // setting is ignored (was a 0.8–1.25 clamp before). The single
-            // knob lives in AppTypography.appTextScale (<1 = denser UI).
-            textScaler: const TextScaler.linear(AppTypography.appTextScale),
+            // The user's system text size is RESPECTED, bounded to the range
+            // the financial layouts are verified against (see the 1.25x
+            // overflow tests). Never a fixed scale — that would silently
+            // disable Dynamic Type for everyone.
+            textScaler: mediaQuery.textScaler.clamp(
+              minScaleFactor: 0.8,
+              maxScaleFactor: 1.25,
+            ),
           ),
           // Root-level restore loader: one continuous branded screen from
           // launch to data-ready (see [appDataRestoring]) — sits above the

@@ -4,12 +4,6 @@ import 'package:flutter/material.dart';
 
 /// الطباعة — Arabic-first premium typography for Qirsh.
 class AppTypography {
-  /// Global fixed type scale (OS Dynamic Type is ignored). < 1.0 = denser UI
-  /// with more room for content; tune this ONE knob to resize all app text
-  /// while keeping the hierarchy ratios intact. Was 0.92 while Alexandria (big
-  /// x-height) was primary; Vazirmatn's smaller optical size reads right at 1.0.
-  static const double appTextScale = 1.0;
-
   AppTypography._();
 
   static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];

@@ -11,7 +11,6 @@ import 'core/observability/diagnostics.dart';
 import 'core/observability/telemetry_sanitizer.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
-import 'core/theme/app_typography.dart';
 import 'data/db/app_database.dart';
 import 'data/db/planning_canonical_invariants.dart';
 import 'data/db/planning_cutover.dart';
@@ -146,14 +145,6 @@ class _StartupAppState extends State<StartupApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      // Same fixed type size as MoneyApp — the boot screens shouldn't jump
-      // to a different scale than the app that follows them.
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(
-          textScaler: const TextScaler.linear(AppTypography.appTextScale),
-        ),
-        child: child!,
-      ),
       // A timeout can land while `database_open` is the step in flight (it's
       // simply the slowest step, e.g. first-run key generation) without the
       // database itself being corrupt — only route to the destructive
