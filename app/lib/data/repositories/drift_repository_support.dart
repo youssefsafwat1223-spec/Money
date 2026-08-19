@@ -83,6 +83,8 @@ BudgetPeriod budgetPeriodFromSql(String value) {
       return BudgetPeriod.weekly;
     case 'monthly':
       return BudgetPeriod.monthly;
+    case 'yearly':
+      return BudgetPeriod.yearly;
     default:
       throw ArgumentError.value(value, 'value', 'Unknown budget period.');
   }
