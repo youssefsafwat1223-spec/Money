@@ -699,4 +699,117 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get couponsOffline => 'دي آخر عروض متاحة عندك بدون إنترنت.';
+
+  @override
+  String get referralTitle => 'دعوة الأصدقاء';
+
+  @override
+  String get referralSubtitle =>
+      'ادعُ أصدقاءك بالرمز، ولما ينضمّوا ويأكّدوا حسابهم تكسب تقارير بدون إعلانات.';
+
+  @override
+  String get referralYourCodeLabel => 'رمز الدعوة';
+
+  @override
+  String get referralCopyAction => 'نسخ';
+
+  @override
+  String get referralCopiedToast => 'تم نسخ الرمز.';
+
+  @override
+  String get referralShareAction => 'مشاركة';
+
+  @override
+  String referralShareMessage(String code) {
+    return 'جرّب قرش! استخدم رمز الدعوة $code وانت بتسجّل. حمّل التطبيق وابدأ.';
+  }
+
+  @override
+  String referralProgressLabel(int progress, int required) {
+    return '$progress / $required دعوات صالحة';
+  }
+
+  @override
+  String referralCycleLabel(int cycle) {
+    return 'الدورة $cycle';
+  }
+
+  @override
+  String get referralRewardTitle => 'المكافأة';
+
+  @override
+  String referralRewardDays(int days) {
+    return 'تقارير بدون إعلانات لمدة $days يومًا';
+  }
+
+  @override
+  String get referralRewardScopeNote =>
+      'المكافأة بتشيل إعلانات تصدير التقارير فقط — مش اشتراك بدون إعلانات لكل التطبيق.';
+
+  @override
+  String referralRewardActiveUntil(String date) {
+    return 'تقارير بدون إعلانات حتى $date';
+  }
+
+  @override
+  String get referralEntitlementInactive => 'لا توجد مكافأة نشطة حاليًا.';
+
+  @override
+  String get referralApplyTitle => 'عندك رمز دعوة؟';
+
+  @override
+  String get referralApplyHint => 'أدخل رمز صديقك مرة واحدة.';
+
+  @override
+  String get referralApplyPlaceholder => 'رمز الدعوة';
+
+  @override
+  String get referralApplyAction => 'تفعيل الرمز';
+
+  @override
+  String get referralApplySuccess => 'تم قبول الرمز.';
+
+  @override
+  String get referralQualifiedToast => 'تم احتساب دعوتك.';
+
+  @override
+  String get referralAlreadyReferredNote => 'تم تفعيل رمز دعوة على حسابك.';
+
+  @override
+  String get referralLoading => 'جارٍ التحميل…';
+
+  @override
+  String get referralErrorTitle => 'تعذّر تحميل الدعوات';
+
+  @override
+  String get referralErrorBody => 'حاول مرة أخرى بعد لحظات.';
+
+  @override
+  String get referralRetry => 'إعادة المحاولة';
+
+  @override
+  String get referralUnavailableTitle => 'الدعوات غير متاحة حاليًا';
+
+  @override
+  String get referralUnavailableBody =>
+      'هنعرض لك دعوة الأصدقاء هنا أول ما تكون متاحة.';
+
+  @override
+  String get referralErrorInvalidCode => 'رمز غير صحيح.';
+
+  @override
+  String get referralErrorSelfReferral => 'لا يمكنك استخدام رمزك الخاص.';
+
+  @override
+  String get referralErrorAlreadyReferred => 'لقد استخدمت رمز دعوة من قبل.';
+
+  @override
+  String get referralErrorNoActiveRule => 'الدعوات غير متاحة حاليًا.';
+
+  @override
+  String get referralErrorIdentityUnverified =>
+      'أكمل تأكيد حسابك عشان تُحتسب دعوتك.';
+
+  @override
+  String get referralErrorGeneric => 'حصل خطأ، حاول تاني.';
 }

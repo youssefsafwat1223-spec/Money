@@ -1362,6 +1362,204 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'دي آخر عروض متاحة عندك بدون إنترنت.'**
   String get couponsOffline;
+
+  /// No description provided for @referralTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'دعوة الأصدقاء'**
+  String get referralTitle;
+
+  /// No description provided for @referralSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ادعُ أصدقاءك بالرمز، ولما ينضمّوا ويأكّدوا حسابهم تكسب تقارير بدون إعلانات.'**
+  String get referralSubtitle;
+
+  /// No description provided for @referralYourCodeLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز الدعوة'**
+  String get referralYourCodeLabel;
+
+  /// No description provided for @referralCopyAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسخ'**
+  String get referralCopyAction;
+
+  /// No description provided for @referralCopiedToast.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم نسخ الرمز.'**
+  String get referralCopiedToast;
+
+  /// No description provided for @referralShareAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'مشاركة'**
+  String get referralShareAction;
+
+  /// No description provided for @referralShareMessage.
+  ///
+  /// In ar, this message translates to:
+  /// **'جرّب قرش! استخدم رمز الدعوة {code} وانت بتسجّل. حمّل التطبيق وابدأ.'**
+  String referralShareMessage(String code);
+
+  /// No description provided for @referralProgressLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'{progress} / {required} دعوات صالحة'**
+  String referralProgressLabel(int progress, int required);
+
+  /// No description provided for @referralCycleLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدورة {cycle}'**
+  String referralCycleLabel(int cycle);
+
+  /// No description provided for @referralRewardTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'المكافأة'**
+  String get referralRewardTitle;
+
+  /// No description provided for @referralRewardDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'تقارير بدون إعلانات لمدة {days} يومًا'**
+  String referralRewardDays(int days);
+
+  /// No description provided for @referralRewardScopeNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'المكافأة بتشيل إعلانات تصدير التقارير فقط — مش اشتراك بدون إعلانات لكل التطبيق.'**
+  String get referralRewardScopeNote;
+
+  /// No description provided for @referralRewardActiveUntil.
+  ///
+  /// In ar, this message translates to:
+  /// **'تقارير بدون إعلانات حتى {date}'**
+  String referralRewardActiveUntil(String date);
+
+  /// No description provided for @referralEntitlementInactive.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد مكافأة نشطة حاليًا.'**
+  String get referralEntitlementInactive;
+
+  /// No description provided for @referralApplyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'عندك رمز دعوة؟'**
+  String get referralApplyTitle;
+
+  /// No description provided for @referralApplyHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل رمز صديقك مرة واحدة.'**
+  String get referralApplyHint;
+
+  /// No description provided for @referralApplyPlaceholder.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز الدعوة'**
+  String get referralApplyPlaceholder;
+
+  /// No description provided for @referralApplyAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل الرمز'**
+  String get referralApplyAction;
+
+  /// No description provided for @referralApplySuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم قبول الرمز.'**
+  String get referralApplySuccess;
+
+  /// No description provided for @referralQualifiedToast.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم احتساب دعوتك.'**
+  String get referralQualifiedToast;
+
+  /// No description provided for @referralAlreadyReferredNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تفعيل رمز دعوة على حسابك.'**
+  String get referralAlreadyReferredNote;
+
+  /// No description provided for @referralLoading.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التحميل…'**
+  String get referralLoading;
+
+  /// No description provided for @referralErrorTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تحميل الدعوات'**
+  String get referralErrorTitle;
+
+  /// No description provided for @referralErrorBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'حاول مرة أخرى بعد لحظات.'**
+  String get referralErrorBody;
+
+  /// No description provided for @referralRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة المحاولة'**
+  String get referralRetry;
+
+  /// No description provided for @referralUnavailableTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدعوات غير متاحة حاليًا'**
+  String get referralUnavailableTitle;
+
+  /// No description provided for @referralUnavailableBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'هنعرض لك دعوة الأصدقاء هنا أول ما تكون متاحة.'**
+  String get referralUnavailableBody;
+
+  /// No description provided for @referralErrorInvalidCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز غير صحيح.'**
+  String get referralErrorInvalidCode;
+
+  /// No description provided for @referralErrorSelfReferral.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكنك استخدام رمزك الخاص.'**
+  String get referralErrorSelfReferral;
+
+  /// No description provided for @referralErrorAlreadyReferred.
+  ///
+  /// In ar, this message translates to:
+  /// **'لقد استخدمت رمز دعوة من قبل.'**
+  String get referralErrorAlreadyReferred;
+
+  /// No description provided for @referralErrorNoActiveRule.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدعوات غير متاحة حاليًا.'**
+  String get referralErrorNoActiveRule;
+
+  /// No description provided for @referralErrorIdentityUnverified.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكمل تأكيد حسابك عشان تُحتسب دعوتك.'**
+  String get referralErrorIdentityUnverified;
+
+  /// No description provided for @referralErrorGeneric.
+  ///
+  /// In ar, this message translates to:
+  /// **'حصل خطأ، حاول تاني.'**
+  String get referralErrorGeneric;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

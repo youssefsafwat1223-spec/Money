@@ -710,4 +710,120 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get couponsOffline => 'These are the latest offers available offline.';
+
+  @override
+  String get referralTitle => 'Invite Friends';
+
+  @override
+  String get referralSubtitle =>
+      'Invite friends with your code. When they join and verify, you earn ad-free reports.';
+
+  @override
+  String get referralYourCodeLabel => 'Your invite code';
+
+  @override
+  String get referralCopyAction => 'Copy';
+
+  @override
+  String get referralCopiedToast => 'Code copied.';
+
+  @override
+  String get referralShareAction => 'Share';
+
+  @override
+  String referralShareMessage(String code) {
+    return 'Try Qirsh! Use invite code $code when you sign up. Download the app to start.';
+  }
+
+  @override
+  String referralProgressLabel(int progress, int required) {
+    return '$progress / $required valid invites';
+  }
+
+  @override
+  String referralCycleLabel(int cycle) {
+    return 'Cycle $cycle';
+  }
+
+  @override
+  String get referralRewardTitle => 'Reward';
+
+  @override
+  String referralRewardDays(int days) {
+    return 'Ad-free reports for $days days';
+  }
+
+  @override
+  String get referralRewardScopeNote =>
+      'The reward removes ads on report export only — not a whole-app ad-free subscription.';
+
+  @override
+  String referralRewardActiveUntil(String date) {
+    return 'Ad-free reports until $date';
+  }
+
+  @override
+  String get referralEntitlementInactive => 'No active reward right now.';
+
+  @override
+  String get referralApplyTitle => 'Have an invite code?';
+
+  @override
+  String get referralApplyHint => 'Enter a friend\'s code once.';
+
+  @override
+  String get referralApplyPlaceholder => 'Invite code';
+
+  @override
+  String get referralApplyAction => 'Apply code';
+
+  @override
+  String get referralApplySuccess => 'Code accepted.';
+
+  @override
+  String get referralQualifiedToast => 'Your invite was counted.';
+
+  @override
+  String get referralAlreadyReferredNote =>
+      'An invite code is already applied to your account.';
+
+  @override
+  String get referralLoading => 'Loading…';
+
+  @override
+  String get referralErrorTitle => 'Couldn\'t load invites';
+
+  @override
+  String get referralErrorBody => 'Please try again in a moment.';
+
+  @override
+  String get referralRetry => 'Retry';
+
+  @override
+  String get referralUnavailableTitle => 'Invites aren\'t available right now';
+
+  @override
+  String get referralUnavailableBody =>
+      'We\'ll show Invite Friends here as soon as it\'s available.';
+
+  @override
+  String get referralErrorInvalidCode => 'That code isn\'t valid.';
+
+  @override
+  String get referralErrorSelfReferral => 'You can\'t use your own code.';
+
+  @override
+  String get referralErrorAlreadyReferred =>
+      'You\'ve already used an invite code.';
+
+  @override
+  String get referralErrorNoActiveRule =>
+      'Invites aren\'t available right now.';
+
+  @override
+  String get referralErrorIdentityUnverified =>
+      'Finish verifying your account so your invite counts.';
+
+  @override
+  String get referralErrorGeneric => 'Something went wrong. Please try again.';
 }

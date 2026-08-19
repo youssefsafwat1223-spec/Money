@@ -25,6 +25,7 @@ import '../../features/cards/my_cards_screen.dart';
 import '../../features/capture/manual_paste_screen.dart';
 import '../../features/capture/sms_permission_screen.dart';
 import '../../features/coupons/coupons_screen.dart';
+import '../../features/referrals/referrals_screen.dart';
 import '../../features/design_gallery/design_gallery_screen.dart';
 import '../../features/goals/goal_details_screen.dart';
 import '../../features/goals/goal_form_screen.dart';
@@ -172,6 +173,11 @@ final appRouter = GoRouter(
       builder: (context, state) => CouponsScreen(
         highlightSlug: state.uri.queryParameters['highlight'],
       ),
+    ),
+    GoRoute(
+      path: '/referrals',
+      name: 'referrals',
+      builder: (context, state) => const ReferralsScreen(),
     ),
     GoRoute(
       path: '/paste',

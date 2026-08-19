@@ -272,5 +272,56 @@
       }
     }
   },
-  "couponsOffline": "دي آخر عروض متاحة عندك بدون إنترنت."
+  "couponsOffline": "دي آخر عروض متاحة عندك بدون إنترنت.",
+  "referralTitle": "دعوة الأصدقاء",
+  "referralSubtitle": "ادعُ أصدقاءك بالرمز، ولما ينضمّوا ويأكّدوا حسابهم تكسب تقارير بدون إعلانات.",
+  "referralYourCodeLabel": "رمز الدعوة",
+  "referralCopyAction": "نسخ",
+  "referralCopiedToast": "تم نسخ الرمز.",
+  "referralShareAction": "مشاركة",
+  "referralShareMessage": "جرّب قرش! استخدم رمز الدعوة {code} وانت بتسجّل. حمّل التطبيق وابدأ.",
+  "@referralShareMessage": {
+    "placeholders": { "code": { "type": "String" } }
+  },
+  "referralProgressLabel": "{progress} / {required} دعوات صالحة",
+  "@referralProgressLabel": {
+    "placeholders": {
+      "progress": { "type": "int" },
+      "required": { "type": "int" }
+    }
+  },
+  "referralCycleLabel": "الدورة {cycle}",
+  "@referralCycleLabel": {
+    "placeholders": { "cycle": { "type": "int" } }
+  },
+  "referralRewardTitle": "المكافأة",
+  "referralRewardDays": "تقارير بدون إعلانات لمدة {days} يومًا",
+  "@referralRewardDays": {
+    "placeholders": { "days": { "type": "int" } }
+  },
+  "referralRewardScopeNote": "المكافأة بتشيل إعلانات تصدير التقارير فقط — مش اشتراك بدون إعلانات لكل التطبيق.",
+  "referralRewardActiveUntil": "تقارير بدون إعلانات حتى {date}",
+  "@referralRewardActiveUntil": {
+    "placeholders": { "date": { "type": "String" } }
+  },
+  "referralEntitlementInactive": "لا توجد مكافأة نشطة حاليًا.",
+  "referralApplyTitle": "عندك رمز دعوة؟",
+  "referralApplyHint": "أدخل رمز صديقك مرة واحدة.",
+  "referralApplyPlaceholder": "رمز الدعوة",
+  "referralApplyAction": "تفعيل الرمز",
+  "referralApplySuccess": "تم قبول الرمز.",
+  "referralQualifiedToast": "تم احتساب دعوتك.",
+  "referralAlreadyReferredNote": "تم تفعيل رمز دعوة على حسابك.",
+  "referralLoading": "جارٍ التحميل…",
+  "referralErrorTitle": "تعذّر تحميل الدعوات",
+  "referralErrorBody": "حاول مرة أخرى بعد لحظات.",
+  "referralRetry": "إعادة المحاولة",
+  "referralUnavailableTitle": "الدعوات غير متاحة حاليًا",
+  "referralUnavailableBody": "هنعرض لك دعوة الأصدقاء هنا أول ما تكون متاحة.",
+  "referralErrorInvalidCode": "رمز غير صحيح.",
+  "referralErrorSelfReferral": "لا يمكنك استخدام رمزك الخاص.",
+  "referralErrorAlreadyReferred": "لقد استخدمت رمز دعوة من قبل.",
+  "referralErrorNoActiveRule": "الدعوات غير متاحة حاليًا.",
+  "referralErrorIdentityUnverified": "أكمل تأكيد حسابك عشان تُحتسب دعوتك.",
+  "referralErrorGeneric": "حصل خطأ، حاول تاني."
 }

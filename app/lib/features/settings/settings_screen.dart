@@ -27,6 +27,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/theme/theme_mode_controller.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../referrals/referrals_providers.dart';
 import '../../core/utils/category_glyph.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/category_entity.dart';
@@ -402,12 +403,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: _Section(
               title: 'المكافآت والدعم',
               children: [
-                _NavTile(
-                  icon: AppLucideIcons.gift,
-                  title: 'دعوة الأصدقاء',
-                  subtitle: 'انسخ رسالة الدعوة وشاركها',
-                  onTap: () => _copyInviteText(context),
-                ),
+                // Referral discovery is gated by enable_referrals (R3). When the
+                // flag is off the tile is hidden — no referral functionality is
+                // presented (docs REFERRAL_REWARDS_SYSTEM.md §19/§24).
+                if (ref.watch(referralsEnabledProvider))
+                  _NavTile(
+                    icon: AppLucideIcons.gift,
+                    title: 'دعوة الأصدقاء',
+                    subtitle: 'شارك رمز دعوتك واكسب تقارير بدون إعلانات',
+                    onTap: () => context.push('/referrals'),
+                  ),
                 _NavTile(
                   icon: AppLucideIcons.receipt,
                   title: 'تواصل معنا',
@@ -1411,19 +1416,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ),
       )),
-    );
-  }
-
-  Future<void> _copyInviteText(BuildContext context) async {
-    await Clipboard.setData(
-      const ClipboardData(
-        text:
-            'جرّب قرش: تطبيق عربي يساعدك تفهم مصروفاتك من رسائل البنك وتتابع ميزانيتك بسهولة.',
-      ),
-    );
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم نسخ رسالة الدعوة.')),
     );
   }
 

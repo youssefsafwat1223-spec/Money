@@ -11,6 +11,10 @@ import 'catalog_daos.dart';
 const Map<String, Object> _defaults = {
   'enable_goals': true,
   'enable_coupons': false,
+  // Referral discovery/UI rollout gate (docs REFERRAL_REWARDS_SYSTEM.md §19/§24).
+  // Seeded OFF, fails closed. The SERVER enforces attribution/qualification
+  // independently via an active rule — this flag governs client discovery only.
+  'enable_referrals': false,
   'enable_announcements': true,
   'parser_engine_version': 'v1',
   'ledger_dual_write': false,
