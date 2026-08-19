@@ -52,7 +52,7 @@ class BudgetsScreen extends ConsumerWidget {
     return Scaffold(
       body: async.when(
         skipLoadingOnReload: true,
-        loading: () => const FirstLoadPlaceholder(cardCount: 4),
+        loading: () => const SkeletonList(rows: 4),
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (data) {
           final historyEntries = data.historyEntries;
@@ -145,86 +145,91 @@ class BudgetsScreen extends ConsumerWidget {
                               }
                             },
                           ),
-                          const SizedBox(height: AppSpacing.s2),
                         ],
                       ),
                     ),
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _TabBarDelegate(
-                        child: Container(
+                        child: MeltSlice(
                           height: 64.0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.gutter,
-                          ),
-                          alignment: Alignment.center,
-                          child: AppPillTabBar(
-                            tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
-                            selectedIndex: tab,
-                            onSelected: (value) => ref
-                                .read(budgetsPageTabProvider.notifier)
-                                .state = value,
+                          child: Container(
+                            height: 64.0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.gutter,
+                            ),
+                            alignment: Alignment.center,
+                            child: AppPillTabBar(
+                              tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
+                              selectedIndex: tab,
+                              onSelected: (value) => ref
+                                  .read(budgetsPageTabProvider.notifier)
+                                  .state = value,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ];
                 },
-                body: ListView(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.gutter,
-                    AppSpacing.s3,
-                    AppSpacing.gutter,
-                    120,
-                  ),
-                  children: [
-                    if (tab == 0) ...[
-                      _AllocateIncomeButton(
-                        onTap: () => AllocateIncomeSheet.show(context),
+                body: MeltTail(
+                    startAt: 64,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.gutter,
+                        AppSpacing.s3,
+                        AppSpacing.gutter,
+                        120,
                       ),
-                      const SizedBox(height: AppSpacing.s3),
-                      ..._budgetEntryChildren(
-                        context,
-                        ref,
-                        data,
-                        entries: data.snapshot.entries,
-                        currencyLabel: currencyLabel,
-                        showGlobalAccountLabel: false,
-                        emptyTitle: 'لا توجد ميزانيات',
-                        emptySubtitle:
-                            'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
-                      ),
-                    ] else if (tab == 1) ...[
-                      _HistoryPeriodFilterRow(ref: ref),
-                      const SizedBox(height: AppSpacing.s2),
-                      ..._budgetHistoryChildren(
-                        context,
-                        data,
-                        entries: _applyHistoryFilter(historyEntries,
-                            ref.watch(budgetsHistoryPeriodFilterProvider)),
-                        currencyLabel: currencyLabel,
-                      ),
-                    ] else ...[
-                      if (data.goals.isEmpty)
-                        AppEmptyState(
-                          icon: AppLucideIcons.target,
-                          title: 'لا توجد أهداف',
-                          subtitle:
-                              'أضف هدف ادخار عشان قرش يتابع تقدمك جنب ميزانياتك.',
-                          primaryLabel: 'إضافة هدف',
-                          onPrimary: () => GoalFormScreen.showSheet(context),
-                        )
-                      else
-                        for (final goal in data.goals) ...[
-                          _GoalPlannerCard(
-                            goal: goal,
+                      children: [
+                        if (tab == 0) ...[
+                          _AllocateIncomeButton(
+                            onTap: () => AllocateIncomeSheet.show(context),
+                          ),
+                          const SizedBox(height: AppSpacing.s3),
+                          ..._budgetEntryChildren(
+                            context,
+                            ref,
+                            data,
+                            entries: data.snapshot.entries,
+                            currencyLabel: currencyLabel,
+                            showGlobalAccountLabel: false,
+                            emptyTitle: 'لا توجد ميزانيات',
+                            emptySubtitle:
+                                'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
+                          ),
+                        ] else if (tab == 1) ...[
+                          _HistoryPeriodFilterRow(ref: ref),
+                          const SizedBox(height: AppSpacing.s2),
+                          ..._budgetHistoryChildren(
+                            context,
+                            data,
+                            entries: _applyHistoryFilter(historyEntries,
+                                ref.watch(budgetsHistoryPeriodFilterProvider)),
                             currencyLabel: currencyLabel,
                           ),
-                          const SizedBox(height: AppSpacing.s4),
-                        ]
-                    ],
-                  ],
-                ),
+                        ] else ...[
+                          if (data.goals.isEmpty)
+                            AppEmptyState(
+                              icon: AppLucideIcons.target,
+                              title: 'لا توجد أهداف',
+                              subtitle:
+                                  'أضف هدف ادخار عشان قرش يتابع تقدمك جنب ميزانياتك.',
+                              primaryLabel: 'إضافة هدف',
+                              onPrimary: () =>
+                                  GoalFormScreen.showSheet(context),
+                            )
+                          else
+                            for (final goal in data.goals) ...[
+                              _GoalPlannerCard(
+                                goal: goal,
+                                currencyLabel: currencyLabel,
+                              ),
+                              const SizedBox(height: AppSpacing.s4),
+                            ]
+                        ],
+                      ],
+                    )),
               ),
             ),
           );
@@ -242,7 +247,7 @@ class BudgetsScreen extends ConsumerWidget {
     if (entries.isEmpty) {
       return [
         AppEmptyState(
-          icon: Icons.history_rounded,
+          icon: AppLucideIcons.history,
           title: 'السجل فاضي',
           subtitle:
               'اختار فترة فيها ميزانيات أو أضف ميزانية جديدة، وكل يوم/أسبوع/شهر هيظهر هنا كسجل منفصل.',
@@ -304,7 +309,7 @@ class BudgetsScreen extends ConsumerWidget {
     if (entries.isEmpty) {
       return [
         AppEmptyState(
-          icon: Icons.pie_chart_outline,
+          icon: AppLucideIcons.pieChart,
           title: emptyTitle,
           subtitle: emptySubtitle,
           primaryLabel: 'إضافة ميزانية',
@@ -496,7 +501,7 @@ class _AddButton extends StatelessWidget {
         width: 44,
         height: 44,
         child: Center(
-          child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
+          child: Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
         ),
       ),
     );
@@ -571,6 +576,8 @@ class _BudgetsHeader extends StatelessWidget {
                     value: Formatters.amount(usedAmount)),
               ];
     return CalmPageHeader(
+      // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
+      meltOverflow: 0,
       title: title,
       subtitle: totalLabel,
       leading: Navigator.of(context).canPop()
@@ -702,7 +709,8 @@ class _BudgetCard extends StatelessWidget {
               ),
               if (onDelete != null)
                 PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert, color: c.textLight, size: 20),
+                  icon: Icon(AppLucideIcons.moreVertical,
+                      color: c.textLight, size: 20),
                   onSelected: (value) {
                     if (value == 'delete') onDelete?.call();
                   },
@@ -712,7 +720,7 @@ class _BudgetCard extends StatelessWidget {
                         value: 'delete',
                         child: Row(
                           children: [
-                            Icon(Icons.delete_outline,
+                            Icon(AppLucideIcons.trash2,
                                 size: 18, color: c.danger),
                             const SizedBox(width: 8),
                             Text('حذف', style: TextStyle(color: c.danger)),
@@ -865,11 +873,11 @@ class _BudgetHistoryRow extends StatelessWidget {
       resultText =
           'تجاوزت ${Formatters.integer((-entry.remaining).toDouble())}';
       resultColor = c.danger;
-      resultIcon = Icons.warning_amber_rounded;
+      resultIcon = AppLucideIcons.alertTriangle;
     } else {
       resultText = 'وفّرت ${Formatters.integer(entry.remaining.toDouble())}';
       resultColor = c.success;
-      resultIcon = Icons.check_circle_outline;
+      resultIcon = AppLucideIcons.checkCircle;
     }
 
     return AppCard(
@@ -1178,7 +1186,7 @@ class _BudgetTransactionRow extends StatelessWidget {
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.receipt_long_outlined,
+              child: const Icon(AppLucideIcons.receipt,
                   size: 17, color: Colors.white),
             ),
             const SizedBox(width: AppSpacing.s3),
@@ -1240,7 +1248,7 @@ class _GoalPlannerCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.savings_outlined, color: c.primary),
+              Icon(AppLucideIcons.piggyBank, color: c.primary),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(goal.name,
@@ -1324,8 +1332,9 @@ class _AllocateIncomeButton extends StatelessWidget {
         },
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.s4),
+          // الفعل الأساسي للتبويب — سطح ink بدل التدرّج الأزرق القديم.
           decoration: BoxDecoration(
-            gradient: c.primaryGradient,
+            color: c.ink,
             borderRadius: BorderRadius.circular(AppRadius.card),
           ),
           child: Row(
@@ -1334,11 +1343,10 @@ class _AllocateIncomeButton extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
+                  color: c.onInk.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.pie_chart_rounded,
-                    color: Colors.white, size: 22),
+                child: Icon(AppLucideIcons.pieChart, color: c.onInk, size: 22),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
@@ -1346,17 +1354,17 @@ class _AllocateIncomeButton extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('وزّع دخلك على المظاريف',
-                        style: AppTypography.bodyStrong(Colors.white)),
+                        style: AppTypography.bodyStrong(c.onInk)),
                     const SizedBox(height: 2),
                     Text(
                       'اكتب راتبك ووزّعه بضغطة — وقرش يحسبلك المتاح كل يوم',
                       style: AppTypography.caption(
-                          Colors.white.withValues(alpha: 0.80)),
+                          c.onInk.withValues(alpha: 0.72)),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_left_rounded, color: Colors.white),
+              Icon(AppLucideIcons.chevronLeft, color: c.onInk),
             ],
           ),
         ),

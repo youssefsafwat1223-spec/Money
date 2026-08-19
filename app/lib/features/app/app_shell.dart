@@ -7,7 +7,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:native_glass_navbar/native_glass_navbar.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -29,7 +28,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/captured_message.dart';
@@ -67,6 +65,7 @@ import '../transactions/transactions_providers.dart';
 import '../transactions/transactions_screen.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 import 'celebration_runtime.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 
 final shellIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -1362,15 +1361,14 @@ class _AppShellState extends ConsumerState<AppShell> {
             if (modalOpen) return const SizedBox.shrink();
             return child!;
           },
-          child: AnimatedSlide(
-            offset: _isBottomBarVisible ? Offset.zero : const Offset(0, 1.5),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOutCubic,
-            child: _FloatingBottomBar(
-              currentIndex: index,
-              onSelect: (next) =>
-                  ref.read(shellIndexProvider.notifier).state = next,
-            ),
+          // البار مابيختفيش وانت بتنزل — بيتلمّ في كبسولة صغيّرة فيها
+          // الأيقونة النشطة بس، وبيترجع يفتح لما تطلع فوق أو تدوس عليه.
+          child: _BottomNavBar(
+            currentIndex: index,
+            expanded: _isBottomBarVisible,
+            onExpand: () => setState(() => _isBottomBarVisible = true),
+            onSelect: (next) =>
+                ref.read(shellIndexProvider.notifier).state = next,
           ),
         ),
       ),
@@ -1414,205 +1412,165 @@ class _CelebrationBanner extends StatelessWidget {
   }
 }
 
-class _FloatingBottomBar extends StatelessWidget {
-  const _FloatingBottomBar({
+class _BottomNavBar extends StatelessWidget {
+  const _BottomNavBar({
     required this.currentIndex,
     required this.onSelect,
+    this.expanded = true,
+    this.onExpand,
   });
 
   final int currentIndex;
   final ValueChanged<int> onSelect;
+
+  /// مفتوح = كل الأيقونات. مقفول (وانت نازل بالسكرول) = كبسولة صغيّرة فيها
+  /// الأيقونة النشطة بس — مابتختفيش.
+  final bool expanded;
+  final VoidCallback? onExpand;
 
   static const _items = [
     _BottomBarItem(
       page: 3,
       icon: AppLucideIcons.settings,
-      symbol: 'ellipsis.circle.fill',
       label: 'المزيد',
     ),
     _BottomBarItem(
       page: 4,
       icon: AppLucideIcons.shapes,
-      symbol: 'chart.bar.fill',
       label: 'التحليلات',
     ),
     _BottomBarItem(
       page: 0,
       icon: AppLucideIcons.home,
-      symbol: 'house.fill',
       label: 'الرئيسية',
     ),
     _BottomBarItem(
       page: 2,
       icon: AppLucideIcons.walletCards,
-      symbol: 'creditcard.fill',
       label: 'الميزانيات',
     ),
     _BottomBarItem(
       page: 1,
       icon: AppLucideIcons.receipt,
-      symbol: 'doc.text.fill',
       label: 'العمليات',
     ),
   ];
 
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final selectedVisualIndex = _items.indexWhere(
-      (item) => item.page == currentIndex,
-    );
-    final nativeIndex = selectedVisualIndex == -1 ? 0 : selectedVisualIndex;
-
-    return NativeGlassNavBar(
-      currentIndex: nativeIndex,
-      tintColor: c.cta,
-      tabs: [
-        for (final item in _items)
-          NativeGlassNavBarItem(label: item.label, symbol: item.symbol),
-      ],
-      onTap: (visualIndex) {
-        if (visualIndex < 0 || visualIndex >= _items.length) return;
-        HapticFeedback.selectionClick();
-        onSelect(_items[visualIndex].page);
-      },
-      fallback: _FlutterGlassBottomBar(
-        currentIndex: currentIndex,
-        onSelect: onSelect,
-        items: _items,
-      ),
-    );
-  }
-}
-
-class _FlutterGlassBottomBar extends StatelessWidget {
-  const _FlutterGlassBottomBar({
-    required this.currentIndex,
-    required this.onSelect,
-    required this.items,
-  });
-
-  final int currentIndex;
-  final ValueChanged<int> onSelect;
-  final List<_BottomBarItem> items;
+  /// ارتفاع صف الأيقونات جوّه الكبسولة.
+  static const double _slotHeight = 52;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
-    final selectedVisualIndex = items.indexWhere(
-      (item) => item.page == currentIndex,
-    );
+    final selectedSlot = _items.indexWhere((i) => i.page == currentIndex);
 
-    return SafeArea(
-      top: false,
-      bottom: false,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          AppSpacing.s5,
-          AppSpacing.s2,
-          AppSpacing.s5,
-          safeBottom > 0 ? safeBottom + AppSpacing.s2 : AppSpacing.s5,
-        ),
-        // MaliGlass pilot: same geometry (radius 26, blur 24, height 54,
-        // padding 8/6) with the material's saturation + rim + specular edge.
-        child: MaliGlass(
-          variant: MaliGlassVariant.navigation,
-          // Pilot surface A: package-backed advanced tier (visual only —
-          // navigation logic/semantics unchanged; auto-frost fallback).
-          advancedRefraction: true,
-          padding: EdgeInsets.zero,
-          child: Container(
-            height: AppSpacing.navBarHeight,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Stack(
-              children: [
-                _GlassTabIndicator(
-                  selectedIndex:
-                      selectedVisualIndex == -1 ? 0 : selectedVisualIndex,
-                  tabCount: items.length,
-                  isDark: isDark,
-                  accent: c.cta,
-                ),
-                Row(
-                  textDirection: TextDirection.ltr,
-                  children: [
-                    for (final item in items)
-                      Expanded(
-                        child: _NavTab(
-                          item: item,
-                          selected: item.page == currentIndex,
-                          onTap: onSelect,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
+    final active = selectedSlot >= 0 ? _items[selectedSlot] : _items.first;
+
+    // كبسولة عايمة على طريقة إنستجرام: أيقونات بس، وحبّة (pill) بتزحلق
+    // تحت الأيقونة النشطة بدل ما كل تبويب يبقى ليه خلفية. وانت بتنزل
+    // بالسكرول بتتلمّ لكبسولة صغيّرة فيها الأيقونة النشطة — من غير ما تختفي.
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        0,
+        AppSpacing.gutter,
+        safeBottom > 0 ? safeBottom : AppSpacing.s4,
+      ),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: AnimatedSize(
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.bottomCenter,
+          // زجاج حقيقي (BackdropFilter) زي بار إنستجرام — المحتوى بيبان
+          // مضبّب تحته. الشعاع ده استثناء مقصود مع الشيتات وأزرار الهيدر.
+          child: MaliGlass(
+            variant: MaliGlassVariant.navigation,
+            radius: 999,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            child: expanded
+                ? _expandedRow(context, c, isDark, selectedSlot)
+                : _collapsedPill(context, c, isDark, active),
           ),
         ),
       ),
     );
   }
-}
 
-class _GlassTabIndicator extends StatelessWidget {
-  const _GlassTabIndicator({
-    required this.selectedIndex,
-    required this.tabCount,
-    required this.isDark,
-    required this.accent,
-  });
-
-  final int selectedIndex;
-  final int tabCount;
-  final bool isDark;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    final relative = tabCount <= 1 ? 0.5 : selectedIndex / (tabCount - 1);
-    final alignment = Alignment((relative * 2) - 1, 0);
-
-    return Positioned.fill(
-      child: AnimatedAlign(
-        alignment: alignment,
-        duration: const Duration(milliseconds: 360),
-        curve: Curves.easeOutCubic,
-        child: FractionallySizedBox(
-          widthFactor: 1 / tabCount,
-          heightFactor: 1,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: isDark ? 0.12 : 0.44),
-                borderRadius: BorderRadius.circular(25),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: isDark ? 0.18 : 0.72),
-                ),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withValues(alpha: isDark ? 0.16 : 0.62),
-                    accent.withValues(alpha: isDark ? 0.12 : 0.10),
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.20 : 0.07),
-                    blurRadius: 16,
-                    offset: const Offset(0, 8),
+  /// الحالة المفتوحة — كل الأيقونات وحبّة بتزحلق تحت النشطة.
+  Widget _expandedRow(
+      BuildContext context, AppColors c, bool isDark, int selectedSlot) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        final slotWidth = box.maxWidth / _items.length;
+        return SizedBox(
+          height: _slotHeight,
+          child: Stack(
+            children: [
+              if (selectedSlot >= 0)
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOutCubic,
+                  left: slotWidth * selectedSlot,
+                  top: 0,
+                  bottom: 0,
+                  width: slotWidth,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: DecoratedBox(
+                      decoration: ShapeDecoration(
+                        color: c.textPrimary
+                            .withValues(alpha: isDark ? 0.14 : 0.07),
+                        shape: const StadiumBorder(),
+                      ),
+                    ),
                   ),
-                  BoxShadow(
-                    color: accent.withValues(alpha: isDark ? 0.10 : 0.08),
-                    blurRadius: 18,
-                    offset: const Offset(0, 2),
-                  ),
+                ),
+              Row(
+                textDirection: TextDirection.ltr,
+                children: [
+                  for (final item in _items)
+                    Expanded(
+                      child: _NavTab(
+                        item: item,
+                        selected: item.page == currentIndex,
+                        onTap: onSelect,
+                      ),
+                    ),
                 ],
               ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// الحالة المقفولة — كبسولة صغيّرة فيها الأيقونة النشطة؛ الدوس عليها
+  /// بيفتح البار تاني (زي ما الطلوع بالسكرول بيفتحه).
+  Widget _collapsedPill(
+      BuildContext context, AppColors c, bool isDark, _BottomBarItem active) {
+    return Semantics(
+      label: 'فتح شريط التنقل — ${active.label}',
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onExpand?.call();
+        },
+        child: SizedBox(
+          height: _slotHeight,
+          width: _slotHeight,
+          child: DecoratedBox(
+            decoration: ShapeDecoration(
+              color: c.textPrimary.withValues(alpha: isDark ? 0.14 : 0.07),
+              shape: const StadiumBorder(),
+            ),
+            child: Center(
+              child: Icon(active.icon, color: c.textPrimary, size: 24),
             ),
           ),
         ),
@@ -1625,13 +1583,11 @@ class _BottomBarItem {
   const _BottomBarItem({
     required this.page,
     required this.icon,
-    required this.symbol,
     required this.label,
   });
 
   final int page;
   final IconData icon;
-  final String symbol;
   final String label;
 }
 
@@ -1649,10 +1605,9 @@ class _NavTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final activeColor = c.cta;
-    final inactiveColor =
-        isDark ? c.textSecondary.withValues(alpha: 0.72) : c.textMuted;
+    // أيقونة بس — الاسم بيفضل في الـ Semantics للقارئ الصوتي.
+    final activeColor = c.textPrimary;
+    final inactiveColor = c.textMuted;
 
     return Semantics(
       label: item.label,
@@ -1667,38 +1622,12 @@ class _NavTab extends StatelessWidget {
         child: AnimatedScale(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
-          scale: selected ? 1.03 : 1,
-          child: SizedBox(
-            height: 44,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  item.icon,
-                  color: selected ? activeColor : inactiveColor,
-                  size: selected ? 20 : 19,
-                ),
-                const SizedBox(height: 2),
-                SizedBox(
-                  height: 13,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      item.label,
-                      maxLines: 1,
-                      softWrap: false,
-                      style: AppTypography.caption(
-                        selected ? activeColor : inactiveColor,
-                      ).copyWith(
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+          scale: selected ? 1.06 : 1,
+          child: Center(
+            child: Icon(
+              item.icon,
+              color: selected ? activeColor : inactiveColor,
+              size: 24,
             ),
           ),
         ),

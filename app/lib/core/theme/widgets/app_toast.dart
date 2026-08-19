@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../app_colors.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
-import 'mali_glass.dart';
+import '../../utils/app_lucide_icons.dart';
 
 /// A premium top-floating toast notification system.
 class AppToast {
@@ -145,16 +145,20 @@ class _ToastWidgetState extends State<_ToastWidget>
                 _dismiss();
               }
             },
-            child: MaliGlass(
-              variant: MaliGlassVariant.pill,
-              padding: EdgeInsets.zero,
+            child: Material(
+              color: Colors.transparent,
+              elevation: 8,
+              shadowColor: Colors.black.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(100),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  // Error state keeps its red wash over the glass fill.
+                  // سطح صلب — من غير زجاج؛ حالة الخطأ بغسلة حمرا فوقه.
                   color: widget.isError
-                      ? Colors.red.withValues(alpha: 0.14)
-                      : null,
+                      ? Color.alphaBlend(
+                          Colors.red.withValues(alpha: 0.14), c.surface)
+                      : c.surface,
                   borderRadius: BorderRadius.circular(100),
+                  border: Border.all(color: c.divider),
                 ),
                 child: Padding(
                   padding:
@@ -163,8 +167,8 @@ class _ToastWidgetState extends State<_ToastWidget>
                     children: [
                       Icon(
                         widget.isError
-                            ? Icons.error_outline
-                            : Icons.check_circle_outline,
+                            ? AppLucideIcons.alertCircle
+                            : AppLucideIcons.checkCircle,
                         color: widget.isError ? Colors.redAccent : c.success,
                         size: 22,
                       ),

@@ -13,17 +13,16 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/mali_tokens.dart';
 import '../../core/theme/widgets/attention_card.dart';
-import '../../core/theme/widgets/budget_ring_rail.dart';
 import '../../core/theme/widgets/glass_selector.dart';
 import '../../core/theme/widgets/insight_card.dart';
 import '../../core/theme/widgets/mali_card.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/mali_screen.dart';
+import '../../core/theme/widgets/liquid_bar.dart';
 import '../../core/theme/widgets/ring_progress.dart';
 import '../../core/theme/widgets/section_header.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
-import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
@@ -42,7 +41,6 @@ import '../plans/plan_form_sheet.dart';
 import '../plans/plans_providers.dart';
 import '../plans/plans_screen.dart';
 import '../common/app_empty_state.dart';
-import '../common/category_catalog.dart';
 import '../common/premium_loading.dart';
 import '../common/transaction_direction.dart';
 // hide SectionHeader — we use the Calm Capital archetype of the same name.
@@ -73,12 +71,21 @@ class DashboardScreen extends ConsumerWidget {
     return MaliScreen(
       padding: EdgeInsets.zero,
       safeArea: false,
+      // الهيرو الأزرق هو مصدر اللون في الصفحة دي — من غير هالة زرقا كمان
+      // في الخلفية ورا المحتوى.
+      ambient: false,
       child: RefreshIndicator(
         onRefresh: () async => ref.invalidate(dashboardDataProvider),
         child: async.when(
           skipLoadingOnReload: true,
-          loading: () => const FirstLoadPlaceholder(cardCount: 5),
-          error: (error, _) {
+          loading: () => const SkeletonList(rows: 5, withHero: true),
+          error: (error, stack) {
+            // الرسالة العامة بتخفي السبب — نطبعه في الديباج عشان يتشاف في
+            // الكونسول بدل ما نخمّن.
+            assert(() {
+              debugPrint('[dashboard] load failed: $error\n$stack');
+              return true;
+            }());
             if (error is AuthRepoException) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 AppSession.instance.handleAuthRequiredFailure();
@@ -211,7 +218,7 @@ class _HomeBody extends ConsumerWidget {
       children: [
         Expanded(
           child: GlassSelector(
-            icon: Icons.calendar_month_outlined,
+            icon: AppLucideIcons.calendarDays,
             label: data.range.label,
             onTap: () => _showRangeSheet(context, ref, data.range),
           ),
@@ -219,7 +226,7 @@ class _HomeBody extends ConsumerWidget {
         const SizedBox(width: AppSpacing.s3),
         Expanded(
           child: GlassSelector(
-            icon: Icons.account_balance_wallet_outlined,
+            icon: AppLucideIcons.wallet,
             label: accountLabel,
             onTap: () {
               HapticFeedback.selectionClick();
@@ -408,7 +415,7 @@ class _HomeBody extends ConsumerWidget {
                             contentPadding: EdgeInsets.zero,
                             title: const Text('من'),
                             subtitle: Text(Formatters.fullDate(from, context)),
-                            trailing: const Icon(Icons.calendar_month_outlined),
+                            trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
                               final picked = await showDatePicker(
                                 context: context,
@@ -426,7 +433,7 @@ class _HomeBody extends ConsumerWidget {
                             contentPadding: EdgeInsets.zero,
                             title: const Text('إلى'),
                             subtitle: Text(Formatters.fullDate(to, context)),
-                            trailing: const Icon(Icons.calendar_month_outlined),
+                            trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
                               final picked = await showDatePicker(
                                 context: context,
@@ -533,44 +540,71 @@ class _BlueZone extends ConsumerWidget {
         '${value.isNegative ? '−' : '+'}${Formatters.amount((value.isNegative ? -value : value).toDouble())}';
     final currencyLabel = Currency.arabicLabel(data.currency.toUpperCase());
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          stops: const [0.0, 0.55, 1.0],
-          colors: isDark
-              ? const [Color(0xFF071634), Color(0xFF0E3A86), Color(0xFF1E74F0)]
-              : const [Color(0xFF1E74F0), Color(0xFF3E8CF7), Color(0xFF7FB2FF)],
-        ),
-      ),
-      // Depth pass (static, reduce-motion safe): a soft ambient light from
-      // the top corner and a gentle darkening toward the sheet seam — the
-      // hero reads dimensional instead of flat, with no texture noise.
-      // Painted BEHIND the content (nested DecoratedBox, not foreground).
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: const Alignment(0.95, -1.1),
-            radius: 1.35,
-            colors: [
-              Colors.white.withValues(alpha: isDark ? 0.09 : 0.16),
-              Colors.white.withValues(alpha: 0),
-              const Color(0xFF06122E).withValues(alpha: isDark ? 0.30 : 0.12),
-            ],
-            stops: const [0.0, 0.55, 1.0],
+    final meltBg = _sheetBg(context);
+    // الأزرق بيكمّل تحت حدود الهيرو (بيترسم قبل الشيت فبيفضل وراه): الذوبان
+    // بيحصل خلف أول كروت الصفحة لحد نص الشاشة تقريبًا، من غير شريط أزرق فاضي.
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: -_heroMeltOverflow,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+                stops: const [0.0, 0.55, 1.0],
+                // أزرق اللوجو (#021B79) هو اللون الأساسي للهيرو.
+                colors: AppBrandBlue.headerStops(isDark),
+              ),
+            ),
+            // الميلت: الأزرق بيدوب رأسيًا في خلفية المحتوى بدل ما الشيت يقطعه
+            // بحافة — نفس لغة الموكب («الهيدر سايح على تحت»).
+            foregroundDecoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0.0, 0.55, 1.0],
+                colors: [
+                  meltBg.withValues(alpha: 0),
+                  meltBg.withValues(alpha: 0),
+                  meltBg,
+                ],
+              ),
+            ),
+            // Depth pass (static, reduce-motion safe): a soft ambient light
+            // from the top corner and a gentle darkening downward — the hero
+            // reads dimensional instead of flat, with no texture noise.
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.95, -1.1),
+                  radius: 1.35,
+                  colors: [
+                    Colors.white.withValues(alpha: isDark ? 0.09 : 0.16),
+                    Colors.white.withValues(alpha: 0),
+                    const Color(0xFF06122E)
+                        .withValues(alpha: isDark ? 0.30 : 0.12),
+                  ],
+                  stops: const [0.0, 0.55, 1.0],
+                ),
+              ),
+            ),
           ),
         ),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(20, topPad + 12, 20, 34),
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, topPad + 12, 20, AppSpacing.s5),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: AppSpacing.avatar,
+                    height: AppSpacing.avatar,
                     alignment: Alignment.center,
                     clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
@@ -694,7 +728,7 @@ class _BlueZone extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -717,9 +751,7 @@ class _BlueZone extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                spentMore
-                    ? Icons.arrow_upward_rounded
-                    : Icons.arrow_downward_rounded,
+                spentMore ? AppLucideIcons.arrowUp : AppLucideIcons.arrowDown,
                 size: 12,
                 color: spentMore ? _expenseNet : _income,
               ),
@@ -776,9 +808,7 @@ class _BlueZone extends ConsumerWidget {
         child: Padding(
           padding: const EdgeInsets.all(2),
           child: Icon(
-            privacyMode
-                ? Icons.visibility_off_rounded
-                : Icons.visibility_rounded,
+            privacyMode ? AppLucideIcons.eyeOff : AppLucideIcons.eye,
             size: 16,
             color: Colors.white.withValues(alpha: 0.8),
           ),
@@ -802,7 +832,7 @@ class _AddButton extends StatelessWidget {
         width: 44,
         height: 44,
         child: Center(
-          child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
+          child: Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
         ),
       ),
     );
@@ -811,6 +841,18 @@ class _AddButton extends StatelessWidget {
 
 /// The content sheet: rounded top, mode-aware surface, sliding up over the
 /// blue zone's bottom edge. Holds all the scrollable Home sections.
+/// خلفية المحتوى تحت الهيرو — نفس القيمة اللي الهيرو بيدوب فيها، عشان
+/// الميلت يبقى بلا أي لحام. (داكن = كانفاس التطبيق الأسود الحقيقي.)
+/// كام بكسل الأزرق يكمّل تحت نهاية محتوى الهيرو — نفس منطق
+/// `CalmPageHeader._meltOverflow`: اللون يوصل لنص الشاشة والذوبان يحصل خلف
+/// أول كروت الصفحة مش في فراغ.
+const double _heroMeltOverflow = 220;
+
+Color _sheetBg(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+        ? context.colors.bg
+        : const Color(0xFFF5F7FB);
+
 class _Sheet extends StatelessWidget {
   const _Sheet({required this.child});
 
@@ -818,31 +860,12 @@ class _Sheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Dark sheet = the app's true-black canvas (matches every other page),
-    // not the near-black #08090C from the mockup.
-    final sheetBg = isDark ? context.colors.bg : const Color(0xFFF5F7FB);
-    return Transform.translate(
-      offset: const Offset(0, -20),
-      child: Container(
-        decoration: BoxDecoration(
-          color: sheetBg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          // Soft seam: a whisper of upward ambient shadow separates the
-          // sheet from the hero without a heavy elevation ring.
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF06122E)
-                  .withValues(alpha: isDark ? 0.35 : 0.10),
-              blurRadius: 22,
-              offset: const Offset(0, -8),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter, 16, AppSpacing.gutter, 112),
-        child: child,
-      ),
+    // شفاف بالكامل: الهيرو الأزرق بيكمّل وراه ([_heroMeltOverflow]) وبيدوب في
+    // كانفاس الصفحة، فأول الكروت بتقعد على الذوبان بدل ما خلفية صلبة تقطعه.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, 0, AppSpacing.gutter, 112),
+      child: child,
     );
   }
 }
@@ -857,6 +880,8 @@ class _RecentSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final recent = data.recent.take(8).toList();
+    final logos = ref.watch(merchantLogosProvider).valueOrNull ??
+        const <String, String>{};
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -870,12 +895,10 @@ class _RecentSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
-        // One quiet grouped surface instead of a floating slab — rows
-        // separated by subtle indented dividers ("raised" = list grouping
-        // per the design system, no drop shadow).
+        // نفس بطاقة/صف صفحة العمليات بالظبط — عشان الصفّين يقروا واحد.
         MaliCard(
-          style: MaliSurfaceStyle.raised,
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+          style: MaliSurfaceStyle.floating,
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: recent.isEmpty
               ? Padding(
                   padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -886,111 +909,36 @@ class _RecentSection extends ConsumerWidget {
                 )
               : Column(
                   children: [
-                    for (var i = 0; i < recent.length; i++) ...[
-                      if (i > 0)
-                        Padding(
-                          padding: const EdgeInsetsDirectional.only(
-                              start: 63, end: 12),
-                          child: Container(
-                            height: 1,
-                            color: MaliTokens.of(context)
-                                .cardBorder
-                                .withValues(alpha: 0.6),
-                          ),
-                        ),
-                      _TxRow(
-                        tx: recent[i],
-                        category: data.catalog.byId(recent[i].categoryId),
-                        privacyMode: privacyMode,
-                      ),
-                    ],
+                    for (final tx in recent) _recentRow(context, tx, logos),
                   ],
                 ),
         ),
       ],
     );
   }
-}
 
-class _TxRow extends StatelessWidget {
-  const _TxRow({
-    required this.tx,
-    required this.category,
-    required this.privacyMode,
-  });
-
-  final TransactionEntity tx;
-  final CategoryView? category;
-  final bool privacyMode;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final t = MaliTokens.of(context);
-    final merchant = tx.rawMerchant?.trim();
-    final title = (merchant != null && merchant.isNotEmpty)
-        ? merchant
-        : category?.nameAr ?? 'عملية';
-    final isDebit = transactionIsDebit(tx);
-    final amountColor = isDebit ? t.textOnCanvasPrimary : c.income;
-    final amount = privacyMode
-        ? '••••'
-        : '${isDebit ? '−' : '+'}${Formatters.amount(tx.amount)}';
-    final catColor = category?.tileColor ?? c.cta;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              // Normalized avatar: one 40px box, one radius, for both brand
-              // marks and category glyph tiles.
-              (merchant != null && BrandMark.hasBrand(merchant))
-                  ? BrandMark(name: merchant, size: 40)
-                  : Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: ShapeDecoration(
-                        color: catColor,
-                        shape: RoundedSuperellipseBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: CategoryGlyph(
-                        name: category?.iconName ?? 'receipt-text',
-                        size: 19,
-                        color: Colors.white,
-                      ),
-                    ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${category?.nameAr ?? 'غير مصنّفة'} · ${Formatters.time(tx.occurredAt)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(t.textOnCanvasMuted),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(amount, style: AppTypography.amountSmall(amountColor)),
-            ],
-          ),
-        ),
-      ),
+  Widget _recentRow(
+    BuildContext context,
+    TransactionEntity tx,
+    Map<String, String> logos,
+  ) {
+    final category = data.catalog.byId(tx.categoryId);
+    final title = tx.rawMerchant ?? category?.nameAr ?? 'عملية';
+    return AppTransactionRow(
+      title: title,
+      amount: tx.amount,
+      currency: Currency.arabicLabel(tx.currency),
+      subtitle:
+          '${Formatters.time(tx.occurredAt)} · ${category?.nameAr ?? 'غير مصنّفة'}',
+      categoryIconName: category?.iconName,
+      categoryColor: category?.color,
+      brandLogoUrl: BrandMark.logoFor(title, logos),
+      isPending: tx.status == TransactionStatus.pending,
+      isAi: tx.source == TransactionSourceEntity.aiParsed,
+      isDebit: transactionIsDebit(tx),
+      privacyMode: privacyMode,
+      horizontalPadding: 14,
+      onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
     );
   }
 }
@@ -1004,7 +952,7 @@ class _BudgetSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    final entries = data.budgetProgress.take(3).toList();
+    final entries = data.budgetProgress.toList();
     Color toneOf(double ratio) =>
         ratio >= 1.0 ? c.danger : (ratio >= 0.8 ? c.warning : c.income);
     return Column(
@@ -1019,28 +967,91 @@ class _BudgetSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => context.push('/budgets'),
-          child: entries.length == 1
-              ? _BudgetWideCard(
-                  entry: entries.first, tone: toneOf(entries.first.ratio))
-              : BudgetRingRail(
-                  rings: [
-                    for (final b in entries)
-                      BudgetRing(
-                        value: b.limit.isZero || b.limit.isNegative
-                            ? null
-                            : (b.ratio).clamp(0.0, 1.0),
-                        name: b.label,
-                        sub:
-                            '${Formatters.amount(b.spent.toDouble())} / ${Formatters.amount(b.limit.toDouble())}',
-                        color: toneOf(b.ratio),
-                      ),
+        if (entries.length == 1)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => context.push('/budgets'),
+            child: _BudgetWideCard(
+                entry: entries.first, tone: toneOf(entries.first.ratio)),
+          )
+        else
+          // صندوق واحد بارتفاع ثابت: الميزانيات بتتسكرول جوّاه بدل ما
+          // الصفحة تطول بعددها.
+          MaliCard(
+            style: MaliSurfaceStyle.floating,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: _budgetBoxHeight),
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: entries.length,
+                itemBuilder: (context, i) => _BudgetRow(
+                  entry: entries[i],
+                  tone: toneOf(entries[i].ratio),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// ارتفاع صندوق الميزانيات ≈ ٣ صفوف — أي حاجة زيادة بتتسكرول جوّاه.
+const double _budgetBoxHeight = 204;
+
+/// صفّ ميزانية داخل الصندوق: حلقة + الاسم + المصروف/الحد.
+class _BudgetRow extends StatelessWidget {
+  const _BudgetRow({required this.entry, required this.tone});
+  final DashboardBudgetEntry entry;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = MaliTokens.of(context);
+    final ratio = entry.limit.isZero || entry.limit.isNegative
+        ? null
+        : entry.ratio.clamp(0.0, 1.0);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => context.push('/budgets'),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              RingProgress(
+                value: ratio,
+                size: 44,
+                strokeWidth: 5,
+                color: tone,
+                child: Text(ratio == null ? '—' : '${(ratio * 100).round()}%',
+                    style: AppTypography.caption(t.textOnCanvasPrimary)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(entry.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${Formatters.amount(entry.spent.toDouble())} / ${Formatters.amount(entry.limit.toDouble())}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption(t.textOnCanvasSecondary),
+                    ),
                   ],
                 ),
+              ),
+            ],
+          ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -1167,7 +1178,6 @@ class _SubCard extends StatelessWidget {
         : days == 0
             ? 'مستحق اليوم'
             : 'بعد $days يوم';
-    final initial = bill.name.trim().isEmpty ? '?' : bill.name.characters.first;
     return SizedBox(
       width: 160,
       child: MaliCard(
@@ -1176,19 +1186,7 @@ class _SubCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            (bill.name.isNotEmpty && BrandMark.hasBrand(bill.name))
-                ? BrandMark(name: bill.name, size: 40)
-                : Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: MaliTokens.accentStart.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(initial,
-                        style: AppTypography.subhead(MaliTokens.accentStart)),
-                  ),
+            AppAvatar.brand(name: bill.name),
             const Spacer(),
             Text(bill.name,
                 maxLines: 1,
@@ -1234,24 +1232,11 @@ class _SubWideCard extends StatelessWidget {
         : days == 0
             ? 'مستحق اليوم'
             : 'بعد $days يوم';
-    final initial = bill.name.trim().isEmpty ? '?' : bill.name.characters.first;
     return MaliCard(
       style: MaliSurfaceStyle.floating,
       child: Row(
         children: [
-          (bill.name.isNotEmpty && BrandMark.hasBrand(bill.name))
-              ? BrandMark(name: bill.name, size: 44)
-              : Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: MaliTokens.accentStart.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Text(initial,
-                      style: AppTypography.subhead(MaliTokens.accentStart)),
-                ),
+          AppAvatar.brand(name: bill.name),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -1308,37 +1293,68 @@ class _GoalSection extends StatelessWidget {
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => context.push('/goals'),
+          // A goal reads as a LINE filling up, not another ring — the ring
+          // stays the budget's shape so the two never get confused at a
+          // glance (design-system §15.9).
           child: MaliCard(
             style: MaliSurfaceStyle.floating,
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                RingProgress(
-                  value: ratio,
-                  size: 72,
-                  strokeWidth: 8,
-                  color: c.income,
-                  child: Text('${(ratio * 100).round()}%',
-                      style: AppTypography.subhead(t.textOnCanvasPrimary)),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(goal.name,
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: c.income.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(AppLucideIcons.target,
+                          color: c.income, size: 19),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Text(goal.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style:
                               AppTypography.bodyStrong(t.textOnCanvasPrimary)),
-                      const SizedBox(height: 6),
-                      Text(
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: c.income.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      child: Text('${(ratio * 100).round()}%',
+                          style: AppTypography.label(c.income)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                LiquidBar(value: ratio, color: c.income),
+                const SizedBox(height: 9),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
                         privacyMode
-                            ? '•••• / ••••'
-                            : 'تم توفير ${Formatters.amount(goal.savedAmount)} من ${Formatters.amount(goal.targetAmount)}',
+                            ? 'تم توفير ••••'
+                            : 'تم توفير ${Formatters.amount(goal.savedAmount)}',
                         style: AppTypography.caption(t.textOnCanvasSecondary),
                       ),
-                    ],
-                  ),
+                    ),
+                    Text(
+                      privacyMode
+                          ? 'باقي ••••'
+                          : 'باقي ${Formatters.amount((goal.targetAmount - goal.savedAmount).clamp(0, double.infinity))}',
+                      style: AppTypography.caption(t.textOnCanvasSecondary),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1404,7 +1420,7 @@ class _SetupNudgeCard extends ConsumerWidget {
                 InkWell(
                   onTap: () => _snoozeSetupNudge(ref),
                   borderRadius: BorderRadius.circular(12),
-                  child: Icon(Icons.close_rounded,
+                  child: Icon(AppLucideIcons.x,
                       size: 18, color: t.textOnCanvasMuted),
                 ),
               ],
@@ -1416,14 +1432,14 @@ class _SetupNudgeCard extends ConsumerWidget {
               children: [
                 if (!lockEnabled)
                   _SetupNudgeChip(
-                    icon: Icons.fingerprint_rounded,
+                    icon: AppLucideIcons.fingerprint,
                     label: 'فعّل قفل البصمة',
                     onTap: () =>
                         ref.read(shellIndexProvider.notifier).state = 3,
                   ),
                 if (!hasGoals)
                   _SetupNudgeChip(
-                    icon: Icons.savings_outlined,
+                    icon: AppLucideIcons.piggyBank,
                     label: 'أضف هدف ادخار',
                     onTap: () =>
                         ref.read(shellIndexProvider.notifier).state = 2,
@@ -1682,7 +1698,8 @@ class _HomeCouponCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              BrandMark(name: offer.partnerName, size: 36),
+              AppAvatar.brand(
+                  name: offer.partnerName, size: AppSpacing.avatarSm),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

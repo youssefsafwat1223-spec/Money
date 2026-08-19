@@ -4,20 +4,29 @@ import 'package:flutter/material.dart';
 
 /// الطباعة — Arabic-first premium typography for Qirsh.
 class AppTypography {
+  /// Global fixed type scale (OS Dynamic Type is ignored). < 1.0 = denser UI
+  /// with more room for content; tune this ONE knob to resize all app text
+  /// while keeping the hierarchy ratios intact. Was 0.92 while Alexandria (big
+  /// x-height) was primary; Vazirmatn's smaller optical size reads right at 1.0.
+  static const double appTextScale = 1.0;
+
   AppTypography._();
 
   static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];
 
   /// The BUNDLED font family (pubspec `fonts:`) — no runtime GoogleFonts fetch,
   /// so the intended typography renders on the first offline launch.
-  static const String fontFamily = 'Alexandria';
+  /// IBM Plex Sans Arabic (OFL) — واجهة أولاً: عربي ولاتيني متجانسين وأرقام
+  /// واضحة. وهو نفس الخط اللي بيرسم بيه مولّد تقارير الـ PDF، فالتطبيق
+  /// والتقرير المصدَّر بقوا بخط واحد.
+  static const String fontFamily = 'IBMPlexSansArabic';
 
-  /// Bundled Latin/Arabic fallback for the rare glyph Alexandria lacks (replaces
-  /// the old runtime `GoogleFonts.ibmPlexSans()` fallback, which failed offline).
-  static const List<String> _fontFallback = ['IBMPlexSansArabic'];
+  /// Bundled fallbacks for whatever IBM Plex Sans Arabic lacks.
+  static const List<String> _fontFallback = ['Vazirmatn', 'Alexandria'];
 
-  /// Canonical app text style. Alexandria (bundled) supplies both the Arabic and
-  /// Latin glyphs; IBM Plex Sans Arabic (bundled) is the fallback safety net.
+  /// Canonical app text style. Vazirmatn (bundled) supplies both the Arabic and
+  /// Latin glyphs; Alexandria + IBM Plex Sans Arabic (bundled) are the fallback
+  /// safety net.
   /// This is a plain [TextStyle] over the bundled family — identical size /
   /// weight / height / letter-spacing / colour / shadows / tabular figures as
   /// before, only the font source changed (runtime fetch → bundled).

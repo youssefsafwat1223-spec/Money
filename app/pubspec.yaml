@@ -95,12 +95,25 @@ flutter:
     - assets/catalog/
     - assets/fonts/
     - assets/textures/
-  # B2-C/D — Alexandria is BUNDLED (SIL OFL 1.1) and registered here so the app
-  # renders its intended typography offline, with no runtime GoogleFonts fetch.
-  # ONE family, weight-mapped Regular→400 / Medium→500 / SemiBold→600 / Bold→700.
-  # (IBM Plex Sans Arabic above stays asset-only — the PDF renderer loads its
-  # bytes directly; it is deliberately NOT registered as a UI font family.)
+  # IBM Plex Sans Arabic is the PRIMARY app family (SIL OFL 1.1, bundled) — a
+  # UI-first face with harmonised Arabic/Latin and clear figures, and the SAME
+  # family the PDF report renderer draws with, so app and export match.
+  # Vazirmatn + Alexandria stay bundled as fallbacks. Every family is
+  # weight-mapped Regular→400 / Medium→500 / SemiBold→600 / Bold→700.
   fonts:
+    - family: Vazirmatn
+      fonts:
+        - asset: assets/fonts/Vazirmatn-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Vazirmatn-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Vazirmatn-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Vazirmatn-Bold.ttf
+          weight: 700
+    # B2-C/D — Alexandria stays BUNDLED (SIL OFL 1.1) as the first fallback so
+    # the app renders its typography offline, with no runtime GoogleFonts fetch.
+    # ONE family, weight-mapped Regular→400 / Medium→500 / SemiBold→600 / Bold→700.
     - family: Alexandria
       fonts:
         - asset: assets/fonts/Alexandria-Regular.ttf
@@ -111,10 +124,8 @@ flutter:
           weight: 600
         - asset: assets/fonts/Alexandria-Bold.ttf
           weight: 700
-    # BUNDLED Latin/Arabic fallback for the rare glyph Alexandria lacks —
-    # replaces the old runtime `GoogleFonts.ibmPlexSans()` fallback (which failed
-    # OFFLINE). Same TTFs the PDF renderer already ships; registering them as a
-    # UI family here is additive (the PDF still loads their bytes directly).
+    # The PRIMARY UI family (see the note above). The PDF renderer loads these
+    # same TTF bytes directly, so the exported report matches the screen.
     - family: IBMPlexSansArabic
       fonts:
         - asset: assets/fonts/IBMPlexSansArabic-Regular.ttf

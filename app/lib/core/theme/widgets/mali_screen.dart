@@ -22,6 +22,7 @@ class MaliScreen extends StatelessWidget {
     this.slivers,
     this.padding = const EdgeInsets.symmetric(horizontal: 24),
     this.safeArea = true,
+    this.ambient = true,
   }) : assert(
           (child == null) != (slivers == null),
           'Provide exactly one of child or slivers.',
@@ -39,6 +40,10 @@ class MaliScreen extends StatelessWidget {
   /// paints under the status bar (e.g. the Home header).
   final bool safeArea;
 
+  /// Pass-through to [CalmCanvas.ambient] — `false` drops the blue top glow
+  /// and the two aurora blobs behind the content.
+  final bool ambient;
+
   @override
   Widget build(BuildContext context) {
     final t = MaliTokens.of(context);
@@ -50,6 +55,7 @@ class MaliScreen extends StatelessWidget {
     // double-underline (production screens avoid this via Scaffold's Material;
     // MaliScreen paints its own canvas and must provide it itself).
     return CalmCanvas(
+      ambient: ambient,
       child: Material(
         type: MaterialType.transparency,
         child: DefaultTextStyle(

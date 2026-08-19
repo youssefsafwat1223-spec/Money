@@ -11,9 +11,14 @@ import '../mali_tokens.dart';
 ///
 /// Pure decoration — [IgnorePointer] on every layer, [child] sits on top.
 class CalmCanvas extends StatelessWidget {
-  const CalmCanvas({super.key, required this.child});
+  const CalmCanvas({super.key, required this.child, this.ambient = true});
 
   final Widget child;
+
+  /// التوهّج الأزرق والكور الضبابية. `false` = كانفاس نضيف (اللون + الحبيبات
+  /// بس) — للشاشات اللي فيها هيدر أزرق كبير، عشان مايبقاش فيه أزرقين
+  /// بيتزاحموا وراء المحتوى.
+  final bool ambient;
 
   @override
   Widget build(BuildContext context) {
@@ -25,31 +30,35 @@ class CalmCanvas extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: t.canvas,
-              gradient: RadialGradient(
-                center: const Alignment(0, -1.25),
-                radius: 1.15,
-                colors: [t.auroraTop, Colors.transparent],
-                stops: const [0.0, 0.72],
-              ),
+              gradient: ambient
+                  ? RadialGradient(
+                      center: const Alignment(0, -1.25),
+                      radius: 1.15,
+                      colors: [t.auroraTop, Colors.transparent],
+                      stops: const [0.0, 0.72],
+                    )
+                  : null,
             ),
           ),
         ),
-        // Aurora blob near the top-start corner.
-        Positioned(
-          top: -110,
-          right: -90,
-          width: 380,
-          height: 360,
-          child: _Blob(color: t.auroraA),
-        ),
-        // Aurora blob near the bottom-end corner.
-        Positioned(
-          bottom: -130,
-          left: -100,
-          width: 420,
-          height: 400,
-          child: _Blob(color: t.auroraB),
-        ),
+        if (ambient) ...[
+          // Aurora blob near the top-start corner.
+          Positioned(
+            top: -110,
+            right: -90,
+            width: 380,
+            height: 360,
+            child: _Blob(color: t.auroraA),
+          ),
+          // Aurora blob near the bottom-end corner.
+          Positioned(
+            bottom: -130,
+            left: -100,
+            width: 420,
+            height: 400,
+            child: _Blob(color: t.auroraB),
+          ),
+        ],
         // Faint grain — 128px tile, mode-aware opacity.
         Positioned.fill(
           child: IgnorePointer(
