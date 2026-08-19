@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_colors.dart';
+
 /// AppGradients — Centralized, purpose-driven gradient system.
 class AppGradients {
   AppGradients._();
@@ -8,9 +10,9 @@ class AppGradients {
   /// Safe for both light and dark mode as a bold backdrop.
   static const LinearGradient brandHero = LinearGradient(
     colors: [
-      Color(0xFF021B79),
-      Color(0xFF0340A5),
-      Color(0xFF55ABFF),
+      AppBrandBlue.brand,
+      AppBrandBlue.mid,
+      AppBrandBlue.light,
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
@@ -19,9 +21,9 @@ class AppGradients {
   /// Primary CTA gradient. Use only for prominent, intentional action moments.
   static const LinearGradient primaryCta = LinearGradient(
     colors: [
-      Color(0xFF55ABFF),
-      Color(0xFF0340A5),
-      Color(0xFF021B79),
+      AppBrandBlue.light,
+      AppBrandBlue.mid,
+      AppBrandBlue.brand,
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
@@ -42,7 +44,7 @@ class AppGradients {
     colors: [
       Color(0xFFFBC926),
       Color(0xFFC3922D),
-      Color(0xFF0340A5),
+      AppBrandBlue.mid,
     ],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,

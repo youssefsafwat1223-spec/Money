@@ -19,10 +19,11 @@ import '../../core/theme/widgets/premium_glass_container.dart';
 import '../../core/utils/l10n_ext.dart';
 import 'widgets/word_reveal_text.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
 /// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
-const _authBlue = Color(0xFF021B79);
+const _authBlue = AppBrandBlue.brand;
 
 /// The deep navy the hand/jar hero art (`banner_onboarding_1.jpg`) fades into.
 /// The screen blends from this at the top to [_authBlue] at the buttons so the
@@ -213,7 +214,7 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       const Icon(
-                                        Icons.security,
+                                        AppLucideIcons.shieldCheck,
                                         size: 14,
                                         color: Colors.white54,
                                       ),
@@ -230,7 +231,7 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       const Icon(
-                                        Icons.phonelink_lock,
+                                        AppLucideIcons.smartphone,
                                         size: 14,
                                         color: Colors.white54,
                                       ),

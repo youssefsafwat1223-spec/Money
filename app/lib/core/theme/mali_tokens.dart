@@ -103,10 +103,10 @@ class MaliTokens {
   // ===== Accent (mode-invariant — see design doc §0.2) =====
   // Reserved for AI insight, selected states, subtle glows, and a small number
   // of flagship moments. The hero balance stays directly on canvas — never
-  // wrapped in this gradient. Same blue→indigo in light and dark, so these stay
+  // wrapped in this gradient. Same blue ramp in light and dark, so these stay
   // `static const` (usable as const default parameter values).
   static const Color accentStart = Color(0xFF2E6BFF);
-  static const Color accentEnd = Color(0xFF5B4FE0);
+  static const Color accentEnd = Color(0xFF1C4FD0);
 
   static const LinearGradient accentGradient = LinearGradient(
     begin: Alignment.topLeft,
@@ -143,7 +143,7 @@ class MaliTokens {
     ],
     auroraTop: Color(0x3D2E6BFF), // accent @ ~24% — top glow
     auroraA: Color(0x2E2E6BFF), // accent @ ~18%
-    auroraB: Color(0x297C6BF0), // indigo @ ~16%
+    auroraB: Color(0x291C4FD0), // brand blue @ ~16%
     grainOpacity: 0.05,
   );
 
@@ -152,7 +152,7 @@ class MaliTokens {
   static const MaliTokens light = MaliTokens(
     canvas: Color(0xFFF4F6FB),
     canvasGlowTop: Color(0x122E6BFF), // blue @ ~7%
-    canvasGlowSecondary: Color(0x0D5B4FE0), // indigo @ ~5%
+    canvasGlowSecondary: Color(0x0D1C4FD0), // brand blue @ ~5%
     surfaceRaised: Color(0xFFEEF1F7),
     surfaceFloating: Color(0xFFFFFFFF),
     surfaceGlassFill: Color(0xB8FFFFFF), // white @ ~72%
@@ -177,7 +177,7 @@ class MaliTokens {
     ],
     auroraTop: Color(0x1A2E6BFF), // accent @ ~10% (subtler in light)
     auroraA: Color(0x142E6BFF), // accent @ ~8%
-    auroraB: Color(0x125B4FE0), // indigo @ ~7%
+    auroraB: Color(0x121C4FD0), // brand blue @ ~7%
     grainOpacity: 0.035,
   );
 

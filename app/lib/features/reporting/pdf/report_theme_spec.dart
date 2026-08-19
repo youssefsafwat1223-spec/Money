@@ -3,7 +3,7 @@ import 'package:pdf/pdf.dart';
 /// Print-friendly theme for generated reports.
 ///
 /// Mirrors the app's light palette (`AppColors.light`, `app_colors.dart`) and
-/// the documented blue→indigo brand accent (`MaliTokens.accentStart/accentEnd`).
+/// the documented blue brand ramp (`MaliTokens.accentStart/accentEnd`).
 /// Values are literal so the PDF never depends on a Flutter `ThemeData` lookup —
 /// the renderer runs without a `BuildContext`.
 class ReportThemeSpec {
@@ -20,9 +20,11 @@ class ReportThemeSpec {
   PdfColor get border => const PdfColor.fromInt(0xFFDDE2EC);
   PdfColor get divider => const PdfColor.fromInt(0xFFE8EBF2);
 
-  // Brand accent (blue → indigo) and deep navy.
+  // Brand accent + deep navy. These MIRROR `AppBrandBlue.bright/mid/brand`
+  // (app_colors.dart) and must be updated together; they stay literal here so
+  // the PDF renderer keeps zero Flutter/theme dependencies.
   PdfColor get accentStart => const PdfColor.fromInt(0xFF2E6BFF);
-  PdfColor get accentEnd => const PdfColor.fromInt(0xFF5B4FE0);
+  PdfColor get accentEnd => const PdfColor.fromInt(0xFF1C4FD0);
   PdfColor get primary => const PdfColor.fromInt(0xFF021B79);
 
   // Semantic.

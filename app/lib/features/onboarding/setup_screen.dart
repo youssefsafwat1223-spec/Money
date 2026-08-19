@@ -16,11 +16,13 @@ import '../../domain/errors/repo_exceptions.dart';
 import '../../l10n/app_localizations.dart';
 import '../capture/services/local_notification_service.dart';
 import 'onboarding_options.dart';
+import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/app_colors.dart';
 
 /// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
 /// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
-const _setupBlue = Color(0xFF021B79);
-const _setupAccent = Color(0xFF8DBBFF);
+const _setupBlue = AppBrandBlue.brand;
+const _setupAccent = AppBrandBlue.pale;
 
 /// Page 4 of the redesigned onboarding: one activation step at a time.
 ///
@@ -241,7 +243,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
                 ? IconButton(
                     padding: EdgeInsets.zero,
                     onPressed: _busy ? null : _goBack,
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                    icon: const Icon(AppLucideIcons.arrowLeft,
                         size: 18, color: Colors.white70),
                   )
                 : null,
@@ -287,7 +289,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
       case 1:
         return _actionStep(
           step: 1,
-          icon: Icons.notifications_active_outlined,
+          icon: AppLucideIcons.bellRing,
           title: l10n.setupNotificationsTitle,
           body: l10n.setupNotificationsBody,
           cta: l10n.setupNotificationsCta,
@@ -335,7 +337,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
                 ],
               ),
               child: done
-                  ? const Icon(Icons.check_rounded,
+                  ? const Icon(AppLucideIcons.check,
                           color: _setupAccent, size: 36)
                       .animate(key: ValueKey('done-icon-$step'))
                       .scale(curve: Curves.easeOutBack, duration: 400.ms)
@@ -372,7 +374,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
   Widget _countryStep(AppL10n l10n) {
     return _stepHero(
       step: 0,
-      icon: Icons.public_rounded,
+      icon: AppLucideIcons.globe,
       title: l10n.setupCountryTitle,
       body: l10n.setupCountryBody,
       eyebrow: Column(
@@ -464,7 +466,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     ];
     return _stepHero(
       step: step,
-      icon: Icons.ios_share_rounded,
+      icon: AppLucideIcons.share,
       title: l10n.setupShortcutTitle,
       body: l10n.setupShortcutBody,
       control: _done[step]

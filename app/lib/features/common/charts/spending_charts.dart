@@ -455,7 +455,7 @@ class DailySpendBarChart extends StatelessWidget {
                     toY: safeValues[i],
                     width: safeValues.length > 18 ? 7 : 11,
                     borderRadius: BorderRadius.circular(AppRadius.pill),
-                    color: selectedIndex == i ? c.accent : c.primary,
+                    color: selectedIndex == i ? c.cta : c.primary,
                     backDrawRodData: BackgroundBarChartRodData(
                       show: false,
                       toY: maxValue * 1.2,
@@ -486,7 +486,7 @@ class CompactSparkline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final lineColor = color ?? c.accent;
+    final lineColor = color ?? c.cta;
     final safeValues = values.isEmpty ? const [0.0, 0.0] : values;
     final maxValue = math.max(safeValues.reduce(math.max), 1);
 
@@ -540,7 +540,7 @@ class _LegendRow extends StatelessWidget {
     final c = context.colors;
     return Row(
       children: [
-        CategoryAvatar(category: slice.category, size: 34),
+        AppAvatar.category(category: slice.category, size: AppSpacing.avatarSm),
         const SizedBox(width: AppSpacing.s2),
         Expanded(
           child: Column(
