@@ -10,12 +10,16 @@ import '../transactions/manual_transaction_sheet.dart';
 import 'manual_paste_screen.dart';
 
 Future<void> showCaptureEntrySheet(BuildContext context) {
+  // لو الكيبورد كان مفتوح (جاي من خانة البحث مثلًا) فمساحة الشيت بتتاكل
+  // بالكامل والمحتوى بيطفح — نقفله الأول، والمحتوى بيتسكرول لو ضاق.
+  FocusManager.instance.primaryFocus?.unfocus();
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
     builder: (_) => navySheetTheme(AppSheetScaffold(
       title: 'إضافة عملية جديدة',
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      scrollable: true,
       body: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -31,7 +35,7 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
           ),
           const SizedBox(height: AppSpacing.s3),
           _ActionTile(
-            icon: Icons.edit_outlined,
+            icon: AppLucideIcons.pencil,
             title: 'إضافة يدوية',
             subtitle: 'اكتب تفاصيل العملية بنفسك.',
             isPrimary: false,
@@ -72,11 +76,11 @@ class _ActionTile extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.s3),
         decoration: BoxDecoration(
           color: isPrimary
-              ? c.accent.withValues(alpha: 0.1)
+              ? c.cta.withValues(alpha: 0.1)
               : c.surface2.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isPrimary ? c.accent.withValues(alpha: 0.3) : c.border,
+            color: isPrimary ? c.cta.withValues(alpha: 0.3) : c.border,
           ),
         ),
         child: Row(
@@ -84,7 +88,7 @@ class _ActionTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isPrimary ? c.accent : c.surface,
+                color: isPrimary ? c.cta : c.surface,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon,
@@ -101,7 +105,7 @@ class _ActionTile extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_left_rounded, color: c.textLight, size: 20),
+            Icon(AppLucideIcons.chevronLeft, color: c.textLight, size: 20),
           ],
         ),
       ),
