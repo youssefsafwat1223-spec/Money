@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Building2, Code2, Tag, ToggleLeft,
-  Megaphone, LogOut, ChevronRight, FlaskConical, TicketPercent,
+  Megaphone, LogOut, ChevronRight, FlaskConical, TicketPercent, Gift,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ const NAV = [
   { href: "/announcements", label: "Announcements", icon: Megaphone },
   { href: "/campaigns",     label: "Campaigns",     icon: Megaphone },
   { href: "/coupons",       label: "Offers",        icon: TicketPercent },
+  { href: "/referrals",     label: "Referral & Ads", icon: Gift },
   { href: "/parser-lab",    label: "Parser Lab",    icon: FlaskConical },
 ];
 
