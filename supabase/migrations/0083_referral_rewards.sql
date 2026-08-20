@@ -444,7 +444,7 @@ BEGIN
       RAISE EXCEPTION 'referral_code_generation_failed'
         USING ERRCODE = 'data_exception';
     END IF;
-    v_bytes := gen_random_bytes(16);
+    v_bytes := extensions.gen_random_bytes(16);
     FOR i IN 0..15 LOOP
       EXIT WHEN char_length(v_code) >= 8;
       v_byte := get_byte(v_bytes, i);
@@ -553,7 +553,7 @@ BEGIN
   -- state, and the same request must fingerprint identically whenever it is
   -- replayed.
   v_fingerprint := encode(
-    digest(
+    extensions.digest(
       convert_to(
         jsonb_build_object(
           'actor',            coalesce(lower(p_actor_admin_id::text), 'system'),
@@ -1068,7 +1068,7 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT encode(digest(convert_to(p_intent::text, 'UTF8'), 'sha256'), 'hex')
+  SELECT encode(extensions.digest(convert_to(p_intent::text, 'UTF8'), 'sha256'), 'hex')
 $$;
 
 -- THE single idempotency gate for every Admin mutation. Returns
