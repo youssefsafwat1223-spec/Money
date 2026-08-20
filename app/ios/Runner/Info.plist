@@ -92,5 +92,17 @@
 		<false/>
 		<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- AdMob (R4). Google's public TEST application id — dev/test mode only.
+	     Production must replace this via the release build configuration before
+	     enable_report_ads is turned on. No IDFA/ATT is requested in V1. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 </dict>
 </plist>

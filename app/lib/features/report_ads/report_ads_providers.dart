@@ -1,0 +1,78 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/di/app_providers.dart'
+    show featureFlags, loadUserSettingsUseCaseProvider, metricsClientProvider;
+import '../referrals/referrals_providers.dart';
+import 'ad_consent_service.dart';
+import 'report_ads_analytics.dart';
+import 'report_ads_build_config.dart';
+import 'report_entitlement.dart';
+import 'report_export_ad_gateway.dart';
+import 'report_export_coordinator.dart';
+
+/// Report-export interstitial placement gate. Product-placement rollout only —
+/// NOT a financial-capability authority. Fails closed if the flag service has
+/// not initialised (pre-sync / tests). Mirrors [referralsEnabledProvider].
+///
+/// Same-session reactivity: `syncCatalog` re-runs FeatureFlagService.init() on
+/// cold-start and on resume, then invalidates this provider, so a mid-session
+/// flip of `enable_report_ads` takes effect without a restart (§9).
+final reportAdsEnabledProvider = Provider<bool>((ref) {
+  try {
+    return featureFlags.getBool('enable_report_ads');
+  } on StateError {
+    return false;
+  }
+});
+
+/// UMP consent authority (single instance).
+final adConsentServiceProvider = Provider<AdConsentService>(
+  (ref) => const UmpAdConsentService(),
+);
+
+/// Whether Settings should offer the UMP "privacy options" entry (§11). Async;
+/// false while loading / when not applicable, so the entry stays hidden.
+final adPrivacyOptionsRequiredProvider = FutureProvider<bool>(
+  (ref) => ref.watch(adConsentServiceProvider).isPrivacyOptionsRequired(),
+);
+
+/// The interstitial gateway (holds a preloaded ad; disposed with the provider).
+final reportExportAdGatewayProvider = Provider<ReportExportAdGateway>((ref) {
+  final gateway = AdMobReportExportAdGateway();
+  ref.onDispose(gateway.dispose);
+  return gateway;
+});
+
+/// The entitlement resolver + in-memory session cache. Keyed by the current
+/// authenticated user id; invalidated on logout / account switch by the shell.
+final reportEntitlementResolverProvider = Provider<ReportEntitlementResolver>(
+  (ref) => ReportEntitlementResolver(
+    service: ref.watch(referralServiceProvider),
+    currentUserId: () => Supabase.instance.client.auth.currentUser?.id,
+  ),
+);
+
+/// Consent-gated, fire-and-forget report-export analytics.
+final reportAdsAnalyticsProvider = Provider<ReportAdsAnalytics>((ref) {
+  final loadSettings = ref.watch(loadUserSettingsUseCaseProvider);
+  return ReportAdsAnalytics(
+    // Consent read fresh on each send (§12/§24).
+    cloudProcessingEnabled: () async =>
+        (await loadSettings.call()).cloudProcessingEnabled,
+    metrics: ref.watch(metricsClientProvider),
+  );
+});
+
+/// The report-export orchestration state machine (single-flight, fail-open).
+final reportExportCoordinatorProvider = Provider<ReportExportCoordinator>((ref) {
+  return ReportExportCoordinator(
+    reportAdsEnabled: () => ref.read(reportAdsEnabledProvider),
+    adConfigAvailable: () => ReportAdsBuildConfig.isConfiguredFor(defaultTargetPlatform),
+    entitlement: ref.watch(reportEntitlementResolverProvider),
+    consent: ref.watch(adConsentServiceProvider),
+    gateway: ref.watch(reportExportAdGatewayProvider),
+    analytics: ref.watch(reportAdsAnalyticsProvider),
+  );
+});

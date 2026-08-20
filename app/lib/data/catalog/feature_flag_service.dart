@@ -15,6 +15,10 @@ const Map<String, Object> _defaults = {
   // Seeded OFF, fails closed. The SERVER enforces attribution/qualification
   // independently via an active rule — this flag governs client discovery only.
   'enable_referrals': false,
+  // Report-export interstitial placement gate (docs REPORT_ADS §14, R4). Seeded
+  // OFF, fails closed. Product-placement rollout only — never a financial
+  // capability authority; the entitlement decision is server-authoritative.
+  'enable_report_ads': false,
   'enable_announcements': true,
   'parser_engine_version': 'v1',
   'ledger_dual_write': false,
