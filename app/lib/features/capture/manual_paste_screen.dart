@@ -8,6 +8,7 @@ import '../../core/backend/supabase_config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
@@ -23,6 +24,7 @@ import '../transactions/transactions_screen.dart'
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 import '../common/top_banner.dart';
 import 'manual_paste_splitter.dart';
+import '../common/app_header.dart';
 
 class ManualPasteScreen extends ConsumerStatefulWidget {
   const ManualPasteScreen({super.key, this.onTransactionAdded});
@@ -58,29 +60,16 @@ class _ManualPasteSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(28),
         ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
+          child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.78,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.9)
-                  : Colors.white.withValues(alpha: 0.92),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
-              ),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
             child: Column(
               children: [
                 const SizedBox(height: AppSpacing.s3),
@@ -106,7 +95,7 @@ class _ManualPasteSheet extends StatelessWidget {
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close),
+                        icon: const Icon(AppLucideIcons.x),
                         style: IconButton.styleFrom(
                           backgroundColor: c.surface.withValues(alpha: 0.4),
                         ),
@@ -462,7 +451,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     );
     if (!widget.fullScreen) return content;
     return Scaffold(
-      appBar: AppBar(title: const Text('ألصق رسالة البنك')),
+      appBar: const AppHeader(title: 'ألصق رسالة البنك'),
       body: content,
     );
   }
@@ -582,7 +571,7 @@ class _BatchProgressCard extends StatelessWidget {
           Row(
             children: [
               Icon(
-                busy ? Icons.auto_awesome_rounded : Icons.done_all_rounded,
+                busy ? AppLucideIcons.sparkles : AppLucideIcons.checkCheck,
                 color: busy ? c.cta : c.success,
                 size: 18,
               ),
@@ -661,28 +650,16 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final summary =
         _BatchSummary.from(widget.items, confirmedIds: _confirmedIds);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
+          child: SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.72,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.94)
-                  : Colors.white.withValues(alpha: 0.96),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
             child: SafeArea(
               top: false,
               child: Padding(
@@ -716,7 +693,7 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
                             color: c.success.withValues(alpha: 0.12),
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(Icons.done_all_rounded,
+                          child: Icon(AppLucideIcons.checkCheck,
                               color: c.success, size: 22),
                         ),
                         const SizedBox(width: AppSpacing.s3),

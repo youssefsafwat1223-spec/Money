@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../app_colors.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
-import 'premium_glass_container.dart';
+import '../../utils/app_lucide_icons.dart';
 
 /// A premium top-floating toast notification system.
 class AppToast {
@@ -79,6 +79,8 @@ class _ToastWidgetState extends State<_ToastWidget>
   late final AnimationController _controller;
   late final Animation<double> _slideAnimation;
 
+  bool _entered = false;
+
   @override
   void initState() {
     super.initState();
@@ -90,6 +92,16 @@ class _ToastWidgetState extends State<_ToastWidget>
       parent: _controller,
       curve: Curves.easeOutBack,
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_entered) return;
+    _entered = true;
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduceMotion) _controller.duration = Duration.zero;
     _controller.forward();
   }
 
@@ -133,34 +145,43 @@ class _ToastWidgetState extends State<_ToastWidget>
                 _dismiss();
               }
             },
-            child: PremiumGlassContainer(
-              blurSigma: 15,
-              noiseOpacity: 0.05,
-              backgroundColor: widget.isError
-                  ? Colors.red.withValues(alpha: 0.15)
-                  : c.surface.withValues(alpha: 0.6),
-              borderColor: widget.isError
-                  ? Colors.red.withValues(alpha: 0.3)
-                  : Colors.white.withValues(alpha: 0.15),
+            child: Material(
+              color: Colors.transparent,
+              elevation: 8,
+              shadowColor: Colors.black.withValues(alpha: 0.25),
               borderRadius: BorderRadius.circular(100),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              child: Row(
-                children: [
-                  Icon(
-                    widget.isError
-                        ? Icons.error_outline
-                        : Icons.check_circle_outline,
-                    color: widget.isError ? Colors.redAccent : c.success,
-                    size: 22,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  // سطح صلب — من غير زجاج؛ حالة الخطأ بغسلة حمرا فوقه.
+                  color: widget.isError
+                      ? Color.alphaBlend(
+                          Colors.red.withValues(alpha: 0.14), c.surface)
+                      : c.surface,
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(color: c.divider),
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(
+                        widget.isError
+                            ? AppLucideIcons.alertCircle
+                            : AppLucideIcons.checkCircle,
+                        color: widget.isError ? Colors.redAccent : c.success,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.message,
+                          style: AppTypography.bodyStrong(c.textMain),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      widget.message,
-                      style: AppTypography.bodyStrong(c.textMain),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

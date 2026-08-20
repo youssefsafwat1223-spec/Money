@@ -10,12 +10,13 @@ import '../../core/theme/widgets/premium_glass_container.dart';
 import '../../core/utils/l10n_ext.dart';
 import 'widgets/coin_rain.dart';
 import 'widgets/word_reveal_text.dart';
+import '../../core/theme/app_colors.dart';
 
 /// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
 /// `color: "#021B79"`), so the app never "jumps" from the launch screen to a
 /// visually different first frame.
-const _onboardingBlue = Color(0xFF021B79);
-const _accentBlue = Color(0xFF8DBBFF);
+const _onboardingBlue = AppBrandBlue.brand;
+const _accentBlue = AppBrandBlue.pale;
 
 /// First-launch cinematic story shown before the brand and mandatory auth.
 ///

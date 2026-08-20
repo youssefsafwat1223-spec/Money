@@ -27,6 +27,7 @@ import 'bill_form_sheet.dart';
 import 'bill_payment_attempt.dart';
 import 'subscriptions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class BillDetailsSheet extends ConsumerWidget {
   const BillDetailsSheet({super.key, required this.bill});
@@ -199,7 +200,7 @@ class BillDetailsSheet extends ConsumerWidget {
                     ref,
                     currentBill,
                   ),
-                  icon: const Icon(Icons.add_card_outlined),
+                  icon: const Icon(AppLucideIcons.creditCard),
                   label: Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
                 ),
                 const SizedBox(height: AppSpacing.s3),
@@ -209,7 +210,7 @@ class BillDetailsSheet extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: () =>
                             BillFormSheet.show(context, bill: currentBill),
-                        icon: const Icon(Icons.edit_outlined),
+                        icon: const Icon(AppLucideIcons.pencil),
                         label: const Text('تعديل'),
                       ),
                     ),
@@ -218,7 +219,7 @@ class BillDetailsSheet extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: () =>
                             _confirmDelete(context, ref, currentBill),
-                        icon: const Icon(Icons.delete_outline),
+                        icon: const Icon(AppLucideIcons.trash2),
                         label: const Text('حذف'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: c.danger,
@@ -642,7 +643,7 @@ class _BillPaymentRow extends ConsumerWidget {
               color: c.success.withValues(alpha: 0.13),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(Icons.check_circle_outline, size: 18, color: c.success),
+            child: Icon(AppLucideIcons.checkCircle, size: 18, color: c.success),
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
@@ -681,7 +682,7 @@ class _BillPaymentRow extends ConsumerWidget {
           const SizedBox(width: AppSpacing.s2),
           GestureDetector(
             onTap: () => _delete(context, ref),
-            child: Icon(Icons.delete_outline, size: 18, color: c.danger),
+            child: Icon(AppLucideIcons.trash2, size: 18, color: c.danger),
           ),
         ],
       ),
@@ -716,7 +717,7 @@ class _BillTransactionRow extends StatelessWidget {
                 color: c.cta.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(Icons.receipt_long_outlined, size: 17, color: c.cta),
+              child: Icon(AppLucideIcons.receipt, size: 17, color: c.cta),
             ),
             const SizedBox(width: AppSpacing.s3),
             Expanded(

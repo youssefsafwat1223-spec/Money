@@ -346,7 +346,6 @@ class NativeCaptureBridge {
     return text;
   }
 
-
   /// Returns the native capture queue WITHOUT deleting it (per-item lease,
   /// MALI-012). Call [acknowledgeSharedMessage] for each message only after
   /// its local import committed — a kill mid-drain re-delivers exactly the

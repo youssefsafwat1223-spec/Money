@@ -4,6 +4,7 @@ import 'package:money_companion/core/backup/planning_restore_preflight.dart';
 import 'package:money_companion/data/db/planning_currency_repair.dart'
     show PlanningRepairMode;
 import 'package:money_companion/features/backup/restore_payload_repair_view.dart';
+import 'package:money_companion/core/theme/app_theme.dart';
 
 // MALI-026 (Phase-8 B8-2.10 §6) — the restore-payload repair UX emits a decision
 // scoped to the PAYLOAD fingerprint (not the live dataset) and supports
@@ -21,6 +22,7 @@ void main() {
       (tester) async {
     RestorePayloadRepairDecision? decision;
     await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light,
       home: RestorePayloadRepairView(
         rows: rows,
         onConfirm: (d) => decision = d,
@@ -44,6 +46,7 @@ void main() {
       (tester) async {
     var confirmed = false;
     await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light,
       home: RestorePayloadRepairView(
         rows: rows,
         onConfirm: (_) => confirmed = true,
@@ -61,6 +64,7 @@ void main() {
   testWidgets('cancel aborts (caller leaves the DB untouched)', (tester) async {
     var cancelled = false;
     await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light,
       home: RestorePayloadRepairView(
         rows: rows,
         onConfirm: (_) {},

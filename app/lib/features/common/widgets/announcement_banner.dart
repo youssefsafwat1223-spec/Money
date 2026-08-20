@@ -8,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../data/catalog/catalog_daos.dart';
+import '../../../core/utils/app_lucide_icons.dart';
 
 class AnnouncementBanner extends ConsumerWidget {
   const AnnouncementBanner({super.key});
@@ -90,8 +91,9 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final start = isDark ? const Color(0xFF0F766E) : const Color(0xFF0F8F73);
-    final end = isDark ? const Color(0xFF115E59) : const Color(0xFF12A17E);
+    // كان تدرّج تركوازي — لون مالوش وجود في أي مكان تاني في التطبيق.
+    final start = isDark ? AppBrandBlue.strong : AppBrandBlue.mid;
+    const end = AppBrandBlue.brand;
     final body = widget.campaign.bodyAr?.trim();
     final hasBody = body != null && body.isNotEmpty;
     final actionLabel = widget.campaign.actionLabelAr?.trim();
@@ -269,8 +271,8 @@ class _BannerTile extends ConsumerWidget {
           fg: Colors.white,
         ),
       _ => (
-          start: isDark ? const Color(0xFF0F766E) : const Color(0xFF0F8F73),
-          end: isDark ? const Color(0xFF115E59) : const Color(0xFF12A17E),
+          start: isDark ? AppBrandBlue.strong : AppBrandBlue.mid,
+          end: AppBrandBlue.brand,
           fg: Colors.white,
         ),
     };
@@ -450,7 +452,7 @@ class _DismissButton extends ConsumerWidget {
             ref.read(announcementServiceProvider).dismiss(announcementId).then(
                   (_) => ref.invalidate(activeAnnouncementsProvider),
                 ),
-        icon: const Icon(Icons.close_rounded, size: 18),
+        icon: const Icon(AppLucideIcons.x, size: 18),
         tooltip: 'إخفاء',
       ),
     );
@@ -477,7 +479,7 @@ class _CampaignDismissButton extends ConsumerWidget {
             .read(growthCampaignServiceProvider)
             .dismiss(campaignId)
             .then((_) => ref.invalidate(activeDashboardCampaignsProvider)),
-        icon: const Icon(Icons.close_rounded, size: 18),
+        icon: const Icon(AppLucideIcons.x, size: 18),
         tooltip: 'إخفاء',
       ),
     );

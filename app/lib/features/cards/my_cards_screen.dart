@@ -18,6 +18,7 @@ import '../../domain/entities/card_entity.dart';
 import '../../domain/entities/card_summary.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../common/app_check_mark.dart';
 import '../common/app_screen_scaffold.dart';
 import '../transactions/manual_transaction_sheet.dart';
 import 'bank_mark.dart';
@@ -26,6 +27,7 @@ import 'card_network_badge.dart';
 import 'card_theme.dart';
 import 'cards_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// مفتاح مطابقة بطاقة مُدارة (CardEntity) بصفّ معروض: (الحساب، آخر 4 أرقام).
 String _cardKey(String? accountId, String last4) => '${accountId ?? ''}|$last4';
@@ -139,13 +141,13 @@ class MyCardsScreen extends ConsumerWidget {
         child: Row(
           children: [
             IconButton(
-              icon: Icon(Icons.arrow_back_ios_new, color: c.textMain, size: 20),
+              icon: Icon(AppLucideIcons.arrowLeft, color: c.textMain, size: 20),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
             Text('كل البطاقات', style: AppTypography.title1(c.textMain)),
             const Spacer(),
             IconButton(
-              icon: Icon(Icons.add, color: c.cta, size: 24),
+              icon: Icon(AppLucideIcons.plus, color: c.cta, size: 24),
               tooltip: 'إضافة بطاقة',
               onPressed: () => showCardForm(context, ref),
             ),
@@ -175,7 +177,7 @@ class MyCardsScreen extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.credit_card_off, size: 48, color: c.textLight),
+            Icon(AppLucideIcons.creditCard, size: 48, color: c.textLight),
             const SizedBox(height: AppSpacing.s4),
             Text('مفيش بطاقات لسه', style: AppTypography.title2(c.textMain)),
             const SizedBox(height: AppSpacing.s2),
@@ -187,7 +189,7 @@ class MyCardsScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.s4),
             FilledButton.icon(
               onPressed: () => showCardForm(context, ref),
-              icon: const Icon(Icons.add),
+              icon: const Icon(AppLucideIcons.plus),
               label: const Text('أضف بطاقة'),
             ),
           ],
@@ -274,14 +276,14 @@ class _CardRow extends ConsumerWidget {
                       ),
                       const SizedBox(width: AppSpacing.s2),
                     ],
-                    Icon(Icons.contactless,
+                    Icon(AppLucideIcons.wifi,
                         color: Colors.white.withValues(alpha: 0.8), size: 22),
                     const Spacer(),
                     CardNetworkBadge(network: card.network),
                     const SizedBox(width: AppSpacing.s2),
                     IconButton(
                       onPressed: () => _edit(context, ref),
-                      icon: Icon(Icons.edit,
+                      icon: Icon(AppLucideIcons.pencil,
                           color: Colors.white.withValues(alpha: 0.9), size: 18),
                       tooltip: 'تعديل',
                       visualDensity: VisualDensity.compact,
@@ -300,14 +302,18 @@ class _CardRow extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: AppSpacing.s4),
+                // ثلاث أعمدة متساوية: مبالغ الجنيه بتوصل ٦ خانات + اسم العملة،
+                // فمساحة ثابتة + Spacer كانت بتطفح خارج الكارت.
                 Row(
                   children: [
-                    _flow('داخل', card.totalIn, c.success),
-                    const SizedBox(width: AppSpacing.s5),
-                    _flow('خارج', card.totalOut,
-                        Colors.white.withValues(alpha: 0.95)),
-                    const Spacer(),
-                    _flow('الصافي', net, Colors.white),
+                    Expanded(child: _flow('داخل', card.totalIn, c.success)),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: _flow('خارج', card.totalOut,
+                          Colors.white.withValues(alpha: 0.95)),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(child: _flow('الصافي', net, Colors.white)),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.s4),
@@ -315,7 +321,7 @@ class _CardRow extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: _action(
-                        icon: Icons.add,
+                        icon: AppLucideIcons.plus,
                         label: 'إضافة عملية',
                         onTap: () => ManualTransactionSheet.show(
                           context,
@@ -326,7 +332,7 @@ class _CardRow extends ConsumerWidget {
                     const SizedBox(width: AppSpacing.s3),
                     Expanded(
                       child: _action(
-                        icon: Icons.link,
+                        icon: AppLucideIcons.link,
                         label: 'اربط عملية موجودة',
                         onTap: () => _showAttachSheet(context, card.last4),
                       ),
@@ -373,8 +379,15 @@ class _CardRow extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: AppTypography.caption(Colors.white.withValues(alpha: 0.6))),
-        Text(text, style: AppTypography.bodyStrong(color)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child:
+              Text(text, maxLines: 1, style: AppTypography.bodyStrong(color)),
+        ),
       ],
     );
   }
@@ -486,7 +499,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                       decoration: InputDecoration(
                         isDense: true,
                         hintText: 'ابحث بالاسم أو المبلغ',
-                        prefixIcon: const Icon(Icons.search, size: 20),
+                        prefixIcon: const Icon(AppLucideIcons.search, size: 20),
                         filled: true,
                         fillColor: c.surface2.withValues(alpha: 0.45),
                         border: OutlineInputBorder(
@@ -521,9 +534,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                                   '${tx.cardLast4 != null ? ' • •••• ${tx.cardLast4}' : ''}',
                                   style: AppTypography.footnote(c.textLight),
                                 ),
-                                trailing: linked
-                                    ? Icon(Icons.check_circle, color: c.success)
-                                    : Icon(Icons.add_link, color: c.textLight),
+                                trailing: AppCheckMark(selected: linked),
                                 onTap: linked
                                     ? null
                                     : () async {

@@ -19,6 +19,7 @@ import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../goals/goals_providers.dart';
 import 'budgets_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// Suggested monthly split by category (stable keys). Sums to ~67%, leaving the
 /// rest as savings/buffer. Just a starting point — the user edits freely.
@@ -131,7 +132,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
           id: idFor(category.id) ?? IdGenerator.next(),
           categoryId: category.id,
           currency: currency,
-          amountMoney: parseLocalizedMoney(_ctrl(entry.key).text.trim(), currency),
+          amountMoney:
+              parseLocalizedMoney(_ctrl(entry.key).text.trim(), currency),
           lastNotifiedSpentMoney: Money(0, currency),
           period: BudgetPeriod.monthly,
           startDate: now,
@@ -162,8 +164,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
         // The auto-save amount is in the GOAL's own currency, parsed exactly.
         await goalRepo.save(
           goal.copyWith(
-            autoSaveMoney:
-                parseLocalizedMoney(_savingsController.text.trim(), goal.currency),
+            autoSaveMoney: parseLocalizedMoney(
+                _savingsController.text.trim(), goal.currency),
             autoSavePeriod: 'monthly',
             autoSaveLastRun: goal.autoSaveLastRun ?? now,
           ),
@@ -238,7 +240,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
             alignment: AlignmentDirectional.centerStart,
             child: TextButton.icon(
               onPressed: income > 0 ? _suggest : null,
-              icon: const Icon(Icons.auto_awesome, size: 16),
+              icon: const Icon(AppLucideIcons.sparkles, size: 16),
               label: const Text('اقترح توزيع تلقائي'),
             ),
           ),
@@ -312,7 +314,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.savings_rounded, color: c.success, size: 20),
+                    Icon(AppLucideIcons.piggyBank, color: c.success, size: 20),
                     const SizedBox(width: AppSpacing.s2),
                     Expanded(
                       child: Text('الادخار',

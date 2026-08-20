@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class ForceUpdateScreen extends ConsumerWidget {
   const ForceUpdateScreen({super.key});
@@ -37,7 +38,7 @@ class ForceUpdateScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Spacer(),
-              Icon(Icons.system_update_rounded, size: 72, color: c.primary),
+              Icon(AppLucideIcons.download, size: 72, color: c.primary),
               const SizedBox(height: AppSpacing.s5),
               Text(
                 titleText,

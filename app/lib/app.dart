@@ -42,6 +42,10 @@ class MoneyApp extends ConsumerWidget {
         final mediaQuery = MediaQuery.of(context);
         return MediaQuery(
           data: mediaQuery.copyWith(
+            // The user's system text size is RESPECTED, bounded to the range
+            // the financial layouts are verified against (see the 1.25x
+            // overflow tests). Never a fixed scale — that would silently
+            // disable Dynamic Type for everyone.
             textScaler: mediaQuery.textScaler.clamp(
               minScaleFactor: 0.8,
               maxScaleFactor: 1.25,

@@ -10,14 +10,17 @@ class AppTypography {
 
   /// The BUNDLED font family (pubspec `fonts:`) — no runtime GoogleFonts fetch,
   /// so the intended typography renders on the first offline launch.
-  static const String fontFamily = 'Alexandria';
+  /// IBM Plex Sans Arabic (OFL) — واجهة أولاً: عربي ولاتيني متجانسين وأرقام
+  /// واضحة. وهو نفس الخط اللي بيرسم بيه مولّد تقارير الـ PDF، فالتطبيق
+  /// والتقرير المصدَّر بقوا بخط واحد.
+  static const String fontFamily = 'IBMPlexSansArabic';
 
-  /// Bundled Latin/Arabic fallback for the rare glyph Alexandria lacks (replaces
-  /// the old runtime `GoogleFonts.ibmPlexSans()` fallback, which failed offline).
-  static const List<String> _fontFallback = ['IBMPlexSansArabic'];
+  /// Bundled fallbacks for whatever IBM Plex Sans Arabic lacks.
+  static const List<String> _fontFallback = ['Vazirmatn', 'Alexandria'];
 
-  /// Canonical app text style. Alexandria (bundled) supplies both the Arabic and
-  /// Latin glyphs; IBM Plex Sans Arabic (bundled) is the fallback safety net.
+  /// Canonical app text style. Vazirmatn (bundled) supplies both the Arabic and
+  /// Latin glyphs; Alexandria + IBM Plex Sans Arabic (bundled) are the fallback
+  /// safety net.
   /// This is a plain [TextStyle] over the bundled family — identical size /
   /// weight / height / letter-spacing / colour / shadows / tabular figures as
   /// before, only the font source changed (runtime fetch → bundled).

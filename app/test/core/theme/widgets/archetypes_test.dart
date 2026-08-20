@@ -5,6 +5,7 @@ import 'package:money_companion/core/theme/widgets/attention_card.dart';
 import 'package:money_companion/core/theme/widgets/insight_card.dart';
 import 'package:money_companion/core/theme/widgets/ledger_row.dart';
 import 'package:money_companion/core/theme/widgets/pulse_row.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 
 Widget _host(Widget child, {ThemeData? theme}) => MaterialApp(
       theme: theme ?? AppTheme.light,
@@ -28,7 +29,7 @@ void main() {
       (tester) async {
     var tapped = false;
     await tester.pumpWidget(_host(AttentionCard(
-      icon: Icons.warning_amber_rounded,
+      icon: AppLucideIcons.alertTriangle,
       title: '٣ عمليات في انتظار مراجعتك',
       subtitle: 'راجعها عشان أرصدتك تفضل مظبوطة',
       onTap: () => tapped = true,
@@ -54,14 +55,14 @@ void main() {
       (tester) async {
     await tester.pumpWidget(_host(const Column(children: [
       LedgerRow(
-        icon: Icons.shopping_bag_outlined,
+        icon: AppLucideIcons.shoppingBag,
         iconTint: Colors.red,
         title: 'نون · تسوّق',
         subtitle: '2:14 م · تسوق',
         amount: '−320.00',
       ),
       LedgerRow(
-        icon: Icons.coffee_outlined,
+        icon: AppLucideIcons.coffee,
         iconTint: Colors.orange,
         title: 'ستاربكس',
         subtitle: '8:10 ص · كافيهات',

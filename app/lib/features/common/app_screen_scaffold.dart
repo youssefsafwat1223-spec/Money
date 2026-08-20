@@ -105,8 +105,8 @@ class AppScreenScaffold extends StatelessWidget {
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    c.accent.withValues(alpha: 0.035),
-                    c.accent.withValues(alpha: 0.0),
+                    c.cta.withValues(alpha: 0.035),
+                    c.cta.withValues(alpha: 0.0),
                   ],
                 ),
               ),

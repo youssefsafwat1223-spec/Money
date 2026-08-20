@@ -16,6 +16,7 @@ import 'package:money_companion/domain/repositories/transaction_repository.dart'
 import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/features/transactions/transactions_providers.dart';
 import 'package:money_companion/features/transactions/transactions_screen.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 
 Widget _host(ProviderContainer c) => UncontrolledProviderScope(
       container: c,
@@ -72,7 +73,7 @@ void main() {
       expect(c.read(transactionSearchQueryProvider), 'foo');
       await tester.enterText(field, 'foobar');
       await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(find.byIcon(Icons.close_rounded));
+      await tester.tap(find.byIcon(AppLucideIcons.x));
       await tester.pump(const Duration(milliseconds: 300));
       expect(c.read(transactionSearchQueryProvider), '');
     });
@@ -101,7 +102,8 @@ void main() {
       final c = ProviderContainer(overrides: [
         transactionRepositoryProvider.overrideWithValue(repo),
         accountRepositoryProvider.overrideWithValue(_NoAccounts()),
-        categoryCatalogProvider.overrideWith((ref) async => CategoryCatalog(const [])),
+        categoryCatalogProvider
+            .overrideWith((ref) async => CategoryCatalog(const [])),
         scopedRevisionProvider(kTransactionsRevisionTables)
             .overrideWith((ref) => Stream.value(0)),
       ]);
@@ -114,22 +116,32 @@ void main() {
 
       // Start a loadMore whose page we hold in flight.
       repo.holdNext();
-      final loadMoreFuture = c.read(transactionsListProvider.notifier).loadMore();
+      final loadMoreFuture =
+          c.read(transactionsListProvider.notifier).loadMore();
 
       // A filter change forces a rebuild (new generation) with a small fresh page.
       c.read(transactionSearchQueryProvider.notifier).state = 'changed';
       repo.nextPage([_tx('fresh')]);
       await c.read(transactionsListProvider.future);
-      final afterRebuild =
-          c.read(transactionsListProvider).value!.transactions.map((t) => t.id).toList();
+      final afterRebuild = c
+          .read(transactionsListProvider)
+          .value!
+          .transactions
+          .map((t) => t.id)
+          .toList();
       expect(afterRebuild, ['fresh']);
 
       // Release the stale loadMore page — the guard must drop it.
       repo.releaseHeld([_tx('stale')]);
       await loadMoreFuture;
-      final finalRows =
-          c.read(transactionsListProvider).value!.transactions.map((t) => t.id).toList();
-      expect(finalRows, ['fresh'], reason: 'stale page dropped, newer untouched');
+      final finalRows = c
+          .read(transactionsListProvider)
+          .value!
+          .transactions
+          .map((t) => t.id)
+          .toList();
+      expect(finalRows, ['fresh'],
+          reason: 'stale page dropped, newer untouched');
     });
   });
 }

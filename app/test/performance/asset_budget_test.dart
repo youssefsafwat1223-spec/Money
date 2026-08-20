@@ -15,6 +15,8 @@ void main() {
   // is still ~801 KiB (a qirsh logo PNG). The 11 MiB ceiling is UNCHANGED — it
   // still leaves ~2.5 MiB (≈23%) regression margin — rather than raising it to
   // accommodate the fonts.
+  // Vazirmatn primary-family switch: four more TTFs at ~120 KiB each (+~0.48
+  // MiB, total ~8.95 MiB). Ceiling still 11 MiB — ~2 MiB (≈19%) margin remains.
   const perFileMax = 1024 * 1024; // 1 MiB — no single packaged asset may exceed
   const totalMax = 11 * 1024 * 1024; // ~11 MiB — whole assets/ tree ceiling
 
@@ -24,14 +26,16 @@ void main() {
     expect(assetsDir.existsSync(), isTrue);
   });
 
-  test('all four bundled Alexandria weights are packaged', () {
-    for (final w in const ['Regular', 'Medium', 'SemiBold', 'Bold']) {
-      final f = File('assets/fonts/Alexandria-$w.ttf');
-      expect(f.existsSync(), isTrue, reason: 'missing Alexandria-$w.ttf');
-      // Sanity: a real, non-trivial TrueType file (magic 0x00010000).
-      final head = f.openSync().readSync(4);
-      expect(head, orderedEquals(const [0x00, 0x01, 0x00, 0x00]),
-          reason: 'Alexandria-$w.ttf is not a TrueType file');
+  test('all four bundled weights of each UI family are packaged', () {
+    for (final family in const ['Vazirmatn', 'Alexandria']) {
+      for (final w in const ['Regular', 'Medium', 'SemiBold', 'Bold']) {
+        final f = File('assets/fonts/$family-$w.ttf');
+        expect(f.existsSync(), isTrue, reason: 'missing $family-$w.ttf');
+        // Sanity: a real, non-trivial TrueType file (magic 0x00010000).
+        final head = f.openSync().readSync(4);
+        expect(head, orderedEquals(const [0x00, 0x01, 0x00, 0x00]),
+            reason: '$family-$w.ttf is not a TrueType file');
+      }
     }
   });
 
@@ -55,7 +59,8 @@ void main() {
       if (e is File) total += e.lengthSync();
     }
     expect(total, lessThanOrEqualTo(totalMax),
-        reason: 'assets/ total is ${(total / (1024 * 1024)).toStringAsFixed(1)} '
+        reason:
+            'assets/ total is ${(total / (1024 * 1024)).toStringAsFixed(1)} '
             'MiB, over the ${totalMax ~/ (1024 * 1024)} MiB budget');
   });
 }

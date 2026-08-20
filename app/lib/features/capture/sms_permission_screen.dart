@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import 'manual_paste_screen.dart';
@@ -41,26 +42,14 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(28),
         ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
+          child: Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter,
               AppSpacing.s3,
               AppSpacing.gutter,
               AppSpacing.s6,
-            ),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? c.surface.withValues(alpha: 0.9)
-                  : Colors.white.withValues(alpha: 0.92),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
-              ),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -81,7 +70,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                     alignment: Alignment.topLeft,
                     child: IconButton(
                       onPressed: () => Navigator.of(context).pop(false),
-                      icon: const Icon(Icons.close),
+                      icon: const Icon(AppLucideIcons.x),
                       style: IconButton.styleFrom(
                         backgroundColor: c.surface.withValues(alpha: 0.4),
                       ),

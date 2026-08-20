@@ -255,13 +255,12 @@ class TransactionsBackfillService {
         throw mapSupabaseError(e);
       }
 
-      final serverAmount = moneyFromPulledValueRequired(
-          serverRow['amount_text'], localCurrency);
-      final mismatch =
-          serverAmount != localAmount ||
-              serverRow['currency'] != payload['currency'] ||
-              serverRow['direction'] != payload['direction'] ||
-              serverRow['transaction_type'] != payload['transaction_type'];
+      final serverAmount =
+          moneyFromPulledValueRequired(serverRow['amount_text'], localCurrency);
+      final mismatch = serverAmount != localAmount ||
+          serverRow['currency'] != payload['currency'] ||
+          serverRow['direction'] != payload['direction'] ||
+          serverRow['transaction_type'] != payload['transaction_type'];
       if (mismatch) mismatched.add(localId);
 
       await _db.customStatement(

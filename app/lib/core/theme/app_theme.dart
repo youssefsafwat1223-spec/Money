@@ -17,23 +17,26 @@ class AppTheme {
 
   /// Shared navy palette for every modal sheet and the database recovery UI.
   static const AppColors sheetColors = AppColors(
-    bg: Color(0xFF021B79),
-    surface: Color(0xFF021B79),
-    surfaceElevated: Color(0xFF0F2E96),
-    surfaceCard: Color(0xFF0F2E96),
+    bg: AppBrandBlue.brand,
+    surface: AppBrandBlue.brand,
+    surfaceElevated: AppBrandBlue.strong,
+    surfaceCard: AppBrandBlue.strong,
     surfaceMuted: Color(0xFF173A9E),
-    primary: Color(0xFF8DBBFF),
+    primary: AppBrandBlue.pale,
     onPrimary: Color(0xFFFFFFFF),
-    cta: Color(0xFF3B82F6),
+    cta: AppBrandBlue.bright,
     onCta: Color(0xFFFFFFFF),
     ctaSoft: Color(0xFF102B52),
+    // Navy sheet is a dark surface — ink inverts to near-white here too.
+    ink: Color(0xFFF2F4F8),
+    onInk: Color(0xFF061A40),
     accent: Color(0xFFFBC926),
     income: Color(0xFF22C55E),
     expense: Color(0xFFEF4444),
     success: Color(0xFF34D399),
     warning: Color(0xFFF59E0B),
     danger: Color(0xFFF87171),
-    info: Color(0xFF60A5FA),
+    info: AppBrandBlue.light,
     neutral: Color(0xFF7F8EA3),
     disabled: Color(0xFF172238),
     disabledFg: Color(0xFF64748B),
@@ -52,7 +55,7 @@ class AppTheme {
     onDanger: Color(0xFFFFFFFF),
     onWarning: Color(0xFF000000),
     onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF2563EB),
+    gradA: AppBrandBlue.bright,
     gradB: Color(0xFF061A40),
   );
   static final ThemeData sheet = _build(sheetColors, Brightness.dark);
@@ -123,16 +126,19 @@ class AppTheme {
         linearTrackColor: c.surfaceMuted,
         circularTrackColor: c.surfaceMuted,
       ),
+      // The primary filled action is the ink surface system-wide (black in
+      // light, near-white in dark) — cta blue stays the accent, never the
+      // default button fill.
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: c.cta,
-          foregroundColor: c.onCta,
+          backgroundColor: c.ink,
+          foregroundColor: c.onInk,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.button),
           ),
           minimumSize: const Size(double.infinity, AppSpacing.buttonHeight),
-          textStyle: AppTypography.title(c.onCta),
+          textStyle: AppTypography.title(c.onInk),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -141,17 +147,17 @@ class AppTheme {
             if (states.contains(WidgetState.disabled)) {
               return c.disabled;
             }
-            return c.cta;
+            return c.ink;
           }),
           foregroundColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.disabled)) {
               return c.disabledFg;
             }
-            return c.onCta;
+            return c.onInk;
           }),
           minimumSize: const WidgetStatePropertyAll(
               Size(double.infinity, AppSpacing.buttonHeight)),
-          textStyle: WidgetStatePropertyAll(AppTypography.title(c.onCta)),
+          textStyle: WidgetStatePropertyAll(AppTypography.title(c.onInk)),
           shape: WidgetStatePropertyAll(
             RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.button),
@@ -180,6 +186,44 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.chip),
         ),
+      ),
+      // Component themes for the stock Material widgets the app still uses
+      // directly (settings tiles, confirm dialogs) — without these they render
+      // raw M3 defaults that ignore the Qirsh palette and radii.
+      dialogTheme: DialogThemeData(
+        backgroundColor: c.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.sheet),
+        ),
+        titleTextStyle: AppTypography.cardTitle(c.textPrimary),
+        contentTextStyle: AppTypography.callout(c.textSecondary),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) return c.disabledFg;
+          return states.contains(WidgetState.selected) ? c.onInk : c.textMuted;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) return c.disabled;
+          return states.contains(WidgetState.selected) ? c.ink : c.surfaceMuted;
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) =>
+            states.contains(WidgetState.selected)
+                ? Colors.transparent
+                : c.border),
+      ),
+      radioTheme: RadioThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) return c.disabledFg;
+          return states.contains(WidgetState.selected) ? c.cta : c.textMuted;
+        }),
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: c.textSecondary,
+        textColor: c.textPrimary,
+        titleTextStyle: AppTypography.bodyStrong(c.textPrimary),
+        subtitleTextStyle: AppTypography.caption(c.textMuted),
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: c.bg,

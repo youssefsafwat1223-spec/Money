@@ -5,7 +5,9 @@ import '../../core/theme/app_motion.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
-/// زر رئيسي بلون CTA مع دعم تباين آمن وميكرو-تفاعل عند الضغط.
+/// الزر الرئيسي — سطح ink (أسود في الفاتح، ينقلب أبيض في الداكن): للفعل
+/// الأساسي الواحد في الشاشة. الأزرق [AppColors.cta] محفوظ للأكسنت
+/// (حلقات/روابط/اختيار) فلا يُحرق على كل زر.
 class AppPrimaryButton extends StatelessWidget {
   const AppPrimaryButton({
     super.key,
@@ -37,12 +39,12 @@ class AppPrimaryButton extends StatelessWidget {
       disabled: disabled,
       height: height,
       semanticsLabel: semanticsLabel,
-      backgroundColor: c.cta,
-      foregroundColor: c.onCta,
+      backgroundColor: c.ink,
+      foregroundColor: c.onInk,
       disabledBg: c.disabled,
       disabledFg: c.disabledFg,
       side: null,
-      gradient: c.primaryGradient,
+      gradient: null,
       shadow: null,
     );
   }

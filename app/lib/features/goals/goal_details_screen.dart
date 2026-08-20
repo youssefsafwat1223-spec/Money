@@ -7,6 +7,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -20,6 +21,7 @@ import '../dashboard/dashboard_providers.dart';
 import 'goal_form_screen.dart';
 import 'goals_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class GoalDetailsScreen extends ConsumerWidget {
   const GoalDetailsScreen({super.key, required this.goalId});
@@ -44,7 +46,7 @@ class GoalDetailsScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddContributionSheet(context, ref, goalId),
         label: const Text('أضف للهدف'),
-        icon: const Icon(Icons.add),
+        icon: const Icon(AppLucideIcons.plus),
       ),
     );
   }
@@ -58,7 +60,6 @@ class _GoalDetailsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final media = MediaQuery.of(context);
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -66,20 +67,10 @@ class _GoalDetailsSheet extends StatelessWidget {
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(28),
         ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
           child: Material(
-            color: isDark
-                ? c.surface.withValues(alpha: 0.9)
-                : Colors.white.withValues(alpha: 0.92),
-            shape: RoundedRectangleBorder(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              side: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                width: 1.5,
-              ),
-            ),
+            color: Colors.transparent,
             child: SizedBox(
               height: media.size.height * 0.86,
               child: Column(
@@ -107,7 +98,7 @@ class _GoalDetailsSheet extends StatelessWidget {
                         const Spacer(),
                         IconButton(
                           onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
+                          icon: const Icon(AppLucideIcons.x),
                           style: IconButton.styleFrom(
                             backgroundColor: c.surface.withValues(alpha: 0.4),
                           ),
@@ -200,10 +191,9 @@ class _GoalDetailsContent extends ConsumerWidget {
                       child: FilledButton.icon(
                         onPressed: () =>
                             _showAddContributionSheet(context, ref, goalId),
-                        icon: const Icon(Icons.add),
+                        icon: const Icon(AppLucideIcons.plus),
                         label: const Text('أضف للهدف'),
                         style: FilledButton.styleFrom(
-                          backgroundColor: c.primary,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -220,7 +210,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                           context,
                           goal: data.goal,
                         ),
-                        icon: const Icon(Icons.edit_outlined),
+                        icon: const Icon(AppLucideIcons.pencil),
                         label: const Text('تعديل'),
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(color: c.border),
@@ -244,7 +234,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                icon: const Icon(Icons.delete_outline),
+                icon: const Icon(AppLucideIcons.trash2),
                 label: const Text('حذف الهدف'),
               ),
             ],
@@ -384,27 +374,15 @@ Future<void> _showAddContributionSheet(
             child: ClipRRect(
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(28)),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Container(
+              child: MaliGlass(
+                variant: MaliGlassVariant.sheet,
+                child: Padding(
                   padding: EdgeInsets.only(
                     left: AppSpacing.gutter,
                     right: AppSpacing.gutter,
                     top: AppSpacing.s3,
                     bottom: MediaQuery.of(context).viewInsets.bottom +
                         AppSpacing.s5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? c.surface.withValues(alpha: 0.9)
-                        : Colors.white.withValues(alpha: 0.92),
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(28)),
-                    border: Border.all(
-                      color:
-                          Colors.white.withValues(alpha: isDark ? 0.08 : 0.3),
-                      width: 1.5,
-                    ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -426,7 +404,7 @@ Future<void> _showAddContributionSheet(
                             const Spacer(),
                             IconButton(
                               onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.close),
+                              icon: const Icon(AppLucideIcons.x),
                               style: IconButton.styleFrom(
                                 backgroundColor:
                                     c.surface.withValues(alpha: 0.4),
@@ -494,23 +472,21 @@ Future<void> _showAddContributionSheet(
                         child: FilledButton(
                           onPressed: saving ? null : saveContribution,
                           style: FilledButton.styleFrom(
-                            backgroundColor: c.primary,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
                           ),
                           child: saving
-                              ? const SizedBox(
+                              ? SizedBox(
                                   width: 22,
                                   height: 22,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.5,
-                                    color: Colors.white,
+                                    color: c.onInk,
                                   ),
                                 )
                               : Text('حفظ المساهمة',
-                                  style:
-                                      AppTypography.bodyStrong(Colors.white)),
+                                  style: AppTypography.bodyStrong(c.onInk)),
                         ),
                       ),
                     ],

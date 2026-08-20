@@ -8,12 +8,13 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
+import '../common/app_pill_tab_bar.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/finance/money.dart';
-import '../cards/brand_mark.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
 import '../common/premium_loading.dart';
@@ -36,14 +37,13 @@ class ReportsScreen extends ConsumerWidget {
         );
     final currencyLabel = Currency.arabicLabel(
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
-    final c = context.colors;
 
     return DefaultTabController(
       length: 3,
       child: Scaffold(
         body: async.when(
           skipLoadingOnReload: true,
-          loading: () => const FirstLoadPlaceholder(cardCount: 4),
+          loading: () => const SkeletonList(rows: 4),
           error: (e, _) => const Center(child: Text('حدث خطأ')),
           data: (bundle) {
             final section = bundle.monthly;
@@ -83,36 +83,32 @@ class ReportsScreen extends ConsumerWidget {
                       SliverPersistentHeader(
                         pinned: true,
                         delegate: _TabBarDelegate(
-                          child: Container(
+                          // iOS 26 style: floating glass capsules, no bar box.
+                          child: MeltSlice(
                             height: 64.0,
-                            color: c.bg,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter,
-                            ),
-                            alignment: Alignment.center,
                             child: Container(
-                              height: 48,
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: c.surface2,
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.pill),
+                              height: 64.0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.gutter,
                               ),
-                              child: TabBar(
-                                indicatorSize: TabBarIndicatorSize.tab,
-                                dividerColor: Colors.transparent,
-                                labelColor: Colors.white,
-                                unselectedLabelColor: c.textLight,
-                                indicator: BoxDecoration(
-                                  color: c.primary,
-                                  borderRadius:
-                                      BorderRadius.circular(AppRadius.pill),
-                                ),
-                                tabs: const [
-                                  Tab(text: 'نظرة عامة'),
-                                  Tab(text: 'الاتجاهات'),
-                                  Tab(text: 'التفاصيل'),
-                                ],
+                              alignment: Alignment.center,
+                              child: Builder(
+                                builder: (context) {
+                                  final controller =
+                                      DefaultTabController.of(context);
+                                  return AnimatedBuilder(
+                                    animation: controller,
+                                    builder: (context, _) => AppPillTabBar(
+                                      tabs: const [
+                                        'نظرة عامة',
+                                        'الاتجاهات',
+                                        'التفاصيل',
+                                      ],
+                                      selectedIndex: controller.index,
+                                      onSelected: controller.animateTo,
+                                    ),
+                                  );
+                                },
                               ),
                             ),
                           ),
@@ -175,63 +171,65 @@ class _OverviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s4,
-        AppSpacing.gutter,
-        AppSpacing.gutter,
-      ),
-      children: [
-        if (!weekly.total.isZero && !weekly.total.isNegative) ...[
-          PremiumMotion(
-            child: _WeeklyInsightCard(
-              weekly: weekly,
-              currencyLabel: currencyLabel,
+    return MeltTail(
+        startAt: 64,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s4,
+            AppSpacing.gutter,
+            AppSpacing.gutter,
+          ),
+          children: [
+            if (!weekly.total.isZero && !weekly.total.isNegative) ...[
+              PremiumMotion(
+                child: _WeeklyInsightCard(
+                  weekly: weekly,
+                  currencyLabel: currencyLabel,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s4),
+            ],
+            PremiumMotion(
+              child: _PeriodCard(
+                section: section,
+                currencyLabel: currencyLabel,
+                privacyMode: privacyMode,
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-        ],
-        PremiumMotion(
-          child: _PeriodCard(
-            section: section,
-            currencyLabel: currencyLabel,
-            privacyMode: privacyMode,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        PremiumMotion(
-          delay: const Duration(milliseconds: 70),
-          child: _WeeklySpendCard(
-            section: weekly,
-            currencyLabel: currencyLabel,
-            privacyMode: privacyMode,
-          ),
-        ),
-        if (section.topCategories.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.s4),
-          PremiumMotion(
-            delay: const Duration(milliseconds: 120),
-            child: _CategoryDistributionCard(
-              section: section,
-              currencyLabel: currencyLabel,
-              privacyMode: privacyMode,
+            const SizedBox(height: AppSpacing.s4),
+            PremiumMotion(
+              delay: const Duration(milliseconds: 70),
+              child: _WeeklySpendCard(
+                section: weekly,
+                currencyLabel: currencyLabel,
+                privacyMode: privacyMode,
+              ),
             ),
-          ),
-        ],
-        if (section.topMerchants.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.s4),
-          PremiumMotion(
-            delay: const Duration(milliseconds: 160),
-            child: _MerchantRankingCard(
-              section: section,
-              currencyLabel: currencyLabel,
-              privacyMode: privacyMode,
-            ),
-          ),
-        ],
-      ],
-    );
+            if (section.topCategories.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.s4),
+              PremiumMotion(
+                delay: const Duration(milliseconds: 120),
+                child: _CategoryDistributionCard(
+                  section: section,
+                  currencyLabel: currencyLabel,
+                  privacyMode: privacyMode,
+                ),
+              ),
+            ],
+            if (section.topMerchants.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.s4),
+              PremiumMotion(
+                delay: const Duration(milliseconds: 160),
+                child: _MerchantRankingCard(
+                  section: section,
+                  currencyLabel: currencyLabel,
+                  privacyMode: privacyMode,
+                ),
+              ),
+            ],
+          ],
+        ));
   }
 }
 
@@ -251,56 +249,58 @@ class _TrendsTab extends StatelessWidget {
     final c = context.colors;
     final delta = section.deltaPercent;
     final anomaly = section.anomaly;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s4,
-        AppSpacing.gutter,
-        AppSpacing.gutter,
-      ),
-      children: [
-        if (anomaly != null) ...[
-          _InsightCard(
-            icon: AppLucideIcons.alertTriangle,
-            title: 'صرف غير معتاد',
-            body: privacyMode
-                ? 'في يوم ${_dateLabel(anomaly.day)} كان الصرف أعلى من نمطك المعتاد. راجعه لو حابب تفهم السبب.'
-                : 'في يوم ${_dateLabel(anomaly.day)} صرفت ${_money(anomaly.total, currencyLabel: currencyLabel, privacyMode: false)}، وهو أعلى من متوسطك اليومي ${anomaly.ratio.toStringAsFixed(1)}×.',
-            color: c.danger,
+    return MeltTail(
+        startAt: 64,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s4,
+            AppSpacing.gutter,
+            AppSpacing.gutter,
           ),
-          const SizedBox(height: AppSpacing.s4),
-        ],
-        _InsightCard(
-          icon: delta == null || delta <= 0
-              ? Icons.trending_down_rounded
-              : Icons.trending_up_rounded,
-          title: 'مقارنة بنفس الفترة السابقة',
-          body: delta == null
-              ? 'لسه محتاجين فترة سابقة فيها صرف عشان نعرض الاتجاه بدقة.'
-              : delta <= 0
-                  ? 'صرفك أقل ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.'
-                  : 'صرفك أعلى ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.',
-          color: delta == null || delta <= 0 ? c.success : c.danger,
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        _InsightCard(
-          icon: AppLucideIcons.shapes,
-          title: 'أعلى يوم صرف',
-          body:
-              'أعلى يوم في الفترة وصل إلى ${_money(section.highestDaily, currencyLabel: currencyLabel, privacyMode: privacyMode)}.',
-          color: c.primary,
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        _InsightCard(
-          icon: AppLucideIcons.sun,
-          title: 'اقتراح سريع',
-          body: section.topCategories.isEmpty
-              ? 'ابدأ بإضافة عمليات أكثر عشان نطلع اقتراحات أوضح.'
-              : 'أكبر صرف عندك على ${section.topCategories.first.category.nameAr}. راقب التصنيف ده أولاً.',
-          color: c.accent,
-        ),
-      ],
-    );
+          children: [
+            if (anomaly != null) ...[
+              _InsightCard(
+                icon: AppLucideIcons.alertTriangle,
+                title: 'صرف غير معتاد',
+                body: privacyMode
+                    ? 'في يوم ${_dateLabel(anomaly.day)} كان الصرف أعلى من نمطك المعتاد. راجعه لو حابب تفهم السبب.'
+                    : 'في يوم ${_dateLabel(anomaly.day)} صرفت ${_money(anomaly.total, currencyLabel: currencyLabel, privacyMode: false)}، وهو أعلى من متوسطك اليومي ${anomaly.ratio.toStringAsFixed(1)}×.',
+                color: c.danger,
+              ),
+              const SizedBox(height: AppSpacing.s4),
+            ],
+            _InsightCard(
+              icon: delta == null || delta <= 0
+                  ? AppLucideIcons.trendingDown
+                  : AppLucideIcons.trendingUp,
+              title: 'مقارنة بنفس الفترة السابقة',
+              body: delta == null
+                  ? 'لسه محتاجين فترة سابقة فيها صرف عشان نعرض الاتجاه بدقة.'
+                  : delta <= 0
+                      ? 'صرفك أقل ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.'
+                      : 'صرفك أعلى ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.',
+              color: delta == null || delta <= 0 ? c.success : c.danger,
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            _InsightCard(
+              icon: AppLucideIcons.shapes,
+              title: 'أعلى يوم صرف',
+              body:
+                  'أعلى يوم في الفترة وصل إلى ${_money(section.highestDaily, currencyLabel: currencyLabel, privacyMode: privacyMode)}.',
+              color: c.primary,
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            _InsightCard(
+              icon: AppLucideIcons.sun,
+              title: 'اقتراح سريع',
+              body: section.topCategories.isEmpty
+                  ? 'ابدأ بإضافة عمليات أكثر عشان نطلع اقتراحات أوضح.'
+                  : 'أكبر صرف عندك على ${section.topCategories.first.category.nameAr}. راقب التصنيف ده أولاً.',
+              color: c.cta,
+            ),
+          ],
+        ));
   }
 }
 
@@ -317,22 +317,24 @@ class _DetailsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
-      children: [
-        _MerchantRankingCard(
-          section: section,
-          currencyLabel: currencyLabel,
-          privacyMode: privacyMode,
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        _CategoryDistributionCard(
-          section: section,
-          currencyLabel: currencyLabel,
-          privacyMode: privacyMode,
-        ),
-      ],
-    );
+    return MeltTail(
+        startAt: 64,
+        child: ListView(
+          padding: const EdgeInsets.all(AppSpacing.gutter),
+          children: [
+            _MerchantRankingCard(
+              section: section,
+              currencyLabel: currencyLabel,
+              privacyMode: privacyMode,
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            _CategoryDistributionCard(
+              section: section,
+              currencyLabel: currencyLabel,
+              privacyMode: privacyMode,
+            ),
+          ],
+        ));
   }
 }
 
@@ -390,7 +392,7 @@ class _WeeklySpendCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _VisualSectionTitle(
-            icon: Icons.bar_chart_rounded,
+            icon: AppLucideIcons.barChart3,
             title: 'استهلاك الأسبوع الحالي',
             subtitle: 'آخر 7 أيام',
           ),
@@ -464,7 +466,7 @@ class _CategoryDistributionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _VisualSectionTitle(
-            icon: Icons.donut_large_rounded,
+            icon: AppLucideIcons.pieChart,
             title: 'استهلاكك بالتصنيفات',
             subtitle: _money(section.total,
                 currencyLabel: currencyLabel, privacyMode: privacyMode),
@@ -637,7 +639,7 @@ class _CategoryLegendTile extends StatelessWidget {
     final c = context.colors;
     return Row(
       children: [
-        CategoryAvatar(category: slice.category, size: 34),
+        AppAvatar.category(category: slice.category, size: AppSpacing.avatarSm),
         const SizedBox(width: AppSpacing.s2),
         Expanded(
           child: Column(
@@ -685,7 +687,7 @@ class _MerchantBarRow extends StatelessWidget {
         : (merchant.total.toDouble() / maxTotal).clamp(0.0, 1.0);
     return Row(
       children: [
-        BrandMark(name: merchant.name, size: 38),
+        AppAvatar.brand(name: merchant.name),
         const SizedBox(width: AppSpacing.s3),
         Expanded(
           child: Column(
@@ -788,18 +790,15 @@ class _ReportButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MaliGlass(
+      variant: MaliGlassVariant.headerAction,
       onTap: onTap,
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Icon(AppLucideIcons.fileText, color: Colors.white, size: 22),
         ),
-        child: const Icon(Icons.picture_as_pdf_outlined,
-            color: Colors.white, size: 22),
       ),
     );
   }
@@ -821,6 +820,8 @@ class _ReportsHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CalmPageHeader(
+      // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
+      meltOverflow: 0,
       title: 'الرؤى والتقارير',
       subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
       leading: Navigator.of(context).canPop()
@@ -873,27 +874,27 @@ class _WeeklyInsightCard extends StatelessWidget {
       if (deltaText != null)
         (
           (delta ?? 0) < 0
-              ? Icons.trending_down_rounded
-              : Icons.trending_up_rounded,
+              ? AppLucideIcons.trendingDown
+              : AppLucideIcons.trendingUp,
           deltaText,
           deltaColor,
         ),
       if (topCat != null)
         (
-          Icons.category_outlined,
+          AppLucideIcons.shapes,
           'أكثر فئة صرفًا: ${topCat.category.nameAr}',
-          c.accent,
+          c.cta,
         ),
       if (bestDay != null)
         (
-          Icons.star_outline_rounded,
+          AppLucideIcons.star,
           'أفضل يوم توفيرًا: ${bestDay.day.day}/${bestDay.day.month} '
               '(${Formatters.amount(bestDay.total.toDouble())} $currencyLabel)',
           c.success,
         ),
       if (topMerchant != null)
         (
-          Icons.store_outlined,
+          AppLucideIcons.store,
           'أكثر متجر صرفًا: ${topMerchant.name} '
               '(${Formatters.amount(topMerchant.total.toDouble())} $currencyLabel)',
           c.textMuted,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_typography.dart';
 import '../mali_tokens.dart';
+import '../../utils/app_lucide_icons.dart';
 
 /// SheetField — a labeled, tappable field row for the manual-add sheet
 /// (الحساب / التصنيف / التاريخ …): a muted icon, the label over its value (or a
@@ -67,7 +68,7 @@ class SheetField extends StatelessWidget {
                 ),
               ),
               if (showChevron && onTap != null)
-                Icon(Icons.chevron_left_rounded,
+                Icon(AppLucideIcons.chevronLeft,
                     size: 20, color: t.textOnCanvasMuted),
             ],
           ),

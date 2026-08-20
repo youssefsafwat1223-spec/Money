@@ -15,6 +15,7 @@ import 'data/db/app_database.dart';
 import 'data/db/planning_canonical_invariants.dart';
 import 'data/db/planning_cutover.dart';
 import 'features/app/startup_loading_screen.dart';
+import 'core/utils/app_lucide_icons.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -198,7 +199,7 @@ class _DatabaseRecoveryViewState extends State<_DatabaseRecoveryView> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline_rounded,
+                const Icon(AppLucideIcons.alertCircle,
                     color: Colors.white70, size: 64),
                 const SizedBox(height: 16),
                 const Text(
@@ -221,6 +222,12 @@ class _DatabaseRecoveryViewState extends State<_DatabaseRecoveryView> {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: _resetting ? null : _reset,
+                    // الشاشة دي خلفيتها سودا صريحة تحت ثيم فاتح — زر ink
+                    // الفاتح (أسود) هيختفي عليها، فنقلب أبيض/أسود يدويًا.
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                    ),
                     child: _resetting
                         ? const SizedBox(
                             height: 20,

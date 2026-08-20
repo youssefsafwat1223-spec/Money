@@ -152,7 +152,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.auto_awesome, size: 14, color: c.accent),
+                Icon(AppLucideIcons.sparkles, size: 14, color: c.accent),
                 const SizedBox(width: 6),
                 Text('قيد المراجعة',
                     style: AppTypography.caption(c.accent)
@@ -178,7 +178,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.call_split_rounded, size: 18, color: c.success),
+                  Icon(AppLucideIcons.split, size: 18, color: c.success),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -303,8 +303,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             ),
             child: Row(
               children: [
-                Icon(Icons.calendar_today_outlined,
-                    size: 18, color: c.textLight),
+                Icon(AppLucideIcons.calendar, size: 18, color: c.textLight),
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
                   child: Text(

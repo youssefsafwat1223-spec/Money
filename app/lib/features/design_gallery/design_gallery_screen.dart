@@ -1,4 +1,7 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart' as lgr;
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
@@ -17,6 +20,7 @@ import '../../core/theme/widgets/glass_surface.dart';
 import '../../core/theme/widgets/insight_card.dart';
 import '../../core/theme/widgets/ledger_row.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/mali_screen.dart';
 import '../../core/theme/widgets/merchant_bar.dart';
 import '../../core/theme/widgets/pulse_row.dart';
@@ -25,8 +29,15 @@ import '../../core/theme/widgets/score_gauge.dart';
 import '../../core/theme/widgets/section_header.dart';
 import '../../core/theme/widgets/segmented_control.dart';
 import '../../core/theme/widgets/sheet_field.dart';
+import '../../core/theme/widgets/liquid_bar.dart';
 import '../../core/theme/widgets/sparkline.dart';
+import '../../engine/parser/card_network.dart';
+import '../cards/mini_card_art.dart';
+import '../common/app_button.dart';
+import '../common/app_check_mark.dart';
 import '../common/motion.dart';
+import '../common/premium_loading.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// DesignGalleryScreen — debug-only review surface for the Mali flagship
 /// design system (docs/MALI_DESIGN_SYSTEM.md). Registered behind
@@ -94,6 +105,8 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                       const SizedBox(height: AppSpacing.s6),
                       const _ShadowSection(),
                       const SizedBox(height: AppSpacing.s6),
+                      const _BatchPrimitivesSection(),
+                      const SizedBox(height: AppSpacing.s6),
                       const _RingSection(),
                       const SizedBox(height: AppSpacing.s6),
                       const _SparklineSection(),
@@ -105,6 +118,8 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                       const _CardSection(),
                       const SizedBox(height: AppSpacing.s6),
                       const _GlassSection(),
+                      const SizedBox(height: AppSpacing.s6),
+                      const _LiquidGlassSection(),
                       const SizedBox(height: AppSpacing.s6),
                       const _MotionSection(),
                       const SizedBox(height: AppSpacing.s9),
@@ -141,7 +156,7 @@ class _ModeToggle extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+            Icon(dark ? AppLucideIcons.moon : AppLucideIcons.sun,
                 size: 16, color: t.textOnCanvasSecondary),
             const SizedBox(width: 6),
             Text(dark ? 'داكن' : 'فاتح',
@@ -179,6 +194,8 @@ class _CompactSection extends StatelessWidget {
             child: CalmPageHeader(
               topInset: 16,
               useSafeAreaTop: false,
+              // معرض مكوّنات: الهيدر داخل شريحة لوحده فمينفعش يمتد تحت.
+              meltOverflow: 0,
               title: 'الميزانيات',
               subtitle: 'إجمالي المرصود هذا الشهر',
               amount: '4,820',
@@ -206,7 +223,7 @@ class _CompactSection extends StatelessWidget {
           const TextField(
             decoration: InputDecoration(
               labelText: 'المبلغ',
-              prefixIcon: Icon(Icons.payments_outlined),
+              prefixIcon: Icon(AppLucideIcons.banknote),
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -247,6 +264,60 @@ class _GallerySection extends StatelessWidget {
         const SizedBox(height: AppSpacing.s4),
         child,
       ],
+    );
+  }
+}
+
+/// The 2026 UI batch primitives, side by side in both modes: the ink button,
+/// LiquidBar, MiniCardArt, AppCheckMark and the row-shaped skeleton.
+class _BatchPrimitivesSection extends StatelessWidget {
+  const _BatchPrimitivesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final t = MaliTokens.of(context);
+    return _GallerySection(
+      title: 'Batch primitives — ink · liquid · mini cards',
+      child: MaliCard(
+        style: MaliSurfaceStyle.floating,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const AppPrimaryButton(label: 'متابعة'),
+            const SizedBox(height: AppSpacing.s4),
+            LiquidBar(value: 0.62, color: c.income),
+            const SizedBox(height: AppSpacing.s2),
+            const LiquidBar(value: null),
+            const SizedBox(height: AppSpacing.s4),
+            const Row(
+              children: [
+                MiniCardArt(
+                    network: CardNetwork.mastercard, themeKey: 'graphite'),
+                SizedBox(width: AppSpacing.s3),
+                MiniCardArt(network: CardNetwork.visa, themeKey: 'navy'),
+                SizedBox(width: AppSpacing.s3),
+                MiniCardArt(network: CardNetwork.mada, themeKey: 'emerald'),
+                Spacer(),
+                AppCheckMark(selected: true),
+                SizedBox(width: AppSpacing.s3),
+                AppCheckMark(selected: false),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            Text('SkeletonRow',
+                style: AppTypography.micro(t.textOnCanvasMuted)),
+            // عيّنة ساكنة عمدًا: المعرض بيعرض الشكل، والنبض اللانهائي كان
+            // يعلّق pumpAndSettle في اختبارات المعرض.
+            Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: true),
+                child: const SkeletonRow(),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -523,7 +594,7 @@ class _ArchetypesSection extends StatelessWidget {
           ]),
           const SizedBox(height: AppSpacing.s3),
           const AttentionCard(
-            icon: Icons.warning_amber_rounded,
+            icon: AppLucideIcons.alertTriangle,
             title: '٣ عمليات في انتظار مراجعتك',
             subtitle: 'راجعها عشان أرصدتك تفضل مظبوطة',
           ),
@@ -542,14 +613,14 @@ class _ArchetypesSection extends StatelessWidget {
             child: Column(
               children: [
                 LedgerRow(
-                  icon: Icons.shopping_bag_outlined,
+                  icon: AppLucideIcons.shoppingBag,
                   iconTint: c.expense,
                   title: 'نون · تسوّق',
                   subtitle: '2:14 م · تسوق',
                   amount: '−320.00',
                 ),
                 LedgerRow(
-                  icon: Icons.coffee_outlined,
+                  icon: AppLucideIcons.coffee,
                   iconTint: c.warning,
                   title: 'ستاربكس',
                   subtitle: '8:10 ص · كافيهات',
@@ -557,7 +628,7 @@ class _ArchetypesSection extends StatelessWidget {
                   isPending: true,
                 ),
                 LedgerRow(
-                  icon: Icons.south_west_rounded,
+                  icon: AppLucideIcons.arrowDownLeft,
                   iconTint: c.income,
                   title: 'تحويل وارد',
                   subtitle: '1:05 م · تحويلات',
@@ -591,7 +662,7 @@ class _Archetypes2Section extends StatelessWidget {
             amount: '48,250.00',
             currency: 'ريال',
             trendText: '2.4% هذا الشهر',
-            trendIcon: Icons.trending_up_rounded,
+            trendIcon: AppLucideIcons.trendingUp,
           ),
           const SizedBox(height: AppSpacing.s5),
           MaliCard(
@@ -681,7 +752,7 @@ class _Archetypes2Section extends StatelessWidget {
           ]),
           const SizedBox(height: AppSpacing.s3),
           AccountCard(
-            icon: Icons.account_balance_rounded,
+            icon: AppLucideIcons.landmark,
             tint: MaliTokens.accentStart,
             name: 'بنك مصر',
             subtitle: 'بنك · ريال (SAR)',
@@ -696,15 +767,18 @@ class _Archetypes2Section extends StatelessWidget {
             accent: true,
             onChanged: (_) {},
             options: const [
-              SegmentOption(value: 0, label: 'مصروف', icon: Icons.remove),
-              SegmentOption(value: 1, label: 'دخل', icon: Icons.add),
               SegmentOption(
-                  value: 2, label: 'تحويل', icon: Icons.swap_horiz_rounded),
+                  value: 0, label: 'مصروف', icon: AppLucideIcons.minus),
+              SegmentOption(value: 1, label: 'دخل', icon: AppLucideIcons.plus),
+              SegmentOption(
+                  value: 2,
+                  label: 'تحويل',
+                  icon: AppLucideIcons.arrowLeftRight),
             ],
           ),
           const SizedBox(height: AppSpacing.s3),
           SheetField(
-            icon: Icons.wallet_outlined,
+            icon: AppLucideIcons.wallet,
             label: 'الحساب',
             value: 'بنك مصر · ريال',
             onTap: () {},
@@ -798,6 +872,284 @@ class _GlassSection extends StatelessWidget {
       ),
     );
   }
+}
+
+/// MaliGlass pilot — every variant/tier over a vivid demo backdrop so the
+/// blur, rim, sheen (and the Tier 3 refraction prototype) are actually
+/// visible. Review with the mode toggle for light + dark.
+class _LiquidGlassSection extends StatelessWidget {
+  const _LiquidGlassSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = MaliTokens.of(context);
+    final shaderOk = ui.ImageFilter.isShaderFilterSupported;
+    return _GallerySection(
+      title: 'MaliGlass (Liquid Glass pilot)',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _GlassDemo(
+            label: 'pill — Tier 1 (static)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.pill,
+              child: Text('الحساب الجاري',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'pill — Tier 2 (interactive: press me)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.pill,
+              onTap: () {},
+              child: Text('آخر ٣٠ يوم',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'card — Tier 1 (static)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              child: Text('بطاقة زجاجية — المحتوى يبقى واضحًا',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'navigation — Tier 1 container (tabs supply Tier 2)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.navigation,
+              child: SizedBox(
+                height: AppSpacing.navBarHeight - 12,
+                child: Row(
+                  children: [
+                    for (final icon in const [
+                      AppLucideIcons.home,
+                      AppLucideIcons.receipt,
+                      AppLucideIcons.pieChart,
+                    ])
+                      Expanded(
+                        child:
+                            Icon(icon, size: 20, color: t.textOnCanvasPrimary),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'headerAction — on-accent circle, rim + press, no blur',
+            child: MaliGlass(
+              variant: MaliGlassVariant.headerAction,
+              onTap: () {},
+              child: const SizedBox(
+                width: 44,
+                height: 44,
+                child: Center(
+                  child:
+                      Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'sheet — near-opaque body, translucent top band',
+            child: SizedBox(
+              height: 140,
+              width: double.infinity,
+              child: MaliGlass(
+                variant: MaliGlassVariant.sheet,
+                child: Column(
+                  children: [
+                    const SizedBox(height: AppSpacing.s3),
+                    Container(
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: t.textOnCanvasMuted.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s4),
+                    Text('عملية جديدة',
+                        style: AppTypography.cardTitle(t.textOnCanvasPrimary)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'reduce-motion — press: static state, no scale',
+            child: Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: true),
+                child: MaliGlass(
+                  variant: MaliGlassVariant.pill,
+                  onTap: () {},
+                  child: Text('بدون حركة',
+                      style: AppTypography.subhead(t.textOnCanvasPrimary)),
+                ),
+              ),
+            ),
+          ),
+          // ── SPIKE (gallery-only): liquid_glass_renderer A/B/C vs MaliGlass.
+          // Same stage, same child, same 28 radius, both themes via the
+          // gallery toggle. Not used on any production surface.
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'SPIKE A — MaliGlass card (custom)',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              child: Text('بطاقة زجاجية — MaliGlass',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'SPIKE B — liquid_glass_renderer '
+                '(${ui.ImageFilter.isShaderFilterSupported ? 'live' : 'Impeller only — unsupported here'})',
+            child: ui.ImageFilter.isShaderFilterSupported
+                ? lgr.LiquidGlass.withOwnLayer(
+                    shape:
+                        const lgr.LiquidRoundedSuperellipse(borderRadius: 28),
+                    settings: const lgr.LiquidGlassSettings(
+                      thickness: 24,
+                      blur: 6,
+                      saturation: 1.4,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                      child: Text('بطاقة زجاجية — liquid_glass_renderer',
+                          style: AppTypography.subhead(t.textOnCanvasPrimary)),
+                    ),
+                  )
+                : Text('يتطلب Impeller — هنا يعمل التراجع لدينا فقط',
+                    style: AppTypography.caption(t.textOnCanvasMuted)),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'SPIKE C — FakeGlass (تراجع الحزمة الخفيف)',
+            child: lgr.FakeGlass(
+              shape: const lgr.LiquidRoundedSuperellipse(borderRadius: 28),
+              settings: const lgr.LiquidGlassSettings(
+                thickness: 24,
+                blur: 6,
+                saturation: 1.4,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                child: Text('بطاقة زجاجية — FakeGlass',
+                    style: AppTypography.subhead(t.textOnCanvasPrimary)),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'SPIKE D — MaliGlass(advancedRefraction) عبر الـ adapter',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              advancedRefraction: true,
+              child: Text('بطاقة زجاجية — MaliGlass advanced',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'high-contrast — opaque fallback, no blur',
+            child: Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(highContrast: true),
+                child: MaliGlass(
+                  variant: MaliGlassVariant.card,
+                  child: Text('تباين عالٍ — خلفية معتمة',
+                      style: AppTypography.subhead(t.textOnCanvasPrimary)),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _GlassDemo(
+            label: 'EXPERIMENTAL / REFRACTIVE — Tier 3 prototype '
+                '(${shaderOk ? 'shader filters: supported' : 'unsupported here → Tier 2 fallback'})',
+            child: MaliGlass(
+              variant: MaliGlassVariant.card,
+              refractive: true,
+              onTap: () {},
+              child: Text('انكسار حافّي + انزياح لوني طفيف',
+                  style: AppTypography.subhead(t.textOnCanvasPrimary)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A vivid backdrop (accent gradient + off-accent dots + a sample amount) so
+/// glass demos have real content to blur/refract behind them.
+class _GlassDemo extends StatelessWidget {
+  const _GlassDemo({required this.label, required this.child});
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = MaliTokens.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTypography.caption(t.textOnCanvasMuted)),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              const Positioned.fill(
+                child: DecoratedBox(
+                  decoration:
+                      BoxDecoration(gradient: MaliTokens.accentGradient),
+                ),
+              ),
+              Positioned(
+                top: -18,
+                left: 24,
+                child: _dot(const Color(0xFFFBC926), 64),
+              ),
+              Positioned(
+                bottom: -14,
+                right: 36,
+                child: _dot(const Color(0xFF22C55E), 48),
+              ),
+              Positioned(
+                top: 10,
+                right: 14,
+                child: Text(
+                  '١٢٬٣٤٥٫٦٧ ر.س',
+                  style: AppTypography.amountSmall(Colors.white),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.s6),
+                child: child,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  static Widget _dot(Color color, double size) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      );
 }
 
 class _MotionSection extends StatelessWidget {

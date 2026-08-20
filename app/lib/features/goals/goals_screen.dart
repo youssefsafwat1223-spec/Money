@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/liquid_bar.dart';
 import '../../core/theme/widgets/mali_card.dart';
 import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
@@ -17,6 +18,7 @@ import '../common/premium_loading.dart';
 import 'goal_details_screen.dart';
 import 'goal_form_screen.dart';
 import 'goals_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class GoalsScreen extends ConsumerWidget {
   const GoalsScreen({super.key});
@@ -35,7 +37,7 @@ class GoalsScreen extends ConsumerWidget {
       backgroundColor: context.colors.bg,
       body: async.when(
         skipLoadingOnReload: true,
-        loading: () => const FirstLoadPlaceholder(cardCount: 4),
+        loading: () => const SkeletonList(rows: 4),
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (goals) {
           final visibleGoals = goals
@@ -85,8 +87,7 @@ class GoalsScreen extends ConsumerWidget {
                       for (final goal in visibleGoals) ...[
                         _GoalCard(
                           goal: goal,
-                          currencyLabel:
-                              Currency.arabicLabel(goal.currency),
+                          currencyLabel: Currency.arabicLabel(goal.currency),
                         ),
                         const SizedBox(height: AppSpacing.s4),
                       ],
@@ -121,162 +122,90 @@ class _GoalCard extends StatelessWidget {
     final percent = (progress * 100).round();
     final remaining =
         (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.card),
-      onTap: () => GoalDetailsScreen.showSheet(context, goal.id),
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s4),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              c.surface,
-              Color.lerp(c.surface, c.primary, 0.09)!,
-            ],
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: c.primary.withValues(alpha: 0.22)),
-          boxShadow: [
-            BoxShadow(
-              color: c.primary.withValues(alpha: 0.08),
-              blurRadius: 24,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: c.primary,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: const CategoryGlyph(
-                    name: 'piggy-bank',
-                    size: 24,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(goal.name,
-                          style: AppTypography.cardTitle(c.textMain)),
-                      const SizedBox(height: AppSpacing.s1),
-                      Text(
-                        remaining == 0
-                            ? 'اكتمل الهدف'
-                            : 'باقي ${Formatters.integer(remaining)} $currencyLabel للوصول',
-                        style: AppTypography.footnote(
-                          remaining == 0 ? c.success : c.textLight,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.s3,
-                    vertical: AppSpacing.s1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: c.primary.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                  ),
-                  child: Text(
-                    '$percent%',
-                    style: AppTypography.bodyStrong(c.primary),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              child: LinearProgressIndicator(
-                value: clampedProgress,
-                minHeight: 10,
-                backgroundColor: c.surface2,
-                valueColor: AlwaysStoppedAnimation(
-                  remaining == 0 ? c.success : c.primary,
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.s3),
-              decoration: BoxDecoration(
-                color: c.bg.withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Row(
+    // نفس لغة ويدجت الهدف في الداشبورد (design-system §15.9): كارت هادي +
+    // تايل أخضر + كبسولة نسبة + شريط سائل — بدل التدرّج الكحلي القديم.
+    final tone = remaining == 0 ? c.success : c.income;
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.xxxl),
+        onTap: () => GoalDetailsScreen.showSheet(context, goal.id),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.s4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  Expanded(
-                    child: _GoalAmountTile(
-                      label: 'مدخر',
-                      value:
-                          '${Formatters.integer(goal.savedAmount)} $currencyLabel',
-                      color: c.success,
+                  Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: tone.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: CategoryGlyph(
+                      name: 'piggy-bank',
+                      size: 20,
+                      color: tone,
                     ),
                   ),
-                  Container(width: 1, height: 34, color: c.border),
+                  const SizedBox(width: 11),
                   Expanded(
-                    child: _GoalAmountTile(
-                      label: 'الهدف',
-                      value:
-                          '${Formatters.integer(goal.targetAmount)} $currencyLabel',
-                      color: c.textMain,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(goal.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.cardTitle(c.textMain)),
+                        const SizedBox(height: 2),
+                        Text(
+                          remaining == 0
+                              ? 'اكتمل الهدف'
+                              : 'باقي ${Formatters.integer(remaining)} $currencyLabel للوصول',
+                          style: AppTypography.footnote(
+                            remaining == 0 ? c.success : c.textLight,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Container(width: 1, height: 34, color: c.border),
-                  Expanded(
-                    child: _GoalAmountTile(
-                      label: 'النسبة',
-                      value: '$percent%',
-                      color: remaining == 0 ? c.success : c.primary,
+                  const SizedBox(width: 10),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: tone.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
                     ),
+                    child: Text('$percent%', style: AppTypography.label(tone)),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 14),
+              LiquidBar(value: clampedProgress, color: tone),
+              const SizedBox(height: 9),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'مدخر ${Formatters.integer(goal.savedAmount)} $currencyLabel',
+                      style: AppTypography.caption(c.textSecondary),
+                    ),
+                  ),
+                  Text(
+                    'الهدف ${Formatters.integer(goal.targetAmount)} $currencyLabel',
+                    style: AppTypography.caption(c.textSecondary),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-    );
-  }
-}
-
-class _GoalAmountTile extends StatelessWidget {
-  const _GoalAmountTile({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Column(
-      children: [
-        Text(label, style: AppTypography.caption(c.textLight)),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          textAlign: TextAlign.center,
-          style: AppTypography.subhead(color),
-        ),
-      ],
     );
   }
 }
@@ -315,7 +244,7 @@ class _GoalsHeader extends StatelessWidget {
             color: Colors.white.withValues(alpha: 0.16),
             border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
           ),
-          child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
+          child: const Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
         ),
       ),
       amount: Formatters.amount(saved),
@@ -350,7 +279,7 @@ class _EmptyGoalsCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.s4),
             FilledButton.icon(
               onPressed: onAdd,
-              icon: const Icon(Icons.add),
+              icon: const Icon(AppLucideIcons.plus),
               label: const Text('إضافة هدف'),
             ),
           ],

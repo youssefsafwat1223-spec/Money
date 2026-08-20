@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../domain/entities/account_entity.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 /// Bank logo widget — colored rounded square + abbreviation for banks without
 /// a bundled SVG asset. Falls back to the account-type icon when no bank match.
@@ -113,10 +114,10 @@ class BankMark extends StatelessWidget {
     final c = Theme.of(context).colorScheme;
     final fallbackColor = c.primary;
     final icon = switch (accountType) {
-      AccountType.bank => Icons.account_balance_outlined,
-      AccountType.wallet => Icons.account_balance_wallet_outlined,
-      AccountType.card => Icons.credit_card_outlined,
-      AccountType.cash => Icons.payments_outlined,
+      AccountType.bank => AppLucideIcons.landmark,
+      AccountType.wallet => AppLucideIcons.wallet,
+      AccountType.card => AppLucideIcons.creditCard,
+      AccountType.cash => AppLucideIcons.banknote,
     };
     return Container(
       width: size,

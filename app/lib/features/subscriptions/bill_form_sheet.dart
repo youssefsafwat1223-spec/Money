@@ -13,12 +13,13 @@ import '../../domain/entities/bill_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/finance/money_input.dart';
-import '../cards/brand_mark.dart';
+import '../common/app_avatar.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../transactions/transactions_providers.dart';
 import 'subscriptions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class BillFormSheet extends ConsumerStatefulWidget {
   const BillFormSheet({
@@ -474,8 +475,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                         readOnly: true,
                         decoration: const InputDecoration(
                           labelText: 'عملة الحساب',
-                          prefixIcon:
-                              Icon(Icons.account_balance_wallet_outlined),
+                          prefixIcon: Icon(AppLucideIcons.wallet),
                         ),
                       );
                     }
@@ -487,7 +487,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'الحساب',
-                        prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                        prefixIcon: Icon(AppLucideIcons.wallet),
                       ),
                       items: [
                         for (final account in accounts)
@@ -515,7 +515,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                     readOnly: true,
                     decoration: const InputDecoration(
                       labelText: 'عملة الحساب',
-                      prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                      prefixIcon: Icon(AppLucideIcons.wallet),
                     ),
                   ),
                 ),
@@ -628,7 +628,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               subtitle: Text(
                 '${_nextDueDate.day}/${_nextDueDate.month}/${_nextDueDate.year}',
               ),
-              trailing: const Icon(Icons.calendar_month_outlined),
+              trailing: const Icon(AppLucideIcons.calendarDays),
               onTap: _pickDate,
             ),
             SwitchListTile(
@@ -838,7 +838,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
               hintText: _type == BillType.subscription
                   ? 'ابحث عن خدمة...'
                   : 'ابحث عن قسط...',
-              prefixIcon: const Icon(Icons.search),
+              prefixIcon: const Icon(AppLucideIcons.search),
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -864,7 +864,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
                       color: c.surface2,
                       borderRadius: BorderRadius.circular(18),
                     ),
-                    child: Icon(Icons.edit_note_outlined, color: c.primary),
+                    child: Icon(AppLucideIcons.fileEdit, color: c.primary),
                   ),
                   const SizedBox(width: AppSpacing.s3),
                   Expanded(
@@ -884,7 +884,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_left),
+                  const Icon(AppLucideIcons.chevronLeft),
                 ],
               ),
             ),
@@ -915,7 +915,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
                 onTap: () => widget.onService(_type, name),
                 child: Column(
                   children: [
-                    BrandMark(name: name, size: 56),
+                    AppAvatar.brand(name: name, size: AppSpacing.avatarLg),
                     const SizedBox(height: AppSpacing.s2),
                     Text(
                       name,

@@ -12,6 +12,7 @@ import '../../data/catalog/catalog_daos.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../common/widgets.dart';
 import '../settings/settings_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class AnnouncementsScreen extends ConsumerWidget {
   const AnnouncementsScreen({super.key});
@@ -57,7 +58,7 @@ class AnnouncementsScreen extends ConsumerWidget {
             ),
             IconButton(
               onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.close_rounded),
+              icon: const Icon(AppLucideIcons.x),
             ),
           ],
         ),
@@ -85,7 +86,7 @@ class AnnouncementsScreen extends ConsumerWidget {
 
           if (items.isEmpty) {
             return const AppEmptyState(
-              icon: Icons.notifications_none_rounded,
+              icon: AppLucideIcons.bell,
               title: 'لا توجد رسائل بعد',
               subtitle:
                   'أي إشعار من قرش أو إعلان من الإدارة هيظهر هنا تلقائياً.',
@@ -254,7 +255,7 @@ class _MessageItem {
       body: entry.body,
       badge: 'إشعار مرسل',
       sortAt: entry.sentAt,
-      icon: Icons.notifications_active_outlined,
+      icon: AppLucideIcons.bellRing,
       accent: (c) => c.primary,
       route: entry.route,
       actionLabel: entry.route == null ? null : 'فتح',
@@ -270,7 +271,7 @@ class _MessageItem {
       body: campaign.bodyAr ?? '',
       badge: 'حملة داخل التطبيق',
       sortAt: campaign.validFrom,
-      icon: Icons.campaign_outlined,
+      icon: AppLucideIcons.megaphone,
       accent: (c) => c.cta,
       route: campaign.actionRoute,
       url: campaign.actionUrl,
@@ -287,7 +288,7 @@ class _MessageItem {
       body: announcement.bodyAr ?? '',
       badge: 'إعلان من قرش',
       sortAt: announcement.validFrom,
-      icon: Icons.new_releases_outlined,
+      icon: AppLucideIcons.badgeAlert,
       accent: (c) => switch (announcement.severity) {
         'warning' => c.warning,
         'maintenance' => c.accent,

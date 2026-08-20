@@ -52,7 +52,6 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
 
 /// The active [ThemeMode]; watched by `MoneyApp` and the Settings appearance
 /// toggle.
-final themeModeProvider =
-    StateNotifierProvider<ThemeModeController, ThemeMode>(
+final themeModeProvider = StateNotifierProvider<ThemeModeController, ThemeMode>(
   (ref) => ThemeModeController(),
 );

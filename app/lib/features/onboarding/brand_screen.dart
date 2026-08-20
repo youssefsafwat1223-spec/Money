@@ -9,11 +9,12 @@ import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../core/theme/app_colors.dart';
 
 /// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
 /// `color: "#021B79"`) and the same shade the story pages use.
-const _brandBlue = Color(0xFF021B79);
-const _brandAccent = Color(0xFF8DBBFF);
+const _brandBlue = AppBrandBlue.brand;
+const _brandAccent = AppBrandBlue.pale;
 
 /// Page 2 of onboarding — the brand reveal that closes the cinematic sequence
 /// started by the story screen.

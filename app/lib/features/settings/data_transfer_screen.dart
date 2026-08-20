@@ -17,6 +17,8 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../common/app_header.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class DataTransferScreen extends ConsumerStatefulWidget {
   const DataTransferScreen({super.key, this.initialAction});
@@ -249,7 +251,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     final colors = context.colors;
     return Scaffold(
       backgroundColor: colors.bg,
-      appBar: AppBar(title: const Text('نقل البيانات')),
+      appBar: const AppHeader(title: 'نقل البيانات'),
       body: Stack(
         children: [
           ListView(
@@ -261,26 +263,26 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
               ),
               const SizedBox(height: AppSpacing.s5),
               _ActionTile(
-                icon: Icons.file_open_outlined,
+                icon: AppLucideIcons.folderOpen,
                 title: 'استيراد ملف',
                 subtitle: 'CSV من أي تطبيق أو ZIP صادر من قرش',
                 onTap: _pickFile,
               ),
               _ActionTile(
-                icon: Icons.table_view_outlined,
+                icon: AppLucideIcons.table,
                 title: 'تصدير العمليات CSV',
                 subtitle: 'ملف واحد متوافق مع Excel وتطبيقات الميزانية',
                 onTap: () => _export(fullPackage: false),
               ),
               _ActionTile(
-                icon: Icons.archive_outlined,
+                icon: AppLucideIcons.archive,
                 title: 'تصدير كل بيانات قرش ZIP',
                 subtitle: 'الحسابات والعمليات والميزانيات والخطط المالية',
                 onTap: () => _export(fullPackage: true),
               ),
               if (_legacyBackupExists)
                 _ActionTile(
-                  icon: Icons.settings_backup_restore_outlined,
+                  icon: AppLucideIcons.rotateCcw,
                   title: 'استعادة نسخة قديمة',
                   subtitle: 'متاح مؤقتاً للنسخ المشفرة التي أنشأتها سابقاً',
                   onTap: () => context.push('/backup/restore'),
@@ -406,7 +408,7 @@ class _ActionTile extends StatelessWidget {
         leading: Icon(icon),
         title: Text(title),
         subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_left),
+        trailing: const Icon(AppLucideIcons.chevronLeft),
         onTap: onTap,
       );
 }
@@ -628,7 +630,7 @@ class _PreviewPanel extends StatelessWidget {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: preview.hasErrors ? null : onImport,
-              icon: const Icon(Icons.download_done_outlined),
+              icon: const Icon(AppLucideIcons.download),
               label: const Text('تأكيد الاستيراد'),
             ),
           ],

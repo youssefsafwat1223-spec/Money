@@ -68,12 +68,12 @@ class _FoundationHomeScreenState extends ConsumerState<FoundationHomeScreen> {
                     width: 52,
                     height: 52,
                     decoration: BoxDecoration(
-                      gradient: c.primaryGradient,
+                      color: c.cta.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       AppLucideIcons.walletCards,
-                      color: Colors.white,
+                      color: c.cta,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.s3),
@@ -106,13 +106,11 @@ class _FoundationHomeScreenState extends ConsumerState<FoundationHomeScreen> {
                 child: FilledButton(
                   onPressed: _run,
                   style: FilledButton.styleFrom(
-                    backgroundColor: c.primary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                   ),
-                  child: Text('حلّل',
-                      style: AppTypography.bodyStrong(Colors.white)),
+                  child: Text('حلّل', style: AppTypography.bodyStrong(c.onInk)),
                 ),
               ),
               const SizedBox(height: AppSpacing.s5),

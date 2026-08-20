@@ -117,7 +117,7 @@ class _AccountPicker extends ConsumerWidget {
                   title: Text(account.name),
                   subtitle: Text(Currency.arabicLabel(account.currency)),
                   trailing: account.id == currentId
-                      ? Icon(Icons.check_circle_rounded, color: c.cta)
+                      ? Icon(AppLucideIcons.checkCircle, color: c.cta)
                       : null,
                   onTap: () async {
                     HapticFeedback.selectionClick();
@@ -151,7 +151,7 @@ class _DateRangeChips extends ConsumerWidget {
     final range = ref.watch(transactionsDateRangeProvider);
 
     return GlassSelector(
-      icon: Icons.calendar_month_rounded,
+      icon: AppLucideIcons.calendarDays,
       label: range.label,
       onTap: () {
         HapticFeedback.selectionClick();
@@ -240,7 +240,7 @@ class _DateRangeChips extends ConsumerWidget {
                             contentPadding: EdgeInsets.zero,
                             title: const Text('من'),
                             subtitle: Text(Formatters.fullDate(from, context)),
-                            trailing: const Icon(Icons.calendar_month_outlined),
+                            trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
                               final picked = await showDatePicker(
                                 context: context,
@@ -256,7 +256,7 @@ class _DateRangeChips extends ConsumerWidget {
                             contentPadding: EdgeInsets.zero,
                             title: const Text('إلى'),
                             subtitle: Text(Formatters.fullDate(to, context)),
-                            trailing: const Icon(Icons.calendar_month_outlined),
+                            trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
                               final picked = await showDatePicker(
                                 context: context,

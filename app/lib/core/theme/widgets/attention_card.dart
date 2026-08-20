@@ -4,6 +4,7 @@ import '../app_colors.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
 import '../mali_tokens.dart';
+import '../../utils/app_lucide_icons.dart';
 
 /// AttentionCard — a single, prioritized alert on the canvas (e.g. "٣ عمليات
 /// في انتظار مراجعتك"). Tinted by [color] (defaults to warning). Strict
@@ -67,15 +68,14 @@ class AttentionCard extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         subtitle!,
-                        style:
-                            AppTypography.caption(t.textOnCanvasSecondary),
+                        style: AppTypography.caption(t.textOnCanvasSecondary),
                       ),
                     ],
                   ],
                 ),
               ),
               if (onTap != null)
-                Icon(Icons.chevron_left_rounded, color: tone, size: 22),
+                Icon(AppLucideIcons.chevronLeft, color: tone, size: 22),
             ],
           ),
         ),

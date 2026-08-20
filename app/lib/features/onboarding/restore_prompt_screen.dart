@@ -17,6 +17,7 @@ import '../transactions/transactions_providers.dart';
 import 'setup_screen.dart';
 import 'widgets/neon_illustration.dart';
 import 'widgets/premium_ui.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class RestorePromptScreen extends ConsumerStatefulWidget {
   const RestorePromptScreen({super.key, required this.onboardingFlow});
@@ -59,8 +60,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
       mutate: (confirmation) =>
           service.commitRestore(confirmation: confirmation),
       reestablish: () => service.verifyRestoredDatabaseUsable(),
-      acknowledge: (opId) =>
-          service.acknowledgeRestore(operationId: opId),
+      acknowledge: (opId) => service.acknowledgeRestore(operationId: opId),
     );
     try {
       await controller.beginPreparation();
@@ -202,7 +202,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                   ),
                   Center(
                     child: const NeonIllustration(
-                      icon: Icons.cloud_done_rounded,
+                      icon: AppLucideIcons.cloud,
                       size: 140,
                     )
                         .animate()
@@ -234,7 +234,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.verified_user_outlined,
+                        Icon(AppLucideIcons.shieldCheck,
                             color: c.success, size: 19),
                         const SizedBox(width: 10),
                         Expanded(

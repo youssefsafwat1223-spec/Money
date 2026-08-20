@@ -325,8 +325,7 @@ class CaptureSyncService {
     // Legacy (v29) is unchanged: exact text confirms, numeric-only reviews.
     final requiresReview = resolveAiCaptureIngress(
           hasExactText: !legacyLossyReview,
-          canonicalMode:
-              _coordinator.state() == PlanningCutoverState.canonical,
+          canonicalMode: _coordinator.state() == PlanningCutoverState.canonical,
         ) ==
         AiCaptureIngress.legacyPendingReview;
     final account = await _accountForCurrency(normalizedCurrency);

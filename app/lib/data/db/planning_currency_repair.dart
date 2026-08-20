@@ -41,7 +41,8 @@ abstract class RepairKeyValueStore {
 
 /// flutter_secure_storage-backed [RepairKeyValueStore] (the production wiring).
 class SecureRepairKeyValueStore implements RepairKeyValueStore {
-  const SecureRepairKeyValueStore([this._storage = const FlutterSecureStorage()]);
+  const SecureRepairKeyValueStore(
+      [this._storage = const FlutterSecureStorage()]);
   final FlutterSecureStorage _storage;
   @override
   Future<String?> read(String key) => _storage.read(key: key);
@@ -115,9 +116,8 @@ class PlanningCurrencyRepairManifest {
   final Map<String, String> perRowCurrency;
 
   /// The confirmed currency for a budget/goal id, or null if unknown here.
-  String? currencyForId(String id) => mode == PlanningRepairMode.global
-      ? globalCurrency
-      : perRowCurrency[id];
+  String? currencyForId(String id) =>
+      mode == PlanningRepairMode.global ? globalCurrency : perRowCurrency[id];
 
   Map<String, dynamic> toJson() => {
         'manifestVersion': manifestVersion,
@@ -137,7 +137,10 @@ class PlanningCurrencyRepairManifest {
     try {
       final j = jsonDecode(raw);
       if (j is! Map<String, dynamic>) return null;
-      if (j['manifestVersion'] != currentVersion) return null; // future/old → ignore
+      // future/old → ignore
+      if (j['manifestVersion'] != currentVersion) {
+        return null;
+      }
       final modeName = j['mode'] as String?;
       final mode = PlanningRepairMode.values
           .where((m) => m.name == modeName)
@@ -191,7 +194,8 @@ class PlanningCurrencyRepairService {
     return rows.map((r) => r.read<String>('id')).toList(growable: false);
   }
 
-  Future<({List<String> budgetIds, List<String> goalIds})> _planningIds() async {
+  Future<({List<String> budgetIds, List<String> goalIds})>
+      _planningIds() async {
     return (budgetIds: await _ids('budgets'), goalIds: await _ids('goals'));
   }
 

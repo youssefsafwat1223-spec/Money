@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_typography.dart';
 import 'mali_card.dart';
+import '../../utils/app_lucide_icons.dart';
 
 /// InsightCard — the one accent-gradient surface per screen (AI insight /
 /// ملخص الأسبوع). Restraint is deliberate: the balance hero and everything
@@ -14,7 +15,7 @@ class InsightCard extends StatelessWidget {
     required this.message,
     this.ctaText,
     this.onTap,
-    this.icon = Icons.auto_awesome,
+    this.icon = AppLucideIcons.sparkles,
   });
 
   /// Small uppercase eyebrow, e.g. "مساعد مالي".
@@ -29,14 +30,24 @@ class InsightCard extends StatelessWidget {
     const onAccent = Colors.white;
     return MaliCard(
       style: MaliSurfaceStyle.accent,
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: onAccent, size: 15),
-              const SizedBox(width: 7),
+              // Icon chip instead of a bare glyph — quieter, more premium.
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: onAccent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: onAccent, size: 14),
+              ),
+              const SizedBox(width: 8),
               Text(
                 label,
                 style: AppTypography.label(
@@ -45,10 +56,14 @@ class InsightCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 11),
-          Text(
-            message,
-            style: AppTypography.callout(onAccent).copyWith(height: 1.6),
+          const SizedBox(height: 10),
+          Padding(
+            // Slightly shorter lines read better in RTL.
+            padding: const EdgeInsetsDirectional.only(end: 10),
+            child: Text(
+              message,
+              style: AppTypography.callout(onAccent).copyWith(height: 1.65),
+            ),
           ),
           if (ctaText != null) ...[
             const SizedBox(height: 15),
@@ -60,15 +75,14 @@ class InsightCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: onAccent.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(14),
-                  border:
-                      Border.all(color: onAccent.withValues(alpha: 0.24)),
+                  border: Border.all(color: onAccent.withValues(alpha: 0.24)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(ctaText!, style: AppTypography.subhead(onAccent)),
                     const SizedBox(width: 6),
-                    const Icon(Icons.chevron_left_rounded,
+                    const Icon(AppLucideIcons.chevronLeft,
                         color: onAccent, size: 18),
                   ],
                 ),

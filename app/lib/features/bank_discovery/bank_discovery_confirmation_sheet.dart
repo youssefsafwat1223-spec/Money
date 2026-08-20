@@ -7,6 +7,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import 'bank_discovery_controller.dart';
@@ -89,17 +90,10 @@ class _BankDiscoveryConfirmationSheetState
       textDirection: TextDirection.rtl,
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: MaliGlass(
+          variant: MaliGlassVariant.sheet,
           child: Material(
-            color: isDark
-                ? c.surface.withValues(alpha: 0.94)
-                : Colors.white.withValues(alpha: 0.96),
-            shape: RoundedRectangleBorder(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              side: BorderSide(color: c.border.withValues(alpha: 0.8)),
-            ),
+            color: Colors.transparent,
             child: SafeArea(
               top: false,
               child: Padding(

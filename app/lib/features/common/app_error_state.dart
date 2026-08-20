@@ -62,7 +62,7 @@ class AppErrorState extends StatelessWidget {
               const SizedBox(height: AppSpacing.s5),
               AppSecondaryButton(
                 label: retryLabel!,
-                icon: Icons.refresh_rounded,
+                icon: AppLucideIcons.refreshCw,
                 onTap: onRetry,
               ),
             ],

@@ -89,7 +89,6 @@ class LocalNotificationService {
 
   static final LocalNotificationService instance = LocalNotificationService._();
 
-
   /// MALI-019 §6 — the redaction contract: generic, financial-data-free
   /// lock-screen content per type. Used by the local path; the APNs path honors
   /// the synced preference server-side (C6 coordination + edge policy). Public
@@ -655,8 +654,7 @@ class LocalNotificationService {
     // schedule was accepted. Safe count only, no financial content.
     try {
       final after = await _plugin.pendingNotificationRequests();
-      final managed =
-          after.where((r) => _isManagedScheduledId(r.id)).length;
+      final managed = after.where((r) => _isManagedScheduledId(r.id)).length;
       debugPrint('[Notif] window: planned=${plan.toSchedule.length} '
           'managedPending=$managed cap=${_capacityPlanner.capacity}');
     } catch (_) {

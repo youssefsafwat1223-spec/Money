@@ -11,6 +11,8 @@ import '../../data/db/planning_currency_repair.dart';
 import '../../domain/finance/currency_scale.dart';
 import 'planning_currency_repair_providers.dart';
 import 'planning_server_repair_section.dart';
+import '../common/app_header.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class PlanningCurrencyRepairScreen extends ConsumerStatefulWidget {
   const PlanningCurrencyRepairScreen({super.key});
@@ -43,7 +45,7 @@ class _PlanningCurrencyRepairScreenState
       textDirection: TextDirection.rtl,
       child: Scaffold(
         backgroundColor: c.bg,
-        appBar: AppBar(title: const Text('تأكيد عملة التخطيط')),
+        appBar: const AppHeader(title: 'تأكيد عملة التخطيط'),
         body: Column(
           children: [
             // Server-originated unresolved-currency rows (from the sync quarantine)
@@ -52,22 +54,23 @@ class _PlanningCurrencyRepairScreenState
             const PlanningServerRepairSection(),
             Expanded(
               child: repair.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-          error: (error, stackTrace) => _LoadError(
-            onRetry: () =>
-                ref.read(planningCurrencyRepairProvider.notifier).refresh(),
-          ),
-          data: (data) {
-            _synchronizeDraft(data);
-            return switch (data.status) {
-              PlanningRepairStatus.notRequired => const _NothingToRepair(),
-              PlanningRepairStatus.satisfied => _RepairDone(data: data),
-              PlanningRepairStatus.needsConfirmation ||
-              PlanningRepairStatus.stale =>
-                _buildConfirmation(context, data),
-            };
-          },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, stackTrace) => _LoadError(
+                  onRetry: () => ref
+                      .read(planningCurrencyRepairProvider.notifier)
+                      .refresh(),
+                ),
+                data: (data) {
+                  _synchronizeDraft(data);
+                  return switch (data.status) {
+                    PlanningRepairStatus.notRequired =>
+                      const _NothingToRepair(),
+                    PlanningRepairStatus.satisfied => _RepairDone(data: data),
+                    PlanningRepairStatus.needsConfirmation ||
+                    PlanningRepairStatus.stale =>
+                      _buildConfirmation(context, data),
+                  };
+                },
               ),
             ),
           ],
@@ -108,7 +111,7 @@ class _PlanningCurrencyRepairScreenState
           _StatusNotice(
             color: c.warning,
             background: c.warningBg,
-            icon: Icons.refresh_rounded,
+            icon: AppLucideIcons.refreshCw,
             title: 'تغيّرت الميزانيات أو الأهداف',
             message:
                 'القرار السابق لم يعد يطابق القائمة الحالية. حدّث القائمة ثم أكّد العملات مرة أخرى.',
@@ -119,14 +122,14 @@ class _PlanningCurrencyRepairScreenState
                   : () => ref
                       .read(planningCurrencyRepairProvider.notifier)
                       .refresh(),
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const Icon(AppLucideIcons.refreshCw),
               label: const Text('تحديث القائمة'),
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
         ],
         _InfoCard(
-          icon: Icons.info_outline_rounded,
+          icon: AppLucideIcons.info,
           title: 'لماذا نحتاج تأكيدك؟',
           child: Text(
             'الميزانيات والأهداف القديمة لا تحفظ عملة مع المبلغ. لذلك لن يخمّن '
@@ -139,7 +142,7 @@ class _PlanningCurrencyRepairScreenState
         _StatusNotice(
           color: c.info,
           background: c.infoBg,
-          icon: Icons.lightbulb_outline_rounded,
+          icon: AppLucideIcons.lightbulb,
           title: 'الاقتراح الافتراضي',
           message: '${data.proposedCurrency} — '
               '${Currency.arabicLabel(data.proposedCurrency)}\n'
@@ -151,7 +154,7 @@ class _PlanningCurrencyRepairScreenState
         _ModeCard(
           key: const ValueKey('repair-mode-global'),
           selected: _mode == PlanningRepairMode.global,
-          icon: Icons.done_all_rounded,
+          icon: AppLucideIcons.checkCheck,
           title: 'عملة واحدة للجميع',
           subtitle: 'كل الميزانيات والأهداف الحالية تستخدم نفس العملة',
           onTap: _saving
@@ -165,7 +168,7 @@ class _PlanningCurrencyRepairScreenState
         _ModeCard(
           key: const ValueKey('repair-mode-per-row'),
           selected: _mode == PlanningRepairMode.perRow,
-          icon: Icons.tune_rounded,
+          icon: AppLucideIcons.settings2,
           title: 'تحديد عملة لكل عنصر',
           subtitle: 'اختر عملة مختلفة لكل ميزانية أو هدف عند الحاجة',
           onTap: _saving
@@ -221,7 +224,7 @@ class _PlanningCurrencyRepairScreenState
   Widget _buildGlobalFields(PlanningCurrencyRepairViewData data) {
     final c = context.colors;
     return _InfoCard(
-      icon: Icons.public_rounded,
+      icon: AppLucideIcons.globe,
       title: 'كل العناصر بعملة واحدة',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -490,9 +493,7 @@ class _ModeCard extends StatelessWidget {
                 ),
               ),
               Icon(
-                selected
-                    ? Icons.radio_button_checked_rounded
-                    : Icons.radio_button_unchecked_rounded,
+                selected ? AppLucideIcons.circleDot : AppLucideIcons.circle,
                 color: selected ? c.cta : c.textMuted,
               ),
             ],
@@ -585,7 +586,7 @@ class _NothingToRepair extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const _TerminalState(
-        icon: Icons.check_circle_outline_rounded,
+        icon: AppLucideIcons.checkCircle,
         title: 'لا يوجد شيء يحتاج إلى إصلاح',
         message: 'لا توجد ميزانيات أو أهداف قديمة تحتاج إلى تأكيد عملتها.',
       );
@@ -603,7 +604,7 @@ class _RepairDone extends StatelessWidget {
         ? 'تم تأكيد ${manifest!.globalCurrency} لكل الميزانيات والأهداف الحالية.'
         : 'تم حفظ عملة مستقلة لكل ميزانية وهدف حالي.';
     return _TerminalState(
-      icon: Icons.verified_rounded,
+      icon: AppLucideIcons.badgeCheck,
       title: 'تم تأكيد العملات',
       message: detail,
     );
@@ -665,7 +666,7 @@ class _LoadError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline_rounded, color: c.danger, size: 48),
+            Icon(AppLucideIcons.alertCircle, color: c.danger, size: 48),
             const SizedBox(height: AppSpacing.s3),
             Text(
               'تعذر قراءة بيانات التخطيط. لم يتغير أي شيء.',
@@ -675,7 +676,7 @@ class _LoadError extends StatelessWidget {
             const SizedBox(height: AppSpacing.s3),
             OutlinedButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const Icon(AppLucideIcons.refreshCw),
               label: const Text('إعادة المحاولة'),
             ),
           ],

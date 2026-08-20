@@ -5,6 +5,8 @@ import 'package:printing/printing.dart';
 
 import '../../../core/exporting/managed_export_store.dart';
 import '../services/report_file_service.dart';
+import '../../common/app_header.dart';
+import '../../../core/utils/app_lucide_icons.dart';
 
 /// Previews a generated report before sharing. The PDF is rendered with
 /// `printing`'s [PdfPreview]; sharing is gated by a privacy warning when the
@@ -47,7 +49,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
   Widget build(BuildContext context) {
     final isAr = Localizations.localeOf(context).languageCode != 'en';
     return Scaffold(
-      appBar: AppBar(title: Text(isAr ? 'معاينة التقرير' : 'Report preview')),
+      appBar: AppHeader(title: isAr ? 'معاينة التقرير' : 'Report preview'),
       body: PdfPreview(
         build: (_) async => widget.bytes,
         useActions: false,
@@ -63,7 +65,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
               Expanded(
                 child: FilledButton.icon(
                   onPressed: () => _share(context, isAr),
-                  icon: const Icon(Icons.ios_share, size: 18),
+                  icon: const Icon(AppLucideIcons.share, size: 18),
                   label: Text(isAr ? 'مشاركة' : 'Share'),
                 ),
               ),
@@ -71,7 +73,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => widget.fileService.printPdf(widget.bytes),
-                  icon: const Icon(Icons.print_outlined, size: 18),
+                  icon: const Icon(AppLucideIcons.printer, size: 18),
                   label: Text(isAr ? 'طباعة' : 'Print'),
                 ),
               ),

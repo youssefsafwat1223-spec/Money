@@ -1,5 +1,45 @@
 import 'package:flutter/material.dart';
 
+/// AppBrandBlue — the ONE blue family in the app.
+///
+/// Before this existed the UI carried four independent blue authorities
+/// (`primary` #021B79, `cta` #0340A5, `info` #2563EB, `gradA` #55ABFF) plus
+/// header gradients hard-coded separately in two screens — which is what read
+/// as "blues that don't match". Every blue in the product now resolves to a
+/// step on this single ramp: primary, CTA, info, gradients, and the page
+/// header all derive from the logo blue [brand].
+///
+/// Financial semantics (income / expense / success / warning / danger) are NOT
+/// part of this ramp and are untouched.
+abstract final class AppBrandBlue {
+  /// Deepest navy — the top stop of the dark page header only.
+  static const Color deep = Color(0xFF01102F);
+
+  /// ★ The canonical brand / primary blue (the logo blue).
+  static const Color brand = Color(0xFF021B79);
+
+  /// One step up — header mid-stop, sheet surfaces, dark gradient end.
+  static const Color strong = Color(0xFF0A2E9E);
+
+  /// Light-mode CTA. Reuses the primary family (was an off-ramp #0340A5).
+  static const Color mid = Color(0xFF1C4FD0);
+
+  /// Dark-mode CTA, light-mode `info`, and the accent-gradient start.
+  static const Color bright = Color(0xFF2E6BFF);
+
+  /// The lighter semantic blue — gradient light end, dark-mode `info`.
+  static const Color light = Color(0xFF55ABFF);
+
+  /// Pale on-navy blue — dark-mode `primary`, onboarding accents.
+  static const Color pale = Color(0xFF9DB9FF);
+
+  /// The page-header gradient stops (top → bottom), per brightness. The single
+  /// source for CalmPageHeader and the Home hero, which used to hard-code the
+  /// same three literals independently.
+  static List<Color> headerStops(bool isDark) =>
+      isDark ? const [deep, brand, strong] : const [brand, strong, mid];
+}
+
 /// AppColors — Premium Minimalist Fintech Color System for Qirsh.
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
@@ -14,6 +54,8 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.cta,
     required this.onCta,
     required this.ctaSoft,
+    required this.ink,
+    required this.onInk,
     required this.accent,
     required this.income,
     required this.expense,
@@ -67,6 +109,15 @@ class AppColors extends ThemeExtension<AppColors> {
 
   /// Tinted background for CTA.
   final Color ctaSoft;
+
+  /// The single primary action surface ("the black button"). Near-black in
+  /// light mode, inverts to near-white in dark mode so it never melts into
+  /// the true-black canvas. Reserve for the ONE main action per screen;
+  /// [cta] blue stays the accent (rings, links, selection, toggles).
+  final Color ink;
+
+  /// Foreground for [ink] backgrounds.
+  final Color onInk;
 
   final Color accent;
 
@@ -137,18 +188,20 @@ class AppColors extends ThemeExtension<AppColors> {
     surfaceElevated: Color(0xFFF1F3F8),
     surfaceCard: Color(0xFFFFFFFF),
     surfaceMuted: Color(0xFFECEFF6),
-    primary: Color(0xFF021B79),
+    primary: AppBrandBlue.brand,
     onPrimary: Color(0xFFFFFFFF),
-    cta: Color(0xFF0340A5),
+    cta: AppBrandBlue.mid,
     onCta: Color(0xFFFFFFFF),
     ctaSoft: Color(0xFFEAF2FF),
+    ink: Color(0xFF0F1115),
+    onInk: Color(0xFFFFFFFF),
     accent: Color(0xFFFBC926),
     income: Color(0xFF16A34A),
     expense: Color(0xFFDC2626),
     success: Color(0xFF16A34A),
     warning: Color(0xFFD97706),
     danger: Color(0xFFDC2626),
-    info: Color(0xFF2563EB),
+    info: AppBrandBlue.bright,
     neutral: Color(0xFF667085),
     disabled: Color(0xFFD8DDE8),
     disabledFg: Color(0xFF8B94A7),
@@ -167,8 +220,8 @@ class AppColors extends ThemeExtension<AppColors> {
     onDanger: Color(0xFFFFFFFF),
     onWarning: Color(0xFF111827),
     onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF55ABFF),
-    gradB: Color(0xFF021B79),
+    gradA: AppBrandBlue.light,
+    gradB: AppBrandBlue.brand,
   );
 
   // ===== Dark Mode (true-black "Calm Capital" identity) =====
@@ -181,18 +234,20 @@ class AppColors extends ThemeExtension<AppColors> {
     surfaceElevated: Color(0xFF181A20),
     surfaceCard: Color(0xFF121317),
     surfaceMuted: Color(0xFF0C0D11),
-    primary: Color(0xFF9DB9FF),
+    primary: AppBrandBlue.pale,
     onPrimary: Color(0xFF00123A),
-    cta: Color(0xFF2E6BFF),
+    cta: AppBrandBlue.bright,
     onCta: Color(0xFFFFFFFF),
     ctaSoft: Color(0xFF15233F),
+    ink: Color(0xFFF2F4F8),
+    onInk: Color(0xFF0B0C0F),
     accent: Color(0xFFFBC926),
     income: Color(0xFF22C55E),
     expense: Color(0xFFEF4444),
     success: Color(0xFF22C55E),
     warning: Color(0xFFF59E0B),
     danger: Color(0xFFEF4444),
-    info: Color(0xFF3B82F6),
+    info: AppBrandBlue.light,
     neutral: Color(0xFF9AA3B2),
     disabled: Color(0xFF262A32),
     disabledFg: Color(0xFF6B7280),
@@ -211,8 +266,8 @@ class AppColors extends ThemeExtension<AppColors> {
     onDanger: Color(0xFFFFFFFF),
     onWarning: Color(0xFF111827),
     onInfo: Color(0xFFFFFFFF),
-    gradA: Color(0xFF2E6BFF),
-    gradB: Color(0xFF5B4FE0),
+    gradA: AppBrandBlue.bright,
+    gradB: AppBrandBlue.strong,
   );
 
   @override
@@ -227,6 +282,8 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? cta,
     Color? onCta,
     Color? ctaSoft,
+    Color? ink,
+    Color? onInk,
     Color? accent,
     Color? income,
     Color? expense,
@@ -266,6 +323,8 @@ class AppColors extends ThemeExtension<AppColors> {
       cta: cta ?? this.cta,
       onCta: onCta ?? this.onCta,
       ctaSoft: ctaSoft ?? this.ctaSoft,
+      ink: ink ?? this.ink,
+      onInk: onInk ?? this.onInk,
       accent: accent ?? this.accent,
       income: income ?? this.income,
       expense: expense ?? this.expense,
@@ -310,6 +369,8 @@ class AppColors extends ThemeExtension<AppColors> {
       cta: Color.lerp(cta, other.cta, t)!,
       onCta: Color.lerp(onCta, other.onCta, t)!,
       ctaSoft: Color.lerp(ctaSoft, other.ctaSoft, t)!,
+      ink: Color.lerp(ink, other.ink, t)!,
+      onInk: Color.lerp(onInk, other.onInk, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
       income: Color.lerp(income, other.income, t)!,
       expense: Color.lerp(expense, other.expense, t)!,

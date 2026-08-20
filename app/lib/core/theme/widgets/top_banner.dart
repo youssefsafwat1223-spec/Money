@@ -4,6 +4,7 @@ import '../app_colors.dart';
 import '../app_shadows.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
+import '../../utils/app_lucide_icons.dart';
 
 /// Shows a message anchored to the TOP of the screen (below the status bar),
 /// instead of the default bottom [SnackBar] — the app-wide replacement for
@@ -114,17 +115,17 @@ class _TopBannerWidgetState extends State<_TopBannerWidget>
       _TopBannerKind.error => (
           AppColors.light.danger,
           Colors.white,
-          Icons.error_outline_rounded
+          AppLucideIcons.alertCircle
         ),
       _TopBannerKind.success => (
           AppColors.light.success,
           Colors.white,
-          Icons.check_circle_outline_rounded
+          AppLucideIcons.checkCircle
         ),
       _TopBannerKind.info => (
           AppColors.light.cta,
           Colors.white,
-          Icons.info_outline_rounded
+          AppLucideIcons.info
         ),
     };
 

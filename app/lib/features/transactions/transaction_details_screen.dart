@@ -29,6 +29,7 @@ import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
 import '../common/motion.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class TransactionDetailsScreen extends ConsumerWidget {
   const TransactionDetailsScreen({super.key, required this.transactionId});
@@ -130,7 +131,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
             context,
             transaction: tx,
           ),
-          icon: Icon(Icons.edit_outlined, color: c.textPrimary),
+          icon: Icon(AppLucideIcons.pencil, color: c.textPrimary),
         );
 
         final body = Padding(
@@ -143,80 +144,60 @@ class _TransactionDetailsContent extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              AppCard(
-                padding: const EdgeInsets.all(AppSpacing.s4),
+              // هيرو متمركز بدون كارت: التايل، اسم التاجر، وحالة العملية،
+              // والمبلغ هو أكبر عنصر في الشيت.
+              Center(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: amountColor.withValues(alpha: 0.18),
-                              width: 2,
-                            ),
-                          ),
-                          child: (tx.rawMerchant != null &&
-                                  BrandMark.hasBrand(tx.rawMerchant!))
-                              ? BrandMark(name: tx.rawMerchant!, size: 58)
-                              : CategoryAvatar(category: category, size: 58),
-                        ),
-                        const SizedBox(width: AppSpacing.s3),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                merchantTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTypography.cardTitle(c.textPrimary),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                category?.nameAr ?? 'غير مصنّف',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTypography.caption(c.textSecondary),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.s2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 9, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                          ),
-                          child: Text(
-                            statusLabel,
-                            style: AppTypography.caption(statusColor)
-                                .copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      ],
+                    (tx.rawMerchant != null &&
+                            BrandMark.hasBrand(tx.rawMerchant!))
+                        ? AppAvatar.brand(
+                            name: tx.rawMerchant!, size: AppSpacing.avatarLg)
+                        : AppAvatar.category(
+                            category: category, size: AppSpacing.avatarLg),
+                    const SizedBox(height: AppSpacing.s3),
+                    Text(
+                      merchantTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.cardTitle(c.textPrimary),
                     ),
-                    const SizedBox(height: AppSpacing.s4),
-                    AnimatedAmountText(
-                      amount: (tx.amountMoney.isZero && tx.foreignMoney != null)
-                          ? tx.foreignAmount!
-                          : tx.amount,
-                      color: amountColor,
-                      suffix: (tx.amountMoney.isZero && tx.foreignMoney != null)
-                          ? ' ${tx.foreignCurrency}'
-                          : ' ${Currency.arabicLabel(tx.currency)}',
-                      style: AppTypography.amountHero(amountColor),
+                    const SizedBox(height: AppSpacing.s2),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: AnimatedAmountText(
+                        amount:
+                            (tx.amountMoney.isZero && tx.foreignMoney != null)
+                                ? tx.foreignAmount!
+                                : tx.amount,
+                        color: amountColor,
+                        suffix:
+                            (tx.amountMoney.isZero && tx.foreignMoney != null)
+                                ? ' ${tx.foreignCurrency}'
+                                : ' ${Currency.arabicLabel(tx.currency)}',
+                        style: AppTypography.amountHero(amountColor),
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.s2),
                     Text(
                       '${Formatters.dateWithWeekday(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textSecondary),
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: AppTypography.caption(statusColor)
+                            .copyWith(fontWeight: FontWeight.w700),
+                      ),
                     ),
                     if (tx.amountMoney.isZero &&
                         tx.foreignMoney != null &&
@@ -234,6 +215,32 @@ class _TransactionDetailsContent extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.s5),
+              // صف إجراءات: تعديل / تغيير التصنيف — بدل ما يبقوا مبعترين
+              // جوه صفوف التفاصيل.
+              Row(
+                children: [
+                  Expanded(
+                    child: _QuickAction(
+                      icon: AppLucideIcons.pencil,
+                      label: 'تعديل',
+                      onTap: () =>
+                          ManualTransactionSheet.show(context, transaction: tx),
+                    ),
+                  ),
+                  if (catalog != null) ...[
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: _QuickAction(
+                        icon: AppLucideIcons.shapes,
+                        label: 'تغيير التصنيف',
+                        onTap: () =>
+                            showChangeCategorySheet(context, tx, catalog),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s4),
 
               // Details Card
               AppCard(
@@ -244,15 +251,6 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       context,
                       'التصنيف',
                       category?.nameAr ?? 'غير مصنّف',
-                      trailing: catalog == null
-                          ? null
-                          : AppButton(
-                              label: 'تغيير',
-                              onPressed: () =>
-                                  showChangeCategorySheet(context, tx, catalog),
-                              isPrimary: false,
-                              height: 32,
-                            ),
                     ),
                     _divider(c),
                     _buildDetailRow(
@@ -342,7 +340,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                   width: double.infinity,
                   child: FilledButton.icon(
                     onPressed: () => _confirmTransaction(context, ref, tx.id),
-                    icon: const Icon(Icons.verified_outlined),
+                    icon: const Icon(AppLucideIcons.badgeCheck),
                     label: Text(
                       tx.status == TransactionStatus.ignored
                           ? 'تأكيد العملية المتجاهلة'
@@ -354,7 +352,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
               ],
               TextButton.icon(
                 onPressed: () => _confirmDelete(context, ref, tx.id),
-                icon: Icon(Icons.delete_outline_rounded, color: c.danger),
+                icon: Icon(AppLucideIcons.trash2, color: c.danger),
                 label: Text('حذف العملية',
                     style: AppTypography.bodyStrong(c.danger)),
               ),
@@ -436,7 +434,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
         leading: IconButton(
           tooltip: 'إغلاق',
           onPressed: () => Navigator.of(context).pop(),
-          icon: Icon(Icons.close, color: c.textSecondary),
+          icon: Icon(AppLucideIcons.x, color: c.textSecondary),
         ),
         scrollable: true,
         body: body,
@@ -490,8 +488,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
           TextButton(
             onPressed: () {
               try {
-                Navigator.of(ctx).pop(
-                    parseLocalizedMoney(controller.text, tx.currency));
+                Navigator.of(ctx)
+                    .pop(parseLocalizedMoney(controller.text, tx.currency));
               } on Exception {
                 Navigator.of(ctx).pop();
               }
@@ -518,29 +516,33 @@ class _TransactionDetailsContent extends ConsumerWidget {
     ref.invalidate(dashboardDataProvider);
   }
 
+  /// صف تفاصيل: الاسم على جنب والقيمة على الجنب التاني — أهدأ من عمود
+  /// بعرض ثابت، والقيم الطويلة بتاخد المساحة اللي فاضلة.
   Widget _buildDetailRow(BuildContext context, String label, String value,
       {Widget? trailing, bool isPending = false}) {
     final c = context.colors;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
       child: Row(
         children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: AppTypography.subhead(c.textSecondary)
-                  .copyWith(fontWeight: FontWeight.w500),
-            ),
+          Text(
+            label,
+            style: AppTypography.callout(c.textSecondary),
           ),
+          const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Text(
               value,
-              style: AppTypography.bodyStrong(
-                  isPending ? c.accent : c.textPrimary),
+              textAlign: TextAlign.end,
+              style:
+                  AppTypography.subhead(isPending ? c.accent : c.textPrimary),
             ),
           ),
-          if (trailing != null) trailing,
+          if (trailing != null) ...[
+            const SizedBox(width: AppSpacing.s2),
+            trailing,
+          ],
         ],
       ),
     );
@@ -551,8 +553,57 @@ class _TransactionDetailsContent extends ConsumerWidget {
       height: 1,
       thickness: 1,
       color: c.border.withValues(alpha: 0.5),
-      indent: 20,
-      endIndent: 20,
+      indent: AppSpacing.s4,
+      endIndent: AppSpacing.s4,
+    );
+  }
+}
+
+/// زرار إجراء مربّع صغير في صف الإجراءات فوق التفاصيل.
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Material(
+      color: c.surfaceElevated,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          height: 46,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: c.divider),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: c.textPrimary),
+              const SizedBox(width: AppSpacing.s2),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.subhead(c.textPrimary),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

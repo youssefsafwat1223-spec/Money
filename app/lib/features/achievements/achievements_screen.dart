@@ -7,6 +7,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../common/premium_loading.dart';
 import 'achievements_providers.dart';
+import '../../core/utils/app_lucide_icons.dart';
 
 class AchievementsScreen extends ConsumerWidget {
   const AchievementsScreen({super.key});
@@ -17,7 +18,7 @@ class AchievementsScreen extends ConsumerWidget {
     return Scaffold(
       body: async.when(
         skipLoadingOnReload: true,
-        loading: () => const FirstLoadPlaceholder(cardCount: 5),
+        loading: () => const SkeletonList(rows: 5),
         error: (error, _) => const Center(child: Text('حدث خطأ')),
         data: (data) {
           final c = context.colors;
@@ -130,8 +131,8 @@ class AchievementsScreen extends ConsumerWidget {
                                       ),
                                       child: Icon(
                                         unlocked
-                                            ? Icons.emoji_events_rounded
-                                            : Icons.lock_outline,
+                                            ? AppLucideIcons.trophy
+                                            : AppLucideIcons.lock,
                                         color:
                                             unlocked ? c.accent : c.textLight,
                                         size: 18,
@@ -166,7 +167,7 @@ class AchievementsScreen extends ConsumerWidget {
                                       child: Transform.rotate(
                                         angle: 0.25,
                                         child: Icon(
-                                          Icons.emoji_events_rounded,
+                                          AppLucideIcons.trophy,
                                           size: 80,
                                           color: c.accent,
                                         ),

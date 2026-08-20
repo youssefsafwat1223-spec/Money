@@ -37,8 +37,8 @@ class SectionHeader extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             // Compact UI system: section titles use the 19px role token.
-            style: AppTypography.sectionTitle(
-                titleColor ?? t.textOnCanvasPrimary),
+            style:
+                AppTypography.sectionTitle(titleColor ?? t.textOnCanvasPrimary),
           ),
         ),
         if (trailing != null)

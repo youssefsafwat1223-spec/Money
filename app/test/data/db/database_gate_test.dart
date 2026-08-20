@@ -36,7 +36,8 @@ void main() {
       );
     });
 
-    test('maintenance waits for an active borrow to drain before running', () async {
+    test('maintenance waits for an active borrow to drain before running',
+        () async {
       final db = await openDb();
       addTearDown(db.close);
       final borrowGate = Completer<void>();
@@ -74,7 +75,8 @@ void main() {
       expect(order, ['maint-start', 'maint-end', 'queued-borrow']);
     });
 
-    test('draining is bounded — a stuck borrow yields maintenanceTimeout', () async {
+    test('draining is bounded — a stuck borrow yields maintenanceTimeout',
+        () async {
       final db = await openDb();
       addTearDown(db.close);
       final stuck = Completer<void>();
@@ -91,7 +93,8 @@ void main() {
       stuck.complete();
     });
 
-    test('a recoverable maintenance failure restores the usable state', () async {
+    test('a recoverable maintenance failure restores the usable state',
+        () async {
       final db = await openDb();
       addTearDown(db.close);
       await expectLater(
@@ -106,14 +109,15 @@ void main() {
       final db = await openDb();
       addTearDown(db.close);
       await expectLater(
-        db.runExclusiveMaintenance(() async => throw const DatabaseLifecycleException(
-            DatabaseLifecycleFailure.recoveryRequired)),
+        db.runExclusiveMaintenance(() async =>
+            throw const DatabaseLifecycleException(
+                DatabaseLifecycleFailure.recoveryRequired)),
         throwsA(isA<DatabaseLifecycleException>()),
       );
       expect(db.lifecycleState, DatabaseLifecycleState.recoveryRequired);
       // No new borrow may attach to a recovery-required database.
-      await expectLater(db.borrow(() async => 1),
-          throwsA(isA<DatabaseLifecycleException>()));
+      await expectLater(
+          db.borrow(() async => 1), throwsA(isA<DatabaseLifecycleException>()));
     });
 
     test('two maintenance operations serialise', () async {
@@ -132,7 +136,8 @@ void main() {
   });
 
   group('Blocker 2 — secondary admission', () {
-    test('admitsSecondary is true only when open + not under maintenance', () async {
+    test('admitsSecondary is true only when open + not under maintenance',
+        () async {
       final db = await openDb();
       expect(db.admitsSecondary, isTrue);
       final gate = Completer<void>();
@@ -146,7 +151,8 @@ void main() {
       expect(db.admitsSecondary, isFalse);
     });
 
-    test('openSecondary is refused (typed) while the owner is under maintenance',
+    test(
+        'openSecondary is refused (typed) while the owner is under maintenance',
         () async {
       final db = await openDb();
       addTearDown(db.close);
@@ -164,18 +170,29 @@ void main() {
 
   group('Blocker 3 — typed busy taxonomy', () {
     test('SQLITE_BUSY / SQLITE_LOCKED map to a retryable busy error', () {
-      expect(mapDatabaseBusy(SqliteException(extendedResultCode: 5, message: 'busy')),
+      expect(
+          mapDatabaseBusy(
+              SqliteException(extendedResultCode: 5, message: 'busy')),
           isA<DatabaseBusyException>());
-      expect(mapDatabaseBusy(SqliteException(extendedResultCode: 6, message: 'locked')),
+      expect(
+          mapDatabaseBusy(
+              SqliteException(extendedResultCode: 6, message: 'locked')),
           isA<DatabaseBusyException>());
-      expect(mapDatabaseBusy(SqliteException(extendedResultCode: 261, message: 'busy_recovery')),
+      expect(
+          mapDatabaseBusy(SqliteException(
+              extendedResultCode: 261, message: 'busy_recovery')),
           isA<DatabaseBusyException>());
-      expect(mapDatabaseBusy(SqliteException(extendedResultCode: 5, message: 'busy'))!.isRetryable,
+      expect(
+          mapDatabaseBusy(
+                  SqliteException(extendedResultCode: 5, message: 'busy'))!
+              .isRetryable,
           isTrue);
     });
 
     test('a non-busy error is never misclassified', () {
-      expect(mapDatabaseBusy(SqliteException(extendedResultCode: 1, message: 'generic')),
+      expect(
+          mapDatabaseBusy(
+              SqliteException(extendedResultCode: 1, message: 'generic')),
           isNull);
       expect(mapDatabaseBusy(StateError('nope')), isNull);
     });
@@ -195,13 +212,16 @@ void main() {
       expect(attempts, 3);
     });
 
-    test('runWithBusyRetry succeeds after transient busy; rethrows non-busy raw',
+    test(
+        'runWithBusyRetry succeeds after transient busy; rethrows non-busy raw',
         () async {
       final db = await openDb();
       addTearDown(db.close);
       var n = 0;
       final ok = await db.runWithBusyRetry(() async {
-        if (++n < 2) throw SqliteException(extendedResultCode: 5, message: 'busy');
+        if (++n < 2) {
+          throw SqliteException(extendedResultCode: 5, message: 'busy');
+        }
         return 'done';
       });
       expect(ok, 'done');
@@ -213,7 +233,8 @@ void main() {
   });
 
   group('Blocker 4 — stream/provider ownership', () {
-    test('a non-owning provider container disposal does NOT close the shared DB',
+    test(
+        'a non-owning provider container disposal does NOT close the shared DB',
         () async {
       final db = await openDb();
       addTearDown(db.close);

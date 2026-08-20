@@ -8,13 +8,15 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/mali_glass.dart';
+import '../common/app_pill_tab_bar.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/finance/bill_metrics.dart';
-import '../cards/brand_mark.dart';
+import '../common/app_avatar.dart';
 import '../common/premium_loading.dart';
 import 'bill_details_sheet.dart';
 import 'bill_form_sheet.dart';
@@ -42,7 +44,7 @@ class SubscriptionsScreen extends ConsumerWidget {
         appBar: Navigator.of(context).canPop()
             ? AppBar(title: const Text('الاشتراكات والفواتير'))
             : null,
-        body: const FirstLoadPlaceholder(cardCount: 4),
+        body: const SkeletonList(rows: 4),
       ),
       error: (e, _) => Scaffold(
         appBar: Navigator.of(context).canPop()
@@ -81,49 +83,37 @@ class SubscriptionsScreen extends ConsumerWidget {
                             instsCount: insts.length,
                             currency: Currency.arabicLabel(baseCur),
                           ),
-                          const SizedBox(height: AppSpacing.s2),
                         ],
                       ),
                     ),
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _TabBarDelegate(
-                        child: Container(
+                        // iOS 26 style: floating glass capsules, no bar box.
+                        child: MeltSlice(
                           height: 64.0,
-                          color: context.colors.bg,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.gutter,
-                          ),
-                          alignment: Alignment.center,
                           child: Container(
-                            height: 48,
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: context.colors.surface2,
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.pill),
+                            height: 64.0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.gutter,
                             ),
-                            child: TabBar(
-                              indicatorSize: TabBarIndicatorSize.tab,
-                              dividerColor: Colors.transparent,
-                              labelColor: Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? context.colors.accent
-                                  : Colors.white,
-                              unselectedLabelColor: context.colors.textLight,
-                              indicator: BoxDecoration(
-                                color: Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? context.colors.accent
-                                        .withValues(alpha: 0.22)
-                                    : context.colors.primary,
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.pill),
-                              ),
-                              tabs: [
-                                Tab(text: 'الاشتراكات (${subs.length})'),
-                                Tab(text: 'الأقساط (${insts.length})'),
-                              ],
+                            alignment: Alignment.center,
+                            child: Builder(
+                              builder: (context) {
+                                final controller =
+                                    DefaultTabController.of(context);
+                                return AnimatedBuilder(
+                                  animation: controller,
+                                  builder: (context, _) => AppPillTabBar(
+                                    tabs: [
+                                      'الاشتراكات (${subs.length})',
+                                      'الأقساط (${insts.length})',
+                                    ],
+                                    selectedIndex: controller.index,
+                                    onSelected: controller.animateTo,
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ),
@@ -131,19 +121,17 @@ class SubscriptionsScreen extends ConsumerWidget {
                     ),
                   ];
                 },
-                body: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                  child: TabBarView(
-                    children: [
-                      _SubscriptionsTab(
-                        bills: subs,
-                        suggestions: suggestions,
-                        baseCurrency: baseCur,
-                      ),
-                      _InstallmentsTab(bills: insts),
-                    ],
-                  ),
+                // من غير padding هنا: الذوبان جوّه كل تبويب لازم يبقى كامل
+                // العرض، والمسافات الجانبية جوّه القوايم نفسها.
+                body: TabBarView(
+                  children: [
+                    _SubscriptionsTab(
+                      bills: subs,
+                      suggestions: suggestions,
+                      baseCurrency: baseCur,
+                    ),
+                    _InstallmentsTab(bills: insts),
+                  ],
                 ),
               ),
             ),
@@ -192,6 +180,8 @@ class _BillsHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CalmPageHeader(
+      // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
+      meltOverflow: 0,
       title: 'الاشتراكات والفواتير',
       subtitle: 'إجمالي الصرف الشهري',
       leading: Navigator.of(context).canPop()
@@ -221,20 +211,18 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MaliGlass(
+      variant: MaliGlassVariant.headerAction,
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
         ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
       ),
     );
   }
@@ -266,41 +254,44 @@ class _SubscriptionsTab extends StatelessWidget {
             BillFormSheet.show(context, initialType: BillType.subscription),
       );
     }
-    return ListView(
-      padding: const EdgeInsets.only(top: AppSpacing.s3, bottom: 120),
-      children: [
-        for (final bill in bills)
-          _SubscriptionCard(bill: bill, baseCurrency: baseCurrency),
-        if (suggestions.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.s4),
-          Text(
-            'مكتشفة تلقائياً',
-            style: AppTypography.caption(c.textLight)
-                .copyWith(letterSpacing: 1.4, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          for (final item in suggestions)
-            _SuggestionCard(item: item, baseCurrency: baseCurrency),
-        ],
-        const SizedBox(height: AppSpacing.s4),
-        OutlinedButton.icon(
-          onPressed: () =>
-              BillFormSheet.show(context, initialType: BillType.subscription),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.card),
+    return MeltTail(
+        startAt: 64,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, 120),
+          children: [
+            for (final bill in bills)
+              _SubscriptionCard(bill: bill, baseCurrency: baseCurrency),
+            if (suggestions.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.s4),
+              Text(
+                'مكتشفة تلقائياً',
+                style: AppTypography.caption(c.textLight)
+                    .copyWith(letterSpacing: 1.4, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              for (final item in suggestions)
+                _SuggestionCard(item: item, baseCurrency: baseCurrency),
+            ],
+            const SizedBox(height: AppSpacing.s4),
+            OutlinedButton.icon(
+              onPressed: () => BillFormSheet.show(context,
+                  initialType: BillType.subscription),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.card),
+                ),
+                side: BorderSide(color: c.border),
+              ),
+              icon: Icon(AppLucideIcons.plus, color: c.cta),
+              label: Text(
+                'إضافة اشتراك جديد',
+                style: AppTypography.bodyStrong(c.cta),
+              ),
             ),
-            side: BorderSide(color: c.border),
-          ),
-          icon: Icon(Icons.add, color: c.cta),
-          label: Text(
-            'إضافة اشتراك جديد',
-            style: AppTypography.bodyStrong(c.cta),
-          ),
-        ),
-      ],
-    );
+          ],
+        ));
   }
 }
 
@@ -337,19 +328,19 @@ class _SubscriptionCard extends StatelessWidget {
     if (daysLeft < 0) {
       dueColor = c.danger;
       dueLabel = 'متأخر ${daysLeft.abs()} يوم';
-      dueIcon = Icons.warning_amber_rounded;
+      dueIcon = AppLucideIcons.alertTriangle;
     } else if (daysLeft == 0) {
       dueColor = c.danger;
       dueLabel = 'مستحق اليوم';
-      dueIcon = Icons.error_outline_rounded;
+      dueIcon = AppLucideIcons.alertCircle;
     } else if (daysLeft <= 3) {
       dueColor = c.accent;
       dueLabel = 'بعد $daysLeft يوم';
-      dueIcon = Icons.event_rounded;
+      dueIcon = AppLucideIcons.calendarClock;
     } else {
       dueColor = c.textLight;
       dueLabel = 'بعد $daysLeft يوم';
-      dueIcon = Icons.calendar_month_outlined;
+      dueIcon = AppLucideIcons.calendarDays;
     }
 
     return Padding(
@@ -362,7 +353,7 @@ class _SubscriptionCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                BrandMark(name: bill.name, size: 48),
+                AppAvatar.brand(name: bill.name),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -400,7 +391,7 @@ class _SubscriptionCard extends StatelessWidget {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(Icons.info_outline_rounded,
+                            Icon(AppLucideIcons.info,
                                 size: 12, color: c.warning),
                             const SizedBox(width: 3),
                             Text(
@@ -460,7 +451,7 @@ class _SubscriptionCard extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.payments_outlined, size: 16, color: c.success),
+                    Icon(AppLucideIcons.banknote, size: 16, color: c.success),
                     const SizedBox(width: 6),
                     Text(
                       'مدفوع يدويًا: ',
@@ -510,7 +501,7 @@ class _SuggestionCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            BrandMark(name: item.name as String, size: 48),
+            AppAvatar.brand(name: item.name as String),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Column(
@@ -549,7 +540,7 @@ class _SuggestionCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.add, size: 12, color: c.cta),
+                      Icon(AppLucideIcons.plus, size: 12, color: c.cta),
                       const SizedBox(width: 2),
                       Text(
                         'إضافة',
@@ -601,67 +592,66 @@ class _InstallmentsTab extends StatelessWidget {
     final currency =
         bills.isEmpty ? 'SAR' : Currency.arabicLabel(bills.first.currency);
 
-    return ListView(
-      padding: const EdgeInsets.only(top: AppSpacing.s3, bottom: 120),
-      children: [
-        if (!totalRemainingMoney.isZero) ...[
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('إجمالي مديونية الأقساط',
-                    style: AppTypography.caption(
-                        Colors.white.withValues(alpha: 0.75))),
-                const SizedBox(height: 4),
-                Text(
-                  '${Formatters.amount(totalRemainingMoney.toDouble())} $currency',
-                  style: AppTypography.title1(Colors.white)
-                      .copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: AppSpacing.s3),
-                Row(
+    return MeltTail(
+        startAt: 64,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, 120),
+          children: [
+            if (!totalRemainingMoney.isZero) ...[
+              // كارت معلومات هادي (كان تدرّج أزرق قديم) — الرقم بالخط الأسود
+              // على سطح عائم، زي باقي كروت النظام.
+              MaliCard(
+                style: MaliSurfaceStyle.floating,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _DebtStat(label: 'أقساط جارية', value: '$activeCount'),
-                    if (nearest != null) ...[
-                      const SizedBox(width: AppSpacing.s4),
-                      _DebtStat(
-                        label: 'أقرب قسط',
-                        value:
-                            '${Formatters.amount(nearest.amount)} · ${_dueInLabel(nearest.nextDueDate)}',
-                      ),
-                    ],
+                    Text('إجمالي مديونية الأقساط',
+                        style: AppTypography.caption(c.textLight)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${Formatters.amount(totalRemainingMoney.toDouble())} $currency',
+                      style: AppTypography.amountMedium(c.textMain),
+                    ),
+                    const SizedBox(height: AppSpacing.s3),
+                    Row(
+                      children: [
+                        _DebtStat(label: 'أقساط جارية', value: '$activeCount'),
+                        if (nearest != null) ...[
+                          const SizedBox(width: AppSpacing.s4),
+                          _DebtStat(
+                            label: 'أقرب قسط',
+                            value:
+                                '${Formatters.amount(nearest.amount)} · ${_dueInLabel(nearest.nextDueDate)}',
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
+              const SizedBox(height: AppSpacing.s4),
+            ],
+            for (final bill in bills) _InstallmentCard(bill: bill),
+            const SizedBox(height: AppSpacing.s4),
+            OutlinedButton.icon(
+              onPressed: () => BillFormSheet.show(context,
+                  initialType: BillType.installment),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.card),
+                ),
+                side: BorderSide(color: c.border),
+              ),
+              icon: Icon(AppLucideIcons.plus, color: c.cta),
+              label: Text(
+                'إضافة قسط جديد',
+                style: AppTypography.bodyStrong(c.cta),
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-        ],
-        for (final bill in bills) _InstallmentCard(bill: bill),
-        const SizedBox(height: AppSpacing.s4),
-        OutlinedButton.icon(
-          onPressed: () =>
-              BillFormSheet.show(context, initialType: BillType.installment),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.card),
-            ),
-            side: BorderSide(color: c.border),
-          ),
-          icon: Icon(Icons.add, color: c.cta),
-          label: Text(
-            'إضافة قسط جديد',
-            style: AppTypography.bodyStrong(c.cta),
-          ),
-        ),
-      ],
-    );
+          ],
+        ));
   }
 }
 
@@ -672,18 +662,19 @@ class _DebtStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           value,
-          style: AppTypography.bodyStrong(Colors.white)
+          style: AppTypography.bodyStrong(c.textMain)
               .copyWith(fontWeight: FontWeight.w700),
         ),
         Text(
           label,
-          style: AppTypography.caption(Colors.white.withValues(alpha: 0.75)),
+          style: AppTypography.caption(c.textLight),
         ),
       ],
     );
@@ -731,7 +722,7 @@ class _InstallmentCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                BrandMark(name: bill.lenderName ?? bill.name, size: 44),
+                AppAvatar.brand(name: bill.lenderName ?? bill.name),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -856,7 +847,7 @@ class _InstallmentCard extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.payments_outlined, size: 16, color: c.success),
+                    Icon(AppLucideIcons.banknote, size: 16, color: c.success),
                     const SizedBox(width: 6),
                     Text(
                       'مدفوع يدويًا: ',
@@ -875,7 +866,7 @@ class _InstallmentCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.s3),
             Row(
               children: [
-                Icon(Icons.calendar_month_outlined, size: 14, color: dueColor),
+                Icon(AppLucideIcons.calendarDays, size: 14, color: dueColor),
                 const SizedBox(width: 4),
                 Text(
                   'القسط القادم: $dueLabel',
@@ -945,7 +936,7 @@ class _EmptyState extends StatelessWidget {
                   height: 48,
                   child: FilledButton.icon(
                     onPressed: onAction,
-                    icon: const Icon(Icons.add),
+                    icon: const Icon(AppLucideIcons.plus),
                     label: Text(actionLabel!),
                   ),
                 ),

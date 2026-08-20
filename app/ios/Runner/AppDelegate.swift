@@ -7,6 +7,7 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate {
   private var captureChannel: FlutterMethodChannel?
   private var exportProtectionChannel: FlutterMethodChannel?
+  private var nativeGlassChannel: FlutterMethodChannel?
   private var didRegisterPendingMessagesObserver = false
   private var privacySnapshotView: UIView?
   private static let apnsRegistrationFailureKey = "apns_registration_failure"
@@ -19,9 +20,16 @@ import UserNotifications
       UNUserNotificationCenter.current().delegate = self
     }
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = self.registrar(forPlugin: "NativeGlass") {
+      registrar.register(
+        NativeGlassViewFactory(),
+        withId: "mali_glass_native"
+      )
+    }
     let didFinish = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     configureNativeCaptureChannelIfNeeded()
     configureExportProtectionChannelIfNeeded()
+    configureNativeGlassChannelIfNeeded()
     if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
       SharedCaptureStore.enqueueNotificationRoute(userInfo: remote)
     }
@@ -34,6 +42,30 @@ import UserNotifications
     removePrivacySnapshotView()
     configureNativeCaptureChannelIfNeeded()
     configureExportProtectionChannelIfNeeded()
+    configureNativeGlassChannelIfNeeded()
+  }
+
+  /// Answers the one question Dart needs before building glass surfaces:
+  /// does this device have the real iOS 26 Liquid Glass material?
+  func configureNativeGlassChannelIfNeeded() {
+    guard nativeGlassChannel == nil,
+          let controller = rootFlutterViewController() else {
+      return
+    }
+
+    let channel = FlutterMethodChannel(
+      name: "mali/native_glass",
+      binaryMessenger: controller.binaryMessenger
+    )
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "isSupported":
+        result(NativeGlass.isSupported)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    nativeGlassChannel = channel
   }
 
   override func applicationDidEnterBackground(_ application: UIApplication) {

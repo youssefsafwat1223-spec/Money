@@ -37,7 +37,9 @@ import '../../domain/entities/supporting_entities.dart';
 import '../budgets/budgets_providers.dart';
 import '../cards/my_cards_screen.dart';
 import '../plans/plans_screen.dart';
+import '../common/app_avatar.dart';
 import '../common/category_catalog.dart';
+import '../../core/theme/widgets/calm_page_header.dart';
 import '../common/motion.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../capture/services/local_notification_service.dart';
@@ -189,8 +191,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      c.accent.withValues(alpha: 0.035),
-                      c.accent.withValues(alpha: 0.0),
+                      c.cta.withValues(alpha: 0.035),
+                      c.cta.withValues(alpha: 0.0),
                     ],
                   ),
                 ),
@@ -227,73 +229,78 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                 ),
               ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s4,
-                  AppSpacing.gutter,
-                  120,
-                ),
-                sliver: SliverList.list(
-                  children: [
-                    if (settings != null) ...[
-                      _Section(
-                        title: 'الحساب',
-                        children: [
-                          _NavTile(
-                            icon: Icons.phone_iphone_outlined,
-                            title: 'رقم الموبايل',
-                            subtitle:
-                                (settings.phoneNumber?.trim().isNotEmpty ??
-                                        false)
-                                    ? settings.phoneNumber!.trim()
-                                    : 'أضف رقمك',
-                            onTap: () => _showProfileTextSheet(
-                              context,
-                              ref,
+              // الذوبان لازم يلفّ المحتوى كامل العرض ومن غير مسافة فوقه — لو
+              // اتحط جوّه الـ padding بيبقى شريط أزرق مقصوص من الجناب وبحافة
+              // حادّة تحت الهيدر.
+              SliverToBoxAdapter(
+                child: MeltTail(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.gutter,
+                      AppSpacing.s4,
+                      AppSpacing.gutter,
+                      120,
+                    ),
+                    child: Column(children: [
+                      if (settings != null) ...[
+                        _Section(
+                          title: 'الحساب',
+                          children: [
+                            _NavTile(
+                              icon: AppLucideIcons.smartphone,
                               title: 'رقم الموبايل',
-                              label: 'رقم الموبايل',
-                              keyboardType: TextInputType.phone,
-                              initialValue: settings.phoneNumber ?? '',
-                              apply: (value) =>
-                                  settings.copyWith(phoneNumber: value.trim()),
+                              subtitle:
+                                  (settings.phoneNumber?.trim().isNotEmpty ??
+                                          false)
+                                      ? settings.phoneNumber!.trim()
+                                      : 'أضف رقمك',
+                              onTap: () => _showProfileTextSheet(
+                                context,
+                                ref,
+                                title: 'رقم الموبايل',
+                                label: 'رقم الموبايل',
+                                keyboardType: TextInputType.phone,
+                                initialValue: settings.phoneNumber ?? '',
+                                apply: (value) => settings.copyWith(
+                                    phoneNumber: value.trim()),
+                              ),
                             ),
-                          ),
-                          _NavTile(
-                            icon: Icons.flag_outlined,
-                            title: 'الدولة',
-                            subtitle: _countryLabel(
-                                settings, countries, countriesAsync.isLoading),
-                            onTap: countries.isEmpty
-                                ? null
-                                : () => _editCountry(context, ref, settings,
-                                    countries, currencies),
-                          ),
-                          _NavTile(
-                            icon: Icons.payments_outlined,
-                            title: 'العملة الأساسية',
-                            subtitle: _currencyLabel(settings, currencies,
-                                currenciesAsync.isLoading),
-                            onTap: currencies.isEmpty
-                                ? null
-                                : () => _editCurrency(
-                                    context, ref, settings, currencies),
-                          ),
-                        ],
+                            _NavTile(
+                              icon: AppLucideIcons.flag,
+                              title: 'الدولة',
+                              subtitle: _countryLabel(settings, countries,
+                                  countriesAsync.isLoading),
+                              onTap: countries.isEmpty
+                                  ? null
+                                  : () => _editCountry(context, ref, settings,
+                                      countries, currencies),
+                            ),
+                            _NavTile(
+                              icon: AppLucideIcons.banknote,
+                              title: 'العملة الأساسية',
+                              subtitle: _currencyLabel(settings, currencies,
+                                  currenciesAsync.isLoading),
+                              onTap: currencies.isEmpty
+                                  ? null
+                                  : () => _editCurrency(
+                                      context, ref, settings, currencies),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.s4),
+                      ],
+                      _buildGeneralTab(context, ref, settingsAsync),
+                      const SizedBox(height: AppSpacing.s4),
+                      _buildNotificationsTab(
+                        context,
+                        ref,
+                        prefsAsync,
+                        captureHealthAsync,
                       ),
                       const SizedBox(height: AppSpacing.s4),
-                    ],
-                    _buildGeneralTab(context, ref, settingsAsync),
-                    const SizedBox(height: AppSpacing.s4),
-                    _buildNotificationsTab(
-                      context,
-                      ref,
-                      prefsAsync,
-                      captureHealthAsync,
-                    ),
-                    const SizedBox(height: AppSpacing.s4),
-                    _buildDataTab(context, ref, settingsAsync),
-                  ],
+                      _buildDataTab(context, ref, settingsAsync),
+                    ]),
+                  ),
                 ),
               ),
             ],
@@ -335,49 +342,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 if ((ref.watch(conflictsProvider).valueOrNull ?? const [])
                     .isNotEmpty)
                   _NavTile(
-                    icon: Icons.sync_problem_outlined,
+                    icon: AppLucideIcons.cloudOff,
                     title: 'تعارضات المزامنة',
                     subtitle: 'عناصر عُدّلت على أكثر من جهاز — بحاجة لقرارك',
                     onTap: () => PlanningConflictsSheet.show(context),
                   ),
                 _NavTile(
-                  icon: Icons.account_balance_wallet_outlined,
+                  icon: AppLucideIcons.wallet,
                   title: 'الحسابات والمحافظ',
                   subtitle: 'حسابات متعددة، كل واحد بعملته الخاصة',
                   onTap: () => context.push('/accounts'),
                 ),
                 _NavTile(
-                  icon: Icons.credit_card_outlined,
+                  icon: AppLucideIcons.creditCard,
                   title: 'كل البطاقات',
                   subtitle: 'نظرة عامة على بطاقاتك مجمّعة حسب الحساب',
                   onTap: () => MyCardsScreen.open(context),
                 ),
                 _NavTile(
-                  icon: Icons.receipt_long_outlined,
+                  icon: AppLucideIcons.receipt,
                   title: 'الاشتراكات والفواتير',
                   subtitle: 'التزاماتك الدورية ومواعيد السداد',
                   onTap: () => context.push('/subscriptions'),
                 ),
                 _NavTile(
-                  icon: Icons.luggage_outlined,
+                  icon: AppLucideIcons.luggage,
                   title: 'الخطط',
                   subtitle: 'ميزانية رحلة أو مناسبة تتابع نفسها',
                   onTap: () => PlansScreen.open(context),
                 ),
                 _NavTile(
-                  icon: Icons.bar_chart_outlined,
+                  icon: AppLucideIcons.barChart3,
                   title: 'الرؤى والتقارير',
                   subtitle: 'اتجاهات صرفك وتصنيفاتك ومتاجرك',
                   onTap: () => context.push('/reports'),
                 ),
                 _NavTile(
-                  icon: Icons.emoji_events_outlined,
+                  icon: AppLucideIcons.trophy,
                   title: 'الإنجازات والمستوى',
                   subtitle: 'شارات ومستويات تشجع عادة المتابعة',
                   onTap: () => context.push('/achievements'),
                 ),
                 _NavTile(
-                  icon: Icons.currency_exchange_rounded,
+                  icon: AppLucideIcons.arrowLeftRight,
                   title: 'تأكيد عملة الميزانيات والأهداف',
                   subtitle: 'راجع عملة بيانات التخطيط القديمة بأمان',
                   onTap: () =>
@@ -391,7 +398,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 if (Platform.isIOS)
                   _NavTile(
-                    icon: Icons.ios_share_rounded,
+                    icon: AppLucideIcons.share,
                     title: 'اختصار آبل',
                     subtitle: 'مرر رسائل البنك إلى قرش عبر Shortcuts',
                     onTap: () => showIosShortcutSheet(context),
@@ -433,7 +440,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onTap: () => _showContactSupport(context),
                 ),
                 _NavTile(
-                  icon: Icons.info_outline_rounded,
+                  icon: AppLucideIcons.info,
                   title: 'عن قرش',
                   subtitle: 'معلومات التطبيق والإصدار',
                   onTap: () => _showAboutApp(context),
@@ -473,7 +480,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'تأكيد العمليات الملتقطة',
-                    icon: Icons.rate_review_outlined,
+                    icon: AppLucideIcons.messageSquare,
                     value: prefs.captureReview,
                     onChanged: (value) => _savePrefs(
                       ref,
@@ -482,8 +489,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'إشعار عند التقاط عملية',
-                    icon: Icons.notifications_active_outlined,
-                    iconColor: c.accent,
+                    icon: AppLucideIcons.bellRing,
+                    iconColor: c.cta,
                     value: prefs.captureLight,
                     onChanged: (value) => _savePrefs(
                       ref,
@@ -493,7 +500,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   // MALI-019 §6 — lock-screen privacy.
                   _SwitchTile(
                     title: 'إخفاء التفاصيل الحساسة على شاشة القفل',
-                    icon: Icons.lock_outline,
+                    icon: AppLucideIcons.lock,
                     value: prefs.hideLockScreenContent,
                     onChanged: (value) => _savePrefs(
                       ref,
@@ -510,7 +517,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   _SwitchTile(
                     title: 'رسائل ونصائح قرش',
-                    icon: Icons.campaign_outlined,
+                    icon: AppLucideIcons.megaphone,
                     value: prefs.marketingMessages,
                     onChanged: (value) => _savePrefs(
                       ref,
@@ -519,7 +526,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'تنبيه 80% من الميزانية',
-                    icon: Icons.warning_amber_rounded,
+                    icon: AppLucideIcons.alertTriangle,
                     iconColor: c.accent,
                     value: prefs.budgetWarning,
                     onChanged: (value) => _savePrefs(
@@ -529,7 +536,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'تنبيه تجاوز الميزانية',
-                    icon: Icons.error_outline_rounded,
+                    icon: AppLucideIcons.alertCircle,
                     iconColor: c.danger,
                     value: prefs.budgetOver,
                     onChanged: (value) => _savePrefs(
@@ -539,7 +546,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'التقرير الأسبوعي',
-                    icon: Icons.insights_outlined,
+                    icon: AppLucideIcons.lineChart,
                     value: prefs.weeklyReport,
                     onChanged: (value) => _savePrefs(
                       ref,
@@ -548,8 +555,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'تذكير الاشتراكات والفواتير',
-                    icon: Icons.event_available_outlined,
-                    iconColor: c.accent,
+                    icon: AppLucideIcons.calendarCheck,
+                    iconColor: c.cta,
                     value: prefs.subscriptionReminder,
                     onChanged: (value) => _savePrefs(
                       ref,
@@ -558,7 +565,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'احتفالات الأهداف',
-                    icon: Icons.flag_outlined,
+                    icon: AppLucideIcons.flag,
                     iconColor: c.success,
                     value: prefs.goalMilestone,
                     onChanged: (value) => _savePrefs(
@@ -568,7 +575,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'تنبيهات الإنجازات',
-                    icon: Icons.emoji_events_outlined,
+                    icon: AppLucideIcons.trophy,
                     iconColor: c.success,
                     value: prefs.achievements,
                     onChanged: (value) => _savePrefs(
@@ -578,7 +585,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _SwitchTile(
                     title: 'تذكير السلسلة',
-                    icon: Icons.local_fire_department_outlined,
+                    icon: AppLucideIcons.flame,
                     iconColor: c.accent,
                     value: prefs.streakReminder,
                     onChanged: (value) => _savePrefs(
@@ -601,7 +608,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   if (prefs.quietHoursEnabled)
                     _NavTile(
-                      icon: Icons.access_time_outlined,
+                      icon: AppLucideIcons.clock,
                       title: 'تعديل وقت الهدوء',
                       subtitle:
                           '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
@@ -616,13 +623,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 title: 'أدوات الإشعارات',
                 children: [
                   _NavTile(
-                    icon: Icons.notification_add_outlined,
+                    icon: AppLucideIcons.bellPlus,
                     title: 'اختبار إشعارات قرش',
                     subtitle: 'أرسل إشعارًا تجريبيًا إلى هذا الجهاز',
                     onTap: () => _sendTestNotification(context),
                   ),
                   _NavTile(
-                    icon: Icons.inbox_outlined,
+                    icon: AppLucideIcons.inbox,
                     title: 'مركز رسائل قرش',
                     subtitle: 'الإشعارات والحملات والإعلانات السابقة',
                     onTap: () => context.push('/announcements'),
@@ -649,20 +656,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               description: 'بياناتك المالية تظل تحت سيطرتك',
               children: [
                 _NavTile(
-                  icon: Icons.file_open_outlined,
+                  icon: AppLucideIcons.folderOpen,
                   title: 'استيراد ملف',
                   subtitle: 'CSV من أي تطبيق أو ZIP صادر من قرش',
                   onTap: () => context.push('/data-transfer?intent=import'),
                 ),
                 _NavTile(
-                  icon: Icons.table_view_outlined,
+                  icon: AppLucideIcons.table,
                   title: 'تصدير العمليات CSV',
                   subtitle: 'ملف بسيط لكل عملياتك',
                   onTap: () =>
                       context.push('/data-transfer?intent=transactions'),
                 ),
                 _NavTile(
-                  icon: Icons.archive_outlined,
+                  icon: AppLucideIcons.archive,
                   title: 'تصدير كل بيانات قرش',
                   subtitle: 'حزمة ZIP قابلة للنقل والاستعادة',
                   onTap: () => context.push('/data-transfer?intent=package'),
@@ -684,7 +691,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 settingsAsync.dataOr(
                   (settings) => _SwitchTile(
                     title: 'إخفاء الأرقام في الواجهة',
-                    icon: Icons.visibility_off_outlined,
+                    icon: AppLucideIcons.eyeOff,
                     value: settings.privacyModeEnabled,
                     onChanged: (value) async {
                       await ref
@@ -715,13 +722,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onTap: () => _confirmReset(context, ref),
                 ),
                 _NavTile(
-                  icon: Icons.logout_rounded,
+                  icon: AppLucideIcons.logOut,
                   iconColor: c.danger,
                   title: 'تسجيل الخروج',
                   onTap: () => _signOut(context, ref),
                 ),
                 _NavTile(
-                  icon: Icons.delete_outline_rounded,
+                  icon: AppLucideIcons.trash2,
                   iconColor: c.danger,
                   title: 'حذف الحساب وكل بياناتي',
                   subtitle: 'إجراء نهائي يتطلب تأكيدك',
@@ -821,7 +828,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.'),
+            content:
+                Text('تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.'),
           ),
         );
       }
@@ -1107,7 +1115,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: AppSpacing.s3),
               FilledButton.icon(
                 onPressed: () => _showCategoryForm(context, ref),
-                icon: const Icon(Icons.add),
+                icon: const Icon(AppLucideIcons.plus),
                 label: const Text('إضافة تصنيف'),
               ),
               const SizedBox(height: AppSpacing.s3),
@@ -1204,7 +1212,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   controller: name,
                   decoration: const InputDecoration(
                     labelText: 'اسم التصنيف',
-                    prefixIcon: Icon(Icons.label_outline),
+                    prefixIcon: Icon(AppLucideIcons.tag),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s3),
@@ -1219,7 +1227,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   value: icon,
                   decoration: const InputDecoration(
                     labelText: 'الأيقونة',
-                    prefixIcon: Icon(Icons.emoji_symbols_outlined),
+                    prefixIcon: Icon(AppLucideIcons.smile),
                   ),
                   items: icons
                       .map(
@@ -1243,7 +1251,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   value: color,
                   decoration: const InputDecoration(
                     labelText: 'اللون',
-                    prefixIcon: Icon(Icons.palette_outlined),
+                    prefixIcon: Icon(AppLucideIcons.palette),
                   ),
                   items: colors
                       .map(
@@ -1413,14 +1421,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       if (context.mounted) Navigator.of(context).pop();
                     },
                     style: FilledButton.styleFrom(
-                      backgroundColor: c.primary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                     child: Text(
                       'حفظ',
-                      style: AppTypography.bodyStrong(Colors.white),
+                      style: AppTypography.bodyStrong(c.onInk),
                     ),
                   ),
                 ),
@@ -1493,14 +1500,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     if (context.mounted) Navigator.of(context).pop();
                   },
                   style: FilledButton.styleFrom(
-                    backgroundColor: c.primary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                   child: Text(
                     actionLabel,
-                    style: AppTypography.bodyStrong(Colors.white),
+                    style: AppTypography.bodyStrong(c.onInk),
                   ),
                 ),
               ),
@@ -1570,7 +1576,7 @@ class _SettingsErrorState extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline_rounded, color: c.danger),
+          Icon(AppLucideIcons.alertCircle, color: c.danger),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Text(
@@ -1605,124 +1611,79 @@ class _SettingsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final topPad = MediaQuery.paddingOf(context).top + AppSpacing.s2;
     final file = avatarPath.isEmpty ? null : File(avatarPath);
     final hasImage = file != null && file.existsSync();
     final initial = name.trim().isEmpty ? 'م' : name.characters.first;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          stops: const [0.0, 0.55, 1.0],
-          colors: isDark
-              ? const [Color(0xFF071634), Color(0xFF0E3A86), Color(0xFF1E74F0)]
-              : const [Color(0xFF1E74F0), Color(0xFF3E8CF7), Color(0xFF7FB2FF)],
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    // نفس هيدر باقي الصفحات (CalmPageHeader بميلته الموحّد) — صف البروفايل
+    // جوّه الأزرق عبر خانة child.
+    return CalmPageHeader(
+      // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
+      meltOverflow: 0,
+      title: 'الإعدادات',
+      leading: onBack == null
+          ? null
+          : IconButton(
+              tooltip: 'رجوع',
+              onPressed: onBack,
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(),
+              icon: const Icon(AppLucideIcons.arrowRight, color: Colors.white),
+            ),
+      child: Row(
         children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-                AppSpacing.gutter, topPad, AppSpacing.gutter, AppSpacing.s5),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    if (onBack != null) ...[
-                      IconButton(
-                        tooltip: 'رجوع',
-                        onPressed: onBack,
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        constraints: const BoxConstraints(),
-                        icon: const Icon(Icons.arrow_forward_rounded,
-                            color: Colors.white),
-                      ),
-                      const SizedBox(width: AppSpacing.s2),
-                    ],
-                    Text(
-                      'الإعدادات',
-                      style: AppTypography.calmTitle(Colors.white)
-                          .copyWith(fontSize: 24, letterSpacing: -0.5),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    GestureDetector(
-                      onTap: onAvatarTap,
-                      child: Container(
-                        width: 58,
-                        height: 58,
-                        alignment: Alignment.center,
-                        clipBehavior: Clip.antiAlias,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(19),
-                        ),
-                        child: hasImage
-                            ? Image.file(file,
-                                fit: BoxFit.cover, width: 58, height: 58)
-                            : Text(initial,
-                                style: AppTypography.title2(Colors.white)),
-                      ),
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: onNameTap,
-                        behavior: HitTestBehavior.opaque,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTypography.headline(Colors.white)),
-                            const SizedBox(height: 2),
-                            Text(contact,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textDirection: TextDirection.ltr,
-                                style: AppTypography.caption(
-                                    Colors.white.withValues(alpha: 0.75))),
-                          ],
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: onNameTap,
-                      child: Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.16),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.28)),
-                        ),
-                        child: const Icon(Icons.edit_outlined,
-                            color: Colors.white, size: 18),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+          GestureDetector(
+            onTap: onAvatarTap,
+            child: Container(
+              width: 58,
+              height: 58,
+              alignment: Alignment.center,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(19),
+              ),
+              child: hasImage
+                  ? Image.file(file, fit: BoxFit.cover, width: 58, height: 58)
+                  : Text(initial, style: AppTypography.title2(Colors.white)),
             ),
           ),
-          Container(
-            height: 22,
-            decoration: BoxDecoration(
-              color: c.bg,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(26)),
+          const SizedBox(width: 13),
+          Expanded(
+            child: GestureDetector(
+              onTap: onNameTap,
+              behavior: HitTestBehavior.opaque,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.headline(Colors.white)),
+                  const SizedBox(height: 2),
+                  Text(contact,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textDirection: TextDirection.ltr,
+                      style: AppTypography.caption(
+                          Colors.white.withValues(alpha: 0.75))),
+                ],
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: onNameTap,
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+              ),
+              child: const Icon(AppLucideIcons.pencil,
+                  color: Colors.white, size: 18),
             ),
           ),
         ],
@@ -1811,9 +1772,9 @@ class _ThemeModeSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     const options = <(ThemeMode, IconData, String)>[
-      (ThemeMode.system, Icons.brightness_auto_rounded, 'تلقائي'),
-      (ThemeMode.light, Icons.light_mode_rounded, 'فاتح'),
-      (ThemeMode.dark, Icons.dark_mode_rounded, 'داكن'),
+      (ThemeMode.system, AppLucideIcons.monitor, 'تلقائي'),
+      (ThemeMode.light, AppLucideIcons.sun, 'فاتح'),
+      (ThemeMode.dark, AppLucideIcons.moon, 'داكن'),
     ];
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.s3),
@@ -1827,26 +1788,24 @@ class _ThemeModeSelector extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+                  // المختار = سطح ink الموحّد (كان أزرق ctaSoft).
                   decoration: BoxDecoration(
-                    color: value == mode ? c.ctaSoft : c.surfaceMuted,
+                    color: value == mode ? c.ink : c.surfaceMuted,
                     borderRadius: BorderRadius.circular(AppRadius.md),
-                    border: Border.all(
-                      color: value == mode ? c.cta : c.border,
-                      width: value == mode ? 1.5 : 1,
-                    ),
+                    border: value == mode ? null : Border.all(color: c.border),
                   ),
                   child: Column(
                     children: [
                       Icon(
                         icon,
                         size: 20,
-                        color: value == mode ? c.cta : c.textSecondary,
+                        color: value == mode ? c.onInk : c.textSecondary,
                       ),
                       const SizedBox(height: 6),
                       Text(
                         label,
                         style: AppTypography.caption(
-                          value == mode ? c.cta : c.textSecondary,
+                          value == mode ? c.onInk : c.textSecondary,
                         ),
                       ),
                     ],
@@ -1920,13 +1879,13 @@ class _CategoryGroup extends StatelessWidget {
                         IconButton(
                           tooltip: 'تعديل',
                           onPressed: () => onEdit(items[i]),
-                          icon: const Icon(Icons.edit_outlined),
+                          icon: const Icon(AppLucideIcons.pencil),
                         ),
                         if (items[i].entity.sort >= 0)
                           IconButton(
                             tooltip: 'حذف',
                             onPressed: () => onDelete(items[i]),
-                            icon: Icon(Icons.delete_outline, color: c.danger),
+                            icon: Icon(AppLucideIcons.trash2, color: c.danger),
                           ),
                       ],
                     ),
@@ -2021,7 +1980,7 @@ class _AppLockTileState extends State<_AppLockTile> {
     final c = context.colors;
     return _SwitchTile(
       title: 'قفل التطبيق',
-      icon: Icons.lock_outline_rounded,
+      icon: AppLucideIcons.lock,
       iconColor: c.primary,
       value: _enabled,
       onChanged: _loading || _busy ? (_) {} : _setEnabled,
@@ -2062,7 +2021,7 @@ class _NavTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: AppTypography.caption(c.textLight),
             ),
-      trailing: Icon(Icons.chevron_left_rounded, color: c.textMuted, size: 20),
+      trailing: Icon(AppLucideIcons.chevronLeft, color: c.textMuted, size: 20),
       onTap: onTap,
     );
   }
@@ -2084,7 +2043,7 @@ class _TrustNoticeTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _TileIcon(icon: Icons.verified_user_outlined, color: c.success),
+          _TileIcon(icon: AppLucideIcons.shieldCheck, color: c.success),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Text(
@@ -2132,7 +2091,7 @@ class _CaptureHealthTile extends StatelessWidget {
     return ListTile(
       contentPadding:
           const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
-      leading: _TileIcon(icon: Icons.health_and_safety_outlined, color: color),
+      leading: _TileIcon(icon: AppLucideIcons.shieldCheck, color: color),
       title: Text(title, style: AppTypography.bodyStrong(c.textMain)),
       subtitle: Text(
         statusSubtitle,
@@ -2221,16 +2180,10 @@ class _TileIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Solid deep tile + white glyph — same language as the category avatars.
-    return Container(
-      width: 38,
-      height: 38,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Color.lerp(color, Colors.black, 0.45),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(icon, color: Colors.white, size: 19),
+    // نفس تايل [AppAvatar] بالظبط — سوبر-إليبس ولون تقيل وجليف أبيض.
+    return AppAvatar.icon(
+      icon: icon,
+      color: Color.lerp(color, Colors.black, 0.45),
     );
   }
 }
