@@ -32,6 +32,45 @@ final adConsentServiceProvider = Provider<AdConsentService>(
   (ref) => const UmpAdConsentService(),
 );
 
+/// One-session UMP consent orchestration (R4 §11). Holds NO consent state — UMP
+/// remains the sole authority; this only latches "consent gathering has been
+/// kicked off this session" so the app never fires a second concurrent
+/// consent-info request or shows a duplicate form. Because the provider is a
+/// single instance per [ProviderScope], the latch is naturally session-scoped.
+class SessionAdConsent {
+  SessionAdConsent(this._consent);
+
+  final AdConsentService _consent;
+  Future<void>? _inFlight;
+  bool _done = false;
+
+  /// Idempotent, fail-open. The first call performs the UMP consent-info update
+  /// (+ required form) exactly once; concurrent callers await the same future;
+  /// after completion further calls are no-ops. Never throws.
+  Future<void> ensureGathered() {
+    if (_done) return Future<void>.value();
+    return _inFlight ??= _run();
+  }
+
+  Future<void> _run() async {
+    try {
+      await _consent.gatherConsent();
+    } catch (_) {
+      // Fail-open + defence in depth: gatherConsent is contractually
+      // non-throwing, but a failure here must never surface — UMP simply
+      // leaves ads not requestable. Latched below so we never retry-storm.
+    } finally {
+      _done = true;
+      _inFlight = null;
+    }
+  }
+}
+
+/// Session-scoped UMP orchestration point (single instance).
+final sessionAdConsentProvider = Provider<SessionAdConsent>(
+  (ref) => SessionAdConsent(ref.watch(adConsentServiceProvider)),
+);
+
 /// Whether Settings should offer the UMP "privacy options" entry (§11). Async;
 /// false while loading / when not applicable, so the entry stays hidden.
 final adPrivacyOptionsRequiredProvider = FutureProvider<bool>(

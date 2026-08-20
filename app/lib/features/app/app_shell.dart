@@ -221,6 +221,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       await _drainPendingNotificationRoutes();
       await _syncEngagement();
       unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
+      // R4 §11: cold-start UMP gathering — the primary fix for the missing
+      // production caller. Fire-and-forget, fail-open, once per session.
+      unawaited(_orchestrateReportAdsConsent());
       _drainCelebrations();
       final initialTransactionId =
           CaptureRuntime.instance.takeInitialConfirmation();
@@ -318,13 +321,14 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(_syncRemoteOnboardingCompletion());
     if (runNonCritical) await syncCatalog(ref);
     if (runNonCritical) {
-      // R4 §7/§21: warm the report-export entitlement decision on resume and,
-      // only if every ad gate then allows, opportunistically preload one
-      // interstitial so the next export tap is fast. Fire-and-forget.
+      // R4 §7/§11/§21: warm the report-export entitlement decision on resume,
+      // then run the one UMP orchestration point (gather consent → refresh the
+      // privacy-options state → gated preload) so no ad is ever preloaded
+      // before UMP permits requests. Fire-and-forget.
       unawaited(ref
           .read(reportEntitlementResolverProvider)
           .refresh()
-          .then((_) => ref.read(reportExportCoordinatorProvider).maybePreload()));
+          .then((_) => _orchestrateReportAdsConsent()));
     }
     // Reconciles writes that landed through a connection other than this
     // shell's live `appDatabaseProvider` instance while the app was
@@ -351,6 +355,35 @@ class _AppShellState extends ConsumerState<AppShell> {
           .sweep(olderThan: ManagedExportStore.defaultLease));
     }
     _drainCelebrations();
+  }
+
+  /// R4 §11 — the ONE session-level UMP orchestration point. Gathers UMP consent
+  /// (idempotent per session via [sessionAdConsentProvider]), refreshes the
+  /// Settings privacy-options state, then — and only then — allows a gated
+  /// interstitial preload. UMP is the sole ad-consent authority; nothing is
+  /// persisted here.
+  ///
+  /// Fully fail-open: it never blocks startup/resume, never throws, and a UMP
+  /// failure simply leaves ads not requestable (the export still generates).
+  /// Consent is gathered whenever an ad may actually be served — i.e. the flag
+  /// is on — or in any non-release build, so a human R6 test can exercise the
+  /// flow without flipping the staging flag. A release build with the flag off
+  /// gathers nothing (no consent UI for a disabled feature).
+  Future<void> _orchestrateReportAdsConsent() async {
+    if (!mounted) return;
+    final adsMayServe = ref.read(reportAdsEnabledProvider);
+    if (kReleaseMode && !adsMayServe) return;
+    try {
+      await ref.read(sessionAdConsentProvider).ensureGathered();
+      if (!mounted) return;
+      // Settings entry now reflects the freshly-known UMP requirement (§4).
+      ref.invalidate(adPrivacyOptionsRequiredProvider);
+      // Only after UMP has been gathered is a preload allowed (§2.5);
+      // maybePreload re-checks flag + config + entitlement + canRequestAds.
+      await ref.read(reportExportCoordinatorProvider).maybePreload();
+    } catch (_) {
+      // Fail-open: consent/preload failure must never break the app.
+    }
   }
 
   /// Returns false (recovery already triggered, router about to redirect

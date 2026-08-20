@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'report_ads_debug_config.dart';
+
 /// Google UMP is the SOLE ad-consent authority (docs REFERRAL_ADS_ADMIN_SYSTEM.md
 /// §3). Qirsh keeps NO duplicate advertising-consent boolean; `canRequestAds` is
 /// read from UMP, never persisted independently. This is entirely separate from
@@ -33,7 +35,18 @@ class UmpAdConsentService implements AdConsentService {
   @override
   Future<void> gatherConsent() async {
     try {
-      final params = ConsentRequestParameters();
+      // Debug/profile-only: force EEA geography (+ optional test device) so a
+      // human R6 test can exercise the consent form / privacy-options path.
+      // Structurally inert in release (see ReportAdsDebugConfig); production
+      // requests carry no debug settings.
+      final debugSettings = ReportAdsDebugConfig.forceEeaGeography
+          ? ConsentDebugSettings(
+              debugGeography: DebugGeography.debugGeographyEea,
+              testIdentifiers: ReportAdsDebugConfig.testDeviceIds,
+            )
+          : null;
+      final params =
+          ConsentRequestParameters(consentDebugSettings: debugSettings);
       final updated = Completer<void>();
       _info.requestConsentInfoUpdate(
         params,
