@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import '../report_ads/report_ads_providers.dart';
 import 'sync_cadence.dart';
 import '../../data/db/financial_cache_reconcile_map.dart';
 import '../../data/db/legacy_financial_cache_reconciler.dart';
@@ -264,6 +265,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     final now = AppSession.instance.status;
     final wasAuthenticated = _lastSessionStatus == SessionStatus.authenticated;
     _lastSessionStatus = now;
+    // R4 §7: drop the in-memory report-export entitlement cache on ANY session
+    // transition (sign-in / sign-out / account switch / expiry) so one user's
+    // ad-free decision can never leak into another session.
+    if (mounted) ref.read(reportEntitlementResolverProvider).clear();
     // Any session change (sign-in or sign-out) re-arms the one-shot reconcile
     // so a freshly signed-in identity backfills its own local data once.
     _didReconcile = false;
@@ -306,6 +311,15 @@ class _AppShellState extends ConsumerState<AppShell> {
     final runNonCritical = _resumeCoalescer.shouldRunNonCritical(DateTime.now());
     unawaited(_syncRemoteOnboardingCompletion());
     if (runNonCritical) await syncCatalog(ref);
+    if (runNonCritical) {
+      // R4 §7/§21: warm the report-export entitlement decision on resume and,
+      // only if every ad gate then allows, opportunistically preload one
+      // interstitial so the next export tap is fast. Fire-and-forget.
+      unawaited(ref
+          .read(reportEntitlementResolverProvider)
+          .refresh()
+          .then((_) => ref.read(reportExportCoordinatorProvider).maybePreload()));
+    }
     // Reconciles writes that landed through a connection other than this
     // shell's live `appDatabaseProvider` instance while the app was
     // backgrounded — background notification Confirm/Dismiss actions open

@@ -77,6 +77,7 @@ import '../../domain/usecases/save_budget_usecase.dart';
 import '../../domain/usecases/save_goal_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/app/celebration_runtime.dart';
+import '../../features/report_ads/report_ads_providers.dart';
 import '../../features/capture/services/local_notification_service.dart';
 import '../../features/capture/services/notification_journey_service.dart';
 import '../../features/capture/services/capture_backend_client.dart';
@@ -408,6 +409,10 @@ Future<void> syncCatalog(
   // Invalidate announcement providers so UI rebuilds with fresh data.
   ref.invalidate(activeAnnouncementsProvider);
   ref.invalidate(hasForceUpdateProvider);
+  // Same-session flag reactivity (R4 §9): the report-ads placement gate must
+  // re-evaluate after a live catalog sync (cold-start / resume) so it can act
+  // as a production kill switch without an app restart.
+  ref.invalidate(reportAdsEnabledProvider);
 }
 
 Future<bool> _catalogSyncIsStale(AppDatabase database) async {

@@ -21,6 +21,7 @@ import '../common/widgets.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
 import '../settings/settings_providers.dart';
 import '../reporting/ui/report_config_sheet.dart';
+import '../report_ads/report_ads_providers.dart';
 import 'reports_providers.dart';
 
 class ReportsScreen extends ConsumerWidget {
@@ -62,10 +63,18 @@ class ReportsScreen extends ConsumerWidget {
                               onReport: () async {
                                 final request =
                                     await showReportConfigSheet(context);
-                                if (request != null && context.mounted) {
+                                if (request == null || !context.mounted) return;
+                                // R4: route the accepted export through the ad
+                                // coordinator (single-flight, fail-open). It
+                                // resolves entitlement, may show ONE interstitial,
+                                // then generates exactly once via this closure.
+                                await ref
+                                    .read(reportExportCoordinatorProvider)
+                                    .run(() async {
+                                  if (!context.mounted) return;
                                   await runReportGeneration(
                                       context, ref, request);
-                                }
+                                });
                               },
                             ),
                           ],

@@ -28,6 +28,7 @@ import '../../core/theme/theme_mode_controller.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../referrals/referrals_providers.dart';
+import '../report_ads/report_ads_providers.dart';
 import '../../core/utils/category_glyph.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/category_entity.dart';
@@ -412,6 +413,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: 'دعوة الأصدقاء',
                     subtitle: 'شارك رمز دعوتك واكسب تقارير بدون إعلانات',
                     onTap: () => context.push('/referrals'),
+                  ),
+                // Ads privacy (R4 §11): shown only when UMP requires privacy
+                // options; invokes the Google UMP privacy-options form. UMP is
+                // the sole ad-consent authority — no Qirsh consent boolean here.
+                if (ref.watch(adPrivacyOptionsRequiredProvider).valueOrNull ??
+                    false)
+                  _NavTile(
+                    icon: Icons.privacy_tip_outlined,
+                    title: 'خيارات خصوصية الإعلانات',
+                    subtitle: 'إدارة موافقتك على الإعلانات',
+                    onTap: () =>
+                        ref.read(adConsentServiceProvider).showPrivacyOptions(),
                   ),
                 _NavTile(
                   icon: AppLucideIcons.receipt,
