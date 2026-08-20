@@ -670,8 +670,16 @@ test('R1 changes no report generation code', () => {
   assert.doesNotMatch(sheet, /entitlement|interstitial|adGate/i);
 });
 
-test('no google_mobile_ads dependency was added', () => {
-  assert.doesNotMatch(read('app/pubspec.yaml'), /google_mobile_ads|admob/i);
+test('google_mobile_ads is pinned to exactly 9.0.0 (R4 report-export ads)', () => {
+  // R4 (approved) integrated the report-export interstitial and added
+  // google_mobile_ads. R5 pinned the version EXACTLY: 9.1.0 pulls GoogleMobileAds
+  // iOS SDK 13.8.0, whose non-modular GoogleMobileAds_Beta.h breaks the iOS
+  // build; 9.0.0 (SDK 13.3.0) builds clean. The pin (no caret) is the contract.
+  assert.match(
+    read('app/pubspec.yaml'),
+    /^\s*google_mobile_ads:\s*9\.0\.0\s*$/m,
+    'google_mobile_ads must be pinned to exactly 9.0.0 (no caret)',
+  );
 });
 
 // ===========================================================================
