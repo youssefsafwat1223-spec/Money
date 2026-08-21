@@ -112,10 +112,12 @@ final reportAdsAnalyticsProvider = Provider<ReportAdsAnalytics>((ref) {
 });
 
 /// The report-export orchestration state machine (single-flight, fail-open).
-final reportExportCoordinatorProvider = Provider<ReportExportCoordinator>((ref) {
+final reportExportCoordinatorProvider =
+    Provider<ReportExportCoordinator>((ref) {
   return ReportExportCoordinator(
     reportAdsEnabled: () => ref.read(reportAdsEnabledProvider),
-    adConfigAvailable: () => ReportAdsBuildConfig.isConfiguredFor(defaultTargetPlatform),
+    adConfigAvailable: () =>
+        ReportAdsBuildConfig.isConfiguredFor(defaultTargetPlatform),
     entitlement: ref.watch(reportEntitlementResolverProvider),
     consent: ref.watch(adConsentServiceProvider),
     gateway: ref.watch(reportExportAdGatewayProvider),

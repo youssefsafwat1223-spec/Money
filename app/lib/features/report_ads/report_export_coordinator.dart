@@ -12,6 +12,7 @@ enum ReportExportPhase {
   idle,
   resolvingEntitlement,
   preparingAd,
+  confirmingAd,
   presentingAd,
   generating,
   sharing,
@@ -65,7 +66,18 @@ class ReportExportCoordinator {
   /// Run one accepted export attempt. [generate] performs the actual report
   /// generation (the caller's context-guarded wrapper around the choke point)
   /// and is invoked at most once.
-  Future<void> run(Future<void> Function() generate) async {
+  ///
+  /// [confirmAdNotice], when supplied, is awaited ONLY after every real gate has
+  /// passed AND an interstitial is actually loaded and ready to present — so an
+  /// ad-free, offline, flag-off, UMP-blocked or no-fill attempt never shows an
+  /// ad warning. Returning false is an explicit user cancellation of THIS
+  /// attempt: no ad, no report, straight back to idle. Because it is awaited
+  /// inside the attempt, it inherits single-flight: repeated Export taps while
+  /// the notice is open are ignored.
+  Future<void> run(
+    Future<void> Function() generate, {
+    Future<bool> Function()? confirmAdNotice,
+  }) async {
     if (_inFlight) return; // single-flight: ignore repeated taps
     _inFlight = true;
     final attempt = _mintAttemptId();
@@ -88,6 +100,18 @@ class ReportExportCoordinator {
       final showAd = await _shouldShowAd(attempt);
       if (_currentAttemptId != attempt) return; // superseded
       if (showAd) {
+        if (confirmAdNotice != null) {
+          _phase = ReportExportPhase.confirmingAd;
+          final proceed = await confirmAdNotice();
+          if (_currentAttemptId != attempt) return; // superseded while open
+          if (!proceed) {
+            // Explicit cancellation of this attempt. Deliberately NOT
+            // fail-open: the user asked to stop, so we must not quietly
+            // generate the report anyway. `advanced` stays false and the
+            // finally block returns the machine to idle.
+            return;
+          }
+        }
         _phase = ReportExportPhase.presentingAd;
         final outcome = await _gateway.showIfAvailable();
         _recordOutcome(outcome);

@@ -61,7 +61,9 @@ class UmpAdConsentService implements AdConsentService {
       });
       await formDismissed.future;
     } catch (e) {
-      if (kDebugMode) debugPrint('[UMP] gatherConsent failed: ${e.runtimeType}');
+      if (kDebugMode) {
+        debugPrint('[UMP] gatherConsent failed: ${e.runtimeType}');
+      }
     }
   }
 

@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/di/app_providers.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/reporting/report_request.dart';
 import '../../settings/settings_providers.dart';
 import '../providers/report_providers.dart';
 import '../services/report_generation_controller.dart';
+import '../../common/app_header.dart';
 import 'report_preview_screen.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 
@@ -17,28 +17,29 @@ enum _PeriodKind { weekly, monthly, yearly, custom }
 
 String _t(bool isAr, String ar, String en) => isAr ? ar : en;
 
-/// Opens the report configuration sheet and returns the chosen [ReportRequest],
-/// or null if dismissed.
-Future<ReportRequest?> showReportConfigSheet(BuildContext context) {
-  return showModalBottomSheet<ReportRequest>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    // Explicit so it matches the mockup sheet surface without depending on the
-    // (statically-initialised) bottom-sheet theme.
-    backgroundColor: AppTheme.sheetSurfaceFor(Theme.of(context).brightness),
-    builder: (_) => const _ReportConfigSheet(),
+/// Opens the report configuration PAGE and returns the chosen [ReportRequest],
+/// or null if the user backs out.
+///
+/// This is a normal full-screen route (it used to be a modal bottom sheet): the
+/// form is long enough that a sheet cramped it against the keyboard. The
+/// returned value and every downstream step — coordinator → ad gate →
+/// generation → [ReportPreviewScreen] — are unchanged.
+Future<ReportRequest?> showReportConfigPage(BuildContext context) {
+  return Navigator.of(context).push<ReportRequest>(
+    MaterialPageRoute<ReportRequest>(
+      builder: (_) => const _ReportConfigPage(),
+    ),
   );
 }
 
-class _ReportConfigSheet extends ConsumerStatefulWidget {
-  const _ReportConfigSheet();
+class _ReportConfigPage extends ConsumerStatefulWidget {
+  const _ReportConfigPage();
 
   @override
-  ConsumerState<_ReportConfigSheet> createState() => _ReportConfigSheetState();
+  ConsumerState<_ReportConfigPage> createState() => _ReportConfigPageState();
 }
 
-class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
+class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
   _PeriodKind _period = _PeriodKind.monthly;
   DateTimeRange? _customRange;
   bool _allAccounts = true;
@@ -97,21 +98,20 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
         ref.watch(accountsProvider).valueOrNull ?? const <AccountEntity>[];
     final canGenerate = _period != _PeriodKind.custom || _customRange != null;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 4,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-      ),
-      child: SingleChildScrollView(
+    return Scaffold(
+      appBar: AppHeader(
+          title: _t(isAr, 'إنشاء تقرير مالي', 'Create financial report')),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 12,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(_t(isAr, 'إنشاء تقرير مالي', 'Create financial report'),
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
             _label(isAr, 'الفترة', 'Period'),
             Wrap(
               spacing: 8,
@@ -184,18 +184,21 @@ class _ReportConfigSheetState extends ConsumerState<_ReportConfigSheet> {
                 isAr, 'الملاحظات', 'Insights', _insights, (v) => _insights = v),
             _switch(isAr, 'وضع الخصوصية (إخفاء المبالغ)',
                 'Privacy mode (mask amounts)', _privacy, (v) => _privacy = v),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                icon: const Icon(AppLucideIcons.fileText, size: 18),
-                label: Text(_t(isAr, 'إنشاء التقرير', 'Generate report')),
-                onPressed: canGenerate
-                    ? () => Navigator.of(context).pop(_buildRequest())
-                    : null,
-              ),
-            ),
           ],
+        ),
+      ),
+      // Pinned action so the primary CTA stays reachable on a long form.
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            icon: const Icon(AppLucideIcons.fileText, size: 18),
+            label: Text(_t(isAr, 'إنشاء التقرير', 'Generate report')),
+            onPressed: canGenerate
+                ? () => Navigator.of(context).pop(_buildRequest())
+                : null,
+          ),
         ),
       ),
     );

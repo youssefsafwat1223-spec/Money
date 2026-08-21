@@ -21,7 +21,8 @@ import '../common/premium_loading.dart';
 import '../common/widgets.dart';
 import '../dashboard/dashboard_providers.dart' show CategorySlice;
 import '../settings/settings_providers.dart';
-import '../reporting/ui/report_config_sheet.dart';
+import '../report_ads/report_ad_notice.dart';
+import '../reporting/ui/report_config_page.dart';
 import '../report_ads/report_ads_providers.dart';
 import 'reports_providers.dart';
 
@@ -62,19 +63,24 @@ class ReportsScreen extends ConsumerWidget {
                               privacyMode: privacyMode,
                               onReport: () async {
                                 final request =
-                                    await showReportConfigSheet(context);
+                                    await showReportConfigPage(context);
                                 if (request == null || !context.mounted) return;
                                 // R4: route the accepted export through the ad
                                 // coordinator (single-flight, fail-open). It
                                 // resolves entitlement, may show ONE interstitial,
                                 // then generates exactly once via this closure.
-                                await ref
-                                    .read(reportExportCoordinatorProvider)
-                                    .run(() async {
+                                await ref.read(reportExportCoordinatorProvider).run(
+                                    () async {
                                   if (!context.mounted) return;
                                   await runReportGeneration(
                                       context, ref, request);
-                                });
+                                },
+                                    // Shown only once the coordinator has a
+                                    // loaded ad to present (never for
+                                    // ad-free / offline / flag-off).
+                                    confirmAdNotice: () async =>
+                                        context.mounted &&
+                                        await showReportAdNotice(context));
                               },
                             ),
                           ],
