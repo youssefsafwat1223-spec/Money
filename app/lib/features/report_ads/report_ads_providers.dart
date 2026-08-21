@@ -8,6 +8,7 @@ import '../referrals/referrals_providers.dart';
 import 'ad_consent_service.dart';
 import 'report_ads_analytics.dart';
 import 'report_ads_build_config.dart';
+import 'report_ads_debug_config.dart';
 import 'report_entitlement.dart';
 import 'report_export_ad_gateway.dart';
 import 'report_export_coordinator.dart';
@@ -20,6 +21,12 @@ import 'report_export_coordinator.dart';
 /// cold-start and on resume, then invalidates this provider, so a mid-session
 /// flip of `enable_report_ads` takes effect without a restart (§9).
 final reportAdsEnabledProvider = Provider<bool>((ref) {
+  // R6 physical-QA hook: substitutes ONLY this product-flag term so a human can
+  // exercise the placement on a real device while the remote flag stays OFF.
+  // Structurally inert in release; reads nothing from and writes nothing to
+  // FeatureFlagService. Every other gate (UMP / entitlement / ad config /
+  // single-flight / fail-open) is untouched.
+  if (ReportAdsDebugConfig.reportAdsPlacementTestOverride) return true;
   try {
     return featureFlags.getBool('enable_report_ads');
   } on StateError {

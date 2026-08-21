@@ -242,4 +242,85 @@ void main() {
       expect(ReportAdsDebugConfig.testDeviceIds, isEmpty);
     });
   });
+
+  // R6 §2 — the report-ads placement QA override is equally release-inert and
+  // strictly narrower than the real gate.
+  group('R6: report-ads test override', () {
+    test('release build never enables the override, for any define value', () {
+      expect(
+        ReportAdsDebugConfig.computeDebugOnly(
+            isReleaseBuild: true, defineSet: true),
+        isFalse,
+      );
+      expect(
+        ReportAdsDebugConfig.computeDebugOnly(
+            isReleaseBuild: true, defineSet: false),
+        isFalse,
+      );
+    });
+
+    test('non-release honours the define', () {
+      expect(
+        ReportAdsDebugConfig.computeDebugOnly(
+            isReleaseBuild: false, defineSet: true),
+        isTrue,
+      );
+      expect(
+        ReportAdsDebugConfig.computeDebugOnly(
+            isReleaseBuild: false, defineSet: false),
+        isFalse,
+      );
+    });
+
+    test('inert by default (no REPORT_ADS_TEST_OVERRIDE define in this build)',
+        () {
+      expect(ReportAdsDebugConfig.reportAdsPlacementTestOverride, isFalse);
+    });
+
+    // The override may replace ONLY the flag term: with the flag "on", every
+    // other gate must still be able to veto the ad.
+    test('override does NOT bypass UMP canRequestAds', () async {
+      final gw = _FakeGateway();
+      final coord = ReportExportCoordinator(
+        reportAdsEnabled: () => true, // as if the override were active
+        adConfigAvailable: () => true,
+        entitlement: _inactiveResolver(),
+        consent: _FakeConsent(can: false), // UMP still says no
+        gateway: gw,
+        analytics: _analytics(),
+        mintAttemptId: () => 'ovr-1',
+      );
+      var generated = 0;
+      await coord.run(() async => generated++);
+      expect(gw.showCalls, 0, reason: 'UMP veto still wins');
+      expect(generated, 1, reason: 'fail-open preserved');
+    });
+
+    test('override does NOT bypass an ACTIVE entitlement', () async {
+      final gw = _FakeGateway();
+      final active = ReportEntitlementResolver(
+        service: _FakeReferralService(EntitlementDecision(
+          entitlementType: 'report_export_ad_free',
+          status: 'active',
+          active: true,
+          endsAt: DateTime.utc(2026, 12, 1),
+          serverNow: DateTime.utc(2026, 8, 21),
+        )),
+        currentUserId: () => 'user-1',
+      );
+      final coord = ReportExportCoordinator(
+        reportAdsEnabled: () => true, // as if the override were active
+        adConfigAvailable: () => true,
+        entitlement: active,
+        consent: _FakeConsent(can: true),
+        gateway: gw,
+        analytics: _analytics(),
+        mintAttemptId: () => 'ovr-2',
+      );
+      var generated = 0;
+      await coord.run(() async => generated++);
+      expect(gw.showCalls, 0, reason: 'ad-free entitlement still wins');
+      expect(generated, 1);
+    });
+  });
 }
