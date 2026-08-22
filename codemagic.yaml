@@ -206,7 +206,14 @@ workflows:
     environment:
       groups:
         - supabase
-        - google_play          # Android keystore (ANDROID_KEYSTORE_* env vars, read by build.gradle.kts) — set in Codemagic
+        # Upload-key material + credentials, set in Codemagic (never in source):
+        #   ANDROID_KEYSTORE_BASE64    base64 of the UPLOAD keystore (.jks)
+        #   ANDROID_KEYSTORE_PASSWORD  store password
+        #   ANDROID_KEY_ALIAS          key alias
+        #   ANDROID_KEY_PASSWORD       key password
+        # ANDROID_KEYSTORE_PATH is NOT stored — it is produced by the
+        # materialisation step below and exported for build.gradle.kts.
+        - google_play
       flutter: 3.44.2
       vars:
         PACKAGE_NAME: "com.youssefsafwat.mali"
@@ -234,6 +241,32 @@ workflows:
             exit 1
           fi
 
+      - name: Materialise upload keystore (ephemeral)
+        script: |
+          set -eu
+          # Google Play App Signing model: Play holds the APP SIGNING key; this
+          # materialises the UPLOAD key only. The decoded keystore is written to
+          # the ephemeral CI workspace (never the repository, never a fixed
+          # machine path) and is discarded with the runner.
+          missing=""
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            eval "val=\${$v:-}"
+            [ -n "$val" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "ERROR: missing Android release signing input(s):$missing"
+            echo "A release build must never be signed with the debug key, so this fails here."
+            exit 1
+          fi
+          KEYSTORE_PATH="${CM_BUILD_DIR}/upload-keystore.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          # Sanity-check the decode produced a real keystore, without printing it.
+          [ -s "$KEYSTORE_PATH" ] || { echo "ERROR: decoded keystore is empty"; exit 1; }
+          # Export the path only (no secret values are ever echoed).
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$CM_ENV"
+          echo "Upload keystore materialised at the build workspace (path exported; no values printed)."
+
       - name: Build release App Bundle
         working_directory: app
         script: |
@@ -247,6 +280,14 @@ workflows:
             --dart-define=SENTRY_DSN="${SENTRY_DSN:-}" \
             --dart-define=ADMOB_APP_ID_ANDROID="${ADMOB_APP_ID_ANDROID:-}" \
             --dart-define=ADMOB_INTERSTITIAL_ANDROID="${ADMOB_INTERSTITIAL_ANDROID:-}"
+
+      - name: Shred materialised keystore
+        script: |
+          set -eu
+          # Belt-and-braces: the runner is ephemeral, but never leave key
+          # material lying around for later steps or cached workspaces.
+          rm -f "${CM_BUILD_DIR}/upload-keystore.jks" || true
+          echo "Materialised keystore removed.
     artifacts:
       - app/build/**/outputs/bundle/**/*.aab
       - app/build/**/outputs/**/mapping.txt

@@ -64,31 +64,65 @@ flutter build appbundle --release
 If `key.properties` is missing or incomplete, this now fails immediately with a clear error
 naming exactly what's missing, instead of silently signing with the debug key.
 
-## 4. Configure Codemagic (CI)
+## 4. Configure Codemagic (CI) — the canonical release path
 
-Codemagic builds don't have `key.properties` (it's gitignored, so it never reaches the
-build machine). Instead, set these as **encrypted environment variables** in the Codemagic
-project settings — add them to the existing `supabase` variable group, or a new group, in
-**Codemagic → Team settings/Project settings → Environment variables**:
+Codemagic never sees `key.properties` (it is gitignored), so the upload keystore is
+**materialised on the runner from an encrypted secret**. This is the single canonical
+mechanism — Codemagic's native `android_signing` integration is deliberately NOT used, so
+there is only ever one signing path to reason about.
+
+Set these in **Codemagic → Environment variables**, group `google_play`, all marked
+**secure**:
 
 | Variable | Value |
 |---|---|
-| `ANDROID_KEYSTORE_PATH` | Path to the keystore file *on the build machine* — see below |
-| `ANDROID_KEYSTORE_PASSWORD` | The keystore password from step 1 |
-| `ANDROID_KEY_ALIAS` | `mali` |
-| `ANDROID_KEY_PASSWORD` | The key password from step 1 |
+| `ANDROID_KEYSTORE_BASE64` | The upload keystore (`.jks`) base64-encoded — `base64 -i upload-keystore.jks \| pbcopy` |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Key alias (e.g. `mali`) |
+| `ANDROID_KEY_PASSWORD` | Key password |
 
-`ANDROID_KEYSTORE_PATH` needs the file to actually exist on the runner. Codemagic supports
-uploading an encrypted file (Project settings → encrypted file, not a plain env var) and
-exposing its runtime path as an environment variable — point `ANDROID_KEYSTORE_PATH` at
-that path. Do not paste the `.jks` file's contents into a plain-text environment variable.
+`ANDROID_KEYSTORE_PATH` is **not** stored anywhere. The `Materialise upload keystore`
+step in `codemagic.yaml` decodes the secret into `$CM_BUILD_DIR/upload-keystore.jks`
+(the ephemeral build workspace — never the repository, never a fixed machine path),
+`chmod 600`s it, exports the path via `$CM_ENV` for Gradle, and a later step shreds it.
+No secret value is ever echoed; only the path is logged.
 
-No `codemagic.yaml` changes are needed for this — Gradle reads the four `ANDROID_KEYSTORE_*`
-environment variables directly (see `app/android/app/build.gradle.kts`), the same way the
-existing `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SENTRY_DSN` variables are already read via
-`--dart-define`. Once these four are set, an Android build workflow can be added to
-`codemagic.yaml` the same way the two iOS workflows already exist — that's a separate,
-deliberate step, not something this change makes for you.
+If any of the four inputs is missing the step **fails immediately** rather than letting the
+build continue — a release signed with the debug key is exactly the failure this design
+exists to prevent.
+
+### Google Play App Signing — which key is which
+
+| Key | Held by | Used for |
+|---|---|---|
+| **App signing key** | **Google Play** (Play App Signing) | Signing what users actually install. Never leaves Google. |
+| **Upload key** | You / CI secret store | Signing the AAB you upload. This is the key materialised above. |
+
+Everything in this document concerns the **upload key**. If the upload key is lost or
+compromised you can request an upload-key reset in Play Console and continue shipping —
+losing the *app signing* key is unrecoverable, which is why Play holds it.
+
+### Key custody and rotation posture
+
+- Store the keystore and its passwords in a real secret manager (and the CI secret store);
+  never in Git, never in a shared doc, never in chat.
+- Keep an offline escrow copy of the upload keystore in at least one place you control.
+- Record who owns the alias and the passwords, so rotation is not blocked on one person.
+- Rotation: generate a new upload key → request an upload-key reset in Play Console →
+  replace `ANDROID_KEYSTORE_BASE64` + credentials in CI. No app update is required for
+  users, because Play re-signs with the unchanged app signing key.
+
+### Certificate fingerprints (needed later, not now)
+
+Google Sign-In / Firebase-style integrations key off SHA-1/SHA-256 certificate
+fingerprints, and Android release Google Sign-In will need them:
+
+- the **upload** certificate fingerprint (from your keystore), and
+- the **Play App Signing** certificate fingerprint (shown in Play Console once the app is
+  enrolled).
+
+Both must be registered for the release build to authenticate. **Do not invent these
+values** — they do not exist until the real keys do.
 
 ## 5. Verify the build and inspect the signed artifact
 
