@@ -15,6 +15,9 @@ Nothing in this document has been executed against production.
 | Validation staging ref | `bdhqjijscwdzqwqanygv` — read-only entitlement/flag verification only |
 | Evidence staging ref | `dpdukyozedajelflkeix` — **ZERO contact in R7** |
 
+> **Operator runbook:** `docs/PRODUCTION_ROLLOUT_OPERATOR_PACKAGE.md` — the executable PROD-1..4 package,
+> prepared with zero production contact. Nothing in it has been run.
+
 > **Scope rule.** R7 answers "is every prerequisite identified and ready?" — it does not deploy,
 > migrate, flip flags, publish, or push. Every item below is either VERIFIED (with evidence),
 > or an explicit prerequisite for an operator.
@@ -179,7 +182,7 @@ Containment for the referral/ads domain is the feature flags (see §9), not a sc
 
 Reconciled from the current source tree (24 function directories + `_shared/`).
 
-### REQUIRED_FOR_RELEASE (15)
+### REQUIRED_FOR_RELEASE (14)
 
 | Function | Why required |
 |---|---|
@@ -633,10 +636,10 @@ Steps 1–9 are deliberately **not** performed by R7.
 | ~~I2~~ | ~~`APS_ENVIRONMENT=production` with a development identity~~ — **CLOSED** (`d5e64aa7`); provisioning now owns the final APS value | **CLOSED** |
 | ~~I3/A3~~ | ~~AdMob test app IDs hardcoded on both platforms, no override path~~ — **CLOSED as a code/config blocker** (`ADMOB_APP_ID_*` plumbing, iOS build-verified, Android static-verified). Production **values** remain **MANUAL_PREREQUISITE** | **CLOSED (config)** |
 | ~~A2~~ | ~~Android release signing has no keystore-materialisation step in CI~~ — **CLOSED (pipeline)**; real upload key + Play enrolment remain MANUAL | **CLOSED (pipeline)** |
-| PROD-1 | All production secrets unset (§5) | **P0 / MANUAL** |
-| PROD-2 | Production migrations 0001–0083 not applied | **P0 / MANUAL** |
-| PROD-3 | Production Edge Functions not deployed; cron not created | **P0 / MANUAL** |
-| PROD-4 | Production Auth providers unconfigured (R6 precedent) | **P0 / MANUAL** |
+| PROD-1 | All production secrets unset (§5) — **OPERATOR_PACKAGE_READY / EXECUTION_NOT_AUTHORIZED** (package §5, §6) | **P0 / MANUAL** |
+| PROD-2 | Production migrations 0001–0083 not applied — **OPERATOR_PACKAGE_READY / EXECUTION_NOT_AUTHORIZED** (package §2, §3) | **P0 / MANUAL** |
+| PROD-3 | Production Edge Functions not deployed; cron not created — **OPERATOR_PACKAGE_READY / EXECUTION_NOT_AUTHORIZED** (package §4, §7) | **P0 / MANUAL** |
+| PROD-4 | Production Auth providers unconfigured (R6 precedent) — **OPERATOR_PACKAGE_READY / EXECUTION_NOT_AUTHORIZED** (package §8) | **P0 / MANUAL** |
 | STORE-1 | App Store Connect record + assets + privacy disclosures | **MANUAL** |
 | STORE-2 | Play Console record, Data Safety, ads declaration, deletion URL | **MANUAL** |
 | ~~I4~~ | ~~`ADMOB_INTERSTITIAL_*` not wired into CI~~ — **CLOSED** (all four inputs wired, names only) | **CLOSED** |
@@ -697,7 +700,10 @@ cannot be entered until these are closed:
    iOS Distribution certificate and an Xcode/ASC account**, neither of which exists on this Mac — a
    MANUAL/CI prerequisite (see §8.1).
 2. **PROD-1..4** — production has no migrations, no Edge Functions, no secrets, no cron, no auth providers
-   (all deliberately untouched by R7).
+   (all deliberately untouched). These are now **OPERATOR_PACKAGE_READY / EXECUTION_NOT_AUTHORIZED**: the
+   exact executable runbook is `docs/PRODUCTION_ROLLOUT_OPERATOR_PACKAGE.md`, built with **zero**
+   production contact. Preparation is not deployment evidence — they stay P0 until an authorized
+   operator actually executes them.
 3. ~~**I3/A3**~~ — **CLOSED** as a code/configuration blocker: both platforms now take their AdMob app id
    from build configuration and fail closed for ads when it is absent. Obtaining and injecting the four
    production values (and Privacy & Messaging) is a **MANUAL_PREREQUISITE**, not a code defect.
