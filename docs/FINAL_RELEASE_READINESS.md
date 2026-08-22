@@ -276,8 +276,8 @@ all engagement webhooks return 403 and silently stop. Verify before relying on g
 |---|---|---|---|
 | ~~I1~~ | ~~Release/Profile pin a development identity while the pipeline requests `distribution_type: app_store`~~ — **CLOSED** in `d5e64aa7`: no identity is pinned for Release any more (automatic signing / CI profiles resolve it); explicit `Apple Development` remains only on the development-signed configs. Verified by a real `flutter build ipa --release`: **ARCHIVE PASS**, conflict error gone. | `d5e64aa7` | **CLOSED** |
 | ~~I2~~ | ~~`APS_ENVIRONMENT = production` on a development-signed Profile config~~ — **CLOSED** in `d5e64aa7`: Profile is now `development` (it is what `flutter run --profile` uses on device), Debug `development`, Release `production`. The entitlement stays variable-driven (`$(APS_ENVIRONMENT)`) so provisioning owns the final value — confirmed in the archive, where automatic signing resolved a development profile and reconciled `aps-environment` to `development`. | `d5e64aa7` | **CLOSED** |
-| I3 | **AdMob app id is Google's TEST id, hardcoded, with no build-config override path.** Any production build ships the test app id. | `Runner/Info.plist:98-99` | **P0 if ads ship** |
-| I4 | **No `ADMOB_INTERSTITIAL_IOS` dart-define in any CI workflow** → release ships a null unit id (fails closed, ads silently disabled). | `codemagic.yaml:74-77,154-157,216-219` | **P1** |
+| ~~I3~~ | ~~AdMob app id hardcoded as Google's TEST id with no override path~~ — **CLOSED (configuration)**: `Info.plist` now reads `$(ADMOB_APP_ID)`; the build setting is the TEST id on Debug/Profile and `$(ADMOB_APP_ID_IOS)` on Release. Proven end-to-end — a fresh build resolves the value through the new mechanism and the tracked plist contains **zero** ad-id literals. Production **values** remain MANUAL. | `f-config` | **CLOSED (config)** |
+| ~~I4~~ | ~~No `ADMOB_INTERSTITIAL_IOS` dart-define in any CI workflow~~ — **CLOSED**: the release workflows now pass all four AdMob inputs (names only, values from the environment) and materialise the native iOS app id via a gitignored `AdMob.xcconfig`. | `codemagic.yaml` | **CLOSED** |
 | ~~I5~~ | ~~`DEVELOPMENT_TEAM` mismatch: project-level `965NY7W824` vs target-level `5TWARK8A23`~~ — **CLOSED** in `d5e64aa7` (unified to `5TWARK8A23` at project level while fixing I1). | `d5e64aa7` | **CLOSED** |
 | I6 | `GoogleService-Info.plist` `REVERSED_CLIENT_ID` does not match the `CFBundleURLSchemes` entry. Sign-In works only because an explicit `clientId` is passed in code. | `Info.plist:41` vs bundled plist | **P2** |
 | I7 | `SKAdNetworkItems` has only 1 entry (Google's own). Minimal attribution coverage if ads are enabled. | `Info.plist:100-106` | **P2** |
@@ -321,7 +321,7 @@ Closing it requires a Play policy decision, not just hardware.
 |---|---|---|
 | A1 | No JDK / SDK / gradlew / keystore locally → no local release build or verification | **ENV** |
 | A2 | Release signing only via Codemagic encrypted-file config; `codemagic.yaml` contains **no keystore-materialization step** | **P0 for Android release** |
-| A3 | AdMob **test** application id hardcoded in `AndroidManifest.xml:72-74`, no release override | **P0 if ads ship** |
+| ~~A3~~ | ~~AdMob test application id hardcoded in `AndroidManifest.xml`~~ — **CLOSED (configuration)**: the manifest now uses the `${admobAppId}` placeholder, resolved by Gradle from `ADMOB_APP_ID_ANDROID` (env or property) for release and the TEST id for debug. Static/config verified; **compile BLOCKED_BY_ENVIRONMENT** (no Android toolchain — A1/A2). | **CLOSED (config)** |
 | A4 | No Android build/compile in any gate — Kotlin has **never been compiled** in this repo's verification history | **P1** |
 | A5 | Automatic SMS capture manifest-disabled + no enable UI + Play declaration required | **P1 / MANUAL** |
 | A6 | `minSdk`/`targetSdk`/`compileSdk`/NDK inherited from the Flutter SDK, not pinned in-repo | **P2** |
@@ -380,8 +380,24 @@ Invariants to preserve (all currently verified in code + physical test):
 - UMP remains the sole ad-consent authority
 - Production IDs are **build/deployment configuration**, never business DB config
 
-**Gap:** the AdMob **app id** has no override mechanism on either platform (I3/A3). Unit ids are
-dart-define driven and fail closed; app ids are hardcoded literals. This must be fixed before ads ship.
+**Configuration plumbing — CLOSED (R7 I3/A3).** All four inputs are now build-time injectable and the
+repository contains no production identifier:
+
+| Input | Reaches Dart via | Reaches native via |
+|---|---|---|
+| `ADMOB_APP_ID_IOS` | dart-define | `ADMOB_APP_ID` build setting → `Info.plist` (CI writes `ios/Flutter/AdMob.xcconfig`, gitignored) |
+| `ADMOB_INTERSTITIAL_IOS` | dart-define | n/a (Dart supplies the unit id to the SDK) |
+| `ADMOB_APP_ID_ANDROID` | dart-define | Gradle `manifestPlaceholders["admobAppId"]` → `AndroidManifest.xml` |
+| `ADMOB_INTERSTITIAL_ANDROID` | dart-define | n/a |
+
+Fail-closed contract: a release with any half missing, malformed (app id vs unit id confusion), or set to
+Google's TEST publisher resolves to **ads unavailable** — no ad request, no crash, and report export still
+completes (fail-open). Debug/profile keep the TEST identifiers, so QA and R6's physical evidence are
+unaffected.
+
+**Still MANUAL — production AdMob values** (deliberately NOT obtained in R7): create the iOS and Android
+AdMob app records, obtain both production App IDs and both report-export Interstitial unit IDs, complete
+Privacy & Messaging, then inject all four at release time.
 
 ---
 
@@ -593,7 +609,7 @@ No new analytics system is required — all of the above already emit.
 |---|---|---|
 | ~~I1~~ | ~~iOS Release/Profile pinned to a development signing identity~~ — **CLOSED** (`d5e64aa7`); release ARCHIVE verified | **CLOSED** |
 | ~~I2~~ | ~~`APS_ENVIRONMENT=production` with a development identity~~ — **CLOSED** (`d5e64aa7`); provisioning now owns the final APS value | **CLOSED** |
-| I3/A3 | AdMob **test app IDs** hardcoded on both platforms, no override path | **P0 (if ads ship)** |
+| ~~I3/A3~~ | ~~AdMob test app IDs hardcoded on both platforms, no override path~~ — **CLOSED as a code/config blocker** (`ADMOB_APP_ID_*` plumbing, iOS build-verified, Android static-verified). Production **values** remain **MANUAL_PREREQUISITE** | **CLOSED (config)** |
 | A2 | Android release signing has no keystore-materialization step in CI | **P0 (Android)** |
 | PROD-1 | All production secrets unset (§5) | **P0 / MANUAL** |
 | PROD-2 | Production migrations 0001–0083 not applied | **P0 / MANUAL** |
@@ -601,7 +617,7 @@ No new analytics system is required — all of the above already emit.
 | PROD-4 | Production Auth providers unconfigured (R6 precedent) | **P0 / MANUAL** |
 | STORE-1 | App Store Connect record + assets + privacy disclosures | **MANUAL** |
 | STORE-2 | Play Console record, Data Safety, ads declaration, deletion URL | **MANUAL** |
-| I4 | `ADMOB_INTERSTITIAL_*` not wired into CI | **P1** |
+| ~~I4~~ | ~~`ADMOB_INTERSTITIAL_*` not wired into CI~~ — **CLOSED** (all four inputs wired, names only) | **CLOSED** |
 | C1 | Codemagic build workflows bypass `ci_gates.sh` (Argon2 flake exposure) | **P1** |
 | A4 | No Android compile in any gate — Kotlin never compiled | **P1** |
 | A5 | Android automatic SMS capture disabled pending Play declaration | **P1 / MANUAL** |
@@ -630,7 +646,7 @@ No new analytics system is required — all of the above already emit.
 | PRODUCTION_CONFIG | **MANUAL_PREREQUISITE** (secrets, migrations, functions, cron all unset) |
 | AUTH | **MANUAL_PREREQUISITE** |
 | APNS | **MANUAL_PREREQUISITE** |
-| ADMOB | **MANUAL_PREREQUISITE** (+ P0 app-id override gap) |
+| ADMOB | **MANUAL_PREREQUISITE** — configuration plumbing CLOSED (I3/A3); what remains is obtaining and injecting the four production values, plus Privacy & Messaging. Report ads stay **flag-off** regardless |
 | UMP | **READY_FLAG_OFF** (physical visual = BLOCKED_BY_ENVIRONMENT) |
 | REFERRALS | **READY_FLAG_OFF** |
 | REPORT_ADS | **READY_FLAG_OFF** |
@@ -660,8 +676,9 @@ cannot be entered until these are closed:
    MANUAL/CI prerequisite (see §8.1).
 2. **PROD-1..4** — production has no migrations, no Edge Functions, no secrets, no cron, no auth providers
    (all deliberately untouched by R7).
-3. **I3/A3** — if `enable_report_ads` is ever enabled, both platforms would ship Google's **test** AdMob
-   app id with no override mechanism.
+3. ~~**I3/A3**~~ — **CLOSED** as a code/configuration blocker: both platforms now take their AdMob app id
+   from build configuration and fail closed for ads when it is absent. Obtaining and injecting the four
+   production values (and Privacy & Messaging) is a **MANUAL_PREREQUISITE**, not a code defect.
 4. **A2** — Android release signing has no keystore materialization anywhere in the pipeline.
 
 **Not blocking a flags-OFF release:** everything classified P1/P2/ENV above, provided
