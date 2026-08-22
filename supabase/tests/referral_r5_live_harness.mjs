@@ -7,6 +7,9 @@
 // service-role key is used ONLY for disposable-user admin, Admin-RPC simulation,
 // fixture setup the mobile path can't reach, independent observation, and cleanup.
 
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
 const URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const ANON = process.env.SUPABASE_ANON_KEY || '';
 const SR = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -14,10 +17,24 @@ const SR = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const APPROVED = 'bdhqjijscwdzqwqanygv';
 const FORBIDDEN = ['vrombzdgwqjjiijbidqb', 'dpdukyozedajelflkeix'];
 
-if (!URL || !ANON || !SR) { console.error('MISSING CREDENTIALS'); process.exit(2); }
-for (const f of FORBIDDEN) if (URL.includes(f)) { console.error(`FORBIDDEN ref ${f}`); process.exit(3); }
-if (!URL.includes(APPROVED)) { console.error(`not approved staging ${APPROVED}`); process.exit(3); }
-console.log(`ref guard: target = ${APPROVED} (approved validation staging) ✓`);
+// Credential gate, using the same idiom as every other live node test here:
+// absent credentials mean SKIP, not FAIL. Previously this file exited(2) when
+// unconfigured, which `node --test` counts as a failing test file and turned the
+// whole node-contract gate red on any machine without staging credentials.
+const live = Boolean(URL && ANON && SR);
+const liveGate = {
+  skip: live
+    ? false
+    : 'requires SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY',
+};
+
+// Ref guards stay HARD — they must abort rather than skip, because pointing this
+// harness at production or evidence staging is a safety failure, not a config gap.
+if (live) {
+  for (const f of FORBIDDEN) if (URL.includes(f)) { console.error(`FORBIDDEN ref ${f}`); process.exit(3); }
+  if (!URL.includes(APPROVED)) { console.error(`not approved staging ${APPROVED}`); process.exit(3); }
+  console.log(`ref guard: target = ${APPROVED} (approved validation staging) ✓`);
+}
 
 const H = (key, jwt) => ({ apikey: key, Authorization: `Bearer ${jwt || key}`, 'Content-Type': 'application/json' });
 async function adminCreateUser(email) {
@@ -201,14 +218,18 @@ async function main() {
   return R;
 }
 
-main()
-  .then(async () => {
+test('R5 referral/entitlement live staging E2E (server-side)', liveGate, async () => {
+  try {
+    await main();
+  } finally {
+    // Cleanup always runs, even if an assertion above failed mid-run, so a bad
+    // run never leaves disposable users or test rules behind on staging.
     let cleanupOk = true;
     for (const id of created) { try { await rpcService('purge_user_data', { p_user_id: id }); } catch { /**/ } try { await adminDeleteUser(id); } catch { cleanupOk = false; } }
     await fetch(`${URL}/rest/v1/referral_reward_rules?reward_type=eq.${rewardType}`, { method: 'DELETE', headers: { ...H(SR), Prefer: 'return=minimal' } }).catch(() => {});
     rec('§36 cleanup: disposable users purged + deleted, test rules removed', cleanupOk, `users=${created.length}`);
-    const pass = R.filter((x) => x.pass).length, fail = R.length - pass;
-    console.log(`\n=== R5 SERVER E2E: ${pass}/${R.length} PASS, ${fail} FAIL ===`);
-    process.exit(fail === 0 ? 0 : 1);
-  })
-  .catch((e) => { console.error('HARNESS ERROR:', e.message); process.exit(1); });
+  }
+  const pass = R.filter((x) => x.pass).length, fail = R.length - pass;
+  console.log(`\n=== R5 SERVER E2E: ${pass}/${R.length} PASS, ${fail} FAIL ===`);
+  assert.equal(fail, 0, `${fail} R5 server-E2E check(s) failed`);
+});

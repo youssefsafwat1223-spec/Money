@@ -666,8 +666,11 @@ test('R1 changes no report generation code', () => {
   for (const forbidden of ['entitlement', 'AdGate', 'interstitial', 'referral']) {
     assert.doesNotMatch(controller, new RegExp(forbidden, 'i'), forbidden);
   }
-  const sheet = read('app/lib/features/reporting/ui/report_config_sheet.dart');
-  assert.doesNotMatch(sheet, /entitlement|interstitial|adGate/i);
+  // Renamed sheet -> page when the report configuration step became a
+  // full-screen route; the invariant is unchanged — the report configuration
+  // UI must carry no entitlement/ad logic.
+  const configUi = read('app/lib/features/reporting/ui/report_config_page.dart');
+  assert.doesNotMatch(configUi, /entitlement|interstitial|adGate/i);
 });
 
 test('google_mobile_ads is pinned to exactly 9.0.0 (R4 report-export ads)', () => {

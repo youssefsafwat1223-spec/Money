@@ -85,7 +85,33 @@ test('the adapter commits via the server-atomic RPC + maps typed errors', () => 
 test('the UI derives Protected from the typed state, not a boolean', () => {
   const controller = read('app/lib/core/backup/remote_backup_controller.dart');
   assert.match(controller, /RemoteBackupState\.enabledIdle/); // Protected == committed
-  assert.match(controller, /if \(_busy\) return null/); // operation coordinator
+
+  // MALI-076n §14 — the single-flight operation coordinator, asserted by
+  // SEMANTICS rather than by source formatting. The previous assertion pinned
+  // the exact one-line spelling `if (_busy) return null`, so a purely cosmetic
+  // reformat to braces broke the gate while the guard was unchanged. These
+  // regexes tolerate braces and line breaks and instead pin the three
+  // properties that actually make duplicate generations impossible.
+
+  // Scoped to the _run coordinator itself — checking the whole file would be
+  // vacuous, because refresh() carries its own earlier `if (_busy)` guard.
+  const run = controller.match(/Future<T\?> _run<T>[\s\S]*?\n  \}/);
+  assert.ok(run, 'the _run operation coordinator must exist');
+  const body = run[0];
+
+  // 1. A busy guard exists and returns null (does not start a second operation).
+  assert.match(body, /if\s*\(\s*_busy\s*\)\s*\{?\s*return\s+null\s*;/);
+
+  // 2. The guard runs BEFORE the flag is latched, so a concurrent caller is
+  //    rejected rather than racing into the operation.
+  const guardAt = body.search(/if\s*\(\s*_busy\s*\)/);
+  const latchAt = body.search(/_busy\s*=\s*true\s*;/);
+  assert.ok(guardAt !== -1 && latchAt !== -1, 'busy guard and latch must exist');
+  assert.ok(guardAt < latchAt, 'the busy guard must precede `_busy = true`');
+
+  // 3. The flag is always released in a finally, so one failed operation can
+  //    never wedge the coordinator shut.
+  assert.match(body, /finally\s*\{[\s\S]*?_busy\s*=\s*false\s*;/);
   const screen = read('app/lib/features/backup/backup_screen.dart');
   assert.match(screen, /remoteBackupStateLabel\(state\)/);
   assert.match(screen, /state\.isProtected/);
