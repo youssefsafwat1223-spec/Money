@@ -37,36 +37,42 @@ Nothing in this document has been executed against production.
 
 ---
 
-### 1.1 Canonical gate result (`tools/ci_gates.sh`, run twice at this HEAD)
+### 1.1 Canonical gate result (`tools/ci_gates.sh`, current)
 
 ```
-mandatory gates passed : 11
-mandatory gates failed : 1
+mandatory gates passed : 12
+mandatory gates failed : 0
 tools unavailable      : 1
-node tests skipped     : 68  (credentials absent — manifest-matched)
+node tests skipped     : 69  (credentials absent — manifest-matched)
 deno tests ignored     : 2   (live-Postgres — manifest-matched)
 skip/ignore manifest   : satisfied
+ALL RUN GATES PASSED (1 unavailable — see notes)
 ```
 
-**FAILED — `node contract`** (`supabase/tests/remote_backup_contract_test.mjs:88`)
+Node contract surface: **243 tests · 174 pass · 0 fail · 69 skipped**.
 
-| | |
-|---|---|
-| Assertion | `assert.match(controller, /if \(_busy\) return null/)` |
-| Actual source | `if (_busy) {` / `return null;` / `}` — braced across 3 lines |
-| Introduced by | `900012a6 refactor(ui): unify avatars and iconography` (arrived via the `feat/ui-parallel` merge `be7fd84d`) |
-| Behavioural impact | **NONE** — the single-flight operation coordinator in `RemoteBackupController._run` is semantically identical; only formatting changed |
-| Classification | **P1 — stale source-format assertion, not a product regression** |
+**UNAVAILABLE — `iOS packaging inventory`** (the only unavailable item): the built `Runner.app` has no
+provenance sidecar (`tools/stamp_ios_provenance.sh`), so the stage reports UNAVAILABLE rather than
+passing. This is the designed behaviour for an unstamped artifact. **It is NOT a pass** — closing it
+requires a fresh build plus a provenance stamp, or external evidence.
 
-This was latent since the UI merge: `flutter analyze` + the full Flutter suite were run after that merge, but the
-node contract stage was not, so R7 is what surfaced it.
+#### GATE-1 — **CLOSED** (commit `6667dcc7`, test-side only)
 
-**Recommended fix (test-only, not production code):** relax the assertion to be format-insensitive, e.g.
-`/if \(_busy\)\s*\{?\s*return null/`. Do **not** reformat production code to satisfy a brittle regex.
+R7 originally found this stage failing. It turned out to be **three** stale test-side items in the same
+stage — fixing the first exposed the next. No production code was changed to satisfy any of them.
 
-**UNAVAILABLE — `iOS packaging inventory`**: the built `Runner.app` has no provenance sidecar
-(`tools/stamp_ios_provenance.sh`), so the stage reports UNAVAILABLE rather than passing. This is the
-designed behaviour for an unstamped artifact, not a failure.
+| # | Item | Resolution |
+|---|---|---|
+| 1 | `remote_backup_contract_test.mjs:88` pinned the exact one-line spelling `if (_busy) return null`; the UI merge (`900012a6`, via `be7fd84d`) reformatted the same guard to braces | Assertion rewritten to check the **semantic** invariant, scoped to the `_run` coordinator: a busy guard returning null, ordered **before** `_busy = true`, and a `finally` that always releases the flag. Verified it still fails if the guard is removed, if the race is reintroduced, or if the flag is never released — and accepts either formatting. Scoping was required: a whole-file check was vacuous because `refresh()` carries its own earlier `if (_busy)`. |
+| 2 | `referral_rewards_contract_test.mjs:669` read `report_config_sheet.dart`, renamed to `report_config_page.dart` when the report configuration step became a full-screen route | Path updated. The invariant (report-configuration UI carries no entitlement/ad logic) is unchanged and still verified. |
+| 3 | `referral_r5_live_harness.mjs` called `process.exit(2)` when staging credentials were absent — which `node --test` counts as a failing test file, so the stage was red on any machine without credentials | Converted to the same credential-gate idiom as every other live test here (**skip, not fail**), with cleanup moved into a `finally`. The ref guards stay **HARD** and still abort: aiming the harness at production or evidence staging is a safety failure, not a config gap. |
+
+**Behavioural impact of GATE-1 in all three cases: NONE.** These were stale assertions and a mis-shaped
+credential gate, never product regressions.
+
+> **Scope note.** A green canonical gate means the code and contract surfaces verify locally. It does
+> **not** mean the product is releasable — release readiness remains **BLOCKED** by the production,
+> signing, Android and configuration prerequisites in §21/§23, none of which are affected by GATE-1.
 
 ---
 
@@ -606,7 +612,7 @@ No new analytics system is required — all of the above already emit.
 | A6 | Android SDK levels not pinned in-repo | **P2** |
 | ENV-1 | Android toolchain/device absent locally | **ENV** |
 | ENV-2 | Physical UMP visual rendering unobtainable on iOS 26.5 | **ENV** |
-| GATE-1 | `node contract` stage fails on a stale source-format assertion (`remote_backup_contract_test.mjs:88`) — no behavioural regression | **P1** |
+| ~~GATE-1~~ | ~~`node contract` stage fails on stale test-side assertions~~ — **CLOSED** in `6667dcc7` (test-only); canonical gate now 12/0/1 | **CLOSED** |
 | DOC-1 | Stale docs contradicting code (Android capture, iOS shortcuts, CLAUDE.md, old checklists) | **P2** |
 
 ---
@@ -629,7 +635,7 @@ No new analytics system is required — all of the above already emit.
 | REPORT_ADS | **READY_FLAG_OFF** |
 | CAPTURE | iOS **READY** · Android share **READY_FLAG_OFF** · Android SMS **BLOCKED** (policy + env) |
 | BACKUP | **READY** |
-| CI | **BLOCKED** — canonical gate 11 passed / **1 failed** (GATE-1, stale assertion) / 1 unavailable; build workflows also bypass the gate |
+| CI | **READY_FLAG_OFF** — canonical gate **12 passed / 0 failed / 1 unavailable** (iOS packaging provenance only, not a pass). Residual, non-blocking for a flags-OFF release: Codemagic build workflows still bypass the gate (C1) and no Android compile exists in any gate (A4) |
 | APP_STORE | **MANUAL_PREREQUISITE** |
 | PLAY_STORE | **MANUAL_PREREQUISITE** |
 | OBSERVABILITY | **READY** |
@@ -641,8 +647,10 @@ No new analytics system is required — all of the above already emit.
 
 **R7 FINAL RELEASE READINESS — BLOCKED**
 
-The codebase is release-quality and safe to ship dark (all flags OFF), but production cannot be entered
-until these are closed:
+Local verification is green — the canonical gate is **12 passed / 0 failed / 1 unavailable** (§1.1) and
+GATE-1 is closed. That verdict covers code and contract surfaces only; **it does not move this
+classification**. The codebase is release-quality and safe to ship dark (all flags OFF), but production
+cannot be entered until these are closed:
 
 **P0 — cannot ship**
 1. **I1 + I2** — iOS Release/Profile signing identity and APS environment are mutually inconsistent; no
