@@ -147,14 +147,39 @@ workflows:
             exit 1
           fi
 
+      - name: Materialise AdMob release config (native)
+        working_directory: app
+        script: |
+          # The iOS App ID must reach Info.plist via a build setting; dart-define
+          # alone cannot. Release.xcconfig has an optional `#include? AdMob.xcconfig`,
+          # so writing this file supplies ADMOB_APP_ID_IOS to the native build.
+          # The file is gitignored and is never committed. If the variable is
+          # unset we write nothing: the build then ships with an empty app id and
+          # Dart holds ads closed.
+          if [ -n "${ADMOB_APP_ID_IOS:-}" ]; then
+            printf 'ADMOB_APP_ID_IOS=%s\n' "$ADMOB_APP_ID_IOS" > ios/Flutter/AdMob.xcconfig
+            echo "AdMob iOS app id supplied to the native build (value not printed)."
+          else
+            rm -f ios/Flutter/AdMob.xcconfig
+            echo "No ADMOB_APP_ID_IOS provided — building with ads unconfigured (fail closed)."
+          fi
+
       - name: Build signed IPA
         working_directory: app
         script: |
+          # AdMob (R7 I3): release inputs are environment-provided, never
+          # committed. The App ID must reach BOTH Dart (which decides ad
+          # eligibility) and the native Info.plist (which the SDK reads) — the
+          # latter via the AdMob.xcconfig step above. Absent values are legal:
+          # the build then has NO ad configuration and report export simply
+          # runs without ads.
           flutter build ipa --release \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
             --dart-define=SUPABASE_ENV=production \
             --dart-define=SENTRY_DSN="${SENTRY_DSN:-}" \
+            --dart-define=ADMOB_APP_ID_IOS="${ADMOB_APP_ID_IOS:-}" \
+            --dart-define=ADMOB_INTERSTITIAL_IOS="${ADMOB_INTERSTITIAL_IOS:-}" \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - app/build/ios/ipa/*.ipa
@@ -212,11 +237,16 @@ workflows:
       - name: Build release App Bundle
         working_directory: app
         script: |
+          # AdMob (R7 A3): ADMOB_APP_ID_ANDROID is read from the environment by
+          # Gradle for the manifest placeholder, and passed to Dart as well so
+          # the eligibility gate agrees with the manifest. Absent ⇒ no ads.
           flutter build appbundle --release \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
             --dart-define=SUPABASE_ENV=production \
-            --dart-define=SENTRY_DSN="${SENTRY_DSN:-}"
+            --dart-define=SENTRY_DSN="${SENTRY_DSN:-}" \
+            --dart-define=ADMOB_APP_ID_ANDROID="${ADMOB_APP_ID_ANDROID:-}" \
+            --dart-define=ADMOB_INTERSTITIAL_ANDROID="${ADMOB_INTERSTITIAL_ANDROID:-}"
     artifacts:
       - app/build/**/outputs/bundle/**/*.aab
       - app/build/**/outputs/**/mapping.txt

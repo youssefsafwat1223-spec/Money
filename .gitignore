@@ -59,3 +59,6 @@ files (1)/
 files (1).zip
 node_modules/
 admin/node_modules/
+
+# R7 I3 — CI-generated AdMob release config (never committed)
+app/ios/Flutter/AdMob.xcconfig

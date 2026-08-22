@@ -1,48 +1,124 @@
 import 'package:flutter/foundation.dart';
 
-/// Build-time AdMob configuration for the report-export interstitial (R4).
+/// Build-time AdMob configuration for the report-export interstitial (R4/R7).
 ///
-/// Ad-unit IDs are DEPLOYMENT/BUILD configuration, never Admin-editable DB rows
-/// and never business data (docs REFERRAL_ADS_ADMIN_SYSTEM.md §3). During
-/// development only Google's public TEST unit is used; production IDs arrive
-/// exclusively through `--dart-define` and are absent by default, so a release
-/// build with no production config **fails closed** (no ad → export proceeds).
+/// AdMob identifiers are DEPLOYMENT/BUILD configuration — never Admin-editable
+/// DB rows, never business data, never a remote feature-config value (docs
+/// REFERRAL_ADS_ADMIN_SYSTEM.md §3). There are exactly four release inputs, all
+/// supplied at build time:
+///
+///   ADMOB_APP_ID_IOS          ADMOB_INTERSTITIAL_IOS
+///   ADMOB_APP_ID_ANDROID      ADMOB_INTERSTITIAL_ANDROID
+///
+/// The App IDs additionally have to reach the native layer (iOS `Info.plist`
+/// `GADApplicationIdentifier`, Android manifest `…ads.APPLICATION_ID`), so a
+/// release build must supply each App ID to BOTH the native build setting and
+/// the matching dart-define. Dart owns the *eligibility* decision; the native
+/// value is what the SDK reads. See docs/FINAL_RELEASE_READINESS.md.
+///
+/// Safety model:
+///  * DEBUG / PROFILE — Google's official TEST identifiers, always. Development
+///    and QA never touch a production unit, and R6's physical verification runs
+///    entirely on these.
+///  * RELEASE — production identifiers must be supplied explicitly and must be
+///    well-formed. Anything missing or malformed ⇒ **ads unavailable**, which
+///    the coordinator treats as "no ad → the report still generates"
+///    (fail-open). A shipping release NEVER silently falls back to the TEST
+///    identifiers.
 class ReportAdsBuildConfig {
   ReportAdsBuildConfig._();
 
-  // Google's official sample/TEST interstitial unit IDs. Safe to hardcode — they
-  // are Google's documented test units and never serve a real (billable) ad.
-  static const String testInterstitialIos =
-      'ca-app-pub-3940256099942544/4411468910';
-  static const String testInterstitialAndroid =
-      'ca-app-pub-3940256099942544/1033173712';
+  /// Google's public TEST publisher. Every identifier below that begins with
+  /// this prefix is a documented Google sample value and can never serve a real
+  /// (billable) ad — which is why they are safe to hardcode.
+  static const String googleTestPublisher = 'ca-app-pub-3940256099942544';
 
-  // Production interstitial unit IDs — supplied ONLY at build time. Never a
-  // literal in source, never a DB row. Empty when not provided (fail closed).
+  // Google's official sample/TEST identifiers.
+  static const String testAppIdIos = '$googleTestPublisher~1458002511';
+  static const String testAppIdAndroid = '$googleTestPublisher~3347511713';
+  static const String testInterstitialIos = '$googleTestPublisher/4411468910';
+  static const String testInterstitialAndroid =
+      '$googleTestPublisher/1033173712';
+
+  // Production identifiers — supplied ONLY at build time, absent by default.
+  static const String _prodAppIdIos = String.fromEnvironment('ADMOB_APP_ID_IOS');
+  static const String _prodAppIdAndroid =
+      String.fromEnvironment('ADMOB_APP_ID_ANDROID');
   static const String _prodInterstitialIos =
       String.fromEnvironment('ADMOB_INTERSTITIAL_IOS');
   static const String _prodInterstitialAndroid =
       String.fromEnvironment('ADMOB_INTERSTITIAL_ANDROID');
 
-  /// The interstitial ad-unit id for [platform], or null when unavailable.
-  ///
-  /// Debug/profile builds always use the TEST unit. Release builds use the
-  /// dart-defined production unit, or null if it is absent — the caller treats
-  /// null as "no ad configuration" and skips the ad entirely.
-  static String? interstitialUnitId(TargetPlatform platform) {
-    final isIos = platform == TargetPlatform.iOS;
-    if (kDebugMode || kProfileMode) {
-      return isIos ? testInterstitialIos : testInterstitialAndroid;
-    }
-    final prod = isIos ? _prodInterstitialIos : _prodInterstitialAndroid;
-    return prod.isEmpty ? null : prod;
+  // Shape validation (§15). App IDs use `~`, ad units use `/` — mixing the two
+  // up is the classic AdMob misconfiguration, and it must degrade to "no ads"
+  // rather than reach the SDK.
+  static final RegExp _appIdShape = RegExp(r'^ca-app-pub-\d{10,22}~\d{6,12}$');
+  static final RegExp _unitIdShape = RegExp(r'^ca-app-pub-\d{10,22}/\d{6,12}$');
+
+  /// Whether [value] is a well-formed AdMob **application** id (`…~…`).
+  static bool isValidAppId(String value) => _appIdShape.hasMatch(value);
+
+  /// Whether [value] is a well-formed AdMob **ad unit** id (`…/…`).
+  static bool isValidUnitId(String value) => _unitIdShape.hasMatch(value);
+
+  /// Pure resolution, exposed so release semantics are testable without
+  /// producing a release build. Returns null when the value is absent or
+  /// malformed — the caller treats null as "not configured".
+  @visibleForTesting
+  static String? resolve({
+    required bool isTestBuild,
+    required String testValue,
+    required String prodValue,
+    required bool Function(String) isValid,
+  }) {
+    if (isTestBuild) return testValue;
+    final trimmed = prodValue.trim();
+    if (trimmed.isEmpty || !isValid(trimmed)) return null;
+    // A shipping release must never resolve to Google's TEST publisher: that
+    // would mean a production artifact quietly running on sample identifiers.
+    if (trimmed.startsWith(googleTestPublisher)) return null;
+    return trimmed;
   }
 
-  /// Whether a usable interstitial unit id exists for [platform] in this build.
-  static bool isConfiguredFor(TargetPlatform platform) =>
-      interstitialUnitId(platform) != null;
+  /// The AdMob **application** id for [platform], or null when unavailable.
+  static String? appId(TargetPlatform platform) {
+    final isIos = platform == TargetPlatform.iOS;
+    return resolve(
+      isTestBuild: isTestMode,
+      testValue: isIos ? testAppIdIos : testAppIdAndroid,
+      prodValue: isIos ? _prodAppIdIos : _prodAppIdAndroid,
+      isValid: isValidAppId,
+    );
+  }
 
-  /// True in dev builds where the TEST unit is in force. Surfaced so callers /
-  /// tests can assert that development never touches a production unit.
+  /// The interstitial **ad unit** id for [platform], or null when unavailable.
+  static String? interstitialUnitId(TargetPlatform platform) {
+    final isIos = platform == TargetPlatform.iOS;
+    return resolve(
+      isTestBuild: isTestMode,
+      testValue: isIos ? testInterstitialIos : testInterstitialAndroid,
+      prodValue: isIos ? _prodInterstitialIos : _prodInterstitialAndroid,
+      isValid: isValidUnitId,
+    );
+  }
+
+  /// Whether this build has a COMPLETE, usable AdMob configuration for
+  /// [platform]. Both halves are required: an ad unit without a matching
+  /// application id would have the SDK initialise against whatever the native
+  /// layer happens to carry (in a release with no injected value, the placeholder
+  /// fallback), which is exactly the silent test-identifier shipping this guards
+  /// against. Incomplete ⇒ no ad opportunity ⇒ the report still generates.
+  static bool isConfiguredFor(TargetPlatform platform) =>
+      appId(platform) != null && interstitialUnitId(platform) != null;
+
+  /// True in dev/QA builds where the TEST identifiers are in force. Surfaced so
+  /// callers and tests can assert that development never touches production.
   static bool get isTestMode => kDebugMode || kProfileMode;
+
+  /// True when this build carries a genuine production AdMob configuration
+  /// (used by the release guard and by diagnostics; never by ad logic).
+  static bool get isProductionConfigured =>
+      !isTestMode &&
+      (appId(TargetPlatform.iOS) != null ||
+          appId(TargetPlatform.android) != null);
 }

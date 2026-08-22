@@ -24,6 +24,26 @@ fun releaseSigningValue(envName: String, propertyName: String): String? {
     return keystoreProperties.getProperty(propertyName)
 }
 
+// AdMob application id (R7 I3/A3). Build/deployment configuration, never a
+// committed literal and never a DB row. Release takes it from the environment
+// (or a Gradle property); debug always uses Google's public TEST id.
+//
+// If a release build supplies nothing, the placeholder keeps the TEST id so the
+// manifest stays valid and the app still runs — but the Dart layer
+// (ReportAdsBuildConfig) then reports "not configured", so NO ad is ever
+// requested. That is the fail-closed-for-ads contract: no ads, no crash, and
+// never a production build quietly serving on Google's sample identifiers.
+val admobTestAppIdAndroid = "ca-app-pub-3940256099942544~3347511713"
+
+fun admobAppIdFor(isRelease: Boolean): String {
+    if (!isRelease) return admobTestAppIdAndroid
+    val fromEnv = System.getenv("ADMOB_APP_ID_ANDROID")
+    if (!fromEnv.isNullOrBlank()) return fromEnv
+    val fromProperty = project.findProperty("ADMOB_APP_ID_ANDROID") as String?
+    if (!fromProperty.isNullOrBlank()) return fromProperty
+    return admobTestAppIdAndroid
+}
+
 val releaseStoreFilePath = releaseSigningValue("ANDROID_KEYSTORE_PATH", "storeFile")
 val releaseStorePassword = releaseSigningValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
 val releaseKeyAlias = releaseSigningValue("ANDROID_KEY_ALIAS", "keyAlias")
@@ -52,6 +72,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Default (debug and any non-release variant): Google's TEST app id.
+        manifestPlaceholders["admobAppId"] = admobAppIdFor(isRelease = false)
     }
 
     signingConfigs {
@@ -75,6 +97,10 @@ android {
             if (hasReleaseSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // Release resolves ADMOB_APP_ID_ANDROID from env/property; falling
+            // back to the TEST id keeps the manifest valid while Dart holds ads
+            // closed (see admobAppIdFor above).
+            manifestPlaceholders["admobAppId"] = admobAppIdFor(isRelease = true)
         }
     }
 }

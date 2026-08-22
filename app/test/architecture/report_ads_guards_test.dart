@@ -97,4 +97,76 @@ void main() {
       expect(src.contains('report_generation'), isFalse);
     }
   });
+
+  // ── R7 I3/A3 — AdMob release configuration plumbing ──────────────────────
+  //
+  // The repository and QA builds are ALLOWED to carry Google's TEST identifiers.
+  // What must be impossible is a SHIPPING build resolving them implicitly, so
+  // these guards pin the plumbing rather than banning the test publisher.
+
+  test('iOS GADApplicationIdentifier is build-configured, not a literal', () {
+    final plist = File('ios/Runner/Info.plist').readAsStringSync();
+    final idx = plist.indexOf('GADApplicationIdentifier');
+    expect(idx, greaterThan(-1), reason: 'the AdMob app id key must exist');
+    final after = plist.substring(idx, idx + 200);
+    expect(after, contains(r'$(ADMOB_APP_ID)'),
+        reason: 'the app id must come from the build setting');
+    expect(after, isNot(contains('ca-app-pub-')),
+        reason: 'no hardcoded AdMob app id may ship in Info.plist');
+  });
+
+  test('iOS ADMOB_APP_ID is test-only on dev configs and injected on Release',
+      () {
+    final pbx = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+    // Release must defer to the injected variable...
+    expect(pbx, contains(r'ADMOB_APP_ID = "$(ADMOB_APP_ID_IOS)"'),
+        reason: 'Release must take the app id from the release pipeline');
+    // ...and the only literal present must be Google's TEST app id.
+    final literals = RegExp(r'ADMOB_APP_ID = "(ca-app-pub-[^"]+)"')
+        .allMatches(pbx)
+        .map((m) => m.group(1)!)
+        .toSet();
+    for (final v in literals) {
+      expect(v, startsWith('ca-app-pub-3940256099942544'),
+          reason: 'only Google TEST app ids may be committed');
+    }
+  });
+
+  test('Android APPLICATION_ID is a manifest placeholder, not a literal', () {
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    final idx = manifest.indexOf('com.google.android.gms.ads.APPLICATION_ID');
+    expect(idx, greaterThan(-1));
+    final after = manifest.substring(idx, idx + 200);
+    expect(after, contains(r'${admobAppId}'),
+        reason: 'the app id must come from the Gradle placeholder');
+    expect(after, isNot(contains('ca-app-pub-')),
+        reason: 'no hardcoded AdMob app id may ship in the manifest');
+  });
+
+  test('Gradle resolves the release app id from env/property', () {
+    final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+    expect(gradle, contains('ADMOB_APP_ID_ANDROID'));
+    expect(gradle, contains('manifestPlaceholders["admobAppId"]'));
+  });
+
+  test('the four canonical config names are the only ones used', () {
+    final cfg =
+        File('lib/features/report_ads/report_ads_build_config.dart')
+            .readAsStringSync();
+    for (final name in const [
+      'ADMOB_APP_ID_IOS',
+      'ADMOB_APP_ID_ANDROID',
+      'ADMOB_INTERSTITIAL_IOS',
+      'ADMOB_INTERSTITIAL_ANDROID',
+    ]) {
+      expect(cfg, contains("String.fromEnvironment('$name')"), reason: name);
+    }
+    // No alias/duplicate configuration system crept in.
+    final names = RegExp(r"String\.fromEnvironment\('(ADMOB_[A-Z_]+)'\)")
+        .allMatches(cfg)
+        .map((m) => m.group(1)!)
+        .toSet();
+    expect(names.length, 4, reason: 'exactly four AdMob inputs: $names');
+  });
 }
