@@ -7,9 +7,10 @@ Nothing in this document has been executed against production.
 |---|---|
 | Prepared at | 2026-08-22 |
 | Branch | `feat/phase1-data-integrity` |
-| HEAD | `12048943` |
+| Source baseline audited | `12048943` |
+| HEAD (after R7 closures) | `d5e64aa7` — `6667dcc7` GATE-1 test fixes · `e1662e2b` gate record · `d5e64aa7` iOS signing (I1/I2) |
 | Working tree | clean |
-| Local commits ahead of upstream | 321 (**NOT PUSHED**) |
+| Local commits ahead of upstream | 324 (**NOT PUSHED**) |
 | Production project ref | `vrombzdgwqjjiijbidqb` — **ZERO contact in R7** |
 | Validation staging ref | `bdhqjijscwdzqwqanygv` — read-only entitlement/flag verification only |
 | Evidence staging ref | `dpdukyozedajelflkeix` — **ZERO contact in R7** |
@@ -273,11 +274,11 @@ all engagement webhooks return 403 and silently stop. Verify before relying on g
 
 | # | Blocker | Evidence | Severity |
 |---|---|---|---|
-| I1 | **Release/Profile configs pin `CODE_SIGN_IDENTITY = "Apple Development"`** while the pipeline requests `distribution_type: app_store`. A development identity cannot produce a distribution archive. | `project.pbxproj:854, :626` | **P0** |
-| I2 | **`APS_ENVIRONMENT = production` on Release/Profile combined with the development identity above.** A development profile only grants `aps-environment: development` → provisioning failure. | `project.pbxproj:850, :622` | **P0** |
+| ~~I1~~ | ~~Release/Profile pin a development identity while the pipeline requests `distribution_type: app_store`~~ — **CLOSED** in `d5e64aa7`: no identity is pinned for Release any more (automatic signing / CI profiles resolve it); explicit `Apple Development` remains only on the development-signed configs. Verified by a real `flutter build ipa --release`: **ARCHIVE PASS**, conflict error gone. | `d5e64aa7` | **CLOSED** |
+| ~~I2~~ | ~~`APS_ENVIRONMENT = production` on a development-signed Profile config~~ — **CLOSED** in `d5e64aa7`: Profile is now `development` (it is what `flutter run --profile` uses on device), Debug `development`, Release `production`. The entitlement stays variable-driven (`$(APS_ENVIRONMENT)`) so provisioning owns the final value — confirmed in the archive, where automatic signing resolved a development profile and reconciled `aps-environment` to `development`. | `d5e64aa7` | **CLOSED** |
 | I3 | **AdMob app id is Google's TEST id, hardcoded, with no build-config override path.** Any production build ships the test app id. | `Runner/Info.plist:98-99` | **P0 if ads ship** |
 | I4 | **No `ADMOB_INTERSTITIAL_IOS` dart-define in any CI workflow** → release ships a null unit id (fails closed, ads silently disabled). | `codemagic.yaml:74-77,154-157,216-219` | **P1** |
-| I5 | `DEVELOPMENT_TEAM` mismatch: project-level `965NY7W824` vs target-level `5TWARK8A23`. Targets win today, but any new target inherits the wrong team. | `project.pbxproj:734/794/596` vs targets | **P2** |
+| ~~I5~~ | ~~`DEVELOPMENT_TEAM` mismatch: project-level `965NY7W824` vs target-level `5TWARK8A23`~~ — **CLOSED** in `d5e64aa7` (unified to `5TWARK8A23` at project level while fixing I1). | `d5e64aa7` | **CLOSED** |
 | I6 | `GoogleService-Info.plist` `REVERSED_CLIENT_ID` does not match the `CFBundleURLSchemes` entry. Sign-In works only because an explicit `clientId` is passed in code. | `Info.plist:41` vs bundled plist | **P2** |
 | I7 | `SKAdNetworkItems` has only 1 entry (Google's own). Minimal attribution coverage if ads are enabled. | `Info.plist:100-106` | **P2** |
 | I8 | `Podfile` `platform :ios, '14.0'` vs project deployment target 16.0. | `Podfile:1` | **P2** |
@@ -579,7 +580,7 @@ No new analytics system is required — all of the above already emit.
 5. Deploy the 15 REQUIRED Edge Functions (§3); decide on the OPTIONAL set; skip OBSOLETE
 6. Create the 3 required cron jobs; drop or ignore the retired reminders job (§4)
 7. Configure Auth providers, including **skip nonce checks** for Google (§11)
-8. Fix iOS signing blockers I1/I2, then produce a distribution archive
+8. ~~Fix iOS signing blockers I1/I2~~ (done, `d5e64aa7`) — obtain an iOS **Distribution** certificate + App Store profiles, then produce and export a distribution archive (CI or a Mac signed into the paid team)
 9. Complete App Store / Play prerequisites (§8)
 10. Ship the app with **all flags OFF**; run production smoke
 11. Only then: AdMob production IDs (§9) + UMP messaging (§10), then staged flag activation (§12)
@@ -590,8 +591,8 @@ No new analytics system is required — all of the above already emit.
 
 | ID | Blocker | Severity |
 |---|---|---|
-| I1 | iOS Release/Profile pinned to a **development** signing identity | **P0** |
-| I2 | `APS_ENVIRONMENT=production` with a development identity → provisioning failure | **P0** |
+| ~~I1~~ | ~~iOS Release/Profile pinned to a development signing identity~~ — **CLOSED** (`d5e64aa7`); release ARCHIVE verified | **CLOSED** |
+| ~~I2~~ | ~~`APS_ENVIRONMENT=production` with a development identity~~ — **CLOSED** (`d5e64aa7`); provisioning now owns the final APS value | **CLOSED** |
 | I3/A3 | AdMob **test app IDs** hardcoded on both platforms, no override path | **P0 (if ads ship)** |
 | A2 | Android release signing has no keystore-materialization step in CI | **P0 (Android)** |
 | PROD-1 | All production secrets unset (§5) | **P0 / MANUAL** |
@@ -622,7 +623,7 @@ No new analytics system is required — all of the above already emit.
 | Domain | Status |
 |---|---|
 | CODE | **READY_FLAG_OFF** |
-| IOS | **BLOCKED** (I1/I2 signing; test AdMob app id) |
+| IOS | **MANUAL_PREREQUISITE** — signing model fixed (I1/I2 CLOSED, `d5e64aa7`): BUILD PASS, ARCHIVE PASS. **EXPORT BLOCKED locally** — no `iOS Distribution` certificate and no Xcode account on this Mac, so App Store export/upload remains a manual/CI step. Test AdMob app id (I3) still open and tracked separately |
 | ANDROID | **BLOCKED_BY_ENVIRONMENT** (+ P0 signing pipeline gap) |
 | SERVER | **READY_FLAG_OFF** (0083 verified on staging; not applied to production) |
 | STAGING | **READY** |
@@ -653,8 +654,10 @@ classification**. The codebase is release-quality and safe to ship dark (all fla
 cannot be entered until these are closed:
 
 **P0 — cannot ship**
-1. **I1 + I2** — iOS Release/Profile signing identity and APS environment are mutually inconsistent; no
-   distribution archive can be produced as configured.
+1. ~~**I1 + I2**~~ — **CLOSED** (`d5e64aa7`). The signing model is now distribution-capable and a real
+   release ARCHIVE succeeds locally. What remains is not a code defect: **App Store EXPORT requires an
+   iOS Distribution certificate and an Xcode/ASC account**, neither of which exists on this Mac — a
+   MANUAL/CI prerequisite (see §8.1).
 2. **PROD-1..4** — production has no migrations, no Edge Functions, no secrets, no cron, no auth providers
    (all deliberately untouched by R7).
 3. **I3/A3** — if `enable_report_ads` is ever enabled, both platforms would ship Google's **test** AdMob
