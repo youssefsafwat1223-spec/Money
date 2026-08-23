@@ -18,6 +18,10 @@ Nothing in this document has been executed against production.
 > **Operator runbook:** `docs/PRODUCTION_ROLLOUT_OPERATOR_PACKAGE.md` — the executable PROD-1..4 package,
 > prepared with zero production contact. Nothing in it has been run.
 
+> **External prerequisites:** `docs/MANUAL_RELEASE_PREREQUISITES.md` — the account-side register
+> (Apple, Play, AdMob, Auth, APNs, keys, store assets, privacy). R9 found one hard blocker there: the
+> app links to a privacy-policy domain that **does not resolve**.
+
 > **Scope rule.** R7 answers "is every prerequisite identified and ready?" — it does not deploy,
 > migrate, flip flags, publish, or push. Every item below is either VERIFIED (with evidence),
 > or an explicit prerequisite for an operator.
@@ -341,7 +345,10 @@ Closing it requires a Play policy decision, not just hardware.
 - [ ] **Distribution** certificate + App Store provisioning profiles (Runner **and** ShareBankMessage) — see blocker I1/I2
 - [ ] App Store Connect app record created
 - [ ] App name / subtitle (brand: **Qirsh / قِرش**)
-- [ ] Privacy policy URL (**required** — app collects financial data)
+- [ ] **Privacy policy URL (BLOCKER)** — required (financial data), and currently **broken**:
+      `privacy_screen.dart:25,27` link to `https://mali.youssefsafwat.com/privacy` and `/terms`, but
+      `youssefsafwat.com` returns **NXDOMAIN**. Both a store blocker and a live dead link in the app.
+      See `docs/MANUAL_RELEASE_PREREQUISITES.md` §0
 - [ ] Support URL
 - [ ] Screenshots for all required device sizes
 - [ ] Description + keywords (Arabic-first)
@@ -363,7 +370,7 @@ Closing it requires a Play policy decision, not just hardware.
 - [ ] Register the upload **and** Play App Signing certificate SHA-1/SHA-256 wherever Google Sign-In needs
       them (fingerprints do not exist until the real keys do)
 - [ ] Internal testing track before any wider track
-- [ ] Store listing, screenshots, privacy policy URL
+- [ ] Store listing, screenshots, privacy policy URL (same NXDOMAIN blocker — §0 of the manual register)
 - [ ] **Data Safety** form (financial data, no IDFA/ads-id unless ads enabled)
 - [ ] Content rating questionnaire
 - [ ] **Ads declaration** — must say "contains ads" if `enable_report_ads` will ever be on
@@ -752,6 +759,7 @@ Play Console setup remain **MANUAL_PREREQUISITE**.
 | ENV-1 | Android toolchain/device absent locally | **ENV** |
 | ENV-2 | Physical UMP visual rendering unobtainable on iOS 26.5 | **ENV** |
 | ~~GATE-1~~ | ~~`node contract` stage fails on stale test-side assertions~~ — **CLOSED** in `6667dcc7` (test-only); canonical gate now 12/0/1 | **CLOSED** |
+| **EXT-1** | **Privacy-policy domain does not exist** — the app links to `mali.youssefsafwat.com`, which returns NXDOMAIN. Blocks both stores AND ships a dead in-app link | **P0 / MANUAL** |
 | DOC-1 | Stale docs contradicting code (Android capture, iOS shortcuts, CLAUDE.md, old checklists) | **P2** |
 
 ---

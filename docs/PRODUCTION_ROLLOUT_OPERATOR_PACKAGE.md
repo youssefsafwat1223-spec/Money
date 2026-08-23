@@ -13,6 +13,7 @@ already proven on validation staging — **with zero production contact**.
 | Source baseline | branch `feat/phase1-data-integrity`, R7 closures through `933ae0aa` |
 | Canonical gate at preparation time | 12 passed · 0 failed · 1 unavailable (iOS packaging provenance) |
 | Companion document | `docs/FINAL_RELEASE_READINESS.md` (readiness verdict + blocker register) |
+| External prerequisites | `docs/MANUAL_RELEASE_PREREQUISITES.md` (accounts, keys, store metadata, privacy) |
 
 ---
 
