@@ -281,6 +281,24 @@ workflows:
             --dart-define=ADMOB_APP_ID_ANDROID="${ADMOB_APP_ID_ANDROID:-}" \
             --dart-define=ADMOB_INTERSTITIAL_ANDROID="${ADMOB_INTERSTITIAL_ANDROID:-}"
 
+      # §13 — never ship an artifact whose signer was not checked. Cheap, and it
+      # would catch a debug-signed or unsigned bundle before it reaches Play.
+      - name: Inspect release artifact signer
+        working_directory: app
+        script: |
+          set -eu
+          AAB="build/app/outputs/bundle/release/app-release.aab"
+          test -f "$AAB" || { echo "ERROR: no AAB produced"; exit 1; }
+          SIGNER="$(jarsigner -verify -verbose:summary -certs "$AAB" | grep -m1 'X.509' || true)"
+          echo "Signer: ${SIGNER:-<none>}"
+          jarsigner -verify "$AAB" >/dev/null || { echo "ERROR: AAB is not signed"; exit 1; }
+          # A debug-signed upload is rejected by Play and must never get that far.
+          if printf '%s' "$SIGNER" | grep -q 'Android Debug'; then
+            echo "ERROR: artifact is signed with the Android DEBUG certificate"
+            exit 1
+          fi
+          echo "Release artifact signature verified (not debug-signed)."
+
       - name: Shred materialised keystore
         script: |
           set -eu
@@ -306,9 +324,14 @@ workflows:
   backend-and-quality-gates:
     name: Backend & Quality Gates
     instance_type: mac_mini_m2
-    max_build_duration: 45
+    max_build_duration: 75
     environment:
       flutter: 3.44.2
+      # JDK 17 is what the project actually requires (sourceCompatibility /
+      # targetCompatibility VERSION_17, jvmTarget JVM_17) and what AGP 9 needs.
+      # Pinned so the Android compile gate below reproduces the locally-proven
+      # toolchain instead of whatever the image happens to ship.
+      java: 17
     scripts:
       - name: Migration lint (numbering + SECURITY DEFINER lockdown)
         script: bash supabase/tools/check_migrations.sh
@@ -335,6 +358,48 @@ workflows:
           flutter pub get
           flutter analyze
           flutter test
+
+      # ── Android compile gate (R8C) ─────────────────────────────────────────
+      # Android compilation used to happen ONLY in `android-release`: on release
+      # day, behind the real signing inputs. So a plugin/Gradle defect stayed
+      # invisible until the worst possible moment — which is exactly how the
+      # file_picker x AGP-9 failure survived:
+      #     GeneratedPluginRegistrant: cannot find symbol FilePickerPlugin
+      # A debug APK is the cheapest artifact that still exercises the whole
+      # meaningful chain: Gradle 9.1.0, AGP 9.0.1, Kotlin 2.3.20, javac,
+      # GeneratedPluginRegistrant, native plugins, sqlite3mc via the NDK and
+      # manifest merge. It needs NO signing key, NO production AdMob ids and NO
+      # backend. The real signed AAB stays in `android-release`.
+      - name: Android compile gate (debug APK - no signing, no prod config)
+        working_directory: app
+        script: |
+          set -eu
+
+          # The vendored file_picker fork carries the AGP-9 registration fix. If
+          # resolution ever silently falls back to pub.dev the patch is gone and
+          # this gate is worthless, so fail loudly rather than build the wrong
+          # dependency.
+          grep -q 'path: ../third_party/file_picker' pubspec.yaml || {
+            echo "ERROR: file_picker is not wired to the vendored fork."
+            echo "See third_party/file_picker/QIRSH_FORK.md."
+            exit 1
+          }
+
+          # NDK is required because the encrypted SQLite backend (sqlite3mc) is
+          # built as a native asset. Install the pinned version if the image does
+          # not already carry it.
+          NDK_VERSION="28.2.13676358"
+          if [ ! -d "${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}/ndk/$NDK_VERSION" ]; then
+            echo "Installing NDK $NDK_VERSION"
+            yes | sdkmanager --install "ndk;$NDK_VERSION" >/dev/null
+          fi
+
+          flutter build apk --debug
+
+          # Prove the artifact exists rather than trusting the exit code alone.
+          test -f build/app/outputs/flutter-apk/app-debug.apk \
+            || { echo "ERROR: debug APK missing after a 'successful' build"; exit 1; }
+          echo "Android compile gate passed (debug APK produced)."
     publishing:
       email:
         recipients:
