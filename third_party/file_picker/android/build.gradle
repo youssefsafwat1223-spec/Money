@@ -1,0 +1,84 @@
+group 'com.mr.flutter.plugin.filepicker'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    ext {
+        kotlin_version = '1.8.22'
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+// ── QIRSH BACKPORT (R8B) — AGP-9 plugin registration ─────────────────────────
+// Upstream 11.0.3 asked only "is AGP >= 9?" and skipped the Kotlin plugin,
+// assuming AGP 9's built-in Kotlin would compile the .kt sources. But built-in
+// Kotlin is gated on the `android.builtInKotlin` Gradle property, and the
+// Flutter template sets `android.builtInKotlin=false`. With the property false
+// AND the Kotlin plugin skipped, nothing compiles FilePickerPlugin.kt, so the
+// app's GeneratedPluginRegistrant fails with:
+//     cannot find symbol: class FilePickerPlugin
+// This is the upstream fix from the file_picker 12 line (android_file_picker
+// 1.0.1, android/build.gradle.kts), ported to this Groovy build file verbatim
+// in semantics: consult the property, and apply the Kotlin plugin whenever
+// built-in Kotlin is NOT actually in effect.
+def agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0].toInteger()
+def builtInKotlinProperty = providers.gradleProperty("android.builtInKotlin").orNull
+def isBuiltInKotlinEnabled = agpMajor >= 9 &&
+        (builtInKotlinProperty == null || builtInKotlinProperty.toBoolean())
+def shouldApplyKotlinAndroidPlugin = agpMajor < 9 || !isBuiltInKotlinEnabled
+
+apply plugin: 'com.android.library'
+if (shouldApplyKotlinAndroidPlugin) {
+    apply plugin: 'org.jetbrains.kotlin.android'
+}
+
+android {
+    compileSdk flutter.compileSdkVersion
+
+    defaultConfig {
+        minSdk 21
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles 'proguard-rules.pro'
+    }
+    lintOptions {
+        disable 'InvalidPackage'
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    if (shouldApplyKotlinAndroidPlugin) {
+        kotlinOptions {
+            jvmTarget = JavaVersion.VERSION_17.toString()
+        }
+    }
+    
+    dependencies {
+        implementation 'androidx.core:core:1.15.0'
+        implementation 'androidx.annotation:annotation:1.9.1'
+        implementation "androidx.lifecycle:lifecycle-runtime:2.8.7"
+    }
+
+    if (project.android.hasProperty("namespace")) {
+        namespace 'com.mr.flutter.plugin.filepicker' 
+    }
+}
+dependencies {
+    implementation 'androidx.core:core-ktx:1.15.0'
+}

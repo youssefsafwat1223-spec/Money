@@ -43,7 +43,15 @@ dependencies:
   share_plus: ^10.1.4
   archive: ^4.0.9
   csv: ^8.0.0
-  file_picker: ^11.0.2
+  # VENDORED FORK — see third_party/file_picker/QIRSH_FORK.md.
+  # Upstream 11.0.3 + one backported AGP-9 plugin-registration fix. Upstream
+  # 11.x skips the Kotlin plugin on AGP 9 assuming built-in Kotlin, but the
+  # Flutter template sets android.builtInKotlin=false, so FilePickerPlugin.kt
+  # never compiled and every Android build failed. file_picker 12 fixes it but
+  # drags win32 ^6 -> share_plus 13 -> flutter_secure_storage 10 (the SQLCipher
+  # key store). Remove this fork per the removal condition in QIRSH_FORK.md.
+  file_picker:
+    path: ../third_party/file_picker
   sign_in_with_apple: ^6.1.0
   sentry_flutter: ^9.22.0
   local_auth: ^2.3.0
