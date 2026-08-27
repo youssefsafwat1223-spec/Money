@@ -16,6 +16,7 @@ import 'package:money_companion/engine/models/parsed_transaction.dart';
 import 'package:money_companion/engine/models/transaction_source.dart';
 import 'package:money_companion/engine/models/transaction_type.dart';
 import 'package:money_companion/engine/parser/bank_profile.dart';
+import 'package:money_companion/engine/parser/catalog_rule_matcher.dart';
 import 'package:money_companion/engine/parser/parse_result.dart';
 import 'package:money_companion/engine/parser/parser_isolate.dart';
 import 'package:money_companion/domain/entities/sender_bank_mapping_entity.dart';
@@ -30,6 +31,7 @@ class _FakeParserIsolate extends ParserIsolate {
     String rawText, {
     String? senderId,
     List<BankProfile> bankProfiles = const [],
+    List<CatalogParserRule> catalogRules = const [],
     String defaultCurrency = 'SAR',
   }) async =>
       _result;
