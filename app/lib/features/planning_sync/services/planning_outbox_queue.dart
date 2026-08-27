@@ -143,14 +143,50 @@ class PlanningOutboxQueue {
   Future<bool> enqueueBudget(
     PlanningSyncOperation op,
     BudgetEntity budget,
-  ) {
+  ) async {
+    // A tombstone is matched on local_id; its category is irrelevant, so a
+    // dangling reference must not block the delete from propagating.
+    final categoryWireId = op == PlanningSyncOperation.delete
+        ? (await _categoryWireId(budget) ?? budget.categoryId)
+        : await _categoryWireId(budget);
+    if (categoryWireId == null) {
+      // Fail CLOSED. The only value we could send is the per-device local id —
+      // precisely the value whose arrival on the server silently re-categorises
+      // this budget to `other` on every other device. Refusing to queue keeps
+      // the budget local and recoverable; sending it corrupts a row other
+      // devices read. A delete needs no category, so it is resolved above.
+      return false;
+    }
     return _enqueue(
       entityType: budgetsEntityType,
       entityId: budget.id,
       op: op,
       table: 'budgets',
-      payload: _buildBudgetPayload(op, budget),
+      payload: _buildBudgetPayload(op, budget, categoryWireId),
     );
+  }
+
+  /// F-029 — the server `category_id` column carries the STABLE category key
+  /// ('groceries', …): the budgets pull resolves it via
+  /// `categories WHERE key IN (…)`. Pushing the local Drift id corrupted that
+  /// column — another device's pull cannot resolve an opaque per-device id and
+  /// silently re-categorises the budget to `other`. Map id → key at enqueue
+  /// time; the sentinel travels as its key form.
+  ///
+  /// Returns null when the category cannot be resolved (dangling FK). It
+  /// deliberately does NOT fall back to the raw local id: that is the exact
+  /// value that corrupts the server column, so sending it would re-create the
+  /// bug in the one case where we already know the value is wrong. Callers
+  /// fail closed instead.
+  Future<String?> _categoryWireId(BudgetEntity budget) async {
+    if (budget.isAllExpenses) return BudgetEntity.allExpensesCategoryKey;
+    final row = await _db
+        .customSelect(
+          'SELECT key FROM categories '
+          'WHERE id = ${sqlString(budget.categoryId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    return row?.readNullable<String>('key');
   }
 
   Future<bool> enqueueSubscription(
@@ -702,6 +738,7 @@ class PlanningOutboxQueue {
   Map<String, dynamic> _buildBudgetPayload(
     PlanningSyncOperation op,
     BudgetEntity budget,
+    String categoryWireId,
   ) {
     // MALI-026 (B8-3 §7): canonical planning push is exact — money → decimal
     // STRING (moneyToNumericText) + the row's own currency (server column 0077).
@@ -712,7 +749,8 @@ class PlanningOutboxQueue {
         canonical ? moneyToNumericText(m) : moneyToLegacyJsonNumber(m);
     return _withDelete(op, {
       'local_id': budget.id,
-      'category_id': budget.categoryId,
+      // F-029: the stable category KEY — see _categoryWireId.
+      'category_id': categoryWireId,
       'amount': amountWire(budget.amountMoney),
       if (canonical) 'currency': budget.currency,
       'period': budget.period.name,

@@ -129,6 +129,14 @@ void main() {
   setUp(() async {
     db = await AppDatabase.open(
         executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    // The §8 exact-money cases below use `categoryId: 'c1'` as a placeholder.
+    // Since F-029 fails CLOSED on an unresolvable category, that category has to
+    // actually exist or those tests would be asserting the refusal path instead
+    // of the transport path they are written to cover.
+    await db.customStatement('''
+      INSERT INTO categories(id, key, name_ar, icon, color, is_income, sort_order)
+      VALUES('c1', 'c1_key', 'فئة', 'tag', '#000', 0, 98);
+    ''');
   });
   tearDown(() async => db.close());
 
@@ -181,6 +189,101 @@ void main() {
     expect(p['amount'], '12.34');
     expect(p['last_notified_spent_amount'], '1.00');
     expect(p['currency'], 'EGP');
+  });
+
+  // ── F-029 — server category_id must carry the stable KEY, not a local id ──
+  // QA evidence (demo stack, PUSH-03, 2026-08-27): the delivered payload
+  // overwrote the server's 'groceries' key with an opaque per-device Drift id;
+  // any other device's pull would fail the key lookup and silently
+  // re-categorise the budget to `other`.
+
+  test('F-029: budget payload maps the local category id to its stable key',
+      () async {
+    // A category whose per-device local id visibly differs from its key.
+    await db.customStatement('''
+      INSERT INTO categories(id, key, name_ar, icon, color, is_income, sort_order)
+      VALUES('cat-local-123', 'groceries_wire_test', 'بقالة', 'cart', '#fff', 0, 99);
+    ''');
+    final q = canonicalQueue();
+    await q.enqueueBudget(
+      PlanningSyncOperation.create,
+      BudgetEntity(
+        id: 'b-f029',
+        categoryId: 'cat-local-123', // local id ≠ key
+        currency: 'SAR',
+        amountMoney: Money.parse('2500.00', 'SAR'),
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
+        period: BudgetPeriod.monthly,
+        startDate: DateTime.utc(2026, 8, 1),
+        isActive: true,
+        lastNotifiedPeriodStart: DateTime.utc(2026, 8, 1),
+      ),
+    );
+    final p = await payload('budget');
+    expect(p['category_id'], 'groceries_wire_test',
+        reason: 'the wire value must be the stable key the pull resolves — '
+            'never the per-device local id');
+    expect(p['local_id'], 'b-f029');
+  });
+
+  test(
+      'F-029: an unresolvable category FAILS CLOSED — nothing is queued, and '
+      'the local id never reaches the wire', () async {
+    // Independent review (QIRSH_MASTER_PLAN_V2.md §3, F-029) flagged that the
+    // id→key lookup failed OPEN: when the category row could not be resolved it
+    // transmitted the known-invalid local id anyway. That is the exact value
+    // whose arrival on the server silently re-categorises the budget to `other`
+    // on every other device — i.e. the fallback re-created the bug the fix
+    // exists to prevent, in the one case where we KNOW the value is wrong.
+    //
+    // Correct behaviour: refuse to enqueue. The budget stays local (recoverable,
+    // still visible to its owner) rather than corrupting a row other devices read.
+    final q = canonicalQueue();
+    final queued = await q.enqueueBudget(
+      PlanningSyncOperation.create,
+      BudgetEntity(
+        id: 'b-dangling',
+        categoryId: 'cat-does-not-exist',
+        currency: 'SAR',
+        amountMoney: Money.parse('50.00', 'SAR'),
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
+        period: BudgetPeriod.monthly,
+        startDate: DateTime.utc(2026, 8, 1),
+        isActive: true,
+        lastNotifiedPeriodStart: DateTime.utc(2026, 8, 1),
+      ),
+    );
+
+    expect(queued, isFalse,
+        reason: 'an unresolvable category must not produce a wire payload');
+    final rows = await db
+        .customSelect(
+          "SELECT COUNT(*) AS c FROM planning_sync_outbox "
+          "WHERE entity_id = 'b-dangling';",
+        )
+        .getSingle();
+    expect(rows.read<int>('c'), 0,
+        reason: 'nothing may be queued for an unresolvable category');
+  });
+
+  test('F-029: the all-expenses sentinel travels as its key form', () async {
+    final q = canonicalQueue();
+    await q.enqueueBudget(
+      PlanningSyncOperation.create,
+      BudgetEntity(
+        id: 'b-all',
+        categoryId: BudgetEntity.allExpensesCategoryId,
+        currency: 'SAR',
+        amountMoney: Money.parse('100.00', 'SAR'),
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
+        period: BudgetPeriod.monthly,
+        startDate: DateTime.utc(2026, 8, 1),
+        isActive: true,
+        lastNotifiedPeriodStart: DateTime.utc(2026, 8, 1),
+      ),
+    );
+    final p = await payload('budget');
+    expect(p['category_id'], BudgetEntity.allExpensesCategoryKey);
   });
 
   test('§8 canonical goal enqueue → exact string amounts + currency', () async {
