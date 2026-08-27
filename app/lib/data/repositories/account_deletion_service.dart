@@ -62,6 +62,12 @@ class FinancialAccountDeletionService {
     return row.read<int>('n');
   }
 
+  /// A currency can only change while an account has no ledger history at all.
+  /// Count every status: even an ignored transaction still records money under
+  /// the account's persisted currency and must keep that currency authority.
+  Future<bool> hasTransactions(String accountId) async =>
+      await _transactionCount(accountId) > 0;
+
   /// Read-only impact plan for the confirmation UI — mutates nothing.
   Future<AccountDeletionImpact> plan(String accountId) async {
     final account = await _accounts.getById(accountId);
