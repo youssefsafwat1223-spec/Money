@@ -874,6 +874,16 @@ final financialAccountDeletionServiceProvider =
   );
 });
 
+/// Fail-closed account-currency edit guard. Loading/error states remain locked
+/// in the form; a successful `false` is the only state that permits an empty
+/// existing account to change currency.
+final accountHasTransactionsProvider =
+    FutureProvider.family<bool, String>((ref, accountId) {
+  return ref
+      .watch(financialAccountDeletionServiceProvider)
+      .hasTransactions(accountId);
+});
+
 final gamificationRepositoryProvider = Provider<GamificationRepository>((ref) {
   return DriftGamificationRepository(ref.watch(appDatabaseProvider));
 });
