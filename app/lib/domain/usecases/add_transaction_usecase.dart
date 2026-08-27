@@ -11,6 +11,7 @@ import '../../engine/models/parsed_transaction.dart';
 import '../../engine/models/transaction_source.dart';
 import '../../engine/models/transaction_type.dart';
 import '../../engine/parser/bank_profile.dart';
+import '../../engine/parser/catalog_rule_matcher.dart';
 import '../../engine/parser/payment_aggregators.dart';
 import '../../engine/parser/bank_sender_filter.dart';
 import '../../data/db/planning_cutover.dart';
@@ -267,6 +268,8 @@ class AddTransactionUseCase {
     RecordEngagementUseCase? recordEngagementUseCase,
     Future<void> Function(String key, {String? dimension})? logMetric,
     Future<List<BankProfile>> Function({String? senderId})? loadBankProfiles,
+    Future<List<CatalogParserRule>> Function(String? senderId)?
+        loadCatalogRules,
     Future<List<RemoteMerchantKeyword>> Function()? loadRemoteKeywords,
     Future<void> Function(String normalizedMerchant)? noteMerchantFeedback,
     Future<String?> Function(String normalizedMerchant)?
@@ -292,6 +295,7 @@ class AddTransactionUseCase {
         _recordEngagementUseCase = recordEngagementUseCase,
         _logMetric = logMetric,
         _loadBankProfiles = loadBankProfiles,
+        _loadCatalogRules = loadCatalogRules,
         _loadRemoteKeywords = loadRemoteKeywords,
         _noteMerchantFeedback = noteMerchantFeedback,
         _resolveMerchantCategory = resolveMerchantCategory,
@@ -317,6 +321,9 @@ class AddTransactionUseCase {
   final Future<void> Function(String key, {String? dimension})? _logMetric;
   final Future<List<BankProfile>> Function({String? senderId})?
       _loadBankProfiles;
+  // F-016: the raw catalog rules the engine applies as first authority.
+  final Future<List<CatalogParserRule>> Function(String? senderId)?
+      _loadCatalogRules;
   final Future<List<RemoteMerchantKeyword>> Function()? _loadRemoteKeywords;
   final Future<void> Function(String normalizedMerchant)? _noteMerchantFeedback;
   final Future<String?> Function(String normalizedMerchant)?
@@ -335,8 +342,10 @@ class AddTransactionUseCase {
     String? senderId,
     bool skipDedup = false,
     DateTime? smsReceivedAt,
+    bool onDeviceOnly = false,
   }) async {
     final loadedBankProfiles = await _safeLoadBankProfiles(senderId: senderId);
+    final catalogRules = await _safeLoadCatalogRules(senderId);
     final bankResolution = await _resolveBankForSender(
       rawMessage: rawMessage,
       senderId: senderId,
@@ -353,8 +362,10 @@ class AddTransactionUseCase {
             senderId: senderId, bankProfiles: bankProfiles)
         : false;
 
-    final aiFirstAttempt = wasIgnored
-        ? const _AiFirstAttempt.skipped('message_ignored')
+    final aiFirstAttempt = wasIgnored || onDeviceOnly
+        ? _AiFirstAttempt.skipped(
+            wasIgnored ? 'message_ignored' : 'on_device_only',
+          )
         : await _tryAiParseFirst(
             rawMessage: rawMessage,
             senderId: senderId,
@@ -364,17 +375,20 @@ class AddTransactionUseCase {
           rawMessage,
           senderId: senderId,
           bankProfiles: bankProfiles,
+          catalogRules: catalogRules,
           defaultCurrency: defaultAccount?.currency ?? 'SAR',
         ) ??
         ParseResult.notTransaction();
 
-    await _runBankDiscoveryIfEligible(
-      rawMessage: rawMessage,
-      senderId: senderId,
-      bankProfiles: loadedBankProfiles,
-      parseResult: parseResult,
-      localeHint: defaultAccount?.currency,
-    );
+    if (!onDeviceOnly) {
+      await _runBankDiscoveryIfEligible(
+        rawMessage: rawMessage,
+        senderId: senderId,
+        bankProfiles: loadedBankProfiles,
+        parseResult: parseResult,
+        localeHint: defaultAccount?.currency,
+      );
+    }
 
     final localParsed =
         parseResult.isTransaction ? parseResult.transaction : null;
@@ -586,7 +600,7 @@ class AddTransactionUseCase {
         // server (Google Places via enrich-merchant) to resolve a category. The
         // function also writes the result into merchant_keywords, so every other
         // device picks it up on the next catalog sync.
-        final resolver = _resolveMerchantCategory;
+        final resolver = onDeviceOnly ? null : _resolveMerchantCategory;
         final resolved = resolver != null ? await resolver(normalized) : null;
         if (resolved != null && resolved.isNotEmpty && resolved != 'other') {
           effectiveCategory =
@@ -955,6 +969,17 @@ class AddTransactionUseCase {
     final fee = _extractAmountCurrency(rawMessage.substring(keyword.end));
     if (fee == null || fee.heuristicAmount <= 0) return null;
     return fee;
+  }
+
+  Future<List<CatalogParserRule>> _safeLoadCatalogRules(
+      String? senderId) async {
+    final loader = _loadCatalogRules;
+    if (loader == null) return const [];
+    try {
+      return await loader(senderId);
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<List<BankProfile>> _safeLoadBankProfiles({String? senderId}) async {

@@ -53,12 +53,14 @@ class IngestCapturedMessageUseCase {
   }
 
   Future<CapturedMessageResult> fromCapturedMessage(
-    CapturedMessage message,
-  ) async {
+    CapturedMessage message, {
+    bool onDeviceOnly = false,
+  }) async {
     final result = await _addTransactionUseCase(
       rawMessage: message.text,
       senderId: message.senderId,
       smsReceivedAt: message.receivedAt,
+      onDeviceOnly: onDeviceOnly,
     );
 
     // Prefer the transaction business key; otherwise a stable fingerprint of the

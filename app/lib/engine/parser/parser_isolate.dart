@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'bank_profile.dart';
+import 'catalog_rule_matcher.dart';
 import 'parse_result.dart';
 import 'parser_engine.dart';
 
@@ -14,6 +15,7 @@ class ParserIsolate {
     String rawText, {
     String? senderId,
     List<BankProfile> bankProfiles = const [],
+    List<CatalogParserRule> catalogRules = const [],
     String defaultCurrency = 'SAR',
   }) async {
     final receivePort = ReceivePort();
@@ -26,6 +28,7 @@ class ParserIsolate {
           rawText: rawText,
           senderId: senderId,
           bankProfiles: bankProfiles,
+          catalogRules: catalogRules,
           defaultCurrency: defaultCurrency,
         ),
       );
@@ -49,6 +52,7 @@ void _parseEntry(_ParserIsolateRequest request) {
       request.rawText,
       senderId: request.senderId,
       bankProfiles: request.bankProfiles,
+      catalogRules: request.catalogRules,
       defaultCurrency: request.defaultCurrency,
     );
     request.sendPort.send(result);
@@ -63,6 +67,7 @@ class _ParserIsolateRequest {
     required this.rawText,
     required this.senderId,
     required this.bankProfiles,
+    required this.catalogRules,
     required this.defaultCurrency,
   });
 
@@ -70,5 +75,6 @@ class _ParserIsolateRequest {
   final String rawText;
   final String? senderId;
   final List<BankProfile> bankProfiles;
+  final List<CatalogParserRule> catalogRules;
   final String defaultCurrency;
 }

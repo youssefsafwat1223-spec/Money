@@ -1063,6 +1063,8 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
     logMetric: ref.watch(metricsClientProvider).logEvent,
     loadBankProfiles: ref.watch(rulesClientProvider).localBankProfiles,
+    // F-016: raw catalog rules — the engine's first parsing authority.
+    loadCatalogRules: ref.watch(rulesClientProvider).catalogRulesForSender,
     loadRemoteKeywords: () async {
       final settings = await DriftUserSettingsRepository(db).getSettings();
       final country = settings.country;

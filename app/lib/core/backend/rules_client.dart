@@ -8,6 +8,7 @@ import '../../data/db/app_database.dart';
 import '../../engine/models/transaction_source.dart';
 import '../../engine/models/transaction_type.dart';
 import '../../engine/parser/bank_profile.dart';
+import '../../engine/parser/catalog_rule_matcher.dart';
 
 class RulesClient {
   RulesClient({
@@ -111,6 +112,42 @@ class RulesClient {
       return _legacyLocalBankProfiles(locale: locale);
     }
     return profiles;
+  }
+
+  /// F-016 — the RAW catalog rules for the sender's bank, in the exact shape
+  /// the engine's CatalogRuleMatcher consumes. Unlike [localBankProfiles]
+  /// (which degrades rules into keyword hints for the legacy heuristics),
+  /// nothing is discarded here: sender_pattern / message_pattern / priority /
+  /// extracted_fields travel intact so Admin edits have real runtime effect.
+  /// Returns const [] when the sender maps to no bank or the bank has no
+  /// active rules — the engine then behaves exactly as before.
+  Future<List<CatalogParserRule>> catalogRulesForSender(
+      String? senderId) async {
+    if (senderId == null || senderId.isEmpty) return const [];
+    final bank = await RemoteBanksDao(_database).getBankBySender(senderId);
+    if (bank == null) return const [];
+    final rows = await _database.customSelect(
+      '''
+        SELECT id, sender_pattern, message_pattern, transaction_type,
+               priority, extracted_fields
+        FROM remote_parsers
+        WHERE bank_id = ? AND is_active = 1 AND is_deleted = 0
+        ORDER BY priority DESC, id ASC;
+      ''',
+      variables: [Variable.withString(bank.id)],
+    ).get();
+    return [
+      for (final row in rows)
+        CatalogParserRule(
+          id: row.read<String>('id'),
+          senderPattern: row.read<String>('sender_pattern'),
+          messagePattern: row.read<String>('message_pattern'),
+          transactionType: row.read<String>('transaction_type'),
+          priority: row.read<int>('priority'),
+          extractedFields:
+              _jsonObjectMap(row.read<String>('extracted_fields')),
+        ),
+    ];
   }
 
   Future<BankProfile?> profileForSender(String senderId) async {

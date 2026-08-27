@@ -93,8 +93,19 @@ Deno.serve(async (req) => {
 
     let baseItemQuery = client.from(table).select('*').gt('updated_version', since);
     // Parsers: only serve rules that have passed golden-test validation.
+    //
+    // C-1: the status label alone is not sufficient evidence. `0004_parser_lab.sql:15`
+    // blanket-stamped every pre-existing parser 'passed' without running a test,
+    // which let unvalidated rules through this gate — and, once F-016 made catalog
+    // rules the first parsing authority, into confirmed money. Require the
+    // EVIDENCE columns too, so neither a future backfill nor a manual status flip
+    // can serve an untested rule to a device. `0087` restores the data and adds
+    // the matching CHECK constraint; this is the serving-side half of the pair.
     if (category === 'parsers') {
-      baseItemQuery = (baseItemQuery as any).eq('validation_status', 'passed');
+      baseItemQuery = (baseItemQuery as any)
+        .eq('validation_status', 'passed')
+        .not('validated_at', 'is', null)
+        .gt('golden_test_count', 0);
     }
     const itemQuery = applyCountryFilter(
       applyActiveDeltaFilter(baseItemQuery, since),

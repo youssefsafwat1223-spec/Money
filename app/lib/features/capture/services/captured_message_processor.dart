@@ -144,6 +144,8 @@ class CapturedMessageProcessor {
           merchantCategoryRepository: DriftMerchantCategoryRepository(db),
           recordEngagementUseCase: engagementUseCase,
           loadBankProfiles: RulesClient(database: db).localBankProfiles,
+          // F-016: raw catalog rules — the engine's first parsing authority.
+          loadCatalogRules: RulesClient(database: db).catalogRulesForSender,
           loadRemoteKeywords: () async {
             final settings = await settingsRepository.getSettings();
             final country = settings.country;

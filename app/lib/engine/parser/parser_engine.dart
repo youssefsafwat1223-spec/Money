@@ -4,6 +4,7 @@ import '../models/transaction_source.dart';
 import '../models/transaction_type.dart';
 import 'amount_candidate.dart';
 import 'bank_profile.dart';
+import 'catalog_rule_matcher.dart';
 import 'normalizer.dart';
 import 'parse_result.dart';
 
@@ -84,6 +85,38 @@ class ParserEngine {
 
   static const double pendingThreshold = 0.70;
   static const double genericMaxConfidence = 0.79;
+
+  /// F-016: fixed confidence for a message an admin-authored catalog rule
+  /// explicitly matched (with a captured amount) — deterministic, above the
+  /// heuristic ceiling, below 1.0 so downstream review affordances survive.
+  ///
+  /// Only granted when the rule's amount is CORROBORATED — see
+  /// [catalogUncorroboratedMaxConfidence].
+  static const double catalogRuleConfidence = 0.95;
+
+  /// C-1 — ceiling for a rule-captured amount this engine's own heuristics
+  /// could not independently reproduce.
+  ///
+  /// Catalog rules are admin-authored content, and the server-side gate that is
+  /// supposed to admit only validated rules
+  /// (`supabase/functions/catalog-delta/index.ts`, `validation_status='passed'`)
+  /// was defeated at the data layer: `0004_parser_lab.sql:15` blanket-stamped
+  /// every pre-existing parser `'passed'` without running a golden test. A rule
+  /// that has never been validated could therefore set CONFIRMED money with no
+  /// human review, on the automatic capture path.
+  ///
+  /// So confirmation authority is not granted by the rule alone. When the rule
+  /// and the independent heuristic extraction agree on the amount, two separate
+  /// readings corroborate each other and the deterministic confidence stands.
+  /// When only the rule produced the amount, the parse still happens and still
+  /// reaches the review queue (≥ [pendingThreshold]) — it just cannot ride
+  /// through to auto-confirm. Identical treatment to the `dateAmbiguous` cap in
+  /// [_confidence], and deliberately independent of any server state.
+  static const double catalogUncorroboratedMaxConfidence = 0.89;
+
+  /// Half a minor unit at 2dp — the two readings come from the same text, so
+  /// this only absorbs float representation, never a genuine disagreement.
+  static const double _catalogAmountAgreementEpsilon = 0.005;
   static const List<String> _globalFundingWallets = [
     'barq',
     'urpay',
@@ -112,6 +145,7 @@ class ParserEngine {
     String rawText, {
     String? senderId,
     List<BankProfile> bankProfiles = const [],
+    List<CatalogParserRule> catalogRules = const [],
     String defaultCurrency = 'SAR',
   }) {
     var text = Normalizer.normalizeCurrencyTokens(
@@ -130,9 +164,25 @@ class ParserEngine {
       return ParseResult.notTransaction(bankKey: bank?.bankKey);
     }
 
-    var type = _detectType(lower, bank);
+    // F-016 — catalog rules are the FIRST authority. The winning rule (sender
+    // eligibility + message match + priority) supplies transaction type and
+    // every field it actually captured; the engine's own extraction below
+    // remains the explicit fallback for fields the rule does not produce and
+    // for messages no rule matches (zero behavioural change in that case).
+    // Rules match the RAW text — the same contract the admin authors against
+    // and the Parser Lab / parser-test verify.
+    final catalogMatch = matchCatalogRule(
+      catalogRules,
+      senderId: senderId,
+      messageText: rawText,
+    );
+
+    var type = catalogMatch != null
+        ? _catalogRuleType(catalogMatch.rule)
+        : _detectType(lower, bank);
     final amountExtraction = _extractAmounts(lines, text: text, bank: bank);
-    final amount = amountExtraction.transactionAmount;
+    final ruleAmount = parseCatalogAmount(catalogMatch?.amountText);
+    final amount = ruleAmount ?? amountExtraction.transactionAmount;
 
     // ليست معاملة مالية واضحة → تُتجاهَل (§24.6).
     if (amount == null && type == TransactionType.unknown) {
@@ -144,8 +194,9 @@ class ParserEngine {
 
     final source = _detectSource(lower, bank);
     final merchantResult = _extractMerchantAndSource(lines, bank: bank);
-    final merchant = merchantResult.merchant;
-    if (type == TransactionType.payment &&
+    final merchant = catalogMatch?.merchant ?? merchantResult.merchant;
+    if (catalogMatch == null &&
+        type == TransactionType.payment &&
         _looksLikeBankAtmCardTransaction(
           lower,
           merchant: merchant,
@@ -153,31 +204,53 @@ class ParserEngine {
         )) {
       type = TransactionType.withdrawal;
     }
-    final currency =
-        amountExtraction.currency ?? _extractCurrency(text) ?? defaultCurrency;
+    final currency = parseCatalogCurrency(catalogMatch?.currencyText) ??
+        amountExtraction.currency ??
+        _extractCurrency(text) ??
+        defaultCurrency;
     final last4 = _extractLast4(text);
     final accountNumber = _extractAccountNumber(text);
-    final balance = amountExtraction.balance;
+    final ruleBalance = parseCatalogAmount(catalogMatch?.balanceText);
+    final balance = ruleBalance ?? amountExtraction.balance;
     final dateResult = _extractDateResult(text, bank: bank);
     final occurredAt = dateResult.date;
 
-    final confidence = _confidence(
-      bank: bank,
-      senderMatched: bank?.matchesSender(senderId) ?? false,
-      amount: amount,
-      type: type,
-      currencyResolved: _extractCurrency(text) != null,
-      merchant: merchant,
-      date: occurredAt,
-      ambiguousAmount: amountExtraction.hasAmbiguity,
-      dateAmbiguous: dateResult.ambiguous,
-    );
+    // F-016: an explicitly matched catalog rule that captured the amount is a
+    // deterministic admin-authored decision — it does not compete with the
+    // heuristic confidence ladder (and must not fall under pendingThreshold
+    // just because the heuristics found the message unusual).
+    //
+    // C-1: but it only carries CONFIRMATION authority when this engine's own
+    // extraction independently reproduced the same amount. An admin rule that
+    // reads an amount nothing else in the message corroborates is capped below
+    // the auto-confirm threshold and routed to review instead.
+    final catalogAmountCorroborated = ruleAmount != null &&
+        amountExtraction.transactionAmount != null &&
+        (ruleAmount - amountExtraction.transactionAmount!).abs() <
+            _catalogAmountAgreementEpsilon;
+    final confidence = catalogMatch != null && ruleAmount != null
+        ? (catalogAmountCorroborated
+            ? catalogRuleConfidence
+            : catalogUncorroboratedMaxConfidence)
+        : _confidence(
+            bank: bank,
+            senderMatched: bank?.matchesSender(senderId) ?? false,
+            amount: amount,
+            type: type,
+            currencyResolved: _extractCurrency(text) != null,
+            merchant: merchant,
+            date: occurredAt,
+            ambiguousAmount: amountExtraction.hasAmbiguity,
+            dateAmbiguous: dateResult.ambiguous,
+          );
     if (confidence < pendingThreshold) {
       return ParseResult.notTransaction(bankKey: bank?.bankKey);
     }
 
     final txn = ParsedTransaction(
-      amountText: amountExtraction.transactionAmountText,
+      amountText: catalogMatch?.amountText != null && ruleAmount != null
+          ? catalogMatch!.amountText
+          : amountExtraction.transactionAmountText,
       amount: amount,
       currency: currency,
       type: type == TransactionType.unknown ? TransactionType.payment : type,
@@ -185,7 +258,9 @@ class ParserEngine {
       rawMerchant: merchant,
       cardLast4: last4,
       accountNumber: accountNumber,
-      balanceAfterText: amountExtraction.balanceText,
+      balanceAfterText: ruleBalance != null
+          ? catalogMatch!.balanceText
+          : amountExtraction.balanceText,
       balanceAfter: balance,
       occurredAt: occurredAt,
       foreignAmountText: amountExtraction.foreignAmountText,
@@ -195,10 +270,32 @@ class ParserEngine {
       parseConfidence: confidence,
     );
 
-    return ParseResult.success(txn, bankKey: bank?.bankKey);
+    return ParseResult.success(
+      txn,
+      bankKey: bank?.bankKey,
+      catalogRuleId: catalogMatch?.rule.id,
+    );
   }
 
   // ── helpers ──
+
+  /// F-016: the matched rule's declared type. `extracted_fields.type` (a
+  /// literal, not a group name) wins over the coarser `transaction_type`
+  /// column when both are present.
+  TransactionType _catalogRuleType(CatalogParserRule rule) {
+    final literal = rule.extractedFields['type'];
+    final key = (literal is String && literal.trim().isNotEmpty)
+        ? literal
+        : rule.transactionType;
+    return switch (key.toLowerCase().trim()) {
+      'debit' || 'payment' || 'purchase' => TransactionType.payment,
+      'credit' || 'income' || 'salary' || 'deposit' => TransactionType.income,
+      'withdrawal' || 'atm' => TransactionType.withdrawal,
+      'transfer' => TransactionType.transfer,
+      'refund' || 'reversal' => TransactionType.refund,
+      _ => TransactionType.unknown,
+    };
+  }
 
   TransactionType _detectType(String lower, BankProfile? bank) {
     if (bank != null) {
