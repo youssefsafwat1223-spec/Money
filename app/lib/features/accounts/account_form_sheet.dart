@@ -92,12 +92,17 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     super.initState();
     final a = widget.account;
     _name = TextEditingController(text: a?.name ?? '');
-    _startingBalance = TextEditingController(text: _numText(a?.initialBalance));
+    _startingBalance = TextEditingController(
+      text: a?.initialBalanceMoney?.toDecimalString() ?? '',
+    );
     _bankAccountNumber =
         TextEditingController(text: a?.bankAccountNumber ?? '');
-    _creditLimit = TextEditingController(text: _numText(a?.creditLimit));
-    _availableCredit =
-        TextEditingController(text: _numText(a?.availableCredit));
+    _creditLimit = TextEditingController(
+      text: a?.creditLimitMoney?.toDecimalString() ?? '',
+    );
+    _availableCredit = TextEditingController(
+      text: a?.availableCreditMoney?.toDecimalString() ?? '',
+    );
     _paymentDueDay =
         TextEditingController(text: a?.paymentDueDay?.toString() ?? '');
     _type = a?.type ?? AccountType.bank;
@@ -107,9 +112,6 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     _walletProvider = a?.walletProvider;
     _creationId = a?.id ?? IdGenerator.next();
   }
-
-  static String _numText(double? v) =>
-      v == null ? '' : (v == v.roundToDouble() ? v.toInt().toString() : '$v');
 
   @override
   void dispose() {
@@ -124,10 +126,65 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
 
   /// Parse a localized money field to canonical [Money] (exact — no double).
   /// Throws on invalid/ambiguous/over-precision input; the caller validates.
-  Money? _parseMoney(TextEditingController c) {
+  Money? _parseMoney(TextEditingController c, String currency) {
     final t = c.text.trim();
     if (t.isEmpty) return null;
-    return parseLocalizedMoney(t, _currency);
+    return parseLocalizedMoney(t, currency);
+  }
+
+  bool _hasNonZeroBalance(AccountEntity? account) {
+    if (account == null) return false;
+    return account.initialBalanceMoney?.isZero == false ||
+        account.currentBalanceMoney?.isZero == false;
+  }
+
+  bool get _hasPersistedNonZeroBalance => _hasNonZeroBalance(widget.account);
+
+  void _showCurrencyChangeBlocked() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('لا يمكن تغيير عملة حساب يحتوي على رصيد أو عمليات.'),
+      ),
+    );
+  }
+
+  Future<bool> _canChangePersistedCurrency(String submittedCurrency) async {
+    final account = widget.account;
+    if (account == null) return true;
+
+    try {
+      // Re-read at submit time: balances may have changed while the sheet was
+      // open, and the defensive guard must compare against persisted state.
+      final persisted =
+          await ref.read(accountRepositoryProvider).getById(account.id);
+      if (persisted == null) {
+        throw StateError('Account disappeared during currency validation.');
+      }
+      if (submittedCurrency == persisted.currency) return true;
+      if (_hasNonZeroBalance(persisted)) {
+        _showCurrencyChangeBlocked();
+        return false;
+      }
+      final hasTransactions = await ref.refresh(
+        accountHasTransactionsProvider(account.id).future,
+      );
+      if (hasTransactions) {
+        if (mounted) _showCurrencyChangeBlocked();
+        return false;
+      }
+      return true;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'تعذر التحقق من استخدام الحساب؛ لم يتم تغيير العملة.',
+            ),
+          ),
+        );
+      }
+      return false;
+    }
   }
 
   Future<void> _save() async {
@@ -149,18 +206,39 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       );
       return;
     }
+    final submittedCurrency = _currency;
     // Parse the money inputs exactly (localized → canonical Money). Ambiguous /
     // over-precision input now fails validation instead of changing magnitude.
     final Money? startingBalanceMoney;
     final Money? creditLimitMoney;
     final Money? availableCreditMoney;
     try {
-      startingBalanceMoney =
-          _type == AccountType.card ? null : _parseMoney(_startingBalance);
-      creditLimitMoney =
-          _type == AccountType.card ? _parseMoney(_creditLimit) : null;
-      availableCreditMoney =
-          _type == AccountType.card ? _parseMoney(_availableCredit) : null;
+      // F-021 (NULL↔0 normalization): a card account has no starting-balance
+      // field, so saving one must PRESERVE the persisted value, not overwrite
+      // it with NULL — the destructive rewrite that made local NULL fight a
+      // server 0.00 on every sync compare. Same currency-change treatment as
+      // current_balance below: a zero is recreated in the new currency, never
+      // carried across.
+      // F-021 (NULL↔0 normalization): a card account has no starting-balance
+      // field, so saving one must PRESERVE the persisted value, not overwrite
+      // it with NULL — the destructive rewrite that made local NULL fight a
+      // server 0.00 on every sync compare. Same currency-change treatment as
+      // current_balance below: a zero is recreated in the new currency, never
+      // carried across.
+      startingBalanceMoney = _type == AccountType.card
+          ? (widget.account == null ||
+                  submittedCurrency != widget.account!.currency
+              ? (widget.account?.initialBalanceMoney == null
+                  ? null
+                  : Money.zero(submittedCurrency))
+              : widget.account!.initialBalanceMoney)
+          : _parseMoney(_startingBalance, submittedCurrency);
+      creditLimitMoney = _type == AccountType.card
+          ? _parseMoney(_creditLimit, submittedCurrency)
+          : null;
+      availableCreditMoney = _type == AccountType.card
+          ? _parseMoney(_availableCredit, submittedCurrency)
+          : null;
     } on Exception {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('مبلغ غير صالح')),
@@ -168,20 +246,36 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       return;
     }
 
+    setState(() => _busy = true);
+    if (!await _canChangePersistedCurrency(submittedCurrency)) {
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
+
     final repo = ref.read(accountRepositoryProvider);
     final now = DateTime.now().toUtc();
-    setState(() => _busy = true);
+    final currencyChanged =
+        widget.account != null && submittedCurrency != widget.account!.currency;
 
     AccountEntity build(String id, DateTime created) => AccountEntity(
           id: id,
           name: name,
-          currency: _currency,
+          currency: submittedCurrency,
           type: _type,
           isDefault: _isDefault,
           sortOrder: widget.account?.sortOrder ?? 0,
           createdAt: created,
           updatedAt: now,
           initialBalanceMoney: startingBalanceMoney,
+          // Current balance is running/derived state and is not editable here.
+          // Preserve it verbatim only while its currency authority is unchanged.
+          // An empty account may change currency, but its optional zero is then
+          // recreated in the new currency rather than carrying a Money across.
+          currentBalanceMoney: currencyChanged
+              ? (widget.account?.currentBalanceMoney == null
+                  ? null
+                  : Money.zero(submittedCurrency))
+              : widget.account?.currentBalanceMoney,
           bankAccountNumber: _type == AccountType.bank
               ? (_bankAccountNumber.text.trim().isEmpty
                   ? null
@@ -350,6 +444,13 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final editing = widget.account != null;
+    final transactionUsage = editing && !_hasPersistedNonZeroBalance
+        ? ref.watch(accountHasTransactionsProvider(widget.account!.id))
+        : const AsyncValue.data(false);
+    // Fail closed while the transaction check is loading or if it errors. Only
+    // an authoritative `false`, combined with zero persisted balances, unlocks.
+    final currencyLocked = editing &&
+        (_hasPersistedNonZeroBalance || transactionUsage.valueOrNull != false);
     final currencyCodes = ref
             .watch(activeCurrenciesProvider)
             .valueOrNull
@@ -397,8 +498,13 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
             Text('العملة', style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             DropdownButtonFormField<String>(
+              key: const ValueKey('account-currency-field'),
               value: _currency,
               isExpanded: true,
+              decoration: InputDecoration(
+                helperText:
+                    currencyLocked ? 'لا يمكن تغيير عملة حساب مستخدم' : null,
+              ),
               items: [
                 for (final code in currencies)
                   DropdownMenuItem(
@@ -406,7 +512,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                     child: Text('$code — ${Currency.arabicLabel(code)}'),
                   ),
               ],
-              onChanged: _busy
+              onChanged: _busy || currencyLocked
                   ? null
                   : (v) {
                       if (v != null) setState(() => _currency = v);
