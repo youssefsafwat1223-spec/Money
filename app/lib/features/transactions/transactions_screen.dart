@@ -506,11 +506,12 @@ class _ActiveAccountPicker extends ConsumerWidget {
                   onTap: () async {
                     HapticFeedback.selectionClick();
                     Navigator.of(context).pop();
+                    // F-020: viewing an account is UI/filter state only — it
+                    // must NOT call setDefault() (persistent preference +
+                    // server command). The explicit make-default action lives
+                    // in the account form sheet.
                     container.read(activeAccountIdProvider.notifier).state =
                         account.id;
-                    await container
-                        .read(accountRepositoryProvider)
-                        .setDefault(account.id);
                     container.invalidate(accountsProvider);
                     container.invalidate(baseCurrencyProvider);
                     container.invalidate(transactionsListProvider);

@@ -122,14 +122,15 @@ class _AccountPicker extends ConsumerWidget {
                   onTap: () async {
                     HapticFeedback.selectionClick();
                     Navigator.of(context).pop();
+                    // F-020: viewing an account is UI/filter state only. It
+                    // must NOT call setDefault() — that rewrites the persistent
+                    // default and enqueues a server command on every browse.
+                    // The explicit make-default action lives in the account
+                    // form sheet. No explicit invalidate: the active-account
+                    // change already rebuilds accounts/baseCurrency, and
+                    // invalidating would blank them (flicker).
                     container.read(activeAccountIdProvider.notifier).state =
                         account.id;
-                    await container
-                        .read(accountRepositoryProvider)
-                        .setDefault(account.id);
-                    // No explicit invalidate: setDefault ticks dbRevision and
-                    // the active-account change already rebuilds accounts/
-                    // baseCurrency, and invalidating would blank them (flicker).
                     onChanged?.call();
                   },
                 ),
