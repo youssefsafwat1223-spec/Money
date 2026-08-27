@@ -1,9 +1,14 @@
 file:///Users/youssef/Documents/Money/app/.dart_tool/package_config.json
+file:///Users/youssef/Documents/Money/app/lib/domain/finance/currency_scale.dart
+file:///Users/youssef/Documents/Money/app/lib/domain/finance/decimal_minor.dart
+file:///Users/youssef/Documents/Money/app/lib/domain/finance/money.dart
+file:///Users/youssef/Documents/Money/app/lib/domain/finance/money_input.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/models/parsed_transaction.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/models/transaction_source.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/models/transaction_type.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/parser/amount_candidate.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/parser/bank_profile.dart
+file:///Users/youssef/Documents/Money/app/lib/engine/parser/catalog_rule_matcher.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/parser/normalizer.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/parser/parse_result.dart
 file:///Users/youssef/Documents/Money/app/lib/engine/parser/parser_engine.dart

@@ -1,0 +1,46 @@
+[
+  {
+    "name": "alrajhi-purchase-rule-match",
+    "isTransaction": true,
+    "catalogRuleId": "rule-rajhi-debit",
+    "amount": 350.0,
+    "currency": "SAR",
+    "type": "payment",
+    "merchant": "STARBUCKS COFFEE بتاريخ 16/06/2026",
+    "balanceAfter": 4250.0,
+    "parseConfidence": 0.95
+  },
+  {
+    "name": "d360-credit-rule-match",
+    "isTransaction": true,
+    "catalogRuleId": "rule-d360-credit",
+    "amount": 1000.0,
+    "currency": "SAR",
+    "type": "income",
+    "merchant": null,
+    "balanceAfter": null,
+    "parseConfidence": 0.95
+  },
+  {
+    "name": "sender-mismatch-heuristic-fallback",
+    "isTransaction": true,
+    "catalogRuleId": null,
+    "amount": 75.5,
+    "currency": "SAR",
+    "type": "payment",
+    "merchant": null,
+    "balanceAfter": null,
+    "parseConfidence": 0.7
+  },
+  {
+    "name": "otp-ignored",
+    "isTransaction": false,
+    "catalogRuleId": null,
+    "amount": null,
+    "currency": null,
+    "type": null,
+    "merchant": null,
+    "balanceAfter": null,
+    "parseConfidence": null
+  }
+]
