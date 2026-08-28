@@ -329,3 +329,42 @@ test("C-2a: PATCH selects the fields the guard needs to judge blocking", () => {
     assert.match(select[1], new RegExp(`\\b${field}\\b`), `stored row must include ${field}`);
   }
 });
+
+test("C-2a-2: an arming PATCH is routed to the audited RPC, never the generic update", () => {
+  const route = read("app/api/announcements/route.ts");
+  const patchBody = route.slice(route.indexOf("export async function PATCH"));
+  assert.match(
+    patchBody,
+    /const isArming\s*=\s*\n?\s*blocksClients\(\{ \.\.\.stored, \.\.\.payload \}\) && !blocksClients\(stored\)/,
+    "the route must detect the arming TRANSITION itself",
+  );
+  assert.match(
+    patchBody,
+    /supabase\.rpc\(\s*\n?\s*"arm_force_update"/,
+    "arming must go through the SECURITY DEFINER RPC that audits + sets the sentinel",
+  );
+  assert.match(
+    patchBody,
+    /force_update_arm_reason_required/,
+    "an arm must carry a reason for the audit row",
+  );
+});
+
+test("C-2a-2: a missing RPC fails CLOSED — it must not fall back", () => {
+  // A fallback to the generic update would silently restore the unaudited path
+  // the RPC exists to replace, and it would do so exactly when the database
+  // protection is absent — the worst possible moment.
+  const route = read("app/api/announcements/route.ts");
+  const armStart = route.indexOf("if (isArming)");
+  const armBlock = route.slice(
+    armStart,
+    route.indexOf("const { data, error } = await supabase", armStart),
+  );
+  assert.match(armBlock, /force_update_arming_unavailable/);
+  assert.match(armBlock, /503/, "an undeployed migration is a service state, not a bad request");
+  assert.doesNotMatch(
+    armBlock,
+    /\.update\(payload\)/,
+    "the arm path must never fall through to the generic update",
+  );
+});

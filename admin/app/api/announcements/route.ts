@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth-guard";
-import { validateAnnouncementPublish } from "@/lib/announcement-guard.mjs";
+import { blocksClients, validateAnnouncementPublish } from "@/lib/announcement-guard.mjs";
 import { createAdminClient } from "@/lib/supabase-server";
 
 type AnnouncementPayload = {
   id?: string;
   /** F-017 — required (true) only when arming a force-update. Not persisted. */
   confirm_force_update?: boolean;
+  arm_reason?: string;
   title_ar: string;
   title_en: string;
   body_ar?: string | null;
@@ -128,6 +129,58 @@ export async function PATCH(req: NextRequest) {
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: 400 });
   }
+
+  // C-2a-2 — an ARMING write does not go through the generic update path. It is
+  // routed to `arm_force_update()`, which audits and mutates in one transaction
+  // under a transaction-local sentinel; a database trigger refuses any arming
+  // that arrives without it. That is the layer a direct PostgREST caller cannot
+  // step around, which a request-body boolean never was.
+  const isArming =
+    blocksClients({ ...stored, ...payload }) && !blocksClients(stored);
+
+  if (isArming) {
+    const reason =
+      typeof body.arm_reason === "string" && body.arm_reason.trim().length >= 4
+        ? body.arm_reason.trim()
+        : null;
+    if (!reason) {
+      return NextResponse.json(
+        { error: "force_update_arm_reason_required" },
+        { status: 400 },
+      );
+    }
+    // Persist every non-arming field first, so copy/window edits made in the
+    // same submit are not silently dropped; the RPC then performs the arm.
+    const { error: preError } = await supabase
+      .from("announcements")
+      .update({ ...payload, is_active: stored.is_active })
+      .eq("id", body.id);
+    if (preError) {
+      return NextResponse.json({ error: preError.message }, { status: 500 });
+    }
+
+    const { data: armed, error: armError } = await supabase.rpc(
+      "arm_force_update",
+      { p_announcement_id: body.id, p_reason: reason },
+    );
+    if (armError) {
+      // Fail CLOSED and say so plainly. Falling back to the generic update here
+      // would silently restore exactly the unaudited path this replaces.
+      const undeployed = /function .*arm_force_update.* does not exist/i.test(
+        armError.message ?? "",
+      );
+      return NextResponse.json(
+        {
+          error: undeployed
+            ? "force_update_arming_unavailable: migration 0089 is not applied"
+            : armError.message,
+        },
+        { status: undeployed ? 503 : 500 },
+      );
+    }
+    return NextResponse.json({ announcement: armed });
+  }
+
   const { data, error } = await supabase
     .from("announcements")
     .update(payload)
