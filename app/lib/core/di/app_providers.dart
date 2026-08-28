@@ -1022,7 +1022,14 @@ final notificationLogServiceProvider = Provider<NotificationLogService>((ref) {
 
 final notificationLogSyncServiceProvider =
     Provider<NotificationLogSyncService>((ref) {
-  return NotificationLogSyncService(db: ref.watch(appDatabaseProvider));
+  return NotificationLogSyncService(
+    db: ref.watch(appDatabaseProvider),
+    // C-3 — telemetry about the user's notifications.
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.telemetry),
+  );
 });
 
 final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {

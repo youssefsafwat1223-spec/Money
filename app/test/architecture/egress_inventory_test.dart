@@ -32,6 +32,8 @@ void main() {
         'EgressClass.financialSync — money',
     'features/capture/services/ledger_push_service.dart':
         'EgressClass.financialSync — money',
+    'features/capture/services/notification_log_sync_service.dart':
+        'EgressClass.telemetry — notification delivery/open events',
     'core/backup/supabase_remote_backup_store.dart':
         'EgressClass.backup — gated by its CALLER, RemoteBackupController',
     'core/backup/encrypted_backup_service.dart':
@@ -62,10 +64,9 @@ void main() {
             'feature flags and the force-update kill switch. Gating it would '
             'disable safety controls for the most privacy-conscious users.',
     'data/catalog/merchant_feedback_client.dart':
-        'OPEN (C-3 remainder): merchant feedback is user-derived and should be '
-            'gated on EgressClass.aiProcessing.',
-    'features/capture/services/notification_log_sync_service.dart':
-        'OPEN (C-3 remainder): EgressClass.telemetry.',
+        'OPEN (C-3 remainder): user-derived merchant keywords, belongs on '
+            'EgressClass.aiProcessing. Currently UNWIRED — no caller exists in '
+            'lib/, so it cannot leak today; gate it when it is wired.',
     'features/capture/services/smart_inbox_sync_service.dart':
         'OPEN (C-3 remainder): EgressClass.smartInbox. Its pull gate is a '
             'hardcoded () => true.',

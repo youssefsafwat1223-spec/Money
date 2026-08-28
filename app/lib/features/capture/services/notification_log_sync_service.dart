@@ -25,12 +25,19 @@ class NotificationLogSyncService {
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
     Future<String> Function()? getInstallId,
+    /// C-3 — notification delivery/open events are telemetry about the user.
+    /// Defaults to DENY so a caller that forgets it produces no egress.
+    Future<bool> Function()? mayEgress,
   })  : _db = db,
+        _mayEgress = mayEgress ?? _denyEgressByDefault,
         _getClient = getClient ?? (() => Supabase.instance.client),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getInstallId = getInstallId ?? InstallId.get;
 
+  static Future<bool> _denyEgressByDefault() async => false;
+
   final AppDatabase _db;
+  final Future<bool> Function() _mayEgress;
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
   final Future<String> Function() _getInstallId;
@@ -57,6 +64,9 @@ class NotificationLogSyncService {
   /// notification_log_id is never upserted after a later 'sent'/'opened'
   /// event for the same id — see the ordering note on [_syncBatch].
   Future<void> sync() async {
+    // C-3 — these are delivery/open events about the user's notifications:
+    // telemetry, not something the app needs to function. Read fresh at egress.
+    if (!await _mayEgress()) return;
     try {
       await _importNativeEvents();
     } catch (error) {
