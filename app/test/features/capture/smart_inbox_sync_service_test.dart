@@ -103,6 +103,10 @@ SmartInboxSyncService _svc(
         tombstoneRows: tombstoneRows,
       ),
       pageSize: pageSize,
+    
+      // C-3: these cover sync MECHANICS; consent enforcement is asserted
+      // separately. See egress_inventory_test.dart.
+      mayEgress: () async => true,
     );
 
 Future<List<Map<String, dynamic>>> _allLocalRows(AppDatabase db) async {
@@ -308,6 +312,10 @@ void main() {
       isPullEnabled: () => true,
       getAuthUserId: () async => 'user-123',
       remoteSource: fake,
+    
+      // C-3: these cover sync MECHANICS; consent enforcement is asserted
+      // separately. See egress_inventory_test.dart.
+      mayEgress: () async => true,
     );
     await svc.pull(); // seed one open item locally
 
@@ -332,6 +340,10 @@ void main() {
       isPullEnabled: () => true,
       getAuthUserId: () async => 'user-123',
       remoteSource: fake,
+    
+      // C-3: these cover sync MECHANICS; consent enforcement is asserted
+      // separately. See egress_inventory_test.dart.
+      mayEgress: () async => true,
     );
     await svc.pull();
     await DriftSmartInboxRepository(db).resolve('srv-9');
@@ -349,6 +361,10 @@ void main() {
       isPullEnabled: () => true,
       getAuthUserId: () async => 'user-123',
       remoteSource: fake,
+    
+      // C-3: these cover sync MECHANICS; consent enforcement is asserted
+      // separately. See egress_inventory_test.dart.
+      mayEgress: () async => true,
     );
     await svc.pull();
     await DriftSmartInboxRepository(db).dismiss('srv-2');

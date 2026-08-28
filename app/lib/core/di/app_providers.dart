@@ -1073,6 +1073,12 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
   return SmartInboxSyncService(
     db: db,
     isPullEnabled: () => true,
+    // C-3 — Smart Inbox items are user data. `isPullEnabled` above is a FEATURE
+    // gate hardcoded open; consent is a separate question and must be asked.
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.smartInbox),
   );
 });
 

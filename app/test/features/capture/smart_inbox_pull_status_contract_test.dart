@@ -76,7 +76,11 @@ void main() {
         getAuthUserId: () async => signedIn ? 'user-1' : null,
         remoteSource: remote,
         pageSize: pageSize,
-      );
+      
+      // C-3: these cover sync MECHANICS; consent enforcement is asserted
+      // separately. See egress_inventory_test.dart.
+      mayEgress: () async => true,
+    );
 
   test('completed: EOF -> completed + cursor at final high-water', () async {
     final db = await _openDb();

@@ -34,6 +34,9 @@ void main() {
         'EgressClass.financialSync — money',
     'features/capture/services/notification_log_sync_service.dart':
         'EgressClass.telemetry — notification delivery/open events',
+    'features/capture/services/smart_inbox_sync_service.dart':
+        'EgressClass.smartInbox — its isPullEnabled is a FEATURE gate, '
+            'hardcoded open; consent is asked separately',
     'core/backup/supabase_remote_backup_store.dart':
         'EgressClass.backup — gated by its CALLER, RemoteBackupController',
     'core/backup/encrypted_backup_service.dart':
@@ -67,9 +70,6 @@ void main() {
         'OPEN (C-3 remainder): user-derived merchant keywords, belongs on '
             'EgressClass.aiProcessing. Currently UNWIRED — no caller exists in '
             'lib/, so it cannot leak today; gate it when it is wired.',
-    'features/capture/services/smart_inbox_sync_service.dart':
-        'OPEN (C-3 remainder): EgressClass.smartInbox. Its pull gate is a '
-            'hardcoded () => true.',
     'features/planning_sync/services/accounts_pull_service.dart':
         'OPEN + QUARANTINED: financial PULL. The file is in the H-4 quarantine '
             '(see QIRSH_MASTER_PLAN_V2.md §8a), so it cannot be gated until '

@@ -81,13 +81,18 @@ class SmartInboxSyncService {
     required bool Function() isPullEnabled,
     SmartInboxRemoteSource? remoteSource,
     Future<String?> Function()? getAuthUserId,
+    /// C-3 — Smart Inbox items are user data. Defaults to DENY.
+    Future<bool> Function()? mayEgress,
     int pageSize = 200,
   })  : assert(pageSize > 0),
         _db = db,
         _isPullEnabled = isPullEnabled,
         _remoteSource = remoteSource ?? const SupabaseSmartInboxRemoteSource(),
         _pageSize = pageSize,
-        _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
+        _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
+        _mayEgress = mayEgress ?? _denyEgressByDefault;
+
+  static Future<bool> _denyEgressByDefault() async => false;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -100,6 +105,7 @@ class SmartInboxSyncService {
 
   final AppDatabase _db;
   final bool Function() _isPullEnabled;
+  final Future<bool> Function() _mayEgress;
   final SmartInboxRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
@@ -110,6 +116,10 @@ class SmartInboxSyncService {
   /// specialized لصندوق الوارد (server-authored): لا outbox عام ولا محرك ثانٍ —
   /// يستنزف العلم pending_sync ويمسحه بعد النجاح. offline يبقيه للمحاولة التالية.
   Future<int> push() async {
+    // C-3 — Smart Inbox items are user data. `isPullEnabled` is a FEATURE gate
+    // (and was wired to a hardcoded `() => true`); consent is a separate
+    // question, asked fresh at egress.
+    if (!await _mayEgress()) return 0;
     if (!_isPullEnabled()) return 0;
     final userId = await _getAuthUserId();
     if (userId == null) return 0;
@@ -145,6 +155,7 @@ class SmartInboxSyncService {
     SyncCursor? from,
     bool Function()? isAdmitted,
   }) async {
+    if (!await _mayEgress()) return const SmartInboxSyncResult();
     if (!_isPullEnabled()) return const SmartInboxSyncResult();
 
     final userId = await _getAuthUserId();
