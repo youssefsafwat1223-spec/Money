@@ -773,4 +773,646 @@ void main() {
     // tree does not have is worse than no test, because it reports a defect
     // that does not exist in what actually ships.
   });
+  group('accounts planning sync', () {
+    late AppDatabase db;
+
+    setUp(() async {
+      db = await _openDb();
+    });
+
+    tearDown(() async {
+      await db.close();
+    });
+
+    test('account pull request shape and exact nullable money decoding', () {
+      expect(accountsPullSelect,
+          contains('initial_balance_text:initial_balance::text'));
+      expect(accountsPullSelect,
+          contains('current_balance_text:current_balance::text'));
+      expect(
+          accountsPullSelect, contains('credit_limit_text:credit_limit::text'));
+      expect(accountsPullSelect,
+          contains('available_credit_text:available_credit::text'));
+      expect(accountsPullOrderColumns, ['updated_at', 'id']);
+
+      final filter = accountsPullKeysetFilter(
+        const SyncCursor(updatedAt: '2026-01-01T00:00:00Z', id: 'account-1'),
+      );
+      expect(filter, contains('updated_at.gt.'));
+      expect(filter, contains('updated_at.eq.'));
+      expect(filter, contains('id.gt.account-1'));
+      expect(filter, isNot(contains('_text')),
+          reason: 'keyset cursors must use original server columns');
+
+      final money = deserializeAccountsPullMoney({
+        'currency': 'JPY',
+        'initial_balance_text': '9007199254740999',
+        'current_balance_text': null,
+        'credit_limit_text': '9007199254740998',
+        'available_credit_text': null,
+      });
+      expect(money.initialBalanceMoney, Money(9007199254740999, 'JPY'));
+      expect(money.currentBalanceMoney, isNull);
+      expect(money.creditLimitMoney, Money(9007199254740998, 'JPY'));
+      expect(money.availableCreditMoney, isNull);
+    });
+
+    test('planning_accounts_sync OFF does not queue local account writes',
+        () async {
+      final repo = DriftAccountRepository(
+        db,
+        outboxQueue: _queue(db, enabled: false),
+      );
+
+      final saved = await repo.create(_account('account-off'));
+
+      expect(saved.id, 'account-off');
+      expect(await _outboxCount(db), 0);
+      expect((await repo.getById('account-off'))?.name, 'Main account-off');
+    });
+
+    test('planning_accounts_sync OFF makes push and pull no-op', () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      await DriftAccountRepository(db, outboxQueue: queue)
+          .create(_account('queued-but-off'));
+      expect(await _outboxCount(db), greaterThan(0));
+
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => false,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
+    );
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => false,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      expect((await push.push()).pushed, 0);
+      expect((await pull.pull()).imported, 0);
+      expect(remote.upserts, 0);
+    });
+
+    test('guest user does not queue account writes even when flag is ON',
+        () async {
+      final repo = DriftAccountRepository(
+        db,
+        outboxQueue: _queue(db, enabled: true, userId: null),
+      );
+
+      await repo.create(_account('guest-account'));
+
+      expect(await _outboxCount(db), 0);
+    });
+
+    test('signed-in flag ON queues and pushes account create update delete',
+        () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      final repo = DriftAccountRepository(db, outboxQueue: queue);
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      final account = await repo.create(_account('push-account'));
+      await repo.update(account.copyWith(name: 'Updated'));
+      await repo.create(_account('delete-account'));
+      await repo.delete('delete-account');
+
+      // MALI-052n coalescing: push-account's create+update fold into one create
+      // (latest name); delete-account's create+delete (both offline, never
+      // synced) drop entirely. So exactly one pending row remains.
+      expect(await _outboxCount(db), 1);
+
+      final result = await push.push();
+
+      expect(result.pushed, 1);
+      expect(result.failed, 0);
+      expect(await _outboxCount(db), 0);
+      expect(remote.rowsByLocalId['push-account']?['name'], 'Updated');
+      expect(
+        remote.rowsByLocalId['push-account']?['metadata'],
+        isA<Map<String, dynamic>>().having((value) => value, 'value', isEmpty),
+      );
+      expect(remote.deletes, 0,
+          reason:
+              'delete-account was created+deleted offline → coalesced away');
+    });
+
+    test(
+        'default switch travels via the atomic RPC, never the upsert row '
+        '(MALI-015)', () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      final repo = DriftAccountRepository(db, outboxQueue: queue);
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      await repo.create(_account('acc-a'));
+      await repo.create(_account('acc-b'));
+      await repo.setDefault('acc-b');
+
+      final result = await push.push();
+      expect(result.failed, 0);
+
+      // No upsert row may carry is_default — the partial unique index race
+      // is structurally impossible.
+      for (final row in remote.upsertedRows) {
+        expect(row.containsKey('is_default'), isFalse,
+            reason: 'is_default must never ride the upsert');
+      }
+      // The RPC was invoked and the fake's atomic swap made acc-b the only
+      // default server-side.
+      expect(remote.defaultRpcCalls, isNotEmpty);
+      expect(remote.rowsByLocalId['acc-b']?['is_default'], isTrue);
+      final defaults = remote.rowsByLocalId.values
+          .where((row) => row['is_default'] == true)
+          .length;
+      expect(defaults, 1);
+    });
+
+    test(
+        'deleting the default enqueues the promoted successor '
+        '(fresh devices must not pull a default-less account set)', () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      final repo = DriftAccountRepository(db, outboxQueue: queue);
+      final push = AccountsPushService(
+        db: db,
+        queue: queue,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote,
+      
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      await repo.create(_account('def-a'));
+      await repo.create(_account('def-b'));
+      await repo.setDefault('def-a');
+      await push.push();
+
+      await repo.delete('def-a');
+      final result = await push.push();
+      expect(result.failed, 0);
+      expect(remote.deletes, 1,
+          reason: 'the default-account delete must reach the server');
+
+      // def-a is tombstoned server-side, and the promoted successor's
+      // default flag reached the server via the RPC — exactly one active
+      // default remains. (The DB also seeds its own initial account, so we
+      // assert on the invariant, not a specific account count.)
+      expect(remote.rowsByLocalId['def-a']?['deleted_at'], isNotNull);
+      final activeDefaults = remote.rowsByLocalId.values
+          .where(
+              (row) => row['deleted_at'] == null && row['is_default'] == true)
+          .toList();
+      expect(activeDefaults, hasLength(1),
+          reason: 'fresh devices must pull exactly one default');
+    });
+
+    test('pull imports one account and duplicate pull does not duplicate',
+        () async {
+      final remote = _FakeAccountsRemote();
+      remote.rowsByLocalId['remote-account'] = {
+        'id': 'server-remote-account',
+        'local_id': 'remote-account',
+        'name': 'Remote Account',
+        'currency': 'AED',
+        'type': 'wallet',
+        'initial_balance_text': '10',
+        'current_balance_text': '20',
+        'credit_limit_text': null,
+        'available_credit_text': null,
+        'is_default': false,
+        'sort_order': 4,
+        'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+        'updated_at': DateTime.utc(2026, 7, 4, 1).toIso8601String(),
+        'deleted_at': null,
+      };
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      final first = await pull.pull();
+      final second = await pull.pull();
+
+      expect(first.imported, 1);
+      expect(second.imported, 0);
+      final rows = await db
+          .customSelect(
+            "SELECT * FROM accounts WHERE id = 'remote-account';",
+          )
+          .get();
+      expect(rows.length, 1);
+      expect(rows.single.read<String>('server_id'), 'server-remote-account');
+    });
+
+    test('tombstone hides local account without hard delete', () async {
+      final remote = _FakeAccountsRemote();
+      final repo = DriftAccountRepository(db);
+      await repo.create(_account('tombstone-account'));
+      remote.tombstones.add({
+        'id': 'server-tombstone-account',
+        'local_id': 'tombstone-account',
+        'deleted_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+        'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+      });
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      final result = await pull.pull();
+
+      expect(result.tombstoned, 1);
+      expect(await repo.getById('tombstone-account'), isNull);
+      final row = await db
+          .customSelect(
+            "SELECT deleted_at FROM accounts WHERE id = 'tombstone-account';",
+          )
+          .getSingle();
+      expect(row.readNullable<String>('deleted_at'), isNotNull);
+    });
+
+    test('pull marks local pending edit as conflict', () async {
+      final remote = _FakeAccountsRemote();
+      final repo = DriftAccountRepository(db);
+      await repo.create(_account('conflict-account'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'conflict-account';",
+      );
+      remote.rowsByLocalId['conflict-account'] = {
+        'id': 'server-conflict-account',
+        'local_id': 'conflict-account',
+        'name': 'Remote Edit',
+        'currency': 'SAR',
+        'type': 'bank',
+        'is_default': false,
+        'sort_order': 1,
+        'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+        'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+        'deleted_at': null,
+      };
+
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      final result = await pull.pull();
+
+      expect(result.conflicts, 1);
+      expect(await _accountSyncStatus(db, 'conflict-account'), 'conflict');
+      expect((await repo.getById('conflict-account'))?.name,
+          'Main conflict-account');
+    });
+
+    test('fresh pull paginates 201 equal-timestamp rows and persists last key',
+        () async {
+      final remote = _KeysetAccountsRemote(
+        List.generate(201, _remoteAccountRow),
+      );
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        pageSize: 200,
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      final result = await pull.pull();
+
+      expect(result.imported, 201);
+      expect(remote.requestedAfter, hasLength(2));
+      expect(remote.requestedAfter.first.id, isEmpty,
+          reason: 'a fresh device starts without a durable cursor');
+      expect(
+        await db
+            .customSelect(
+              "SELECT COUNT(*) AS n FROM accounts WHERE id LIKE 'account-%';",
+            )
+            .getSingle()
+            .then((row) => row.read<int>('n')),
+        201,
+      );
+      final cursor = await readSyncCursor(db, 'accounts');
+      expect(cursor.updatedAt, '2026-07-10T00:00:00.000Z');
+      expect(cursor.id, 'server-200');
+    });
+
+    test('an older tombstone is applied before more than one page of actives',
+        () async {
+      await DriftAccountRepository(db).create(_account('victim'));
+      final remote = _KeysetAccountsRemote([
+        {
+          'id': 'server-victim',
+          'local_id': 'victim',
+          'updated_at': '2026-07-11T00:00:00.000Z',
+          'deleted_at': '2026-07-11T00:00:00.000Z',
+        },
+        ...List.generate(
+          5,
+          (index) => _remoteAccountRow(
+            index,
+            updatedAt: '2026-07-12T00:00:00.000Z',
+          ),
+        ),
+      ]);
+      final result = await AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        pageSize: 2,
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    ).pull();
+
+      expect(result.tombstoned, 1);
+      expect(remote.requestedAfter.length, 4,
+          reason: 'an exact final page is followed by one empty page');
+      final victim = await db
+          .customSelect("SELECT deleted_at FROM accounts WHERE id = 'victim';")
+          .getSingle();
+      expect(victim.readNullable<String>('deleted_at'), isNotNull);
+    });
+
+    test('failed page rolls back row writes and cursor, then retries cleanly',
+        () async {
+      final first = _remoteAccountRow(0);
+      final broken = _remoteAccountRow(1)
+        ..['initial_balance_text'] = 'not-a-number';
+      final remote = _KeysetAccountsRemote([first, broken]);
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        pageSize: 2,
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+      await pull.pull();
+
+      expect(
+        await db
+            .customSelect(
+              "SELECT COUNT(*) AS n FROM accounts WHERE id IN ('account-000', 'account-001');",
+            )
+            .getSingle()
+            .then((row) => row.read<int>('n')),
+        0,
+      );
+      expect(
+        await db
+            .customSelect(
+              "SELECT entity FROM sync_cursors WHERE entity = 'accounts';",
+            )
+            .getSingleOrNull(),
+        isNull,
+      );
+
+      broken['initial_balance_text'] = '1';
+      final retried = await pull.pull();
+
+      expect(retried.imported, 2);
+      expect(
+        await db
+            .customSelect(
+              "SELECT COUNT(*) AS n FROM accounts WHERE id IN ('account-000', 'account-001');",
+            )
+            .getSingle()
+            .then((row) => row.read<int>('n')),
+        2,
+      );
+      expect((await readSyncCursor(db, 'accounts')).id, 'server-001');
+    });
+
+    // MALI-034: the vestigial Routed* wrapper was removed; the provider now
+    // returns the Drift-backed repository directly (offline-first; sync is
+    // background-only via outbox/push/pull).
+    test('accountRepositoryProvider returns the Drift-backed repository',
+        () async {
+      final container = ProviderContainer(
+        overrides: [appDatabaseProvider.overrideWithValue(db)],
+      );
+      addTearDown(container.dispose);
+
+      final repo = container.read(accountRepositoryProvider);
+
+      expect(repo, isA<DriftAccountRepository>());
+    });
+
+    // ── F-021 — conflict requires evidence of real divergence ───────────────
+    // QA evidence (demo stack, 2026-08-26/27): the blind pending→conflict rule
+    // froze three accounts whose content matched the server byte-for-byte; the
+    // only differences were default-flag churn and a NULL↔0.00 initial-balance
+    // representation artifact from card-account form saves.
+
+    // The server row mirrors _account(): identical content, exact money.
+    Map<String, dynamic> matchingServerRow(String localId,
+            {String? initialText = '100.00', String updatedAt = ''}) =>
+        {
+          'id': 'server-$localId',
+          'local_id': localId,
+          'name': 'Main $localId',
+          'currency': 'SAR',
+          'type': 'bank',
+          'initial_balance_text': initialText,
+          'current_balance_text': '100.00',
+          'credit_limit_text': null,
+          'available_credit_text': null,
+          'bank_account_number': null,
+          'payment_due_day': null,
+          'wallet_provider': null,
+          'exclude_from_totals': false,
+          'is_default': false,
+          'sort_order': 1,
+          'revision': 7,
+          'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+          'updated_at': updatedAt.isEmpty
+              ? DateTime.utc(2026, 7, 9).toIso8601String()
+              : updatedAt,
+          'deleted_at': null,
+        };
+
+    AccountsPullService pullService(_FakeAccountsRemote remote) =>
+        AccountsPullService(
+          db: db,
+          isEnabled: () => true,
+          getAuthUserId: () async => 'user-1',
+          remoteSource: remote,
+        
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
+
+    test('F-021: pending with IDENTICAL server content is NOT a conflict — '
+        'the base is re-proved and the row stays pending', () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('same-content'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'same-content';",
+      );
+      remote.rowsByLocalId['same-content'] = matchingServerRow('same-content');
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0);
+      expect(await _accountSyncStatus(db, 'same-content'), 'pending',
+          reason: 'the unsent local edit must stay deliverable');
+      final row = await db
+          .customSelect(
+              "SELECT server_id, server_revision FROM accounts WHERE id = 'same-content';")
+          .getSingle();
+      expect(row.data['server_id'], 'server-same-content',
+          reason: 'the server base must be re-proved');
+      expect(row.data['server_revision'], 7);
+    });
+
+    test('F-021: pending with a ONE-MINOR-UNIT money difference IS a conflict',
+        () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('one-minor'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'one-minor';",
+      );
+      remote.rowsByLocalId['one-minor'] = {
+        ...matchingServerRow('one-minor'),
+        'current_balance_text': '100.01',
+      };
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 1);
+      expect(await _accountSyncStatus(db, 'one-minor'), 'conflict');
+    });
+
+    test('F-021: an evidence-less conflict flag demotes back to pending',
+        () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('stale-flag'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'conflict' WHERE id = 'stale-flag';",
+      );
+      remote.rowsByLocalId['stale-flag'] = matchingServerRow('stale-flag');
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0);
+      expect(await _accountSyncStatus(db, 'stale-flag'), 'pending');
+    });
+
+    test('F-021: initial_balance NULL vs server 0.00 is a representation '
+        'artifact, not divergence (scoped to that field only)', () async {
+      final remote = _FakeAccountsRemote();
+      final base = _account('null-vs-zero');
+      await DriftAccountRepository(db).create(AccountEntity(
+        id: base.id,
+        name: 'Main null-vs-zero',
+        currency: 'SAR',
+        type: AccountType.card,
+        isDefault: false,
+        sortOrder: 1,
+        createdAt: base.createdAt,
+        updatedAt: base.updatedAt,
+        initialBalanceMoney: null, // the historical card-save normalization
+        currentBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
+      ));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'null-vs-zero';",
+      );
+      remote.rowsByLocalId['null-vs-zero'] = {
+        ...matchingServerRow('null-vs-zero', initialText: '0.00'),
+        'name': 'Main null-vs-zero',
+        'type': 'card',
+      };
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0,
+          reason: 'neither side edited the field — NULL and 0.00 are the same '
+              'absent starting balance');
+      expect(await _accountSyncStatus(db, 'null-vs-zero'), 'pending');
+    });
+
+    test('F-021: a default-flag difference alone is NOT content divergence — '
+        'the dedicated RPC channel owns is_default', () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('default-flip'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'default-flip';",
+      );
+      remote.rowsByLocalId['default-flip'] = {
+        ...matchingServerRow('default-flip'),
+        'is_default': true, // server default moved; content untouched
+      };
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0);
+      expect(await _accountSyncStatus(db, 'default-flip'), 'pending');
+    });
+  });
 }

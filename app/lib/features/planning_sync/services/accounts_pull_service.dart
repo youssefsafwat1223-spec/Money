@@ -258,10 +258,26 @@ class AccountsPullService {
     if (existing != null) {
       final localId = existing.id;
       final syncStatus = existing.syncStatus;
-      if (syncStatus == 'conflict') return _AccountPullOutcome.conflict;
-      if (syncStatus == 'pending') {
-        await _markConflict(localId);
-        return _AccountPullOutcome.conflict;
+      // F-021 — `pending` must NOT automatically mean `conflict`. A conflict
+      // requires positive evidence that the remote row diverged from the local
+      // one; without it the pull only re-proves the server base (below) and
+      // keeps the unsent local edit deliverable. A `conflict` row is re-checked
+      // the same way, so a flag raised without evidence demotes back to
+      // `pending` instead of freezing the account forever.
+      if (syncStatus == 'pending' || syncStatus == 'conflict') {
+        final diverged = await _serverDivergedFromLocal(localId, row);
+        if (diverged) {
+          if (syncStatus != 'conflict') await _markConflict(localId);
+          return _AccountPullOutcome.conflict;
+        }
+        await _refreshServerProofKeepingPending(
+          localId,
+          serverId: serverId,
+          serverUpdatedAt: serverUpdatedAt,
+          serverRevision: serverRevision,
+          now: now,
+        );
+        return _AccountPullOutcome.skipped;
       }
 
       // No-op when unchanged since the last sync — avoids re-writing every
@@ -436,6 +452,80 @@ class AccountsPullService {
       index._add(_AccountMeta.fromRow(r));
     }
     return index;
+  }
+
+  /// F-021 — evidence-based divergence test between the local row and the
+  /// server row, over exactly the content fields the pull/push contract moves.
+  /// Money compares as exact integer minor units — never a double.
+  ///
+  /// Deliberate exclusions, mirroring the push contract:
+  ///  * `is_default` — owned by the dedicated default-account RPC channel
+  ///    (MALI-015 strips it from the upsert row; MALI-055n reconciles it), so a
+  ///    mid-flight default flip is not content divergence.
+  ///  * `initial_balance` NULL ≡ 0 — the app itself treats an absent and a zero
+  ///    starting balance as the same state (account_form_sheet
+  ///    `_hasNonZeroBalance`), and historical card-account saves persisted the
+  ///    zero as NULL, so the pair is a representation artifact, not an edit.
+  ///    The equivalence is scoped to this one field.
+  Future<bool> _serverDivergedFromLocal(
+    String localId,
+    Map<String, dynamic> row,
+  ) async {
+    final local = await _db.customSelect(
+      'SELECT name, currency, type, initial_balance_minor, '
+      'current_balance_minor, credit_limit_minor, available_credit_minor, '
+      'bank_account_number, payment_due_day, wallet_provider, '
+      'exclude_from_totals, sort_order '
+      'FROM accounts WHERE id = ${sqlString(localId)};',
+    ).getSingleOrNull();
+    // No local row to compare against ⇒ no evidence of divergence.
+    if (local == null) return false;
+
+    final money = deserializeAccountsPullMoney(row);
+    int? minor(Money? m) => m?.minorUnits;
+
+    bool differs(String column, Object? serverValue) =>
+        local.data[column] != serverValue;
+
+    final localInitial = (local.data['initial_balance_minor'] as int?) ?? 0;
+    final serverInitial = minor(money.initialBalanceMoney) ?? 0;
+
+    return differs('name', row['name'] as String? ?? 'Account') ||
+        differs('currency', row['currency'] as String? ?? 'SAR') ||
+        differs('type', row['type'] as String? ?? 'bank') ||
+        localInitial != serverInitial ||
+        differs('current_balance_minor', minor(money.currentBalanceMoney)) ||
+        differs('credit_limit_minor', minor(money.creditLimitMoney)) ||
+        differs(
+            'available_credit_minor', minor(money.availableCreditMoney)) ||
+        differs('bank_account_number', row['bank_account_number'] as String?) ||
+        differs('payment_due_day', (row['payment_due_day'] as num?)?.toInt()) ||
+        differs('wallet_provider', row['wallet_provider'] as String?) ||
+        differs(
+            'exclude_from_totals', (row['exclude_from_totals'] == true) ? 1 : 0) ||
+        differs('sort_order', (row['sort_order'] as num?)?.toInt() ?? 0);
+  }
+
+  /// F-021 — re-proves the server base of a row that still holds an unsent
+  /// local edit: adopts the server identity/proof columns WITHOUT touching any
+  /// content field, and leaves the row `pending` so the push still knows it has
+  /// something to send. Demotes an evidence-less `conflict` back to `pending`.
+  Future<void> _refreshServerProofKeepingPending(
+    String localId, {
+    required String serverId,
+    required String? serverUpdatedAt,
+    required int? serverRevision,
+    required String now,
+  }) async {
+    await _db.customStatement('''
+      UPDATE accounts
+      SET server_id = ${sqlString(serverId)},
+          server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+          server_revision = ${sqlNullableNum(serverRevision)},
+          synced_at = ${sqlString(now)},
+          sync_status = 'pending'
+      WHERE id = ${sqlString(localId)};
+    ''');
   }
 
   Future<void> _markConflict(String localId) async {
