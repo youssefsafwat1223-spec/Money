@@ -76,6 +76,11 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 | `6e13f44f` | **F-032** canonical `card_id` + never-guess backfill (OD-02) | **VERIFIED** (client half) |
 | `f3fd86ce` | **F-028** like-with-like week comparison | **VERIFIED** |
 | `2c70cb73` | **F-023 + F-022** one gamification vocabulary (OD-03) | **VERIFIED** (client half) |
+| `39c199cb` `cee2d4ef` | **C-6** atomic guarded update (accounts + ledger) | **VERIFIED** |
+| `2ad082ef` | **F-015** merchant boundary, both paths + the AMAZON truncation | **VERIFIED** |
+| `f68af055` | **F-029** server-side detection view (no guessing repair) | **FIXED LOCALLY** |
+| `9b62839b` | **R-1** egress inventory — no new network call without a consent decision | **VERIFIED** |
+| `6e7d8d93` `12560909` | **C-3** telemetry + Smart Inbox gated | **VERIFIED** |
 
 **Owner decisions OD-01…OD-11 received and applied.** See `QIRSH_AI_ARCHITECTURE.md` for OD-11 and
 `QIRSH_RELEASE_TRACK.md` for OD-06.
@@ -91,7 +96,7 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 | **F-016 / F-014 / F-020 / F-029** | **VERIFIED** | landed with review changes applied |
 | **F-021** | **partially landed** | form half VERIFIED; pull half OPEN |
 | **C-5** privacy/terms URLs | **BLOCKED — EXTERNAL** | NXDOMAIN. Per OD-06 the policy text is authored after Phase D so it describes *enforced* behaviour; the hosting step is the owner's. |
-| **C-3** | **PARTIALLY FIXED — still OPEN** | 5 egress paths gated. **Financial PULL, `user_settings` PII, Smart Inbox, gamification, notification logs, activity ping, metrics and `enrich-merchant` remain ungated**; four of those services are in the H-4 quarantine. |
+| **C-3** | **PARTIALLY FIXED — still OPEN** | **7 of 12 egress paths gated** (financial push, sender→bank, backup, diagnostics, telemetry, Smart Inbox). 1 exempt (catalog — no user data, carries the kill switches). **4 open: 3 are the financial PULL services in the H-4 quarantine and cannot be gated until it lands; 1 (`MerchantFeedbackClient`) is UNWIRED and cannot leak today.** `R-1`'s inventory test now fails on any new ungated egress. |
 | **C-10** | **FIXED LOCALLY** | server no longer treats a partial rollout as fully enabled |
 | **F-021-pull / C-6 / F-029-repair / F-024 / F-015 / F-034 / F-011-admin** | **OPEN** | Phases E, H |
 | **F-032 · F-023+F-022** | **client half FIXED** | server-side `card_id` on `user_cards`/`user_transactions`, and server-authoritative gamification with a versioned shared catalog, both still require server work |
