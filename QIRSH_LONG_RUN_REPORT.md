@@ -162,10 +162,36 @@ UX programme.
 
 ---
 
-## 13. TESTS RUN
+## 13. TESTS RUN — FINAL, ALL AT COMMITTED HEAD
 
-| Gate | Result |
-|---|---|
+| Gate | Result | Where |
+|---|---|---|
+| `flutter analyze` | **clean** | committed HEAD, detached worktree |
+| Full Flutter suite | **2344 pass / 1 skip / 0 fail** | committed HEAD, detached worktree, nothing else running |
+| Full Flutter suite | **2620 pass / 0 fail** | working tree (includes quarantined code) |
+| Admin `node --test` | **90 pass / 0 fail** | |
+| `tsc --noEmit` | **clean** | |
+| SQL/migration contract | **228 pass / 0 fail / 70 skipped** | 70 are credential-gated live tests |
+| Deno (Edge) | **9 pass / 0 fail** | |
+
+The HEAD and working-tree counts differ by design: the working tree contains the
+quarantined implementations (H-4, F-021 pull, NEW-H-3, backup overhaul) and their
+tests; HEAD does not.
+
+### Why every claim is measured at HEAD
+Working-tree gates proved actively misleading three separate times this run:
+
+1. during the partition they passed while the committed tree did not compile
+   (7 errors);
+2. mid-run edits silently invalidated three long suites (and two concurrent
+   suites tripped an OS advisory lock in `database_process_liveness_test`);
+3. twice, quarantined tests were committed without their implementation — green
+   locally, red at HEAD.
+
+Cause 3 is now blocked mechanically by `quarantine_coherence_test`, which was
+verified to FAIL when the implementation symbol is removed.
+
+---|---|
 | `flutter analyze` (working tree) | **clean** |
 | `flutter analyze` (**committed HEAD**, detached worktree) | **clean** |
 | Full Flutter suite | **2537 pass / 1 skip / 1 fail** — the single failure is the known load-flaky perf test (`migration_converter_fixture_test`), which **passes standalone** |
