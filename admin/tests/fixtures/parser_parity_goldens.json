@@ -6,7 +6,7 @@
     "amount": 350.0,
     "currency": "SAR",
     "type": "payment",
-    "merchant": "STARBUCKS COFFEE بتاريخ 16/06/2026",
+    "merchant": "STARBUCKS COFFEE",
     "balanceAfter": 4250.0,
     "parseConfidence": 0.95
   },

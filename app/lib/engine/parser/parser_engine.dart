@@ -194,7 +194,20 @@ class ParserEngine {
 
     final source = _detectSource(lower, bank);
     final merchantResult = _extractMerchantAndSource(lines, bank: bank);
-    final merchant = catalogMatch?.merchant ?? merchantResult.merchant;
+    // F-015 — a rule-captured merchant passes through the SAME cleaner as the
+    // heuristic one. All 12 seeded catalog rules capture the merchant greedily
+    // to end of line, so accepting the raw capture put the trailing date clause
+    // into every rule-matched merchant.
+    //
+    // Normalisation belongs in the engine, not in each rule's regex: the rules
+    // are admin-authored DATA, and requiring every future author to get the
+    // boundary right is exactly how all twelve got it wrong. The rule remains
+    // the extraction authority; the engine only trims the boundary.
+    final ruleMerchant = catalogMatch?.merchant;
+    final merchant = (ruleMerchant != null
+            ? _cleanMerchant(ruleMerchant) ?? ruleMerchant
+            : null) ??
+        merchantResult.merchant;
     if (catalogMatch == null &&
         type == TransactionType.payment &&
         _looksLikeBankAtmCardTransaction(
@@ -787,7 +800,15 @@ class ParserEngine {
     // تنظيف لاحقات/علامات شائعة.
     value = value
         .replaceAll(
-            RegExp(r'(?:في|on|يوم|الساعه|الساعة)(?:\s|$).*$',
+            // F-015: `بتاريخ` ("on date") is the form the Saudi and Egyptian
+            // banks actually use, and it was missing here — so the date rode
+            // into the merchant name and then into categorisation.
+            //
+            // F-015b: the clause must START at a word boundary. Without the
+            // leading `(?:^|\s)` this alternation matched the "ON" inside
+            // "AMAZON" and truncated the merchant to "AMAZ" — silently, in
+            // shipped code, for one of the most common merchants there is.
+            RegExp(r'(?:^|\s)(?:بتاريخ|في|on|يوم|الساعه|الساعة)(?:\s|$).*$',
                 caseSensitive: false),
             '')
         .replaceAll(
