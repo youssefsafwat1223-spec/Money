@@ -503,6 +503,12 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
     isEnabled: _planningAccountsSyncEnabled,
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
+    // C-3 — money must not leave the device without cloud consent. Read fresh
+    // per push so a revocation is observed by the next drain, not the next boot.
+    mayEgress: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+              .getSettings(),
+        ).allows(EgressClass.financialSync),
   );
 });
 
@@ -612,6 +618,12 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
     isPushEnabled: () => true,
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
+    // C-3 — money must not leave the device without cloud consent. Read fresh
+    // per push so a revocation is observed by the next drain, not the next boot.
+    mayEgress: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+              .getSettings(),
+        ).allows(EgressClass.financialSync),
   );
 });
 

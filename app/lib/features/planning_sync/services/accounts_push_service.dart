@@ -226,7 +226,11 @@ class AccountsPushService {
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
+    /// C-3 — consulted at the moment of egress. Defaults to DENY so a caller
+    /// that forgets it gets no network.
+    Future<bool> Function()? mayEgress,
   })  : _db = db,
+        _mayEgress = mayEgress ?? _denyEgressByDefault,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
@@ -240,6 +244,7 @@ class AccountsPushService {
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
+  final Future<bool> Function() _mayEgress;
   final bool Function() _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final AccountsRemoteSink _remoteSink;
@@ -260,7 +265,13 @@ class AccountsPushService {
     }
   }
 
+  static Future<bool> _denyEgressByDefault() async => false;
+
   Future<AccountsPushResult> push() async {
+    // C-3 — money must not leave the device without cloud consent. This is the
+    // headline of F-025: the privacy screen promises the switch disables
+    // synchronisation, and it did not.
+    if (!await _mayEgress()) return const AccountsPushResult();
     if (!_isEnabled()) return const AccountsPushResult();
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPushResult();

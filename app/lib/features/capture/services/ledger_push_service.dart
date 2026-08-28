@@ -57,6 +57,8 @@ class LedgerPushService implements LedgerPushAdapter {
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
+    /// C-3 — consulted at the moment of egress; defaults to DENY.
+    Future<bool> Function()? mayEgress,
   })  : _db = db,
         _queue = queue,
         _isPushEnabled = isPushEnabled,
@@ -64,7 +66,8 @@ class LedgerPushService implements LedgerPushAdapter {
         _getClient = getClient ?? _defaultGetClient,
         _revisionCasEnabled = revisionCasEnabled,
         _coordinator = coordinator,
-        _pushCapability = pushCapability;
+        _pushCapability = pushCapability,
+        _mayEgress = mayEgress ?? _denyEgressByDefault;
 
   static ExactTransportCapability _defaultPushCapability() =>
       ExactTransportCapability.unknown;
@@ -82,6 +85,7 @@ class LedgerPushService implements LedgerPushAdapter {
 
   final AppDatabase _db;
   final LedgerOutboxQueue _queue;
+  final Future<bool> Function() _mayEgress;
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
   final SupabaseClient Function() _getClient;
@@ -94,8 +98,12 @@ class LedgerPushService implements LedgerPushAdapter {
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
 
+  static Future<bool> _denyEgressByDefault() async => false;
+
   @override
   Future<LedgerPushResult> push() async {
+    // C-3 — transactions are money. Without cloud consent they stay on device.
+    if (!await _mayEgress()) return const LedgerPushResult();
     if (!_isPushEnabled()) return const LedgerPushResult();
 
     final userId = await _getAuthUserId();
