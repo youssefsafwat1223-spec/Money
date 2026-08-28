@@ -15,6 +15,7 @@ import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
+import '../privacy/consent_authority.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
@@ -453,6 +454,11 @@ void _startSenderBankMappingSync(
     db: database,
     remoteStore: SupabaseSenderBankMappingRemoteStore(client),
     currentUserId: () => client.auth.currentUser?.id,
+    // C-3 — same gate as the provider construction site. Startup is exactly
+    // where an ungated sync would run before any UI could reflect consent.
+    mayEgress: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(database).getSettings(),
+        ).allows(EgressClass.senderBankMappings),
   );
   unawaited(service.sync());
   client.auth.onAuthStateChange.listen((state) {

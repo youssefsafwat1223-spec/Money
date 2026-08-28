@@ -97,16 +97,25 @@ class SenderBankMappingSyncService {
     required AppDatabase db,
     required SenderMappingRemoteStore remoteStore,
     required String? Function() currentUserId,
+    /// C-3 — consulted at the moment of egress. Defaults to DENY: a caller that
+    /// forgets to pass it gets no network, which is the failure direction that
+    /// cannot leak. The previous pattern (default `() => true`) is exactly how
+    /// backup upload shipped ungated.
+    Future<bool> Function()? mayEgress,
     int pageSize = 200,
   })  : assert(pageSize > 0),
         _db = db,
         _remoteStore = remoteStore,
         _currentUserId = currentUserId,
+        _mayEgress = mayEgress ?? _denyByDefault,
         _pageSize = pageSize;
+
+  static Future<bool> _denyByDefault() async => false;
 
   final AppDatabase _db;
   final SenderMappingRemoteStore _remoteStore;
   final String? Function() _currentUserId;
+  final Future<bool> Function() _mayEgress;
   final int _pageSize;
 
   static const _cursorKey = 'sender_bank_mappings';
@@ -116,6 +125,10 @@ class SenderBankMappingSyncService {
     if (userId == null || userId.trim().isEmpty) {
       return const SenderMappingSyncResult();
     }
+    // C-3 — which banks a user holds is a direct read on their financial life.
+    // This service had NO consent check at all: with the cloud switch off, a
+    // signed-in user still uploaded their sender→bank mappings.
+    if (!await _mayEgress()) return const SenderMappingSyncResult();
     // Push local edits/deletes FIRST so they become the newest server version,
     // then pull remote changes.
     final pushResult = await push(userId);
@@ -133,6 +146,8 @@ class SenderBankMappingSyncService {
   Future<(int, int)> push([String? forUserId]) async {
     final userId = forUserId ?? _currentUserId();
     if (userId == null || userId.trim().isEmpty) return (0, 0);
+    // Gated independently of sync(): push/pull are public and called directly.
+    if (!await _mayEgress()) return (0, 0);
 
     // Uploadable = confirmed/rejected mappings OR any tombstone, that are not
     // already synced.
@@ -217,6 +232,10 @@ class SenderBankMappingSyncService {
   ]) async {
     final userId = forUserId ?? _currentUserId();
     if (userId == null || userId.trim().isEmpty) {
+      return (imported: 0, updated: 0, tombstoned: 0);
+    }
+    // Gated independently of sync(); see push().
+    if (!await _mayEgress()) {
       return (imported: 0, updated: 0, tombstoned: 0);
     }
 

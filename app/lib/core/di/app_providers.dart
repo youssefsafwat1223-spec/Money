@@ -26,6 +26,7 @@ import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
+import '../privacy/consent_authority.dart';
 import '../../data/db/planning_canonical_invariants.dart';
 import '../../data/db/planning_cutover.dart';
 import '../../data/repositories/account_deletion_service.dart';
@@ -974,6 +975,12 @@ final senderBankMappingSyncServiceProvider =
       supabase.Supabase.instance.client,
     ),
     currentUserId: () => supabase.Supabase.instance.client.auth.currentUser?.id,
+    // C-3 — which banks the user holds is a direct read on their financial
+    // life. Consulted fresh on every sync so a revocation is observed.
+    mayEgress: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+              .getSettings(),
+        ).allows(EgressClass.senderBankMappings),
   );
 });
 
