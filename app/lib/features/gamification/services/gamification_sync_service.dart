@@ -150,7 +150,7 @@ class GamificationSyncService {
         // displayed title stayed at the seeded 'beginner' however high the level
         // climbed. Derived through the clamping mapping because the server curve
         // is unbounded and these tiers are not.
-        Variable.withString(XpLevelEngine.levelKeyForLevel(currentLevel)),
+        XpLevelEngine.levelKeyForLevel(currentLevel),
       ]);
     }
   }
