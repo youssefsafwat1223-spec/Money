@@ -102,6 +102,38 @@ of rounding defects this transport exists to prevent.
 ### Step 5 — flip the capabilities
 Only after step 4 passes against the *same* backend the app will talk to.
 Replace the hardcoded `unknown` verdicts with a **positively verified** source.
+
+> **Updated 2026-08-29, after H-4 landed.** There are now three capability
+> providers in `app/lib/data/sync/exact_transport_capability.dart`, all still
+> returning `unknown`:
+>
+> | Provider | Gates |
+> |---|---|
+> | `exactPushTransportCapabilityProvider` | every money PUSH, via `shouldParkExactMoneyWrite` — **including the startup backfills**, which previously bypassed it |
+> | `exactPullTransportCapabilityProvider` | every money PULL, via `exactPullAllowed` — accounts, ledger, planning, planning children |
+> | `planningServerCurrencyCapabilityProvider` | the three planning-currency entities, layered ON TOP of the pull gate |
+>
+> **What flipping each one turns on, concretely:**
+>
+> * **pull → `verifiedExact`**: financial cloud pull begins running. Until then
+>   it does not run at all — `exactPullAllowed` blocks `unknown` and
+>   `unsupported` alike. This is the current, deliberate state.
+> * **push → `verifiedExact`**: parked outbox items become eligible, AND the
+>   startup reconcile stops returning `blockedUnverifiedTransport` and begins
+>   backfilling. Expect backfill traffic on the first launch after the flip —
+>   that is the reconcile finally doing work it has been correctly refusing.
+> * Consent is a SEPARATE gate and is checked independently (C-3). A verified
+>   capability does not grant egress for a user who declined cloud sync; both
+>   must pass.
+>
+> **Order matters: flip PUSH before PULL.** Pull-first would import server rows
+> while local edits are still parked and unproven, maximising the conflict
+> surface. Push-first drains what the device already knows before it starts
+> receiving.
+>
+> `kServerRevisionCas` stays `false` regardless — it is a separate activation
+> with its own evidence requirement, and 9L/9M/9N proved the conflict-typing
+> path only with CAS off.
 Do not hand-edit to `verifiedExact` as a shortcut: the value must be traceable to
 a verification artifact, or the next reader cannot tell proof from wishful
 thinking — which is exactly how "40/40 verified" ended up describing a demo build.
