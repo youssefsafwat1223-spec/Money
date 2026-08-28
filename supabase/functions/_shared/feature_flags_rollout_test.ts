@@ -15,19 +15,27 @@ import { resolveUserBooleanFlag } from './feature_flags.ts';
 
 type Row = Record<string, unknown> | null;
 
+/** The fluent subset of PostgREST this resolver actually uses. */
+interface QueryStub {
+  select(_columns?: string): QueryStub;
+  eq(_column?: string, _value?: unknown): QueryStub;
+  maybeSingle(): Promise<{ data: Row }>;
+}
+
 /** Minimal PostgREST stub: one row for feature_flags, one for the override. */
 function stubClient(flagRow: Row, overrideRow: Row = null) {
-  // deno-lint-ignore no-explicit-any
-  const table = (row: Row): any => ({
+  const table = (row: Row): QueryStub => ({
     select: () => table(row),
     eq: () => table(row),
     maybeSingle: () => Promise.resolve({ data: row }),
   });
-  // deno-lint-ignore no-explicit-any
-  return {
+  const client = {
     from: (name: string) =>
       table(name === 'feature_flags' ? flagRow : overrideRow),
-  } as any;
+  };
+  // The real signature is the generated Supabase client; this stub implements
+  // only the surface `resolveUserBooleanFlag` touches.
+  return client as unknown as Parameters<typeof resolveUserBooleanFlag>[0];
 }
 
 const activeFlag = (extra: Record<string, unknown> = {}) => ({
