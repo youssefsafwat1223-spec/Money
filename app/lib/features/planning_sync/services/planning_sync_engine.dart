@@ -5,6 +5,7 @@ import '../../../data/db/legacy_financial_cache_reconciler.dart';
 import '../../app/legacy_reconcile_domains.dart';
 import 'accounts_pull_service.dart';
 import 'accounts_push_service.dart';
+import 'planning_outbox_queue.dart';
 import 'planning_pull_service.dart';
 import 'planning_push_service.dart';
 import 'planning_child_sync_service.dart';
@@ -105,12 +106,25 @@ class PlanningSyncEngine {
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] auto-resolve error: $e');
     }
+    // Audit NEW-H-4 — the settings-registration authority. Registration may
+    // only queue the initial FULL-ROW settings CREATE when the pull POSITIVELY
+    // established remote state for the settings singleton in this cycle. The
+    // pull swallows per-entity transport errors into its result, so "pull()
+    // returned" proves nothing — only `completedEntities` does (an entity that
+    // errored mid-page is absent). A failed/cancelled pull, or the legacy
+    // reconcile path, leaves this false: UNKNOWN remote existence is NOT
+    // absence, and pushing fresh-device defaults over an existing remote row
+    // (which this same cycle would do — registration is followed immediately
+    // by a push) destroyed the user's real cloud settings/profile.
+    var settingsPullCompleted = false;
     final planning = await reconcileOrPull(
       reconciler: reconciler,
       domain: planningReconcileDomain(_planningPull),
       normalPull: (admitted) async {
         try {
-          await _planningPull.pull(isAdmitted: admitted);
+          final result = await _planningPull.pull(isAdmitted: admitted);
+          settingsPullCompleted = result.completedEntities
+              .contains(PlanningOutboxQueue.settingsEntityType);
         } catch (e) {
           if (kDebugMode) debugPrint('[PlanningSync] planning pull error: $e');
         }
@@ -121,9 +135,11 @@ class PlanningSyncEngine {
           accounts: accounts, planning: ReconcileDomainResult.cancelled);
     }
     // Pull first so an existing remote singleton wins over freshly seeded
-    // defaults. Only genuinely missing settings/custom categories are queued.
+    // defaults. Only genuinely missing settings/custom categories are queued —
+    // and the settings singleton only under the positive authority above.
     try {
-      await _startupRegistration.registerMissingRows();
+      await _startupRegistration.registerMissingRows(
+          settingsPullCompleted: settingsPullCompleted);
       await _planningPush.push();
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] registration error: $e');

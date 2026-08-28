@@ -588,6 +588,9 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
       () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
           .getSettings(),
     ).allows(EgressClass.financialSync),
+    // NEW-H-3: lets the pull re-enqueue a local consent revocation instead of
+    // marking the row synced and losing it.
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
     isEnabled: (entityType) =>
         exactPullAllowed(pullCap) &&
         _planningEntitySyncEnabledWithCurrency(

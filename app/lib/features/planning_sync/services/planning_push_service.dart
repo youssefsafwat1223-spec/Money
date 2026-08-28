@@ -88,18 +88,13 @@ abstract class PlanningRemoteSink {
   /// C-6 — atomic guarded update. Applies [row] only if the server row's
   /// `updated_at` still equals [expectedUpdatedAt], so the comparison and the
   /// write are ONE statement the database evaluates. Returns the ack, or null
-  /// when no row matched — which is a genuine conflict, not a failure.
-  ///
-  /// Replaces fetch-then-compare-then-write: between those two round trips
-  /// another device's push could land, and this one would overwrite it while
-  /// believing it had checked.
+  /// when no row matched — a genuine conflict, not a failure.
   Future<Map<String, dynamic>?> guardedUpdateByServerId(
     String table,
     String serverId,
     String expectedUpdatedAt,
     Map<String, dynamic> row,
   );
-
 
   /// MALI-022 / 0068 — atomic compare-and-set update. Updates the row only if
   /// its server `revision` still equals [expectedRevision]; returns the new
@@ -453,12 +448,22 @@ class PlanningPushService {
     String localTable,
   ) async {
     final row = _toServerRow(item.entityType, item.payloadJson, userId);
+    final serverId = await _serverIdForLocal(localTable, item.entityId);
     try {
-      final serverId = await _serverIdForLocal(localTable, item.entityId);
-
       // CREATE (never synced): upsert to establish the server row.
       if (serverId == null) {
         final response = await _remoteSink.upsert(remoteTable, row);
+        // Audit NEW-H-3 — a pre-bind CONSENT-ONLY push delivers the revocation
+        // and nothing else. It deliberately does NOT bind the local singleton:
+        // attaching server_id here would lift the pre-bind guard and let the
+        // next automatic full-row update clobber the user's real cloud settings
+        // with this device's fresh defaults before the first pull merges them.
+        // The row stays unbound; the genuine pull binds it and (for a local
+        // revocation) preserves the OFF consent, re-queuing the merged update.
+        if (item.payloadJson['consent_only'] == true) {
+          await _queue.markSuccess(item.id);
+          return _PlanningPushOutcome.pushed;
+        }
         await _attachServerId(localTable, item.entityId,
             response['id'] as String, response['updated_at'] as String?,
             serverRevision: response['revision'] as int?);
@@ -474,9 +479,8 @@ class PlanningPushService {
         final response = await _remoteSink.casUpdateByServerId(
             remoteTable, serverId, expectedRevision, row);
         if (response == null) {
-          await _markConflict(localTable, item.entityId);
-          await _queue.markSuccess(item.id);
-          return _PlanningPushOutcome.conflict;
+          return _resolveUpsertConflict(
+              item, serverId, remoteTable, localTable);
         }
         await _attachServerId(localTable, item.entityId,
             response['id'] as String, response['updated_at'] as String?,
@@ -490,21 +494,18 @@ class PlanningPushService {
       // edit was made against — otherwise flag a conflict WITHOUT clobbering the
       // remote edit and WITHOUT discarding the local edit (MALI-009). Never a
       // blind overwrite.
-      // C-6: when we hold a base token, the guard travels WITH the write.
-      // The previous shape read `updated_at`, compared it, then issued an
-      // unguarded update — between those two round trips another device's push
-      // could land, and this one would overwrite it while believing it had
-      // checked. One statement closes that window; a 0-row result IS the
-      // conflict branch.
+      // C-6: when we hold a base token, the guard travels WITH the write. The
+      // previous shape read `updated_at`, compared it, then issued an unguarded
+      // update — between those two round trips another device's push could
+      // land, and this one would overwrite it while believing it had checked.
+      // A null (0-row) result is the same conflict branch the pre-read fed.
       final base = item.payloadJson['server_updated_at'] as String?;
       final response = base != null
           ? await _remoteSink.guardedUpdateByServerId(
               remoteTable, serverId, base, row)
           : await _remoteSink.updateByServerId(remoteTable, serverId, row);
       if (response == null) {
-        await _markConflict(localTable, item.entityId);
-        await _queue.markSuccess(item.id);
-        return _PlanningPushOutcome.conflict;
+        return _resolveUpsertConflict(item, serverId, remoteTable, localTable);
       }
       await _attachServerId(localTable, item.entityId, response['id'] as String,
           response['updated_at'] as String?,
@@ -513,12 +514,57 @@ class PlanningPushService {
       return _PlanningPushOutcome.pushed;
     } catch (e) {
       if (_isConflict(e)) {
-        await _markConflict(localTable, item.entityId);
-        await _queue.markSuccess(item.id);
-        return _PlanningPushOutcome.conflict;
+        return _resolveUpsertConflict(item, serverId, remoteTable, localTable);
       }
       rethrow;
     }
+  }
+
+  /// Settings normally keep the deterministic prefer-remote policy. Consent is
+  /// the security exception: after a stale full-row write loses its CAS, apply
+  /// only the OFF fields as a narrow update. Concurrent non-consent edits are
+  /// therefore untouched, while the outbox is consumed only after the server
+  /// acknowledges the revocation. A failed acknowledgement throws, retaining
+  /// the durable row for normal retry/backoff instead of silently resolving it.
+  Future<_PlanningPushOutcome> _resolveUpsertConflict(
+    PlanningOutboxItem item,
+    String? serverId,
+    String remoteTable,
+    String localTable,
+  ) async {
+    final consentOff = _consentOffPatch(item);
+    if (consentOff != null && serverId != null) {
+      final response =
+          await _remoteSink.updateByServerId(remoteTable, serverId, consentOff);
+      if (response == null) {
+        throw StateError('settings_consent_revocation_not_synced');
+      }
+      await _attachServerId(
+        localTable,
+        item.entityId,
+        response['id'] as String,
+        response['updated_at'] as String?,
+        serverRevision: response['revision'] as int?,
+      );
+      await _queue.markSuccess(item.id);
+      return _PlanningPushOutcome.pushed;
+    }
+
+    await _markConflict(localTable, item.entityId);
+    await _queue.markSuccess(item.id);
+    return _PlanningPushOutcome.conflict;
+  }
+
+  Map<String, dynamic>? _consentOffPatch(PlanningOutboxItem item) {
+    if (item.entityType != PlanningOutboxQueue.settingsEntityType) return null;
+    final payload = item.payloadJson;
+    final aiOff = payload['ai_consent_granted'] == false;
+    final cloudOff = payload['cloud_processing_enabled'] == false;
+    if (!aiOff && !cloudOff) return null;
+    return <String, dynamic>{
+      if (aiOff || cloudOff) 'ai_consent_granted': false,
+      if (cloudOff) 'cloud_processing_enabled': false,
+    };
   }
 
   Future<_PlanningPushOutcome> _pushDelete(
@@ -753,6 +799,20 @@ class PlanningPushService {
           'is_income': payload['is_income'] == true,
         },
       // تفضيلات المستخدم — أعمدة سحابية فقط (لا مفتاح تشفير/أفاتار/ملف شخصي).
+      //
+      // Audit NEW-H-3: a consent-only payload (pre-bind revocation) must send
+      // ONLY the consent authority columns. Every additional key here would be
+      // written by the merge-upsert — on a fresh/wiped device those values are
+      // reseeded defaults/nulls and would destroy the user's real cloud
+      // settings and profile. user_id is the AUTHENTICATED uid (never caller
+      // input), so RLS scope is preserved.
+      PlanningOutboxQueue.settingsEntityType when payload['consent_only'] == true => {
+          'user_id': userId,
+          'local_id': payload['local_id'],
+          'ai_consent_granted': payload['ai_consent_granted'] == true,
+          'cloud_processing_enabled':
+              payload['cloud_processing_enabled'] == true,
+        },
       PlanningOutboxQueue.settingsEntityType => {
           'user_id': userId,
           'local_id': payload['local_id'],
@@ -766,8 +826,15 @@ class PlanningPushService {
           'input_method': payload['input_method'],
           'notifications_json': payload['notifications_json'],
           'privacy_mode_enabled': payload['privacy_mode_enabled'] == true,
-          // MALI-059n: consent is device-local + explicit — never pushed to the
-          // server (so it can't cross devices as implicit authorization).
+          // These booleans authorize the JWT cloud/AI endpoints. The outbox
+          // already normalizes AI OFF when the cloud master gate is OFF.
+          // CREATE carries an explicit local choice too; this leaves the server
+          // column defaults unchanged for rows created without client values.
+          if (payload.containsKey('ai_consent_granted'))
+            'ai_consent_granted': payload['ai_consent_granted'] == true,
+          if (payload.containsKey('cloud_processing_enabled'))
+            'cloud_processing_enabled':
+                payload['cloud_processing_enabled'] == true,
         },
       _ => throw ArgumentError('Unsupported planning entity: $entityType'),
     };

@@ -21,13 +21,33 @@ class PlanningStartupRegistrationService {
   final PlanningOutboxQueue _queue;
   final bool Function(String entityType) _isEnabled;
 
-  Future<void> registerMissingRows() async {
-    final settings = await _registerSettings();
+  /// Audit NEW-H-4 — [settingsPullCompleted] is the POSITIVE remote authority
+  /// for the settings singleton, and it is required so no call site can forget
+  /// it. A failed/errored/cancelled pull means remote existence is UNKNOWN —
+  /// and UNKNOWN is not ABSENT: queuing the full-row settings CREATE from an
+  /// unbound local row would push this device's fresh defaults/null profile
+  /// over the user's real cloud row in the very same sync cycle (the engine
+  /// pushes right after registration). The tri-state collapses safely:
+  ///   * REMOTE_SETTINGS_FOUND            → the completed pull bound server_id,
+  ///     so the unbound query below matches nothing;
+  ///   * REMOTE_SETTINGS_CONFIRMED_ABSENT → pull completed AND the row is still
+  ///     unbound — only then may the initial full row be created;
+  ///   * REMOTE_SETTINGS_UNKNOWN          → registration stays pending and is
+  ///     retried on the next cycle whose pull completes.
+  /// Custom categories stay ungated: they are keyed by freshly generated local
+  /// UUIDs, so their CREATE can only insert a new remote row — it cannot
+  /// merge-overwrite an existing one the way the fixed-`local_id` settings
+  /// singleton can.
+  Future<void> registerMissingRows({
+    required bool settingsPullCompleted,
+  }) async {
+    final settings = settingsPullCompleted ? await _registerSettings() : 0;
     final categories = await _registerCustomCategories();
     if (kDebugMode) {
       debugPrint(
         '[PlanningRegistration] done: settings=$settings '
-        'categories=$categories',
+        'categories=$categories '
+        'settingsAuthority=${settingsPullCompleted ? 'confirmed' : 'unknown'}',
       );
     }
   }

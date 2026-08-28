@@ -10,6 +10,7 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
 import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/repositories/drift_repository_support.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/finance/money.dart';
@@ -166,28 +167,31 @@ class PlanningPullService {
   PlanningPullService({
     required AppDatabase db,
     required bool Function(String entityType) isEnabled,
+    Future<String?> Function()? getAuthUserId,
+    PlanningRemoteSource? remoteSource,
+    PlanningOutboxQueue? outboxQueue,
     /// C-3 — financial PULL downloads this user's money from the server.
     /// Consent is asked fresh at egress and defaults to DENY, so a caller that
     /// omits it performs no network at all.
     Future<bool> Function()? mayEgress,
-    Future<String?> Function()? getAuthUserId,
-    PlanningRemoteSource? remoteSource,
     int pageSize = 200,
   })  : assert(pageSize > 0),
         _db = db,
         _isEnabled = isEnabled,
-        _mayEgress = mayEgress ?? _denyEgressByDefault,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _pageSize = pageSize,
+        _outboxQueue = outboxQueue,
+        _mayEgress = mayEgress ?? _denyEgressByDefault,
         _remoteSource = remoteSource ?? const SupabasePlanningRemoteSource();
 
   final AppDatabase _db;
   final bool Function(String entityType) _isEnabled;
+  final Future<String?> Function() _getAuthUserId;
+  final PlanningRemoteSource _remoteSource;
+  final PlanningOutboxQueue? _outboxQueue;
   final Future<bool> Function() _mayEgress;
 
   static Future<bool> _denyEgressByDefault() async => false;
-  final Future<String?> Function() _getAuthUserId;
-  final PlanningRemoteSource _remoteSource;
   final int _pageSize;
 
   static const _entityTable = {
@@ -739,11 +743,39 @@ class PlanningPullService {
     final serverId = row['id'] as String?;
     if (serverId == null) return _PlanningPullOutcome.skipped;
     final local = await _db
-        .customSelect('SELECT id, sync_status FROM user_settings LIMIT 1;')
+        .customSelect('SELECT * FROM user_settings LIMIT 1;')
         .getSingleOrNull();
     if (local == null) return _PlanningPullOutcome.skipped;
     final id = local.read<String>('id');
     final status = local.readNullable<String>('sync_status');
+    final isUnbound = local.readNullable<String>('server_id') == null;
+    final hasLocalRevocation =
+        local.readNullable<String>('ai_consent_state') == 'declined' ||
+            local.readNullable<String>('cloud_consent_state') == 'declined';
+
+    // A consent choice made before the singleton was server-bound used to be
+    // lost here: the pull attached the server id and marked the row synced, but
+    // nothing remained to push the local OFF authority. Merge the remote's
+    // ordinary settings, preserve the local consent columns, refresh the CAS
+    // base, then coalesce a consent-carrying update back into the durable outbox.
+    if (isUnbound && hasLocalRevocation) {
+      final queue = _outboxQueue;
+      if (queue == null) {
+        await _markConflict('user_settings', id);
+        return _PlanningPullOutcome.conflict;
+      }
+      await _updateSettings(id, serverId, row);
+      await _applyServerRevision('user_settings', serverId, row);
+      final rebound = await _db
+          .customSelect(
+              'SELECT * FROM user_settings WHERE id = ${sqlString(id)};')
+          .getSingle();
+      await queue.enqueueSettings(
+        PlanningSyncOperation.update,
+        userSettingsFromRow(rebound),
+      );
+      return _PlanningPullOutcome.updated;
+    }
     if (status == 'conflict') return _PlanningPullOutcome.conflict;
     if (status == 'pending') {
       await _markConflict('user_settings', id);

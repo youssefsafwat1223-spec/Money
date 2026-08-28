@@ -330,32 +330,70 @@ class PlanningOutboxQueue {
   /// السحابية فقط — لا مفتاح تشفير، لا مسار أفاتار، لا بيانات ملف شخصي.
   Future<bool> enqueueSettings(
     PlanningSyncOperation op,
-    UserSettingsEntity settings,
-  ) async {
+    UserSettingsEntity settings, {
+    bool consentChanged = false,
+  }) async {
     // Updates are only valid once the local singleton is bound to the server
     // row (server_id attached by the first pull / registration push). Before
     // that, a local settings write is post-wipe reseeded DEFAULTS — automatic
     // writers (e.g. the notification history store) fire within seconds of
     // sign-in, and pushing that update would clobber the user's real cloud
     // settings before the first pull restores them (observed in production:
-    // country/currency reset to SA/SAR). Creates stay allowed: the startup
-    // registration service is the only creator and it runs AFTER the pull.
-    if (op == PlanningSyncOperation.update) {
+    // country/currency reset to SA/SAR). Creates stay allowed only for the
+    // post-pull registration bootstrap (a genuinely new user).
+    //
+    // Audit NEW-H-3: an explicit pre-bind CONSENT change is durable user intent
+    // and must reach the server — but it must NEVER travel as a full settings
+    // row. The engine pushes before it pulls, so a full-row upsert built from
+    // this device's post-wipe defaults would overwrite the user's real cloud
+    // settings and null their profile columns. The revocation is therefore
+    // queued as a CONSENT-ONLY create: the push layer sends just the consent
+    // columns (a PostgREST merge-upsert touches only the provided columns) and
+    // deliberately does not bind the row, so the guard above keeps protecting
+    // every other pre-bind write until a genuine pull merges the remote state.
+    var effectiveOp = op;
+    var consentOnly = false;
+    if (effectiveOp == PlanningSyncOperation.update) {
       final bound = await _db
           .customSelect('SELECT server_id FROM user_settings LIMIT 1;')
           .getSingleOrNull();
-      if (bound?.readNullable<String>('server_id') == null) return false;
+      if (bound?.readNullable<String>('server_id') == null) {
+        // Automatic writers must still not upload freshly reseeded defaults.
+        if (!consentChanged) return false;
+        effectiveOp = PlanningSyncOperation.create;
+        consentOnly = true;
+      }
     }
     return _enqueue(
       entityType: settingsEntityType,
       entityId: settings.id,
-      op: op,
+      op: effectiveOp,
       table: 'user_settings',
-      payload: _buildSettingsPayload(settings),
+      payload: consentOnly
+          ? _buildConsentOnlyPayload(settings)
+          : _buildSettingsPayload(settings),
     );
   }
 
+  /// Audit NEW-H-3 — the narrow pre-bind consent payload. It carries ONLY the
+  /// consent authority columns (cloud is the master gate, so cloud OFF also
+  /// forces AI OFF, mirroring [_buildSettingsPayload]) plus the singleton key.
+  /// No profile/theme/currency/country field may ever appear here: this payload
+  /// is upserted while the local row still holds fresh-device defaults, and a
+  /// merge-upsert writes every provided column.
+  Map<String, dynamic> _buildConsentOnlyPayload(UserSettingsEntity s) {
+    final cloudConsent = s.cloudProcessingEnabled;
+    return <String, dynamic>{
+      'local_id': settingsLocalId,
+      'consent_only': true,
+      'ai_consent_granted': cloudConsent && s.aiConsentGranted,
+      'cloud_processing_enabled': cloudConsent,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+
   Map<String, dynamic> _buildSettingsPayload(UserSettingsEntity s) {
+    final cloudConsent = s.cloudProcessingEnabled;
     return <String, dynamic>{
       'local_id': settingsLocalId,
       // Profile fields sync too (migration 0063) — otherwise the sign-out
@@ -371,8 +409,14 @@ class PlanningOutboxQueue {
       'input_method': s.inputMethod,
       'notifications_json': s.notificationsJson,
       'privacy_mode_enabled': s.privacyModeEnabled,
-      // MALI-059n: consent is device-local + explicit — excluded from the sync
-      // payload so it is never transmitted or applied on another device.
+      // user_settings is the JWT endpoint's server-side consent authority.
+      // Cloud is the master gate, so a cloud revocation clears both grants on
+      // the server even when the device keeps an accepted AI preference.
+      // Include these on CREATE too: an explicit local choice made before the
+      // singleton is bound must not be replaced by the server defaults. This
+      // does not change those defaults; it only carries the user's actual state.
+      'ai_consent_granted': cloudConsent && s.aiConsentGranted,
+      'cloud_processing_enabled': cloudConsent,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
   }

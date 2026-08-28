@@ -43,6 +43,11 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       // Cloud/AI consent persists exactly as the user chose (MALI-001) — the
       // former forced-true clamp made the privacy toggles meaningless.
       final requiredSettings = settings;
+      final previousSettings = await getSettings();
+      final consentChanged =
+          previousSettings.aiConsentState != requiredSettings.aiConsentState ||
+              previousSettings.cloudConsentState !=
+                  requiredSettings.cloudConsentState;
       await _db.customUpdate(
         '''
         UPDATE user_settings
@@ -93,6 +98,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       await _outboxQueue?.enqueueSettings(
         PlanningSyncOperation.update,
         requiredSettings,
+        consentChanged: consentChanged,
       );
       return requiredSettings;
     });

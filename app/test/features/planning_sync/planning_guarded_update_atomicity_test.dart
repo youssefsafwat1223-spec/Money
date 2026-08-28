@@ -78,14 +78,43 @@ void main() {
   });
 
   group('a rejected guard is a conflict, never an overwrite', () {
-    test('the null return is routed to _markConflict', () {
-      // guardedAck returns null for a 0-row result. That must reach the
-      // conflict branch — treating it as a transient failure would retry
-      // forever, and treating it as success would lose the remote edit.
-      final i = source.indexOf('guardedUpdateByServerId(\n              remoteTable');
-      final after = source.substring(i, i + 800);
-      expect(after, contains('_markConflict'),
-          reason: 'a 0-row guarded update is a genuine conflict');
+    test('the null return reaches a conflict resolver', () {
+      // guardedAck returns null for a 0-row result. That must reach a conflict
+      // path — treating it as a transient failure would retry forever, and
+      // treating it as success would lose the remote edit.
+      //
+      // The handler is `_resolveUpsertConflict`, not a bare `_markConflict`,
+      // and the difference matters: for a settings row carrying a consent
+      // revocation it delivers the consent-OFF fields before resolving, so a
+      // conflict cannot silently discard a privacy decision (NEW-H-3). Both are
+      // conflict handling; only one of them is safe for consent.
+      // Anchor on the CALL SITE (`_remoteSink.guarded…`), not the declaration
+      // or the implementation — the earlier version searched from the impl and
+      // never reached the branch it meant to assert on.
+      final callAt = source.indexOf('_remoteSink.guardedUpdateByServerId(');
+      expect(callAt, greaterThan(-1), reason: 'call site not found');
+      final after = source.substring(callAt, callAt + 1200);
+      expect(
+        after.contains('_resolveUpsertConflict') || after.contains('_markConflict'),
+        isTrue,
+        reason: 'a 0-row guarded update is a genuine conflict and must be '
+            'routed to a conflict path, not swallowed',
+      );
+    });
+
+    test('the settings conflict path delivers a consent revocation first', () {
+      // NEW-H-3: a conflict on a row that carries a consent OFF must not drop
+      // the revocation. If the delivery fails, it throws rather than reporting
+      // success — an unsynced revocation must stay visible as unfinished work.
+      final r = source.indexOf('_resolveUpsertConflict(');
+      final body = source.substring(
+          source.indexOf('Future<_PlanningPushOutcome> _resolveUpsertConflict'),
+          source.indexOf('Future<_PlanningPushOutcome> _resolveUpsertConflict') + 900);
+      expect(r, greaterThan(-1));
+      expect(body, contains('_consentOffPatch'));
+      expect(body, contains('settings_consent_revocation_not_synced'),
+          reason: 'a revocation that could not be delivered must fail loudly, '
+              'never resolve as a handled conflict');
     });
   });
 
