@@ -96,7 +96,18 @@ struct PostBankStatusIntent: AppIntent {
 
       let attempt = await processBackend(request, payloadID: payloadID, config: config)
       if let response = attempt.response {
-        _ = SharedCaptureStore.remove(payloadID: payloadID)
+        // H-19: do NOT remove the durable local copy on backend success. The
+        // relay row in processed_captures is swept unconditionally at 30 days
+        // (run_prune_processed_captures), so deleting the only local copy here
+        // loses a capture the user was told succeeded whenever Flutter is not
+        // opened before that TTL. Instead mark it `.sent` — the same durable
+        // state the cloud-OFF and backend-unreachable paths already use — so the
+        // host's per-item lease drain imports it into Drift (locally, on-device,
+        // if the relay is already gone) and only THEN acknowledges/removes it.
+        // The shared payloadId dedups the relay pull and this local copy to one
+        // transaction; `.sent` also tells the drain this path already owns the
+        // notification, so no duplicate banner is shown.
+        _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
         SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
         if !response.pushSent {
           await scheduleNotification(

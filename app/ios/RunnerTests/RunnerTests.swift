@@ -16,7 +16,32 @@ class RunnerTests: XCTestCase {
     let persist = try XCTUnwrap(source.range(of: "status: .pendingSend"))
     let network = try XCTUnwrap(source.range(of: "let attempt = await processBackend"))
     XCTAssertLessThan(persist.lowerBound, network.lowerBound)
-    XCTAssertTrue(source.contains("SharedCaptureStore.remove(payloadID: payloadID)"))
+  }
+
+  /// H-19 durability contract: on a SUCCESSFUL backend capture the App Intent
+  /// must RETAIN the durable local copy (mark it `.sent`) rather than delete it.
+  /// Deleting it made processed_captures (swept unconditionally at 30 days) the
+  /// only copy, so an unopened app lost a capture the user was told succeeded.
+  /// This fails against the pre-fix source, which called
+  /// `SharedCaptureStore.remove(payloadID: payloadID)` on success.
+  func testShortcutRetainsDurableCopyOnBackendSuccess() throws {
+    let root = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let source = try String(
+      contentsOf: root.appendingPathComponent("BankMessageShortcuts/BankMessageShortcuts.swift")
+    )
+    // The success branch begins at `if let response = attempt.response`.
+    let successBranch = try XCTUnwrap(source.range(of: "if let response = attempt.response"))
+    let branchTail = String(source[successBranch.lowerBound...])
+    XCTAssertTrue(
+      branchTail.contains("SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)"),
+      "backend success must keep a durable local copy as .sent for the host drain to import"
+    )
+    XCTAssertFalse(
+      source.contains("SharedCaptureStore.remove(payloadID: payloadID)"),
+      "the App Intent must NOT delete the only durable local copy on backend success (H-19)"
+    )
   }
 
   /// The two physical copies of SharedCaptureStore.swift (Runner + the Share
