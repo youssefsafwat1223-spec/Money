@@ -129,3 +129,36 @@ Those are the longest poles and none of them depend on the remaining code work.
 works today. *Feature-level* kill switches do **not** — only 3 of 26 flags have a live consumer, and
 the server resolver ignores `rollout_percent` entirely (C-10). Do not plan a rollout that assumes a
 per-feature kill switch until C-10 lands.
+
+
+---
+
+## UPDATE — 2026-08-29, after the completion sprint
+
+### The blocker list has shrunk to things only the owner can do
+
+| # | Blocker | Owner action |
+|---|---|---|
+| 1 | **Privacy/Terms URL is NXDOMAIN** | Buy/point a domain, host `docs/legal/PRIVACY_POLICY.md` and `TERMS.md`, then build with `--dart-define=LEGAL_BASE_URL=…`. Both stores require a reachable privacy URL. |
+| 2 | **Remote migrations not applied** | `0087`–`0090` are written, reviewed, and have rollbacks. None applied anywhere. |
+| 3 | **Edge Functions not deployed** | Source-only. |
+| 4 | **Capabilities not activated** | All three ship `unknown`. See `docs/CAPABILITY_ACTIVATION_RUNBOOK.md` Step 5 — **flip PUSH before PULL**. |
+| 5 | **iOS Shortcut device verification** | H-19 fix is source-complete; needs a paid Apple account + physical iPhone. |
+| 6 | **Signing / store submission** | Requires the owner's credentials. |
+
+### What is no longer a blocker
+
+* **C-5 content** — the Privacy Policy and Terms are written and describe the
+  behaviour the code actually has. Only hosting remains.
+* **F-024** — the client now reports a real version, so version-targeted rules
+  (including the force-update kill switch) can match. This was silently broken:
+  an armed force-update would have reached nobody.
+* **Consent** — enforced at every money egress point, fail-closed, verified.
+* **AI disclosure** — trivial, because the model is on-device and no third party
+  receives anything.
+
+### Release-readiness statement
+
+**The source is release-ready; the release is not.** Every remaining item needs
+credentials, a domain, a device, or an authorised deployment — none of which I
+may perform. Nothing on the list is waiting on further code.
