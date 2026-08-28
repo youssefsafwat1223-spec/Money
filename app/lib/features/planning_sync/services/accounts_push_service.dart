@@ -73,6 +73,22 @@ abstract class AccountsRemoteSink {
     Map<String, dynamic> row,
   );
 
+  /// C-6 — ATOMIC guarded update: writes only if the server row still matches
+  /// [expectedUpdatedAt], by binding that predicate into the statement itself.
+  ///
+  /// Replaces fetch-then-blind-update, where the base was read in one round-trip
+  /// and the write issued in another: a remote write landing between them was
+  /// silently clobbered, because the guard had passed against a value that was
+  /// no longer true. Returns null when 0 rows matched — someone else won the
+  /// race, which is a conflict to resolve, not an error to swallow.
+  ///
+  /// Same shape as [guardedTombstoneAccount], which has been atomic all along.
+  Future<Map<String, dynamic>?> guardedUpdateAccount(
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  );
+
   /// MALI-022 / 0068 — atomic compare-and-set update. Updates only if the
   /// account's server `revision` still equals [expectedRevision]; returns the
   /// new id/updated_at/revision, or null when no row matched (a conflict).
@@ -189,6 +205,22 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
         .eq('id', serverId)
         .select(_ackCols);
     return guardedAck(rows, 'accounts.guardedUpdate');
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedUpdateAccount(
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: the predicate travels WITH the write, so the database enforces it.
+    final rows = await _client
+        .from('user_accounts')
+        .update(row)
+        .eq('id', serverId)
+        .eq('updated_at', expectedUpdatedAt)
+        .select(_ackCols);
+    return guardedAck(rows, 'accounts.atomicGuardedUpdate');
   }
 
   @override
@@ -412,18 +444,22 @@ class AccountsPushService {
           return _AccountsPushOutcome.conflict;
         }
       } else {
-        // Fail-safe guarded path (capability OFF, or revision unknown): compare
-        // the server's updated_at against our base before writing.
+        // C-6 — fail-safe guarded path (capability OFF, or revision unknown).
+        //
+        // This used to READ the server's updated_at, compare it, and then issue
+        // a blind write by id. Those are two round-trips, so a remote write
+        // landing between them was silently clobbered: the guard had passed
+        // against a value that was no longer true when the write executed.
+        //
+        // The predicate now travels WITH the write, exactly as the tombstone
+        // path has always done, so the database enforces it and 0 affected rows
+        // IS the conflict signal.
         final base = item.payloadJson['server_updated_at'] as String?;
-        if (base != null) {
-          final current = await _remoteSink.fetchAccountUpdatedAt(serverId);
-          if (current != null && current != base) {
-            await _markConflict(item.entityId);
-            await _queue.markSuccess(item.id);
-            return _AccountsPushOutcome.conflict;
-          }
-        }
-        response = await _remoteSink.updateAccountByServerId(serverId, row);
+        response = base == null
+            // No base to guard against (first push of a row we adopted): a
+            // targeted update by id is the strongest guard available.
+            ? await _remoteSink.updateAccountByServerId(serverId, row)
+            : await _remoteSink.guardedUpdateAccount(serverId, base, row);
       }
 
       // MALI-026 (Phase-9M): a 0-row guarded update returns null → conflict, not

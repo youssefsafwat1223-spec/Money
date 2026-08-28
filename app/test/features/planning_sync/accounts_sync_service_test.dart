@@ -109,6 +109,17 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
   }
 
   @override
+  Future<Map<String, dynamic>?> guardedUpdateAccount(
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) =>
+      // C-6: no concurrent writer in the fake, so this is equivalent to the
+      // targeted update. Atomicity is asserted in
+      // guarded_update_atomicity_test.dart.
+      updateAccountByServerId(serverId, row);
+
+  @override
   Future<Map<String, dynamic>> updateAccountByServerId(
     String serverId,
     Map<String, dynamic> row,
@@ -720,18 +731,152 @@ void main() {
       expect(repo, isA<DriftAccountRepository>());
     });
 
-    // ── F-021 pull-half tests are deliberately NOT here ─────────────────────
-    //
-    // `accounts_pull_service`'s evidence-based conflict logic is QUARANTINED
-    // (QIRSH_MASTER_PLAN_V2.md §12.2): three independent reviewers reached DO
-    // NOT LAND, because the base-proof refresh targets the row while the push
-    // guard reads the base from the outbox payload, and the conflict→pending
-    // demotion strands rows with no outbox item.
-    //
-    // Its tests live in the working tree alongside the implementation and land
-    // WITH it. Committing them here without the code under test made them fail
-    // at HEAD while passing locally — a test asserting behaviour the committed
-    // tree does not have is worse than no test, because it reports a defect
-    // that does not exist in what actually ships.
+    // ── F-021 — conflict requires evidence of real divergence ───────────────
+    // QA evidence (demo stack, 2026-08-26/27): the blind pending→conflict rule
+    // froze three accounts whose content matched the server byte-for-byte; the
+    // only differences were default-flag churn and a NULL↔0.00 initial-balance
+    // representation artifact from card-account form saves.
+
+    // The server row mirrors _account(): identical content, exact money.
+    Map<String, dynamic> matchingServerRow(String localId,
+            {String? initialText = '100.00', String updatedAt = ''}) =>
+        {
+          'id': 'server-$localId',
+          'local_id': localId,
+          'name': 'Main $localId',
+          'currency': 'SAR',
+          'type': 'bank',
+          'initial_balance_text': initialText,
+          'current_balance_text': '100.00',
+          'credit_limit_text': null,
+          'available_credit_text': null,
+          'bank_account_number': null,
+          'payment_due_day': null,
+          'wallet_provider': null,
+          'exclude_from_totals': false,
+          'is_default': false,
+          'sort_order': 1,
+          'revision': 7,
+          'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+          'updated_at': updatedAt.isEmpty
+              ? DateTime.utc(2026, 7, 9).toIso8601String()
+              : updatedAt,
+          'deleted_at': null,
+        };
+
+    AccountsPullService pullService(_FakeAccountsRemote remote) =>
+        AccountsPullService(
+          db: db,
+          isEnabled: () => true,
+          getAuthUserId: () async => 'user-1',
+          remoteSource: remote,
+        );
+
+    test('F-021: pending with IDENTICAL server content is NOT a conflict — '
+        'the base is re-proved and the row stays pending', () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('same-content'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'same-content';",
+      );
+      remote.rowsByLocalId['same-content'] = matchingServerRow('same-content');
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0);
+      expect(await _accountSyncStatus(db, 'same-content'), 'pending',
+          reason: 'the unsent local edit must stay deliverable');
+      final row = await db
+          .customSelect(
+              "SELECT server_id, server_revision FROM accounts WHERE id = 'same-content';")
+          .getSingle();
+      expect(row.data['server_id'], 'server-same-content',
+          reason: 'the server base must be re-proved');
+      expect(row.data['server_revision'], 7);
+    });
+
+    test('F-021: pending with a ONE-MINOR-UNIT money difference IS a conflict',
+        () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('one-minor'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'one-minor';",
+      );
+      remote.rowsByLocalId['one-minor'] = {
+        ...matchingServerRow('one-minor'),
+        'current_balance_text': '100.01',
+      };
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 1);
+      expect(await _accountSyncStatus(db, 'one-minor'), 'conflict');
+    });
+
+    test('F-021: an evidence-less conflict flag demotes back to pending',
+        () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('stale-flag'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'conflict' WHERE id = 'stale-flag';",
+      );
+      remote.rowsByLocalId['stale-flag'] = matchingServerRow('stale-flag');
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0);
+      expect(await _accountSyncStatus(db, 'stale-flag'), 'pending');
+    });
+
+    test('F-021: initial_balance NULL vs server 0.00 is a representation '
+        'artifact, not divergence (scoped to that field only)', () async {
+      final remote = _FakeAccountsRemote();
+      final base = _account('null-vs-zero');
+      await DriftAccountRepository(db).create(AccountEntity(
+        id: base.id,
+        name: 'Main null-vs-zero',
+        currency: 'SAR',
+        type: AccountType.card,
+        isDefault: false,
+        sortOrder: 1,
+        createdAt: base.createdAt,
+        updatedAt: base.updatedAt,
+        initialBalanceMoney: null, // the historical card-save normalization
+        currentBalanceMoney: Money.fromLegacyReal(100, 'SAR'),
+      ));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'null-vs-zero';",
+      );
+      remote.rowsByLocalId['null-vs-zero'] = {
+        ...matchingServerRow('null-vs-zero', initialText: '0.00'),
+        'name': 'Main null-vs-zero',
+        'type': 'card',
+      };
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0,
+          reason: 'neither side edited the field — NULL and 0.00 are the same '
+              'absent starting balance');
+      expect(await _accountSyncStatus(db, 'null-vs-zero'), 'pending');
+    });
+
+    test('F-021: a default-flag difference alone is NOT content divergence — '
+        'the dedicated RPC channel owns is_default', () async {
+      final remote = _FakeAccountsRemote();
+      await DriftAccountRepository(db).create(_account('default-flip'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'default-flip';",
+      );
+      remote.rowsByLocalId['default-flip'] = {
+        ...matchingServerRow('default-flip'),
+        'is_default': true, // server default moved; content untouched
+      };
+
+      final result = await pullService(remote).pull();
+
+      expect(result.conflicts, 0);
+      expect(await _accountSyncStatus(db, 'default-flip'), 'pending');
+    });
   });
 }

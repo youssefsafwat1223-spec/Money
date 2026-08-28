@@ -86,6 +86,17 @@ class _FakeAccountsSink implements AccountsRemoteSink {
   }
 
   @override
+  Future<Map<String, dynamic>?> guardedUpdateAccount(
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) =>
+      // C-6: the fake has no concurrent writer, so the atomic guarded update
+      // and the targeted update are equivalent here. The ATOMICITY itself is
+      // asserted structurally in guarded_update_atomicity_test.dart.
+      updateAccountByServerId(serverId, row);
+
+  @override
   Future<Map<String, dynamic>> updateAccountByServerId(
     String serverId,
     Map<String, dynamic> row,

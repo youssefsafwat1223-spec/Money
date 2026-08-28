@@ -320,6 +320,19 @@ class _CasAccountsSink implements AccountsRemoteSink {
   Future<String?> fetchAccountUpdatedAt(String s) async => currentUpdatedAt;
 
   @override
+  Future<Map<String, dynamic>?> guardedUpdateAccount(
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6 — the fake must simulate the DATABASE predicate, not ignore it. The
+    // point of the atomic guard is that a mismatched base matches ZERO rows;
+    // a fake that always succeeds would make this test assert nothing.
+    if (expectedUpdatedAt != currentUpdatedAt) return null;
+    return updateAccountByServerId(serverId, row);
+  }
+
+  @override
   Future<Map<String, dynamic>> updateAccountByServerId(
           String s, Map<String, dynamic> r) async =>
       {'id': s, 'updated_at': currentUpdatedAt};

@@ -146,6 +146,17 @@ class _DeleteAccountSink implements AccountsRemoteSink {
   @override
   Future<String?> fetchAccountUpdatedAt(String s) async => updatedAt;
   @override
+  Future<Map<String, dynamic>?> guardedUpdateAccount(
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) =>
+      // C-6: the fake has no concurrent writer, so the atomic guarded update
+      // and the targeted update are equivalent here. The ATOMICITY itself is
+      // asserted structurally in guarded_update_atomicity_test.dart.
+      updateAccountByServerId(serverId, row);
+
+  @override
   Future<Map<String, dynamic>> updateAccountByServerId(
           String s, Map<String, dynamic> r) async =>
       {'id': s, 'updated_at': updatedAt, 'revision': revision};
