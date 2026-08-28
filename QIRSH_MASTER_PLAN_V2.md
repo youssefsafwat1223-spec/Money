@@ -82,8 +82,22 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 | `9b62839b` | **R-1** egress inventory — no new network call without a consent decision | **VERIFIED** |
 | `6e7d8d93` `12560909` | **C-3** telemetry + Smart Inbox gated | **VERIFIED** |
 
-**Owner decisions OD-01…OD-11 received and applied.** See `QIRSH_AI_ARCHITECTURE.md` for OD-11 and
+**Owner decisions OD-01…OD-12 received and applied.** See `QIRSH_AI_ARCHITECTURE.md` for OD-11 and
 `QIRSH_RELEASE_TRACK.md` for OD-06.
+
+**OD-12 — gamification vocabulary (2026-08-28, owner present).** The union
+approach is **APPROVED**. Preserve the union of the existing client and server
+achievement vocabularies; normalize semantic duplicates if any; use ONE canonical
+versioned shared catalog; keep progress/state server-authoritative as previously
+decided. Existing legitimate client achievements must **not** be discarded merely
+because the old server catalog was smaller.
+
+This closes the one product judgement I had flagged as taken on the owner's
+behalf: `2c70cb73` chose the union to unblock the fix, and that choice is now
+confirmed rather than assumed. Outstanding under OD-12: a duplicate-semantics
+normalisation pass (no duplicates found so far, but it has not been proven
+exhaustively) and the server half of the shared catalog, which is source-only
+until deployment.
 
 ### Findings worked this cycle
 | ID | State | Note |
