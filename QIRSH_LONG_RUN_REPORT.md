@@ -276,3 +276,77 @@ Still blocking, honestly stated:
 
 None of these is a regression introduced by this run; all are pre-existing and
 now precisely located, with tests where fixed.
+
+---
+
+# FOR CHATGPT REVIEW
+
+Independent review packet. Everything below is **committed** on
+`feat/phase1-data-integrity`. Nothing has been deployed, published or applied
+remotely.
+
+## Highest-risk commits, in order of what I would want challenged
+
+| Commit | Why it deserves scrutiny |
+|---|---|
+| `2c70cb73` | **Gamification vocabulary.** I chose the UNION of two disjoint achievement sets as the canonical contract. That is a product judgement, not a purely technical one — if the server's three transaction-count achievements were meant to REPLACE the client's six, my choice is wrong. Also changes the DB seed from "only when empty" to per-key `INSERT OR IGNORE`. |
+| `6e13f44f` | **Card identity migration.** Adds `card_id` to transactions and backfills it. The backfill deliberately leaves ambiguous rows NULL. Verify the SQL correlated subquery is right, and that "exactly one live card" is the correct match predicate. |
+| `3ea5793c` + `093549bf` | **Force-update arming.** A SECURITY DEFINER RPC + trigger + transaction-local sentinel, and a route that fails closed at 503 if the migration is absent. Check the sentinel cannot leak across statements, and that the trigger's transition logic cannot be stepped around. |
+| `19e6ce43` | **"Armed" redefined as "blocks clients".** Judge whether `blocksClients()` matches `catalog-announcements`' serving filter exactly. A mismatch reopens the bypass. |
+| `7b57be14`, `dce16bdd`, `b0b364fb`, `308aab81` | **Consent gates.** All default to DENY. Check I have not broken a legitimate path, and that "read fresh at egress" really holds. |
+| `17eea0af` | **Server rollout semantics.** I made a partial rollout fail closed server-side because the server cannot reproduce the client's install-id cohort. Challenge whether failing closed is right versus bucketing on `user_id`. |
+| `6219024e` | **Canonical `AccountScope`.** Encodes OD-08: a global budget applies to every account. Verify against intended product behaviour. |
+
+## Financial-data changes
+- `6e13f44f` — `transactions.card_id` column + backfill (client DB only).
+- `6219024e` — which budgets each surface counts; changes displayed totals.
+- `f3fd86ce` — week-over-week window; changes a displayed percentage.
+- `35754d99` — budgets now fail closed rather than pushing a local category id.
+
+## Consent / privacy changes
+`68777c1c` (policy), `308aab81` (sender→bank), `b0b364fb` (backup), `dce16bdd`
+(Sentry), `7b57be14` (financial push). **Financial PULL is still ungated** — the
+services are in the H-4 quarantine.
+
+## Migrations created (NONE APPLIED)
+`0087` parser validation evidence · `0088` owner-table grants · `0089`
+force-update arming authority · `0090` budget-category detection view.
+All ship rollbacks; `0087` and `0089` preserve pre-images.
+
+## Parser changes
+`8d0a422c` (F-016 + C-1 corroboration gate) and `e96f8434` (F-014 parity).
+The corroboration rule — a rule-captured amount the heuristics cannot reproduce
+is capped below auto-confirm — is the one most worth a second opinion, since it
+changes which captures auto-confirm.
+
+## AI architecture decisions
+`b32e2395` / `QIRSH_AI_ARCHITECTURE.md`. Recommendation: **no additional model
+this cycle**, on the grounds that the labelled corpus is ~37 messages and
+contaminated by F-015. Challenge the corpus-size threshold and the claim that
+the AI cascade and catalog authority are on disjoint paths.
+
+## Advisor disagreements
+Fable proposed a server-checked typed phrase and mandatory version bounds at
+arming time. **I rejected both** — the phrase is a public constant already in the
+client bundle (so it is not a control), and version bounds cannot work while no
+build defines `APP_VERSION`. Reasoning is in `19e6ce43`. Worth a second opinion.
+
+## Not fully proven
+- Every SQL migration is **contract-tested against its own text**, never executed.
+  No live database has run any of it.
+- `0089`'s trigger/RPC behaviour is asserted structurally, not behaviourally.
+- The C-3 gates are unit-tested; there is **no end-to-end network-recording
+  harness** proving nothing egresses with consent off. That is the acceptance
+  test I would want before believing C-3 is closed.
+- **F-032 and F-023 are client-half only.** The server has no `card_id` and no
+  shared achievement catalog.
+
+## Specific things to inspect
+```
+app/lib/data/db/app_database.dart              backfillCardIdentity()
+app/lib/domain/finance/account_scope.dart      includesBudget vs includesRow
+app/lib/core/privacy/consent_authority.dart    the decide() switch
+admin/lib/announcement-guard.mjs               blocksClients() + escalation rule
+supabase/migrations/0089_*.sql                 sentinel + trigger interaction
+app/test/domain/gamification_vocabulary_test.dart   migration-contract test
+```
