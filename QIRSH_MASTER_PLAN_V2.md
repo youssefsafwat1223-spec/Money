@@ -314,6 +314,28 @@ Beyond C-1…C-8 above:
 
 ---
 
+## 8b. FINDINGS DISCOVERED DURING REMEDIATION (2026-08-28 long run)
+
+Recorded separately because they were found by *doing the work*, not by the
+review — which is itself evidence that the review was necessary but not
+sufficient.
+
+| ID | Finding | State |
+|---|---|---|
+| **C-2a-1** | **Temporal-resurrection bypass.** `catalog-announcements` serves a row only while its window is live, so a force-update whose `valid_until` is in the past blocks nobody — yet it is still `severity=force_update AND is_active`. Extending `valid_until` therefore took it from blocking NOBODY to blocking EVERY client *without crossing the not-armed→armed transition* the C-2 guard checks. A hole in a fix shipped hours earlier. | **FIXED** `19e6ce43` |
+| **C-2a-3** | **Arming with no `action_url` bricks clients.** `ForceUpdateScreen` falls back to a placeholder store URL with a fake app id (`id0000000000`), so an armed force-update without a real URL traps every user behind a dead button. | **FIXED** `19e6ce43` |
+| **C-11** | **Test suites were asserting the wrong thing after fail-closed changes.** 21 constructions across 10 test files exercised push/backup MECHANICS without supplying consent, so once the gates defaulted to DENY they silently began asserting the refusal path. Passing tests that no longer test what they claim are worse than failing ones. | **FIXED** (`586006ec`, `6219024e`) |
+| **C-12** | **`monthlyEquivalentsTotalMoney` is a footgun by design.** It is deliberately filter-free ("the caller decides"), and the one caller that forgot produced F-027. Documented in tests rather than removed, since the unfiltered form has legitimate uses. | **MITIGATED** |
+
+### Process finding
+Working-tree gates are **not sufficient evidence**. During the partition they
+passed while the committed tree did not compile (7 errors), and mid-run edits
+silently invalidated three long suites. Every claim in this document that says
+VERIFIED is verified at **committed HEAD in a detached worktree**, not in the
+working tree.
+
+---
+
 ## 9. PRIVACY & SECURITY RISKS
 
 ### 9.1 CRITICAL — the force-update guard is bypassable
