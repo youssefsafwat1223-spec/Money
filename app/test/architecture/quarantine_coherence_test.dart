@@ -29,10 +29,14 @@ void main() {
   /// test file → a symbol that must exist in the implementation for its tests
   /// to be meaningful.
   const pairings = <String, ({String impl, String symbol, String finding})>{
+    // F-021 LANDED 2026-08-28 — kept as a live pairing rather than deleted.
+    // The check is just as useful in the other direction: if the
+    // implementation were ever reverted while the tests stayed, the suite would
+    // go green against code that no longer exists.
     'test/features/planning_sync/accounts_sync_service_test.dart': (
       impl: 'lib/features/planning_sync/services/accounts_pull_service.dart',
       symbol: '_serverDivergedFromLocal',
-      finding: 'F-021 pull half (QUARANTINED — DO NOT LAND, §12.2)',
+      finding: 'F-021 evidence-based conflict detection (landed)',
     ),
   };
 
