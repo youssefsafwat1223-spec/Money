@@ -62,6 +62,11 @@ behind a placeholder store URL.
 | `dce16bdd` | `fix(privacy)` gate crash reporting on consent (OD-05, C-3 part 4) |
 | `26908fcb` | `docs(run)` checkpoint the long-run report |
 | `7b57be14` | `fix(privacy)` gate financial push on consent (C-3 part 5) |
+| `2b202958` | `docs(run)` record C-3 progress |
+| `3ea5793c` | `feat(db)` server-authorized, audited force-update arming (C-2a-2) |
+| `093549bf` | `fix(admin)` route arming through the audited RPC (C-2a-2) |
+| `586006ec` | `test(capture)` explicit consent in ledger push mechanics tests |
+| `17eea0af` | `fix(flags)` server must not ignore a partial rollout (C-10) |
 
 *(Earlier, pre-run partition commits: `8e36a24d`, `a6f343fb`, `8d0a422c`,
 `e96f8434`, `35754d99`, `3dc87694`, `2ac4c782`, `e2b5b489`, `464816a6`.)*
@@ -87,13 +92,24 @@ behind a placeholder store URL.
   `planning_pull_service`, `planning_push_service`, `encrypted_backup_service`)
   and are deliberately untouched — gating them requires that workstream to be
   reviewed first.
-- **C-2** — both no-token bypasses and the temporal bypass are closed;
-  **C-2a-2 (caller-supplied confirmation) remains OPEN**, so C-2 is not closed.
+- **C-2 / C-2a-2** — arming is now a server-authorized, audited operation:
+  `arm_force_update()` (SECURITY DEFINER, audit-then-sentinel-then-mutate, `FOR
+  UPDATE` closing the route's TOCTOU) plus a trigger that refuses any
+  not-blocking → blocking transition lacking the sentinel, for **every** role
+  including `service_role`. The admin route calls the RPC and fails **closed**
+  (503) if the migration is not applied, rather than falling back.
+  **Remaining:** password re-authentication at the arm route — the only measure
+  that makes a *stolen session* insufficient. Until then C-2 is **not closed**.
+  Also: 0089 must be deployed **before** the route change ships, or arming
+  through the panel returns 503.
 
 ## 8. STILL OPEN (unchanged from V2)
 
-F-032, F-021-pull, C-6 TOCTOU, F-029 server repair, C-10, F-023+F-022, F-024,
-F-019/026/027/028, F-015, F-034, F-011 (admin-side), UX programme.
+F-032, F-021-pull, C-6 TOCTOU (push services), F-029 server repair,
+F-023+F-022, F-024, F-019/026/027/028, F-015, F-034, F-011 (admin-side),
+UX programme.
+
+**C-10 closed this run** (server-side rollout semantics).
 
 ---
 
