@@ -6,6 +6,7 @@ import 'package:drift/drift.dart' show Variable;
 
 import '../../../core/di/app_providers.dart';
 import '../../../data/db/app_database.dart';
+import '../../../domain/usecases/gamification_rules.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/repositories/gamification_repository.dart';
@@ -141,8 +142,16 @@ class GamificationSyncService {
 
       await db.customStatement('''
         UPDATE xp_levels
-        SET total_xp = ?, level = ?;
-      ''', [currentXp, currentLevel]);
+        SET total_xp = ?, level = ?, level_key = ?;
+      ''', [
+        currentXp,
+        currentLevel,
+        // F-022 — the pull wrote total_xp and level but NEVER level_key, so the
+        // displayed title stayed at the seeded 'beginner' however high the level
+        // climbed. Derived through the clamping mapping because the server curve
+        // is unbounded and these tiers are not.
+        Variable.withString(XpLevelEngine.levelKeyForLevel(currentLevel)),
+      ]);
     }
   }
 }

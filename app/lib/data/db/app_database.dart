@@ -2428,6 +2428,28 @@ class AppDatabase extends GeneratedDatabase {
   ///
   /// Idempotent: only rows with `card_id IS NULL` are considered, so a repeat
   /// run performs no write. Returns the number of rows attributed.
+  /// F-023 — re-run the per-key achievement seed.
+  ///
+  /// Exposed so the backfill contract (missing keys added, existing progress
+  /// untouched) is testable without driving a whole bootstrap.
+  @visibleForTesting
+  Future<void> reseedAchievementsForTest() async {
+    for (final achievement in DatabaseSeed.achievements) {
+      await customInsert(
+        '''
+          INSERT OR IGNORE INTO achievements(id, key, name_ar, unlocked_at, progress)
+          VALUES (?, ?, ?, NULL, ?);
+        ''',
+        variables: [
+          Variable.withString(achievement.id),
+          Variable.withString(achievement.key),
+          Variable.withString(achievement.nameAr),
+          Variable.withReal(achievement.progress),
+        ],
+      );
+    }
+  }
+
   Future<int> backfillCardIdentity() async {
     return customUpdate(
       '''
@@ -2589,11 +2611,21 @@ class AppDatabase extends GeneratedDatabase {
       }
     }
 
-    if (await count('achievements') == 0) {
+    // F-023 / OD-03 — seed per KEY, not "only when the table is empty".
+    //
+    // The old guard meant an install that had already seeded the original six
+    // achievements never received a new one. That is precisely how the three
+    // server-awarded keys (first/tenth/century_transaction) had no local row to
+    // land on, so every server unlock was dropped in silence.
+    //
+    // `INSERT OR IGNORE` on the UNIQUE key makes this idempotent and
+    // non-destructive: existing rows keep their unlocked_at and progress, and
+    // only genuinely missing keys are added.
+    {
       for (final achievement in DatabaseSeed.achievements) {
         await customInsert(
           '''
-            INSERT INTO achievements(id, key, name_ar, unlocked_at, progress)
+            INSERT OR IGNORE INTO achievements(id, key, name_ar, unlocked_at, progress)
             VALUES (?, ?, ?, NULL, ?);
           ''',
           variables: [

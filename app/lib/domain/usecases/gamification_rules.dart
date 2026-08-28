@@ -81,6 +81,21 @@ class XpLevelEngine {
     'saving_legend',
   ];
 
+  /// F-022 / OD-03 — the label for ANY level, including one the server produced.
+  ///
+  /// The server curve is UNBOUNDED (`floor(sqrt(xp/100)) + 1`), while these
+  /// tiers are a fixed list of five. A naive `levelKeys[level - 1]` therefore
+  /// throws RangeError on a server level of 6 or more — reachable at 3600 XP.
+  ///
+  /// Clamping is the honest mapping: a level past the top tier is still a real
+  /// level, and the user has genuinely earned the highest title we define. It is
+  /// never a reason to crash or to show nothing.
+  static String levelKeyForLevel(int level) {
+    if (level <= 1) return levelKeys.first;
+    if (level >= levelKeys.length) return levelKeys.last;
+    return levelKeys[level - 1];
+  }
+
   XpLevelResult addXp(XpLevelEntity current, int amount) {
     final total = current.totalXp + amount;
     var level = 1;
