@@ -62,6 +62,16 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 | `9c3aa230` | **DF-002/DF-005** explicit owner-table grant matrix + Edge-only catalog boundary test | **FIXED LOCALLY** — source-only, **EXTERNAL EVIDENCE PENDING** on deployment |
 | `e723f4ce` | Release readiness track (`QIRSH_RELEASE_TRACK.md`) | **VERIFIED** (docs) |
 | `b32e2395` | **W-001** AI/ML architecture workstream (`QIRSH_AI_ARCHITECTURE.md`), per OD-11 | **VERIFIED** (docs) |
+| `a241bdae` | **C-9** Home is a pure read; repair moved to an explicit startup command | **VERIFIED** |
+| `68777c1c` | **C-3** `ConsentAuthority` policy + 10 exhaustive tests | **VERIFIED** (policy) |
+| `308aab81` | **C-3** sender→bank mapping egress gated (which banks the user holds) | **VERIFIED** |
+| `b0b364fb` | **C-3** backup consent hook was dead code — now fails closed | **VERIFIED** |
+| `dce16bdd` | **C-3/OD-05** crash reporting gated on consent | **VERIFIED** |
+| `7b57be14` | **C-3** financial PUSH gated (accounts + ledger) | **VERIFIED** |
+| `3ea5793c` | **C-2a-2** SECURITY DEFINER arm RPC + trigger + append-only audit | **FIXED LOCALLY** — **EXTERNAL EVIDENCE PENDING** |
+| `093549bf` | **C-2a-2** admin route arms via the RPC, fails closed at 503 | **VERIFIED** (source) |
+| `17eea0af` | **C-10** server rollout semantics fail closed | **FIXED LOCALLY** — Edge, not deployed |
+| `4bb47943` | Phase-F capability activation runbook | **VERIFIED** (docs) |
 
 **Owner decisions OD-01…OD-11 received and applied.** See `QIRSH_AI_ARCHITECTURE.md` for OD-11 and
 `QIRSH_RELEASE_TRACK.md` for OD-06.
@@ -76,7 +86,10 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 | **C-9** dashboard read mutates financial state | **FIXED LOCALLY** | repair moved to an explicit startup command; read path proven side-effect free |
 | **F-016 / F-014 / F-020 / F-029** | **VERIFIED** | landed with review changes applied |
 | **F-021** | **partially landed** | form half VERIFIED; pull half OPEN |
-| **C-2a / C-3 / C-5 / C-10 / F-032 / F-023+F-022 …** | **OPEN** | next phases |
+| **C-5** privacy/terms URLs | **BLOCKED — EXTERNAL** | NXDOMAIN. Per OD-06 the policy text is authored after Phase D so it describes *enforced* behaviour; the hosting step is the owner's. |
+| **C-3** | **PARTIALLY FIXED — still OPEN** | 5 egress paths gated. **Financial PULL, `user_settings` PII, Smart Inbox, gamification, notification logs, activity ping, metrics and `enrich-merchant` remain ungated**; four of those services are in the H-4 quarantine. |
+| **C-10** | **FIXED LOCALLY** | server no longer treats a partial rollout as fully enabled |
+| **F-032 / F-021-pull / C-6 / F-029-repair / F-023+F-022 / F-024 / F-019/026/027/028 / F-015 / F-034** | **OPEN** | Phases E, G, H, I |
 | F-020a · F-019 · F-023 · F-032 · F-016 rollout · Sentry · privacy domain · NEW-H-3 · ND-06 · consent deletion | **OWNER DECISION REQUIRED** | §27 |
 
 ---
