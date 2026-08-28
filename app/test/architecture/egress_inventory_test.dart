@@ -37,6 +37,9 @@ void main() {
     'features/capture/services/smart_inbox_sync_service.dart':
         'EgressClass.smartInbox — its isPullEnabled is a FEATURE gate, '
             'hardcoded open; consent is asked separately',
+    'data/catalog/merchant_feedback_client.dart':
+        'EgressClass.aiProcessing — user-derived merchant keywords. Unwired '
+            'today; gated now so whoever wires it must pass consent',
     'features/planning_sync/services/accounts_pull_service.dart':
         'EgressClass.financialSync — money DOWN; a pull also WRITES locally',
     'features/planning_sync/services/planning_pull_service.dart':
@@ -72,10 +75,6 @@ void main() {
         'EXEMPT: catalog carries no user data, and delivers parser rules, '
             'feature flags and the force-update kill switch. Gating it would '
             'disable safety controls for the most privacy-conscious users.',
-    'data/catalog/merchant_feedback_client.dart':
-        'OPEN (C-3 remainder): user-derived merchant keywords, belongs on '
-            'EgressClass.aiProcessing. Currently UNWIRED — no caller exists in '
-            'lib/, so it cannot leak today; gate it when it is wired.',
   };
 
   test('every file that reaches the network is a listed decision', () {
