@@ -8,6 +8,7 @@ import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/account_scope.dart';
+import '../../domain/finance/period_comparison.dart';
 import '../../domain/finance/budget_period.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/repositories/transaction_repository.dart';
@@ -245,7 +246,17 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final today = DateTime(now.year, now.month, now.day);
   final weekStart =
       today.subtract(Duration(days: (now.weekday - DateTime.saturday) % 7));
-  final prevWeekStart = weekStart.subtract(const Duration(days: 7));
+  // F-028 — compare like with like. This used to measure the PARTIAL current
+  // week (weekStart → now) against the FULL previous week
+  // (prevWeekStart → weekStart), which is not merely a different choice from
+  // Reports — it is biased: on a Saturday morning it weighs a few hours against
+  // a complete week and reports a near-total collapse in spending. Reports
+  // already used an elapsed-matched window; both now share one definition.
+  final previousWeek = elapsedMatchedPreviousWindow(
+    currentStart: weekStart,
+    now: now,
+    periodLength: const Duration(days: 7),
+  );
 
   // سارف/دخل الشهر ثابتان على الشهر الحالي بغض النظر عن الفلتر المختار.
   final calendarMonthStart = DateTime(now.year, now.month, 1);
@@ -284,8 +295,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       currency: displayCurrency,
       accountId: accountId);
   final previousWeekSpendFuture = txRepo.expenseTotalBetween(
-      from: prevWeekStart,
-      to: weekStart,
+      from: previousWeek.from,
+      to: previousWeek.to,
       currency: displayCurrency,
       accountId: accountId);
   final rangeExpenseFuture = txRepo.expenseTotalBetween(
