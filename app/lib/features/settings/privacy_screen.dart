@@ -12,6 +12,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../domain/entities/supporting_entities.dart';
+import '../../core/config/legal_urls.dart';
 import '../../core/privacy/consent_authority.dart';
 import '../../core/privacy/diagnostics_consent_gate.dart';
 import '../../domain/errors/repo_exceptions.dart';
@@ -23,10 +24,9 @@ import '../../core/utils/app_lucide_icons.dart';
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
 
-  static final Uri _privacyPolicyUrl =
-      Uri.parse('https://mali.youssefsafwat.com/privacy');
-  static final Uri _termsUrl =
-      Uri.parse('https://mali.youssefsafwat.com/terms');
+  // C-5: configured in one place — see core/config/legal_urls.dart.
+  static final Uri _privacyPolicyUrl = kPrivacyPolicyUrl;
+  static final Uri _termsUrl = kTermsUrl;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
