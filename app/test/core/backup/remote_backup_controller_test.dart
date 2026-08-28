@@ -67,7 +67,7 @@ class _FakeBackupService implements BackupService {
 void main() {
   test('Protected only appears after a successful committed backup', () async {
     final svc = _FakeBackupService();
-    final c = RemoteBackupController(svc);
+    final c = RemoteBackupController(svc, consentGranted: () async => true);
     expect(c.state, RemoteBackupState.disabled);
     await c.enable(passphrase: 'pw');
     expect(c.state, RemoteBackupState.enabledIdle);
@@ -77,7 +77,7 @@ void main() {
   test('a failed first upload never shows Protected', () async {
     final svc = _FakeBackupService()
       ..enableError = const RemoteBackupException(RemoteBackupErrorKind.uploadFailed);
-    final c = RemoteBackupController(svc);
+    final c = RemoteBackupController(svc, consentGranted: () async => true);
     await c.enable(passphrase: 'pw');
     expect(c.state.isProtected, isFalse);
     expect(c.state, RemoteBackupState.failedRetryable);
@@ -85,7 +85,7 @@ void main() {
 
   test('consent OFF blocks the backup and shows consentRequired', () async {
     final svc = _FakeBackupService();
-    final c = RemoteBackupController(svc, consentGranted: () => false);
+    final c = RemoteBackupController(svc, consentGranted: () async => false);
     await c.enable(passphrase: 'pw');
     expect(c.state, RemoteBackupState.consentRequired);
     expect(svc.enableCalls, 0); // no upload attempted
@@ -95,7 +95,7 @@ void main() {
     final svc = _FakeBackupService()
       ..enabled = true
       ..backupGate = Completer<void>();
-    final c = RemoteBackupController(svc);
+    final c = RemoteBackupController(svc, consentGranted: () async => true);
     final first = c.backupNow(); // starts, blocks on the gate
     expect(c.isBusy, isTrue);
     await c.backupNow(); // refused while busy
@@ -107,7 +107,7 @@ void main() {
 
   test('error kinds map to the intended states', () async {
     final svc = _FakeBackupService()..enabled = true;
-    final c = RemoteBackupController(svc);
+    final c = RemoteBackupController(svc, consentGranted: () async => true);
     svc.backupError = const RemoteBackupException(RemoteBackupErrorKind.offline);
     await c.backupNow();
     expect(c.state, RemoteBackupState.pausedOffline);
@@ -121,7 +121,7 @@ void main() {
 
   test('refresh reconstructs truthful state from remote truth', () async {
     final svc = _FakeBackupService();
-    final c = RemoteBackupController(svc);
+    final c = RemoteBackupController(svc, consentGranted: () async => true);
     await c.refresh();
     expect(c.state, RemoteBackupState.disabled);
     svc.enabled = true; // enabled locally but no committed remote object
@@ -135,7 +135,7 @@ void main() {
   test('sign-out drops the previous state; disable is stop-only; delete is separate',
       () async {
     final svc = _FakeBackupService()..enabled = true..hasRemote = true;
-    final c = RemoteBackupController(svc);
+    final c = RemoteBackupController(svc, consentGranted: () async => true);
     await c.refresh();
     expect(c.state, RemoteBackupState.enabledIdle);
     c.onSignedOut();
@@ -156,5 +156,31 @@ void main() {
     }
     expect(remoteBackupStateLabel(RemoteBackupState.enabledIdle), 'محمي');
     expect(remoteBackupStateLabel(RemoteBackupState.uploading), isNot('محمي'));
+  });
+
+  test('C-3: the consent hook defaults to DENY when the caller omits it',
+      () async {
+    // It defaulted to `() => true` while remoteBackupControllerProvider passed
+    // nothing, so the consentRequired branch below was unreachable and the
+    // encrypted backup uploaded with cloud consent OFF. A forgotten argument
+    // must fail in the direction that cannot leak.
+    final svc = _FakeBackupService();
+    final c = RemoteBackupController(svc);
+    await c.enable(passphrase: 'pw');
+    expect(c.state, RemoteBackupState.consentRequired);
+    expect(svc.enableCalls, 0, reason: 'no upload may be attempted');
+  });
+
+  test('C-3: a revocation between operations is observed', () async {
+    var consent = true;
+    final svc = _FakeBackupService();
+    final c = RemoteBackupController(svc, consentGranted: () async => consent);
+    await c.enable(passphrase: 'pw');
+    expect(c.state, RemoteBackupState.enabledIdle);
+
+    consent = false;
+    await c.backupNow();
+    expect(c.state, RemoteBackupState.consentRequired);
+    expect(svc.backupCalls, 0, reason: 'consent is read per operation');
   });
 }

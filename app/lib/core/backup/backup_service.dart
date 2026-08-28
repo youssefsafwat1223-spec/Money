@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../backend/supabase_config.dart';
+import '../../data/repositories/drift_user_settings_repository.dart';
 import '../di/app_providers.dart';
+import '../privacy/consent_authority.dart';
 import 'encrypted_backup_service.dart';
 import 'remote_backup_controller.dart';
 import 'remote_backup_state.dart';
@@ -154,7 +156,15 @@ final backupServiceProvider = Provider<BackupService>((ref) {
 /// MALI-076n §16 — the truthful remote-backup state, wired to the screen.
 final remoteBackupControllerProvider =
     StateNotifierProvider<RemoteBackupController, RemoteBackupState>((ref) {
-  final controller = RemoteBackupController(ref.watch(backupServiceProvider));
+  // C-3 — the encrypted backup is user financial data; uploading it needs cloud
+  // consent. Consulted fresh at each operation so a revocation is observed.
+  final controller = RemoteBackupController(
+    ref.watch(backupServiceProvider),
+    consentGranted: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.backup),
+  );
   // Reconstruct truthful state from remote truth on first read.
   controller.refresh();
   return controller;

@@ -9,12 +9,20 @@ import 'remote_backup_state.dart';
 // serialises every operation through one coordinator so a manual and an automatic
 // backup can never independently upload duplicate generations.
 class RemoteBackupController extends StateNotifier<RemoteBackupState> {
-  RemoteBackupController(this._service, {bool Function()? consentGranted})
-      : _consentGranted = consentGranted ?? (() => true),
+  RemoteBackupController(
+    this._service, {
+    Future<bool> Function()? consentGranted,
+  })  : _consentGranted = consentGranted ?? _denyByDefault,
         super(RemoteBackupState.disabled);
 
+  /// C-3 — fail CLOSED. This defaulted to `() => true` while the provider passed
+  /// nothing, so the whole `consentRequired` state machine below was dead code
+  /// and the encrypted backup uploaded with cloud consent OFF. A forgotten
+  /// argument must deny, never permit.
+  static Future<bool> _denyByDefault() async => false;
+
   final BackupService _service;
-  final bool Function() _consentGranted;
+  final Future<bool> Function() _consentGranted;
 
   // The durable operation coordinator: a single in-flight operation at a time.
   bool _busy = false;
@@ -46,7 +54,7 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
 
   Future<String?> enable({required String passphrase}) =>
       _run<String>(() async {
-        if (!_consentGranted()) {
+        if (!await _consentGranted()) {
           state = RemoteBackupState.consentRequired;
           return null;
         }
@@ -58,7 +66,7 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
       });
 
   Future<void> backupNow() => _run<void>(() async {
-        if (!_consentGranted()) {
+        if (!await _consentGranted()) {
           state = RemoteBackupState.consentRequired;
           return;
         }
