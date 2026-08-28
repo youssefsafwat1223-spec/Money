@@ -382,6 +382,15 @@ class TransactionsScreen extends ConsumerWidget {
                               data: (bills) => _BillsTab(
                                 view: bills,
                                 currencyLabel: currencyLabel,
+                                // F-027 — the display currency must come from
+                                // the user's base currency, never from
+                                // `bills.first`, which made the total depend on
+                                // list ORDER and silently dropped every bill in
+                                // another currency.
+                                baseCurrency: ref
+                                        .watch(baseCurrencyProvider)
+                                        .valueOrNull ??
+                                    'SAR',
                               ),
                             ),
                           ],
@@ -1004,10 +1013,12 @@ class _BillsTab extends StatefulWidget {
   const _BillsTab({
     required this.view,
     required this.currencyLabel,
+    required this.baseCurrency,
   });
 
   final BillsView view;
   final String currencyLabel;
+  final String baseCurrency;
 
   @override
   State<_BillsTab> createState() => _BillsTabState();
@@ -1022,13 +1033,21 @@ class _BillsTabState extends State<_BillsTab> {
         .where((bill) => bill.type == _type)
         .toList(growable: false);
     final activeCount = bills.where((bill) => bill.isConfirmed).length;
-    // Monthly-equivalent obligation across the shown bills, summed EXACTLY as
-    // Money and currency-isolated (currency derived from the bills, no implicit
-    // FX); converted to double only at the display leaf.
-    final monthlyTotal = bills.isEmpty
-        ? 0.0
-        : monthlyEquivalentsTotalMoney(bills, bills.first.amountMoney.currency)
-            .toDouble();
+    // F-027 — this used `monthlyEquivalentsTotalMoney`, which applies NO status
+    // filter, so a paused subscription was still billed into the total here
+    // while the Subscriptions screen (using `subscriptionMonthlyTotalMoney`)
+    // correctly excluded it. Two surfaces, one label, different numbers.
+    //
+    // It also derived the target currency from `bills.first`, so the total
+    // depended on list ORDER and every bill in a different currency was silently
+    // dropped from it — with no indication to the user. The base currency is now
+    // passed in explicitly.
+    final monthlyTotal = _type == BillType.subscription
+        ? subscriptionMonthlyTotalMoney(bills, widget.baseCurrency).toDouble()
+        : monthlyEquivalentsTotalMoney(
+            bills.where((b) => b.status == BillStatus.active),
+            widget.baseCurrency,
+          ).toDouble();
     final nextThisWeek = bills.where((bill) {
       final now = DateTime.now();
       final weekEnd = now.add(const Duration(days: 7));

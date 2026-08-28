@@ -149,7 +149,11 @@ void main() {
         getAuthUserId: () async => 'user-1',
         remoteSink: sink,
         revisionCasEnabled: casEnabled,
-      );
+      
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
+    );
 
   Future<int> outboxCount(String where) async => (await db
           .customSelect(

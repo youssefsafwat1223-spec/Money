@@ -7,6 +7,7 @@ import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/account_scope.dart';
 import '../../domain/finance/budget_period.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/repositories/transaction_repository.dart';
@@ -68,11 +69,9 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
   final allActiveBudgets = (await budgetRepo.getAll())
       .where((budget) => budget.isActive)
       .toList(growable: false);
-  final budgets = allActiveBudgets.where((budget) {
-    if (!budget.isActive) return false;
-    if (accountId == null) return true;
-    return budget.accountId == null || budget.accountId == accountId;
-  }).toList(growable: false);
+  // F-026 / OD-08 — the canonical scope, shared with the dashboard ring.
+  final scope = AccountScope.resolve(accountId);
+  final budgets = budgetsInScope(allActiveBudgets, scope);
 
   Future<BudgetProgressEntry> buildEntry(
     BudgetEntity budget, {
@@ -150,7 +149,11 @@ final budgetsViewProvider = FutureProvider<BudgetsView>((ref) async {
       <({BudgetEntity budget, _BudgetPeriodWindow period})>[];
   DateTime? loadFrom;
   DateTime? loadTo;
-  for (final budget in allActiveBudgets) {
+  // F-019 / OD-08 — history follows the SAME account scope as the tab above it.
+  // It used to iterate `allActiveBudgets` (unfiltered) while the snapshot beside
+  // it was scoped, so selecting an account changed the ring but not the history
+  // underneath. Individual screens must not invent their own scope semantics.
+  for (final budget in budgets) {
     for (final period in _budgetPeriodsInRange(
       budget,
       from: historyFrom,

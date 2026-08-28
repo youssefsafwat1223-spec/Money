@@ -7,6 +7,7 @@ import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/account_scope.dart';
 import '../../domain/finance/budget_period.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/repositories/transaction_repository.dart';
@@ -396,9 +397,14 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     if (budget.currency.toUpperCase() != displayCurrency.toUpperCase()) {
       return false;
     }
-    return accountId == null
-        ? budget.accountId == null
-        : budget.accountId == accountId;
+    // F-026 / OD-08 — one canonical scope. This used to be
+    // `budget.accountId == accountId`, which EXCLUDED global budgets whenever an
+    // account was selected — and `accountId` is virtually never null here, since
+    // it falls back to the default account and then the first account. The Home
+    // ring therefore computed over a different budget set than the Budgets
+    // screen and the two disagreed, even though both call the same canonical
+    // `budgetSpent`. The shared helper was never the problem; the input scope was.
+    return AccountScope.resolve(accountId).includesBudget(budget.accountId);
   }).toList(growable: false);
   BudgetEntity? allExpensesFor(BudgetPeriod period) => activeBudgets
       .where((budget) => budget.isAllExpenses && budget.period == period)

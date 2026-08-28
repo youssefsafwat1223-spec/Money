@@ -203,6 +203,10 @@ void main() {
       remoteSink: sink,
       coordinator: coordinator,
       pushCapability: () => capability,
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     );
   }
 
