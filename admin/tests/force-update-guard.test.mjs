@@ -11,9 +11,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  FORCE_UPDATE_ACTION_URL_REQUIRED,
   FORCE_UPDATE_CONFIRMATION_REQUIRED,
   FORCE_UPDATE_CONFIRM_PHRASE,
   armsForceUpdate,
+  blocksClients,
   validateAnnouncementPublish,
 } from "../lib/announcement-guard.mjs";
 
@@ -33,7 +35,15 @@ test("an unconfirmed force-update arm is refused — accidental single click can
 });
 
 test("a confirmed force-update arm is allowed", () => {
-  const armed = { severity: "force_update", is_active: true };
+  // C-2a added a second precondition: an arm must carry a working action_url,
+  // because ForceUpdateScreen otherwise falls back to a placeholder store URL
+  // with a fake app id. The confirmed-arm path is asserted WITH one; the
+  // without-one case is covered by its own test below.
+  const armed = {
+    severity: "force_update",
+    is_active: true,
+    action_url: "https://example.test/app",
+  };
   assert.deepEqual(
     validateAnnouncementPublish(armed, { confirmForceUpdate: true }),
     { ok: true },
@@ -172,4 +182,150 @@ test("C-2: the PATCH route reads the stored row before judging", () => {
     /validateAnnouncementPublish\([\s\S]*?stored/,
     "and must pass it to the guard",
   );
+});
+
+// ── C-2a — "armed" must mean "blocking clients", not just severity+is_active ──
+//
+// Fable review, 2026-08-28. `catalog-announcements` only serves a row when
+// `valid_from <= now` AND (`valid_until` IS NULL OR `valid_until >= now`)
+// (supabase/functions/catalog-announcements/index.ts). So a force_update row
+// that is severity=force_update AND is_active=true but whose valid_until is in
+// the PAST blocks nobody.
+//
+// The transition guard therefore had a hole: such a row is already
+// `armsForceUpdate() === true`, so extending valid_until back into the future
+// was treated as "editing an already-armed row" — frictionless — even though it
+// takes the row from blocking NOBODY to blocking EVERY client.
+//
+// Correct rule: confirmation is required whenever a write causes a force-update
+// row to block clients it was not already blocking.
+
+const PAST = "2020-01-01T00:00:00.000Z";
+const FUTURE = "2099-01-01T00:00:00.000Z";
+const NOW = new Date("2026-08-28T00:00:00.000Z");
+
+test("C-2a: resurrecting an EXPIRED armed force-update requires confirmation", () => {
+  const stored = {
+    severity: "force_update",
+    is_active: true,
+    valid_from: PAST,
+    valid_until: PAST, // expired -> serves nobody
+    action_url: "https://example.test/app",
+  };
+  const patch = { valid_until: FUTURE }; // resurrect: now blocks everyone
+
+  assert.deepEqual(
+    validateAnnouncementPublish(patch, { stored, now: NOW }),
+    { ok: false, error: FORCE_UPDATE_CONFIRMATION_REQUIRED },
+    "expired -> live is an ARMING, not an edit",
+  );
+});
+
+test("C-2a: clearing valid_until on an expired armed row requires confirmation", () => {
+  const stored = {
+    severity: "force_update",
+    is_active: true,
+    valid_until: PAST,
+    action_url: "https://example.test/app",
+  };
+  assert.deepEqual(
+    validateAnnouncementPublish({ valid_until: null }, { stored, now: NOW }),
+    { ok: false, error: FORCE_UPDATE_CONFIRMATION_REQUIRED },
+    "null means 'never expires' — that is arming",
+  );
+});
+
+test("C-2a: a SCHEDULED arm (valid_from in the future) still requires confirmation", () => {
+  const stored = { severity: "info", is_active: true };
+  const patch = {
+    severity: "force_update",
+    valid_from: FUTURE,
+    action_url: "https://example.test/app",
+  };
+  assert.deepEqual(
+    validateAnnouncementPublish(patch, { stored, now: NOW }),
+    { ok: false, error: FORCE_UPDATE_CONFIRMATION_REQUIRED },
+    "a delayed block is still a block",
+  );
+});
+
+test("C-2a: editing copy on a LIVE armed row stays frictionless", () => {
+  const stored = {
+    severity: "force_update",
+    is_active: true,
+    valid_until: FUTURE,
+    action_url: "https://example.test/app",
+  };
+  assert.deepEqual(
+    validateAnnouncementPublish({ title_ar: "new copy" }, { stored, now: NOW }),
+    { ok: true },
+  );
+});
+
+test("C-2a: shortening the window on a live armed row stays frictionless", () => {
+  const stored = {
+    severity: "force_update",
+    is_active: true,
+    valid_until: FUTURE,
+    action_url: "https://example.test/app",
+  };
+  // Narrowing blast radius must never be harder than widening it.
+  assert.deepEqual(
+    validateAnnouncementPublish({ valid_until: PAST }, { stored, now: NOW }),
+    { ok: true },
+  );
+});
+
+test("C-2a: widening the audience of a live armed row requires confirmation", () => {
+  const stored = {
+    severity: "force_update",
+    is_active: true,
+    valid_until: FUTURE,
+    target_countries: ["SA"],
+    action_url: "https://example.test/app",
+  };
+  // [] means "every country" in catalog-announcements' filter.
+  assert.deepEqual(
+    validateAnnouncementPublish({ target_countries: [] }, { stored, now: NOW }),
+    { ok: false, error: FORCE_UPDATE_CONFIRMATION_REQUIRED },
+    "SA-only -> worldwide blocks clients it was not blocking",
+  );
+});
+
+test("C-2a: arming without a working action_url is refused outright", () => {
+  // ForceUpdateScreen falls back to a PLACEHOLDER store URL with a fake app id
+  // (app/lib/features/onboarding/force_update_screen.dart: id0000000000).
+  // Arming with no action_url bricks every client behind a dead button, so this
+  // is a genuine safety precondition — unlike version bounds, which cannot work
+  // at all while no build defines APP_VERSION.
+  const armed = {
+    severity: "force_update",
+    is_active: true,
+    valid_until: FUTURE,
+    action_url: null,
+  };
+  const result = validateAnnouncementPublish(armed, {
+    confirmForceUpdate: true,
+    now: NOW,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, FORCE_UPDATE_ACTION_URL_REQUIRED);
+});
+
+test("C-2a: PATCH selects the fields the guard needs to judge blocking", () => {
+  // Selecting only severity/is_active silently reintroduces the temporal
+  // bypass: the guard cannot see a window it is not given.
+  const route = read("app/api/announcements/route.ts");
+  const patchBody = route.slice(route.indexOf("export async function PATCH"));
+  const select = patchBody.match(/\.select\("([^"]+)"\)/);
+  assert.ok(select, "PATCH must load the stored row");
+  for (const field of [
+    "severity",
+    "is_active",
+    "valid_until",
+    "target_countries",
+    "action_url",
+  ]) {
+    assert.match(select[1], new RegExp(`\\b${field}\\b`), `stored row must include ${field}`);
+  }
 });

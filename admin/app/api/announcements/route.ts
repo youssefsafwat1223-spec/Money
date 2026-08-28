@@ -102,9 +102,13 @@ export async function PATCH(req: NextRequest) {
   //   {id, is_active:true}          on a dormant force_update row
   //   {id, severity:'force_update'} on an already-active row
   // Load the stored row first and let the guard decide on the transition.
+  // C-2a — the guard's notion of "armed" is "blocks clients", which depends on
+  // the serving window and the target audience as well as severity/is_active.
+  // Selecting only the latter two made the temporal fields invisible to the
+  // guard, so resurrecting an expired force-update read as an ordinary edit.
   const { data: stored, error: storedError } = await supabase
     .from("announcements")
-    .select("severity, is_active")
+    .select("severity, is_active, valid_from, valid_until, target_countries, action_url")
     .eq("id", body.id)
     .maybeSingle();
 
