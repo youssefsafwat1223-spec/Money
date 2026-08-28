@@ -12,6 +12,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../domain/entities/supporting_entities.dart';
+import '../../core/privacy/consent_authority.dart';
+import '../../core/privacy/diagnostics_consent_gate.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../onboarding/widgets/neon_illustration.dart';
 import 'settings_providers.dart';
@@ -143,6 +145,13 @@ class PrivacyScreen extends ConsumerWidget {
   ) async {
     await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
     ref.invalidate(userSettingsProvider);
+    // OD-05 (C-3) — apply the diagnostics gate IMMEDIATELY, in the same turn as
+    // the toggle. Sentry's beforeSend is synchronous and cannot await a settings
+    // read, so the gate is pushed rather than pulled: a revocation must take
+    // effect before the next crash, not at the next startup.
+    DiagnosticsConsentGate.set(
+      ConsentAuthority.decide(EgressClass.diagnostics, updated),
+    );
     try {
       await ref
           .read(captureDeviceRegistrationServiceProvider)

@@ -16,6 +16,7 @@ import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../privacy/consent_authority.dart';
+import '../privacy/diagnostics_consent_gate.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
@@ -264,6 +265,24 @@ class BootstrapRunner {
         }
       });
     }
+
+    // OD-05 (C-3) — settings are readable now, so resolve the diagnostics gate.
+    // Sentry was armed in main() before the DB existed and defaults to DENY, so
+    // this is the first moment crash reporting can legitimately open. Failure
+    // leaves it shut: an unsent crash report costs a diagnostic, an unconsented
+    // one costs a privacy promise.
+    await _step('diagnostics_consent_gate', () async {
+      try {
+        final settings =
+            await LoadUserSettingsUseCase(DriftUserSettingsRepository(database))
+                .call();
+        DiagnosticsConsentGate.set(
+          ConsentAuthority.decide(EgressClass.diagnostics, settings),
+        );
+      } catch (_) {
+        DiagnosticsConsentGate.revoke();
+      }
+    });
 
     if (!_accountCurrencyRepairRan) {
       await _step('account_currency_repair', () async {

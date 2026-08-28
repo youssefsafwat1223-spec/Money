@@ -6,6 +6,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'app.dart';
 import 'core/backend/sentry_config.dart';
+import 'core/privacy/diagnostics_consent_gate.dart';
 import 'core/di/app_providers.dart';
 import 'core/observability/diagnostics.dart';
 import 'core/observability/telemetry_sanitizer.dart';
@@ -40,10 +41,19 @@ Future<void> main() async {
         // beforeSend AND beforeBreadcrumb — never assume the former covers the
         // latter. See TelemetrySanitizer for the exact contract and the
         // documented native limitation.
-        options.beforeSend =
-            (event, hint) => TelemetrySanitizer.sanitizeEvent(event);
-        options.beforeBreadcrumb =
-            (crumb, hint) => TelemetrySanitizer.sanitizeBreadcrumb(crumb);
+        // OD-05 (C-3) — consent gate BEFORE sanitisation. Sanitising decides
+        // what a payload may contain; it never decides whether the payload may
+        // exist. Sentry was previously armed on DSN presence alone, so crash and
+        // breadcrumb payloads — which carry device, build and context data —
+        // egressed with cloud consent OFF. The gate defaults to DENY and stays
+        // shut until consent is positively established after settings load.
+        options.beforeSend = (event, hint) => DiagnosticsConsentGate.allowed
+            ? TelemetrySanitizer.sanitizeEvent(event)
+            : null;
+        options.beforeBreadcrumb = (crumb, hint) =>
+            DiagnosticsConsentGate.allowed
+                ? TelemetrySanitizer.sanitizeBreadcrumb(crumb)
+                : null;
       },
       appRunner: () async => runApp(const StartupApp()),
     );
