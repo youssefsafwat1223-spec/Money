@@ -86,4 +86,35 @@ void main() {
       );
     }
   });
+
+  group('ledger push has the same guarantee', () {
+    final ledger = read(
+      'lib/features/capture/services/ledger_push_service.dart',
+    );
+
+    test('the update binds the base into the statement', () {
+      // Same TOCTOU shape as accounts: SELECT updated_at, compare, then blind
+      // write by id. Two round-trips, so a remote write in the gap was lost.
+      final push = ledger.substring(
+        ledger.indexOf('_PushOutcome> _pushUpdate'),
+        ledger.indexOf('_PushOutcome> _pushDelete'),
+      );
+      expect(push, contains(".eq('updated_at', base)"),
+          reason: 'the guard predicate must travel with the write');
+    });
+
+    test('it no longer SELECTs updated_at before writing', () {
+      // The separate read IS the vulnerability window.
+      final push = ledger.substring(
+        ledger.indexOf('_PushOutcome> _pushUpdate'),
+        ledger.indexOf('_PushOutcome> _pushDelete'),
+      );
+      expect(push, isNot(contains('.maybeSingle()')),
+          reason: 'a pre-write read of the base reinstates the race');
+    });
+
+    test('the tombstone branch was already atomic — the pattern existed', () {
+      expect(ledger, contains(".eq('updated_at', base)"));
+    });
+  });
 }

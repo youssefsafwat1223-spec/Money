@@ -291,37 +291,36 @@ class LedgerPushService implements LedgerPushAdapter {
         return _PushOutcome.pushed;
       }
 
-      // Fail-safe guarded path (capability OFF, or revision unknown): compare
-      // server updated_at with our last-known base. NEVER a blind overwrite.
-      final existing = await _getClient()
-          .from('user_transactions')
-          .select('updated_at')
-          .eq('id', serverId)
-          .maybeSingle();
-
-      if (existing != null) {
-        final localKnown =
-            DateTime.tryParse(payload['server_updated_at'] as String? ?? '');
-        final serverTs = DateTime.tryParse(
-          existing['updated_at'] as String? ?? '',
-        );
-        if (localKnown != null &&
-            serverTs != null &&
-            serverTs.isAfter(localKnown)) {
-          await _markConflict(item.transactionId);
-          await _queue.markSuccess(item.id);
-          return _PushOutcome.conflict;
-        }
-      }
-
-      final rows = await _getClient()
-          .from('user_transactions')
-          .update(serverRow)
-          .eq('id', serverId)
-          .select('updated_at');
-      final updated = guardedAck(rows, 'ledger.guardedUpdate');
+      // C-6 — fail-safe guarded path (capability OFF, or revision unknown).
+      //
+      // This used to SELECT the server's updated_at, compare it, then issue a
+      // blind write by id. Two round-trips, so a remote write landing between
+      // them was silently clobbered: the guard had passed against a value that
+      // was no longer true when the write executed.
+      //
+      // The predicate now travels WITH the write, exactly as the tombstone
+      // branch below already did, so the database enforces it and 0 affected
+      // rows IS the conflict signal.
+      final base = payload['server_updated_at'] as String?;
+      final rows = base != null
+          ? await _getClient()
+              .from('user_transactions')
+              .update(serverRow)
+              .eq('id', serverId)
+              .eq('updated_at', base)
+              .select('updated_at')
+          // No base to guard against (first push of an adopted row): a targeted
+          // update by id is the strongest guard available.
+          : await _getClient()
+              .from('user_transactions')
+              .update(serverRow)
+              .eq('id', serverId)
+              .select('updated_at');
+      final updated = guardedAck(rows, 'ledger.atomicGuardedUpdate');
       if (updated == null) {
-        // 0 rows (the row vanished after the base compare) → conflict.
+        // 0 rows → either the row vanished or another writer moved it past our
+        // base. Both are conflicts; the guard no longer needs to distinguish
+        // them with a second read.
         await _markConflict(item.transactionId);
         await _queue.markSuccess(item.id);
         return _PushOutcome.conflict;
