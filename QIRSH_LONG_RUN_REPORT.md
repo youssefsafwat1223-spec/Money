@@ -36,7 +36,7 @@ behind a placeholder store URL.
 | **B** Stop the bleeding | C-1 ✅ · C-2 ✅ · C-2a-1 ✅ · C-9 ✅ · C-2a-2 open · C-5 blocked | **MOSTLY COMPLETE** |
 | **C** Environment truth | DF-002 ✅ · DF-005 ✅ (source-only) | **COMPLETE (local)** |
 | **D** Privacy authority | policy ✅ · 5 egress paths gated · PULL still open | **IN PROGRESS** |
-| **E** Data integrity | F-032, F-021-pull, C-6, F-029 repair | **NOT STARTED** |
+| **E** Data integrity | **F-032 ✅ (client)** · F-021-pull, C-6, F-029 repair open | **IN PROGRESS** |
 | **F** Capability activation prep | runbook + preconditions documented | **PREPARED (not executed)** |
 | **G** Account scope / aggregation | F-026 ✅ · F-019 ✅ · F-027 ✅ · F-028 open | **MOSTLY COMPLETE** |
 | **H** Parser / capture | F-011 ✅(partly via C-1) · F-015, F-034, rollout | **NOT STARTED** |
@@ -70,6 +70,10 @@ behind a placeholder store URL.
 | `4bb47943` | `docs(release)` exact-transport activation runbook (Phase F) |
 | `93b92c93` | `docs(plan)` sync status board |
 | `6219024e` | `fix(finance)` one canonical account scope (F-026, F-019, F-027 · OD-08) |
+| `7abeb772` | `docs(plan)` findings discovered during remediation |
+| `349e221f` | `docs(plan)` H-4 quarantine review — verdict LAND |
+| `8eeb266f` | `test(sync)` explicit consent in sender-bank mechanics tests |
+| `6e13f44f` | `feat(cards)` canonical card identity (F-032 · OD-02) |
 
 *(Earlier, pre-run partition commits: `8e36a24d`, `a6f343fb`, `8d0a422c`,
 `e96f8434`, `35754d99`, `3dc87694`, `2ac4c782`, `e2b5b489`, `464816a6`.)*
@@ -85,6 +89,9 @@ behind a placeholder store URL.
 - **C-10** server-side rollout semantics (partial rollout no longer reads as
   fully enabled server-side; country targeting no longer assumed global).
 - **F-026 / F-019 / F-027** one canonical `AccountScope`, applied per OD-08.
+- **F-032 (client half)** canonical `card_id` + a never-guess backfill, closing
+  the silent mis-attribution where two cards sharing four digits merged
+  histories and a reassigned card's history was inherited by a new card.
 
 ## 7. PARTIALLY CLOSED
 
