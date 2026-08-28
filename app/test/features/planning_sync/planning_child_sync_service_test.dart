@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
@@ -168,9 +169,11 @@ PlanningChildSyncService _service(
       db: db,
       queue: queue,
       isEnabled: (_) => true,
+      isPullEnabled: (_) => true,
       getAuthUserId: () async => 'user-1',
       remote: remote,
       pageSize: pageSize,
+      pullCapability: () => ExactTransportCapability.verifiedExact,
     );
 
 Future<void> _seedParents(AppDatabase db) async {

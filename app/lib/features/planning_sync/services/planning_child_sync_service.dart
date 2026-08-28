@@ -162,32 +162,41 @@ class PlanningChildSyncService {
     required AppDatabase db,
     required PlanningOutboxQueue queue,
     required bool Function(String entityType) isEnabled,
+    bool Function(String entityType) isPullEnabled = _defaultPullEnabled,
     Future<String?> Function()? getAuthUserId,
     PlanningChildRemote? remote,
     int pageSize = 200,
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
+    ExactTransportCapability Function() pullCapability = _defaultPullCapability,
   })  : assert(pageSize > 0),
         _db = db,
         _queue = queue,
-        _isEnabled = isEnabled,
+        _isPushEnabled = isEnabled,
+        _isPullEnabled = isPullEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultUserId,
         _pageSize = pageSize,
         _remote = remote ?? const SupabasePlanningChildRemote(),
         _coordinator = coordinator,
-        _pushCapability = pushCapability;
+        _pushCapability = pushCapability,
+        _pullCapability = pullCapability;
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
-  final bool Function(String entityType) _isEnabled;
+  final bool Function(String entityType) _isPushEnabled;
+  final bool Function(String entityType) _isPullEnabled;
   final Future<String?> Function() _getAuthUserId;
   final PlanningChildRemote _remote;
   final int _pageSize;
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
+  final ExactTransportCapability Function() _pullCapability;
 
   static ExactTransportCapability _defaultPushCapability() =>
+      ExactTransportCapability.unknown;
+  static bool _defaultPullEnabled(String _) => false;
+  static ExactTransportCapability _defaultPullCapability() =>
       ExactTransportCapability.unknown;
 
   static Future<String?> _defaultUserId() async {
@@ -217,7 +226,7 @@ class PlanningChildSyncService {
       PlanningOutboxQueue.billPaymentsEntityType,
       PlanningOutboxQueue.planLinksEntityType,
     ]) {
-      if (!_isEnabled(type)) continue;
+      if (!_isPushEnabled(type)) continue;
       final items = await _queue.pendingItems(entityType: type);
       for (final item in items) {
         try {
@@ -406,7 +415,18 @@ class PlanningChildSyncService {
   }
 
   Future<void> _pull() async {
-    if (_isEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
+    // Audit H-4: pull authority is independent from push authority. This guard
+    // deliberately precedes parked-row draining, every remote fetch, and every
+    // planning_child_* cursor read/write. Unknown and unsupported therefore
+    // leave both canonical child rows and their watermarks entirely unproven.
+    if (!exactPullAllowed(_pullCapability())) {
+      if (kDebugMode) {
+        debugPrint(
+            '[PlanningChildSync] pull parked: exact transport unverified');
+      }
+      return;
+    }
+    if (_isPullEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
       // Drain BEFORE the cursor loop so children parked on earlier cycles are
       // re-attempted now that their parents (pulled earlier this cycle) exist.
       await _drainParked(
@@ -418,13 +438,13 @@ class PlanningChildSyncService {
         _scopeForGoalContributions,
       );
     }
-    if (_isEnabled(PlanningOutboxQueue.billPaymentsEntityType)) {
+    if (_isPullEnabled(PlanningOutboxQueue.billPaymentsEntityType)) {
       await _drainParked(
           'bill_payments', _pullBillPayment, _scopeForBillPayments);
       await _pullTable('user_bill_payments', 'bill_payments', _pullBillPayment,
           _scopeForBillPayments);
     }
-    if (_isEnabled(PlanningOutboxQueue.planLinksEntityType)) {
+    if (_isPullEnabled(PlanningOutboxQueue.planLinksEntityType)) {
       await _drainParked(
           'plan_transaction_links', _pullPlanLink, _scopeForPlanLinks);
       await _pullTable(
