@@ -33,10 +33,38 @@ void main() {
         localOnlyCardCount: () async => localOnlyCards,
       );
 
-  test('a clean, fully-synced database reports nothing pending', () async {
+  /// Audit H-3 changed the definition of "pending": an empty outbox is not
+  /// proof of remote persistence. A fresh database carries the
+  /// migration-seeded default account, which has no `server_id` and no outbox
+  /// entry — the reconcile service's docstring names it explicitly as a row it
+  /// exists to back-fill, and `hasUnsyncedLocalData()` already counted it with
+  /// this same predicate. So it is genuinely unproven until backfilled.
+  Future<void> markAllAccountsSynced() => db.customStatement(
+        "UPDATE accounts SET server_id = 'srv-' || id, "
+        "synced_at = '2026-01-01T00:00:00Z', sync_status = 'synced';",
+      );
+
+  test('a database whose rows are all PROVEN synced reports nothing pending',
+      () async {
+    await markAllAccountsSynced();
     final inv = await service().collect();
     expect(inv.hasPendingUserData, isFalse);
     expect(inv.pendingUserDataCount, 0);
+  });
+
+  test('the seeded default account is unproven until it is backfilled',
+      () async {
+    // Pre-H-3 this reported 0 and sign-out wiped without a word.
+    final before = await service().collect();
+    expect(before.unprovenFinancialRows, greaterThan(0));
+    expect(before.hasPendingUserData, isTrue,
+        reason: 'a row with no server_id and no outbox entry is not proven '
+            'persisted, and sign-out must not destroy it silently');
+
+    await markAllAccountsSynced();
+    final after = await service().collect();
+    expect(after.unprovenFinancialRows, 0);
+    expect(after.hasPendingUserData, isFalse);
   });
 
   test('a pending ledger outbox row is detected as unsynced user data',

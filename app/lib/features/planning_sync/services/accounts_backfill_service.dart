@@ -11,6 +11,11 @@ import '../../../domain/errors/repo_exceptions.dart';
 import '../../../domain/finance/money.dart';
 import '../../../domain/finance/money_transport.dart';
 
+const _accountMoneySelect = '*, initial_balance_text:initial_balance::text, '
+    'current_balance_text:current_balance::text, '
+    'credit_limit_text:credit_limit::text, '
+    'available_credit_text:available_credit::text';
+
 class AccountBackfillReport {
   const AccountBackfillReport({
     required this.total,
@@ -41,9 +46,9 @@ class AccountsBackfillService {
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
     Future<String?> Function()? getLocalDataOwnerUid,
-    // MALI-026 (B8-3 §13): read balances as EXACT Money (from `_minor`, never the
-    // REAL shadow as authority) and serialize canonical → exact decimal STRING,
-    // matching the primary account outbox push (planning_outbox_queue).
+    // MALI-026 (B8-3 §13): read all account money as EXACT Money (from `_minor`,
+    // never the REAL shadow as authority) and serialize canonical → exact decimal
+    // STRING, matching the primary account outbox push (planning_outbox_queue).
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
   })  : _db = db,
@@ -59,19 +64,13 @@ class AccountsBackfillService {
   final Future<String?> Function() _getLocalDataOwnerUid;
   final PlanningCutoverCoordinator _coordinator;
 
-  bool get _canonical =>
-      _coordinator.state() == PlanningCutoverState.canonical;
+  bool get _canonical => _coordinator.state() == PlanningCutoverState.canonical;
 
   /// Serialize a balance for the wire exactly as the primary push does:
   /// canonical → exact decimal STRING, legacy → JSON number.
   Object? _amountWireOrNull(Money? m) => _canonical
       ? moneyToNumericTextOrNull(m)
       : moneyToLegacyJsonNumberOrNull(m);
-
-  /// Reconstruct the server's returned NUMERIC balance as Money for an exact
-  /// mismatch diagnostic (server returns the value from a plain `.select()`).
-  Money? _serverMoneyOrNull(Object? raw, String currency) =>
-      raw == null ? null : Money.parse(raw.toString(), currency);
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -116,6 +115,10 @@ class AccountsBackfillService {
           kMoneyCodec.readColumnNullable(local, 'initial_balance', currency);
       final currentM =
           kMoneyCodec.readColumnNullable(local, 'current_balance', currency);
+      final creditLimitM =
+          kMoneyCodec.readColumnNullable(local, 'credit_limit', currency);
+      final availableCreditM =
+          kMoneyCodec.readColumnNullable(local, 'available_credit', currency);
       final payload = {
         'user_id': uid,
         'local_id': localId,
@@ -124,6 +127,8 @@ class AccountsBackfillService {
         'type': local.read<String>('type'),
         'initial_balance': _amountWireOrNull(initialM),
         'current_balance': _amountWireOrNull(currentM),
+        'credit_limit': _amountWireOrNull(creditLimitM),
+        'available_credit': _amountWireOrNull(availableCreditM),
         'is_default': false, // مرحَّل دائمًا false — يُحسم لاحقًا عبر RPC ذرّي
         'sort_order': local.read<int>('sort_order'),
         'created_at': local.read<String>('created_at'),
@@ -134,7 +139,7 @@ class AccountsBackfillService {
       try {
         final existing = await _getClient()
             .from('user_accounts')
-            .select()
+            .select(_accountMoneySelect)
             .eq('user_id', uid)
             .eq('local_id', localId)
             .maybeSingle();
@@ -145,7 +150,7 @@ class AccountsBackfillService {
           serverRow = await _getClient()
               .from('user_accounts')
               .insert(payload)
-              .select()
+              .select(_accountMoneySelect)
               .single();
           created++;
         }
@@ -154,27 +159,52 @@ class AccountsBackfillService {
       }
 
       final mismatch = serverRow['name'] != payload['name'] ||
-          serverRow['currency'] != payload['currency'] ||
+          !_requiredCurrencyMatches(serverRow['currency'], currency) ||
           serverRow['type'] != payload['type'] ||
-          _serverMoneyOrNull(serverRow['initial_balance'], currency) !=
-              initialM ||
-          _serverMoneyOrNull(serverRow['current_balance'], currency) !=
-              currentM ||
+          !_moneyTextMatches(
+              serverRow, 'initial_balance_text', initialM, currency) ||
+          !_moneyTextMatches(
+              serverRow, 'current_balance_text', currentM, currency) ||
+          !_moneyTextMatches(
+              serverRow, 'credit_limit_text', creditLimitM, currency) ||
+          !_moneyTextMatches(
+              serverRow, 'available_credit_text', availableCreditM, currency) ||
           serverRow['deleted_at'] != payload['deleted_at'];
-      if (mismatch) mismatched.add(localId);
-
-      await _db.customStatement(
-        '''
-          UPDATE accounts
-          SET server_id = ?, synced_at = ?, sync_status = 'synced'
-          WHERE id = ?;
-        ''',
-        [
-          serverRow['id'] as String,
-          dateTimeToSql(DateTime.now().toUtc()),
-          localId,
-        ],
-      );
+      if (mismatch) {
+        mismatched.add(localId);
+        // Audit H-2: a detected mismatch must NEVER be stamped `synced`. The
+        // remote row exists but disagrees with the local one, so local money is
+        // NOT proven persisted. Marking it synced hid it from
+        // hasUnsyncedLocalData() and from the pre-sign-out inventory, and let a
+        // later pull replace local money with the remote value.
+        //
+        // `conflict` is the existing durable state: accounts have an
+        // interactive conflict policy, accounts_pull_service refuses to
+        // overwrite a conflict row, and the conflict picker offers
+        // keep-mine/keep-theirs. server_id is still recorded (we know the
+        // counterpart); synced_at is deliberately left unset.
+        await _db.customStatement(
+          '''
+            UPDATE accounts
+            SET server_id = ?, synced_at = NULL, sync_status = 'conflict'
+            WHERE id = ?;
+          ''',
+          [serverRow['id'] as String, localId],
+        );
+      } else {
+        await _db.customStatement(
+          '''
+            UPDATE accounts
+            SET server_id = ?, synced_at = ?, sync_status = 'synced'
+            WHERE id = ?;
+          ''',
+          [
+            serverRow['id'] as String,
+            dateTimeToSql(DateTime.now().toUtc()),
+            localId,
+          ],
+        );
+      }
     }
 
     final resolution = await _resolveDefault(uid);
@@ -233,3 +263,23 @@ class AccountsBackfillService {
     }
   }
 }
+
+/// A reconciliation value is proven only when the requested `NUMERIC::text`
+/// alias is present and parses exactly to the canonical local Money. Explicit
+/// SQL NULL still matches nullable local money; a missing response key does not.
+bool _moneyTextMatches(
+  Map<String, dynamic> serverRow,
+  String key,
+  Money? local,
+  String currency,
+) {
+  if (!serverRow.containsKey(key)) return false;
+  try {
+    return moneyFromPulledValue(serverRow[key], currency) == local;
+  } catch (_) {
+    return false;
+  }
+}
+
+bool _requiredCurrencyMatches(Object? remote, String local) =>
+    remote is String && remote.toUpperCase() == local.toUpperCase();

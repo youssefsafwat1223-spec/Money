@@ -255,26 +255,53 @@ class TransactionsBackfillService {
         throw mapSupabaseError(e);
       }
 
-      final serverAmount =
-          moneyFromPulledValueRequired(serverRow['amount_text'], localCurrency);
-      final mismatch = serverAmount != localAmount ||
-          serverRow['currency'] != payload['currency'] ||
+      // A row is proven only when every money dimension we transmitted is
+      // returned through an exact NUMERIC::text projection and equals the
+      // canonical local Money. Missing fields, parse failures, and required
+      // remote-null currency all fail closed.
+      final mismatch = !_moneyTextMatches(
+              serverRow['amount_text'], localAmount, localCurrency) ||
+          !_requiredCurrencyMatches(serverRow['currency'], localCurrency) ||
+          !_moneyTextMatches(
+              serverRow['balance_after_text'], localBalance, localCurrency) ||
+          !_nullableCurrencyMatches(
+              serverRow['foreign_currency'], localForeignCurrency) ||
+          !_moneyTextMatches(
+            serverRow['foreign_amount_text'],
+            localForeignAmount,
+            localForeignCurrency ?? localCurrency,
+          ) ||
           serverRow['direction'] != payload['direction'] ||
           serverRow['transaction_type'] != payload['transaction_type'];
-      if (mismatch) mismatched.add(localId);
-
-      await _db.customStatement(
-        '''
-          UPDATE transactions
-          SET server_id = ?, synced_at = ?, sync_status = 'synced'
-          WHERE id = ?;
-        ''',
-        [
-          serverRow['id'] as String,
-          dateTimeToSql(DateTime.now().toUtc()),
-          localId,
-        ],
-      );
+      if (mismatch) {
+        mismatched.add(localId);
+        // Audit H-2 — see AccountsBackfillService. A remote row that disagrees
+        // with local money is NOT proof of persistence; stamping it `synced`
+        // hid it from the sign-out inventory and let a later pull overwrite the
+        // local amount. `transactions` has an interactive conflict policy, so
+        // this lands in the existing keep-mine/keep-theirs picker.
+        await _db.customStatement(
+          '''
+            UPDATE transactions
+            SET server_id = ?, sync_status = 'conflict'
+            WHERE id = ?;
+          ''',
+          [serverRow['id'] as String, localId],
+        );
+      } else {
+        await _db.customStatement(
+          '''
+            UPDATE transactions
+            SET server_id = ?, synced_at = ?, sync_status = 'synced'
+            WHERE id = ?;
+          ''',
+          [
+            serverRow['id'] as String,
+            dateTimeToSql(DateTime.now().toUtc()),
+            localId,
+          ],
+        );
+      }
     }
 
     return TransactionBackfillReport(
@@ -305,4 +332,20 @@ class TransactionsBackfillService {
         return TransactionDirectionEntity.unknown;
     }
   }
+}
+
+bool _moneyTextMatches(Object? remote, Money? local, String currency) {
+  try {
+    return moneyFromPulledValue(remote, currency) == local;
+  } catch (_) {
+    return false;
+  }
+}
+
+bool _requiredCurrencyMatches(Object? remote, String local) =>
+    remote is String && remote.toUpperCase() == local.toUpperCase();
+
+bool _nullableCurrencyMatches(Object? remote, String? local) {
+  if (local == null) return remote == null;
+  return _requiredCurrencyMatches(remote, local);
 }

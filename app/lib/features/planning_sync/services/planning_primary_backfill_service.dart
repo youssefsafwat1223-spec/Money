@@ -16,12 +16,22 @@ class PlanningBackfillReport {
     required this.created,
     required this.matched,
     required this.failures,
+    this.mismatched = const [],
   });
 
   final Map<String, int> created;
   final Map<String, int> matched;
   final List<String> failures;
-  bool get isClean => failures.isEmpty;
+
+  /// Rows whose pre-existing remote copy disagreed with local money. They are
+  /// left in `sync_status='conflict'` — NOT synced — so the local value
+  /// survives and stays visible to the pre-sign-out inventory (audit H-2).
+  final List<String> mismatched;
+
+  /// Clean means "every row is now positively proven persisted". A mismatch is
+  /// NOT clean: it is unresolved, and treating it as success is exactly the
+  /// false-success that authorised destroying the only local copy (audit H-1).
+  bool get isClean => failures.isEmpty && mismatched.isEmpty;
 }
 
 /// Deterministic, insert-only planning backfill. Existing server rows always
@@ -51,8 +61,7 @@ class PlanningPrimaryBackfillService {
   final Future<String?> Function() _getLocalDataOwnerUid;
   final PlanningCutoverCoordinator _coordinator;
 
-  bool get _canonical =>
-      _coordinator.state() == PlanningCutoverState.canonical;
+  bool get _canonical => _coordinator.state() == PlanningCutoverState.canonical;
 
   /// §12: read a money column as EXACT Money (from `_minor`, currency-scoped),
   /// then serialize canonical → decimal STRING / legacy → JSON number. Never the
@@ -97,16 +106,20 @@ class PlanningPrimaryBackfillService {
     final created = <String, int>{};
     final matched = <String, int>{};
     final failures = <String>[];
+    final mismatched = <String>[];
 
     Future<void> phase(
       String name,
-      Future<void> Function(
-              String, Map<String, int>, Map<String, int>, List<String>)
+      Future<void> Function(String, Map<String, int>, Map<String, int>,
+              List<String>, List<String>)
           work,
     ) async {
       try {
-        await work(uid, created, matched, failures);
+        await work(uid, created, matched, failures, mismatched);
       } catch (error) {
+        // Deliberately non-fatal per phase so one broken entity cannot abort the
+        // others — but the failure is RECORDED and makes the report unclean, and
+        // the caller must treat an unclean report as "not proven" (audit H-1).
         failures.add('$name: ${error.runtimeType}');
       }
     }
@@ -132,11 +145,16 @@ class PlanningPrimaryBackfillService {
       created: created,
       matched: matched,
       failures: failures,
+      mismatched: mismatched,
     );
   }
 
-  Future<void> _backfillBudgets(String uid, Map<String, int> created,
-      Map<String, int> matched, List<String> failures) async {
+  Future<void> _backfillBudgets(
+      String uid,
+      Map<String, int> created,
+      Map<String, int> matched,
+      List<String> failures,
+      List<String> mismatched) async {
     final rows = await _db.customSelect('SELECT * FROM budgets;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
@@ -186,12 +204,20 @@ class PlanningPrimaryBackfillService {
         created: created,
         matched: matched,
         failures: failures,
+        mismatched: mismatched,
+        moneyKeys: const {'amount', 'last_notified_spent_amount'},
+        moneyCurrency: currency,
+        moneyRow: row,
       );
     }
   }
 
-  Future<void> _backfillGoals(String uid, Map<String, int> created,
-      Map<String, int> matched, List<String> failures) async {
+  Future<void> _backfillGoals(
+      String uid,
+      Map<String, int> created,
+      Map<String, int> matched,
+      List<String> failures,
+      List<String> mismatched) async {
     final rows = await _db.customSelect('SELECT * FROM goals;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
@@ -237,12 +263,20 @@ class PlanningPrimaryBackfillService {
         created: created,
         matched: matched,
         failures: failures,
+        mismatched: mismatched,
+        moneyKeys: const {'target_amount', 'saved_amount', 'auto_save_amount'},
+        moneyCurrency: currency,
+        moneyRow: row,
       );
     }
   }
 
-  Future<void> _backfillGoalContributions(String uid, Map<String, int> created,
-      Map<String, int> matched, List<String> failures) async {
+  Future<void> _backfillGoalContributions(
+      String uid,
+      Map<String, int> created,
+      Map<String, int> matched,
+      List<String> failures,
+      List<String> mismatched) async {
     final rows =
         await _db.customSelect('SELECT * FROM goal_contributions;').get();
     for (final row in rows) {
@@ -255,10 +289,9 @@ class PlanningPrimaryBackfillService {
       }
       // §10 — a contribution has no currency of its own; its parent goal is the
       // currency authority. Money is read exactly with that currency.
-      final goalCurrency = (await _db
-              .customSelect('SELECT currency FROM goals WHERE id = ? LIMIT 1;',
-                  variables: [Variable.withString(localGoalId)])
-              .getSingleOrNull())
+      final goalCurrency = (await _db.customSelect(
+              'SELECT currency FROM goals WHERE id = ? LIMIT 1;',
+              variables: [Variable.withString(localGoalId)]).getSingleOrNull())
           ?.readNullable<String>('currency');
       if (goalCurrency == null) {
         failures.add('goal_contributions:$localId:parent_currency_missing');
@@ -281,12 +314,20 @@ class PlanningPrimaryBackfillService {
         created: created,
         matched: matched,
         failures: failures,
+        mismatched: mismatched,
+        moneyKeys: const {'amount'},
+        moneyCurrency: goalCurrency,
+        moneyRow: row,
       );
     }
   }
 
-  Future<void> _backfillSubscriptions(String uid, Map<String, int> created,
-      Map<String, int> matched, List<String> failures) async {
+  Future<void> _backfillSubscriptions(
+      String uid,
+      Map<String, int> created,
+      Map<String, int> matched,
+      List<String> failures,
+      List<String> mismatched) async {
     final rows = await _db.customSelect('SELECT * FROM subscriptions;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
@@ -321,8 +362,8 @@ class PlanningPrimaryBackfillService {
           'server_account_id': account.$1,
           'total_installments': row.readNullable<int>('total_installments'),
           'paid_count': row.readNullable<int>('paid_count'),
-          'manual_paid_amount':
-              _moneyOrNull(row, 'manual_paid_amount', row.read<String>('currency')),
+          'manual_paid_amount': _moneyOrNull(
+              row, 'manual_paid_amount', row.read<String>('currency')),
           'total_purchase_amount': _moneyOrNull(
               row, 'total_purchase_amount', row.read<String>('currency')),
           'lender_name': row.readNullable<String>('lender_name'),
@@ -333,12 +374,24 @@ class PlanningPrimaryBackfillService {
         created: created,
         matched: matched,
         failures: failures,
+        mismatched: mismatched,
+        moneyKeys: const {
+          'amount',
+          'manual_paid_amount',
+          'total_purchase_amount'
+        },
+        moneyCurrency: row.read<String>('currency'),
+        moneyRow: row,
       );
     }
   }
 
-  Future<void> _backfillBillPayments(String uid, Map<String, int> created,
-      Map<String, int> matched, List<String> failures) async {
+  Future<void> _backfillBillPayments(
+      String uid,
+      Map<String, int> created,
+      Map<String, int> matched,
+      List<String> failures,
+      List<String> mismatched) async {
     final rows = await _db.customSelect('SELECT * FROM bill_payments;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
@@ -373,12 +426,20 @@ class PlanningPrimaryBackfillService {
         created: created,
         matched: matched,
         failures: failures,
+        mismatched: mismatched,
+        moneyKeys: const {'amount'},
+        moneyCurrency: row.read<String>('currency'),
+        moneyRow: row,
       );
     }
   }
 
-  Future<void> _backfillPlans(String uid, Map<String, int> created,
-      Map<String, int> matched, List<String> failures) async {
+  Future<void> _backfillPlans(
+      String uid,
+      Map<String, int> created,
+      Map<String, int> matched,
+      List<String> failures,
+      List<String> mismatched) async {
     final rows = await _db.customSelect('SELECT * FROM plans;').get();
     for (final row in rows) {
       final localId = row.read<String>('id');
@@ -407,7 +468,8 @@ class PlanningPrimaryBackfillService {
         localId: localId,
         payload: {
           'name': row.read<String>('name'),
-          'budget_amount': _money(row, 'budget_amount', row.read<String>('currency')),
+          'budget_amount':
+              _money(row, 'budget_amount', row.read<String>('currency')),
           'currency': row.read<String>('currency').toUpperCase(),
           'start_date': row.read<String>('start_date'),
           'end_date': row.read<String>('end_date'),
@@ -426,12 +488,20 @@ class PlanningPrimaryBackfillService {
         created: created,
         matched: matched,
         failures: failures,
+        mismatched: mismatched,
+        moneyKeys: const {'budget_amount'},
+        moneyCurrency: row.read<String>('currency'),
+        moneyRow: row,
       );
     }
   }
 
-  Future<void> _backfillPlanLinks(String uid, Map<String, int> created,
-      Map<String, int> matched, List<String> failures) async {
+  Future<void> _backfillPlanLinks(
+      String uid,
+      Map<String, int> created,
+      Map<String, int> matched,
+      List<String> failures,
+      List<String> mismatched) async {
     final rows =
         await _db.customSelect('SELECT * FROM plan_transaction_links;').get();
     for (final row in rows) {
@@ -482,6 +552,55 @@ class PlanningPrimaryBackfillService {
     }
   }
 
+  /// Exact money comparison between the payload we would have written and the
+  /// remote row that already exists. Audit H-2: an existing remote row was
+  /// previously accepted as a "match" with NO comparison at all, and the local
+  /// row was stamped `synced` — so a remote copy holding different money made
+  /// the local (still-authoritative) value invisible to the sign-out inventory
+  /// and eligible to be overwritten by the next pull.
+  ///
+  /// Parsing failure counts as a mismatch: uncertainty must never resolve to
+  /// "proven persisted".
+  bool _moneyDiffers({
+    required Map<String, dynamic> payload,
+    required Map<String, dynamic> serverRow,
+    required Set<String> moneyKeys,
+    required String? currency,
+    required QueryRow localRow,
+  }) {
+    if (moneyKeys.isEmpty) return false; // link tables carry no money
+    if (currency == null) return true; // cannot verify ⇒ not proven
+    if (payload.containsKey('currency')) {
+      final localCurrency = payload['currency'];
+      final remoteCurrency = serverRow['currency'];
+      if (localCurrency is! String ||
+          remoteCurrency is! String ||
+          remoteCurrency.toUpperCase() != localCurrency.toUpperCase()) {
+        return true;
+      }
+    }
+    for (final key in moneyKeys) {
+      try {
+        final local = kMoneyCodec.readColumnNullable(localRow, key, currency);
+        final remote = moneyFromPulledValue(
+          serverRow['${key}_text'],
+          currency,
+        );
+        if (local != remote) {
+          return true;
+        }
+      } catch (_) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _moneySelect(Set<String> moneyKeys) => [
+        '*',
+        for (final key in moneyKeys) '${key}_text:$key::text',
+      ].join(', ');
+
   Future<void> _insertParent({
     required String uid,
     required String entity,
@@ -492,6 +611,10 @@ class PlanningPrimaryBackfillService {
     required Map<String, int> created,
     required Map<String, int> matched,
     required List<String> failures,
+    required List<String> mismatched,
+    required Set<String> moneyKeys,
+    required String? moneyCurrency,
+    required QueryRow moneyRow,
   }) =>
       _insertChild(
         uid: uid,
@@ -503,6 +626,10 @@ class PlanningPrimaryBackfillService {
         created: created,
         matched: matched,
         failures: failures,
+        mismatched: mismatched,
+        moneyKeys: moneyKeys,
+        moneyCurrency: moneyCurrency,
+        moneyRow: moneyRow,
       );
 
   Future<void> _insertChild({
@@ -515,11 +642,16 @@ class PlanningPrimaryBackfillService {
     required Map<String, int> created,
     required Map<String, int> matched,
     required List<String> failures,
+    required List<String> mismatched,
+    required Set<String> moneyKeys,
+    required String? moneyCurrency,
+    required QueryRow moneyRow,
   }) async {
     try {
+      final select = _moneySelect(moneyKeys);
       final existing = await _client()
           .from(table)
-          .select()
+          .select(select)
           .eq('user_id', uid)
           .eq('local_id', localId)
           .maybeSingle();
@@ -531,17 +663,37 @@ class PlanningPrimaryBackfillService {
                 'local_id': localId,
                 ...payload,
               })
-              .select()
+              .select(select)
               .single();
       _bump(existing == null ? created : matched, entity);
-      await _db.customStatement(
-        "UPDATE $localTable SET server_id = ?, synced_at = ?, sync_status = 'synced' WHERE id = ?;",
-        [
-          serverRow['id'] as String,
-          dateTimeToSql(DateTime.now().toUtc()),
-          localId,
-        ],
+      // The returned row (whether matched or newly inserted) is proof only when
+      // its exact money and currency authority agree with the canonical local row.
+      final conflicted = _moneyDiffers(
+        payload: payload,
+        serverRow: serverRow,
+        moneyKeys: moneyKeys,
+        currency: moneyCurrency,
+        localRow: moneyRow,
       );
+      if (conflicted) {
+        mismatched.add('$entity:$localId');
+        // Preserve the local copy and surface it: these tables have interactive
+        // conflict policies, so this lands in the keep-mine/keep-theirs picker
+        // instead of being silently overwritten by the next pull.
+        await _db.customStatement(
+          "UPDATE $localTable SET server_id = ?, sync_status = 'conflict' WHERE id = ?;",
+          [serverRow['id'] as String, localId],
+        );
+      } else {
+        await _db.customStatement(
+          "UPDATE $localTable SET server_id = ?, synced_at = ?, sync_status = 'synced' WHERE id = ?;",
+          [
+            serverRow['id'] as String,
+            dateTimeToSql(DateTime.now().toUtc()),
+            localId,
+          ],
+        );
+      }
     } catch (error) {
       failures.add('$entity:$localId:${error.runtimeType}');
     }

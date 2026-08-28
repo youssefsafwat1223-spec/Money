@@ -9,10 +9,29 @@ import 'accounts_backfill_service.dart';
 import 'outbox_queue_factory.dart';
 import 'planning_primary_backfill_service.dart';
 
+/// Audit **H-1**. `ran` used to mean only "no exception escaped" — the three
+/// backfill reports were DISCARDED, and the planning service records phase
+/// failures in its report rather than throwing. A wholly failed backfill was
+/// therefore indistinguishable from a clean one: the row stayed
+/// `server_id IS NULL` with no outbox entry, invisible to the pre-sign-out
+/// inventory, and sign-out then destroyed the only copy.
+///
+/// `ran` now means **every row is positively proven persisted**. Anything less
+/// is [partial] or [failed], and neither may be treated as success.
 enum ReconcileOutcome {
   skippedGuest,
   skippedNothingPending,
+
+  /// Complete and clean — no failed phase, no unresolved money mismatch.
   ran,
+
+  /// Some work succeeded and some did not. Deliberately distinct from [failed]:
+  /// collapsing them would lose the fact that part of the data IS durable, and
+  /// collapsing partial into [ran] is the defect this enum value exists to
+  /// prevent.
+  partial,
+
+  /// Nothing could be reconciled (threw before or through the chain).
   failed,
 
   /// Audit H-4. The database is CANONICAL but the exact-money PUSH transport is
@@ -38,6 +57,7 @@ extension ReconcileOutcomeX on ReconcileOutcome {
   /// Whether another attempt should be made once conditions change.
   bool get shouldRetry =>
       this == ReconcileOutcome.failed ||
+      this == ReconcileOutcome.partial ||
       this == ReconcileOutcome.blockedUnverifiedTransport;
 }
 
@@ -117,15 +137,41 @@ class StartupSyncReconcileService {
       // can resolve their server_account_id foreign references. All services
       // are idempotent (keyed on local_id / client_request_id) and the account
       // ones assert local-data ownership (no cross-account upload).
-      await AccountsBackfillService(db: _db, coordinator: _coordinator).run();
-      await TransactionsBackfillService(db: _db, coordinator: _coordinator).run();
+      // Audit H-1: these reports are the ONLY evidence of what actually
+      // persisted. Discarding them is what converted uncertainty into success.
+      final accounts =
+          await AccountsBackfillService(db: _db, coordinator: _coordinator)
+              .run();
+      final transactions =
+          await TransactionsBackfillService(db: _db, coordinator: _coordinator)
+              .run();
       // Planning entities too — otherwise budgets/goals/subscriptions/plans
       // created before sync (or with no session) stay local-only and are
       // permanently destroyed by the next sign-out wipe. Rows already queued
       // on the planning outbox may individually no-op/fail against the
       // server's (user_id, local_id) unique constraint — the outbox push owns
       // those; nothing duplicates.
-      await PlanningPrimaryBackfillService(db: _db, coordinator: _coordinator).run();
+      final planning = await PlanningPrimaryBackfillService(
+              db: _db, coordinator: _coordinator)
+          .run();
+
+      // Any unresolved item ⇒ NOT proven. The affected rows keep their
+      // local-only / conflict state, so `hasUnsyncedLocalData()` still sees
+      // them, the sign-out inventory still counts them, and the next cycle
+      // retries — every backfill is idempotent on (user_id, local_id).
+      final unresolved = accounts.mismatchedLocalIds.length +
+          transactions.mismatchedLocalIds.length +
+          transactions.unresolvedAccountLocalIds.length +
+          planning.failures.length +
+          planning.mismatched.length +
+          (accounts.defaultResolved ? 0 : 1);
+      if (unresolved > 0) {
+        if (kDebugMode) {
+          debugPrint('[Reconcile] incomplete: $unresolved unresolved item(s)');
+        }
+        return ReconcileOutcome.partial;
+      }
+
       if (kDebugMode) debugPrint('[Reconcile] backfill complete');
       return ReconcileOutcome.ran;
     } catch (error) {
