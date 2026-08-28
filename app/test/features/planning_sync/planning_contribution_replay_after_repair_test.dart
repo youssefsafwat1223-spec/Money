@@ -8,6 +8,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
@@ -128,8 +129,11 @@ PlanningChildSyncService _child(AppDatabase db, _FakeChildRemote r) =>
       queue: PlanningOutboxQueue(
           db: db, isSyncEnabled: (_) => true, getAuthUserId: () async => 'user-1'),
       isEnabled: (_) => true,
+      isPullEnabled: (entityType) =>
+          entityType == PlanningOutboxQueue.goalContributionsEntityType,
       getAuthUserId: () async => 'user-1',
       remote: r,
+      pullCapability: () => ExactTransportCapability.verifiedExact,
     );
 
 Future<int> _n(AppDatabase db, String sql) async =>
