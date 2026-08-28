@@ -101,7 +101,8 @@ class DriftFinancialExporter {
       // The remaining export budget is passed down so the paged big table aborts
       // MID-BUILD rather than after materializing an over-cap CSV.
       final (bytes, count) = spec.name == 'transactions'
-          ? await _pagedSpecCsv(spec, budgetBytes: _maxPackageBytes - totalBytes)
+          ? await _pagedSpecCsv(spec,
+              budgetBytes: _maxPackageBytes - totalBytes)
           : await _singleSpecCsv(spec);
       totalBytes += bytes.length;
       if (totalBytes > _maxPackageBytes) {
@@ -259,14 +260,24 @@ const _tableSpecs = <_ExportTableSpec>[
     'currency',
     'type',
     'initial_balance',
+    'initial_balance_minor',
     'current_balance',
+    'current_balance_minor',
+    'credit_limit',
+    'credit_limit_minor',
+    'available_credit',
+    'available_credit_minor',
     'is_default',
     'sort_order',
     'created_at',
     'updated_at',
   ], '''
-    SELECT id AS record_id, name, currency, type, initial_balance,
-           current_balance, is_default, sort_order, created_at, updated_at
+    SELECT id AS record_id, name, currency, type,
+           initial_balance, initial_balance_minor,
+           current_balance, current_balance_minor,
+           credit_limit, credit_limit_minor,
+           available_credit, available_credit_minor,
+           is_default, sort_order, created_at, updated_at
     FROM accounts WHERE deleted_at IS NULL ORDER BY sort_order, id;
   '''),
   _ExportTableSpec('custom_categories', [
@@ -287,6 +298,7 @@ const _tableSpecs = <_ExportTableSpec>[
     'record_id',
     'account_record_id',
     'amount',
+    'amount_minor',
     'currency',
     'merchant',
     'category_record_id',
@@ -295,12 +307,14 @@ const _tableSpecs = <_ExportTableSpec>[
     'source',
     'card_last4',
     'balance_after',
+    'balance_after_minor',
     'note',
     'occurred_at',
     'status',
     'created_at',
     'updated_at',
     'foreign_amount',
+    'foreign_amount_minor',
     'foreign_currency',
     'direction',
     'transaction_time_from_sms',
@@ -311,12 +325,13 @@ const _tableSpecs = <_ExportTableSpec>[
     'possible_duplicate_record_id',
     'duplicate_reason',
   ], '''
-    SELECT t.id AS record_id, t.account_id AS account_record_id, t.amount,
-           t.currency, t.raw_merchant AS merchant,
+    SELECT t.id AS record_id, t.account_id AS account_record_id,
+           t.amount, t.amount_minor, t.currency, t.raw_merchant AS merchant,
            t.category_id AS category_record_id, c.key AS category_key,
-           t.type, t.source, t.card_last4, t.balance_after, t.note,
+           t.type, t.source, t.card_last4,
+           t.balance_after, t.balance_after_minor, t.note,
            t.occurred_at, t.status, t.created_at, t.updated_at,
-           t.foreign_amount, t.foreign_currency, t.direction,
+           t.foreign_amount, t.foreign_amount_minor, t.foreign_currency, t.direction,
            t.transaction_time_from_sms, t.sms_received_at,
            t.comparison_timestamp, t.comparison_timestamp_source,
            t.duplicate_status,
@@ -327,23 +342,30 @@ const _tableSpecs = <_ExportTableSpec>[
     WHERE t.status != 'ignored'
     ORDER BY t.occurred_at, t.id;
   '''),
+  // Audit C-2: `currency` MUST be exported. Without it the importer had no
+  // authority for these base-currency rows and could not reconstruct canonical
+  // money, so imported budgets landed with NULL `_minor` columns.
   _ExportTableSpec('budgets', [
     'record_id',
     'account_record_id',
     'category_record_id',
     'category_key',
+    'currency',
     'amount',
+    'amount_minor',
     'period',
     'start_date',
     'is_active',
     'last_notified_spent_amount',
+    'last_notified_spent_amount_minor',
     'last_notified_period_start',
     'show_on_header',
   ], '''
     SELECT b.id AS record_id, b.account_id AS account_record_id,
            b.category_id AS category_record_id, c.key AS category_key,
-           b.amount, b.period, b.start_date, b.is_active,
-           b.last_notified_spent_amount, b.last_notified_period_start, b.show_on_header
+           b.currency, b.amount, b.amount_minor, b.period, b.start_date, b.is_active,
+           b.last_notified_spent_amount, b.last_notified_spent_amount_minor,
+           b.last_notified_period_start, b.show_on_header
     FROM budgets b LEFT JOIN categories c ON c.id = b.category_id
     WHERE b.deleted_at IS NULL ORDER BY b.id;
   '''),
@@ -353,6 +375,7 @@ const _tableSpecs = <_ExportTableSpec>[
     'merchant',
     'name',
     'amount',
+    'amount_minor',
     'currency',
     'period',
     'frequency',
@@ -367,16 +390,20 @@ const _tableSpecs = <_ExportTableSpec>[
     'total_installments',
     'paid_count',
     'manual_paid_amount',
+    'manual_paid_amount_minor',
     'total_purchase_amount',
+    'total_purchase_amount_minor',
     'lender_name',
     'interest_rate',
   ], '''
     SELECT s.id AS record_id, s.account_id AS account_record_id,
-           m.raw_name AS merchant, s.name, s.amount, s.currency, s.period,
+           m.raw_name AS merchant, s.name, s.amount, s.amount_minor,
+           s.currency, s.period,
            s.frequency, s.type, s.next_due_date, s.is_confirmed,
            s.reminder_on, s.custom_interval_days, s.note, s.created_at,
            s.status, s.total_installments, s.paid_count,
-           s.manual_paid_amount, s.total_purchase_amount, s.lender_name,
+           s.manual_paid_amount, s.manual_paid_amount_minor,
+           s.total_purchase_amount, s.total_purchase_amount_minor, s.lender_name,
            s.interest_rate
     FROM subscriptions s LEFT JOIN merchants m ON m.id = s.merchant_id
     WHERE s.deleted_at IS NULL ORDER BY s.id;
@@ -385,6 +412,7 @@ const _tableSpecs = <_ExportTableSpec>[
     'record_id',
     'subscription_record_id',
     'amount',
+    'amount_minor',
     'currency',
     'period_start',
     'period_end',
@@ -393,46 +421,61 @@ const _tableSpecs = <_ExportTableSpec>[
     'transaction_record_id',
     'note',
   ], '''
-    SELECT id AS record_id, bill_id AS subscription_record_id, amount,
-           currency, period_start, period_end, paid_at, installment_index,
+    SELECT id AS record_id, bill_id AS subscription_record_id,
+           amount, amount_minor, currency, period_start, period_end,
+           paid_at, installment_index,
            transaction_id AS transaction_record_id, note
     FROM bill_payments WHERE deleted_at IS NULL ORDER BY paid_at, id;
   '''),
+  // Audit C-2 — see `budgets`: the currency authority must travel with the row.
   _ExportTableSpec('goals', [
     'record_id',
     'account_record_id',
     'name',
+    'currency',
     'target_amount',
+    'target_amount_minor',
     'saved_amount',
+    'saved_amount_minor',
     'deadline',
     'vault_skin',
     'status',
     'created_at',
     'auto_save_amount',
+    'auto_save_amount_minor',
     'auto_save_period',
     'auto_save_last_run',
     'last_notified_saved_amount',
+    'last_notified_saved_amount_minor',
   ], '''
     SELECT id AS record_id, account_id AS account_record_id, name,
-           target_amount, saved_amount, deadline, vault_skin, status,
-           created_at, auto_save_amount, auto_save_period, auto_save_last_run,
-           last_notified_saved_amount
+           currency, target_amount, target_amount_minor,
+           saved_amount, saved_amount_minor, deadline, vault_skin, status,
+           created_at, auto_save_amount, auto_save_amount_minor,
+           auto_save_period, auto_save_last_run,
+           last_notified_saved_amount, last_notified_saved_amount_minor
     FROM goals WHERE deleted_at IS NULL ORDER BY id;
   '''),
   _ExportTableSpec('goal_contributions', [
     'record_id',
     'goal_record_id',
+    'currency',
     'amount',
+    'amount_minor',
     'created_at',
     'note',
   ], '''
-    SELECT id AS record_id, goal_id AS goal_record_id, amount, created_at, note
-    FROM goal_contributions WHERE deleted_at IS NULL ORDER BY created_at, id;
+    SELECT gc.id AS record_id, gc.goal_id AS goal_record_id,
+           g.currency, gc.amount, gc.amount_minor, gc.created_at, gc.note
+    FROM goal_contributions gc
+    JOIN goals g ON g.id = gc.goal_id
+    WHERE gc.deleted_at IS NULL ORDER BY gc.created_at, gc.id;
   '''),
   _ExportTableSpec('plans', [
     'record_id',
     'name',
     'budget_amount',
+    'budget_amount_minor',
     'currency',
     'start_date',
     'end_date',
@@ -442,7 +485,8 @@ const _tableSpecs = <_ExportTableSpec>[
     'icon',
     'created_at',
   ], '''
-    SELECT id AS record_id, name, budget_amount, currency, start_date,
+    SELECT id AS record_id, name, budget_amount, budget_amount_minor,
+           currency, start_date,
            end_date, account_ids AS account_record_ids, card_last4s,
            status, icon, created_at
     FROM plans WHERE deleted_at IS NULL ORDER BY id;

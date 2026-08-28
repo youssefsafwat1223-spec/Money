@@ -176,6 +176,10 @@ class ImportResult {
 
   final int imported;
   final int duplicates;
+
+  /// Rows deliberately quarantined because importing them would corrupt their
+  /// meaning. Currently this is a contribution whose exported currency does
+  /// not match the currency of its effective parent goal.
   final int skipped;
   final int failed;
   final bool cacheRepairPending;

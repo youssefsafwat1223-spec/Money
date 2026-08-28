@@ -38,26 +38,39 @@ class DriftFinancialImporter {
     }
 
     var imported = 0;
-    var skipped = 0;
+    var duplicates = 0;
+    var quarantined = 0;
     await _db.transaction(() async {
       if (mode == ImportMode.replace) await _softHideFinancialData();
 
+      // Resolved once: the base-currency planning tables need an authority, and
+      // re-reading it per row would be a query per imported record.
+      final baseCurrency = await _resolveBaseCurrency();
+
       for (final table in qirshPackageTables) {
         for (final row in package.tables[table]!.rows) {
-          final existed = await _exists(table, row);
-          if (existed && mode == ImportMode.merge) {
-            skipped += 1;
+          if (table == 'goal_contributions' &&
+              await _contributionCurrencyMismatchesGoal(row)) {
+            // A contribution has no currency column locally. Writing its minor
+            // integer beneath a goal with another scale would silently change
+            // its amount, so quarantine the entire row before any upsert.
+            quarantined += 1;
             continue;
           }
-          await _upsert(table, row);
+          final existed = await _exists(table, row);
+          if (existed && mode == ImportMode.merge) {
+            duplicates += 1;
+            continue;
+          }
+          await _upsert(table, row, baseCurrency);
           imported += 1;
         }
       }
 
       final result = ImportResult(
         imported: imported,
-        duplicates: skipped,
-        skipped: 0,
+        duplicates: duplicates,
+        skipped: quarantined,
         failed: 0,
       );
       await _db.customInsert(
@@ -76,8 +89,8 @@ class DriftFinancialImporter {
     });
     return ImportResult(
       imported: imported,
-      duplicates: skipped,
-      skipped: 0,
+      duplicates: duplicates,
+      skipped: quarantined,
       failed: 0,
     );
   }
@@ -130,24 +143,94 @@ class DriftFinancialImporter {
     return found != null;
   }
 
-  Future<void> _upsert(String table, Map<String, String> row) async {
+  /// The importing device's base currency (`user_settings.currency`), which is
+  /// the domain authority for budgets/goals/goal_contributions.
+  Future<String> _resolveBaseCurrency() async {
+    final row = await _db
+        .customSelect('SELECT currency FROM user_settings LIMIT 1;')
+        .getSingleOrNull();
+    final stored = row?.read<String?>('currency');
+    return _currencyOr(stored, 'SAR');
+  }
+
+  /// The parent goal's currency, for contributions (which carry none of their
+  /// own). Goals precede contributions in `qirshPackageTables`, so within this
+  /// transaction the parent is already present.
+  Future<String?> _goalCurrency(String goalId) async {
+    final row = await _db.customSelect(
+      'SELECT currency FROM goals WHERE id = ?;',
+      variables: [Variable.withString(goalId)],
+    ).getSingleOrNull();
+    final stored = row?.read<String?>('currency');
+    return _nullable(stored) == null ? null : _currency(stored);
+  }
+
+  /// New packages export the contribution's inherited currency explicitly.
+  /// Compare it with the goal that now exists in the target transaction (the
+  /// preserved local goal in MERGE, or the imported goal otherwise). Legacy
+  /// rows without `currency` retain their existing parent/base fallback.
+  Future<bool> _contributionCurrencyMismatchesGoal(
+    Map<String, String> row,
+  ) async {
+    final exported = _nullable(row['currency']);
+    if (exported == null) return false;
+    final effectiveGoalCurrency =
+        await _goalCurrency(_required(row, 'goal_record_id'));
+    return effectiveGoalCurrency != null &&
+        _currency(exported) != effectiveGoalCurrency;
+  }
+
+  /// [baseCurrency] is the DOMAIN CONTRACT currency for the base-currency
+  /// planning tables (budgets / goals / goal_contributions). Packages written
+  /// before audit C-2 carry no per-row currency for those tables, so the
+  /// importing device's own base currency is the only available authority.
+  Future<void> _upsert(
+    String table,
+    Map<String, String> row,
+    String baseCurrency,
+  ) async {
     switch (table) {
       case 'accounts':
         final accountCurrency = _currency(row['currency']);
-        final initialBalanceMoney =
-            _legacyMoneyOrNull(row['initial_balance'], accountCurrency);
-        final currentBalanceMoney =
-            _legacyMoneyOrNull(row['current_balance'], accountCurrency);
+        final initialBalanceMoney = _portableMoneyOrNull(
+          row,
+          minorKey: 'initial_balance_minor',
+          legacyKey: 'initial_balance',
+          currency: accountCurrency,
+        );
+        final currentBalanceMoney = _portableMoneyOrNull(
+          row,
+          minorKey: 'current_balance_minor',
+          legacyKey: 'current_balance',
+          currency: accountCurrency,
+        );
+        final creditLimitMoney = _portableMoneyOrNull(
+          row,
+          minorKey: 'credit_limit_minor',
+          legacyKey: 'credit_limit',
+          currency: accountCurrency,
+        );
+        final availableCreditMoney = _portableMoneyOrNull(
+          row,
+          minorKey: 'available_credit_minor',
+          legacyKey: 'available_credit',
+          currency: accountCurrency,
+        );
         await _db.customStatement('''
           INSERT INTO accounts(id,name,currency,type,initial_balance,initial_balance_minor,
-            current_balance,current_balance_minor,
+            current_balance,current_balance_minor,credit_limit,credit_limit_minor,
+            available_credit,available_credit_minor,
             is_default,sort_order,created_at,updated_at,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET name=excluded.name,currency=excluded.currency,
             type=excluded.type,initial_balance=excluded.initial_balance,
             initial_balance_minor=excluded.initial_balance_minor,
             current_balance=excluded.current_balance,
-            current_balance_minor=excluded.current_balance_minor,is_default=excluded.is_default,
+            current_balance_minor=excluded.current_balance_minor,
+            credit_limit=excluded.credit_limit,credit_limit_minor=excluded.credit_limit_minor,
+            available_credit=excluded.available_credit,
+            available_credit_minor=excluded.available_credit_minor,
+            is_default=excluded.is_default,
             sort_order=excluded.sort_order,updated_at=excluded.updated_at,deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
@@ -166,6 +249,18 @@ class DriftFinancialImporter {
           currentBalanceMoney == null
               ? null
               : kMoneyCodec.toMinor(currentBalanceMoney),
+          creditLimitMoney == null
+              ? null
+              : kMoneyCodec.toReal(creditLimitMoney),
+          creditLimitMoney == null
+              ? null
+              : kMoneyCodec.toMinor(creditLimitMoney),
+          availableCreditMoney == null
+              ? null
+              : kMoneyCodec.toReal(availableCreditMoney),
+          availableCreditMoney == null
+              ? null
+              : kMoneyCodec.toMinor(availableCreditMoney),
           _boolInt(row['is_default']),
           _int(row['sort_order']),
           _date(row['created_at']),
@@ -208,18 +303,36 @@ class DriftFinancialImporter {
       case 'transactions':
         final categoryId = await _categoryId(row);
         final transactionCurrency = _currency(row['currency']);
-        final amountMoney =
-            _legacyPositiveMoney(row['amount'], transactionCurrency);
-        final balanceAfterMoney =
-            _legacyMoneyOrNull(row['balance_after'], transactionCurrency);
+        final amountMoney = _portablePositiveMoney(
+          row,
+          minorKey: 'amount_minor',
+          legacyKey: 'amount',
+          currency: transactionCurrency,
+        );
+        final balanceAfterMoney = _portableMoneyOrNull(
+          row,
+          minorKey: 'balance_after_minor',
+          legacyKey: 'balance_after',
+          currency: transactionCurrency,
+        );
         final foreignCurrency = _nullable(row['foreign_currency']);
-        final foreignMoney = foreignCurrency == null
-            ? null
-            : _legacyMoneyOrNull(row['foreign_amount'], foreignCurrency);
-        if ((foreignMoney == null) != (foreignCurrency == null)) {
+        final hasForeignAmount = _nullable(row[
+                row.containsKey('foreign_amount_minor')
+                    ? 'foreign_amount_minor'
+                    : 'foreign_amount']) !=
+            null;
+        if (hasForeignAmount != (foreignCurrency != null)) {
           throw const DataPortabilityException(
               'المبلغ والعملة الأجنبية يجب أن يوجدا معًا.');
         }
+        final foreignMoney = foreignCurrency == null
+            ? null
+            : _portableMoneyOrNull(
+                row,
+                minorKey: 'foreign_amount_minor',
+                legacyKey: 'foreign_amount',
+                currency: foreignCurrency,
+              );
         await _db.customStatement('''
           INSERT INTO transactions(id,account_id,amount,amount_minor,currency,raw_merchant,
             category_id,type,source,card_last4,balance_after,balance_after_minor,note,occurred_at,
@@ -281,25 +394,50 @@ class DriftFinancialImporter {
         ]);
       case 'budgets':
         final categoryId = await _categoryId(row) ?? await _fallbackCategory();
+        // Audit C-2: budgets/goals are CANONICAL money (kV30MinorColumns), so
+        // the `_minor` columns and the currency MUST be written. Omitting them
+        // left canonical rows with NULL minors, which makes every planning read
+        // throw (money_codec: "v30 read requires a minor value") and the
+        // cutover marker cover non-canonical rows. Mirrors the `plans` case.
+        final budgetCurrency = _currencyOr(row['currency'], baseCurrency);
+        final budgetAmount = _portablePositiveMoney(
+          row,
+          minorKey: 'amount_minor',
+          legacyKey: 'amount',
+          currency: budgetCurrency,
+        );
+        final budgetNotified = _portableMoneyOrNull(
+              row,
+              minorKey: 'last_notified_spent_amount_minor',
+              legacyKey: 'last_notified_spent_amount',
+              currency: budgetCurrency,
+            ) ??
+            Money.zero(budgetCurrency);
         await _db.customStatement('''
-          INSERT INTO budgets(id,account_id,category_id,amount,period,start_date,
-            is_active,last_notified_spent_amount,last_notified_period_start,show_on_header,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,NULL)
+          INSERT INTO budgets(id,account_id,category_id,currency,amount,amount_minor,period,start_date,
+            is_active,last_notified_spent_amount,last_notified_spent_amount_minor,
+            last_notified_period_start,show_on_header,deleted_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,
-            category_id=excluded.category_id,amount=excluded.amount,
+            category_id=excluded.category_id,currency=excluded.currency,
+            amount=excluded.amount,amount_minor=excluded.amount_minor,
             period=excluded.period,start_date=excluded.start_date,
             is_active=excluded.is_active,last_notified_spent_amount=excluded.last_notified_spent_amount,
+            last_notified_spent_amount_minor=excluded.last_notified_spent_amount_minor,
             last_notified_period_start=excluded.last_notified_period_start,
             show_on_header=excluded.show_on_header,deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
           categoryId,
-          _positiveDouble(row['amount']),
+          budgetCurrency,
+          kMoneyCodec.toReal(budgetAmount),
+          kMoneyCodec.toMinor(budgetAmount),
           _or(row['period'], 'monthly'),
           _date(row['start_date']),
           _boolInt(row['is_active']),
-          _double(row['last_notified_spent_amount']) ?? 0.0,
+          kMoneyCodec.toReal(budgetNotified),
+          kMoneyCodec.toMinor(budgetNotified),
           _or(row['last_notified_period_start'], '2000-01-01T00:00:00Z'),
           _boolInt(row['show_on_header']),
         ]);
@@ -307,12 +445,24 @@ class DriftFinancialImporter {
         final merchantId =
             await _merchantId(_or(row['merchant'], row['name'] ?? 'اشتراك'));
         final subscriptionCurrency = _currency(row['currency']);
-        final subscriptionAmountMoney =
-            _legacyPositiveMoney(row['amount'], subscriptionCurrency);
-        final manualPaidMoney =
-            _legacyMoneyOrNull(row['manual_paid_amount'], subscriptionCurrency);
-        final totalPurchaseMoney = _legacyMoneyOrNull(
-            row['total_purchase_amount'], subscriptionCurrency);
+        final subscriptionAmountMoney = _portablePositiveMoney(
+          row,
+          minorKey: 'amount_minor',
+          legacyKey: 'amount',
+          currency: subscriptionCurrency,
+        );
+        final manualPaidMoney = _portableMoneyOrNull(
+          row,
+          minorKey: 'manual_paid_amount_minor',
+          legacyKey: 'manual_paid_amount',
+          currency: subscriptionCurrency,
+        );
+        final totalPurchaseMoney = _portableMoneyOrNull(
+          row,
+          minorKey: 'total_purchase_amount_minor',
+          legacyKey: 'total_purchase_amount',
+          currency: subscriptionCurrency,
+        );
         await _db.customStatement('''
           INSERT INTO subscriptions(id,account_id,merchant_id,name,amount,amount_minor,currency,
             period,frequency,type,next_due_date,is_confirmed,reminder_on,
@@ -367,8 +517,12 @@ class DriftFinancialImporter {
         ]);
       case 'bill_payments':
         final paymentCurrency = _currency(row['currency']);
-        final paymentAmountMoney =
-            _legacyPositiveMoney(row['amount'], paymentCurrency);
+        final paymentAmountMoney = _portablePositiveMoney(
+          row,
+          minorKey: 'amount_minor',
+          legacyKey: 'amount',
+          currency: paymentCurrency,
+        );
         await _db.customStatement('''
           INSERT INTO bill_payments(id,bill_id,amount,amount_minor,currency,period_start,
             period_end,paid_at,installment_index,transaction_id,note,deleted_at)
@@ -392,51 +546,112 @@ class DriftFinancialImporter {
           _nullable(row['note']),
         ]);
       case 'goals':
+        // Audit C-2 — see the `budgets` case. All four goal money columns are
+        // canonical and must carry their `_minor` authority plus a currency.
+        final goalCurrency = _currencyOr(row['currency'], baseCurrency);
+        final goalTarget = _portablePositiveMoney(
+          row,
+          minorKey: 'target_amount_minor',
+          legacyKey: 'target_amount',
+          currency: goalCurrency,
+        );
+        final goalSaved = _portableMoneyOrNull(
+              row,
+              minorKey: 'saved_amount_minor',
+              legacyKey: 'saved_amount',
+              currency: goalCurrency,
+            ) ??
+            Money.zero(goalCurrency);
+        final goalAutoSave = _portableMoneyOrNull(
+          row,
+          minorKey: 'auto_save_amount_minor',
+          legacyKey: 'auto_save_amount',
+          currency: goalCurrency,
+        );
+        final goalNotified = _portableMoneyOrNull(
+              row,
+              minorKey: 'last_notified_saved_amount_minor',
+              legacyKey: 'last_notified_saved_amount',
+              currency: goalCurrency,
+            ) ??
+            Money.zero(goalCurrency);
         await _db.customStatement('''
-          INSERT INTO goals(id,account_id,name,target_amount,saved_amount,deadline,
-            vault_skin,status,created_at,auto_save_amount,auto_save_period,
-            auto_save_last_run,last_notified_saved_amount,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+          INSERT INTO goals(id,account_id,name,currency,target_amount,target_amount_minor,
+            saved_amount,saved_amount_minor,deadline,
+            vault_skin,status,created_at,auto_save_amount,auto_save_amount_minor,auto_save_period,
+            auto_save_last_run,last_notified_saved_amount,last_notified_saved_amount_minor,deleted_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,name=excluded.name,
-            target_amount=excluded.target_amount,saved_amount=excluded.saved_amount,
+            currency=excluded.currency,
+            target_amount=excluded.target_amount,target_amount_minor=excluded.target_amount_minor,
+            saved_amount=excluded.saved_amount,saved_amount_minor=excluded.saved_amount_minor,
             deadline=excluded.deadline,vault_skin=excluded.vault_skin,status=excluded.status,
             auto_save_amount=excluded.auto_save_amount,
+            auto_save_amount_minor=excluded.auto_save_amount_minor,
             auto_save_period=excluded.auto_save_period,
             auto_save_last_run=excluded.auto_save_last_run,
-            last_notified_saved_amount=excluded.last_notified_saved_amount,deleted_at=NULL;
+            last_notified_saved_amount=excluded.last_notified_saved_amount,
+            last_notified_saved_amount_minor=excluded.last_notified_saved_amount_minor,
+            deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
           _required(row, 'name'),
-          _positiveDouble(row['target_amount']),
-          _double(row['saved_amount']) ?? 0,
+          goalCurrency,
+          kMoneyCodec.toReal(goalTarget),
+          kMoneyCodec.toMinor(goalTarget),
+          kMoneyCodec.toReal(goalSaved),
+          kMoneyCodec.toMinor(goalSaved),
           _nullableDate(row['deadline']),
           _or(row['vault_skin'], 'default'),
           _or(row['status'], 'active'),
           _date(row['created_at']),
-          _double(row['auto_save_amount']),
+          goalAutoSave == null ? null : kMoneyCodec.toReal(goalAutoSave),
+          goalAutoSave == null ? null : kMoneyCodec.toMinor(goalAutoSave),
           _nullable(row['auto_save_period']),
           _nullableDate(row['auto_save_last_run']),
-          _double(row['last_notified_saved_amount']) ?? 0.0,
+          kMoneyCodec.toReal(goalNotified),
+          kMoneyCodec.toMinor(goalNotified),
         ]);
       case 'goal_contributions':
+        // Audit C-2 — mismatched new-package rows were quarantined before this
+        // method. The package currency remains the parsing authority when it
+        // matches; genuinely legacy rows without it retain the parent/base
+        // fallback used before contribution currency was exported.
+        final contributionGoalId = _required(row, 'goal_record_id');
+        final exportedContributionCurrency = _nullable(row['currency']);
+        final contributionCurrency = exportedContributionCurrency == null
+            ? await _goalCurrency(contributionGoalId) ?? baseCurrency
+            : _currency(exportedContributionCurrency);
+        final contributionAmount = _portablePositiveMoney(
+          row,
+          minorKey: 'amount_minor',
+          legacyKey: 'amount',
+          currency: contributionCurrency,
+        );
         await _db.customStatement('''
-          INSERT INTO goal_contributions(id,goal_id,amount,created_at,note,deleted_at)
-          VALUES(?,?,?,?,?,NULL)
+          INSERT INTO goal_contributions(id,goal_id,amount,amount_minor,created_at,note,deleted_at)
+          VALUES(?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET goal_id=excluded.goal_id,
-            amount=excluded.amount,created_at=excluded.created_at,note=excluded.note,
+            amount=excluded.amount,amount_minor=excluded.amount_minor,
+            created_at=excluded.created_at,note=excluded.note,
             deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
-          _required(row, 'goal_record_id'),
-          _positiveDouble(row['amount']),
+          contributionGoalId,
+          kMoneyCodec.toReal(contributionAmount),
+          kMoneyCodec.toMinor(contributionAmount),
           _date(row['created_at']),
           _nullable(row['note']),
         ]);
       case 'plans':
         final planCurrency = _currency(row['currency']);
-        final budgetAmountMoney =
-            _legacyPositiveMoney(row['budget_amount'], planCurrency);
+        final budgetAmountMoney = _portablePositiveMoney(
+          row,
+          minorKey: 'budget_amount_minor',
+          legacyKey: 'budget_amount',
+          currency: planCurrency,
+        );
         await _db.customStatement('''
           INSERT INTO plans(id,name,budget_amount,budget_amount_minor,currency,start_date,end_date,
             account_ids,card_last4s,status,icon,created_at,deleted_at)
@@ -552,15 +767,55 @@ String _currency(String? value) {
   return code;
 }
 
+/// Currency for the base-currency planning tables: use the row's own value when
+/// the package carries one (post-C-2 exports), otherwise fall back to the
+/// importing device's base currency. Never returns null — a null currency would
+/// reintroduce the C-2 corruption it exists to prevent.
+String _currencyOr(String? value, String fallback) =>
+    _nullable(value) == null ? fallback : _currency(value);
+
 double? _double(String? value) =>
     _nullable(value) == null ? null : double.tryParse(value!.trim());
 
-double _positiveDouble(String? value) {
-  final parsed = _double(value);
-  if (parsed == null || parsed <= 0) {
-    throw DataPortabilityException('قيمة مالية غير صالحة: $value');
+/// New Qirsh packages carry the canonical signed int64 minor units. Presence of
+/// [minorKey] makes it authoritative even when the cell is empty (canonical
+/// NULL); an invalid exact value fails closed instead of consulting the REAL
+/// shadow. Only genuinely legacy packages, whose header omits [minorKey], use
+/// the explicitly lossy REAL-number migration fallback below.
+Money? _portableMoneyOrNull(
+  Map<String, String> row, {
+  required String minorKey,
+  required String legacyKey,
+  required String currency,
+}) {
+  if (!row.containsKey(minorKey)) {
+    return _legacyMoneyOrNull(row[legacyKey], currency);
   }
-  return parsed;
+  final text = _nullable(row[minorKey]);
+  if (text == null) return null;
+  final minor = int.tryParse(text);
+  if (minor == null) {
+    throw DataPortabilityException('قيمة مالية دقيقة غير صالحة: $minorKey');
+  }
+  return Money(minor, currency);
+}
+
+Money _portablePositiveMoney(
+  Map<String, String> row, {
+  required String minorKey,
+  required String legacyKey,
+  required String currency,
+}) {
+  final money = _portableMoneyOrNull(
+    row,
+    minorKey: minorKey,
+    legacyKey: legacyKey,
+    currency: currency,
+  );
+  if (money == null || money.isZero || money.isNegative) {
+    throw DataPortabilityException('قيمة مالية غير صالحة: ${row[legacyKey]}');
+  }
+  return money;
 }
 
 /// Qirsh is a legacy numeric payload. Keep its quantization explicitly lossy;
@@ -573,14 +828,6 @@ Money? _legacyMoneyOrNull(String? value, String currency) {
     throw DataPortabilityException('قيمة مالية غير صالحة: $value');
   }
   return legacyLossyNumberToMoney(numeric, currency);
-}
-
-Money _legacyPositiveMoney(String? value, String currency) {
-  final money = _legacyMoneyOrNull(value, currency);
-  if (money == null || money.isZero || money.isNegative) {
-    throw DataPortabilityException('قيمة مالية غير صالحة: $value');
-  }
-  return money;
 }
 
 int _int(String? value) => int.tryParse(value?.trim() ?? '') ?? 0;
