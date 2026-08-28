@@ -130,7 +130,8 @@ until deployment.
 | **F-016 / F-014 / F-020 / F-029** | **VERIFIED** | landed with review changes applied |
 | **F-021** | **partially landed** | form half VERIFIED; pull half OPEN |
 | **C-5** privacy/terms URLs | **BLOCKED — EXTERNAL** | NXDOMAIN. Per OD-06 the policy text is authored after Phase D so it describes *enforced* behaviour; the hosting step is the owner's. |
-| **C-3** | **PARTIALLY FIXED — still OPEN** | **7 of 12 egress paths gated** (financial push, sender→bank, backup, diagnostics, telemetry, Smart Inbox). 1 exempt (catalog — no user data, carries the kill switches). **4 open: 3 are the financial PULL services in the H-4 quarantine and cannot be gated until it lands; 1 (`MerchantFeedbackClient`) is UNWIRED and cannot leak today.** `R-1`'s inventory test now fails on any new ungated egress. |
+| **C-3** | **COMPLETE for money paths** | 11 gated · 1 exempt · 1 open (`MerchantFeedbackClient`, UNWIRED — no caller in lib/, cannot leak). Financial pull gated at `f0fa99b7` once H-4 unblocked it. |
+| ~~C-3 (previous state)~~ | ~~PARTIALLY FIXED~~ | **7 of 12 egress paths gated** (financial push, sender→bank, backup, diagnostics, telemetry, Smart Inbox). 1 exempt (catalog — no user data, carries the kill switches). **4 open: 3 are the financial PULL services in the H-4 quarantine and cannot be gated until it lands; 1 (`MerchantFeedbackClient`) is UNWIRED and cannot leak today.** `R-1`'s inventory test now fails on any new ungated egress. |
 | **C-10** | **FIXED LOCALLY** | server no longer treats a partial rollout as fully enabled |
 | **F-021-pull / C-6 / F-029-repair / F-024 / F-015 / F-034 / F-011-admin** | **OPEN** | Phases E, H |
 | **F-032 · F-023+F-022** | **client half FIXED** | server-side `card_id` on `user_cards`/`user_transactions`, and server-authoritative gamification with a versioned shared catalog, both still require server work |
@@ -355,6 +356,33 @@ Beyond C-1…C-8 above:
 12. **Tabby duplicates reframed** — `_busy` guard exists (`manual_transaction_sheet.dart:487`) and the
     dedup hash excludes timestamp **by design** (`transaction_dedup.dart:5-12`); 5 distinct-timestamp
     messages are 5 intended rows. Open question is whether the duplicate *detector* surfaced them.
+
+---
+
+## 8a-RESOLVED. QUARANTINE CLEARED (2026-08-29)
+
+**Every quarantined workstream reviewed in this document has now been resolved.**
+
+| Workstream | Outcome |
+|---|---|
+| **H-4** pull gates | **LANDED** — 4 commits, `b7f0359d`…`ab14ce10` |
+| **H-1** reconcile truthfulness | **LANDED** — `93275043` |
+| **F-021** pull half | **LANDED** — `4a097ea5`, evidence-based, merged with C-3 |
+| **C-6** planning push | **LANDED** — `6e4c7ff9` |
+| **F-024** CI version identity | **LANDED** — `a67e1284` (enforcement only; no CI experiments) |
+| **F-011** admin surface | **LANDED** — `0ae0defe` (enforcement only; presentation left behind) |
+| **F-034 / H-19** Shortcut | **SOURCE LANDED** — `5b3a1eb4`; device evidence pending |
+
+**Correction to §8a below.** It states H-4's dependency graph justified deferring
+the landing. On execution the H-4 workstream proved to be **three** implementation
+files, not seven — the earlier estimate conflated it with H-1, NEW-H-3 and the
+capture ownership-guard work that merely share `app_providers.dart`. The original
+review text is retained unedited beneath, because a plan that quietly rewrites its
+own wrong estimates teaches nothing.
+
+The remaining working-tree content is the genuinely separate NEW-H-3 (consent
+propagation), the capture ownership guard, the backup/restore overhaul, and the
+admin/CI presentational work — none of which this sprint claimed.
 
 ---
 
