@@ -78,6 +78,37 @@ bool planningMoneyEntitySyncEnabled({
       ExactTransportCapability.verifiedExact;
 }
 
+/// Audit **H-4** — whether a money-bearing PULL may run under [pullCapability].
+///
+/// Authority is POSITIVE-PROOF ONLY, identically to push:
+///
+/// | capability      | exact-money transport |
+/// |-----------------|-----------------------|
+/// | `verifiedExact` | may run               |
+/// | `unsupported`   | must not run          |
+/// | `unknown`       | must not run          |
+///
+/// ## Decoder strictness is NOT authority
+///
+/// [moneyFromPulledValue] throws when a value is not `NUMERIC::text` instead of
+/// degrading to a `double`, and every money pull projects `::text`. That is
+/// genuine defense-in-depth and it is asserted by test — but it proves **payload
+/// safety**, not **transport authority**. It says "if a bad payload arrives we
+/// will refuse it", which is a statement about this client's decoding, not about
+/// whether the transport has been verified end-to-end against the live server.
+///
+/// An earlier iteration of this gate treated that strictness as sufficient to
+/// permit pulling under `unknown`. That was rejected: the two are different
+/// claims, and only positive proof may enable a financial transport. Push and
+/// pull are therefore symmetric in AUTHORITY, while the decoder remains a
+/// second, independent line of defence.
+///
+/// Consequence, accepted deliberately: financial cloud pull stays disabled while
+/// the capability is `unknown`. Activation is a separate reviewed release
+/// decision — never something to switch on merely to restore current behaviour.
+bool exactPullAllowed(ExactTransportCapability pullCapability) =>
+    pullCapability == ExactTransportCapability.verifiedExact;
+
 /// Durable reason future outbox wiring records when an exact push is parked.
 const String exactMoneyTransportUnverifiedReason =
     'exact_money_transport_unverified';
