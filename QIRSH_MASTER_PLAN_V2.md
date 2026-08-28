@@ -314,6 +314,49 @@ Beyond C-1…C-8 above:
 
 ---
 
+## 8a. QUARANTINE REVIEW — H-4 PULL GATES (2026-08-28)
+
+V2 quarantined this workstream because it "silently disables financial pull" —
+an unreviewed production behaviour change riding along unlabelled inside
+"commit the six fixes". That was the right call at the time. The review has now
+been done, and the verdict is **LAND**.
+
+**What it does.** Separates PULL authority from PUSH authority (they shared one
+`isEnabled` predicate) and requires the same positive proof for money-bearing
+pulls that push already required: `exactPullAllowed(cap)`, where `unknown` and
+`unsupported` both block. Defaults fail closed
+(`_defaultPullEnabled → false`, `_defaultPullCapability → unknown`).
+
+**Why it should land, despite being a behaviour change:**
+
+1. **It is symmetric with push, which is already accepted.** Money-bearing push
+   has required positive proof since MALI-026. Pull carrying the same money
+   (`initial_balance::text`, `current_balance::text`) had no equivalent gate —
+   an asymmetry with no principled defence.
+2. **It improves the failure mode rather than merely disabling a feature.**
+   `moneyFromPulledValue` throws rather than degrading to a `double`, so under an
+   `unsupported` transport the pre-H-4 behaviour was *"attempt every row, throw,
+   and wedge the cursor"*. H-4 turns that into *"do not run"*. Cleanly not
+   running beats failing per-row and stranding a watermark.
+3. **The disabling is largely moot today.** Financial PUSH is parked in
+   production, so the server holds little or no canonical financial data for the
+   pull to fetch. Pull was reading what push never wrote.
+4. **It is instantly reversible.** Flipping the capability to `verifiedExact`
+   after the Phase-F proof re-enables it with no code change — which is exactly
+   the activation step the runbook describes.
+
+**What is NOT included, and stays rejected.** `accounts_pull_service.dart`
+contains no H-4 gate at all — both of its hunks are the **F-021 pull half**,
+which remains **DO NOT LAND** (§12.2). Likewise `planning_pull_service.dart`'s
+changes belong to **NEW-H-3** (consent propagation), reviewed separately. The
+three workstreams were entangled in the tree but are cleanly separable by file
+and hunk.
+
+**Consequence.** Landing H-4 unblocks the consent gating of financial PULL
+(C-3), which cannot be written against files held in quarantine.
+
+---
+
 ## 8b. FINDINGS DISCOVERED DURING REMEDIATION (2026-08-28 long run)
 
 Recorded separately because they were found by *doing the work*, not by the
