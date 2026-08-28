@@ -386,3 +386,177 @@ admin/lib/announcement-guard.mjs               blocksClients() + escalation rule
 supabase/migrations/0089_*.sql                 sentinel + trigger interaction
 app/test/domain/gamification_vocabulary_test.dart   migration-contract test
 ```
+
+
+---
+
+# SPRINT 2 — FINAL COMPLETION SPRINT (2026-08-29)
+
+**Starting HEAD:** `44ba170a`  ·  **Ending HEAD:** see §S13  ·  **19 commits**
+
+## S1. What this sprint closed
+
+Every item that was blocked by a quarantine decision is now landed.
+
+| Item | Verdict | Commits |
+|---|---|---|
+| **H-4** capability authority | **LANDED** — verified 2377/0 at HEAD | `b7f0359d` `57846869` `6f836d6c` `486a9484` `ab14ce10` |
+| **C-3** consent enforcement | **COMPLETE for money paths** | `f0fa99b7` |
+| **H-1** reconcile truthfulness | **LANDED** as one coherent unit | `93275043` |
+| **F-021** evidence-based conflicts | **LANDED** | `4a097ea5` `e802dfc7` |
+| **Planning C-6** TOCTOU | **LANDED** — all 3 push paths now atomic | `6e4c7ff9` |
+| **F-024** version identity | **LANDED** | `a67e1284` |
+| **F-011** parser trust | **LANDED** | `0ae0defe` |
+| **F-034 / H-19** Shortcut durability | **SOURCE COMPLETE** — device evidence pending | `5b3a1eb4` |
+| **OD-13** AI model | **IMPLEMENTED** | `52b89448` |
+| **C-5** privacy/terms | **REPO COMPLETE** — hosting external | `44afd4aa` |
+| **Phase F** runbook accuracy | **UPDATED** for H-4 | `9dff5903` |
+
+## S2. H-4 — and a correction to my own estimate
+
+I previously told the owner H-4 spanned "~7 interlinked files" and was too risky
+to land unattended. That was wrong. The actual H-4 workstream is **three**
+implementation files; my estimate conflated it with H-1, NEW-H-3 and the capture
+ownership-guard work that merely share `app_providers.dart`. The mis-estimate is
+why it sat unlanded for a full run.
+
+Landed in four reviewable commits: the pure predicate, the child push/pull
+authority split, the four pull providers, and the startup backfills.
+
+The subtlest finding was the **planning pull**: it already consulted a
+capability, but only through the per-entity currency gate, which constrains three
+of six entities. Subscriptions, plans and bill_payments short-circuited to `true`
+and never consulted the transport at all. A gate covering half the entities reads
+as covered when it is not.
+
+## S3. C-3 verdict — COMPLETE for money paths
+
+Egress inventory: **11 gated · 1 exempt · 1 open**. The one open entry is
+`MerchantFeedbackClient`, which has no caller in `lib/` and therefore cannot leak.
+
+Gates sit before the auth lookup and before any cursor read, which is what makes
+the property hold for startup, resume, retry and reconciliation without each
+needing its own check. Consent is read fresh at every call, so revocation is
+immediate (OD-07).
+
+One self-correction: I first listed the child sync service as "gated by its
+caller" and the inventory test passed — but only because that caller file
+contains OTHER services' gates. That is exactly the comfortable fiction the
+inventory exists to prevent. The child service now carries its own gate.
+
+## S4. H-1 / F-021 verdict — LANDED, as separate coherent units
+
+H-1 and F-021 were entangled in the tree but are different findings and landed
+separately.
+
+**H-1**: `ran` meant only "no exception escaped"; the three backfill reports were
+discarded. A row whose backfill failed keeps `server_id IS NULL` with no outbox
+entry, so sign-out saw "nothing pending" and wiped the only copy — data loss
+reached through a success report. Landed as one unit (exact `::text` comparison +
+`partial` outcome + inventory visibility) because the parts do not work
+separately.
+
+**F-021**: `pending` was treated as a conflict on sight, and the flag was
+terminal — an account could freeze permanently over a divergence that never
+existed. Now evidence-based, and an existing conflict re-checks and DEMOTES back
+to pending, which is what makes it a fix rather than a mitigation.
+
+`NULL`↔`0` is not conflated anywhere: a missing column or unparseable value
+counts as a MISMATCH, which is stricter than "narrowly scoped".
+
+## S5. Planning C-6 verdict — LANDED
+
+The last of three services with the check-then-write shape. The guard now travels
+with the mutation (`.eq('updated_at', base)` chained onto the update), decoded via
+`guardedAck` — never `maybeSingle`, which would throw PGRST116 on zero rows and
+resurrect the Phase-9L mis-classification.
+
+**The fakes mattered more than the fix.** Nineteen sink fakes needed the new
+method. Most model no concurrent writer, so delegating is honest. But
+`planning_entities_sync_service_test` owns the "conflicts WITHOUT clobbering"
+case, and there a delegating fake made the test FAIL — correctly, because the
+write landed. That fake now genuinely refuses the write.
+
+## S6. Phase F verdict — LOCALLY PREPARED
+
+All three capabilities still ship `unknown`; `kServerRevisionCas` stays `false`.
+The runbook now records what flipping each one actually starts doing, that
+consent is an independent gate, and why PUSH must be flipped before PULL.
+
+No remote migration applied, no capability activated, no flag flipped.
+
+## S7. AI verdict — IMPLEMENTED (OD-13)
+
+See `QIRSH_AI_ARCHITECTURE.md` §14 for the full record.
+
+**Selected:** a pure-Dart TF-IDF character-n-gram nearest-neighbour classifier
+over the merchant catalog the app already ships. **No external provider. No paid
+API. No model asset. No network path.**
+
+**Fable consultation:** recommended option B (classical, catalog-seeded) over an
+embedded neural model. **Accepted** — after validating the premise against the
+repo (332 seeds confirmed, categorizer confirmed exact-substring). Fable's
+decisive argument, which I adopted: 37 contaminated examples are too few to
+*evaluate* with, so the neural path is blocked in both directions.
+
+**Measured:** `n=3320  model 98.0%  baseline 93.4%` — ~70% relative error
+reduction. Per-perturbation, where the value actually is: alef variants 100% vs
+0%, teh marbuta 100% vs 0%, diacritics 100% vs 8%.
+
+**Live external-call verification: N/A** — there is no external call to verify.
+That is the point of the architecture, not a gap in it.
+
+## S8. F-024 / F-011 / F-034 verdicts
+
+**F-024 LANDED.** `X-App-Version` was always `''` because six call sites read a
+dart-define no build set. Version-targeted rules — including the force-update
+kill switch — could not match. One canonical accessor, a non-empty fallback, a
+test that fails if the fallback drifts from pubspec, and one CI define per
+workflow. No unrelated CI experiments came with it.
+
+**F-011 LANDED.** The admin route passed `validation_status` through from request
+input, so one string could promote an unvalidated regex to money-writing
+authority. Promotion is now not an editing operation at all; demotion always is.
+Evidence columns are not client-writable, and an already-`passed` row with no
+evidence cannot launder its status through an edit.
+
+**F-034 SOURCE COMPLETE — EXTERNAL EVIDENCE PENDING.** The real finding was H-19:
+the Shortcut deleted the only durable local copy on backend success, while the
+relay row is swept at 30 days. Fixed to mark `.sent`. Physical-device
+verification requires a paid Apple Developer account and an iPhone.
+
+## S9. C-5 verdict — REPOSITORY COMPLETE, EXTERNALLY BLOCKED
+
+Policy and Terms written, URLs centralised and overridable. Deliberately NOT
+pointed at a plausible-looking address: a link that 404s on a domain we do not
+control is a privacy policy the user cannot read while appearing to be one.
+
+The policy was written last on purpose — until C-3 landed, an honest version
+would have had to admit consent did not reliably stop uploads.
+
+## S10. New findings fixed during the sprint
+
+* **H-19** (above) — data loss on the Shortcut success path.
+* **C-11, fourth occurrence** — 35 pull constructions across 17 files had
+  silently become refusal-path tests under C-3's fail-closed default. Found only
+  by running full suites at HEAD rather than targeted subsets.
+
+## S11. Process failures worth recording
+
+1. **I overwrote uncommitted work in the tree twice** (H-1's reconcile, then
+   `planning_push_service`) by copying files into it to run a test. Both
+   recovered byte-identical from the `pre-partition` safety snapshot. The
+   snapshot did its job; the cause was mine, and the fix was to do all
+   verification in the isolated worktree instead.
+2. **A self-deadlocking wait loop** — `until ! ps aux | grep -q "[f]lutter test"`
+   matched its own command line and never exited. Killed and re-run directly.
+3. **An Argon2 "Segment processing timeout"** appeared in one full run. It is the
+   known load-sensitive flake, and I caused it by running work concurrently with
+   the suite — violating my own serialisation rule. Re-run clean rather than
+   normalised away.
+
+## S12. Fable consultations
+
+| Topic | Recommendation | Outcome |
+|---|---|---|
+| On-device model selection | Option B (classical, catalog-seeded), fold in C's interface + harness slice; neural gated behind a real corpus | **ACCEPTED** after validating the premise against the repo. Its framing that the corpus blocks *evaluation*, not just training, is now the recorded rationale. |
