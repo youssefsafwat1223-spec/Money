@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
@@ -8,10 +7,8 @@ import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
-import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/budget_period.dart';
 import '../../domain/finance/money.dart';
-import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../common/category_catalog.dart';
 import '../transactions/transactions_providers.dart';
@@ -188,96 +185,6 @@ class DashboardData {
 /// الحساب المختار في الـ dashboard (null = الحساب الافتراضي الحالي).
 final dashboardAccountProvider = activeAccountIdProvider;
 
-String _normalizeCurrency(String currency) => currency.trim().toUpperCase();
-
-/// B2-C — ensures a per-currency account exists and backfills null-account
-/// transactions WITHOUT loading the whole ledger. [presentCurrencies] is the
-/// bounded distinct-currency set (all-time); the backfill drains only the
-/// null-account rows (normally empty after the first pass). Returns the accounts.
-Future<List<AccountEntity>> _ensureCurrencyAccounts({
-  required AccountRepository accountRepo,
-  required TransactionRepository txRepo,
-  required List<AccountEntity> initialAccounts,
-  required List<String> presentCurrencies,
-  required String fallbackCurrency,
-}) async {
-  var accounts = List<AccountEntity>.of(initialAccounts);
-  final byCurrency = <String, AccountEntity>{
-    for (final account in accounts)
-      _normalizeCurrency(account.currency): account,
-  };
-
-  Future<AccountEntity> createAccount(String currency) async {
-    final now = DateTime.now().toUtc();
-    final account = await accountRepo.create(
-      AccountEntity(
-        id: '',
-        name: 'حساب $currency',
-        currency: currency,
-        type: AccountType.bank,
-        isDefault: accounts.isEmpty,
-        sortOrder: accounts.length,
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
-    accounts = [...accounts, account];
-    byCurrency[currency] = account;
-    return account;
-  }
-
-  final baseCurrency = _normalizeCurrency(fallbackCurrency);
-  if (accounts.isEmpty && baseCurrency.isNotEmpty) {
-    await createAccount(baseCurrency);
-  }
-
-  for (final raw in presentCurrencies) {
-    final currency = _normalizeCurrency(raw);
-    if (currency.isNotEmpty && !byCurrency.containsKey(currency)) {
-      await createAccount(currency);
-    }
-  }
-
-  // Backfill ONLY null-account transactions via a bounded keyset drain (the
-  // null-account set shrinks to empty after the first pass — never the whole
-  // ledger). A row whose currency has no account (e.g. blank currency) is left
-  // as-is, exactly as before. Advancing past a processed page never re-fetches
-  // or skips: updated rows leave the null-account set, un-updated ones fall
-  // before the cursor and are retried on a later dashboard load (best-effort).
-  DateTime? beforeOccurredAt;
-  String? beforeId;
-  const pageSize = 500;
-  while (true) {
-    final page = await txRepo.transactionsWithoutAccount(
-      beforeOccurredAt: beforeOccurredAt,
-      beforeId: beforeId,
-      limit: pageSize,
-    );
-    if (page.isEmpty) break;
-    for (final tx in page) {
-      final account = byCurrency[_normalizeCurrency(tx.currency)];
-      if (account == null) continue;
-      try {
-        await txRepo.updateAccount(transactionId: tx.id, accountId: account.id);
-      } on RepoException catch (e) {
-        // مصالحة في الخلفية بلا واجهة مستخدم — نسجّل ونكمل الباقي بدل
-        // فشل حساب الـ dashboard كله بسبب صف واحد.
-        if (kDebugMode) {
-          debugPrint(
-            '[Dashboard] account reconciliation skipped: ${e.runtimeType}',
-          );
-        }
-      }
-    }
-    if (page.length < pageSize) break;
-    final last = page.last;
-    beforeOccurredAt = last.occurredAt;
-    beforeId = last.id;
-  }
-
-  return accounts;
-}
-
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   ref.watch(financialRevisionProvider);
   final txRepo = ref.watch(transactionRepositoryProvider);
@@ -293,21 +200,19 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   // refresh to one network round-trip instead of three when Supabase-primary
   // repositories are active.
   final settingsFuture = userSettingsRepo.getSettings();
-  final initialAccountsFuture = accountRepo.getAll();
-  // B2-C — the bounded distinct-currency set, not the whole ledger.
-  final presentCurrenciesFuture = txRepo.distinctCurrencies();
-  final (settings, initialAccounts, presentCurrencies) = await (
-    settingsFuture,
-    initialAccountsFuture,
-    presentCurrenciesFuture,
-  ).wait;
-  final accounts = await _ensureCurrencyAccounts(
-    accountRepo: accountRepo,
-    txRepo: txRepo,
-    initialAccounts: initialAccounts,
-    presentCurrencies: presentCurrencies,
-    fallbackCurrency: settings.currency,
-  );
+  final accountsFuture = accountRepo.getAll();
+  // C-9 — this provider is a READ. It must not create accounts or reassign
+  // transactions: both repositories enqueue sync intent, so a mutating read
+  // turned merely opening Home into durable financial state and cloud writes
+  // (the same fault as F-020, where browsing rewrote the default account).
+  //
+  // The legacy per-currency repair now runs once at startup as an explicit
+  // command — see AccountCurrencyRepairService, invoked by BootstrapRunner
+  // before the financial UI is marked usable. A currency first seen AFTER
+  // startup still gets its account at WRITE time, in the capture path
+  // (`add_transaction_usecase.dart`, `_accountForCurrency`), so nothing here
+  // depends on the read repairing anything.
+  final (settings, accounts) = await (settingsFuture, accountsFuture).wait;
   final selectedAccountId = ref.watch(dashboardAccountProvider);
   AccountEntity? selectedAccount;
   AccountEntity? defaultAccount;

@@ -237,6 +237,14 @@ void main() {
         executor: NativeDatabase.memory(),
         keyStore: _MemoryKeyStore(),
       );
+      // These cases assert PARKING behaviour and use 'cat-001' as a placeholder
+      // category. Since F-029 fails closed on an unresolvable category, the row
+      // must exist — otherwise the budget is never queued and the test would be
+      // asserting the refusal path instead of the capability gate it covers.
+      await db.customStatement(
+        "INSERT INTO categories(id, key, name_ar, icon, color, is_income, "
+        "sort_order) VALUES('cat-001', 'cat_001_key', 'فئة', 'tag', '#000', 0, 97);",
+      );
     });
     tearDown(() async => db.close());
 
@@ -379,6 +387,14 @@ void main() {
       db = await AppDatabase.open(
         executor: NativeDatabase.memory(),
         keyStore: _MemoryKeyStore(),
+      );
+      // These cases assert PARKING behaviour and use 'cat-001' as a placeholder
+      // category. Since F-029 fails closed on an unresolvable category, the row
+      // must exist — otherwise the budget is never queued and the test would be
+      // asserting the refusal path instead of the capability gate it covers.
+      await db.customStatement(
+        "INSERT INTO categories(id, key, name_ar, icon, color, is_income, "
+        "sort_order) VALUES('cat-001', 'cat_001_key', 'فئة', 'tag', '#000', 0, 97);",
       );
     });
     tearDown(() async => db.close());

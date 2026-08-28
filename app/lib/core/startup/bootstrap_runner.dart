@@ -9,8 +9,11 @@ import '../../data/db/app_database.dart';
 import '../../data/db/planning_canonical_invariants.dart';
 import '../../data/db/planning_cutover.dart';
 import '../exporting/managed_export_store.dart';
+import '../../data/repositories/account_currency_repair_service.dart';
+import '../../data/repositories/drift_account_repository.dart';
 import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
+import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
@@ -57,6 +60,7 @@ class BootstrapRunner {
   bool _senderBankSyncStarted = false;
   bool _goalAutoSavesRan = false;
   bool _cardBackfillRan = false;
+  bool _accountCurrencyRepairRan = false;
   bool _dbKeyRefCleanupRan = false;
   String? _lastStep;
 
@@ -256,6 +260,46 @@ class BootstrapRunner {
           // Auto-save is best-effort; never block startup on it.
         } finally {
           _goalAutoSavesRan = true;
+        }
+      });
+    }
+
+    if (!_accountCurrencyRepairRan) {
+      await _step('account_currency_repair', () async {
+        try {
+          // C-9 — the legacy per-currency account repair. This used to run
+          // inside `dashboardDataProvider`, so opening Home created accounts,
+          // reassigned transactions and (because both repositories enqueue)
+          // produced cloud sync intent from a READ. It belongs here: an
+          // explicit, owner-scoped startup command, before the financial UI is
+          // marked usable.
+          //
+          // Idempotent by construction — it only creates a currency that has no
+          // account and only touches `account_id IS NULL` rows — so a repaired
+          // install writes nothing on later boots and therefore queues no
+          // duplicate outbox rows.
+          final settings =
+              await LoadUserSettingsUseCase(DriftUserSettingsRepository(database))
+                  .call();
+          await AccountCurrencyRepairService(
+            accounts: DriftAccountRepository(
+              database,
+              outboxQueue: buildPlanningOutboxQueue(database),
+            ),
+            // Both outboxes are wired deliberately: the repair changes real
+            // financial state, so it must still reach other devices exactly as
+            // it did from the dashboard. Idempotence — not the absence of a
+            // queue — is what stops repeat boots from re-enqueueing.
+            transactions: DriftTransactionRepository(
+              database,
+              outboxQueue: buildLedgerOutboxQueue(database),
+            ),
+          ).run(fallbackCurrency: settings.currency);
+        } catch (_) {
+          // Opportunistic, exactly like the card backfill: a failure leaves the
+          // legacy rows for the next boot, it never blocks startup.
+        } finally {
+          _accountCurrencyRepairRan = true;
         }
       });
     }
