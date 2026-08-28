@@ -60,6 +60,8 @@ behind a placeholder store URL.
 | `308aab81` | `fix(privacy)` gate sender→bank mapping egress (C-3 part 2) |
 | `b0b364fb` | `fix(privacy)` backup consent hook was dead code (C-3 part 3) |
 | `dce16bdd` | `fix(privacy)` gate crash reporting on consent (OD-05, C-3 part 4) |
+| `26908fcb` | `docs(run)` checkpoint the long-run report |
+| `7b57be14` | `fix(privacy)` gate financial push on consent (C-3 part 5) |
 
 *(Earlier, pre-run partition commits: `8e36a24d`, `a6f343fb`, `8d0a422c`,
 `e96f8434`, `35754d99`, `3dc87694`, `2ac4c782`, `e2b5b489`, `464816a6`.)*
@@ -75,9 +77,16 @@ behind a placeholder store URL.
 
 ## 7. PARTIALLY CLOSED
 
-- **C-3 / F-025** — policy exists and 4 egress classes are wired
-  (sender→bank mappings, backup upload, diagnostics/Sentry, plus the authority
-  itself). Remaining classes are unwired, so **C-3 stays OPEN**.
+- **C-3 / F-025** — the authority exists and **5 egress paths are gated**:
+  financial PUSH (accounts + ledger — the headline), sender→bank mappings,
+  backup upload, diagnostics/Sentry.
+  **C-3 stays OPEN.** Still ungated: financial **PULL**, `user_settings` PII,
+  Smart Inbox (`isPullEnabled: () => true`), gamification, notification logs,
+  the activity ping, metrics, and `enrich-merchant`. Four of the relevant
+  services sit in the quarantined H-4 set (`accounts_pull_service`,
+  `planning_pull_service`, `planning_push_service`, `encrypted_backup_service`)
+  and are deliberately untouched — gating them requires that workstream to be
+  reviewed first.
 - **C-2** — both no-token bypasses and the temporal bypass are closed;
   **C-2a-2 (caller-supplied confirmation) remains OPEN**, so C-2 is not closed.
 
