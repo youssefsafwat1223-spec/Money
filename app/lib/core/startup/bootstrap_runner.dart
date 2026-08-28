@@ -63,6 +63,7 @@ class BootstrapRunner {
   bool _goalAutoSavesRan = false;
   bool _cardBackfillRan = false;
   bool _accountCurrencyRepairRan = false;
+  bool _cardIdentityBackfillRan = false;
   bool _dbKeyRefCleanupRan = false;
   String? _lastStep;
 
@@ -338,6 +339,23 @@ class BootstrapRunner {
           // Backfill is opportunistic; a failure leaves cards empty, not broken.
         } finally {
           _cardBackfillRan = true;
+        }
+      });
+    }
+
+    if (!_cardIdentityBackfillRan) {
+      await _step('card_identity_backfill', () async {
+        try {
+          // F-032 / OD-02 — attribute historical transactions to a canonical
+          // card_id. Runs AFTER card_backfill so auto-discovered cards exist to
+          // match against. Unambiguous matches only; anything else stays NULL
+          // rather than being guessed.
+          await database.backfillCardIdentity();
+        } catch (_) {
+          // Opportunistic: a failure leaves rows unattributed for the next boot,
+          // which is the same truthful state as "not attributable".
+        } finally {
+          _cardIdentityBackfillRan = true;
         }
       });
     }

@@ -1692,6 +1692,24 @@ class AppDatabase extends GeneratedDatabase {
     );
     await _ensureColumn('transactions', 'duplicate_reason', 'TEXT NULL');
     await _ensureColumn('suspected_duplicates', 'card_last4', 'TEXT NULL');
+
+    // F-032 / OD-02 — canonical card identity on transactions.
+    //
+    // The card↔transaction join was the soft composite `(account_id, last4)`.
+    // Four digits are not identity: `getByCard(last4)` matched across every
+    // account, merging two physically different cards into one history; and
+    // moving a card to another account left its history behind, where a later
+    // card with the same last4 silently inherited it. Both are silent financial
+    // mis-attribution — no error, just money shown under the wrong card.
+    //
+    // Additive and nullable: `last4` remains as display metadata and as the
+    // matching EVIDENCE the backfill uses, never as identity. NULL means
+    // "not attributable", which is a truthful state — see backfillCardIdentity.
+    await _ensureColumn('transactions', 'card_id', 'TEXT NULL');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transactions_card_id '
+      'ON transactions(card_id) WHERE card_id IS NOT NULL;',
+    );
     await _ensureColumn(
       'suspected_duplicates',
       'comparison_timestamp',
@@ -2396,6 +2414,42 @@ class AppDatabase extends GeneratedDatabase {
   Future<int> _currentUserVersion() async {
     final row = await customSelect('PRAGMA user_version;').getSingle();
     return row.read<int>('user_version');
+  }
+
+  /// F-032 / OD-02 — attribute historical transactions to a canonical card.
+  ///
+  /// Matches ONLY where the evidence is unambiguous: exactly one live card whose
+  /// `(account_id, last4)` equals the transaction's. Anything else — no match,
+  /// or more than one candidate — is left NULL.
+  ///
+  /// **Never guesses.** An unattributed transaction is a visible, correctable
+  /// state; a wrongly attributed one is money silently displayed under someone
+  /// else's card, which is precisely the defect this replaces.
+  ///
+  /// Idempotent: only rows with `card_id IS NULL` are considered, so a repeat
+  /// run performs no write. Returns the number of rows attributed.
+  Future<int> backfillCardIdentity() async {
+    return customUpdate(
+      '''
+      UPDATE transactions
+         SET card_id = (
+           SELECT c.id FROM cards c
+            WHERE c.deleted_at IS NULL
+              AND c.account_id = transactions.account_id
+              AND c.last4 = transactions.card_last4
+         )
+       WHERE card_id IS NULL
+         AND card_last4 IS NOT NULL
+         AND account_id IS NOT NULL
+         AND (
+           SELECT COUNT(*) FROM cards c
+            WHERE c.deleted_at IS NULL
+              AND c.account_id = transactions.account_id
+              AND c.last4 = transactions.card_last4
+         ) = 1;
+      ''',
+      updates: {},
+    );
   }
 
   Future<void> _ensureColumn(

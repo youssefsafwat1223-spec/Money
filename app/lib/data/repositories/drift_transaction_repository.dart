@@ -1158,6 +1158,28 @@ class DriftTransactionRepository implements TransactionRepository {
     }).toList();
   }
 
+  /// F-032 / OD-02 — history for ONE physical card, by canonical identity.
+  ///
+  /// Prefer this over [getByCard]. `last4` is four digits and is not identity:
+  /// two different cards can share it, and [getByCard] returns both, merging
+  /// their histories across accounts.
+  Future<List<TransactionEntity>> getByCardId(String cardId) async {
+    final rows = await _db.customSelect(
+      """
+        SELECT * FROM transactions
+        WHERE card_id = ? AND status = 'confirmed'
+        ORDER BY occurred_at DESC;
+      """,
+      variables: [Variable.withString(cardId)],
+    ).get();
+    return rows.map(transactionFromRow).toList();
+  }
+
+  /// Legacy last4 lookup.
+  ///
+  /// F-032: this matches across EVERY account, so it merges distinct physical
+  /// cards that share four digits. Retained for the display surfaces that still
+  /// group by last4; new callers should use [getByCardId].
   @override
   Future<List<TransactionEntity>> getByCard(String last4) async {
     final rows = await _db.customSelect(
