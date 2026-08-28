@@ -1,7 +1,15 @@
 # QIRSH — AI/ML ARCHITECTURE & EVALUATION WORKSTREAM (W-001)
 
-**Status: DESIGN — implementation gated on the evidence gates in §12.**
+**Status: IMPLEMENTED (on-device) — 2026-08-29, under OD-13.**
 Created 2026-08-28 under **OD-11**. Companion to `QIRSH_MASTER_PLAN_V2.md`.
+
+> **UPDATE 2026-08-29 — OD-13 supersedes the sequencing conclusion below.**
+> The owner required an ACTUAL model in the app, FREE to run, on-device-first,
+> with no paid per-request API as the primary path or as a hidden fallback.
+> A model now ships. §14 records what was built, why this shape, and what it
+> measurably does. Sections 1–13 are retained unchanged as the reasoning that
+> led here — including the recommendation NOT to ship a neural model, which
+> §14 upholds rather than overturns.
 
 > **OD-11 standing decision.** AI/ML **is** an intended strategic part of the final Qirsh product.
 > This document exists so that direction cannot quietly disappear from the roadmap. It also exists
@@ -295,3 +303,140 @@ the residual, that favours the **backend** cascade, kept consent-gated. **Let th
 **Permitted before the gates close (OD-11):** an isolated, disabled-by-default, non-production local
 prototype that contacts no remote service and cannot alter canonical financial data. Nothing in
 §1–§11 depends on it.
+
+
+---
+
+## 14. WHAT SHIPPED (OD-13, 2026-08-29)
+
+### 14.1 The decision, and the fact that decided it
+
+Fable was consulted as tie-breaker between (A) an embedded quantized neural
+model, (B) a classical on-device classifier, and (C) abstraction-only with the
+model deferred. Its recommendation was **B, with C's interface-and-harness
+slice folded in**. I validated the premise against the repository before
+building — 332 merchant→category seeds confirmed present in
+`category_seeds.dart`, and the categorizer confirmed to be exact-substring
+matching — then implemented it.
+
+The decisive fact is sharper than "37 examples is too few to train on":
+
+> **37 contaminated examples are too few to EVALUATE with.**
+
+Both directions are therefore blocked, including the "we'd use it zero-shot, no
+training needed" counter-argument. A shipped model whose lift over the trivial
+baseline cannot be demonstrated is a claim, not an engineering artifact. This is
+recorded explicitly so the decision is not relitigated from the training-set
+angle alone.
+
+The reframe that made a real model possible: **the training data was already in
+the bundle.** The merchant→category catalog is ~330 real labelled pairs, Arabic
+and Latin, uncontaminated. And for short, noisy, transliterated merchant strings,
+character n-grams are the *right* tool — this is character-level entity matching,
+not sentence semantics. The neural option was not the stronger one here, merely
+the more fashionable.
+
+### 14.2 What was built
+
+| Component | Location |
+|---|---|
+| Arabic/Latin normaliser | `app/lib/engine/intelligence/text_normalizer.dart` |
+| TF-IDF char-n-gram classifier | `app/lib/engine/intelligence/merchant_classifier.dart` |
+| `MerchantIntelligence` boundary | same file — a neural implementation can be swapped behind it |
+| Integration | `Categorizer` step 5, before the `other` fallback |
+| Wiring | `add_transaction_usecase.dart` (the real capture path) |
+| Evaluation harness | `app/test/engine/merchant_intelligence_eval_test.dart` |
+| Privacy proof | `app/test/architecture/ai_privacy_test.dart` |
+
+Cost: **zero per request, zero model asset, zero native dependency**, <5ms
+inference in pure Dart. Nothing to download, nothing to version, no app-size or
+battery argument to defend.
+
+### 14.3 Measured behaviour
+
+Evaluated on a perturbation set generated from the catalog — the variants banks
+actually emit:
+
+```
+n=3320    model 98.0%    exact-substring baseline 93.4%
+```
+
+Absolute lift is 4.6 points, and **running it showed that to be the wrong
+headline**: against a 93% baseline, absolute lift is capped near 7 points however
+good the model is. The honest measures:
+
+* **relative error reduction: ~70%** of the baseline's residual errors removed;
+* the per-perturbation breakdown, which is where the value actually is:
+
+| Perturbation | Model | Baseline |
+|---|---|---|
+| alef variants (ا/أ/إ/آ) | **100%** | 0% |
+| teh marbuta (ة/ه) | **100%** | 0% |
+| diacritics (tashkeel) | **100%** | 8% |
+
+Those are the cases substring matching cannot handle even in principle. The
+aggregate number hides them because prefix/suffix noise leaves the merchant
+substring intact and the baseline survives it.
+
+### 14.4 Structural guards against decorative AI
+
+The risk with a mandated model is that it ships and adds nothing. Prevented
+mechanically, not by intention:
+
+1. **Wired into the real abstain path.** It runs only after every deterministic
+   source has declined, and before the `other` fallback. There is no parallel
+   "AI service" that nothing calls. An integration test asserts a novel variant
+   reaches a category through it.
+2. **A CI lift gate.** If the model stops beating the baseline it replaced, the
+   suite fails. It cannot rot into decoration silently.
+3. **Abstention.** Below its confidence floor it returns null rather than
+   guessing; precision above the floor is asserted >90%. The promise is
+   precision when it speaks, not coverage.
+4. **Confidence capped below the deterministic sources**, so a suggestion can
+   never win a comparison against a rule that fired.
+5. **Optional dependency.** With no model supplied, capture behaves exactly as
+   before — AI unavailability degrades to the deterministic path and can never
+   lose a transaction.
+
+### 14.5 The write fence (OD-11 / OD-13)
+
+Writable surface: a suggested **category**, and a normalised merchant **display**
+name. Never amount, currency, direction, date, account or card identity,
+balances, any canonical `_minor` money field, or dedup/identity/sync keys. The
+normalised string is a matching key and is explicitly never a join key or a
+persisted identity.
+
+If deterministic evidence says 12.50 EGP and a model says 125 EGP, the model
+loses — and in this architecture it is never even asked, because money never
+reaches it.
+
+### 14.6 Privacy
+
+There is **no network path to gate**. Inference is pure Dart over bundled data,
+so "zero AI egress with consent off" is structurally absent rather than blocked.
+
+Tests enforce this rather than assuming it: the intelligence layer may not import
+anything network-capable, and no paid-provider SDK name may appear — OD-13
+forbids a paid API as primary path *or* hidden fallback, and that prohibition is
+now checkable rather than remembered.
+
+### 14.7 On-device learning
+
+A user correction becomes a first-class exemplar and generalises to variants of
+that merchant. The model measurably diverges from its shipped state as the user
+corrects it, with nothing leaving the device — the one capability a lookup table
+cannot imitate, and the honest answer to "is this really AI".
+
+### 14.8 What is NOT done, and its entry gate
+
+Unknown-message triage ("is this a transaction at all") is the same machinery
+over the same features and is the clearly-defined next increment.
+
+The neural path is not abandoned; it is **gated**: a clean labelled corpus of
+≥500 messages AND a demonstrated ≥5-point lift over the Dart baseline on that
+corpus, before a single megabyte of model asset enters the bundle. If those never
+materialise, the neural model correctly never ships. Realistic candidate when
+they do: `paraphrase-multilingual-MiniLM-L12-v2` (Apache-2.0), ~117MB int8 —
+still likely too heavy, needing distillation below ~30MB; runtimes
+`tflite_flutter` (Apache-2.0) or ONNX Runtime (MIT), both clean on licensing;
+the real cost is the SentencePiece tokenizer and per-platform binary maintenance.
