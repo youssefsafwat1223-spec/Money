@@ -5,6 +5,7 @@ import '../../engine/ai/ai_sender_failure_tracker.dart';
 import '../../engine/ai/grounding_check.dart';
 import '../../engine/categorization/category.dart';
 import '../../engine/categorization/categorizer.dart';
+import '../../engine/intelligence/merchant_classifier.dart';
 import '../../engine/categorization/merchant_category_map.dart';
 import '../../engine/dedup/transaction_dedup.dart';
 import '../../engine/models/parsed_transaction.dart';
@@ -465,6 +466,7 @@ class AddTransactionUseCase {
     // (Starbucks, Amazon, etc.) should not require confirmation even on first visit.
     final preCategory = Categorizer(
       remoteKeywords: const [],
+      intelligence: CharNgramMerchantClassifier(),
     ).categorize(parsed);
     final isNewMerchant = merchant == null
         ? false
@@ -509,6 +511,10 @@ class AddTransactionUseCase {
     final categorizer = Categorizer(
       map: MerchantCategoryMap(learnedMap),
       remoteKeywords: remoteKeywords,
+      // OD-13 — on-device merchant model. It runs ONLY where every
+      // deterministic source has already declined (see `Categorizer`), and
+      // performs no I/O, so it neither delays capture nor egresses anything.
+      intelligence: CharNgramMerchantClassifier(),
     );
     var effectiveParsed = parsed;
     final hasAiCategory = aiCategoryKey != null;

@@ -1,12 +1,18 @@
+import 'dart:math' as math;
+
 import '../../data/catalog/catalog_daos.dart';
 import '../models/parsed_transaction.dart';
 import '../models/transaction_type.dart';
 import 'category.dart';
+import '../intelligence/merchant_classifier.dart';
 import 'category_seeds.dart';
 import 'merchant_category_map.dart';
 
 /// مصدر قرار التصنيف (للشفافية وضبط الثقة).
-enum CategorySource { userMap, typeRule, keyword, fallback }
+/// OD-13: `model` is a SUGGESTION source. It ranks below every deterministic
+/// source and above the give-up fallback, and it never carries confidence 1.0 —
+/// a model result must stay distinguishable from a user's own decision.
+enum CategorySource { userMap, typeRule, keyword, model, fallback }
 
 class CategoryResult {
   const CategoryResult(this.categoryKey, this.source, this.confidence);
@@ -21,11 +27,17 @@ class Categorizer {
   Categorizer({
     MerchantCategoryMap? map,
     List<RemoteMerchantKeyword> remoteKeywords = const [],
+    MerchantIntelligence? intelligence,
   })  : _map = map ?? MerchantCategoryMap(),
-        _remoteKeywords = remoteKeywords;
+        _remoteKeywords = remoteKeywords,
+        _intelligence = intelligence;
 
   final MerchantCategoryMap _map;
   final List<RemoteMerchantKeyword> _remoteKeywords;
+
+  /// Optional on-device model. Null keeps the pre-model behaviour exactly, so
+  /// the classifier can never be a hard dependency of transaction capture.
+  final MerchantIntelligence? _intelligence;
 
   CategoryResult categorize(ParsedTransaction txn) {
     final merchant = txn.rawMerchant;
@@ -79,7 +91,26 @@ class Categorizer {
       }
     }
 
-    // 5) افتراضي.
+    // 5) نموذج على الجهاز — يعمل فقط حين تفشل كل القواعد الحتمية.
+    //
+    // OD-13. This is the ONLY place the model runs: strictly after every
+    // deterministic source has declined, and strictly before giving up. Wiring
+    // it here rather than beside them is what stops it being decorative — if it
+    // never fires, the only thing lost is the `other` fallback it replaced.
+    //
+    // It abstains below its confidence floor, so an unrecognised merchant still
+    // lands on `fallback` instead of being guessed at.
+    if (merchant != null && _intelligence != null) {
+      final p = _intelligence.predict(merchant);
+      if (p != null) {
+        // Confidence is deliberately capped below the deterministic sources'
+        // 0.8: a model suggestion must never outrank a rule that fired.
+        return CategoryResult(
+            p.categoryKey, CategorySource.model, math.min(p.confidence, 0.75));
+      }
+    }
+
+    // 6) افتراضي.
     return CategoryResult(Categories.other.key, CategorySource.fallback, 0.3);
   }
 
