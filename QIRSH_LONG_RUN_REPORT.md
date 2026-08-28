@@ -35,11 +35,11 @@ behind a placeholder store URL.
 | **A** Tree partition | 6 fixes triaged, quarantine preserved | **COMPLETE** |
 | **B** Stop the bleeding | C-1 ✅ · C-2 ✅ · C-2a-1 ✅ · C-9 ✅ · C-2a-2 open · C-5 blocked | **MOSTLY COMPLETE** |
 | **C** Environment truth | DF-002 ✅ · DF-005 ✅ (source-only) | **COMPLETE (local)** |
-| **D** Privacy authority | policy ✅ · 5 egress paths gated · PULL still open | **IN PROGRESS** |
-| **E** Data integrity | **F-032 ✅ (client)** · F-021-pull, C-6, F-029 repair open | **IN PROGRESS** |
+| **D** Privacy authority | policy ✅ · **7 gated, 1 exempt, 4 open** (3 quarantined, 1 unwired) · R-1 inventory test guards regressions | **MOSTLY COMPLETE** |
+| **E** Data integrity | F-032 ✅ · C-6 ✅ (2 of 3 paths) · F-029 ✅ (client + server detection) · F-021-pull quarantined | **MOSTLY COMPLETE** |
 | **F** Capability activation prep | runbook + preconditions documented | **PREPARED (not executed)** |
 | **G** Account scope / aggregation | F-026 ✅ · F-019 ✅ · F-027 ✅ · F-028 ✅ | **COMPLETE** |
-| **H** Parser / capture | F-011 ✅(partly via C-1) · F-015, F-034, rollout | **NOT STARTED** |
+| **H** Parser / capture | F-011 ✅ (via C-1) · F-015 ✅ (+F-015b) · F-034 blocked (quarantined Swift + needs device) · rollout blocked on flags | **MOSTLY COMPLETE** |
 | **AI** W-001 workstream | architecture + gates | **COMPLETE (design)** |
 | **I** Flags / gamification | C-10 ✅ · F-023+F-022 ✅ (client) · F-024 blocked | **MOSTLY COMPLETE** |
 | **J** UX foundations | | **NOT STARTED** |
@@ -77,6 +77,16 @@ behind a placeholder store URL.
 | `13df73ea` | `docs(run)` record F-032 |
 | `f3fd86ce` | `fix(dashboard)` like-with-like week comparison (F-028) |
 | `2c70cb73` | `fix(gamification)` one vocabulary, one level mapping (F-023 + F-022 · OD-03) |
+| `e5e44a9f` | `fix(gamification)` raw value to customStatement (runtime binding) |
+| `ef9e2587` | `fix(tests)` repair two contract gates my migrations broke |
+| `6611dc3a` | `fix(tests)` remove F-021 pull tests from HEAD (code is quarantined) |
+| `39c199cb` | `fix(sync)` atomic guarded account update (C-6) |
+| `cee2d4ef` | `fix(sync)` atomic guarded ledger update (C-6 part 2) |
+| `2ad082ef` | `fix(parser)` merchant boundary + AMAZON truncation (F-015, F-015b) |
+| `9b62839b` | `test(privacy)` egress inventory (C-3 / R-1) |
+| `6e7d8d93` | `fix(privacy)` gate notification-log telemetry (C-3) |
+| `12560909` | `fix(privacy)` gate Smart Inbox egress (C-3) |
+| `f68af055` | `feat(db)` detect corrupt budget category ids (F-029 server) |
 
 *(Earlier, pre-run partition commits: `8e36a24d`, `a6f343fb`, `8d0a422c`,
 `e96f8434`, `35754d99`, `3dc87694`, `2ac4c782`, `e2b5b489`, `464816a6`.)*
