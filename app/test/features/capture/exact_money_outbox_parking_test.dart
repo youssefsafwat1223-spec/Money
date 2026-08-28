@@ -137,6 +137,10 @@ void main() {
       coordinator: _canonical,
       pushCapability: () => ExactTransportCapability.unknown,
       getClient: () => client((_) {}, failIfCalled: true),
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
 
     expect(result.parked, 1);
@@ -165,6 +169,10 @@ void main() {
       coordinator: _canonical,
       pushCapability: () => ExactTransportCapability.unsupported,
       getClient: () => client((_) {}, failIfCalled: true),
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
     expect(result.parked, 1);
     expect(await q.parkedCount(), 1);
@@ -186,6 +194,10 @@ void main() {
       coordinator: _canonical,
       pushCapability: () => ExactTransportCapability.unknown,
       getClient: () => client((_) {}, failIfCalled: true),
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
     expect(await q.parkedCount(), 1);
 
@@ -201,6 +213,10 @@ void main() {
       coordinator: _canonical,
       pushCapability: () => ExactTransportCapability.verifiedExact,
       getClient: () => client((m) => sent = m),
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
 
     expect(result.pushed, 1);
@@ -232,6 +248,10 @@ void main() {
       coordinator: _legacy,
       pushCapability: () => ExactTransportCapability.unknown,
       getClient: () => client((m) => sent = m),
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
     expect(result.parked, 0);
     expect(result.pushed, 1);

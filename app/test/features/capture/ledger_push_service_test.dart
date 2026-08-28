@@ -158,6 +158,10 @@ void main() {
       isPushEnabled: () => true,
       getAuthUserId: () async => 'user-123',
       getClient: () => client,
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
 
     expect(result.pushed, 1);
@@ -223,6 +227,10 @@ void main() {
       isPushEnabled: () => true,
       getAuthUserId: () async => 'user-123',
       getClient: () => client,
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
 
     // Category is sent as the stable KEY, not the local UUID.

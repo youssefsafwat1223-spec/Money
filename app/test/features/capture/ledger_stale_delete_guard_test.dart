@@ -118,7 +118,11 @@ void main() {
         getAuthUserId: () async => 'user-1',
         getClient: () => c,
         revisionCasEnabled: casEnabled,
-      ).push();
+      
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
+    ).push();
 
   test(
       'A/§8 CAS-on + matching revision: tombstone sends the revision predicate '

@@ -100,6 +100,10 @@ void main() {
       getAuthUserId: () async => 'user-1',
       getClient: () => client,
       revisionCasEnabled: true,
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
 
     expect(r.pushed, 1);
@@ -136,6 +140,10 @@ void main() {
       getAuthUserId: () async => 'user-1',
       getClient: () => client,
       revisionCasEnabled: true,
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
 
     expect(r.conflicts, 1);
@@ -170,6 +178,10 @@ void main() {
       getAuthUserId: () async => 'user-1',
       getClient: () => client,
       revisionCasEnabled: true,
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
 
     expect(r.failed, 1, reason: 'invariant violation surfaces as a failure');

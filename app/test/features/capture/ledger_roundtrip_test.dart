@@ -92,6 +92,10 @@ void main() {
       isPushEnabled: () => true,
       getAuthUserId: () async => 'user-1',
       getClient: () => client,
+    
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
     ).push();
     expect(r.pushed, 1, reason: 'push should succeed');
     return sent!;
@@ -251,7 +255,11 @@ void main() {
         isPushEnabled: () => true,
         getAuthUserId: () async => 'user-1',
         getClient: () => throw StateError('must not reach the network'),
-      ).push();
+      
+      // C-3: these cover push MECHANICS; consent enforcement is asserted
+      // separately in financial_push_consent_test.dart.
+      mayEgress: () async => true,
+    ).push();
       expect(r.pushed, 0);
       final fc = (await db
               .customSelect(
