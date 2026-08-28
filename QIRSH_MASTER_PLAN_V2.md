@@ -72,6 +72,10 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 | `093549bf` | **C-2a-2** admin route arms via the RPC, fails closed at 503 | **VERIFIED** (source) |
 | `17eea0af` | **C-10** server rollout semantics fail closed | **FIXED LOCALLY** — Edge, not deployed |
 | `4bb47943` | Phase-F capability activation runbook | **VERIFIED** (docs) |
+| `6219024e` | **F-026 / F-019 / F-027** one canonical `AccountScope` (OD-08) | **VERIFIED** |
+| `6e13f44f` | **F-032** canonical `card_id` + never-guess backfill (OD-02) | **VERIFIED** (client half) |
+| `f3fd86ce` | **F-028** like-with-like week comparison | **VERIFIED** |
+| `2c70cb73` | **F-023 + F-022** one gamification vocabulary (OD-03) | **VERIFIED** (client half) |
 
 **Owner decisions OD-01…OD-11 received and applied.** See `QIRSH_AI_ARCHITECTURE.md` for OD-11 and
 `QIRSH_RELEASE_TRACK.md` for OD-06.
@@ -89,7 +93,8 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 | **C-5** privacy/terms URLs | **BLOCKED — EXTERNAL** | NXDOMAIN. Per OD-06 the policy text is authored after Phase D so it describes *enforced* behaviour; the hosting step is the owner's. |
 | **C-3** | **PARTIALLY FIXED — still OPEN** | 5 egress paths gated. **Financial PULL, `user_settings` PII, Smart Inbox, gamification, notification logs, activity ping, metrics and `enrich-merchant` remain ungated**; four of those services are in the H-4 quarantine. |
 | **C-10** | **FIXED LOCALLY** | server no longer treats a partial rollout as fully enabled |
-| **F-032 / F-021-pull / C-6 / F-029-repair / F-023+F-022 / F-024 / F-019/026/027/028 / F-015 / F-034** | **OPEN** | Phases E, G, H, I |
+| **F-021-pull / C-6 / F-029-repair / F-024 / F-015 / F-034 / F-011-admin** | **OPEN** | Phases E, H |
+| **F-032 · F-023+F-022** | **client half FIXED** | server-side `card_id` on `user_cards`/`user_transactions`, and server-authoritative gamification with a versioned shared catalog, both still require server work |
 | F-020a · F-019 · F-023 · F-032 · F-016 rollout · Sentry · privacy domain · NEW-H-3 · ND-06 · consent deletion | **OWNER DECISION REQUIRED** | §27 |
 
 ---
