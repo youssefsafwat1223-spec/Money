@@ -105,6 +105,10 @@ class LedgerSyncService implements LedgerPullAdapter {
     required DriftTransactionRepository transactionRepository,
     required DriftDedupStore dedupStore,
     required bool Function() isPullEnabled,
+    /// C-3 — financial PULL downloads this user's money from the server.
+    /// Consent is asked fresh at egress and defaults to DENY, so a caller that
+    /// omits it performs no network at all.
+    Future<bool> Function()? mayEgress,
     LedgerRemoteSource? remoteSource,
     Future<String?> Function()? getAuthUserId,
     int pageSize = 200,
@@ -113,6 +117,7 @@ class LedgerSyncService implements LedgerPullAdapter {
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
         _isPullEnabled = isPullEnabled,
+        _mayEgress = mayEgress ?? _denyEgressByDefault,
         _remoteSource = remoteSource ?? const SupabaseLedgerRemoteSource(),
         _pageSize = pageSize,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
@@ -135,6 +140,9 @@ class LedgerSyncService implements LedgerPullAdapter {
   final DriftTransactionRepository _transactionRepository;
   final DriftDedupStore _dedupStore;
   final bool Function() _isPullEnabled;
+  final Future<bool> Function() _mayEgress;
+
+  static Future<bool> _denyEgressByDefault() async => false;
   final LedgerRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
@@ -186,6 +194,7 @@ class LedgerSyncService implements LedgerPullAdapter {
     SyncCursor? from,
     bool Function()? isAdmitted,
   }) async {
+    if (!await _mayEgress()) return const LedgerSyncResult();
     if (!_isPullEnabled()) return const LedgerSyncResult();
 
     final userId = await _getAuthUserId();

@@ -166,18 +166,26 @@ class PlanningPullService {
   PlanningPullService({
     required AppDatabase db,
     required bool Function(String entityType) isEnabled,
+    /// C-3 — financial PULL downloads this user's money from the server.
+    /// Consent is asked fresh at egress and defaults to DENY, so a caller that
+    /// omits it performs no network at all.
+    Future<bool> Function()? mayEgress,
     Future<String?> Function()? getAuthUserId,
     PlanningRemoteSource? remoteSource,
     int pageSize = 200,
   })  : assert(pageSize > 0),
         _db = db,
         _isEnabled = isEnabled,
+        _mayEgress = mayEgress ?? _denyEgressByDefault,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _pageSize = pageSize,
         _remoteSource = remoteSource ?? const SupabasePlanningRemoteSource();
 
   final AppDatabase _db;
   final bool Function(String entityType) _isEnabled;
+  final Future<bool> Function() _mayEgress;
+
+  static Future<bool> _denyEgressByDefault() async => false;
   final Future<String?> Function() _getAuthUserId;
   final PlanningRemoteSource _remoteSource;
   final int _pageSize;
@@ -219,6 +227,10 @@ class PlanningPullService {
     Set<String>? fromEpochEntities,
     bool Function()? isAdmitted,
   }) async {
+    // C-3 — one check for the whole pull, before any cursor is read. Placing it
+    // per-entity inside the loop would let a revocation mid-pull leave some
+    // entities advanced and others not.
+    if (!await _mayEgress()) return const PlanningPullResult();
     final userId = await _getAuthUserId();
     if (userId == null) return const PlanningPullResult();
     final admitted = isAdmitted ?? alwaysAdmitted;

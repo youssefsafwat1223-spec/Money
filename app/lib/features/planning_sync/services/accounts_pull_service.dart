@@ -94,18 +94,26 @@ class AccountsPullService {
   AccountsPullService({
     required AppDatabase db,
     required bool Function() isEnabled,
+    /// C-3 — financial PULL downloads this user's money from the server.
+    /// Consent is asked fresh at egress and defaults to DENY, so a caller that
+    /// omits it performs no network at all.
+    Future<bool> Function()? mayEgress,
     Future<String?> Function()? getAuthUserId,
     AccountsRemoteSource? remoteSource,
     int pageSize = 200,
   })  : assert(pageSize > 0),
         _db = db,
         _isEnabled = isEnabled,
+        _mayEgress = mayEgress ?? _denyEgressByDefault,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _pageSize = pageSize,
         _remoteSource = remoteSource ?? const SupabaseAccountsRemoteSource();
 
   final AppDatabase _db;
   final bool Function() _isEnabled;
+  final Future<bool> Function() _mayEgress;
+
+  static Future<bool> _denyEgressByDefault() async => false;
   final Future<String?> Function() _getAuthUserId;
   final AccountsRemoteSource _remoteSource;
   final int _pageSize;
@@ -131,6 +139,7 @@ class AccountsPullService {
     SyncCursor? from,
     bool Function()? isAdmitted,
   }) async {
+    if (!await _mayEgress()) return const AccountsPullResult();
     if (!_isEnabled()) return const AccountsPullResult();
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPullResult();

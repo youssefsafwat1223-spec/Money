@@ -521,6 +521,11 @@ final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
     // bare `() => true` — with push, so an explicitly `unsupported` transport
     // could not disable it: every row would throw and wedge the cursor instead
     // of the pull simply not running.
+    // C-3 — financial PULL downloads this user's money. Read fresh at egress.
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
     isEnabled: () =>
         _planningAccountsSyncEnabled() && exactPullAllowed(pullCap),
   );
@@ -578,6 +583,11 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
     // (subscriptions, plans, bill_payments) short-circuited to `true` and so
     // never consulted the pull transport at all. The capability now applies to
     // the whole pull, with the planning gate layered on top.
+    // C-3 — financial PULL downloads this user's money. Read fresh at egress.
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
     isEnabled: (entityType) =>
         exactPullAllowed(pullCap) &&
         _planningEntitySyncEnabledWithCurrency(
@@ -599,6 +609,11 @@ final planningChildSyncServiceProvider =
     // Pull authority is independent from push authority. The exact pull gate
     // covers every child family; the planning-currency gate layers on top for
     // goal contributions, using the pull-direction transport capability.
+    // C-3 — child rows carry money; consent precedes capability.
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
     isPullEnabled: (entityType) =>
         exactPullAllowed(pullCap) &&
         _planningEntitySyncEnabledWithCurrency(
@@ -1084,6 +1099,11 @@ final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
     // Audit H-4: the ledger pull carries money (`amount::text`,
     // `balance_after::text`, `foreign_amount::text`) and had no seam to be
     // switched off.
+    // C-3 — financial PULL downloads this user's money. Read fresh at egress.
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
     isPullEnabled: () => exactPullAllowed(pullCap),
   );
 });

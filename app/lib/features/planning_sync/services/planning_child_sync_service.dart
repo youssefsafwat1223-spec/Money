@@ -163,6 +163,9 @@ class PlanningChildSyncService {
     required PlanningOutboxQueue queue,
     required bool Function(String entityType) isEnabled,
     bool Function(String entityType) isPullEnabled = _defaultPullEnabled,
+    /// C-3 — child rows carry money (contribution amounts, bill payments).
+    /// Defaults to DENY.
+    Future<bool> Function()? mayEgress,
     Future<String?> Function()? getAuthUserId,
     PlanningChildRemote? remote,
     int pageSize = 200,
@@ -180,7 +183,10 @@ class PlanningChildSyncService {
         _remote = remote ?? const SupabasePlanningChildRemote(),
         _coordinator = coordinator,
         _pushCapability = pushCapability,
-        _pullCapability = pullCapability;
+        _pullCapability = pullCapability,
+        _mayEgress = mayEgress ?? _denyEgressByDefault;
+
+  static Future<bool> _denyEgressByDefault() async => false;
 
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
@@ -192,6 +198,7 @@ class PlanningChildSyncService {
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
   final ExactTransportCapability Function() _pullCapability;
+  final Future<bool> Function() _mayEgress;
 
   static ExactTransportCapability _defaultPushCapability() =>
       ExactTransportCapability.unknown;
@@ -415,6 +422,9 @@ class PlanningChildSyncService {
   }
 
   Future<void> _pull() async {
+    // C-3 — consent precedes capability: a user who declined cloud sync must
+    // not have child rows pulled even where the transport is proven.
+    if (!await _mayEgress()) return;
     // Audit H-4: pull authority is independent from push authority. This guard
     // deliberately precedes parked-row draining, every remote fetch, and every
     // planning_child_* cursor read/write. Unknown and unsupported therefore

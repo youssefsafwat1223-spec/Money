@@ -37,6 +37,12 @@ void main() {
     'features/capture/services/smart_inbox_sync_service.dart':
         'EgressClass.smartInbox — its isPullEnabled is a FEATURE gate, '
             'hardcoded open; consent is asked separately',
+    'features/planning_sync/services/accounts_pull_service.dart':
+        'EgressClass.financialSync — money DOWN; a pull also WRITES locally',
+    'features/planning_sync/services/planning_pull_service.dart':
+        'EgressClass.financialSync — gated once per pull, not per entity',
+    'features/planning_sync/services/planning_child_sync_service.dart':
+        'EgressClass.financialSync — consent precedes the capability gate',
     'core/backup/supabase_remote_backup_store.dart':
         'EgressClass.backup — gated by its CALLER, RemoteBackupController',
     'core/backup/encrypted_backup_service.dart':
@@ -70,14 +76,6 @@ void main() {
         'OPEN (C-3 remainder): user-derived merchant keywords, belongs on '
             'EgressClass.aiProcessing. Currently UNWIRED — no caller exists in '
             'lib/, so it cannot leak today; gate it when it is wired.',
-    'features/planning_sync/services/accounts_pull_service.dart':
-        'OPEN + QUARANTINED: financial PULL. The file is in the H-4 quarantine '
-            '(see QIRSH_MASTER_PLAN_V2.md §8a), so it cannot be gated until '
-            'that workstream lands.',
-    'features/planning_sync/services/planning_pull_service.dart':
-        'OPEN + QUARANTINED: financial PULL, same quarantine.',
-    'features/planning_sync/services/planning_child_sync_service.dart':
-        'OPEN + QUARANTINED: financial PULL, same quarantine.',
   };
 
   test('every file that reaches the network is a listed decision', () {
