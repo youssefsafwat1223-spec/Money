@@ -85,6 +85,26 @@ at HEAD — which found 7 real errors that the working tree hid. HEAD now analyz
 **Owner decisions OD-01…OD-12 received and applied.** See `QIRSH_AI_ARCHITECTURE.md` for OD-11 and
 `QIRSH_RELEASE_TRACK.md` for OD-06.
 
+**OD-13 — an actual AI/ML model is required, and it must be FREE to run
+(2026-08-28, owner present, supersedes the earlier external-API framing).** Qirsh
+must ship a real model integration, not documentation. A paid per-request API may
+NOT be the primary implementation and may not be a hidden fallback. Preference
+order: an open-source on-device model, a lightweight local classifier, or another
+zero-per-request-cost architecture. It must be practical on both iOS and Android
+without making the app unreasonably large, slow, memory-heavy or battery-hungry,
+and the SMALLEST model meeting measured accuracy wins. A large general-purpose
+LLM added merely to claim the app has AI is explicitly rejected.
+
+Scope the model MAY serve: Arabic + English message understanding, merchant
+normalization, category prediction, unknown-message classification, ambiguity
+assistance. The deterministic parser remains authoritative for amount, currency,
+direction, account/card identity and exact-money values — the model may never
+override them.
+
+If a fully embedded model cannot safely be completed this sprint, the complete
+inference abstraction, evaluation harness, model asset pipeline and integration
+path must still land, with the exact remaining blocker stated.
+
 **OD-12 — gamification vocabulary (2026-08-28, owner present).** The union
 approach is **APPROVED**. Preserve the union of the existing client and server
 achievement vocabularies; normalize semantic duplicates if any; use ONE canonical
