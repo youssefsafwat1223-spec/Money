@@ -210,3 +210,52 @@ Still uncommitted in the working tree, deliberately: **F-021 pull half**,
 **F-017 admin UI**, **H-4 pull gates**, **NEW-H-3 consent propagation**, the
 backup/restore overhaul, the admin UI promotion, migrations 0084–0086, CI/release
 changes.
+
+---
+
+## 36. EXACT NEXT ACTIONS (in order)
+
+### Immediately actionable locally, in dependency order
+1. **Land the H-4 pull gates** — reviewed this run, verdict LAND (`QIRSH_MASTER_PLAN_V2.md` §8a).
+   Unblocks 2 and 4.
+2. **Gate financial PULL on consent** — the last large C-3 gap. Blocked on 1,
+   because the pull services are in the quarantine.
+3. **Gate the remaining egress classes**: `user_settings` PII, Smart Inbox
+   (`isPullEnabled: () => true`), gamification, notification logs, activity ping,
+   metrics, `enrich-merchant`.
+4. **Phase E — data integrity**: F-032 `card_id` (OD-02), F-021 pull rework,
+   C-6 atomic guarded update, F-029 server-row repair.
+5. **F-028** — the last aggregation item (dashboard compares partial-vs-full
+   week; reports compares elapsed-matched, under one label).
+6. **F-023 + F-022** — gamification split-brain (OD-03).
+7. **Phase H** — F-015 in-engine merchant normalisation, F-034, F-016 staged
+   rollout (OD-04, blocked on a real flag consumer).
+
+### Blocked on the owner
+- **C-5 privacy/terms hosting** — the artifacts cannot be authored honestly until
+  Phase D completes, and the hosting step is the owner's (OD-06).
+- **F-024 `APP_VERSION`** — the one-line-per-workflow fix lives in
+  `codemagic.yaml`, which is inside the quarantined CI workstream. Landing it
+  requires that workstream to be reviewed, or an explicit exception.
+- Everything in `QIRSH_RELEASE_TRACK.md` §2–§5.
+
+---
+
+## 37. RELEASE READINESS VERDICT
+
+**Not release-ready, and materially closer than at the start of the run.**
+
+Closed this run: an unvalidated-regex path to confirmed money, two force-update
+arming bypasses plus a server-side authorization layer, a read path that mutated
+financial state, five consent egress leaks, server-side rollout semantics, and
+three aggregation defects.
+
+Still blocking, honestly stated:
+- **financial PULL egresses without consent** (C-3 incomplete);
+- **no `card_id` identity** — `last4` still merges distinct physical cards (F-032);
+- **gamification is split-brain** — client and server share no achievement vocabulary;
+- **cloud sync is dark** and its activation has six unmet preconditions (Phase F);
+- **the privacy/terms URL is NXDOMAIN** — a store blocker and a live dead link.
+
+None of these is a regression introduced by this run; all are pre-existing and
+now precisely located, with tests where fixed.
