@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/finance/account_scope.dart';
-import 'package:money_companion/domain/finance/budget_period.dart';
 import 'package:money_companion/domain/finance/money.dart';
 
 /// R-2 / OD-08 — one account-scope definition, consumed by every surface.
