@@ -127,6 +127,10 @@ void main() {
         remoteStore: server,
         currentUserId: () => 'user-1',
         pageSize: pageSize,
+      
+        // C-3: these cover push/pull MECHANICS; consent enforcement is
+        // asserted separately in sender_bank_mapping_consent_test.dart.
+        mayEgress: () async => true,
       );
 
   Future<void> seedLocal(
