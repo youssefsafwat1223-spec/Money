@@ -104,7 +104,11 @@ void main() {
         remote: remote,
         pageSize: pageSize,
         pullCapability: () => ExactTransportCapability.verifiedExact,
-      );
+      
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
+    );
 
   Future<void> seedGoal(AppDatabase db, String serverId) => db.customStatement(
         "INSERT INTO goals(id,name,currency,target_amount,target_amount_minor,"

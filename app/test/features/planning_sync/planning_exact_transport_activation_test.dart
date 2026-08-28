@@ -60,6 +60,18 @@ class _CapturingSink implements PlanningRemoteSink {
   @override
   Future<String?> fetchServerUpdatedAt(String t, String s) async => null;
   @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: no concurrent writer modelled; rejection is covered in
+    // planning_guarded_update_atomicity_test.dart.
+    return updateByServerId(table, serverId, row);
+  }
+
+  @override
   Future<Map<String, dynamic>> updateByServerId(
           String t, String s, Map<String, dynamic> r) async =>
       {'id': s, 'updated_at': null};
@@ -345,7 +357,11 @@ void main() {
       isEnabled: (e) => e == PlanningOutboxQueue.budgetsEntityType,
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
-    ).pull();
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  ).pull();
 
     expect(result.imported, 1);
     final r = await db
@@ -378,7 +394,11 @@ void main() {
       isEnabled: (e) => e == PlanningOutboxQueue.budgetsEntityType,
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
-    ).pull();
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  ).pull();
 
     // The page errored → nothing imported, no lossy row written.
     expect(result.imported, 0);

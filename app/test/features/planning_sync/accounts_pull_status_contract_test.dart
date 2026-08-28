@@ -81,7 +81,11 @@ void main() {
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
       pageSize: 1,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
     final result = await svc.pull();
 
@@ -107,7 +111,11 @@ void main() {
       isEnabled: () => false,
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
     final result = await svc.pull();
 
@@ -129,7 +137,11 @@ void main() {
       isEnabled: () => true,
       getAuthUserId: () async => null,
       remoteSource: _FakeRemote(const []),
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
     final result = await svc.pull();
 
@@ -147,7 +159,11 @@ void main() {
       isEnabled: () => true,
       getAuthUserId: () async => 'user-1',
       remoteSource: _FakeRemote(const [], throwOnFetch: true),
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
     final result = await svc.pull();
 
@@ -177,7 +193,11 @@ void main() {
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
       pageSize: 1,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
     final result = await svc.pull(isAdmitted: () => admitted);
 
@@ -199,7 +219,11 @@ void main() {
       isEnabled: () => false, // capability off -> deferred before reading `from`
       getAuthUserId: () async => 'user-1',
       remoteSource: _FakeRemote(const []),
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
     final result = await svc.pull(from: const SyncCursor.epoch());
 

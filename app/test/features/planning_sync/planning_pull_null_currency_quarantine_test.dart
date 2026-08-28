@@ -94,7 +94,11 @@ PlanningPullService _svc(AppDatabase db, PlanningRemoteSource remote) =>
       isEnabled: (e) => e == _goal || e == _budget, // test-scoped (no provider flip)
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
 Future<int> _count(AppDatabase db, String sql) async =>
     (await db.customSelect(sql).getSingle()).read<int>('n');

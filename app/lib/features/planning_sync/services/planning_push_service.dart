@@ -85,6 +85,22 @@ abstract class PlanningRemoteSink {
     Map<String, dynamic> row,
   );
 
+  /// C-6 — atomic guarded update. Applies [row] only if the server row's
+  /// `updated_at` still equals [expectedUpdatedAt], so the comparison and the
+  /// write are ONE statement the database evaluates. Returns the ack, or null
+  /// when no row matched — which is a genuine conflict, not a failure.
+  ///
+  /// Replaces fetch-then-compare-then-write: between those two round trips
+  /// another device's push could land, and this one would overwrite it while
+  /// believing it had checked.
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  );
+
+
   /// MALI-022 / 0068 — atomic compare-and-set update. Updates the row only if
   /// its server `revision` still equals [expectedRevision]; returns the new
   /// id/updated_at/revision, or null when no row matched (a genuine conflict).
@@ -223,6 +239,23 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
         .eq('id', serverId)
         .select(_ackCols);
     return guardedAck(rows, 'planning.guardedUpdate[$table]');
+  }
+
+  @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: the predicate travels WITH the write, so the database enforces it.
+    final rows = await _client
+        .from(table)
+        .update(row)
+        .eq('id', serverId)
+        .eq('updated_at', expectedUpdatedAt)
+        .select(_ackCols);
+    return guardedAck(rows, 'planning.atomicGuardedUpdate[$table]');
   }
 }
 
@@ -457,18 +490,17 @@ class PlanningPushService {
       // edit was made against — otherwise flag a conflict WITHOUT clobbering the
       // remote edit and WITHOUT discarding the local edit (MALI-009). Never a
       // blind overwrite.
+      // C-6: when we hold a base token, the guard travels WITH the write.
+      // The previous shape read `updated_at`, compared it, then issued an
+      // unguarded update — between those two round trips another device's push
+      // could land, and this one would overwrite it while believing it had
+      // checked. One statement closes that window; a 0-row result IS the
+      // conflict branch.
       final base = item.payloadJson['server_updated_at'] as String?;
-      if (base != null) {
-        final current =
-            await _remoteSink.fetchServerUpdatedAt(remoteTable, serverId);
-        if (current != null && current != base) {
-          await _markConflict(localTable, item.entityId);
-          await _queue.markSuccess(item.id);
-          return _PlanningPushOutcome.conflict;
-        }
-      }
-      final response =
-          await _remoteSink.updateByServerId(remoteTable, serverId, row);
+      final response = base != null
+          ? await _remoteSink.guardedUpdateByServerId(
+              remoteTable, serverId, base, row)
+          : await _remoteSink.updateByServerId(remoteTable, serverId, row);
       if (response == null) {
         await _markConflict(localTable, item.entityId);
         await _queue.markSuccess(item.id);

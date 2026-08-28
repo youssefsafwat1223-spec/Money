@@ -61,7 +61,11 @@ PlanningPullService _svc(AppDatabase db, PlanningRemoteSource remote) =>
       isEnabled: (e) => e == _goal,
       getAuthUserId: () async => 'user-1',
       remoteSource: remote,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
 Future<AppDatabase> _openDb() =>
     AppDatabase.open(executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());

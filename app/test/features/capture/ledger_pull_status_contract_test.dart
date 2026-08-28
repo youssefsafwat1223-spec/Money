@@ -79,7 +79,11 @@ void main() {
         remoteSource: remote,
         getAuthUserId: () async => signedIn ? 'user-1' : null,
         pageSize: pageSize,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
   test('completed: EOF -> completed + cursor at final high-water', () async {
     final db = await _openDb();

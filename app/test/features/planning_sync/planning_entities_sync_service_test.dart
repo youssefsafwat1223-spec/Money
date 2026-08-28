@@ -157,6 +157,23 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
   }
 
   @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: this fake genuinely SIMULATES the database predicate — it refuses
+    // the write when the server row has moved past the caller's base. A fake
+    // that merely delegated to the unguarded update would make the
+    // conflict-without-clobbering test pass for the wrong reason: the write
+    // would land, and the assertion would be measuring the old racy behaviour.
+    final current = await fetchServerUpdatedAt(table, serverId);
+    if (current != null && current != expectedUpdatedAt) return null;
+    return updateByServerId(table, serverId, row);
+  }
+
+  @override
   Future<Map<String, dynamic>> updateByServerId(
     String table,
     String serverId,
@@ -165,6 +182,8 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
     // Keyed by (user_id, local_id) in the fake store — upsert is equivalent.
     return upsert(table, row);
   }
+
+
 
   @override
   Future<Map<String, dynamic>?> casUpdateByServerId(
@@ -359,7 +378,11 @@ void main() {
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       final first = await pull.pull();
       final second = await pull.pull();
@@ -429,7 +452,11 @@ void main() {
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
         pageSize: 2,
-      ).pull();
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  ).pull();
 
       expect(result.imported, 3);
       expect(await db.count('budgets'), 3);
@@ -467,7 +494,11 @@ void main() {
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       final result = await pull.pull();
 
@@ -552,7 +583,11 @@ void main() {
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
       final result = await pull.pull();
 
       expect(result.conflicts, 0);
@@ -593,7 +628,11 @@ void main() {
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
       final result = await pull.pull();
 
       expect(result.conflicts, 1);

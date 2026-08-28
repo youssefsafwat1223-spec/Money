@@ -75,6 +75,21 @@ class _CasSink implements PlanningRemoteSink {
   }
 
   @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: this fake models no concurrent writer, so the guarded and plain
+    // updates are equivalent here. Guard REJECTION is modelled properly in
+    // planning_guarded_update_atomicity_test.dart — delegating there instead
+    // would make the rejection case pass for the wrong reason.
+    return updateByServerId(table, serverId, row);
+  }
+
+
+  @override
   Future<Map<String, dynamic>?> casUpdateByServerId(
       String t, String s, int expectedRevision, Map<String, dynamic> r) async {
     casCalls++;

@@ -92,7 +92,11 @@ Future<int> _pullSelects(
       getAuthUserId: () async => 'user-1',
       remoteSource: _FakePlanningSource(byTable),
       pageSize: 5000,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
     counting.counter.reset();
     await pull.pull();
     return counting.counter.selects;

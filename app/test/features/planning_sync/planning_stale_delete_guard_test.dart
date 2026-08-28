@@ -85,9 +85,23 @@ class _DeleteSink implements PlanningRemoteSink {
   @override
   Future<String?> fetchServerUpdatedAt(String t, String s) async => updatedAt;
   @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: no concurrent writer modelled; rejection is covered in
+    // planning_guarded_update_atomicity_test.dart.
+    return updateByServerId(table, serverId, row);
+  }
+
+  @override
   Future<Map<String, dynamic>> updateByServerId(
           String t, String s, Map<String, dynamic> r) async =>
-      {'id': s, 'updated_at': updatedAt, 'revision': revision};
+      {'id': s, 'updated_at': updatedAt, 'revision': revision}
+
+;
   @override
   Future<Map<String, dynamic>?> casUpdateByServerId(
           String t, String s, int e, Map<String, dynamic> r) async =>

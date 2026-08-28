@@ -111,6 +111,10 @@ PlanningChildSyncService _canonicalService(
       remote: remote,
       coordinator:
           const FixedPlanningCutoverCoordinator(PlanningCutoverState.canonical),
+    
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
     );
 
 /// Seed a canonical KWD (3dp) goal + a queued contribution for it.

@@ -121,7 +121,11 @@ PlanningPullService _pull(AppDatabase db, PlanningRemoteSource r) =>
         db: db,
         isEnabled: (e) => e == _goal,
         getAuthUserId: () async => 'user-1',
-        remoteSource: r);
+        remoteSource: r,
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
 PlanningChildSyncService _child(AppDatabase db, _FakeChildRemote r) =>
     PlanningChildSyncService(
@@ -134,6 +138,10 @@ PlanningChildSyncService _child(AppDatabase db, _FakeChildRemote r) =>
       getAuthUserId: () async => 'user-1',
       remote: r,
       pullCapability: () => ExactTransportCapability.verifiedExact,
+    
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
     );
 
 Future<int> _n(AppDatabase db, String sql) async =>

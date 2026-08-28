@@ -99,6 +99,21 @@ class _RecordingSink implements PlanningRemoteSink {
   }
 
   @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: this fake models no concurrent writer, so the guarded and plain
+    // updates are equivalent here. Guard REJECTION is modelled properly in
+    // planning_guarded_update_atomicity_test.dart — delegating there instead
+    // would make the rejection case pass for the wrong reason.
+    return updateByServerId(table, serverId, row);
+  }
+
+
+  @override
   Future<Map<String, dynamic>?> casUpdateByServerId(
           String table,
           String serverId,
@@ -414,7 +429,11 @@ void main() {
         isEnabled: gate,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      ).pull();
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  ).pull();
 
       expect(remote.fetchedTables, isNot(contains('user_budgets')));
       expect(remote.fetchedTables, isNot(contains('user_goals')));

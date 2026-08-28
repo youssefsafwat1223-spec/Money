@@ -55,7 +55,11 @@ PlanningPullService _svc(
       isEnabled: isEnabled,
       getAuthUserId: () async => signedIn ? 'user-1' : null,
       remoteSource: remote,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

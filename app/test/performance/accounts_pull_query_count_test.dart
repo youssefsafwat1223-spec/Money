@@ -67,8 +67,12 @@ Future<int> _pullSelects(int count) async {
       isEnabled: () => true,
       getAuthUserId: () async => 'user-1',
       remoteSource: _FakeAccountsSource(_serverAccounts(count)),
-      pageSize: 5000, // single page so we measure per-page SELECT cost cleanly
-    );
+      pageSize: 5000, // single page so we measure per-page SELECT cost cleanly,
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
     counting.counter.reset();
     final result = await pull.pull();
     expect(result.imported, count, reason: 'all rows are new imports');
@@ -106,7 +110,11 @@ void main() {
         getAuthUserId: () async => 'user-1',
         remoteSource: source,
         pageSize: 5000,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
       await pull.pull(); // first pull imports everything
 
       // A second pull over the same server state must skip every row (unchanged)

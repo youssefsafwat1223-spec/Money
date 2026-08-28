@@ -113,7 +113,11 @@ LedgerSyncService _makeSvc(
       remoteSource: remote,
       getAuthUserId: () async => signedIn ? 'test-user-id' : null,
       pageSize: pageSize,
-    );
+    
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
 void main() {
   late AppDatabase db;

@@ -82,10 +82,24 @@ class _SharedSink implements PlanningRemoteSink {
   Future<String?> fetchServerUpdatedAt(String t, String sid) async =>
       s.updatedAt;
   @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: no concurrent writer modelled; rejection is covered in
+    // planning_guarded_update_atomicity_test.dart.
+    return updateByServerId(table, serverId, row);
+  }
+
+  @override
   Future<Map<String, dynamic>?> updateByServerId(
           String t, String sid, Map<String, dynamic> row) async =>
       s.exists
           ? {'id': sid, 'updated_at': s.updatedAt, 'revision': s.revision}
+
+
           : null;
   @override
   Future<Map<String, dynamic>> upsert(

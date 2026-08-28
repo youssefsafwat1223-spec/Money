@@ -79,6 +79,19 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
       upsert(table, row);
 
   @override
+  Future<Map<String, dynamic>?> guardedUpdateByServerId(
+    String table,
+    String serverId,
+    String expectedUpdatedAt,
+    Map<String, dynamic> row,
+  ) async {
+    // C-6: no concurrent writer is modelled here; guard REJECTION is covered in
+    // planning_guarded_update_atomicity_test.dart.
+    return updateByServerId(table, serverId, row);
+  }
+
+
+  @override
   Future<Map<String, dynamic>?> casUpdateByServerId(String table,
           String serverId, int expectedRevision, Map<String, dynamic> row) =>
       throw UnimplementedError('CAS is exercised by the dedicated CAS test');
@@ -105,6 +118,9 @@ PlanningPushService _push(
 PlanningPullService _pull(AppDatabase db, _FakeRemote r) => PlanningPullService(
     db: db,
     isEnabled: (_) => true,
+    // C-3: these cover settings-pull MECHANICS; consent enforcement is
+    // asserted in financial_pull_consent_test.dart.
+    mayEgress: () async => true,
     getAuthUserId: () async => 'user-1',
     remoteSource: r);
 

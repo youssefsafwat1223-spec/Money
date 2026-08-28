@@ -350,7 +350,11 @@ void main() {
         isEnabled: () => false,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       expect((await push.push()).pushed, 0);
       expect((await pull.pull()).imported, 0);
@@ -518,7 +522,11 @@ void main() {
         isEnabled: () => true,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       final first = await pull.pull();
       final second = await pull.pull();
@@ -549,7 +557,11 @@ void main() {
         isEnabled: () => true,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       final result = await pull.pull();
 
@@ -588,7 +600,11 @@ void main() {
         isEnabled: () => true,
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       final result = await pull.pull();
 
@@ -609,7 +625,11 @@ void main() {
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
         pageSize: 200,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       final result = await pull.pull();
 
@@ -655,7 +675,11 @@ void main() {
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
         pageSize: 2,
-      ).pull();
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  ).pull();
 
       expect(result.tombstoned, 1);
       expect(remote.requestedAfter.length, 4,
@@ -678,7 +702,11 @@ void main() {
         getAuthUserId: () async => 'user-1',
         remoteSource: remote,
         pageSize: 2,
-      );
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
 
       await pull.pull();
 

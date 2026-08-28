@@ -243,6 +243,10 @@ PlanningChildSyncService _service(
       // A verified PUSH must not substitute for the independent PULL proof.
       pushCapability: () => ExactTransportCapability.verifiedExact,
       pullCapability: () => pullCapability,
+    
+      // C-3: covers pull MECHANICS; consent is asserted in
+      // financial_pull_consent_test.dart.
+      mayEgress: () async => true,
     );
 
 void main() {
