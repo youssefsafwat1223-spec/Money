@@ -3,12 +3,43 @@ import 'package:flutter/foundation.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
+import '../../../data/sync/exact_transport_capability.dart';
 import '../../capture/services/transactions_backfill_service.dart';
 import 'accounts_backfill_service.dart';
 import 'outbox_queue_factory.dart';
 import 'planning_primary_backfill_service.dart';
 
-enum ReconcileOutcome { skippedGuest, skippedNothingPending, ran, failed }
+enum ReconcileOutcome {
+  skippedGuest,
+  skippedNothingPending,
+  ran,
+  failed,
+
+  /// Audit H-4. The database is CANONICAL but the exact-money PUSH transport is
+  /// not verified, so a backfill would send exact decimal strings over an
+  /// unproven transport — the case [shouldParkExactMoneyWrite] exists to
+  /// prevent. Nothing was attempted; local rows keep their unproven state and
+  /// stay visible to the pre-sign-out inventory. Retried once the capability is
+  /// positively proven.
+  blockedUnverifiedTransport,
+}
+
+extension ReconcileOutcomeX on ReconcileOutcome {
+  /// The ONLY states in which local data may be considered remotely durable.
+  /// Anything else must keep the local copy and stay visible to sign-out.
+  ///
+  /// This exists because `blocked` is a *successful return*, and a caller that
+  /// checks `!= failed` would read it as success and be entitled to discard the
+  /// local copy. Naming the safe set positively removes that reading.
+  bool get isProvenComplete =>
+      this == ReconcileOutcome.ran ||
+      this == ReconcileOutcome.skippedNothingPending;
+
+  /// Whether another attempt should be made once conditions change.
+  bool get shouldRetry =>
+      this == ReconcileOutcome.failed ||
+      this == ReconcileOutcome.blockedUnverifiedTransport;
+}
 
 /// One idempotent reconcile of local financial data that never reached
 /// Supabase — pre-existing rows (created before the outbox existed, e.g. the
@@ -37,13 +68,24 @@ class StartupSyncReconcileService {
     // (v30) backfill pushes EXACT decimal strings, never JSON-number money.
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
+    // Audit H-4: the backfills are a PUSH path that serializes canonical money
+    // as exact decimal strings, so they must obey the same transport authority
+    // as every other push. Defaults to `unknown` — a caller that forgets it
+    // fails CLOSED rather than pushing over an unproven transport.
+    ExactTransportCapability Function() pushCapability =
+        _unknownPushCapability,
   })  : _db = db,
         _getAuthUserId = getAuthUserId ?? currentSupabaseUserId,
-        _coordinator = coordinator;
+        _coordinator = coordinator,
+        _pushCapability = pushCapability;
+
+  static ExactTransportCapability _unknownPushCapability() =>
+      ExactTransportCapability.unknown;
 
   final AppDatabase _db;
   final Future<String?> Function() _getAuthUserId;
   final PlanningCutoverCoordinator _coordinator;
+  final ExactTransportCapability Function() _pushCapability;
 
   Future<ReconcileOutcome> run() async {
     if (!SupabaseConfig.isConfigured) return ReconcileOutcome.skippedGuest;
@@ -52,6 +94,22 @@ class StartupSyncReconcileService {
 
     if (!await hasUnsyncedLocalData()) {
       return ReconcileOutcome.skippedNothingPending;
+    }
+
+    // Audit H-4. A canonical backfill serializes money as an EXACT decimal
+    // string; sending that over an unverified transport risks silent
+    // server-side coercion the client cannot detect afterwards. This is the
+    // identical predicate the outbox push services already honour — the
+    // backfills bypassed it entirely, which would let an unauthorised transport
+    // mark rows `synced` and report `ran`.
+    if (shouldParkExactMoneyWrite(
+      cutoverState: _coordinator.state(),
+      pushCapability: _pushCapability(),
+    )) {
+      if (kDebugMode) {
+        debugPrint('[Reconcile] parked: exact push transport unverified');
+      }
+      return ReconcileOutcome.blockedUnverifiedTransport;
     }
 
     try {

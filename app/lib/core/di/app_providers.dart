@@ -1116,6 +1116,8 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
 final startupSyncReconcileServiceProvider =
     Provider<StartupSyncReconcileService>((ref) {
   return StartupSyncReconcileService(
+    // Audit H-4: the backfills are a push path; same authority as the outbox.
+    pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
     db: ref.watch(appDatabaseProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );

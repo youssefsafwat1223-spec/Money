@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/domain/finance/money_transport.dart';
+import 'package:money_companion/features/planning_sync/services/startup_sync_reconcile_service.dart';
 
 /// Cross-model audit **H-4** — capability authority vs. actual transport.
 ///
@@ -307,6 +308,67 @@ void main() {
     });
 
 
+    test('the startup reconcile obeys push transport authority', () {
+      final body = providerBody('startupSyncReconcileServiceProvider');
+      expect(body, contains('exactPushTransportCapabilityProvider'));
+
+      final service = File(
+        'lib/features/planning_sync/services/startup_sync_reconcile_service.dart',
+      ).readAsStringSync();
+      // Position-aware: merely MENTIONING the predicate proves nothing — the
+      // park check must actually run BEFORE the first backfill is constructed.
+      final run = service.substring(service.indexOf('Future<ReconcileOutcome> run()'));
+      final parkAt = run.indexOf('shouldParkExactMoneyWrite');
+      final firstBackfillAt = run.indexOf('AccountsBackfillService(');
+      expect(parkAt, greaterThan(-1),
+          reason: 'the backfills are a push path and must honour the same '
+              'predicate as the outbox push services');
+      expect(firstBackfillAt, greaterThan(-1));
+      expect(parkAt, lessThan(firstBackfillAt),
+          reason: 'the transport gate must precede any remote write');
+      // …and the guarded branch must return the non-proven outcome.
+      final guarded = run.substring(parkAt, firstBackfillAt);
+      expect(guarded, contains('return ReconcileOutcome.blockedUnverifiedTransport'),
+          reason: 'a parked reconcile must report a non-proven outcome, never '
+              'fall through to ran');
+    });
+
+    test('the reconcile fails CLOSED when no capability is supplied', () {
+      // A caller that forgets the parameter must not get a permissive default.
+      final service = File(
+        'lib/features/planning_sync/services/startup_sync_reconcile_service.dart',
+      ).readAsStringSync();
+      expect(service, contains('ExactTransportCapability.unknown'),
+          reason: 'the default capability must be unknown (fail closed), '
+              'never verifiedExact');
+    });
+
+  });
+
+  group('H-4 — the reconcile cannot push over an unproven transport', () {
+    test('blocked is neither proven-complete nor silently successful', () {
+      const blocked = ReconcileOutcome.blockedUnverifiedTransport;
+      expect(blocked.isProvenComplete, isFalse,
+          reason: 'Batch 5 uses isProvenComplete to authorise treating local '
+              'data as durable — an unauthorised transport must never qualify');
+      expect(blocked, isNot(ReconcileOutcome.ran));
+    });
+
+    test('blocked is retried once the capability is proven', () {
+      expect(ReconcileOutcome.blockedUnverifiedTransport.shouldRetry, isTrue);
+    });
+
+    test('every non-proven outcome is excluded from proven-complete', () {
+      for (final outcome in const [
+        ReconcileOutcome.failed,
+        ReconcileOutcome.blockedUnverifiedTransport,
+        ReconcileOutcome.skippedGuest,
+      ]) {
+        expect(outcome.isProvenComplete, isFalse, reason: '$outcome');
+      }
+      expect(ReconcileOutcome.ran.isProvenComplete, isTrue);
+      expect(ReconcileOutcome.skippedNothingPending.isProvenComplete, isTrue);
+    });
   });
 
 }
