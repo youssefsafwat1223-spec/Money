@@ -38,10 +38,10 @@ behind a placeholder store URL.
 | **D** Privacy authority | policy ✅ · 5 egress paths gated · PULL still open | **IN PROGRESS** |
 | **E** Data integrity | **F-032 ✅ (client)** · F-021-pull, C-6, F-029 repair open | **IN PROGRESS** |
 | **F** Capability activation prep | runbook + preconditions documented | **PREPARED (not executed)** |
-| **G** Account scope / aggregation | F-026 ✅ · F-019 ✅ · F-027 ✅ · F-028 open | **MOSTLY COMPLETE** |
+| **G** Account scope / aggregation | F-026 ✅ · F-019 ✅ · F-027 ✅ · F-028 ✅ | **COMPLETE** |
 | **H** Parser / capture | F-011 ✅(partly via C-1) · F-015, F-034, rollout | **NOT STARTED** |
 | **AI** W-001 workstream | architecture + gates | **COMPLETE (design)** |
-| **I** Flags / gamification | C-10, F-023+F-022, F-024 | **NOT STARTED** |
+| **I** Flags / gamification | C-10 ✅ · F-023+F-022 ✅ (client) · F-024 blocked | **MOSTLY COMPLETE** |
 | **J** UX foundations | | **NOT STARTED** |
 
 ---
@@ -74,6 +74,9 @@ behind a placeholder store URL.
 | `349e221f` | `docs(plan)` H-4 quarantine review — verdict LAND |
 | `8eeb266f` | `test(sync)` explicit consent in sender-bank mechanics tests |
 | `6e13f44f` | `feat(cards)` canonical card identity (F-032 · OD-02) |
+| `13df73ea` | `docs(run)` record F-032 |
+| `f3fd86ce` | `fix(dashboard)` like-with-like week comparison (F-028) |
+| `2c70cb73` | `fix(gamification)` one vocabulary, one level mapping (F-023 + F-022 · OD-03) |
 
 *(Earlier, pre-run partition commits: `8e36a24d`, `a6f343fb`, `8d0a422c`,
 `e96f8434`, `35754d99`, `3dc87694`, `2ac4c782`, `e2b5b489`, `464816a6`.)*
@@ -92,6 +95,13 @@ behind a placeholder store URL.
 - **F-032 (client half)** canonical `card_id` + a never-guess backfill, closing
   the silent mis-attribution where two cards sharing four digits merged
   histories and a reassigned card's history was inherited by a new card.
+- **F-028** like-with-like week comparison — the dashboard was weighing a
+  partial week against a full one, understating current spending by up to 28x
+  early in the week.
+- **F-023 + F-022** one gamification vocabulary. The achievement intersection
+  was EMPTY (not "3 of 4"), the seed guard prevented existing installs from ever
+  receiving new keys, the pull never wrote `level_key` (frozen 'beginner'), and
+  the unbounded server level curve could RangeError the client's five tiers.
 
 ## 7. PARTIALLY CLOSED
 
