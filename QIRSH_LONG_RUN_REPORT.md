@@ -35,10 +35,10 @@ behind a placeholder store URL.
 | **A** Tree partition | 6 fixes triaged, quarantine preserved | **COMPLETE** |
 | **B** Stop the bleeding | C-1 ✅ · C-2 ✅ · C-2a-1 ✅ · C-9 ✅ · C-2a-2 open · C-5 blocked | **MOSTLY COMPLETE** |
 | **C** Environment truth | DF-002 ✅ · DF-005 ✅ (source-only) | **COMPLETE (local)** |
-| **D** Privacy authority | policy ✅ · 4 of ~10 egress classes wired | **IN PROGRESS** |
+| **D** Privacy authority | policy ✅ · 5 egress paths gated · PULL still open | **IN PROGRESS** |
 | **E** Data integrity | F-032, F-021-pull, C-6, F-029 repair | **NOT STARTED** |
-| **F** Capability activation prep | | **NOT STARTED** |
-| **G** Account scope / aggregation | F-019/026/027/028 | **NOT STARTED** |
+| **F** Capability activation prep | runbook + preconditions documented | **PREPARED (not executed)** |
+| **G** Account scope / aggregation | F-026 ✅ · F-019 ✅ · F-027 ✅ · F-028 open | **MOSTLY COMPLETE** |
 | **H** Parser / capture | F-011 ✅(partly via C-1) · F-015, F-034, rollout | **NOT STARTED** |
 | **AI** W-001 workstream | architecture + gates | **COMPLETE (design)** |
 | **I** Flags / gamification | C-10, F-023+F-022, F-024 | **NOT STARTED** |
@@ -67,6 +67,9 @@ behind a placeholder store URL.
 | `093549bf` | `fix(admin)` route arming through the audited RPC (C-2a-2) |
 | `586006ec` | `test(capture)` explicit consent in ledger push mechanics tests |
 | `17eea0af` | `fix(flags)` server must not ignore a partial rollout (C-10) |
+| `4bb47943` | `docs(release)` exact-transport activation runbook (Phase F) |
+| `93b92c93` | `docs(plan)` sync status board |
+| `6219024e` | `fix(finance)` one canonical account scope (F-026, F-019, F-027 · OD-08) |
 
 *(Earlier, pre-run partition commits: `8e36a24d`, `a6f343fb`, `8d0a422c`,
 `e96f8434`, `35754d99`, `3dc87694`, `2ac4c782`, `e2b5b489`, `464816a6`.)*
@@ -79,6 +82,9 @@ behind a placeholder store URL.
   precondition — *discovered by this run*.
 - **C-9** dashboard read mutating financial state.
 - **DF-002 / DF-005** environment reproducibility (source-side).
+- **C-10** server-side rollout semantics (partial rollout no longer reads as
+  fully enabled server-side; country targeting no longer assumed global).
+- **F-026 / F-019 / F-027** one canonical `AccountScope`, applied per OD-08.
 
 ## 7. PARTIALLY CLOSED
 
