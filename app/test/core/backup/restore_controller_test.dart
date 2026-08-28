@@ -18,23 +18,27 @@ RestorePlan _plan() => RestorePlan(
     );
 
 void main() {
-  test('preparation ends at the confirmation gate; mutation does NOT run until '
+  test(
+      'preparation ends at the confirmation gate; mutation does NOT run until '
       'confirm()', () async {
     var mutated = false;
     final c = RestoreController(
       prepare: () async => _plan(),
       mutate: (_) async {
         mutated = true;
-        return const RestoreResult(RestoreOutcome.success, operationId: 'op-ui');
+        return const RestoreResult(RestoreOutcome.success,
+            operationId: 'op-ui');
       },
     );
     await c.beginPreparation();
     expect(c.value.phase, RestoreUiPhase.readyForConfirmation);
     expect(c.value.warnings, contains('legacy_schema_v2'));
-    expect(mutated, isFalse, reason: 'no mutation before explicit confirmation');
+    expect(mutated, isFalse,
+        reason: 'no mutation before explicit confirmation');
   });
 
-  test('cancel at the confirmation gate changes nothing (no mutation)', () async {
+  test('cancel at the confirmation gate changes nothing (no mutation)',
+      () async {
     var mutated = false;
     final c = RestoreController(
       prepare: () async => _plan(),
@@ -60,7 +64,8 @@ void main() {
     expect(c.value.phase, RestoreUiPhase.failedWithoutChanges);
   });
 
-  test('confirm → success shows completed and acknowledges idempotently', () async {
+  test('confirm → success shows completed and acknowledges idempotently',
+      () async {
     final acked = <String>[];
     final c = RestoreController(
       prepare: () async => _plan(),
@@ -74,19 +79,46 @@ void main() {
     expect(acked, ['op-ui']);
   });
 
-  test('a committed-pending-acknowledgement outcome also completes + acknowledges',
+  test(
+      'a committed-pending-acknowledgement outcome also completes + acknowledges',
       () async {
     final acked = <String>[];
     final c = RestoreController(
       prepare: () async => _plan(),
       mutate: (_) async => const RestoreResult(
-          RestoreOutcome.committedPendingAcknowledgement, operationId: 'op-ui'),
+          RestoreOutcome.committedPendingAcknowledgement,
+          operationId: 'op-ui'),
       acknowledge: (id) async => acked.add(id),
     );
     await c.beginPreparation();
     await c.confirm();
     expect(c.value.phase, RestoreUiPhase.completed);
     expect(acked, ['op-ui']);
+  });
+
+  test(
+      'a committed-pending-backup-state outcome is truthful and not acknowledged',
+      () async {
+    var acked = false;
+    final c = RestoreController(
+      prepare: () async => _plan(),
+      mutate: (_) async => const RestoreResult(
+        RestoreOutcome.committedPendingBackupState,
+        operationId: 'op-ui',
+        warnings: ['backup_key_state_pending'],
+      ),
+      acknowledge: (_) async => acked = true,
+    );
+    await c.beginPreparation();
+    await c.confirm();
+    expect(c.value.phase, RestoreUiPhase.committedPendingBackupState);
+    expect(c.value.phase, isNot(RestoreUiPhase.failedWithoutChanges));
+    expect(c.value.message, contains('اكتملت استعادة البيانات'));
+    expect(acked, isFalse);
+
+    c.cancel();
+    expect(c.value.phase, RestoreUiPhase.committedPendingBackupState,
+        reason: 'a committed result can never be relabelled cancelled');
   });
 
   test('a maintenance timeout maps to failedWithoutChanges', () async {
@@ -103,8 +135,7 @@ void main() {
   test('a recoveryRequired outcome maps to recoveryRequired', () async {
     final c = RestoreController(
       prepare: () async => _plan(),
-      mutate: (_) async =>
-          const RestoreResult(RestoreOutcome.recoveryRequired),
+      mutate: (_) async => const RestoreResult(RestoreOutcome.recoveryRequired),
     );
     await c.beginPreparation();
     await c.confirm();
@@ -132,7 +163,8 @@ void main() {
       prepare: () async => _plan(),
       mutate: (_) async {
         mutateCount++;
-        return const RestoreResult(RestoreOutcome.success, operationId: 'op-ui');
+        return const RestoreResult(RestoreOutcome.success,
+            operationId: 'op-ui');
       },
     );
     await c.beginPreparation();

@@ -25,6 +25,7 @@ enum RestoreUiPhase {
   completed,
   cancelled,
   failedWithoutChanges,
+  committedPendingBackupState,
   recoveryRequired,
 }
 
@@ -108,8 +109,8 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
         operationId: plan.operationId,
       );
     } on BackupException catch (e) {
-      value =
-          RestoreUiState(phase: RestoreUiPhase.failedWithoutChanges, message: e.message);
+      value = RestoreUiState(
+          phase: RestoreUiPhase.failedWithoutChanges, message: e.message);
     } catch (_) {
       value = const RestoreUiState(
         phase: RestoreUiPhase.failedWithoutChanges,
@@ -123,6 +124,7 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
     if (value.phase == RestoreUiPhase.restoring ||
         value.phase == RestoreUiPhase.verifying ||
         value.phase == RestoreUiPhase.reestablishingDatabase ||
+        value.phase == RestoreUiPhase.committedPendingBackupState ||
         value.phase == RestoreUiPhase.completed) {
       return;
     }
@@ -163,6 +165,20 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
       return;
     }
 
+    if (result.outcome == RestoreOutcome.committedPendingBackupState) {
+      // Audit H-20: data is already replaced, so never use the no-change error
+      // state and never acknowledge away the durable retry guard. Re-running the
+      // same restore completes only the idempotent key-state publication.
+      value = RestoreUiState(
+        phase: RestoreUiPhase.committedPendingBackupState,
+        warnings: result.warnings,
+        operationId: result.operationId,
+        message:
+            'اكتملت استعادة البيانات، لكن تعذّر إكمال حماية النسخة الاحتياطية. أعد المحاولة.',
+      );
+      return;
+    }
+
     // Committed durably, but NOT yet usable/acknowledged.
     value = const RestoreUiState(phase: RestoreUiPhase.verifying);
     value = const RestoreUiState(phase: RestoreUiPhase.reestablishingDatabase);
@@ -173,7 +189,8 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
       value = RestoreUiState(
         phase: RestoreUiPhase.recoveryRequired,
         operationId: result.operationId,
-        message: 'اكتملت الاستعادة لكن تعذّر تجهيز قاعدة البيانات. أعد تشغيل التطبيق.',
+        message:
+            'اكتملت الاستعادة لكن تعذّر تجهيز قاعدة البيانات. أعد تشغيل التطبيق.',
       );
       return;
     }

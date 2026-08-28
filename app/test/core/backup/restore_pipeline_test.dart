@@ -9,6 +9,8 @@ import 'package:money_companion/core/backup/backup_service.dart';
 import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/core/backup/restore_plan.dart';
 import 'package:money_companion/core/backup/restore_preparation.dart';
+import 'package:money_companion/core/backup/restore_controller.dart';
+import 'package:money_companion/core/backup/restore_journal.dart';
 import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -28,6 +30,32 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String> readOrCreateKey() async => 'k';
   @override
   Future<String?> readStoredKey() async => 'k';
+}
+
+class _ThrowingPruneJournal extends RestoreJournal {
+  _ThrowingPruneJournal(super.db);
+
+  @override
+  Future<void> prune({int keepEntries = 50}) async {
+    throw StateError('forced_prune_failure');
+  }
+}
+
+class _ThrowingPostCommitOwnershipGuard extends OwnershipGuard {
+  static const token =
+      AdmissionToken(ownerUid: 'user-A', generation: 'generation-A');
+
+  int checks = 0;
+
+  @override
+  Future<AdmissionToken> capture() async => token;
+
+  @override
+  Future<bool> isCurrent(AdmissionToken admissionToken) async {
+    checks++;
+    if (checks == 3) throw StateError('forced_post_commit_admission_failure');
+    return admissionToken == token;
+  }
 }
 
 const _uid = 'local_data_owner_uid';
@@ -122,6 +150,82 @@ void main() {
       expect(result.outcome, RestoreOutcome.success);
       expect(await count(dst, 'transactions'), 3);
       expect(await netExpense(dst), 250);
+    });
+  });
+
+  group('H-20 post-commit failures stay truthfully committed', () {
+    Future<void> expectCommittedPending({
+      required String operationId,
+      RestoreJournal Function(AppDatabase db)? journal,
+      OwnershipGuard? ownershipGuard,
+      AdmissionToken? admissionToken,
+      Future<void> Function()? afterRestore,
+    }) async {
+      final src = await open();
+      final dst = await open();
+      addTearDown(src.close);
+      addTearDown(dst.close);
+      await seedTxns(src);
+      final plan = await planFrom(src, operationId: operationId);
+      RestoreResult? reported;
+      final controller = RestoreController(
+        prepare: () async => plan,
+        mutate: (_) async {
+          reported = await RestoreService(
+            dst,
+            journal: journal?.call(dst),
+          ).execute(
+            plan: plan,
+            ownershipGuard: ownershipGuard,
+            admissionToken: admissionToken,
+            afterRestore: afterRestore,
+          );
+          return reported!;
+        },
+      );
+
+      await controller.beginPreparation();
+      await controller.confirm();
+
+      expect(reported, isNotNull,
+          reason: 'post-commit failures must be classified, not escape');
+      expect(reported!.isCommitted, isTrue);
+      expect(reported!.databaseUnchanged, isFalse);
+      expect(reported!.outcome, RestoreOutcome.committedPendingBackupState);
+      expect(controller.value.phase,
+          RestoreUiPhase.committedPendingBackupState);
+      expect(controller.value.phase, isNot(RestoreUiPhase.failedWithoutChanges));
+      expect(await count(dst, 'transactions'), 3,
+          reason: 'the restored database committed before the failure');
+      final record = await RestoreJournal(dst).find(operationId);
+      expect(record?.isCommitted, isTrue,
+          reason: 'the durable committed marker must remain authoritative');
+    }
+
+    test('journal prune throw after commit reports committed-pending', () async {
+      await expectCommittedPending(
+        operationId: 'op-post-commit-prune',
+        journal: _ThrowingPruneJournal.new,
+      );
+    });
+
+    test('admission recheck throw after commit reports committed-pending',
+        () async {
+      final guard = _ThrowingPostCommitOwnershipGuard();
+      await expectCommittedPending(
+        operationId: 'op-post-commit-admission',
+        ownershipGuard: guard,
+        admissionToken: _ThrowingPostCommitOwnershipGuard.token,
+      );
+      expect(guard.checks, 3,
+          reason: 'the injected throw occurs only at the post-commit recheck');
+    });
+
+    test('afterRestore throw is surfaced as committed-pending', () async {
+      await expectCommittedPending(
+        operationId: 'op-post-commit-callback',
+        afterRestore: () async => throw StateError('forced_after_restore_failure'),
+      );
     });
   });
 

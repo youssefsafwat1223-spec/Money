@@ -20,7 +20,8 @@ import 'restore_result.dart';
 // restore-operation journal so a crash / acknowledgement loss cannot replay a
 // destructive restore. Every failure maps to a typed [RestoreResult].
 class RestoreService {
-  RestoreService(this._db) : _journal = RestoreJournal(_db);
+  RestoreService(this._db, {RestoreJournal? journal})
+      : _journal = journal ?? RestoreJournal(_db);
 
   final AppDatabase _db;
   final RestoreJournal _journal;
@@ -31,6 +32,8 @@ class RestoreService {
     DatabaseLeaseManager? leaseManager,
     OwnershipGuard? ownershipGuard,
     AdmissionToken? admissionToken,
+    String? preparedUserId,
+    String? Function()? currentUserId,
     Future<void> Function()? afterRestore,
     Duration drainTimeout = const Duration(seconds: 10),
     Duration exclusiveTimeout = const Duration(seconds: 10),
@@ -45,6 +48,68 @@ class RestoreService {
     final now = DateTime.now().toUtc().toIso8601String();
     final genHash = _ownerGenerationHash(admissionToken);
 
+    Future<bool> admissionIsCurrent() async {
+      // If the higher layer supplied an account binding, require all components:
+      // the prepared UID, token UID/generation, live auth UID, and guard state.
+      if (preparedUserId != null) {
+        if (admissionToken == null ||
+            ownershipGuard == null ||
+            admissionToken.ownerUid != preparedUserId ||
+            admissionToken.generation == null ||
+            admissionToken.generation!.isEmpty) {
+          return false;
+        }
+        try {
+          if (currentUserId?.call() != preparedUserId) return false;
+        } catch (_) {
+          return false;
+        }
+      }
+      if (ownershipGuard != null && admissionToken != null) {
+        return ownershipGuard.isCurrent(admissionToken);
+      }
+      return preparedUserId == null;
+    }
+
+    RestoreResult committedPending({required String warning}) => RestoreResult(
+          RestoreOutcome.committedPendingBackupState,
+          operationId: plan.operationId,
+          warnings: [...plan.warnings, warning],
+        );
+
+    Future<RestoreResult> finishCommitted(
+      RestoreOutcome completedOutcome,
+    ) async {
+      // The journal marker and restored rows are already durable. Every step in
+      // this tail therefore maps failures to a COMMITTED, retryable result; none
+      // may escape to RestoreController's "data did not change" catch branch.
+      try {
+        await _journal.prune();
+        if (afterRestore != null) await afterRestore();
+      } catch (_) {
+        return committedPending(warning: _postStepWarning);
+      }
+
+      // Keep the ownership check distinct so an A→B change retains the specific
+      // H-23 fail-closed warning. A storage/auth read exception is equally
+      // ambiguous and must fail closed after the commit.
+      try {
+        if (!await admissionIsCurrent()) {
+          return committedPending(
+              warning: backupStateOwnershipConflictWarning);
+        }
+      } catch (_) {
+        return committedPending(
+            warning: backupStateOwnershipConflictWarning);
+      }
+
+      return RestoreResult(
+        completedOutcome,
+        operationId: plan.operationId,
+        warnings: plan.warnings,
+      );
+    }
+
     // §Blocker-1 — DURABLE replay guard (survives a crash/restart, unlike the old
     // in-memory guard). A committed operation is never destructively replayed.
     final existing = await _journal.find(plan.operationId);
@@ -54,19 +119,38 @@ class RestoreService {
           operationId: plan.operationId);
     }
     if (existing != null && existing.isCommitted) {
-      return RestoreResult(
-        existing.state == RestoreJournalState.acknowledged
-            ? RestoreOutcome.success
-            : RestoreOutcome.committedPendingAcknowledgement,
-        operationId: plan.operationId,
-        warnings: plan.warnings,
-      );
+      // A replay is still a side-effect boundary: bind it to the admission that
+      // originally committed the journal entry, then revalidate that admission.
+      // Without the hash comparison, a fresh B preparation of A's operation id
+      // would be "current" for B and could publish A's key material for B.
+      if (existing.ownerGenerationHash != genHash) {
+        return committedPending(
+            warning: backupStateOwnershipConflictWarning);
+      }
+      try {
+        if (!await admissionIsCurrent()) {
+          return committedPending(
+              warning: backupStateOwnershipConflictWarning);
+        }
+      } catch (_) {
+        return committedPending(
+            warning: backupStateOwnershipConflictWarning);
+      }
+      if (existing.state == RestoreJournalState.acknowledged) {
+        return RestoreResult(
+          RestoreOutcome.success,
+          operationId: plan.operationId,
+          warnings: plan.warnings,
+        );
+      }
+      // A prior post-commit tail failure intentionally leaves the marker
+      // unacknowledged. Retrying the same operation reruns only these idempotent
+      // tail steps; the destructive restore is never replayed.
+      return finishCommitted(RestoreOutcome.committedPendingAcknowledgement);
     }
 
     // §10 — revalidate admission before acquiring the gate.
-    if (ownershipGuard != null &&
-        admissionToken != null &&
-        !await ownershipGuard.isCurrent(admissionToken)) {
+    if (!await admissionIsCurrent()) {
       await _journal.markFailedBeforeMutation(
           plan.operationId, 'ownershipChanged', now);
       return RestoreResult(RestoreOutcome.ownershipChanged,
@@ -84,9 +168,7 @@ class RestoreService {
 
     Future<void> mutate() async {
       // §10 — revalidate admission immediately before the transaction.
-      if (ownershipGuard != null &&
-          admissionToken != null &&
-          !await ownershipGuard.isCurrent(admissionToken)) {
+      if (!await admissionIsCurrent()) {
         throw const StaleOwnershipException();
       }
       await RestoreBackupUseCase(_db, coordinator: planningCoordinator).call(
@@ -122,7 +204,8 @@ class RestoreService {
       return RestoreResult(RestoreOutcome.ownershipChanged,
           operationId: plan.operationId);
     } on DatabaseLeaseUnavailable {
-      await _journal.markRolledBack(plan.operationId, 'maintenanceTimeout', now);
+      await _journal.markRolledBack(
+          plan.operationId, 'maintenanceTimeout', now);
       return RestoreResult(RestoreOutcome.maintenanceTimeout,
           operationId: plan.operationId);
     } on DatabaseBusyException {
@@ -154,30 +237,66 @@ class RestoreService {
           plan.operationId, 'planningRepairRequired', now);
       return RestoreResult(RestoreOutcome.planningCurrencyRepairRequired,
           operationId: plan.operationId);
+    } on RestoreCommittedPostStepException {
+      // Audit H-20: the destructive transaction COMMITTED and an ancillary
+      // post-commit step then failed. Reporting rollback here would be a lie
+      // about the user's data.
+      return RestoreResult(
+        RestoreOutcome.committedPendingBackupState,
+        operationId: plan.operationId,
+        warnings: [...plan.warnings, _postStepWarning],
+      );
     } on RestoreVerificationException {
-      await _journal.markRolledBack(plan.operationId, 'validationFailed', now);
-      return RestoreResult(RestoreOutcome.rollbackCompleted,
-          operationId: plan.operationId);
+      return await _terminal(
+          plan, 'validationFailed', RestoreOutcome.rollbackCompleted, now);
     } on BackupException {
-      await _journal.markRolledBack(plan.operationId, 'validationFailed', now);
-      return RestoreResult(RestoreOutcome.rollbackCompleted,
-          operationId: plan.operationId);
+      return await _terminal(
+          plan, 'validationFailed', RestoreOutcome.rollbackCompleted, now);
     } catch (_) {
-      await _journal.markRolledBack(plan.operationId, 'internal', now);
-      return RestoreResult(RestoreOutcome.internalFailure,
-          operationId: plan.operationId);
+      return await _terminal(
+          plan, 'internal', RestoreOutcome.internalFailure, now);
     }
 
-    // Committed durably (the committed marker was written INSIDE the transaction).
-    await _journal.prune();
-    try {
-      if (afterRestore != null) await afterRestore();
-    } catch (_) {
-      // The destructive commit already stands; the post-restore backfill is
-      // best-effort and never un-commits a successful restore.
+    // Committed durably (the marker was written INSIDE the transaction). From
+    // here onward every failure is classified by [finishCommitted].
+    return finishCommitted(RestoreOutcome.success);
+  }
+
+  /// Privacy-safe note appended when the restore committed but an ancillary
+  /// post-commit step did not finish.
+  static const String _postStepWarning = 'post_restore_step_incomplete';
+
+  /// Privacy-safe marker for a committed restore whose key-state publication was
+  /// blocked because the prepared admission/account is no longer authoritative.
+  static const String backupStateOwnershipConflictWarning =
+      'backup_key_state_ownership_conflict';
+
+  /// Audit **H-20** — resolve a failure truthfully.
+  ///
+  /// The typed post-commit exception covers the failures we can name, but a
+  /// throw can also originate AFTER the transaction from something this method
+  /// does not enumerate (lease release, connection teardown). The durable
+  /// journal is the authority: its committed marker is written INSIDE the
+  /// destructive transaction, so if it is present the data is on disk no matter
+  /// which layer raised the error. In that case we must not claim rollback —
+  /// and `markRolledBack` additionally refuses to overwrite a committed record,
+  /// so the evidence survives even if a caller gets this wrong.
+  Future<RestoreResult> _terminal(
+    RestorePlan plan,
+    String errorClass,
+    RestoreOutcome rollbackOutcome,
+    String now,
+  ) async {
+    final record = await _journal.find(plan.operationId);
+    if (record != null && record.isCommitted) {
+      return RestoreResult(
+        RestoreOutcome.committedPendingBackupState,
+        operationId: plan.operationId,
+        warnings: [...plan.warnings, _postStepWarning],
+      );
     }
-    return RestoreResult(RestoreOutcome.success,
-        operationId: plan.operationId, warnings: plan.warnings);
+    await _journal.markRolledBack(plan.operationId, errorClass, now);
+    return RestoreResult(rollbackOutcome, operationId: plan.operationId);
   }
 
   /// Idempotently acknowledge a committed restore (the UI calls this after showing

@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../data/db/app_database.dart';
 import '../../data/db/database_lease.dart';
 import '../../data/db/ownership_guard.dart';
+import '../session/app_session.dart';
 import '../utils/id_generator.dart';
 import 'backup_crypto.dart';
 import 'backup_service.dart';
@@ -21,18 +22,70 @@ import 'restore_result.dart';
 import 'restore_service.dart';
 import 'supabase_remote_backup_store.dart';
 
+/// Audit **H-23** — how locally cached backup crypto relates to the signed-in
+/// account.
+enum BackupStateOwnership {
+  /// The cache belongs to this account and may be used.
+  owned,
+
+  /// It belongs to a DIFFERENT account (or ownership cannot be established).
+  /// It must be treated as absent: never read, never used to encrypt, never
+  /// surfaced as "backup is on". Deliberately not deleted — the other account
+  /// may sign back in, and destroying it would cost recoverability we do not
+  /// need to spend.
+  foreign,
+
+  /// Pre-owner-binding state with no marker, belonging to the identity that
+  /// owns the local database. Adopt it for this account and record the owner.
+  adoptable,
+}
+
+/// Pure ownership decision (audit H-23). Fail-closed by construction: every
+/// ambiguous combination resolves to [BackupStateOwnership.foreign].
+BackupStateOwnership classifyBackupStateOwnership({
+  required String currentUserId,
+  required String? storedOwnerUid,
+  required String? localDataOwnerUid,
+}) {
+  if (currentUserId.isEmpty) return BackupStateOwnership.foreign;
+  if (storedOwnerUid != null && storedOwnerUid.isNotEmpty) {
+    return storedOwnerUid == currentUserId
+        ? BackupStateOwnership.owned
+        : BackupStateOwnership.foreign;
+  }
+  // Legacy state: adopt ONLY for the identity that owns the local database —
+  // the same ownership authority the sync backfills use.
+  if (localDataOwnerUid != null &&
+      localDataOwnerUid.isNotEmpty &&
+      localDataOwnerUid == currentUserId) {
+    return BackupStateOwnership.adoptable;
+  }
+  return BackupStateOwnership.foreign;
+}
+
 class EncryptedBackupService implements BackupService {
   EncryptedBackupService({
     required AppDatabase database,
     supabase.SupabaseClient? client,
     FlutterSecureStorage? storage,
     BackupCrypto? crypto,
+    RemoteBackupStore? remoteStore,
     Future<void> Function()? afterRestore,
+    // The admission authority is injected only to make restore-boundary races
+    // deterministic in tests. Production uses the shared secure-storage guard.
+    OwnershipGuard? ownershipGuard,
+    // Audit H-23: the local-database ownership authority, used to adopt
+    // pre-owner-binding backup state deterministically. Injected for tests.
+    Future<String?> Function()? readLocalDataOwnerUid,
   })  : _database = database,
         _client = client ?? supabase.Supabase.instance.client,
         _storage = storage ?? const FlutterSecureStorage(),
         _crypto = crypto ?? BackupCrypto(),
-        _afterRestore = afterRestore;
+        _injectedRemoteStore = remoteStore,
+        _afterRestore = afterRestore,
+        _ownershipGuard = ownershipGuard ?? OwnershipGuard(),
+        _readLocalDataOwnerUid =
+            readLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
 
   static const _bucket = 'backups';
   static const _enabledKey = 'backup_enabled';
@@ -45,17 +98,36 @@ class EncryptedBackupService implements BackupService {
   // envelope format. Absent ⇒ a legacy (pre-v3) install that keeps its format.
   static const _envelopeVersionKey = 'backup_envelope_version';
 
+  /// Audit **H-23** — the account that owns the locally cached backup crypto.
+  ///
+  /// Every key above is device-global and none carried an owner. `signOut()`
+  /// clears session keys but NOT backup state, so after A signed out and B
+  /// signed in, `backupNow()` still saw `backup_enabled == '1'` and encrypted
+  /// **B's data with A's content key** — whose slots are wrapped by A's
+  /// passphrase and recovery code — then uploaded it to B's path. A could
+  /// decrypt B's backup, and B was "protected" by a secret they never chose.
+  ///
+  /// The state stays DEVICE-scoped (it is a cache for *creating* backups), but
+  /// it is now BOUND to one account and is inert for any other. This costs no
+  /// recoverability: key slots are serialized into the blob itself
+  /// (`BackupBlob.toJson`/`fromJson`), so a restore needs only the blob plus the
+  /// passphrase or recovery code — never this cache.
+  static const _ownerKey = 'backup_owner_uid';
+
   final AppDatabase _database;
   final supabase.SupabaseClient _client;
   final FlutterSecureStorage _storage;
 
   // MALI-076n §5 — safe generation-based publication + verified download.
+  final RemoteBackupStore? _injectedRemoteStore;
   late final RemoteBackupStore _remoteStore =
-      SupabaseRemoteBackupStore(_client);
+      _injectedRemoteStore ?? SupabaseRemoteBackupStore(_client);
   late final RemoteBackupPublisher _publisher =
       RemoteBackupPublisher(_remoteStore);
   final BackupCrypto _crypto;
   final Future<void> Function()? _afterRestore;
+  final OwnershipGuard _ownershipGuard;
+  final Future<String?> Function() _readLocalDataOwnerUid;
 
   // MALI-014/076n §2/§9 — one restore orchestrator per process so its durable
   // replay journal is consulted across restore attempts.
@@ -67,8 +139,15 @@ class EncryptedBackupService implements BackupService {
 
   @override
   Future<BackupStatus> status() async {
-    final enabled = await _storage.read(key: _enabledKey) == '1';
-    final lastRaw = await _storage.read(key: _lastKey);
+    // Audit H-23: another account's cached state must not appear as "backup is
+    // on" for this one. Signed-out reads report disabled rather than leaking
+    // the previous account's status.
+    final userId = _client.auth.currentUser?.id;
+    final owned = userId != null &&
+        userId.isNotEmpty &&
+        await _ownedByCurrentAccount(userId);
+    final enabled = owned && await _storage.read(key: _enabledKey) == '1';
+    final lastRaw = owned ? await _storage.read(key: _lastKey) : null;
     return BackupStatus(
       enabled: enabled,
       lastBackupAt: lastRaw == null ? null : DateTime.tryParse(lastRaw),
@@ -99,15 +178,24 @@ class EncryptedBackupService implements BackupService {
       passphrase: passphrase,
       recoveryCode: recovery,
     );
-    await _storage.write(key: _enabledKey, value: '1');
-    await _storage.write(key: _envelopeVersionKey, value: '3');
-    await _storage.write(key: _recoveryKey, value: recovery);
-    await _storage.write(key: _keySlotsKey, value: _encodeKeySlots(keySlots));
-    await _storage.write(
-      key: _localKeyKey,
-      value: base64Encode(keyBytes),
-    );
+
+    // Audit H-23: secure-storage calls are independent commits, so disable the
+    // old publication before overwriting any in-place material. Until the final
+    // `_enabledKey` write, `backupNow()` cannot consume a mixed generation.
+    await _storage.delete(key: _enabledKey);
+    final successor = <String, String>{
+      _envelopeVersionKey: '3',
+      _recoveryKey: recovery,
+      _keySlotsKey: _encodeKeySlots(keySlots),
+      _localKeyKey: base64Encode(keyBytes),
+    };
+    await _writeAndVerifyKeyState(successor);
+    // Retire the legacy representation while the successor is still unpublished.
     await _storage.delete(key: _saltKey);
+    // Publish the trust markers LAST. Verify owner before enabling; a failed or
+    // torn owner write therefore leaves the state disabled.
+    await _writeAndVerifyKeyState({_ownerKey: userId});
+    await _storage.write(key: _enabledKey, value: '1');
     try {
       await backupNow();
       await _client.from('profiles').upsert({
@@ -146,6 +234,10 @@ class EncryptedBackupService implements BackupService {
   @override
   Future<void> backupNow() async {
     final userId = _userId();
+    // Audit H-23: THE critical gate. Without it a background backup for the
+    // newly signed-in account encrypted that account's data with the previous
+    // account's content key and uploaded it under the new account's path.
+    if (!await _ownedByCurrentAccount(userId)) return;
     final enabled = await _storage.read(key: _enabledKey) == '1';
     if (!enabled) return;
 
@@ -167,12 +259,11 @@ class EncryptedBackupService implements BackupService {
     if (isV3 && slotsRaw != null && slotsRaw.isNotEmpty) {
       // MALI-030 (B2-B closure) — stream the snapshot straight to capped plaintext
       // bytes (no full object graph / whole JSON String), then AEAD-seal them.
-      final plaintext = await BackupSnapshotBuilder(_database)
-          .buildEncryptedPlaintext(
+      final plaintext =
+          await BackupSnapshotBuilder(_database).buildEncryptedPlaintext(
         maxBytes: BackupEnvelopeLimits.maxPlaintextBytes,
       );
-      final v3Blob =
-          await _crypto.encryptEnvelopeV3WithContentKeyFromPlaintext(
+      final v3Blob = await _crypto.encryptEnvelopeV3WithContentKeyFromPlaintext(
         plaintext: plaintext,
         schemaVersion: BackupSnapshotBuilder.currentSchemaVersion,
         contentKey: keyBytes,
@@ -243,12 +334,12 @@ class EncryptedBackupService implements BackupService {
           );
       final now = DateTime.now().toUtc();
       await _client.from('backups').upsert(uploadMetadata(
-        userId: userId,
-        path: path,
-        blobVersion: blob.version,
-        sizeBytes: bytes.length,
-        updatedAtIso: now.toIso8601String(),
-      ));
+            userId: userId,
+            path: path,
+            blobVersion: blob.version,
+            sizeBytes: bytes.length,
+            updatedAtIso: now.toIso8601String(),
+          ));
       await _storage.write(key: _lastKey, value: now.toIso8601String());
     } on supabase.StorageException catch (error) {
       throw BackupException(backupStorageExceptionMessage(error));
@@ -294,10 +385,23 @@ class EncryptedBackupService implements BackupService {
   // committed restore, so the post-commit usability check can detect an ownership
   // change.
   AdmissionToken? _lastRestoreAdmission;
+  String? _lastRestoreUserId;
 
   @override
   Future<RestorePlan> prepareRestore({required String passphrase}) async {
+    // Bind the entire prepare/commit lifecycle to both authorities at its start:
+    // the authenticated user and the admission generation. Capturing only after
+    // download/decryption would allow an A operation to be relabelled as B.
     final userId = _userId();
+    final admissionToken = await _ownershipGuard.capture();
+    if (!await _restoreAdmissionIsCurrent(
+      preparedUserId: userId,
+      admissionToken: admissionToken,
+    )) {
+      throw const BackupException(
+        'تغيّر الحساب أثناء تجهيز الاستعادة. أعد المحاولة.',
+      );
+    }
     // MALI-076n §7 — prefer the committed generation, integrity-verified (size +
     // encrypted-blob hash) BEFORE any decryption. A legacy backup with no
     // generation pointer falls back to the fixed object path (integrity still
@@ -307,7 +411,8 @@ class EncryptedBackupService implements BackupService {
     if (generation != null) {
       bytes = await _publisher.downloadVerified(generation);
     } else {
-      bytes = await _client.storage.from(_bucket).download('$userId/backup.enc');
+      bytes =
+          await _client.storage.from(_bucket).download('$userId/backup.enc');
     }
     try {
       // MALI-076n §9 — structurally validate + limit BEFORE any KDF, then
@@ -316,23 +421,25 @@ class EncryptedBackupService implements BackupService {
       List<int>? keyBytes;
       Map<String, dynamic> snapshot;
       if (blob.version >= 3) {
-        keyBytes = await _crypto.unwrapContentKeyV3(blob: blob, secret: passphrase);
-        snapshot = await _crypto.decryptPayloadV3(blob: blob, contentKey: keyBytes);
-      } else if (blob.keySlots.isEmpty) {
+        keyBytes =
+            await _crypto.unwrapContentKeyV3(blob: blob, secret: passphrase);
         snapshot =
-            await _crypto.decryptJson(blob: blob, passphrase: passphrase.trim());
+            await _crypto.decryptPayloadV3(blob: blob, contentKey: keyBytes);
+      } else if (blob.keySlots.isEmpty) {
+        snapshot = await _crypto.decryptJson(
+            blob: blob, passphrase: passphrase.trim());
       } else {
         try {
           keyBytes = await _crypto.unwrapKeyFromSlots(
               keySlots: blob.keySlots, secret: passphrase);
-          snapshot =
-              await _crypto.decryptJsonWithRawKey(blob: blob, keyBytes: keyBytes);
+          snapshot = await _crypto.decryptJsonWithRawKey(
+              blob: blob, keyBytes: keyBytes);
         } on SecretBoxAuthenticationError {
           final legacyKey = await _crypto.deriveKey(
               passphrase: passphrase.trim(), salt: blob.salt);
           keyBytes = await legacyKey.extractBytes();
-          snapshot =
-              await _crypto.decryptJsonWithRawKey(blob: blob, keyBytes: keyBytes);
+          snapshot = await _crypto.decryptJsonWithRawKey(
+              blob: blob, keyBytes: keyBytes);
         }
       }
       final plan = RestorePreparation.build(
@@ -342,14 +449,27 @@ class EncryptedBackupService implements BackupService {
         operationId:
             generation?.operationId ?? RestorePreparation.fingerprint(bytes),
       );
-      // Capture the admission at PREPARATION and stash the (sensitive) decrypt
-      // outputs in memory ONLY — keyed by the operation id. commitRestore validates
-      // this admission at mutation time, so a same-UID re-login / ownership change
-      // between preparation and commit invalidates the confirmation. Never exposed
-      // to the UI (the plan carries no key).
-      final admissionToken = await OwnershipGuard().capture();
-      _prepared[plan.operationId] =
-          _PreparedRestore(plan, keyBytes, blob, passphrase, admissionToken);
+      // Revalidate the start-of-prepare binding after the asynchronous download,
+      // KDF and decryption, before retaining any commit capability.
+      if (!await _restoreAdmissionIsCurrent(
+        preparedUserId: userId,
+        admissionToken: admissionToken,
+      )) {
+        throw const BackupException(
+          'تغيّر الحساب أثناء تجهيز الاستعادة. أعد المحاولة.',
+        );
+      }
+      // Stash sensitive decrypt outputs in memory only. The authoritative user id
+      // is retained alongside the admission token and never resolved dynamically
+      // during commit or key-state publication.
+      _prepared[plan.operationId] = _PreparedRestore(
+        plan,
+        keyBytes,
+        blob,
+        passphrase,
+        admissionToken,
+        userId,
+      );
       return plan;
     } on BackupEnvelopeException catch (e) {
       throw BackupException(_envelopeErrorMessage(e.kind));
@@ -386,13 +506,45 @@ class EncryptedBackupService implements BackupService {
     final result = await _restoreService.execute(
       plan: plan,
       leaseManager: leaseManager,
-      ownershipGuard: OwnershipGuard(),
+      ownershipGuard: _ownershipGuard,
       admissionToken: prepared.admissionToken,
+      preparedUserId: prepared.userId,
+      currentUserId: _currentUserId,
       afterRestore: _afterRestore,
     );
+    // A committed replay belonging to another admission must not proceed to key
+    // publication. RestoreService has already preserved the truthful committed
+    // result and attached the ownership-conflict warning.
+    if (result.outcome == RestoreOutcome.committedPendingBackupState) {
+      _prepared.remove(plan.operationId);
+      return result;
+    }
     if (result.isCommitted) {
       _lastRestoreAdmission = prepared.admissionToken;
-      await _persistKeyStateAfterRestore(prepared);
+      _lastRestoreUserId = prepared.userId;
+      try {
+        await _persistKeyStateAfterRestore(prepared);
+      } on StaleOwnershipException {
+        _prepared.remove(plan.operationId);
+        return RestoreResult(
+          RestoreOutcome.committedPendingBackupState,
+          operationId: result.operationId ?? plan.operationId,
+          warnings: [
+            ...result.warnings,
+            RestoreService.backupStateOwnershipConflictWarning,
+          ],
+        );
+      } catch (_) {
+        // Audit H-20: the database commit is already durable. Key-state
+        // publication is idempotent, so leave the journal unacknowledged and let
+        // a fresh prepare/commit (including after restart) retry only this step.
+        _prepared.remove(plan.operationId);
+        return RestoreResult(
+          RestoreOutcome.committedPendingBackupState,
+          operationId: result.operationId ?? plan.operationId,
+          warnings: [...result.warnings, 'backup_key_state_pending'],
+        );
+      }
     }
     _prepared.remove(plan.operationId);
     // NOT acknowledged here — acknowledgement happens only AFTER the controller has
@@ -407,7 +559,13 @@ class EncryptedBackupService implements BackupService {
   @override
   Future<bool> verifyRestoredDatabaseUsable() async {
     final admission = _lastRestoreAdmission;
-    if (admission != null && !await OwnershipGuard().isCurrent(admission)) {
+    final userId = _lastRestoreUserId;
+    if (admission != null &&
+        (userId == null ||
+            !await _restoreAdmissionIsCurrent(
+              preparedUserId: userId,
+              admissionToken: admission,
+            ))) {
       return false; // ownership changed after commit
     }
     try {
@@ -424,33 +582,125 @@ class EncryptedBackupService implements BackupService {
   Future<void> acknowledgeRestore({required String operationId}) =>
       _restoreService.acknowledge(operationId);
 
+  /// Audit **S-1 / H-23** — DISABLE → WRITE-NEW → VERIFY → RETIRE-OLD →
+  /// PUBLISH-OWNER → ENABLE.
+  ///
+  /// The v2 and legacy-v3 branches used to `delete(_envelopeVersionKey)` FIRST.
+  /// A crash or a storage failure in that window left the version marker gone
+  /// while the successor key material was not yet written — an ambiguous state
+  /// that changes how the NEXT restore interprets the stored material. Every
+  /// branch now first invalidates the enable marker, establishes all successor
+  /// values, verifies their exact values, and only then retires superseded
+  /// values and republishes owner/enabled. No interruption can expose a
+  /// half-migrated state to `backupNow()`:
+  ///
+  ///   * before invalidation fails  → old state remains internally consistent
+  ///   * after invalidation         → disabled, regardless of partial writes
+  ///   * before publication         → successor is complete and verified
+  ///   * after owner publication    → still disabled
+  ///   * after enable publication   → complete successor is usable
+  ///
+  /// An envelope is therefore never "upgraded" until the migration is committed.
   Future<void> _persistKeyStateAfterRestore(_PreparedRestore prepared) async {
     final blob = prepared.blob;
     final keyBytes = prepared.keyBytes;
-    await _storage.write(key: _enabledKey, value: '1');
+
+    /// Retire a superseded marker only after its successor is durable.
+    Future<void> retire(Iterable<String> keys) async {
+      for (final key in keys) {
+        await _storage.delete(key: key);
+      }
+    }
+
+    // Reject a stale prepared restore before touching even unpublished material.
+    await _requirePreparedRestoreAdmission(prepared);
+
+    // Invalidate publication before replacing any in-place key generation.
+    await _storage.delete(key: _enabledKey);
+    await _requirePreparedRestoreAdmission(prepared);
+
     if (blob.version >= 3) {
-      await _storage.write(key: _envelopeVersionKey, value: '3');
-      await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes!));
-      await _storage.write(key: _keySlotsKey, value: _encodeKeySlots(blob.keySlots));
-      await _storage.delete(key: _saltKey);
-      await _storage.delete(key: _recoveryKey);
+      await _writeAndVerifyKeyState({
+        _envelopeVersionKey: '3',
+        _localKeyKey: base64Encode(keyBytes!),
+        _keySlotsKey: _encodeKeySlots(blob.keySlots),
+      });
+      await retire([_saltKey, _recoveryKey]);
     } else if (keyBytes == null) {
-      await _storage.delete(key: _envelopeVersionKey);
-      await _storage.write(key: _saltKey, value: base64Encode(blob.salt));
+      // v2: derive and persist the successor material FIRST…
       final key = await _crypto.deriveKey(
           passphrase: prepared.passphrase.trim(), salt: blob.salt);
-      await _storage.write(
-          key: _localKeyKey, value: base64Encode(await key.extractBytes()));
-      await _storage.delete(key: _keySlotsKey);
+      await _writeAndVerifyKeyState({
+        _saltKey: base64Encode(blob.salt),
+        _localKeyKey: base64Encode(await key.extractBytes()),
+      });
+      // …and only then retire the v3-era markers this envelope supersedes.
+      await retire([_envelopeVersionKey, _keySlotsKey]);
     } else {
-      await _storage.delete(key: _envelopeVersionKey);
-      await _storage.write(key: _localKeyKey, value: base64Encode(keyBytes));
-      await _storage.write(key: _keySlotsKey, value: _encodeKeySlots(blob.keySlots));
-      await _storage.delete(key: _saltKey);
-      await _storage.delete(key: _recoveryKey);
+      await _writeAndVerifyKeyState({
+        _localKeyKey: base64Encode(keyBytes),
+        _keySlotsKey: _encodeKeySlots(blob.keySlots),
+      });
+      await retire([_envelopeVersionKey, _saltKey, _recoveryKey]);
     }
     await _storage.write(
         key: _lastKey, value: DateTime.now().toUtc().toIso8601String());
+    // Audit H-23/RB4: publish only for the account captured at PREPARE. Re-check
+    // both the admission generation and live auth identity immediately before
+    // each trust marker. A change after material was written leaves it disabled.
+    await _requirePreparedRestoreAdmission(prepared);
+    await _writeAndVerifyKeyState({_ownerKey: prepared.userId});
+    await _requirePreparedRestoreAdmission(prepared);
+    await _storage.write(key: _enabledKey, value: '1');
+    // Close the final async-write boundary. An A→B race here is already safe
+    // because owner remains A, but removing enabled makes the stale admission's
+    // state explicitly retryable and fail-closed as well.
+    if (!await _restoreAdmissionIsCurrent(
+      preparedUserId: prepared.userId,
+      admissionToken: prepared.admissionToken,
+    )) {
+      await _storage.delete(key: _enabledKey);
+      throw const StaleOwnershipException();
+    }
+  }
+
+  Future<void> _requirePreparedRestoreAdmission(
+      _PreparedRestore prepared) async {
+    if (!await _restoreAdmissionIsCurrent(
+      preparedUserId: prepared.userId,
+      admissionToken: prepared.admissionToken,
+    )) {
+      throw const StaleOwnershipException();
+    }
+  }
+
+  Future<bool> _restoreAdmissionIsCurrent({
+    required String preparedUserId,
+    required AdmissionToken admissionToken,
+  }) async {
+    if (preparedUserId.isEmpty ||
+        admissionToken.ownerUid != preparedUserId ||
+        admissionToken.generation == null ||
+        admissionToken.generation!.isEmpty ||
+        _currentUserId() != preparedUserId) {
+      return false;
+    }
+    return _ownershipGuard.isCurrent(admissionToken);
+  }
+
+  /// Write every value, then read back and compare the exact successor bytes.
+  /// A non-empty-but-stale value is not sufficient proof of durability.
+  Future<void> _writeAndVerifyKeyState(Map<String, String> expected) async {
+    for (final entry in expected.entries) {
+      await _storage.write(key: entry.key, value: entry.value);
+    }
+    for (final entry in expected.entries) {
+      if (await _storage.read(key: entry.key) != entry.value) {
+        throw const BackupException(
+          'تعذّر حفظ حالة النسخ الاحتياطي. أعد المحاولة.',
+        );
+      }
+    }
   }
 
   // Safe, non-leaking user messages for typed envelope failures (MALI-076n §8).
@@ -472,12 +722,44 @@ class EncryptedBackupService implements BackupService {
     }
   }
 
-  String _userId() {
+  String? _currentUserId() {
     final id = _client.auth.currentUser?.id;
-    if (id == null || id.isEmpty) {
+    return id == null || id.isEmpty ? null : id;
+  }
+
+  String _userId() {
+    final id = _currentUserId();
+    if (id == null) {
       throw const BackupException('سجّل الدخول أولاً لتفعيل النسخ الاحتياطي.');
     }
     return id;
+  }
+
+  /// Audit **H-23** — whether the cached backup crypto belongs to the signed-in
+  /// account. Fail-closed: anything ambiguous means "not enabled here", which
+  /// costs a re-enable (passphrase re-entry) and never a backup.
+  ///
+  /// Legacy migration is DETERMINISTIC: state written before owner binding
+  /// carries no marker, so it is adopted only by the identity that owns the
+  /// LOCAL DATABASE (`AppSession.readLocalDataOwnerUid`) — the same ownership
+  /// authority the sync backfills use. If that marker is absent or names a
+  /// different account, the state is treated as foreign and left untouched;
+  /// the user re-enables and nothing is destroyed.
+  Future<bool> _ownedByCurrentAccount(String userId) async {
+    final decision = classifyBackupStateOwnership(
+      currentUserId: userId,
+      storedOwnerUid: await _storage.read(key: _ownerKey),
+      localDataOwnerUid: await _readLocalDataOwnerUid(),
+    );
+    switch (decision) {
+      case BackupStateOwnership.owned:
+        return true;
+      case BackupStateOwnership.adoptable:
+        await _storage.write(key: _ownerKey, value: userId);
+        return true;
+      case BackupStateOwnership.foreign:
+        return false;
+    }
   }
 
   String _generateRecoveryCode() {
@@ -490,6 +772,7 @@ class EncryptedBackupService implements BackupService {
 
   Future<void> _clearLocalBackupState() async {
     await _storage.delete(key: _enabledKey);
+    await _storage.delete(key: _ownerKey);
     await _storage.delete(key: _saltKey);
     await _storage.delete(key: _recoveryKey);
     await _storage.delete(key: _lastKey);
@@ -519,11 +802,12 @@ String backupStorageExceptionMessage(supabase.StorageException error) {
 // memory only and is discarded after commit — the key never reaches the UI or disk
 // except as the existing backup key-state (unchanged behavior).
 class _PreparedRestore {
-  _PreparedRestore(
-      this.plan, this.keyBytes, this.blob, this.passphrase, this.admissionToken);
+  _PreparedRestore(this.plan, this.keyBytes, this.blob, this.passphrase,
+      this.admissionToken, this.userId);
   final RestorePlan plan;
   final List<int>? keyBytes;
   final EncryptedBackupBlob blob;
   final String passphrase;
   final AdmissionToken admissionToken;
+  final String userId;
 }

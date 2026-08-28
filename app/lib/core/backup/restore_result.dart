@@ -14,6 +14,11 @@ enum RestoreOutcome {
   /// authoritative and must NOT be replayed; the caller acknowledges idempotently.
   committedPendingAcknowledgement,
 
+  /// The database restore committed, but publishing the matching local backup
+  /// key state did not finish. The database is authoritative and must not be
+  /// restored again; retrying the same operation only completes key publication.
+  committedPendingBackupState,
+
   /// The user cancelled before destructive mutation began.
   cancelled,
 
@@ -81,7 +86,8 @@ enum RestoreOutcome {
 /// The result of a restore attempt. Carries only the outcome, the operation id,
 /// and optional privacy-safe warnings — never any secret or financial content.
 class RestoreResult {
-  const RestoreResult(this.outcome, {this.operationId, this.warnings = const []});
+  const RestoreResult(this.outcome,
+      {this.operationId, this.warnings = const []});
 
   final RestoreOutcome outcome;
 
@@ -99,7 +105,8 @@ class RestoreResult {
   /// is authoritative and must not be replayed.
   bool get isCommitted =>
       outcome == RestoreOutcome.success ||
-      outcome == RestoreOutcome.committedPendingAcknowledgement;
+      outcome == RestoreOutcome.committedPendingAcknowledgement ||
+      outcome == RestoreOutcome.committedPendingBackupState;
 
   /// True when the pre-restore database is guaranteed intact (no mutation, or a
   /// confirmed rollback).
@@ -148,6 +155,22 @@ class RestorePlanningRepairRequiredException implements Exception {
 /// Thrown INSIDE the restore transaction when in-transaction verification fails,
 /// so the whole restore rolls back before commit. Privacy-safe: [reason] is a
 /// short protocol label, never data.
+/// Audit **H-20** — a failure that occurred AFTER the destructive restore
+/// transaction committed.
+///
+/// The replacement data is already durable, so this must never be mapped to a
+/// rollback outcome: the honest report is "committed, with an ancillary step
+/// incomplete". Carries only a step name — never SQL, a path, or user data.
+class RestoreCommittedPostStepException implements Exception {
+  const RestoreCommittedPostStepException(this.step);
+
+  /// e.g. 'foreignKeyReenable'. No data.
+  final String step;
+
+  @override
+  String toString() => 'RestoreCommittedPostStepException($step)';
+}
+
 class RestoreVerificationException implements Exception {
   const RestoreVerificationException(this.reason);
 

@@ -224,6 +224,19 @@ class RestoreBackupUseCase {
         // and the original database is preserved.
         if (plan != null) await _verifyAgainstPlan(plan, fault);
         fault('afterVerification');
+        // Audit H-20: these steps are required for CORRECTNESS, not
+        // convenience, so they belong inside the atomic transaction.
+        // `runPostRestoreSetup` resets ai/cloud consent (MALI-059n) so a
+        // restore cannot import consent as authorization on a new device. Run
+        // post-commit, a crash or failure in that window committed the restored
+        // data with a legacy backup's consent flags intact — an authorization
+        // the user never gave. Placed AFTER verification so the plan is still
+        // checked against the snapshot as restored, not as adjusted.
+        for (final step in _postRestoreMigrations) {
+          if (step.appliesTo(schemaVersion)) {
+            await step.run(_db);
+          }
+        }
         // MALI-014 §Blocker-1 — the DURABLE committed marker is written INSIDE
         // this transaction, so it commits atomically with the restored data and
         // rolls back with it. A crash after commit is then discoverable at restart.
@@ -235,19 +248,24 @@ class RestoreBackupUseCase {
     } finally {
       await _db.customStatement('PRAGMA foreign_keys = ON;');
     }
-    // Enforcement MUST be back on for the rest of this connection's lifetime.
-    final fkEnabled = (await _db.customSelect('PRAGMA foreign_keys;').getSingle())
-        .read<int>('foreign_keys');
-    if (fkEnabled != 1) {
-      throw const BackupException(
-        'تعذّر إعادة تفعيل قيود العلاقات بعد الاستعادة.',
-      );
-    }
-
-    for (final step in _postRestoreMigrations) {
-      if (step.appliesTo(schemaVersion)) {
-        await step.run(_db);
+    // ── POST-COMMIT ───────────────────────────────────────────────────────
+    // Everything below runs AFTER the destructive transaction committed. The
+    // replacement data is already on disk, so a failure here must NEVER be
+    // reported as a rollback (audit H-20). It is raised as a distinct typed
+    // exception so the caller can say what is actually true: committed, with an
+    // ancillary step incomplete. Nothing is swallowed.
+    try {
+      // Enforcement MUST be back on for the rest of this connection's lifetime.
+      final fkEnabled =
+          (await _db.customSelect('PRAGMA foreign_keys;').getSingle())
+              .read<int>('foreign_keys');
+      if (fkEnabled != 1) {
+        throw const BackupException(
+          'تعذّر إعادة تفعيل قيود العلاقات بعد الاستعادة.',
+        );
       }
+    } catch (_) {
+      throw const RestoreCommittedPostStepException('foreignKeyReenable');
     }
   }
 
@@ -557,6 +575,37 @@ class RestoreBackupUseCase {
         if (value is! List || value.isEmpty) {
           throw BackupException(
             'النسخة الاحتياطية تالفة أو غير مكتملة (جدول "$table" مفقود). '
+            'تعذّرت الاستعادة.',
+          );
+        }
+      }
+    }
+    // Audit H-21 — v4+ COMPLETENESS CONTRACT.
+    //
+    // A table absent from the snapshot is skipped by the conditional DELETE in
+    // the restore transaction, so its LIVE rows survive and merge with the
+    // restored data. `expectedRowCounts` is derived only from tables that ARE
+    // present, so verification never noticed: an omitted `budgets` (or goals,
+    // plans, cards, …) committed as a "successful full restore" that was really
+    // a partial merge. Only `transactions` was accidentally protected, because
+    // its check uses `?? 0` and the surviving live rows tripped the count.
+    //
+    // v4 is advertised as a COMPLETE snapshot, and the builder always writes a
+    // key for every backed-up table (empty list when the user has no rows), so
+    // requiring every key is exactly the contract the format already claims.
+    // A missing KEY is a truncated backup and is rejected here — BEFORE any
+    // destructive mutation. An EMPTY list stays legal: that is a real, complete
+    // snapshot of a user who has none of those rows.
+    //
+    // Deliberately v4+ ONLY (PART 6): v2/v3 legitimately omit tables — a v2
+    // backup carries no cards/categories/sender_bank_mappings — and their
+    // partial-merge semantics are preserved rather than retroactively
+    // reinterpreted as complete.
+    if (schemaVersion >= 4) {
+      for (final table in BackupSnapshotBuilder.backedUpTables) {
+        if (rawTables[table] is! List) {
+          throw BackupException(
+            'النسخة الاحتياطية غير مكتملة (جدول "$table" مفقود). '
             'تعذّرت الاستعادة.',
           );
         }

@@ -122,11 +122,23 @@ class RestoreJournal {
     );
   }
 
+  /// Audit **H-20**. A COMMITTED operation can never be relabelled rolled back.
+  ///
+  /// `markCommittedInTransaction` writes its marker INSIDE the destructive
+  /// transaction, so a committed marker is durable proof that the replacement
+  /// data is on disk. A later failure — a post-commit step, a lease release, a
+  /// reopen — previously overwrote that marker with `rolledBack`, which both
+  /// told the user their data survived when it had been replaced AND destroyed
+  /// the evidence restart-recovery depends on.
+  ///
+  /// The `committed_at IS NULL` guard makes that impossible at the storage
+  /// layer, for every caller, rather than relying on each call site to check.
   Future<void> markRolledBack(
       String operationId, String? errorClass, String nowIso) async {
     await _db.customStatement(
       "UPDATE restore_operations SET state = 'rolledBack', "
-      'terminal_error_class = ? WHERE operation_id = ?;',
+      'terminal_error_class = ? WHERE operation_id = ? '
+      'AND committed_at IS NULL;',
       [errorClass, operationId],
     );
   }
