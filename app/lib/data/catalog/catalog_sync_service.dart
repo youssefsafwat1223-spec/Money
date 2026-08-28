@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../core/backend/app_version.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../db/app_database.dart';
@@ -57,7 +58,7 @@ class CatalogSyncService {
         'catalog-flags',
         method: supabase.HttpMethod.get,
         headers: const {
-          'X-App-Version': String.fromEnvironment('APP_VERSION'),
+          ...kAppVersionHeaders,
         },
         queryParameters: {
           if (countryCode != null && countryCode.isNotEmpty)
@@ -88,7 +89,7 @@ class CatalogSyncService {
         'catalog-announcements',
         method: supabase.HttpMethod.get,
         headers: const {
-          'X-App-Version': String.fromEnvironment('APP_VERSION'),
+          ...kAppVersionHeaders,
         },
         queryParameters: {
           if (countryCode != null && countryCode.isNotEmpty)
@@ -119,7 +120,7 @@ class CatalogSyncService {
         'catalog-campaigns',
         method: supabase.HttpMethod.get,
         headers: const {
-          'X-App-Version': String.fromEnvironment('APP_VERSION'),
+          ...kAppVersionHeaders,
         },
         queryParameters: {
           if (countryCode != null && countryCode.isNotEmpty)
@@ -165,7 +166,7 @@ class CatalogSyncService {
         'catalog-coupons',
         method: supabase.HttpMethod.get,
         headers: const {
-          'X-App-Version': String.fromEnvironment('APP_VERSION'),
+          ...kAppVersionHeaders,
         },
       );
       if (response.status < 200 || response.status >= 300) return;
@@ -229,7 +230,7 @@ class CatalogSyncService {
       final response = await _client.functions.invoke(
         'catalog-delta',
         method: supabase.HttpMethod.get,
-        headers: const {'X-App-Version': String.fromEnvironment('APP_VERSION')},
+        headers: kAppVersionHeaders,
         queryParameters: {
           'category': category,
           'since_version': sinceVersion.toString(),
@@ -276,7 +277,7 @@ class CatalogSyncService {
     final response = await _client.functions.invoke(
       'catalog-versions',
       method: supabase.HttpMethod.get,
-      headers: const {'X-App-Version': String.fromEnvironment('APP_VERSION')},
+      headers: kAppVersionHeaders,
     );
     if (response.status < 200 || response.status >= 300) {
       throw StateError('catalog-versions HTTP ${response.status}');
