@@ -560,3 +560,105 @@ would have had to admit consent did not reliably stop uploads.
 | Topic | Recommendation | Outcome |
 |---|---|---|
 | On-device model selection | Option B (classical, catalog-seeded), fold in C's interface + harness slice; neural gated behind a real corpus | **ACCEPTED** after validating the premise against the repo. Its framing that the corpus blocks *evaluation*, not just training, is now the recorded rationale. |
+
+
+## S13. FINAL GATE — all measured at COMMITTED HEAD in an isolated clean checkout
+
+**Ending HEAD:** `bdc7d924` (code frozen at `522ea7c1`; later commits are docs only)
+
+| Gate | Result |
+|---|---|
+| `flutter analyze` | **clean** |
+| Full Flutter suite | **2483 pass · 1 skip · 0 fail** |
+| Admin `node --test` | **102 / 0** |
+| `tsc --noEmit` | **clean** |
+| SQL / migration contract | **228 / 0** (70 credential-gated) |
+| Deno (Edge) | **9 / 0** |
+
+Run serialized, with nothing else executing. That matters: an earlier run showed
+an Argon2 "Segment processing timeout" that I caused by working concurrently with
+the suite. It was re-run clean rather than normalised away.
+
+## S14. WHAT REMAINS IN THE WORKING TREE — and why it was NOT landed
+
+~1,900 lines across four workstreams: the backup/restore overhaul, data
+portability import/export, the capture ownership guard, and report-ads.
+
+**These are unlanded development, not leftovers of the audit.** No Critical or
+High finding in this plan points at them. They need their own review, and landing
+that volume unreviewed at the end of a sprint is not "finishing the work" — it is
+adding risk under the banner of completeness.
+
+The one genuinely audit-driven item that stayed out is the H-1 `partial` outcome's
+sibling work in files this sprint did not touch; it landed in `93275043`.
+
+## S15. NEW FINDINGS FIXED THIS SPRINT (not in the original audit)
+
+| ID | Finding |
+|---|---|
+| **H-19** | The iOS Shortcut deleted the only durable local copy on backend success, while the relay row is swept at 30 days. Data loss on a path that reported success. |
+| **NEW-H-3** | A consent revocation made before the settings row was server-bound was silently lost on first bind — the server kept consent ON. |
+| **NEW-H-4** | Registration could push a fresh device's defaults over the user's real cloud settings, because "unbound" was treated as "absent" rather than "unknown". |
+| **C-11 ×4** | Fail-closed defaults silently converted 35+ mechanics tests into refusal-path tests across the run. |
+| **F-015b** | `AMAZON` truncated to `AMAZ` by an unbounded `on` alternation — pre-existing and shipped. |
+
+## S16. CORRECTIONS TO MY OWN EARLIER CLAIMS
+
+Recorded because a report that quietly fixes its own errors is not evidence.
+
+1. **H-4 scope.** I told the owner it spanned "~7 interlinked files" and was too
+   risky to land unattended. It is **three**. The estimate conflated it with H-1,
+   NEW-H-3 and the capture ownership guard, which merely share `app_providers.dart`.
+   That error cost a full run.
+2. **C-2a-2 status.** Recorded OPEN on the grounds that `confirm_force_update` is
+   caller-supplied. Re-reading the source: arming routes through the
+   `arm_force_update()` RPC and the admin route fails closed (503) when `0089` is
+   absent. The boolean is a pre-check, not the authority.
+3. **The C-6 atomicity test** asserted the guard's null return reaches
+   `_markConflict`; with NEW-H-3 it reaches `_resolveUpsertConflict`. Corrected to
+   the stronger contract rather than loosened. It had also anchored on the
+   implementation instead of the call site, so its window never reached the branch
+   it meant to check.
+4. **The "gated by its caller" claim** for the child sync service passed the
+   inventory test only because the caller file contains other services' gates.
+   The child service now carries its own.
+
+---
+
+# FOR CHATGPT REVIEW
+
+Independent review is most valuable on these, in this order.
+
+## 1. Financial correctness (highest value)
+- `93275043` **H-1** — `startup_sync_reconcile_service.dart`, the three backfill
+  services, `unsynced_inventory.dart`. Does `partial` cover every unresolved
+  case? Is `isProvenComplete` consulted everywhere local data may be discarded?
+- `4a097ea5` **F-021** — `accounts_pull_service.dart`. Is `_serverDivergedFromLocal`
+  comparing the right field set? Is the `is_default` exclusion correct?
+- `6e4c7ff9` + `522ea7c1` **C-6** — `planning_push_service.dart`. Is the guarded
+  update genuinely atomic, and is the 0-row branch handled identically to the
+  pre-read it replaced?
+
+## 2. Privacy
+- `f0fa99b7`, `cca26a91` **C-3** — `egress_inventory_test.dart` is the map. Is any
+  egress path missing from it? Is the catalog exemption defensible?
+- `522ea7c1` **NEW-H-3/H-4** — the consent-only push that deliberately does not
+  bind. Can a revocation still be lost on any interleaving?
+
+## 3. On-device AI
+- `52b89448` — `merchant_classifier.dart`, `text_normalizer.dart`,
+  `merchant_intelligence_eval_test.dart`. Is the perturbation set representative?
+  Is relative error reduction the right metric here? Is the write fence complete?
+
+## 4. Capability authority
+- `b7f0359d`…`ab14ce10` **H-4** — `exact_transport_capability.dart` and the four
+  provider wirings. Any money-bearing path still not consulting a capability?
+
+## 5. Server-side (all SOURCE-ONLY, none applied)
+- `0087` parser evidence · `0088` grants · `0089` force-update arming ·
+  `0090` budget key detection.
+- `0ae0defe` **F-011** — is `guardParserWrite` bypassable by any other route?
+
+## 6. Release
+- `a67e1284` **F-024** — does `kAppVersion` reach every version-targeted decision?
+- `44afd4aa` **C-5** — does the policy accurately describe the shipped behaviour?
