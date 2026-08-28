@@ -513,9 +513,16 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
 });
 
 final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
+  final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return AccountsPullService(
     db: ref.watch(appDatabaseProvider),
-    isEnabled: _planningAccountsSyncEnabled,
+    // Audit H-4: accounts PULL carries money (`initial_balance::text`,
+    // `current_balance::text`). It shared `_planningAccountsSyncEnabled` — a
+    // bare `() => true` — with push, so an explicitly `unsupported` transport
+    // could not disable it: every row would throw and wedge the cursor instead
+    // of the pull simply not running.
+    isEnabled: () =>
+        _planningAccountsSyncEnabled() && exactPullAllowed(pullCap),
   );
 });
 
@@ -566,8 +573,15 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return PlanningPullService(
     db: ref.watch(appDatabaseProvider),
-    isEnabled: (entityType) => _planningEntitySyncEnabledWithCurrency(
-        entityType, planningCap, pullCap),
+    // Audit H-4: the per-entity planning-currency gate only constrains the
+    // three planning-currency entities — every OTHER money-bearing entity
+    // (subscriptions, plans, bill_payments) short-circuited to `true` and so
+    // never consulted the pull transport at all. The capability now applies to
+    // the whole pull, with the planning gate layered on top.
+    isEnabled: (entityType) =>
+        exactPullAllowed(pullCap) &&
+        _planningEntitySyncEnabledWithCurrency(
+            entityType, planningCap, pullCap),
   );
 });
 
@@ -575,12 +589,21 @@ final planningChildSyncServiceProvider =
     Provider<PlanningChildSyncService>((ref) {
   final planningCap = ref.watch(planningServerCurrencyCapabilityProvider);
   final pushCap = ref.watch(exactPushTransportCapabilityProvider);
+  final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return PlanningChildSyncService(
     db: ref.watch(appDatabaseProvider),
     queue: ref.watch(planningOutboxQueueProvider),
     // §29/§30 — goal_contributions inherit the parent goal's server currency,
     // so they are deferred until the planning-currency + exact PUSH transport
     // capabilities are both verified (this is a push-direction service).
+    // Pull authority is independent from push authority. The exact pull gate
+    // covers every child family; the planning-currency gate layers on top for
+    // goal contributions, using the pull-direction transport capability.
+    isPullEnabled: (entityType) =>
+        exactPullAllowed(pullCap) &&
+        _planningEntitySyncEnabledWithCurrency(
+            entityType, planningCap, pullCap),
+    pullCapability: () => ref.read(exactPullTransportCapabilityProvider),
     isEnabled: (entityType) => _planningEntitySyncEnabledWithCurrency(
         entityType, planningCap, pushCap),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
@@ -1052,12 +1075,16 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
 });
 
 final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
+  final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   final db = ref.watch(appDatabaseProvider);
   return LedgerSyncService(
     db: db,
     transactionRepository: DriftTransactionRepository(db),
     dedupStore: DriftDedupStore(db),
-    isPullEnabled: () => true,
+    // Audit H-4: the ledger pull carries money (`amount::text`,
+    // `balance_after::text`, `foreign_amount::text`) and had no seam to be
+    // switched off.
+    isPullEnabled: () => exactPullAllowed(pullCap),
   );
 });
 

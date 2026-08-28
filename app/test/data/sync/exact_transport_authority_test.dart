@@ -238,4 +238,75 @@ void main() {
       }
     });
   });
+  group('H-4 — no bypass remains in the wiring', () {
+    final providers = File('lib/core/di/app_providers.dart').readAsStringSync();
+
+    String providerBody(String name) {
+      final start = providers.indexOf('final $name');
+      expect(start, greaterThan(-1), reason: '$name not found');
+      return providers.substring(start, providers.indexOf('\n});', start));
+    }
+
+    test('every money-bearing pull consults the pull capability', () {
+      for (final name in const [
+        'accountsPullServiceProvider',
+        'ledgerSyncServiceProvider',
+        'planningPullServiceProvider',
+        'planningChildSyncServiceProvider',
+      ]) {
+        final body = providerBody(name);
+        expect(body, contains('exactPullTransportCapabilityProvider'),
+            reason: '$name must read the pull capability');
+        expect(body, contains('exactPullAllowed'),
+            reason: '$name must gate on it, not merely read it');
+      }
+    });
+
+    test('planning children resolve distinct push and pull authorities', () {
+      final body = providerBody('planningChildSyncServiceProvider');
+      expect(body, contains('exactPushTransportCapabilityProvider'));
+      expect(body, contains('exactPullTransportCapabilityProvider'));
+      expect(
+        body,
+        contains(
+          'pullCapability: () => ref.read(exactPullTransportCapabilityProvider)',
+        ),
+        reason: 'child pull authority must come from the pull provider, never '
+            'from the push predicate',
+      );
+      expect(body, contains('entityType, planningCap, pullCap'),
+          reason:
+              'goal-contribution currency gating must use the pull-direction '
+              'transport capability');
+    });
+
+    test('planning child pull predicate never falls back to push enablement', () {
+      final service = File(
+        'lib/features/planning_sync/services/planning_child_sync_service.dart',
+      ).readAsStringSync();
+      expect(
+        service,
+        contains('static bool _defaultPullEnabled(String _) => false;'),
+      );
+      expect(service.contains('isPullEnabled ?? isEnabled'), isFalse,
+          reason: 'omitting a pull predicate must fail closed, never reuse the '
+              'push-direction predicate');
+    });
+
+    test('no money-bearing pull is wired to a bare `() => true`', () {
+      for (final name in const [
+        'accountsPullServiceProvider',
+        'ledgerSyncServiceProvider',
+      ]) {
+        final body = providerBody(name);
+        expect(body.contains('isPullEnabled: () => true'), isFalse,
+            reason: '$name had no seam to disable an unsupported transport');
+        expect(body.contains('isEnabled: _planningAccountsSyncEnabled'), isFalse,
+            reason: '$name shared the push predicate and ignored pull capability');
+      }
+    });
+
+
+  });
+
 }
