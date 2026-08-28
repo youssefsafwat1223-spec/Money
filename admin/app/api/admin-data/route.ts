@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
+import { guardParserWrite, ParserValidationError } from "@/lib/parser-validation-guard.mjs";
 
 type Resource = "banks" | "sms_parsers" | "feature_flags";
 
@@ -71,9 +72,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_resource" }, { status: 400 });
   }
   const client = await createAdminClient();
+  // F-011: a new rule may not be born trusted.
+  let parserRow: Record<string, unknown> | null = null;
+  if (resource === "sms_parsers") {
+    try {
+      parserRow = guardParserWrite(cleanParser(body), null);
+    } catch (e) {
+      if (e instanceof ParserValidationError) {
+        return NextResponse.json({ error: e.message, code: e.code }, { status: 422 });
+      }
+      throw e;
+    }
+  }
   const result = resource === "banks"
     ? await client.from("banks").insert(cleanBank(body)).select().single()
-    : await client.from("sms_parsers").insert(cleanParser(body)).select().single();
+    : await client.from("sms_parsers").insert(parserRow!).select().single();
   const { data, error } = result;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ data });
@@ -86,10 +99,29 @@ export async function PATCH(req: NextRequest) {
   const id = typeof body.id === "string" ? body.id : "";
   if (!resource || !id) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   const client = await createAdminClient();
+  // F-011: promotion to `passed` is not an editing operation. The guard needs
+  // the CURRENT row, because "may this edit change the status" depends on what
+  // the status already is — and on whether its evidence is real.
+  let parserPatch: Record<string, unknown> | null = null;
+  if (resource === "sms_parsers") {
+    const { data: existing } = await client
+      .from("sms_parsers")
+      .select("validation_status, validated_at, golden_test_count")
+      .eq("id", id)
+      .maybeSingle();
+    try {
+      parserPatch = guardParserWrite(cleanParser(body), existing ?? null);
+    } catch (e) {
+      if (e instanceof ParserValidationError) {
+        return NextResponse.json({ error: e.message, code: e.code }, { status: 422 });
+      }
+      throw e;
+    }
+  }
   const result = resource === "banks"
     ? await client.from("banks").update(cleanBank(body)).eq("id", id).select().single()
     : resource === "sms_parsers"
-      ? await client.from("sms_parsers").update(cleanParser(body)).eq("id", id).select().single()
+      ? await client.from("sms_parsers").update(parserPatch!).eq("id", id).select().single()
       : await client.from("feature_flags").update({
           is_active: body.is_active,
           value: body.value,
