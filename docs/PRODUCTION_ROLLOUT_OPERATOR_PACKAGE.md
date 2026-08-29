@@ -1,5 +1,23 @@
 # PRODUCTION ROLLOUT — OPERATOR PACKAGE
 
+> # ⛔ DO NOT EXECUTE THIS PACKAGE — BLOCKED BY AUDIT FINDINGS
+>
+> The cross-model audit of 2026-08-23 (`docs/FINAL_CROSS_MODEL_AUDIT_RECONCILIATION.md`) found
+> **4 CRITICAL** defects on the audited tree. Two directly invalidate steps in this runbook:
+>
+> - **C-3** — migration `0083` silently reverted `purge_user_data()`, dropping four deletions that
+>   `0072` had added. Account deletion currently leaves identity-bearing rows
+>   (`metrics_rate_limits`, `gamification_awarded_transactions`, `ai_request_idempotency`) while the
+>   saga reports erasure complete. A **forward migration `0084`** is required; the migration list in
+>   this package is therefore **incomplete**.
+> - **L-02** — `cron-daily-reminders-job` is scheduled by `0057` while this package says do not
+>   deploy that function. Applying migrations as documented creates a permanently failing daily job.
+>
+> Deploying the app tier is separately blocked by **C-1** and **C-2** (silent money corruption).
+>
+> **Status: BLOCKED — OPEN / UNDER REMEDIATION.** Do not run any step until the audit's CRITICAL
+> set is closed with evidence and this banner is removed.
+
 **Status: PREPARED, NOT EXECUTED.** Every command in this document is labelled
 **FUTURE COMMAND — DO NOT RUN DURING R7**. Nothing here has been run against production.
 
@@ -307,7 +325,7 @@ Re-derived from current function source. **No values appear in this document, ev
 | `APNS_BUNDLE_ID` | same (used verbatim as `apns-topic`) | **Yes** for push | partial | **MANUAL_PREREQUISITE** |
 | `APNS_PRIVATE_KEY` | same | **Yes** for push | partial | **MANUAL_PREREQUISITE** |
 | `GEMINI_API_KEY` | `process-ios-sms`, `parse-sms`, `bank-discovery` | **Yes** for AI capture | proven | **MANUAL_PREREQUISITE** |
-| `GEMINI_MODEL` | same | **Yes** (config) | proven | **MANUAL_PREREQUISITE** |
+| `GEMINI_MODEL` | same | **No — optional override** | proven | **OPTIONAL** (corrected 2026-08-23, audit L-01) — all three consumers default to `'gemini-2.5-flash-lite'` via `??` (`bank-discovery/index.ts:17`, `parse-sms/index.ts:32`, `process-ios-sms/index.ts:54`). Previously mis-listed as mandatory, which could block a deployment for no reason |
 | `NOTIFICATION_RETRY_WORKER_SECRET` | `process-notification-retries` | **Yes** | proven | **MANUAL_PREREQUISITE** |
 | `PURGE_WORKER_SECRET` | `purge-scheduled-deletions` | **Yes** | proven | **MANUAL_PREREQUISITE** |
 | `GOOGLE_MAPS_API_KEY` | `enrich-merchant` | Optional | unclear | **MANUAL_PREREQUISITE** |
@@ -393,15 +411,28 @@ Separate what is already in the repository from what only the production account
 | `CFBundleURLSchemes` reversed-client-id entry | **REPOSITORY_CONFIGURED** |
 | Sign in with Apple entitlement + capability | **REPOSITORY_CONFIGURED** |
 | Google provider enabled on the production project | **PRODUCTION_ACCOUNT_CONFIGURATION_REQUIRED** |
-| **Skip nonce checks = ON** for Google | **PRODUCTION_ACCOUNT_CONFIGURATION_REQUIRED** |
+| **Skip nonce checks = ON** for Google **only** | **PRODUCTION_ACCOUNT_CONFIGURATION_REQUIRED** |
+| **Skip nonce checks = OFF** for Apple | **PRODUCTION_ACCOUNT_CONFIGURATION_REQUIRED** — ⚠️ corrected 2026-08-23 (audit H-9); see below |
 | Apple provider enabled + Services ID `com.youssefsafwat.mali` | **PRODUCTION_ACCOUNT_CONFIGURATION_REQUIRED** |
 | Apple client secret (JWT from the `.p8`, ~6-month lifetime) | **PRODUCTION_ACCOUNT_CONFIGURATION_REQUIRED** |
 | Android Google identity: upload **and** Play App Signing SHA-1/SHA-256 | **PRODUCTION_ACCOUNT_CONFIGURATION_REQUIRED** (fingerprints do not exist until the keys do) |
 
-**Why "skip nonce checks" is mandatory:** the native iOS Google SDK generates and hashes its own nonce
-inside the `id_token` and never exposes the raw value, so Supabase's nonce comparison fails without it.
-This is exactly the R6 failure mode — on staging both providers were simply **disabled**, and sign-in
-failed with a generic Arabic error. Expect the same symptom in production if this step is skipped.
+**Why "skip nonce checks" is mandatory FOR GOOGLE:** the native iOS Google SDK generates and hashes its
+own nonce inside the `id_token` and never exposes the raw value, so Supabase's nonce comparison fails
+without it. This is exactly the R6 failure mode — on staging both providers were simply **disabled**, and
+sign-in failed with a generic Arabic error. Expect the same symptom in production if this step is skipped.
+
+> **⚠️ It is per-provider, and it must stay OFF for Apple (audit H-9, 2026-08-23).**
+>
+> `skip_nonce_check` is configured per provider (`[auth.external.<provider>]`), so enabling it for
+> Google does **not** enable it for Apple, and the Google requirement is not a reason to enable it
+> anywhere else.
+>
+> Apple sign-in previously sent **no nonce in either direction**, which is why the setting looked
+> irrelevant for it. The app now generates a per-attempt random nonce, sends `SHA-256(raw)` with the
+> authorization request and the raw value to the token exchange. Turning "skip nonce checks" ON for
+> Apple would stop the backend verifying that binding — the client-side fix would become cosmetic and
+> a still-valid Apple identity token could again be replayed. **Leave it OFF for Apple.**
 
 **Apple secret lifecycle:** the client secret is a JWT that expires (max ~6 months). Assign an owner and
 a calendar reminder; expiry presents as sudden Apple-only sign-in failure.

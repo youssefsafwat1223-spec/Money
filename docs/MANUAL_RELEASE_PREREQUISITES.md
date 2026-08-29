@@ -176,7 +176,8 @@ adopted.
 |---|---|
 | Google iOS OAuth client | **SOURCE_READY** — an explicit iOS client id is compiled in and its reversed id is the `CFBundleURLSchemes` entry |
 | Google provider on **production** Supabase | **NEEDS_USER_ACTION** — untouched in R9 |
-| **Skip nonce checks** for Google | **NEEDS_USER_ACTION** — ⚠️ mandatory; the native SDK hashes its own nonce. Omitting it is exactly the R6 staging failure (generic Arabic sign-in error) |
+| **Skip nonce checks** for Google | **NEEDS_USER_ACTION** — ⚠️ mandatory **for Google only**; the native SDK hashes its own nonce. Omitting it is exactly the R6 staging failure (generic Arabic sign-in error) |
+| **Skip nonce checks OFF** for Apple | **NEEDS_USER_ACTION** — ⚠️ corrected 2026-08-23 (audit H-9). The setting is per-provider. Apple sign-in now sends `SHA-256(nonce)` to Apple and the raw nonce to the token exchange; enabling this for Apple would leave that binding unverified and re-open token replay |
 | Android Google client + SHA-1/SHA-256 | **NEEDS_VALUE** — needs the upload **and** Play App Signing certificates (§4) |
 | Apple provider on production Supabase | **NEEDS_USER_ACTION** |
 | Apple Services/App ID relationship | **NEEDS_USER_ACTION** |

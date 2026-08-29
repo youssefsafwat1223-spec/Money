@@ -1,8 +1,39 @@
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import 'auth_service.dart';
+
+/// Audit **H-9** — Apple Sign-In nonce binding.
+///
+/// Apple's OIDC flow binds an identity token to ONE sign-in attempt by way of a
+/// nonce: the SHA-256 hash of a fresh random value is sent with the
+/// authorization request, Apple embeds that hash in the returned token, and the
+/// RAW value is handed to the token exchange, which recomputes the hash and
+/// compares. Without it, a still-valid Apple identity token minted for this app
+/// carries no per-attempt challenge and can be replayed to the public auth
+/// endpoint for its whole validity window.
+///
+/// Qirsh previously sent NO nonce in either direction.
+///
+/// Length is 32 bytes of `Random.secure()` — never a timestamp, counter or
+/// `Random()` — rendered base64url. The raw value never leaves this file except
+/// as the token-exchange parameter, and is never logged or persisted.
+String generateAppleRawNonce({Random? random}) {
+  final rng = random ?? Random.secure();
+  final bytes = List<int>.generate(32, (_) => rng.nextInt(256));
+  return base64UrlEncode(bytes).replaceAll('=', '');
+}
+
+/// The value sent to Apple: lowercase hex SHA-256 of the raw nonce, which is the
+/// representation Apple's `ASAuthorizationAppleIDRequest.nonce` expects and what
+/// the token's `nonce` claim is compared against.
+String appleHashedNonce(String rawNonce) =>
+    sha256.convert(utf8.encode(rawNonce)).toString();
 
 class SupabaseAuthService implements AuthService {
   SupabaseAuthService({
@@ -50,22 +81,61 @@ class SupabaseAuthService implements AuthService {
     );
   }
 
+  /// Monotonic per-attempt marker. Each Apple sign-in owns its nonce as a LOCAL
+  /// value (so two concurrent attempts can never share or overwrite one), and
+  /// this additionally ensures a stale attempt that completes late cannot
+  /// establish a session behind a newer one.
+  int _appleAttemptSeq = 0;
+
   @override
   Future<AuthIdentity> signInWithApple() async {
-    final credential = await SignInWithApple.getAppleIDCredential(
-      scopes: const [
-        AppleIDAuthorizationScopes.email,
-        AppleIDAuthorizationScopes.fullName,
-      ],
-    );
+    final attempt = ++_appleAttemptSeq;
+    // Per-attempt, function-scoped: nothing to clear on a terminal outcome
+    // because nothing outlives this frame. Never logged, never persisted.
+    final rawNonce = generateAppleRawNonce();
+
+    final AuthorizationCredentialAppleID credential;
+    try {
+      credential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        // Apple receives the HASH; the raw value is proved at exchange time.
+        nonce: appleHashedNonce(rawNonce),
+      );
+    } on SignInWithAppleAuthorizationException catch (e) {
+      // A cancelled attempt must end as a cancellation, not an opaque error —
+      // and it establishes no session, leaving this attempt's nonce unused.
+      if (e.code == AuthorizationErrorCode.canceled) {
+        throw const AuthCancelledException('تم إلغاء تسجيل الدخول بـ Apple.');
+      }
+      throw const AuthException('تعذّر تسجيل الدخول بـ Apple.');
+    }
+
+    if (attempt != _appleAttemptSeq) {
+      // Superseded while the system sheet was open.
+      throw const AuthCancelledException('تم إلغاء تسجيل الدخول بـ Apple.');
+    }
+
     final identityToken = credential.identityToken;
     if (identityToken == null || identityToken.isEmpty) {
       throw const AuthException('لم نستطع قراءة رمز دخول Apple.');
     }
+
     final response = await _client.auth.signInWithIdToken(
       provider: supabase.OAuthProvider.apple,
       idToken: identityToken,
+      // The RAW nonce for THIS attempt. The backend re-hashes it and compares
+      // against the token's `nonce` claim, so a token minted for a different
+      // attempt (or with no nonce at all) cannot be exchanged here.
+      nonce: rawNonce,
     );
+
+    if (attempt != _appleAttemptSeq) {
+      throw const AuthCancelledException('تم إلغاء تسجيل الدخول بـ Apple.');
+    }
+
     final email = response.user?.email ?? credential.email;
     return AuthIdentity(
       method: 'apple',

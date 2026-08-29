@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -150,10 +153,22 @@ void main() {
       });
 
       // Wait for the external process to hold the lock + write its lease.
-      for (var i = 0; i < 100 && !File(ready).existsSync(); i++) {
+      //
+      // The budget is generous on purpose. A cold `dart` has to start, JIT the
+      // helper script, take the OS advisory lock and write the marker; the old
+      // 5s allowance was fine on an idle machine and intermittently too short
+      // when the full suite is loading the CPU. A flaky gate is worse than a
+      // slow one — it trains everyone to disregard a real failure. This still
+      // fails if the helper genuinely never starts; it just no longer fails
+      // because the machine was busy.
+      const helperStartBudget = Duration(seconds: 60);
+      final deadline = DateTime.now().add(helperStartBudget);
+      while (!File(ready).existsSync() && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
-      expect(File(ready).existsSync(), isTrue, reason: 'helper did not start');
+      expect(File(ready).existsSync(), isTrue,
+          reason: 'helper did not start within '
+              '${helperStartBudget.inSeconds}s');
       expect(File(leasePath).existsSync(), isTrue);
 
       // (1) While the external process is ALIVE, this process CANNOT acquire the

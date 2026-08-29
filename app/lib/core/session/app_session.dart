@@ -54,6 +54,22 @@ class AppSession extends ValueNotifier<SessionStatus> {
   // OwnershipGuard. Not a secret; carries no financial data.
   static const String _kLocalDataOwnerGeneration = 'local_data_owner_generation';
 
+  /// Deterministic fallback for the H-8 wipe when secure storage cannot
+  /// enumerate its entries. The sweep prefers `readAll()` (which also catches
+  /// other modules' keys, e.g. backup material) and only falls back to this
+  /// list, so a session key can never be missed on a platform where
+  /// enumeration is unavailable.
+  static const Set<String> sessionStorageKeys = {
+    _kDone,
+    _kMethod,
+    _kEmail,
+    _kWelcomeManifestoSeen,
+    _kCurrentAccount,
+    _kCompletedAccounts,
+    _kLocalDataOwnerUid,
+    _kLocalDataOwnerGeneration,
+  };
+
   String? authMethod;
   String? email;
   bool _onboardingDone = false;
@@ -668,24 +684,25 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// حذف الحساب وكل البيانات المحلية (Privacy → حذف كل بياناتي).
   Future<void> wipeAndReset() async {
     // MALI-054n/070n: purge native + filesystem capture residue as part of the
-    // full reset (account deletion / reset-all), BEFORE deleteAll() drops the
-    // owner marker — otherwise leftover native captures could be imported by the
-    // next identity that null-claims the reset device.
+    // full reset (account deletion / reset-all), BEFORE the secure-storage wipe
+    // drops the owner marker — otherwise leftover native captures could be
+    // imported by the next identity that null-claims the reset device.
     await _runResiduePurge();
-    // Preserve the SQLCipher DB key across the wipe. The caller empties the DB
-    // tables, but the encrypted DB file stays on disk — deleting its key here
+    // Audit H-8. The SQLCipher key must survive this wipe: the caller empties
+    // the DB tables, but the encrypted FILE stays on disk, so destroying its key
     // would orphan that file and make the database unopenable next launch
-    // ("تعذّر فتح بياناتك"). Keeping the key lets the emptied DB reopen cleanly.
-    final dbKey = await _storage.read(
-      key: SecureDatabaseKeyStore.defaultStorageKey,
+    // ("تعذّر فتح بياناتك").
+    //
+    // This used to be `read(dbKey) → deleteAll() → write(dbKey)`, which left a
+    // window where the database existed with no key. A crash or a failing write
+    // in that window destroyed the data irreversibly. The key is now NEVER
+    // deleted, so that state is unreachable by construction; an interruption
+    // can only leave some non-key entries behind, which re-running clears.
+    final wipe = await wipeSecureStoragePreservingDatabaseKey(
+      readAll: () => _storage.readAll(),
+      delete: (key) => _storage.delete(key: key),
+      knownKeys: sessionStorageKeys,
     );
-    await _storage.deleteAll();
-    if (dbKey != null) {
-      await _storage.write(
-        key: SecureDatabaseKeyStore.defaultStorageKey,
-        value: dbKey,
-      );
-    }
     authMethod = null;
     email = null;
     _onboardingDone = false;
@@ -693,5 +710,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _currentAccountKey = null;
     _completedAccountKeys.clear();
     value = SessionStatus.needsOnboarding;
+    // In-memory state is signed-out first, so a reported failure still leaves
+    // the app in a safe state — but the failure IS reported: a wipe that left
+    // credentials or backup material behind must not look like success.
+    if (!wipe.isComplete) {
+      throw SecureStorageWipeIncompleteException(wipe.failed.length);
+    }
   }
 }
