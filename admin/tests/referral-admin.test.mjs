@@ -247,7 +247,10 @@ test("routes: route files export only HTTP verbs (a stray export breaks next bui
 const REWARD = "report_export_ad_free";
 assert.ok(isUuid(crypto.randomUUID()));
 // Sanity: the referrals feature directory registered a nav entry.
+// The nav registry moved out of the sidebar into lib/nav.ts (UI redesign) so
+// Server Components can read it too; the sidebar renders it.
 test("nav: the sidebar registers the Referral & Ads entry", () => {
-  assert.match(read("components/sidebar.tsx"), /href:\s*"\/referrals"/);
+  assert.match(read("lib/nav.ts"), /href:\s*"\/referrals"/);
+  assert.match(read("components/sidebar.tsx"), /from "@\/lib\/nav"/);
   assert.ok(readdirSync(new URL("../app/(admin)/referrals", import.meta.url)).includes("page.tsx"));
 });

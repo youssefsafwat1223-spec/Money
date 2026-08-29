@@ -168,9 +168,11 @@ test("J/K: disable is a PATCH; permanent delete is confirm-gated and prefix-scop
   assert.match(src, /list\(`coupons\/\$\{id\}`\)/);
   assert.match(src, /coupons\/\$\{id\}\/\$\{o\.name\}/);
   // The UI keeps disable as the routine action and warns before deleting.
+  // The warning copy is Arabic-first since the 2026 redesign; these assertions
+  // track the rendered strings, not code comments.
   const page = read("app/(admin)/coupons/page.tsx");
-  assert.match(page, /PERMANENT delete/);
-  assert.match(page, /Prefer "Disable"/);
+  assert.match(page, /الحذف النهائي يزيل العرض/);
+  assert.match(page, /استخدم «إيقاف» بدلًا من الحذف/);
   assert.match(page, /is_active: active/);
 });
 
@@ -260,8 +262,8 @@ test("S: spend hints are optional, de-duplicated, FK-free and survive unknown ke
   assert.equal(validateCouponPayload(base()).value.spend_hint_category_keys.length, 0);
   // The Admin UI labels them as ranking metadata, not transaction categorization.
   const page = read("app/(admin)/coupons/page.tsx");
-  assert.match(page, /Contextual ranking hints/);
-  assert.match(page, /does NOT categorize/i);
+  assert.match(page, /تلميحات ترتيب حسب الإنفاق/);
+  assert.match(page, /ولا تُصنَّف بها عمليات أي/);
 });
 
 /* ------------------------------------------------------- T–Y: image + storage */
@@ -365,8 +367,8 @@ test("AA/AB: analytics totals and daily breakdown come from a trusted admin rout
 
 test("AC: analytics are labelled directional, never redemptions/sales/conversions", () => {
   const page = read("app/(admin)/coupons/page.tsx");
-  assert.match(page, /directional product analytics/i);
-  assert.match(page, /not billing-grade/i);
+  assert.match(page, /مؤشرات استرشادية على التفاعل/);
+  assert.match(page, /ليست أرقامًا محاسبية/);
   for (const banned of ["redemptions", "sales", "verified conversions", "conversions"]) {
     assert.ok(!page.toLowerCase().includes(banned), `the UI must not call these "${banned}"`);
   }
@@ -410,7 +412,7 @@ test("dates: admin local input is converted to absolute UTC before persisting", 
   const page = read("app/(admin)/coupons/page.tsx");
   assert.match(page, /function localToIso/);
   assert.match(page, /new Date\(value\)\.toISOString\(\)/);
-  assert.match(page, /Effective window/);
+  assert.match(page, /فترة العرض الفعلية/);
   // The server rejects unparseable timestamps rather than assuming UTC.
   assert.equal(err(validateCouponPayload(base({ valid_from: "not-a-date" })), "valid_from"), "invalid_date");
   assert.equal(
@@ -432,7 +434,7 @@ test("priority is bounded in the Admin layer (0081 has no CHECK; no migration ad
 test("the Admin page is not gated by enable_coupons (content is prepared first)", () => {
   const page = read("app/(admin)/coupons/page.tsx");
   assert.doesNotMatch(page, /enable_coupons/);
-  assert.match(page, /before the mobile feature flag is enabled/i);
+  assert.match(page, /قبل تشغيل الميزة على التطبيق/);
   for (const path of ROUTES) {
     assert.doesNotMatch(read(path), /feature_flags|enable_coupons/, "routes must not toggle the flag");
   }
