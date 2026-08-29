@@ -1,79 +1,51 @@
-import Link from "next/link";
 import { requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
-import { Plus } from "lucide-react";
+import { ErrorState, HelpNote, PageHeader } from "@/components/ui/primitives";
+import { fmt } from "@/lib/utils";
+import { CategoriesTable, type CategoryRow } from "./categories-table";
 
 export default async function CategoriesPage() {
   await requireAdmin();
   const supabase = await createAdminClient();
-  const { data: cats } = await supabase
+  const { data: cats, error } = await supabase
     .from("categories")
     .select("id, key, name_ar, name_en, type, is_active, sort_order, icon, color_hex, parent_key")
     .order("sort_order", { ascending: true });
 
-  const byType = (cats ?? []).reduce<Record<string, typeof cats>>((acc, c) => {
-    const t = (c as { type: string }).type ?? "expense";
-    acc[t] = [...(acc[t] ?? []), c];
-    return acc;
-  }, {});
+  const rows: CategoryRow[] = (cats ?? []).map((c) => ({
+    id: c.id as string,
+    key: c.key as string,
+    name_ar: c.name_ar as string | null,
+    name_en: c.name_en as string | null,
+    type: (c.type as string) ?? "expense",
+    is_active: Boolean(c.is_active),
+    color_hex: c.color_hex as string | null,
+    parent_key: c.parent_key as string | null,
+  }));
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Categories</h1>
-          <p className="text-sm text-gray-500 mt-1">{cats?.length ?? 0} categories • keys are stable and referenced by parsers</p>
-        </div>
-        <Link href="/categories/new"
-          className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
-          <Plus size={16} /> Add Category
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="كتالوج البنوك والرسائل"
+        title="فئات المصروفات"
+        description={`${fmt(rows.length)} فئة. هذه هي الفئات التي تُصنَّف عليها عمليات المستخدمين داخل التطبيق.`}
+      />
 
-      {Object.entries(byType).map(([type, items]) => (
-        <div key={type} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-50 bg-gray-50">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{type}</span>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-50">
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-400">Name</th>
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-400">Key</th>
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-400">Icon</th>
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-400">Parent</th>
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-400">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {(items ?? []).map((c: unknown) => {
-                const cat = c as { id: string; key: string; name_ar: string; name_en: string; icon: string; color_hex: string; parent_key: string | null; is_active: boolean };
-                return (
-                  <tr key={cat.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded" style={{ background: cat.color_hex }} />
-                        <div>
-                          <div className="font-medium text-gray-900">{cat.name_ar}</div>
-                          <div className="text-xs text-gray-400">{cat.name_en}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{cat.key}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{cat.icon}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-400">{cat.parent_key ?? "—"}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`px-2 py-0.5 rounded-full text-xs ${cat.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"}`}>
-                        {cat.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ))}
+      {/*
+        Deliberately read-only: there is no create/edit route for categories in
+        this Admin, and inventing a form would imply a capability that does not
+        exist. The note below says so plainly instead of showing a dead button.
+      */}
+      <HelpNote>
+        هذه القائمة للاطّلاع فقط في هذه اللوحة. «المفتاح الثابت» لكل فئة تعتمد عليه قواعد قراءة
+        الرسائل، ولذلك لا يُعدَّل من هنا — تغييره يفصل العمليات القديمة عن فئتها.
+      </HelpNote>
+
+      {error ? (
+        <ErrorState title="تعذّر تحميل الفئات" detail={error.message} />
+      ) : (
+        <CategoriesTable categories={rows} />
+      )}
     </div>
   );
 }

@@ -1,15 +1,48 @@
 "use client";
 // Coupons Phase C3 — Coupon management. Reuses the existing Admin visual system
-// (page shell, cards, Input/Select helpers, brand/slate Tailwind tokens) and the
-// established data flow: client component -> /api/* trusted routes. The browser
-// never holds a service-role key and never talks to Supabase tables directly.
+// (AdminShell page header, Card, DataTable, shared form fields, Qirsh brand
+// tokens) and the established data flow: client component -> /api/* trusted
+// routes. The browser never holds a service-role key and never talks to
+// Supabase tables directly.
+//
+// The 2026 redesign is presentation-only: Arabic-first copy, RTL layout, and
+// consequence-focused confirmation. Payload shapes, validation, sorting,
+// date handling and the analytics vocabulary are unchanged.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+  Power,
+  Save,
+  TicketPercent,
+  Trash2,
+  X,
+} from "lucide-react";
 import { fmt, fmtDate } from "@/lib/utils";
 import {
   couponStatus,
   normalizeSlug,
   normalizeTagKey,
 } from "@/lib/coupon-validation.mjs";
+import {
+  Banner,
+  Card,
+  EmptyState,
+  HelpNote,
+  PageHeader,
+  SectionHeader,
+  StatusBadge,
+} from "@/components/ui/primitives";
+import { Button, CheckboxField, SelectField, TextField } from "@/components/ui/form";
+import { ConfirmDialog, type ConfirmSpec } from "@/components/ui/confirm-dialog";
+import { DataTable, NameCell, TBody, TD, TEmpty, THead, TR } from "@/components/ui/table";
+import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
+import { Pagination, usePagination } from "@/components/ui/pagination";
+import { couponStatusLabel, couponStatusTone, redemptionLabel } from "@/lib/labels";
 
 type TagRow = { id: string; key: string; label_ar: string; label_en: string | null; sort_order: number };
 type CategoryRow = { key: string; label_ar: string; label_en: string | null; sort_order: number; is_active: boolean };
@@ -43,11 +76,40 @@ type Totals = Record<string, Record<string, number>>;
 
 const STATUSES = ["all", "live", "scheduled", "expired", "disabled"] as const;
 const SORTS = ["priority", "newest", "updated", "validity", "title"] as const;
+
+const STATUS_FILTER_LABEL: Record<string, string> = {
+  all: "كل الحالات",
+  live: "معروض الآن",
+  scheduled: "مجدول",
+  expired: "منتهي",
+  disabled: "متوقف",
+};
+const SORT_LABEL: Record<string, string> = {
+  priority: "الأولوية",
+  newest: "الأحدث إضافة",
+  updated: "آخر تعديل",
+  validity: "فترة العرض",
+  title: "العنوان",
+};
+
 /** Financial category keys offered as contextual ranking hints (static list). */
 const SPEND_HINTS = [
   "restaurants", "groceries", "subscriptions", "shopping", "transport",
   "health", "travel", "bills", "entertainment", "education",
 ];
+/** Arabic display for the hint keys above — the stored key is unchanged. */
+const SPEND_HINT_LABEL: Record<string, string> = {
+  restaurants: "مطاعم",
+  groceries: "بقالة",
+  subscriptions: "اشتراكات",
+  shopping: "تسوّق",
+  transport: "مواصلات",
+  health: "صحة",
+  travel: "سفر",
+  bills: "فواتير",
+  entertainment: "ترفيه",
+  education: "تعليم",
+};
 
 const emptyForm = {
   id: "",
@@ -93,6 +155,7 @@ export default function CouponsPage() {
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [totals, setTotals] = useState<Totals>({});
   const [form, setForm] = useState(emptyForm);
+  const [formOpen, setFormOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -104,6 +167,7 @@ export default function CouponsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<(ConfirmSpec & { run: () => Promise<void> }) | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -116,7 +180,7 @@ export default function CouponsPage() {
     const [cJson, tJson, catJson, aJson] = await Promise.all([
       cRes.json(), tRes.json(), catRes.json(), aRes.json(),
     ]);
-    if (!cRes.ok) return setError(cJson.message ?? "Failed to load offers");
+    if (!cRes.ok) return setError(cJson.message ?? "تعذّر تحميل العروض");
     setCoupons((cJson.coupons ?? []) as Coupon[]);
     setTags((tJson.tags ?? []) as TagRow[]);
     setCategories((catJson.categories ?? []) as CategoryRow[]);
@@ -124,6 +188,11 @@ export default function CouponsPage() {
   }, [sort]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const categoryLabel = useCallback(
+    (key: string) => categories.find((c) => c.key === key)?.label_ar ?? key,
+    [categories],
+  );
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -143,11 +212,13 @@ export default function CouponsPage() {
     });
   }, [coupons, search, status, typeFilter, categoryFilter, tagFilter, featuredOnly]);
 
+  const paged = usePagination(visible, 20);
+
   function readError(json: { message?: string; fields?: { field: string; message: string }[] }) {
     if (json.fields?.length) {
       return json.fields.map((f) => `${f.field}: ${f.message}`).join(" · ");
     }
-    return json.message ?? "Request failed";
+    return json.message ?? "تعذّر تنفيذ الطلب";
   }
 
   function payloadFrom(f: typeof form) {
@@ -192,8 +263,9 @@ export default function CouponsPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) return setError(readError(json));
-    setNotice(editing ? "Offer updated." : "Offer created.");
+    setNotice(editing ? "تم حفظ تعديلات العرض." : "تم إنشاء العرض.");
     setForm(emptyForm);
+    setFormOpen(false);
     await load();
   }
 
@@ -222,6 +294,7 @@ export default function CouponsPage() {
       is_active: c.is_active,
       tag_ids: (c.coupon_tag_links ?? []).map((l) => l.tag_id),
     });
+    setFormOpen(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -260,23 +333,20 @@ export default function CouponsPage() {
     });
     const json = await res.json();
     if (!res.ok) return setError(readError(json));
-    setNotice(active ? "Offer enabled." : "Offer disabled (content preserved).");
+    setNotice(active ? "تم تفعيل العرض." : "تم إيقاف العرض — المحتوى محفوظ كما هو.");
     await load();
   }
 
+  // PERMANENT delete removes the offer, its tag links, its analytics and its
+  // image. Prefer "Disable" for routine retirement — hence the typed-slug gate.
   async function permanentlyDelete(c: Coupon) {
-    const typed = window.prompt(
-      `PERMANENT delete removes the offer, its tag links, its analytics and its image.\n` +
-        `Prefer "Disable" for routine retirement.\n\nType the slug to confirm:`,
-    );
-    if (typed !== c.slug) return;
     const res = await fetch(
       `/api/coupons?id=${encodeURIComponent(c.id)}&confirm=permanent`,
       { method: "DELETE" },
     );
     const json = await res.json();
     if (!res.ok) return setError(readError(json));
-    setNotice("Offer permanently deleted.");
+    setNotice("تم حذف العرض نهائيًا.");
     await load();
   }
 
@@ -288,7 +358,7 @@ export default function CouponsPage() {
     const res = await fetch("/api/coupons/image", { method: "POST", body });
     const json = await res.json();
     if (!res.ok) return setError(readError(json));
-    setNotice("Image updated.");
+    setNotice("تم تحديث صورة العرض.");
     await load();
   }
 
@@ -298,338 +368,650 @@ export default function CouponsPage() {
     });
     const json = await res.json();
     if (!res.ok) return setError(readError(json));
-    setNotice("Image removed — the offer falls back to its accent colour.");
+    setNotice("تمت إزالة الصورة — يعود العرض إلى لونه الأساسي.");
     await load();
   }
 
+  async function runConfirmed() {
+    if (!confirm) return;
+    setBusy(true);
+    await confirm.run();
+    setBusy(false);
+    setConfirm(null);
+  }
+
   const preview = coupons.find((c) => c.id === previewId) ?? null;
+  const liveCount = coupons.filter((c) => couponStatus(c) === "live").length;
+  const filtering =
+    search.trim() !== "" ||
+    status !== "all" ||
+    typeFilter !== "all" ||
+    categoryFilter !== "all" ||
+    tagFilter !== "all" ||
+    featuredOnly;
 
   return (
-    <div className="p-8 space-y-8">
-      <div>
-        <p className="text-sm text-slate-500">Growth</p>
-        <h1 className="text-2xl font-semibold text-slate-900">Offers &amp; Coupons</h1>
-        <p className="text-sm text-slate-500">
-          {coupons.length} offers · {coupons.filter((c) => couponStatus(c) === "live").length} live.
-          Content can be prepared before the mobile feature flag is enabled.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="النمو والمكافآت"
+        title="العروض والكوبونات"
+        description={`${fmt(coupons.length)} عرض، منها ${fmt(liveCount)} معروض الآن. يمكن تجهيز المحتوى كاملًا قبل تشغيل الميزة على التطبيق — العروض لا تظهر للمستخدمين إلا بعد تفعيلها.`}
+        action={
+          !formOpen && (
+            <Button
+              icon={Plus}
+              onClick={() => {
+                setForm(emptyForm);
+                setFormOpen(true);
+              }}
+            >
+              عرض جديد
+            </Button>
+          )
+        }
+      />
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-      {notice && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>
-      )}
+      {error && <Banner tone="danger" onDismiss={() => setError(null)}>{error}</Banner>}
+      {notice && <Banner tone="success" onDismiss={() => setNotice(null)}>{notice}</Banner>}
 
       {/* ---------------------------------------------------------------- form */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-lg font-semibold text-slate-900">
-          {form.id ? "Edit offer" : "Create offer"}
-        </h2>
-
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Identity</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Input
-            label="Slug"
-            value={form.slug}
-            onChange={(v) => setForm({ ...form, slug: v })}
-            hint="lowercase, digits, - or _"
-          />
-          <Input
-            label="Partner / merchant"
-            value={form.partner_name}
-            onChange={(v) =>
-              setForm({
-                ...form,
-                partner_name: v,
-                slug: form.id || form.slug ? form.slug : normalizeSlug(v),
-              })
+      {formOpen && (
+        <Card>
+          <SectionHeader
+            title={form.id ? "تعديل العرض" : "عرض جديد"}
+            description="اكتب العرض كما سيراه المستخدم داخل التطبيق، وحدّد طريقة الاستفادة منه وفترة عرضه."
+            action={
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={X}
+                onClick={() => {
+                  setForm(emptyForm);
+                  setFormOpen(false);
+                }}
+              >
+                إغلاق
+              </Button>
             }
           />
-        </div>
 
-        <h3 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Content</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Input label="Arabic title *" value={form.title_ar} onChange={(v) => setForm({ ...form, title_ar: v })} />
-          <Input label="English title" value={form.title_en} onChange={(v) => setForm({ ...form, title_en: v })} />
-          <Input label="Arabic description *" value={form.description_ar} onChange={(v) => setForm({ ...form, description_ar: v })} />
-          <Input label="English description" value={form.description_en} onChange={(v) => setForm({ ...form, description_en: v })} />
-          <Input label="Arabic terms" value={form.terms_ar} onChange={(v) => setForm({ ...form, terms_ar: v })} />
-        </div>
+          <div className="space-y-6">
+            <FormSection title="الشريك والمعرّف">
+              <TextField
+                label="اسم الشريك أو المتجر"
+                required
+                value={form.partner_name}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    partner_name: e.target.value,
+                    slug: form.id || form.slug ? form.slug : normalizeSlug(e.target.value),
+                  })
+                }
+                hint="يظهر فوق عنوان العرض داخل التطبيق."
+              />
+              <TextField
+                label="المعرّف الثابت"
+                required
+                mono
+                value={form.slug}
+                onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                hint="حروف إنجليزية صغيرة وأرقام و - أو _ فقط. يُستخدم داخليًا ولا يظهر للمستخدم."
+              />
+            </FormSection>
 
-        <h3 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Redemption</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Select
-            label="Type"
-            value={form.redemption_type}
-            options={["code", "link"]}
-            onChange={(v) => setForm({ ...form, redemption_type: v as "code" | "link", code: v === "link" ? "" : form.code })}
-          />
-          {form.redemption_type === "code" ? (
-            <Input label="Coupon code *" value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
-          ) : (
-            <div className="text-sm text-slate-500 self-end pb-2">
-              A link offer carries no code — the destination is the whole offer.
+            <FormSection title="المحتوى">
+              <TextField
+                label="عنوان العرض بالعربية"
+                required
+                value={form.title_ar}
+                onChange={(e) => setForm({ ...form, title_ar: e.target.value })}
+              />
+              <TextField
+                label="عنوان العرض بالإنجليزية"
+                dir="ltr"
+                value={form.title_en}
+                onChange={(e) => setForm({ ...form, title_en: e.target.value })}
+              />
+              <TextField
+                label="وصف العرض بالعربية"
+                required
+                value={form.description_ar}
+                onChange={(e) => setForm({ ...form, description_ar: e.target.value })}
+              />
+              <TextField
+                label="وصف العرض بالإنجليزية"
+                dir="ltr"
+                value={form.description_en}
+                onChange={(e) => setForm({ ...form, description_en: e.target.value })}
+              />
+              <TextField
+                label="شروط الاستفادة بالعربية"
+                value={form.terms_ar}
+                onChange={(e) => setForm({ ...form, terms_ar: e.target.value })}
+                hint="اختياري — أي قيود على العرض مثل حد أدنى للشراء."
+                className="md:col-span-2"
+              />
+            </FormSection>
+
+            <FormSection title="طريقة الاستفادة">
+              <SelectField
+                label="نوع العرض"
+                value={form.redemption_type}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    redemption_type: e.target.value as "code" | "link",
+                    code: e.target.value === "link" ? "" : form.code,
+                  })
+                }
+                options={[
+                  { value: "code", label: "كود خصم ينسخه المستخدم" },
+                  { value: "link", label: "رابط مباشر يفتحه المستخدم" },
+                ]}
+              />
+              {form.redemption_type === "code" ? (
+                <TextField
+                  label="كود الخصم"
+                  required
+                  mono
+                  value={form.code}
+                  onChange={(e) => setForm({ ...form, code: e.target.value })}
+                  hint="هذا هو الكود الذي ينسخه المستخدم ويستخدمه لدى الشريك."
+                />
+              ) : (
+                <p className="self-end pb-3 text-sm text-ink-soft">
+                  العرض من نوع «رابط مباشر» لا يحمل كودًا — الوجهة نفسها هي العرض.
+                </p>
+              )}
+              <TextField
+                label={
+                  form.redemption_type === "link"
+                    ? "رابط الوجهة (https)"
+                    : "رابط الشريك (اختياري، https)"
+                }
+                required={form.redemption_type === "link"}
+                mono
+                value={form.partner_url}
+                onChange={(e) => setForm({ ...form, partner_url: e.target.value })}
+              />
+            </FormSection>
+
+            <FormSection title="التصنيف">
+              <SelectField
+                label="فئة العرض"
+                required
+                value={form.display_category_key}
+                placeholder="اختر الفئة…"
+                onChange={(e) => setForm({ ...form, display_category_key: e.target.value })}
+                options={categories
+                  .filter((c) => c.is_active)
+                  .map((c) => ({ value: c.key, label: c.label_ar }))}
+                hint="الفئة التي يُعرض تحتها العرض داخل التطبيق."
+              />
+              <div>
+                <label className="mb-1.5 block text-tiny font-medium text-ink">وسوم العرض</label>
+                <div className="flex flex-wrap gap-2 rounded-field border border-line p-2.5">
+                  {tags.map((t) => {
+                    const on = form.tag_ids.includes(t.id);
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            tag_ids: on
+                              ? form.tag_ids.filter((x) => x !== t.id)
+                              : [...form.tag_ids, t.id],
+                          })
+                        }
+                        className={
+                          on
+                            ? "rounded-full bg-brand-700 px-3 py-1 text-micro font-medium text-white"
+                            : "rounded-full bg-muted px-3 py-1 text-micro text-ink-soft hover:bg-brand-100"
+                        }
+                      >
+                        #{t.label_ar}
+                      </button>
+                    );
+                  })}
+                  {tags.length === 0 && (
+                    <span className="text-micro text-ink-faint">
+                      لا توجد وسوم بعد — أضف وسمًا من القسم في أسفل الصفحة.
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1.5 block text-tiny font-medium text-ink">
+                  تلميحات ترتيب حسب الإنفاق
+                  {/* Contextual ranking hints — ranking metadata only; this does
+                      NOT categorize anyone's transactions. */}
+                  <span className="ms-2 font-normal text-micro text-ink-faint">
+                    اختياري. تُستخدم فقط لترتيب العروض داخل جهاز المستخدم، ولا تُصنَّف بها عمليات أي
+                    مستخدم إطلاقًا.
+                  </span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {SPEND_HINTS.map((h) => {
+                    const on = form.spend_hint_category_keys.includes(h);
+                    return (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            spend_hint_category_keys: on
+                              ? form.spend_hint_category_keys.filter((x) => x !== h)
+                              : [...form.spend_hint_category_keys, h],
+                          })
+                        }
+                        className={
+                          on
+                            ? "rounded-full bg-ink px-3 py-1 text-micro text-white"
+                            : "rounded-full bg-muted px-3 py-1 text-micro text-ink-soft hover:bg-brand-100"
+                        }
+                      >
+                        {SPEND_HINT_LABEL[h] ?? h}
+                      </button>
+                    );
+                  })}
+                </div>
+                {form.spend_hint_category_keys.filter((h) => !SPEND_HINTS.includes(h)).length > 0 && (
+                  <p className="mt-2 text-micro text-ink-faint">
+                    محفوظ أيضًا من تعديلات سابقة:{" "}
+                    <span className="ltr font-mono">
+                      {form.spend_hint_category_keys.filter((h) => !SPEND_HINTS.includes(h)).join(", ")}
+                    </span>
+                  </p>
+                )}
+              </div>
+            </FormSection>
+
+            <FormSection title="فترة العرض ونطاقه">
+              <CheckboxField
+                label="متاح في كل الدول"
+                hint="عند الإلغاء حدّد الدول المسموح لها بالأسفل."
+                checked={form.is_global}
+                onChange={(v) => setForm({ ...form, is_global: v })}
+              />
+              <TextField
+                label="الدول المسموح لها"
+                mono
+                disabled={form.is_global}
+                value={form.is_global ? "" : form.country_codes}
+                onChange={(e) => setForm({ ...form, country_codes: e.target.value })}
+                hint={
+                  form.is_global
+                    ? "غير مطلوب ما دام العرض متاحًا في كل الدول."
+                    : "رموز الدول بمعيار ISO مفصولة بفاصلة — مثل SA, AE, EG."
+                }
+              />
+              <TextField
+                label="يبدأ العرض في"
+                type="datetime-local"
+                value={form.valid_from}
+                onChange={(e) => setForm({ ...form, valid_from: e.target.value })}
+              />
+              <TextField
+                label="ينتهي العرض في"
+                type="datetime-local"
+                value={form.valid_until}
+                onChange={(e) => setForm({ ...form, valid_until: e.target.value })}
+                hint="اتركه فارغًا ليبقى العرض بلا تاريخ انتهاء."
+              />
+              <p className="md:col-span-2 text-micro text-ink-faint">
+                {/* Effective window — entered in local time, stored as UTC. */}
+                تُدخل المواعيد بتوقيت جهازك وتُحفظ بتوقيت UTC. فترة العرض الفعلية:{" "}
+                <span className="ltr font-mono">
+                  {form.valid_from ? new Date(localToIso(form.valid_from)).toUTCString() : "الآن"} →{" "}
+                  {form.valid_until ? new Date(localToIso(form.valid_until)).toUTCString() : "بلا نهاية"}
+                </span>
+              </p>
+            </FormSection>
+
+            <FormSection title="الشكل والأولوية">
+              <div>
+                <label className="mb-1.5 block text-tiny font-medium text-ink">اللون الأساسي</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    aria-label="اختيار لون العرض"
+                    value={/^#[0-9a-f]{6}$/i.test(form.accent_hex) ? form.accent_hex : "#2563EB"}
+                    onChange={(e) => setForm({ ...form, accent_hex: e.target.value })}
+                    className="h-[42px] w-12 shrink-0 cursor-pointer rounded-field border border-line bg-surface p-1"
+                  />
+                  <input
+                    value={form.accent_hex}
+                    onChange={(e) => setForm({ ...form, accent_hex: e.target.value })}
+                    className="ltr w-full rounded-field border border-line bg-surface px-3 py-2.5 font-mono text-tiny text-ink focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/25"
+                  />
+                </div>
+                <p className="mt-1.5 text-micro text-ink-faint">يُستخدم إذا لم تُرفَع صورة للعرض.</p>
+              </div>
+              <TextField
+                label="الأولوية"
+                type="number"
+                value={form.priority}
+                onChange={(e) => setForm({ ...form, priority: e.target.value })}
+                hint="من -1000 إلى 1000. الرقم الأعلى يظهر أولًا."
+              />
+              <div className="flex flex-wrap items-end gap-8 pb-2 md:col-span-2">
+                <CheckboxField
+                  label="عرض مميّز"
+                  hint="يظهر في المقدمة داخل قائمة العروض."
+                  checked={form.featured}
+                  onChange={(v) => setForm({ ...form, featured: v })}
+                />
+                <CheckboxField
+                  label="العرض مفعّل"
+                  hint="أوقفه لإخفائه فورًا مع الاحتفاظ بمحتواه."
+                  checked={form.is_active}
+                  onChange={(v) => setForm({ ...form, is_active: v })}
+                />
+              </div>
+            </FormSection>
+
+            <HelpNote>
+              تُرفع صورة العرض من صف العرض في الجدول بعد الحفظ. المقاس المفضّل 16:9 بنحو 1200×675
+              بكسل، وبحد أقصى 512 كيلوبايت، بصيغة WebP أو PNG أو JPEG.
+            </HelpNote>
+
+            <div className="flex justify-end gap-2.5 border-t border-divider pt-4">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setForm(emptyForm);
+                  setFormOpen(false);
+                }}
+              >
+                إلغاء
+              </Button>
+              <Button icon={Save} onClick={save} loading={busy}>
+                {form.id ? "حفظ التعديلات" : "إنشاء العرض"}
+              </Button>
             </div>
-          )}
-          <Input
-            label={form.redemption_type === "link" ? "Destination URL * (https)" : "Partner URL (optional, https)"}
-            value={form.partner_url}
-            onChange={(v) => setForm({ ...form, partner_url: v })}
-          />
-        </div>
-
-        <h3 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Classification</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Select
-            label="Display category *"
-            value={form.display_category_key}
-            options={categories.filter((c) => c.is_active).map((c) => c.key)}
-            onChange={(v) => setForm({ ...form, display_category_key: v })}
-          />
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Tags</label>
-            <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 p-2">
-              {tags.map((t) => {
-                const on = form.tag_ids.includes(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() =>
-                      setForm({
-                        ...form,
-                        tag_ids: on ? form.tag_ids.filter((x) => x !== t.id) : [...form.tag_ids, t.id],
-                      })
-                    }
-                    className={
-                      on
-                        ? "rounded-full bg-brand-600 px-3 py-1 text-xs font-medium text-white"
-                        : "rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600"
-                    }
-                  >
-                    #{t.label_ar}
-                  </button>
-                );
-              })}
-              {tags.length === 0 && <span className="text-xs text-slate-400">No tags yet — create one below.</span>}
-            </div>
           </div>
-        </div>
-
-        <div className="mt-4">
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            Contextual ranking hints
-            <span className="ml-2 font-normal text-xs text-slate-500">
-              Optional. Used only for on-device ordering — this does NOT categorize anyone&apos;s transactions.
-            </span>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {SPEND_HINTS.map((h) => {
-              const on = form.spend_hint_category_keys.includes(h);
-              return (
-                <button
-                  key={h}
-                  type="button"
-                  onClick={() =>
-                    setForm({
-                      ...form,
-                      spend_hint_category_keys: on
-                        ? form.spend_hint_category_keys.filter((x) => x !== h)
-                        : [...form.spend_hint_category_keys, h],
-                    })
-                  }
-                  className={
-                    on
-                      ? "rounded-full bg-slate-800 px-3 py-1 text-xs text-white"
-                      : "rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600"
-                  }
-                >
-                  {h}
-                </button>
-              );
-            })}
-          </div>
-          {form.spend_hint_category_keys.filter((h) => !SPEND_HINTS.includes(h)).length > 0 && (
-            <p className="mt-2 text-xs text-slate-500">
-              Also kept from earlier edits:{" "}
-              {form.spend_hint_category_keys.filter((h) => !SPEND_HINTS.includes(h)).join(", ")}
-            </p>
-          )}
-        </div>
-
-        <h3 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Availability</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={form.is_global}
-              onChange={(e) => setForm({ ...form, is_global: e.target.checked })}
-            />
-            Available globally
-          </label>
-          <Input
-            label="Countries (ISO alpha-2, comma separated)"
-            value={form.is_global ? "" : form.country_codes}
-            onChange={(v) => setForm({ ...form, country_codes: v })}
-            hint={form.is_global ? "Disabled while the offer is global" : "e.g. SA, AE, EG"}
-          />
-          <Input label="Valid from" type="datetime-local" value={form.valid_from} onChange={(v) => setForm({ ...form, valid_from: v })} />
-          <Input label="Valid until (empty = open-ended)" type="datetime-local" value={form.valid_until} onChange={(v) => setForm({ ...form, valid_until: v })} />
-        </div>
-        <p className="mt-1 text-xs text-slate-500">
-          Times are entered in your local timezone and stored as UTC. Effective window:{" "}
-          {form.valid_from ? new Date(localToIso(form.valid_from)).toUTCString() : "now"} →{" "}
-          {form.valid_until ? new Date(localToIso(form.valid_until)).toUTCString() : "open-ended"}.
-        </p>
-
-        <h3 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Presentation</h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Input label="Accent hex" value={form.accent_hex} onChange={(v) => setForm({ ...form, accent_hex: v })} />
-          <Input label="Priority (-1000…1000)" value={form.priority} onChange={(v) => setForm({ ...form, priority: v })} />
-          <div className="flex items-end gap-5 text-sm text-slate-700">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} />
-              Featured
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-              Active
-            </label>
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">
-          Artwork is uploaded from the offer row after saving (16:9, ~1200×675 recommended, max 512 KB, WebP/PNG/JPEG).
-        </p>
-
-        <div className="mt-5 flex gap-3">
-          <button
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            disabled={busy}
-            onClick={save}
-          >
-            {form.id ? "Save changes" : "Create offer"}
-          </button>
-          {form.id && (
-            <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm" onClick={() => setForm(emptyForm)}>
-              Cancel edit
-            </button>
-          )}
-        </div>
-      </section>
+        </Card>
+      )}
 
       {/* ------------------------------------------------------------- filters */}
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-6">
-          <Input label="Search (title, partner, slug)" value={search} onChange={setSearch} />
-          <Select label="Status" value={status} options={[...STATUSES]} onChange={(v) => setStatus(v as typeof status)} />
-          <Select label="Type" value={typeFilter} options={["all", "code", "link"]} onChange={setTypeFilter} />
-          <Select label="Category" value={categoryFilter} options={["all", ...categories.map((c) => c.key)]} onChange={setCategoryFilter} />
-          <Select label="Tag" value={tagFilter} options={["all", ...tags.map((t) => t.id)]} onChange={setTagFilter} />
-          <Select label="Sort" value={sort} options={[...SORTS]} onChange={(v) => setSort(v as typeof sort)} />
-        </div>
-        <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={featuredOnly} onChange={(e) => setFeaturedOnly(e.target.checked)} />
-          Featured only
-        </label>
-      </section>
+      <div className="space-y-3">
+        <FilterBar
+          search={search}
+          onSearch={setSearch}
+          placeholder="ابحث بعنوان العرض أو اسم الشريك أو المعرّف…"
+          resultLabel={`${fmt(visible.length)} من ${fmt(coupons.length)}`}
+        >
+          <FilterSelect
+            label="الحالة"
+            value={status}
+            onChange={(v) => setStatus(v as typeof status)}
+            options={STATUSES.map((s) => ({ value: s, label: STATUS_FILTER_LABEL[s] }))}
+          />
+          <FilterSelect
+            label="النوع"
+            value={typeFilter}
+            onChange={setTypeFilter}
+            options={[
+              { value: "all", label: "كل الأنواع" },
+              { value: "code", label: "كود خصم" },
+              { value: "link", label: "رابط مباشر" },
+            ]}
+          />
+          <FilterSelect
+            label="الفئة"
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={[
+              { value: "all", label: "كل الفئات" },
+              ...categories.map((c) => ({ value: c.key, label: c.label_ar })),
+            ]}
+          />
+          <FilterSelect
+            label="الوسم"
+            value={tagFilter}
+            onChange={setTagFilter}
+            options={[
+              { value: "all", label: "كل الوسوم" },
+              ...tags.map((t) => ({ value: t.id, label: `#${t.label_ar}` })),
+            ]}
+          />
+          <FilterSelect
+            label="الترتيب"
+            value={sort}
+            onChange={(v) => setSort(v as typeof sort)}
+            options={SORTS.map((s) => ({ value: s, label: `ترتيب حسب ${SORT_LABEL[s]}` }))}
+          />
+        </FilterBar>
+        <CheckboxField
+          label="العروض المميّزة فقط"
+          checked={featuredOnly}
+          onChange={setFeaturedOnly}
+        />
+      </div>
 
       {/* ---------------------------------------------------------------- list */}
-      <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Offer</th>
-              <th className="px-4 py-3">Partner</th>
-              <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Window</th>
-              <th className="px-4 py-3">Priority</th>
-              <th className="px-4 py-3">Impr.</th>
-              <th className="px-4 py-3">Detail</th>
-              <th className="px-4 py-3">Copies</th>
-              <th className="px-4 py-3">Clicks</th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {visible.map((c) => {
-              const t = totals[c.id] ?? {};
-              return (
-                <tr key={c.id}>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-10 w-16 shrink-0 rounded-md bg-slate-100"
-                        style={c.accent_hex ? { backgroundColor: c.accent_hex } : undefined}
-                        title={c.image_path ?? "accent fallback"}
-                      />
-                      <div>
-                        <div className="font-medium text-slate-900">{c.title_ar}</div>
-                        <div className="text-xs text-slate-500">{c.slug}{c.featured ? " · featured" : ""}</div>
+      <DataTable
+        footer={
+          <Pagination
+            page={paged.page}
+            pageCount={paged.pageCount}
+            total={paged.total}
+            pageSize={paged.pageSize}
+            onPage={paged.setPage}
+          />
+        }
+      >
+        <THead
+          columns={[
+            "العرض",
+            "الشريك",
+            "الفئة",
+            "النوع",
+            "الحالة",
+            "فترة العرض",
+            "الأولوية",
+            "التفاعل",
+            { label: "إجراءات", align: "end" },
+          ]}
+        />
+        <TBody>
+          {paged.slice.map((c) => {
+            const t = totals[c.id] ?? {};
+            const derived = couponStatus(c);
+            return (
+              <TR key={c.id}>
+                <TD>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="h-10 w-16 shrink-0 rounded-md border border-hairline bg-muted"
+                      style={c.accent_hex ? { backgroundColor: c.accent_hex } : undefined}
+                      title={c.image_path ? "للعرض صورة مرفوعة" : "بلا صورة — يُستخدم اللون الأساسي"}
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-ink">{c.title_ar}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="ltr truncate font-mono text-micro text-ink-faint">{c.slug}</span>
+                        {c.featured && <StatusBadge label="مميّز" tone="brand" dot={false} />}
                       </div>
                     </div>
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">{c.partner_name}</td>
-                  <td className="px-4 py-3 text-slate-700">{c.display_category_key}</td>
-                  <td className="px-4 py-3 text-slate-700">{c.redemption_type}</td>
-                  <td className="px-4 py-3"><StatusBadge status={couponStatus(c)} /></td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
-                    {fmtDate(c.valid_from)} → {c.valid_until ? fmtDate(c.valid_until) : "open"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">{c.priority}</td>
-                  <td className="px-4 py-3 text-slate-700">{fmt(t.impression ?? 0)}</td>
-                  <td className="px-4 py-3 text-slate-700">{fmt(t.detail_view ?? 0)}</td>
-                  <td className="px-4 py-3 text-slate-700">{fmt(t.code_copy ?? 0)}</td>
-                  <td className="px-4 py-3 text-slate-700">{fmt(t.cta_click ?? 0)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      <button className="rounded border border-slate-300 px-2 py-1" onClick={() => edit(c)}>Edit</button>
-                      <button className="rounded border border-slate-300 px-2 py-1" onClick={() => setPreviewId(c.id)}>Preview</button>
-                      <button className="rounded border border-slate-300 px-2 py-1" onClick={() => setActive(c, !c.is_active)}>
-                        {c.is_active ? "Disable" : "Enable"}
-                      </button>
-                      <label className="cursor-pointer rounded border border-slate-300 px-2 py-1">
-                        Image
-                        <input
-                          type="file"
-                          accept="image/webp,image/png,image/jpeg"
-                          className="hidden"
-                          onChange={(e) => e.target.files?.[0] && uploadImage(c, e.target.files[0])}
-                        />
-                      </label>
-                      {c.image_path && (
-                        <button className="rounded border border-slate-300 px-2 py-1" onClick={() => removeImage(c)}>
-                          Clear image
-                        </button>
-                      )}
-                      <button className="rounded border border-red-200 px-2 py-1 text-red-600" onClick={() => permanentlyDelete(c)}>
-                        Delete…
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {visible.length === 0 && (
-              <tr><td className="px-4 py-6 text-center text-slate-500" colSpan={12}>No offers match these filters.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+                  </div>
+                </TD>
+                <TD className="text-ink-soft">{c.partner_name}</TD>
+                <TD className="text-ink-soft">{categoryLabel(c.display_category_key)}</TD>
+                <TD className="text-ink-soft">{redemptionLabel(c.redemption_type)}</TD>
+                <TD>
+                  <StatusBadge label={couponStatusLabel(derived)} tone={couponStatusTone(derived)} />
+                </TD>
+                <TD className="whitespace-nowrap text-micro text-ink-faint">
+                  {fmtDate(c.valid_from)}
+                  <br />
+                  {c.valid_until ? `حتى ${fmtDate(c.valid_until)}` : "بلا نهاية"}
+                </TD>
+                <TD className="tnum text-ink-soft">{fmt(c.priority)}</TD>
+                <TD>
+                  <div className="tnum grid grid-cols-2 gap-x-3 gap-y-0.5 text-micro text-ink-soft">
+                    <span>ظهور: {fmt(t.impression ?? 0)}</span>
+                    <span>فتح: {fmt(t.detail_view ?? 0)}</span>
+                    <span>نسخ الكود: {fmt(t.code_copy ?? 0)}</span>
+                    <span>ضغط الزر: {fmt(t.cta_click ?? 0)}</span>
+                  </div>
+                </TD>
+                <TD align="end">
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    <IconAction label="تعديل" icon={Pencil} onClick={() => edit(c)} />
+                    <IconAction label="معاينة" icon={Eye} onClick={() => setPreviewId(c.id)} />
+                    <IconAction
+                      label={c.is_active ? "إيقاف" : "تفعيل"}
+                      icon={Power}
+                      onClick={() =>
+                        setConfirm({
+                          title: c.is_active ? "إيقاف هذا العرض؟" : "تفعيل هذا العرض؟",
+                          confirmLabel: c.is_active ? "إيقاف العرض" : "تفعيل العرض",
+                          tone: c.is_active ? "warning" : "brand",
+                          consequence: c.is_active ? (
+                            <>
+                              سيختفي «{c.title_ar}» من التطبيق فورًا.{" "}
+                              <strong className="text-ink">لن يُحذف أي شيء</strong> — المحتوى والصورة
+                              وأرقام التفاعل تبقى كما هي، ويمكنك تفعيله مرة أخرى في أي وقت.
+                            </>
+                          ) : (
+                            <>
+                              سيظهر «{c.title_ar}» للمستخدمين ضمن فترة العرض المحدّدة له.
+                            </>
+                          ),
+                          run: () => setActive(c, !c.is_active),
+                        })
+                      }
+                    />
+                    <label
+                      className="cursor-pointer rounded-field border border-line px-2 py-1.5 text-micro text-ink-soft transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-900"
+                      title="رفع صورة للعرض"
+                    >
+                      <ImageIcon size={13} />
+                      <input
+                        type="file"
+                        accept="image/webp,image/png,image/jpeg"
+                        className="hidden"
+                        onChange={(e) => e.target.files?.[0] && uploadImage(c, e.target.files[0])}
+                      />
+                    </label>
+                    {c.image_path && (
+                      <IconAction label="إزالة الصورة" icon={X} onClick={() => removeImage(c)} />
+                    )}
+                    <IconAction
+                      label="حذف نهائي"
+                      icon={Trash2}
+                      danger
+                      onClick={() =>
+                        setConfirm({
+                          title: "حذف هذا العرض نهائيًا؟",
+                          confirmLabel: "حذف نهائيًا",
+                          tone: "danger",
+                          typeToConfirm: c.slug,
+                          typeToConfirmLabel: "اكتب معرّف العرض للتأكيد:",
+                          consequence: (
+                            <>
+                              الحذف النهائي يزيل العرض ووسومه وأرقام تفاعله وصورته، ولا يمكن التراجع
+                              عنه.
+                              <br />
+                              <strong className="text-ink">
+                                للإخفاء المعتاد استخدم «إيقاف» بدلًا من الحذف — يبقى كل شيء محفوظًا.
+                              </strong>
+                            </>
+                          ),
+                          run: () => permanentlyDelete(c),
+                        })
+                      }
+                    />
+                  </div>
+                </TD>
+              </TR>
+            );
+          })}
 
-      <p className="text-xs text-slate-500">
-        Impressions, detail views, code copies and clicks are <strong>directional product analytics</strong>,
-        not billing-grade redemption or conversion accounting.
-      </p>
+          {visible.length === 0 && (
+            <TEmpty colSpan={9}>
+              {filtering ? (
+                <EmptyState
+                  title="لا توجد عروض مطابقة"
+                  description="جرّب كلمة بحث أخرى أو أعِد ضبط عوامل التصفية."
+                />
+              ) : (
+                <EmptyState
+                  icon={TicketPercent}
+                  title="لا توجد عروض بعد"
+                  description="أنشئ أول عرض من الشركاء ليظهر داخل التطبيق."
+                />
+              )}
+            </TEmpty>
+          )}
+        </TBody>
+      </DataTable>
 
-      {preview && <PreviewCard coupon={preview} categories={categories} tags={tags} onClose={() => setPreviewId(null)} />}
+      <HelpNote>
+        {/* directional product analytics — not billing-grade accounting. */}
+        أرقام الظهور والفتح ونسخ الكود وضغط الزر هي <strong>مؤشرات استرشادية على التفاعل</strong>{" "}
+        داخل التطبيق فقط، وليست أرقامًا محاسبية ولا تصلح للمحاسبة مع الشريك.
+      </HelpNote>
+
+      {preview && (
+        <PreviewCard coupon={preview} categories={categories} tags={tags} onClose={() => setPreviewId(null)} />
+      )}
 
       <CategoryManager categories={categories} onChanged={load} onError={setError} onNotice={setNotice} />
       <TagManager tags={tags} onChanged={load} onError={setError} onNotice={setNotice} />
+
+      <ConfirmDialog
+        spec={confirm}
+        busy={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={runConfirmed}
+      />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------- layout */
+
+function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="mb-3 text-tiny font-semibold tracking-wide text-ink-faint">{title}</h3>
+      <div className="grid gap-4 md:grid-cols-2">{children}</div>
+    </div>
+  );
+}
+
+function IconAction({
+  label,
+  icon: Icon,
+  onClick,
+  danger,
+}: {
+  label: string;
+  icon: typeof Pencil;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`rounded-field border px-2 py-1.5 text-micro transition-colors ${
+        danger
+          ? "border-danger/25 text-danger hover:bg-danger-bg"
+          : "border-line text-ink-soft hover:border-brand-300 hover:bg-brand-50 hover:text-brand-900"
+      }`}
+    >
+      <Icon size={13} />
+    </button>
   );
 }
 
@@ -643,6 +1025,7 @@ function CategoryManager({
   onError: (m: string) => void;
   onNotice: (m: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [key, setKey] = useState("");
   const [labelAr, setLabelAr] = useState("");
   const [labelEn, setLabelEn] = useState("");
@@ -654,59 +1037,92 @@ function CategoryManager({
       body: JSON.stringify(body),
     });
     const json = await res.json();
-    if (!res.ok) return onError(json.message ?? "Category request failed");
-    onNotice("Categories updated.");
+    if (!res.ok) return onError(json.message ?? "تعذّر تنفيذ الطلب على الفئات");
+    onNotice("تم تحديث فئات العروض.");
     await onChanged();
   }
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-900">Display categories</h2>
-      <p className="mb-4 text-xs text-slate-500">
-        Offer-owned taxonomy — independent of the app&apos;s transaction categories.
-      </p>
-      <div className="grid gap-3 md:grid-cols-4">
-        <Input label="Key" value={key} onChange={setKey} hint="a-z, 0-9, _" />
-        <Input label="Arabic label" value={labelAr} onChange={setLabelAr} />
-        <Input label="English label" value={labelEn} onChange={setLabelEn} />
-        <button
-          className="self-end rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white"
-          onClick={() => send("POST", { key, label_ar: labelAr, label_en: labelEn })}
-        >
-          Add category
-        </button>
-      </div>
-      <ul className="mt-4 divide-y divide-slate-100 text-sm">
-        {categories.map((c) => (
-          <li key={c.key} className="flex flex-wrap items-center gap-3 py-2">
-            <span className="w-40 font-medium text-slate-800">{c.key}</span>
-            <span className="text-slate-600">{c.label_ar}</span>
-            <span className="text-slate-400">{c.label_en ?? "—"}</span>
-            <span className="text-xs text-slate-500">order {c.sort_order}</span>
-            <div className="ml-auto flex gap-2 text-xs">
-              <button
-                className="rounded border border-slate-300 px-2 py-1"
-                onClick={() => send("PATCH", { ...c, sort_order: c.sort_order - 1 })}
-              >
-                ↑
-              </button>
-              <button
-                className="rounded border border-slate-300 px-2 py-1"
-                onClick={() => send("PATCH", { ...c, sort_order: c.sort_order + 1 })}
-              >
-                ↓
-              </button>
-              <button
-                className="rounded border border-slate-300 px-2 py-1"
-                onClick={() => send("PATCH", { ...c, is_active: !c.is_active })}
-              >
-                {c.is_active ? "Deactivate" : "Activate"}
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <Card>
+      <SectionHeader
+        title="فئات العروض"
+        description="تصنيف خاص بالعروض فقط، منفصل تمامًا عن فئات مصروفات المستخدمين."
+        action={
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={open ? ChevronUp : ChevronDown}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? "إخفاء" : `عرض (${fmt(categories.length)})`}
+          </Button>
+        }
+      />
+
+      {open && (
+        <>
+          <div className="grid items-end gap-3 md:grid-cols-4">
+            <TextField
+              label="المفتاح الثابت"
+              mono
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              hint="حروف إنجليزية صغيرة وأرقام و _ فقط."
+            />
+            <TextField label="الاسم بالعربية" value={labelAr} onChange={(e) => setLabelAr(e.target.value)} />
+            <TextField
+              label="الاسم بالإنجليزية"
+              dir="ltr"
+              value={labelEn}
+              onChange={(e) => setLabelEn(e.target.value)}
+            />
+            <Button
+              icon={Plus}
+              onClick={() => send("POST", { key, label_ar: labelAr, label_en: labelEn })}
+            >
+              إضافة فئة
+            </Button>
+          </div>
+
+          <ul className="mt-4 divide-y divide-divider text-sm">
+            {categories.map((c) => (
+              <li key={c.key} className="flex flex-wrap items-center gap-3 py-2.5">
+                <span className="w-40 font-medium text-ink">{c.label_ar}</span>
+                <span className="ltr font-mono text-micro text-ink-faint">{c.key}</span>
+                <span className="text-ink-faint">{c.label_en ?? "—"}</span>
+                <span className="tnum text-micro text-ink-faint">الترتيب {fmt(c.sort_order)}</span>
+                <StatusBadge
+                  label={c.is_active ? "مفعّلة" : "متوقفة"}
+                  tone={c.is_active ? "success" : "neutral"}
+                />
+                <div className="ms-auto flex gap-1.5">
+                  <IconAction
+                    label="تقديم في الترتيب"
+                    icon={ChevronUp}
+                    onClick={() => send("PATCH", { ...c, sort_order: c.sort_order - 1 })}
+                  />
+                  <IconAction
+                    label="تأخير في الترتيب"
+                    icon={ChevronDown}
+                    onClick={() => send("PATCH", { ...c, sort_order: c.sort_order + 1 })}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => send("PATCH", { ...c, is_active: !c.is_active })}
+                    className="rounded-field border border-line px-2.5 py-1.5 text-micro text-ink-soft transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-900"
+                  >
+                    {c.is_active ? "إيقاف" : "تفعيل"}
+                  </button>
+                </div>
+              </li>
+            ))}
+            {categories.length === 0 && (
+              <li className="py-3 text-tiny text-ink-faint">لا توجد فئات عروض بعد.</li>
+            )}
+          </ul>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -718,6 +1134,7 @@ function TagManager({
   onError: (m: string) => void;
   onNotice: (m: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [labelAr, setLabelAr] = useState("");
   const [labelEn, setLabelEn] = useState("");
   const [query, setQuery] = useState("");
@@ -734,36 +1151,62 @@ function TagManager({
       body: JSON.stringify({ key: labelAr, label_ar: labelAr, label_en: labelEn }),
     });
     const json = await res.json();
-    if (!res.ok) return onError(json.message ?? "Tag request failed");
+    if (!res.ok) return onError(json.message ?? "تعذّر إنشاء الوسم");
     setLabelAr("");
     setLabelEn("");
-    onNotice("Tag created.");
+    onNotice("تم إنشاء الوسم.");
     await onChanged();
   }
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-900">Tags</h2>
-      <p className="mb-4 text-xs text-slate-500">
-        Normalized keys with Arabic display labels. Attach tags from the offer form above.
-      </p>
-      <div className="grid gap-3 md:grid-cols-4">
-        <Input label="Arabic label" value={labelAr} onChange={setLabelAr} hint={labelAr ? `key: ${normalizeTagKey(labelAr)}` : "key preview"} />
-        <Input label="English label" value={labelEn} onChange={setLabelEn} />
-        <button className="self-end rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white" onClick={create}>
-          Create tag
-        </button>
-        <Input label="Search tags" value={query} onChange={setQuery} />
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {shown.map((t) => (
-          <span key={t.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
-            #{t.label_ar} <span className="text-slate-400">({t.key})</span>
-          </span>
-        ))}
-        {shown.length === 0 && <span className="text-xs text-slate-400">No tags.</span>}
-      </div>
-    </section>
+    <Card>
+      <SectionHeader
+        title="وسوم العروض"
+        description="كلمات وصفية تُربط بالعرض من نموذج العرض بالأعلى، مثل «توصيل مجاني»."
+        action={
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={open ? ChevronUp : ChevronDown}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? "إخفاء" : `عرض (${fmt(tags.length)})`}
+          </Button>
+        }
+      />
+
+      {open && (
+        <>
+          <div className="grid items-end gap-3 md:grid-cols-4">
+            <TextField
+              label="الاسم بالعربية"
+              value={labelAr}
+              onChange={(e) => setLabelAr(e.target.value)}
+              hint={labelAr ? `المفتاح الذي سيُحفظ: ${normalizeTagKey(labelAr)}` : "يُشتق المفتاح تلقائيًا من الاسم."}
+            />
+            <TextField
+              label="الاسم بالإنجليزية"
+              dir="ltr"
+              value={labelEn}
+              onChange={(e) => setLabelEn(e.target.value)}
+            />
+            <Button icon={Plus} onClick={create}>
+              إنشاء وسم
+            </Button>
+            <TextField label="ابحث في الوسوم" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {shown.map((t) => (
+              <span key={t.id} className="rounded-full bg-muted px-3 py-1 text-micro text-ink-soft">
+                #{t.label_ar} <span className="ltr font-mono text-ink-faint">({t.key})</span>
+              </span>
+            ))}
+            {shown.length === 0 && <span className="text-micro text-ink-faint">لا توجد وسوم.</span>}
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -782,94 +1225,41 @@ function PreviewCard({
     .map((l) => tags.find((t) => t.id === l.tag_id))
     .filter(Boolean) as TagRow[];
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">Preview</h2>
-        <button className="text-sm text-slate-500" onClick={onClose}>Close</button>
-      </div>
-      <div className="max-w-sm rounded-2xl border border-slate-200 p-4" dir="rtl">
-        <div className="h-28 rounded-xl" style={{ backgroundColor: coupon.accent_hex ?? "#e2e8f0" }} />
-        <p className="mt-3 text-xs text-slate-500">{coupon.partner_name}</p>
-        <h3 className="text-base font-semibold text-slate-900">{coupon.title_ar}</h3>
-        <p className="mt-1 text-sm text-slate-600">{coupon.description_ar}</p>
-        <div className="mt-2 flex flex-wrap gap-1 text-xs">
-          {category && <span className="rounded-full bg-slate-100 px-2 py-0.5">{category.label_ar}</span>}
+    <Card>
+      <SectionHeader
+        title="معاينة العرض كما يراه المستخدم"
+        description="تقريب لشكل بطاقة العرض داخل التطبيق."
+        action={
+          <Button variant="ghost" size="sm" icon={X} onClick={onClose}>
+            إغلاق
+          </Button>
+        }
+      />
+      <div className="max-w-sm rounded-card border border-hairline p-4 shadow-card" dir="rtl">
+        <div className="h-28 rounded-xl" style={{ backgroundColor: coupon.accent_hex ?? "#ECEFF6" }} />
+        <p className="mt-3 text-micro text-ink-faint">{coupon.partner_name}</p>
+        <h3 className="text-lg font-semibold text-ink">{coupon.title_ar}</h3>
+        <p className="mt-1 text-sm text-ink-soft">{coupon.description_ar}</p>
+        <div className="mt-2 flex flex-wrap gap-1">
+          {category && (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-micro text-ink-soft">
+              {category.label_ar}
+            </span>
+          )}
           {linked.map((t) => (
-            <span key={t.id} className="rounded-full bg-slate-100 px-2 py-0.5">#{t.label_ar}</span>
+            <span key={t.id} className="rounded-full bg-muted px-2 py-0.5 text-micro text-ink-soft">
+              #{t.label_ar}
+            </span>
           ))}
         </div>
-        <div className="mt-3 rounded-lg bg-slate-900 px-3 py-2 text-center text-sm font-semibold text-white">
+        <div className="mt-3 rounded-field bg-brand-900 px-3 py-2.5 text-center text-sm font-semibold text-white">
           {coupon.redemption_type === "code" ? `انسخ الكود: ${coupon.code}` : "احصل على العرض"}
         </div>
-        <p className="mt-2 text-[11px] text-slate-500">
+        <p className="mt-2 text-micro text-ink-faint">
           {fmtDate(coupon.valid_from)} → {coupon.valid_until ? fmtDate(coupon.valid_until) : "مفتوح"}
-          {coupon.country_codes.length === 0 ? " · كل الدول" : ` · ${coupon.country_codes.join(", ")}`}
+          {coupon.country_codes.length === 0 ? " · كل الدول" : ` · ${coupon.country_codes.join("، ")}`}
         </p>
       </div>
-    </section>
-  );
-}
-
-/* -------------------------------------------------------------------- inputs */
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    live: "bg-emerald-100 text-emerald-700",
-    scheduled: "bg-blue-100 text-blue-700",
-    expired: "bg-slate-200 text-slate-600",
-    disabled: "bg-amber-100 text-amber-700",
-  };
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${styles[status] ?? "bg-slate-100"}`}>
-      {status}
-    </span>
-  );
-}
-
-function Input({
-  label, value, onChange, hint, type = "text",
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  hint?: string;
-  type?: string;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-slate-700">{label}</span>
-      <input
-        type={type}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
-    </label>
-  );
-}
-
-function Select({
-  label, value, options, onChange,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-slate-700">{label}</span>
-      <select
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">—</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
-    </label>
+    </Card>
   );
 }

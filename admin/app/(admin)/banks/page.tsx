@@ -1,82 +1,58 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
-import { Plus, Pencil } from "lucide-react";
+import { ErrorState, HelpNote, PageHeader } from "@/components/ui/primitives";
+import { fmt } from "@/lib/utils";
+import { BanksTable, type BankRow } from "./banks-table";
 
 export default async function BanksPage() {
   await requireAdmin();
   const supabase = await createAdminClient();
-  const { data: banks } = await supabase
+  const { data: banks, error } = await supabase
     .from("banks")
     .select("id, name_ar, name_en, short_code, country_code, is_active, sort_order, sms_senders")
     .order("sort_order", { ascending: true });
 
+  const rows: BankRow[] = (banks ?? []).map((bank) => ({
+    id: bank.id as string,
+    name_ar: bank.name_ar as string | null,
+    name_en: bank.name_en as string | null,
+    short_code: bank.short_code as string | null,
+    country_code: bank.country_code as string | null,
+    is_active: Boolean(bank.is_active),
+    senders:
+      typeof bank.sms_senders === "string"
+        ? (JSON.parse(bank.sms_senders) as string[])
+        : ((bank.sms_senders ?? []) as string[]),
+  }));
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Banks</h1>
-          <p className="text-sm text-gray-500 mt-1">{banks?.length ?? 0} banks in catalog</p>
-        </div>
-        <Link
-          href="/banks/new"
-          className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors"
-        >
-          <Plus size={16} /> Add Bank
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="كتالوج البنوك والرسائل"
+        title="البنوك"
+        description={`${fmt(rows.length)} بنك في الكتالوج. التطبيق يستخدم هذه القائمة ليعرف من أي بنك جاءت الرسالة.`}
+        action={
+          <Link
+            href="/banks/new"
+            className="inline-flex items-center gap-2 rounded-field bg-brand-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-800"
+          >
+            <Plus size={15} /> إضافة بنك
+          </Link>
+        }
+      />
 
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Bank</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Code</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Country</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">SMS Senders</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {(banks ?? []).map(bank => {
-              const senders: string[] = typeof bank.sms_senders === "string"
-                ? JSON.parse(bank.sms_senders)
-                : bank.sms_senders ?? [];
-              return (
-                <tr key={bank.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{bank.name_ar}</div>
-                    <div className="text-gray-400 text-xs">{bank.name_en}</div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-gray-500">{bank.short_code}</td>
-                  <td className="px-4 py-3 text-gray-500">{bank.country_code}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {senders.slice(0, 3).map(s => (
-                        <span key={s} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-mono">{s}</span>
-                      ))}
-                      {senders.length > 3 && (
-                        <span className="px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded text-xs">+{senders.length - 3}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${bank.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-                      {bank.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link href={`/banks/${bank.id}`} className="inline-flex items-center gap-1 text-gray-400 hover:text-brand-500 transition-colors">
-                      <Pencil size={14} />
-                    </Link>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <HelpNote>
+        «أرقام المُرسِل» هي الأسماء أو الأرقام التي تصل منها رسائل البنك. إذا لم يكن رقم المُرسِل
+        مضافًا هنا، لن يتعرّف التطبيق على رسائل هذا البنك.
+      </HelpNote>
+
+      {error ? (
+        <ErrorState title="تعذّر تحميل قائمة البنوك" detail={error.message} />
+      ) : (
+        <BanksTable banks={rows} />
+      )}
     </div>
   );
 }

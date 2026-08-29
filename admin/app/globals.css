@@ -2,17 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
+/* IBM Plex Sans Arabic — the product's bundled family (OFL), served locally.
+   Same font that draws the mobile UI and the exported PDF reports. */
+@font-face {
+  font-family: "IBMPlexSansArabic";
+  src: url("/fonts/IBMPlexSansArabic-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBMPlexSansArabic";
+  src: url("/fonts/IBMPlexSansArabic-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBMPlexSansArabic";
+  src: url("/fonts/IBMPlexSansArabic-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBMPlexSansArabic";
+  src: url("/fonts/IBMPlexSansArabic-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   :root {
-    --sidebar-width: 240px;
+    --sidebar-width: 252px;
   }
+
+  html {
+    font-feature-settings: "ss01";
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-canvas text-ink antialiased font-sans text-base;
+  }
+
+  /* Money and any tabular count line up in columns, as in the app. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Latin identifiers (slugs, codes, UUIDs) stay LTR inside an RTL page. */
+  .ltr {
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: start;
+  }
+
+  ::selection {
+    background: #dbe6ff;
+    color: #021b79;
+  }
+
+  *:focus-visible {
+    outline: 2px solid #2e6bff;
+    outline-offset: 2px;
+    border-radius: 6px;
   }
 }
 
 @layer utilities {
-  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
-  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full;
+    background: rgba(255, 255, 255, 0.18);
+  }
+  .scrollbar-light::-webkit-scrollbar-thumb {
+    background: #d3dae7;
+  }
+
+  /* Direction-aware chevron: points the way "forward" reads in the ambient dir. */
+  [dir="rtl"] .flip-x {
+    transform: scaleX(-1);
+  }
 }

@@ -1,203 +1,425 @@
 "use client";
+
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Save, Megaphone } from "lucide-react";
+import { Bell, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import {
+  Banner,
+  Card,
+  EmptyState,
+  ErrorState,
+  HelpNote,
+  LoadingState,
+  PageHeader,
+  SectionHeader,
+  StatusBadge,
+} from "@/components/ui/primitives";
+import { Button, CheckboxField, SelectField, TextAreaField, TextField } from "@/components/ui/form";
+import { ConfirmDialog, type ConfirmSpec } from "@/components/ui/confirm-dialog";
+import {
+  FORCE_UPDATE_CONFIRM_PHRASE,
+  armsForceUpdate,
+} from "@/lib/announcement-guard.mjs";
+import { SEVERITY_OPTIONS, severityLabel, severityTone } from "@/lib/labels";
 import { fmtDate } from "@/lib/utils";
 
 type Announcement = {
-  id?: string; title_ar: string; title_en: string; body_ar: string; body_en: string;
-  severity: string; action_label_ar: string; action_label_en: string; action_url: string;
-  valid_from: string; valid_until: string; is_dismissible: boolean; priority: number; is_active: boolean;
+  id?: string;
+  title_ar: string;
+  title_en: string;
+  body_ar: string;
+  body_en: string;
+  severity: string;
+  action_label_ar: string;
+  action_label_en: string;
+  action_url: string;
+  valid_from: string;
+  valid_until: string;
+  min_app_version: string;
+  max_app_version: string;
+  is_dismissible: boolean;
+  priority: number;
+  is_active: boolean;
 };
 
 const empty: Announcement = {
-  title_ar: "", title_en: "", body_ar: "", body_en: "", severity: "info",
-  action_label_ar: "", action_label_en: "", action_url: "",
+  title_ar: "",
+  title_en: "",
+  body_ar: "",
+  body_en: "",
+  severity: "info",
+  action_label_ar: "",
+  action_label_en: "",
+  action_url: "",
   valid_from: new Date().toISOString().slice(0, 16),
-  valid_until: "", is_dismissible: true, priority: 0, is_active: true,
-};
-
-const severityStyle: Record<string, string> = {
-  info: "bg-blue-50 text-blue-700",
-  warning: "bg-amber-50 text-amber-700",
-  maintenance: "bg-purple-50 text-purple-700",
-  force_update: "bg-red-100 text-red-700 font-semibold",
+  valid_until: "",
+  min_app_version: "",
+  max_app_version: "",
+  is_dismissible: true,
+  priority: 0,
+  is_active: true,
 };
 
 export default function AnnouncementsPage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [form, setForm] = useState<Announcement | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [confirm, setConfirm] = useState<(ConfirmSpec & { id: string }) | null>(null);
 
   useEffect(() => {
     fetch("/api/announcements")
       .then(async (res) => {
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? "Failed to load announcements");
+        if (!res.ok) throw new Error(json.error ?? "تعذّر تحميل الإعلانات");
         setAnnouncements((json.announcements ?? []) as Announcement[]);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load announcements"));
+      .catch((err) => setLoadError(err instanceof Error ? err.message : "تعذّر تحميل الإعلانات"))
+      .finally(() => setLoading(false));
   }, []);
 
-  function set(field: keyof Announcement, value: unknown) {
-    setForm(prev => prev ? { ...prev, [field]: value } : prev);
+  function set<K extends keyof Announcement>(field: K, value: Announcement[K]) {
+    setForm((prev) => (prev ? { ...prev, [field]: value } : prev));
   }
 
-  async function save() {
+  // F-017 — arming a force-update goes through a typed, consequence-first
+  // confirmation. Ordinary announcements keep the single-click save.
+  const [armConfirm, setArmConfirm] = useState<ConfirmSpec | null>(null);
+
+  function requestSave() {
     if (!form) return;
+    if (!form.title_ar.trim()) return setError("عنوان الإعلان بالعربية مطلوب.");
+    if (armsForceUpdate(form)) {
+      const range =
+        form.min_app_version || form.max_app_version
+          ? `النطاق المستهدف: ${form.min_app_version || "بدون حد أدنى"} ← ${
+              form.max_app_version || "بدون حد أقصى"
+            }`
+          : "بدون قيود إصدار — سيُحجب كل مستخدم مثبَّت لديه التطبيق حتى يحدّثه";
+      setArmConfirm({
+        title: "نشر تحديث إجباري",
+        consequence: (
+          <>
+            <p>
+              هذا الإجراء <b>يمنع المستخدمين من متابعة استخدام التطبيق</b> حتى
+              يقوموا بالتحديث.
+            </p>
+            <p dir="ltr" style={{ textAlign: "right" }}>{range}</p>
+          </>
+        ),
+        confirmLabel: "نشر الحجب الإجباري",
+        tone: "danger",
+        typeToConfirm: FORCE_UPDATE_CONFIRM_PHRASE,
+        typeToConfirmLabel: `اكتب «${FORCE_UPDATE_CONFIRM_PHRASE}» للتأكيد`,
+      });
+      return;
+    }
+    void save(false);
+  }
+
+  async function save(confirmForceUpdate: boolean) {
+    if (!form) return;
+    if (!form.title_ar.trim()) return setError("عنوان الإعلان بالعربية مطلوب.");
     setSaving(true);
     setError("");
-    const payload = { ...form, valid_until: form.valid_until || null };
+    setNotice("");
+    const payload = {
+      ...form,
+      valid_until: form.valid_until || null,
+      // F-017 — the API refuses to arm a force-update without this token.
+      confirm_force_update: confirmForceUpdate,
+    };
     const res = await fetch("/api/announcements", {
       method: form.id ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const json = await res.json();
+    setSaving(false);
     if (!res.ok) {
-      setError(json.error ?? "Failed to save announcement");
-      setSaving(false);
+      setError(json.error ?? "تعذّر حفظ الإعلان");
       return;
     }
-    const saved = json.announcement as Announcement;
-    setAnnouncements(prev =>
-      form.id ? prev.map(a => a.id === form.id ? saved : a) : [saved, ...prev],
+    const savedRow = json.announcement as Announcement;
+    setAnnouncements((prev) =>
+      form.id ? prev.map((a) => (a.id === form.id ? savedRow : a)) : [savedRow, ...prev],
     );
-    setSaving(false);
+    setNotice(form.id ? "تم تحديث الإعلان." : "تم نشر الإعلان.");
     setForm(null);
   }
 
-  async function remove(id: string) {
-    if (!confirm("Delete announcement?")) return;
+  async function remove() {
+    if (!confirm) return;
+    setDeleting(true);
     setError("");
-    const res = await fetch(`/api/announcements?id=${encodeURIComponent(id)}`, {
+    const res = await fetch(`/api/announcements?id=${encodeURIComponent(confirm.id)}`, {
       method: "DELETE",
     });
+    setDeleting(false);
+    const id = confirm.id;
+    setConfirm(null);
     if (!res.ok) {
-      const json = await res.json();
-      setError(json.error ?? "Failed to delete announcement");
+      const json = await res.json().catch(() => ({}));
+      setError(json.error ?? "تعذّر حذف الإعلان");
       return;
     }
-    setAnnouncements(prev => prev.filter(a => a.id !== id));
+    setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    setNotice("تم حذف الإعلان.");
   }
+
+  const liveCount = announcements.filter((a) => a.is_active).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Announcements</h1>
-          <p className="text-sm text-gray-500 mt-1">Banners and force-update notices shown inside the app</p>
-        </div>
-        <button onClick={() => setForm(empty)}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
-          <Plus size={16} /> New Announcement
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="النمو والمكافآت"
+        title="الإعلانات داخل التطبيق"
+        description={`${liveCount} إعلان معروض حاليًا. تظهر هذه الرسائل كلافتة داخل التطبيق لجميع المستخدمين خلال الفترة التي تحدّدها.`}
+        action={
+          !form && (
+            <Button icon={Plus} onClick={() => setForm(empty)}>
+              إعلان جديد
+            </Button>
+          )
+        }
+      />
 
-      {/* Form */}
-      {error && (
-        <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      <HelpNote tone="warning">
+        نوع «تحديث إجباري» يمنع المستخدم من متابعة استخدام التطبيق حتى يحدّثه. لا تستخدمه إلا عند
+        وجود سبب فعلي يمنع تشغيل النسخة القديمة.
+      </HelpNote>
+
+      {error && <Banner tone="danger" onDismiss={() => setError("")}>{error}</Banner>}
+      {notice && <Banner tone="success" onDismiss={() => setNotice("")}>{notice}</Banner>}
 
       {form && (
-        <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-700">{form.id ? "Edit" : "New"} Announcement</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <F label="Title (Arabic)" value={form.title_ar} onChange={v => set("title_ar", v)} dir="rtl" />
-            <F label="Title (English)" value={form.title_en} onChange={v => set("title_en", v)} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <F label="Body (Arabic)" value={form.body_ar} onChange={v => set("body_ar", v)} dir="rtl" multiline />
-            <F label="Body (English)" value={form.body_en} onChange={v => set("body_en", v)} multiline />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
-              <select value={form.severity} onChange={e => set("severity", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                <option value="info">info</option>
-                <option value="warning">warning</option>
-                <option value="maintenance">maintenance</option>
-                <option value="force_update">force_update ⛔</option>
-              </select>
+        <Card>
+          <SectionHeader
+            title={form.id ? "تعديل الإعلان" : "إعلان جديد"}
+            description="اكتب الرسالة كما ستظهر للمستخدم، وحدّد الفترة التي تظهر خلالها."
+          />
+
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextField
+                label="العنوان بالعربية"
+                required
+                value={form.title_ar}
+                onChange={(e) => set("title_ar", e.target.value)}
+                hint="أول سطر يقرأه المستخدم — اجعله قصيرًا وواضحًا."
+              />
+              <TextField
+                label="العنوان بالإنجليزية"
+                dir="ltr"
+                value={form.title_en}
+                onChange={(e) => set("title_en", e.target.value)}
+              />
+              <TextAreaField
+                label="النص بالعربية"
+                rows={3}
+                value={form.body_ar}
+                onChange={(e) => set("body_ar", e.target.value)}
+              />
+              <TextAreaField
+                label="النص بالإنجليزية"
+                dir="ltr"
+                rows={3}
+                value={form.body_en}
+                onChange={(e) => set("body_en", e.target.value)}
+              />
             </div>
-            <F label="Valid From" value={form.valid_from} onChange={v => set("valid_from", v)} type="datetime-local" />
-            <F label="Valid Until (leave blank = no expiry)" value={form.valid_until} onChange={v => set("valid_until", v)} type="datetime-local" />
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <SelectField
+                label="نوع الإعلان"
+                value={form.severity}
+                onChange={(e) => set("severity", e.target.value)}
+                options={SEVERITY_OPTIONS}
+                hint="النوع يحدّد شكل اللافتة ومدى إلحاحها."
+              />
+              <TextField
+                label="يبدأ الظهور في"
+                type="datetime-local"
+                value={form.valid_from}
+                onChange={(e) => set("valid_from", e.target.value)}
+              />
+              <TextField
+                label="يتوقف الظهور في"
+                type="datetime-local"
+                value={form.valid_until}
+                onChange={(e) => set("valid_until", e.target.value)}
+                hint="اتركه فارغًا ليبقى الإعلان ظاهرًا بلا تاريخ انتهاء."
+              />
+            </div>
+
+            {form.severity === "force_update" && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextField
+                  label="أقل إصدار مستهدف (min_app_version)"
+                  dir="ltr"
+                  mono
+                  value={form.min_app_version}
+                  onChange={(e) => set("min_app_version", e.target.value)}
+                  hint="مثال: 1.2.0 — يُحجب من إصداره ≥ هذا الحد."
+                />
+                <TextField
+                  label="أعلى إصدار مستهدف (max_app_version)"
+                  dir="ltr"
+                  mono
+                  value={form.max_app_version}
+                  onChange={(e) => set("max_app_version", e.target.value)}
+                  hint="مثال: 1.4.9 — يُحجب من إصداره ≤ هذا الحد. الفراغ في الحقلين = حجب الجميع."
+                />
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <TextField
+                label="نص زر الإجراء بالعربية"
+                value={form.action_label_ar}
+                onChange={(e) => set("action_label_ar", e.target.value)}
+                hint="اتركه فارغًا إذا كان الإعلان للقراءة فقط."
+              />
+              <TextField
+                label="نص زر الإجراء بالإنجليزية"
+                dir="ltr"
+                value={form.action_label_en}
+                onChange={(e) => set("action_label_en", e.target.value)}
+              />
+              <TextField
+                label="رابط الزر"
+                mono
+                value={form.action_url}
+                onChange={(e) => set("action_url", e.target.value)}
+                hint="الوجهة التي يفتحها الزر عند الضغط عليه."
+              />
+            </div>
+
+            <div className="flex flex-wrap items-start gap-8">
+              <CheckboxField
+                label="يمكن للمستخدم إخفاء الإعلان"
+                hint="عند الإلغاء يبقى الإعلان ظاهرًا ولا يستطيع المستخدم إغلاقه."
+                checked={form.is_dismissible}
+                onChange={(v) => set("is_dismissible", v)}
+              />
+              <CheckboxField
+                label="الإعلان مفعّل"
+                hint="أوقفه لإخفائه فورًا مع الاحتفاظ بمحتواه."
+                checked={form.is_active}
+                onChange={(v) => set("is_active", v)}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2.5 border-t border-divider pt-4">
+              <Button variant="secondary" onClick={() => setForm(null)}>
+                إلغاء
+              </Button>
+              <Button icon={Save} onClick={requestSave} loading={saving}>
+                {form.id ? "حفظ التعديلات" : "نشر الإعلان"}
+              </Button>
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            <F label="Action Label (AR)" value={form.action_label_ar} onChange={v => set("action_label_ar", v)} dir="rtl" />
-            <F label="Action Label (EN)" value={form.action_label_en} onChange={v => set("action_label_en", v)} />
-            <F label="Action URL" value={form.action_url} onChange={v => set("action_url", v)} mono />
-          </div>
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={form.is_dismissible} onChange={e => set("is_dismissible", e.target.checked)} className="w-4 h-4 rounded" />
-              <span className="text-sm text-gray-700">Dismissible</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={form.is_active} onChange={e => set("is_active", e.target.checked)} className="w-4 h-4 rounded" />
-              <span className="text-sm text-gray-700">Active</span>
-            </label>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setForm(null)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-            <button onClick={save} disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm disabled:opacity-50">
-              <Save size={14} /> {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+        </Card>
+      )}
+
+      {loading ? (
+        <LoadingState label="جارٍ تحميل الإعلانات…" />
+      ) : loadError ? (
+        <ErrorState title="تعذّر تحميل الإعلانات" detail={loadError} />
+      ) : announcements.length === 0 ? (
+        <Card padded={false}>
+          <EmptyState
+            icon={Bell}
+            title="لا توجد إعلانات بعد"
+            description="أنشئ إعلانًا عندما تحتاج إلى إبلاغ كل المستخدمين بشيء داخل التطبيق."
+            action={
+              !form && (
+                <Button icon={Plus} onClick={() => setForm(empty)}>
+                  إعلان جديد
+                </Button>
+              )
+            }
+          />
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {announcements.map((a) => (
+            <Card key={a.id} className={a.is_active ? undefined : "opacity-70"}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <StatusBadge label={severityLabel(a.severity)} tone={severityTone(a.severity)} />
+                    <StatusBadge
+                      label={a.is_active ? "معروض" : "متوقف"}
+                      tone={a.is_active ? "success" : "neutral"}
+                    />
+                    {!a.is_dismissible && (
+                      <StatusBadge label="لا يمكن إخفاؤه" tone="warning" dot={false} />
+                    )}
+                  </div>
+                  <p className="font-medium text-ink">{a.title_ar}</p>
+                  {a.body_ar && <p className="mt-1 text-sm text-ink-soft">{a.body_ar}</p>}
+                  <p className="mt-2 text-micro text-ink-faint">
+                    يظهر من {fmtDate(a.valid_from)}{" "}
+                    {a.valid_until ? `حتى ${fmtDate(a.valid_until)}` : "— بلا تاريخ انتهاء"}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 gap-2">
+                  <Button size="sm" variant="secondary" icon={Pencil} onClick={() => setForm(a)}>
+                    تعديل
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    icon={Trash2}
+                    onClick={() =>
+                      setConfirm({
+                        id: a.id!,
+                        title: "حذف هذا الإعلان نهائيًا؟",
+                        consequence: (
+                          <>
+                            سيختفي «{a.title_ar}» من التطبيق ولن يمكن استرجاع نصّه.
+                            <br />
+                            <strong className="text-ink">
+                              إذا أردت إخفاءه فقط، عدّله وألغِ تفعيله — يبقى المحتوى محفوظًا.
+                            </strong>
+                          </>
+                        ),
+                        confirmLabel: "حذف نهائيًا",
+                        tone: "danger",
+                      })
+                    }
+                  >
+                    حذف
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
-      {/* List */}
-      <div className="space-y-3">
-        {announcements.length === 0 && (
-          <div className="bg-white rounded-xl border border-gray-100 p-10 text-center text-gray-400">
-            <Megaphone size={32} className="mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No announcements yet</p>
-          </div>
-        )}
-        {announcements.map(a => (
-          <div key={a.id} className={`bg-white rounded-xl border p-5 ${a.is_active ? "border-gray-100" : "border-gray-50 opacity-60"}`}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`px-2 py-0.5 rounded-full text-xs ${severityStyle[a.severity] ?? "bg-gray-100 text-gray-500"}`}>{a.severity}</span>
-                  {!a.is_active && <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-400">inactive</span>}
-                </div>
-                <p className="font-medium text-gray-900">{a.title_ar}</p>
-                {a.body_ar && <p className="text-sm text-gray-500 mt-0.5" dir="rtl">{a.body_ar}</p>}
-                <p className="text-xs text-gray-400 mt-1">
-                  {fmtDate(a.valid_from)} → {a.valid_until ? fmtDate(a.valid_until) : "∞"}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setForm(a)} className="text-gray-400 hover:text-brand-500 text-xs">Edit</button>
-                <button onClick={() => remove(a.id!)} className="text-gray-300 hover:text-red-500">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function F({ label, value, onChange, dir, multiline, mono, type }: {
-  label: string; value: string; onChange: (v: string) => void;
-  dir?: string; multiline?: boolean; mono?: boolean; type?: string;
-}) {
-  const cls = `w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 ${mono ? "font-mono" : ""}`;
-  return (
-    <div>
-      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-      {multiline
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={2} dir={dir} className={cls} />
-        : <input type={type ?? "text"} value={value} onChange={e => onChange(e.target.value)} dir={dir} className={cls} />}
+      <ConfirmDialog
+        spec={confirm}
+        busy={deleting}
+        onCancel={() => setConfirm(null)}
+        onConfirm={remove}
+      />
+      {/* F-017 — typed confirmation for ARMING a force-update. Cancel = zero
+          mutation: no request is issued until onConfirm fires. */}
+      <ConfirmDialog
+        spec={armConfirm}
+        busy={saving}
+        onCancel={() => setArmConfirm(null)}
+        onConfirm={() => {
+          setArmConfirm(null);
+          void save(true);
+        }}
+      />
     </div>
   );
 }

@@ -5,8 +5,48 @@
 // route that calls an approved 0083 RPC wrapper. This page never talks to the
 // database directly. operation_id is minted once per operator intent (at confirm)
 // and resent unchanged on retry so a double-click or proxy retry cannot double-apply.
+//
+// The 2026 redesign is presentation-only: Arabic-first copy, the shared Admin
+// component system, and consequence-focused confirmation before every mutation.
+// The intent state machine, the payloads, the URLs and the outcome classification
+// below are unchanged.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Gift,
+  History,
+  KeyRound,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  UserSearch,
+} from "lucide-react";
+import { createOperationIntent, operationIntentKey, outcomeKnown } from "@/lib/operation-intent.mjs";
+import {
+  Banner,
+  Card,
+  EmptyState,
+  HelpNote,
+  LoadingState,
+  PageHeader,
+  SectionHeader,
+  StatCard,
+  StatusBadge,
+} from "@/components/ui/primitives";
+import { Button, CheckboxField, SelectField, TextAreaField, TextField } from "@/components/ui/form";
+import { ConfirmDialog, type ConfirmSpec } from "@/components/ui/confirm-dialog";
+import { CopyId } from "@/components/ui/copy-id";
+import {
+  attributionLabel,
+  auditActionLabel,
+  cycleStateLabel,
+  entitlementStatusLabel,
+  entitlementTypeLabel,
+  referralStatusLabel,
+  referralStatusTone,
+} from "@/lib/labels";
+import { fmt, fmtDate as fmtDateLong, fmtPercent } from "@/lib/utils";
 
 // ── types (inline, per admin convention) ────────────────────────────────────
 type Rule = {
@@ -88,15 +128,59 @@ type FlagRow = { key: string; is_active: boolean; rollout_percent: number | null
 const REWARD_TYPE = "report_export_ad_free";
 
 // ── shared fetch helper: returns {ok, json} and surfaces safeErrorBody.message ─
-async function api(url: string, init?: RequestInit): Promise<{ ok: boolean; json: any }> {
-  const res = await fetch(url, init);
-  const json = await res.json().catch(() => ({}));
-  return { ok: res.ok, json };
+// Audit H-13: the outcome classification is what makes safe retry possible.
+//   * transportError (fetch threw) or status >= 500 → the mutation MAY have
+//     committed; the outcome is UNKNOWN, so the SAME operation_id must be
+//     resent on retry.
+//   * status 2xx or 4xx → the server processed the request (applied, or
+//     definitively rejected); the intent is RESOLVED.
+async function api(
+  url: string,
+  init?: RequestInit,
+): Promise<{ ok: boolean; status: number; json: any; transportError: boolean }> {
+  try {
+    const res = await fetch(url, init);
+    const json = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, json, transportError: false };
+  } catch {
+    // Network drop / connection reset — the response was lost. The server may
+    // already have committed, so we must NOT treat this as "did not happen".
+    return { ok: false, status: 0, json: {}, transportError: true };
+  }
 }
+
+const OPERATION_INTENT_STORAGE_KEY = "money.admin.referrals.operation-intents.v1";
+
+/** Audit H-13 — thin React wrapper over the pure operation-intent state
+ *  machine (see lib/operation-intent.mjs). The ref preserves rerender
+ *  stability; the bounded sessionStorage registry additionally preserves an
+ *  unresolved intent across a page remount/reload in this browser tab. */
+function useOperationIntent() {
+  const ref = useRef<ReturnType<typeof createOperationIntent> | null>(null);
+  if (ref.current === null) {
+    ref.current = createOperationIntent({
+      storageKey: OPERATION_INTENT_STORAGE_KEY,
+      getStorage: () => {
+        if (typeof window === "undefined") return null;
+        try {
+          return window.sessionStorage;
+        } catch {
+          return null;
+        }
+      },
+    });
+  }
+  const machine = ref.current;
+  return {
+    begin: (key: string) => machine.begin(key, () => crypto.randomUUID()),
+    resolved: (key: string, id: string) => machine.resolved(key, id),
+  };
+}
+
 function errText(json: any, fallback: string): string {
   if (json?.message) return json.message;
   if (Array.isArray(json?.fields) && json.fields.length) {
-    return json.fields.map((f: any) => `${f.field}: ${f.message ?? f.error}`).join("; ");
+    return json.fields.map((f: any) => `${f.field}: ${f.message ?? f.error}`).join("؛ ");
   }
   return json?.error ?? fallback;
 }
@@ -110,22 +194,22 @@ export default function ReferralsPage() {
   }, []);
 
   return (
-    <div className="p-8 space-y-8">
-      <div>
-        <p className="text-sm text-slate-500">Growth</p>
-        <h1 className="text-2xl font-semibold text-slate-900">Referral &amp; Ads</h1>
-        <p className="text-sm text-slate-500">
-          Referral rules, entitlements, fraud review, and read-only ad diagnostics.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="النمو والمكافآت"
+        title="الدعوات والمكافآت"
+        description="قاعدة احتساب الدعوات، منح المكافآت وسحبها، مراجعة الدعوات المشبوهة، وسجل كل عملية إدارية."
+      />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <Banner tone="danger" onDismiss={() => setError(null)}>
+          {error}
+        </Banner>
       )}
       {notice && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <Banner tone="success" onDismiss={() => setNotice(null)}>
           {notice}
-        </div>
+        </Banner>
       )}
 
       <MetricsSection flash={flash} />
@@ -145,28 +229,83 @@ function MetricsSection({ flash }: { flash: Flash }) {
   useEffect(() => {
     void (async () => {
       const { ok, json } = await api("/api/referral-metrics");
-      if (!ok) return flash(null, errText(json, "Failed to load metrics"));
+      if (!ok) return flash(null, errText(json, "تعذّر تحميل الأرقام"));
       setM(json as Metrics);
     })();
   }, [flash]);
 
   return (
-    <Section title="Metrics" subtitle="Product funnel — not billing. AdMob owns ad revenue reporting.">
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-lg font-semibold text-ink">أرقام الدعوات</h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          مؤشرات على أداء برنامج الدعوة. هذه ليست أرقامًا محاسبية ولا تخص إيرادات الإعلانات.
+        </p>
+      </div>
+
       {!m ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <LoadingState label="جارٍ تحميل الأرقام…" />
       ) : (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <Stat label="Attributed" value={m.referrals.attributed} />
-          <Stat label="Qualified" value={m.referrals.qualified} />
-          <Stat label="Rejected" value={m.referrals.rejected} />
-          <Stat label="Reversed" value={m.referrals.reversed} />
-          <Stat label="Rewards granted" value={m.rewards_granted} />
-          <Stat label="Active ad-free" value={m.active_entitlements} />
-          <Stat label="Active rules" value={m.active_rules} />
-          <Stat label="Qualified ratio" value={`${Math.round(m.qualified_ratio * 100)}%`} />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="دعوات مُسجَّلة"
+            value={fmt(m.referrals.attributed)}
+            hint="نُسبت إلى صاحب الكود ولم تُحتسب بعد"
+            icon={Gift}
+            tone="info"
+          />
+          <StatCard
+            label="دعوات مُحتسَبة"
+            value={fmt(m.referrals.qualified)}
+            hint="استوفت الشروط وتُحسب ضمن الدورة"
+            icon={ShieldCheck}
+            tone="success"
+          />
+          <StatCard
+            label="دعوات مرفوضة"
+            value={fmt(m.referrals.rejected)}
+            hint="رُفضت قبل احتسابها"
+            icon={AlertTriangle}
+            tone="danger"
+          />
+          <StatCard
+            label="دعوات أُلغي احتسابها"
+            value={fmt(m.referrals.reversed)}
+            hint="كانت مُحتسَبة ثم أُلغيت بعد المراجعة"
+            icon={History}
+            tone="warning"
+          />
+          <StatCard
+            label="مكافآت مُنِحت"
+            value={fmt(m.rewards_granted)}
+            hint="إجمالي مرات منح المكافأة"
+            icon={Sparkles}
+            tone="brand"
+          />
+          <StatCard
+            label="مستخدمون بلا إعلانات الآن"
+            value={fmt(m.active_entitlements)}
+            hint="ميزة سارية في هذه اللحظة"
+            icon={ShieldCheck}
+            tone="success"
+          />
+          <StatCard
+            label="قواعد سارية"
+            value={fmt(m.active_rules)}
+            hint="القاعدة التي تُحتسب عليها الدعوات الجديدة"
+            icon={KeyRound}
+            tone="neutral"
+          />
+          <StatCard
+            label="نسبة الاحتساب"
+            value={fmtPercent(m.qualified_ratio)}
+            hint="المُحتسَبة من إجمالي المُسجَّلة"
+            icon={Sparkles}
+            tone="neutral"
+          />
         </div>
       )}
-    </Section>
+    </section>
   );
 }
 
@@ -178,109 +317,229 @@ function RulesSection({ flash }: { flash: Flash }) {
   const [repeatable, setRepeatable] = useState(true);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<(ConfirmSpec & { run: () => Promise<void> }) | null>(null);
+  const publishIntent = useOperationIntent();
+  const deactivateIntent = useOperationIntent();
 
   const load = useCallback(async () => {
     const { ok, json } = await api("/api/referral-rules");
-    if (!ok) return flash(null, errText(json, "Failed to load rules"));
+    if (!ok) return flash(null, errText(json, "تعذّر تحميل القواعد"));
     setRules((json.rules ?? []) as Rule[]);
   }, [flash]);
   useEffect(() => {
     void load();
   }, [load]);
 
+  const active = rules.find((r) => r.is_active) ?? null;
+
   async function publish() {
     setBusy(true);
-    // operation_id minted once for this publish intent; reused if a retry is needed.
-    const operation_id = crypto.randomUUID();
-    const { ok, json } = await api("/api/referral-rules", {
+    // Audit H-13: one id per publish INTENT, reused across retries; a changed
+    // payload is a new intent (new id). Regenerating per click created V+1, V+2.
+    const payload = {
+      reward_type: REWARD_TYPE,
+      required_referrals: Number(required),
+      reward_days: Number(days),
+      repeatable,
+      reason,
+    };
+    const intentKey = operationIntentKey("publish", payload);
+    const operation_id = publishIntent.begin(intentKey);
+    const r = await api("/api/referral-rules", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         operation_id,
-        reward_type: REWARD_TYPE,
-        required_referrals: Number(required),
-        reward_days: Number(days),
-        repeatable,
-        reason,
+        ...payload,
       }),
     });
     setBusy(false);
-    if (!ok) return flash(null, errText(json, "Failed to publish rule"));
+    setConfirm(null);
+    if (!outcomeKnown(r)) {
+      return flash(
+        null,
+        "حدثت مشكلة في الاتصال — قد تكون القاعدة نُشرت وقد لا تكون. اضغط «نشر» مرة أخرى؛ إعادة المحاولة آمنة ولن تُنشئ نسخة مكرّرة.",
+      );
+    }
+    publishIntent.resolved(intentKey, operation_id);
+    if (!r.ok) return flash(null, errText(r.json, "تعذّر نشر القاعدة"));
     setReason("");
-    flash("Published a new rule version.", null);
+    flash("تم نشر نسخة جديدة من القاعدة.", null);
     await load();
   }
 
   async function deactivate() {
-    if (!reason.trim()) return flash(null, "A reason is required to deactivate.");
     setBusy(true);
-    const operation_id = crypto.randomUUID();
-    const { ok, json } = await api("/api/referral-rules", {
+    const payload = { reward_type: REWARD_TYPE, reason };
+    const intentKey = operationIntentKey("deactivate", payload);
+    const operation_id = deactivateIntent.begin(intentKey);
+    const r = await api("/api/referral-rules", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ operation_id, reward_type: REWARD_TYPE, reason }),
+      body: JSON.stringify({ operation_id, ...payload }),
     });
     setBusy(false);
-    if (!ok) return flash(null, errText(json, "Failed to deactivate rule"));
+    setConfirm(null);
+    if (!outcomeKnown(r)) {
+      return flash(
+        null,
+        "حدثت مشكلة في الاتصال — قد تكون القاعدة أُوقفت وقد لا تكون. اضغط «إيقاف القاعدة» مرة أخرى؛ إعادة المحاولة آمنة.",
+      );
+    }
+    deactivateIntent.resolved(intentKey, operation_id);
+    if (!r.ok) return flash(null, errText(r.json, "تعذّر إيقاف القاعدة"));
     setReason("");
-    flash("Deactivated the active rule.", null);
+    flash("تم إيقاف القاعدة السارية.", null);
     await load();
   }
 
+  function askPublish() {
+    if (!reason.trim()) return flash(null, "اكتب سبب النشر أولًا (4 أحرف على الأقل).");
+    setConfirm({
+      title: "نشر نسخة جديدة من قاعدة الدعوة؟",
+      confirmLabel: "نشر النسخة الجديدة",
+      tone: "brand",
+      consequence: (
+        <>
+          ستصبح القاعدة الجديدة: <strong className="text-ink">{fmt(Number(required))} دعوة مقابل {fmt(Number(days))} يومًا</strong>
+          {repeatable ? " قابلة للتكرار" : " مرة واحدة فقط"}.
+          <br />
+          المستخدم الذي بدأ دورة بالفعل يكمل دورته على القاعدة القديمة، وتنطبق الجديدة من دورته
+          التالية. <strong className="text-ink">المكافآت التي مُنحت سابقًا لا يُعاد حسابها إطلاقًا.</strong>
+        </>
+      ),
+      run: publish,
+    });
+  }
+
+  function askDeactivate() {
+    if (!reason.trim()) return flash(null, "اكتب سبب الإيقاف أولًا (4 أحرف على الأقل).");
+    setConfirm({
+      title: "إيقاف القاعدة السارية؟",
+      confirmLabel: "إيقاف القاعدة",
+      tone: "danger",
+      consequence: (
+        <>
+          لن تُحتسب أي دعوات جديدة بعد الإيقاف. الدورات الجارية تُكمل على قاعدتها المثبَّتة، ولا
+          تبدأ أي دورة جديدة حتى تُنشر قاعدة سارية مرة أخرى.
+          <br />
+          <strong className="text-ink">المكافآت القائمة تبقى كما هي ولا تُسحب.</strong>
+        </>
+      ),
+      run: deactivate,
+    });
+  }
+
   return (
-    <Section title="Referral rules" subtitle="The “5 / 7” is configuration — never hardcoded.">
+    <Card>
+      <SectionHeader
+        title="قاعدة الدعوة"
+        description="عدد الدعوات المطلوبة ومدة المكافأة إعداد قابل للتغيير — وليس رقمًا ثابتًا داخل التطبيق."
+        icon={KeyRound}
+      />
+
+      {active && (
+        <div className="mb-5 rounded-field border border-hairline bg-raised/50 p-4">
+          <p className="mb-1 text-tiny font-medium text-ink-faint">القاعدة السارية الآن</p>
+          <p className="tnum text-sm text-ink">
+            <strong>{fmt(active.required_referrals)}</strong> دعوة مُحتسَبة تمنح{" "}
+            <strong>{fmt(active.reward_days)}</strong> يومًا بدون إعلانات ·{" "}
+            {active.repeatable ? "قابلة للتكرار كل دورة" : "مرة واحدة لكل مستخدم"} · النسخة رقم{" "}
+            {fmt(active.version)}
+          </p>
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
-        <Input label="Required referrals" value={required} onChange={setRequired} />
-        <Input label="Reward days" value={days} onChange={setDays} />
-        <label className="flex items-end gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={repeatable} onChange={(e) => setRepeatable(e.target.checked)} />
-          Repeatable
-        </label>
-      </div>
-      <Reason value={reason} onChange={setReason} />
-      <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        Changing this creates a new rule version. Users with a cycle already in progress keep their
-        current rule until that cycle completes; the new rule applies from their next cycle. Rewards
-        already earned are never recalculated.
-      </p>
-      <div className="mt-4 flex gap-3">
-        <button
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          disabled={busy}
-          onClick={publish}
-        >
-          Publish new version
-        </button>
-        <button
-          className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 disabled:opacity-50"
-          disabled={busy}
-          onClick={deactivate}
-          title="Deactivating stops new invites from being attributed. In-progress cycles still complete under their pinned rule; no new cycles start until a rule is active again."
-        >
-          Deactivate active rule
-        </button>
+        <TextField
+          label="عدد الدعوات المطلوبة"
+          type="number"
+          value={required}
+          onChange={(e) => setRequired(e.target.value)}
+          hint="كم دعوة مُحتسَبة يحتاجها المستخدم ليحصل على المكافأة."
+        />
+        <TextField
+          label="مدة المكافأة بالأيام"
+          type="number"
+          value={days}
+          onChange={(e) => setDays(e.target.value)}
+          hint="عدد الأيام التي يصدّر فيها المستخدم تقاريره بدون إعلان."
+        />
+        <div className="flex items-end pb-2">
+          <CheckboxField
+            label="قابلة للتكرار"
+            hint="عند التفعيل يبدأ المستخدم دورة جديدة بعد كل مكافأة."
+            checked={repeatable}
+            onChange={setRepeatable}
+          />
+        </div>
       </div>
 
-      <div className="mt-5 space-y-2">
-        {rules.map((r) => (
-          <div
-            key={r.id}
-            className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm"
-          >
-            <span className={r.is_active ? "font-semibold text-emerald-700" : "text-slate-400"}>
-              {r.is_active ? "ACTIVE" : "inactive"}
-            </span>
-            <span className="text-slate-500">v{r.version}</span>
-            <span className="text-slate-900">
-              {r.required_referrals} → {r.reward_days}d
-            </span>
-            <span className="text-slate-500">{r.repeatable ? "repeatable" : "one-shot"}</span>
-            <span className="text-slate-400">{r.reward_type}</span>
-          </div>
-        ))}
-        {rules.length === 0 && <p className="text-sm text-slate-500">No rules yet.</p>}
+      <TextAreaField
+        label="سبب التغيير"
+        required
+        rows={2}
+        maxLength={500}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        className="mt-4"
+        hint="من 4 إلى 500 حرف. يُحفظ في سجل العمليات ولا يمكن تعديله لاحقًا."
+      />
+
+      <HelpNote tone="warning" className="mt-4">
+        تغيير القاعدة يُنشئ نسخة جديدة منها ولا يعدّل النسخة القديمة. المستخدم الذي بدأ دورته يكمل
+        على قاعدته المثبَّتة، وتنطبق الجديدة من دورته التالية. المكافآت المُنحَت سابقًا لا يُعاد حسابها.
+      </HelpNote>
+
+      <div className="mt-4 flex flex-wrap gap-2.5">
+        <Button onClick={askPublish} disabled={busy}>
+          نشر نسخة جديدة
+        </Button>
+        <Button variant="danger" onClick={askDeactivate} disabled={busy || !active}>
+          إيقاف القاعدة السارية
+        </Button>
       </div>
-    </Section>
+
+      <div className="mt-6">
+        <h3 className="mb-2.5 text-tiny font-semibold tracking-wide text-ink-faint">
+          نسخ القاعدة ({fmt(rules.length)})
+        </h3>
+        {rules.length === 0 ? (
+          <p className="text-sm text-ink-faint">لا توجد قواعد منشورة بعد.</p>
+        ) : (
+          <div className="space-y-2">
+            {rules.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-wrap items-center gap-3 rounded-field border border-hairline bg-surface px-4 py-3 text-sm"
+              >
+                <StatusBadge
+                  label={r.is_active ? "سارية" : "قديمة"}
+                  tone={r.is_active ? "success" : "neutral"}
+                />
+                <span className="tnum text-ink-faint">النسخة {fmt(r.version)}</span>
+                <span className="tnum text-ink">
+                  {fmt(r.required_referrals)} دعوة ← {fmt(r.reward_days)} يومًا
+                </span>
+                <span className="text-ink-soft">
+                  {r.repeatable ? "قابلة للتكرار" : "مرة واحدة"}
+                </span>
+                <span className="text-micro text-ink-faint">
+                  {entitlementTypeLabel(r.reward_type)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        spec={confirm}
+        busy={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => void confirm?.run()}
+      />
+    </Card>
   );
 }
 
@@ -288,6 +547,7 @@ function RulesSection({ flash }: { flash: Flash }) {
 function LookupSection({ flash }: { flash: Flash }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<LookupCard[]>([]);
+  const [searched, setSearched] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -296,85 +556,116 @@ function LookupSection({ flash }: { flash: Flash }) {
     setDetail(null);
     const { ok, json } = await api(`/api/referral-users?query=${encodeURIComponent(query)}`);
     setBusy(false);
-    if (!ok) return flash(null, errText(json, "Lookup failed"));
+    setSearched(true);
+    if (!ok) return flash(null, errText(json, "تعذّر تنفيذ البحث"));
     setResults((json.results ?? []) as LookupCard[]);
-    if (json.truncated) flash(null, "Email scan did not find a match within the scanned range.");
+    if (json.truncated)
+      flash(null, "لم يُعثر على بريد مطابق ضمن النطاق الذي جرى فحصه. جرّب معرّف المستخدم أو كود الدعوة.");
   }
 
   const openDetail = useCallback(
     async (userId: string) => {
       const { ok, json } = await api(`/api/referral-users/${encodeURIComponent(userId)}`);
-      if (!ok) return flash(null, errText(json, "Failed to load detail"));
+      if (!ok) return flash(null, errText(json, "تعذّر تحميل تفاصيل المستخدم"));
       setDetail(json as Detail);
     },
     [flash],
   );
 
   return (
-    <Section title="User lookup" subtitle="Search by user id, referral code, or auth email. No financial data.">
-      <div className="flex gap-3">
-        <input
-          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          placeholder="user_id · CODE · email@example.com"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void search()}
-        />
-        <button
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          disabled={busy || !query.trim()}
-          onClick={search}
-        >
-          Search
-        </button>
+    <Card>
+      <SectionHeader
+        title="البحث عن مستخدم"
+        description="ابحث بمعرّف المستخدم أو كود الدعوة أو البريد الإلكتروني. لا تُعرض هنا أي بيانات مالية."
+        icon={UserSearch}
+      />
+
+      <div className="flex flex-wrap gap-2.5">
+        <div className="relative min-w-[260px] flex-1">
+          <Search
+            size={15}
+            className="pointer-events-none absolute inset-y-0 start-3 my-auto text-ink-faint"
+          />
+          <input
+            className="ltr w-full rounded-field border border-line bg-surface py-2.5 pe-3 ps-9 text-sm text-ink placeholder:text-ink-faint focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/25"
+            placeholder="user_id · CODE · email@example.com"
+            aria-label="نص البحث"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void search()}
+          />
+        </div>
+        <Button onClick={search} loading={busy} disabled={!query.trim()}>
+          بحث
+        </Button>
       </div>
 
-      <div className="mt-4 space-y-2">
-        {results.map((r) => (
-          <button
-            key={r.user_id}
-            onClick={() => void openDetail(r.user_id)}
-            className="flex w-full flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left text-sm hover:border-brand-500"
-          >
-            <span className="font-mono text-xs text-slate-500">{shortId(r.user_id)}</span>
-            <span className="text-slate-900">{r.code ?? "no code"}</span>
-            {r.active_entitlement && (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">ad-free</span>
-            )}
-            {r.progress.map((p) => (
-              <span key={p.reward_type} className="text-xs text-slate-500">
-                {p.qualified_in_cycle}/cycle {p.cycle_index} (v{p.pinned_rule_version ?? "—"})
-              </span>
+      <div className="mt-4">
+        {!searched ? (
+          <p className="text-sm text-ink-faint">اكتب ما تبحث عنه ثم اضغط «بحث».</p>
+        ) : results.length === 0 ? (
+          <EmptyState
+            icon={UserSearch}
+            title="لا توجد نتائج"
+            description="تأكد من صحة المعرّف أو الكود أو البريد الإلكتروني ثم أعد المحاولة."
+          />
+        ) : (
+          <div className="space-y-2">
+            {results.map((r) => (
+              <button
+                key={r.user_id}
+                onClick={() => void openDetail(r.user_id)}
+                className="flex w-full flex-wrap items-center gap-3 rounded-field border border-hairline bg-surface px-4 py-3 text-start text-sm transition-colors hover:border-brand-300 hover:bg-brand-50"
+              >
+                <span className="ltr rounded bg-muted px-1.5 py-0.5 font-mono text-micro text-ink-soft">
+                  {shortId(r.user_id)}
+                </span>
+                <span className="ltr font-medium text-ink">{r.code ?? "بلا كود"}</span>
+                {r.active_entitlement && <StatusBadge label="بدون إعلانات" tone="success" />}
+                {r.progress.map((p) => (
+                  <span key={p.reward_type} className="tnum text-micro text-ink-faint">
+                    {fmt(p.qualified_in_cycle)} دعوة في الدورة {fmt(p.cycle_index)} (النسخة{" "}
+                    {p.pinned_rule_version ?? "—"})
+                  </span>
+                ))}
+              </button>
             ))}
-          </button>
-        ))}
-        {results.length === 0 && <p className="text-sm text-slate-500">No results.</p>}
+          </div>
+        )}
       </div>
 
-      {detail && <DetailPanel detail={detail} flash={flash} onChanged={() => void openDetail(detail.user_id)} />}
-    </Section>
+      {detail && (
+        <DetailPanel detail={detail} flash={flash} onChanged={() => void openDetail(detail.user_id)} />
+      )}
+    </Card>
   );
 }
 
 function DetailPanel({ detail, flash, onChanged }: { detail: Detail; flash: Flash; onChanged: () => void }) {
   return (
-    <div className="mt-6 space-y-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
-      <div>
-        <h3 className="text-sm font-semibold text-slate-900">
-          {shortId(detail.user_id)} · code {detail.code?.code ?? "—"} ({detail.code?.status ?? "none"})
-        </h3>
+    <div className="mt-6 space-y-6 rounded-card border border-hairline bg-raised/40 p-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <h3 className="text-sm font-semibold text-ink">تفاصيل المستخدم</h3>
+        <CopyId value={detail.user_id} label="معرّف المستخدم" length={12} />
+        <span className="ltr text-sm text-ink-soft">{detail.code?.code ?? "بلا كود"}</span>
+        {detail.code?.status && (
+          <StatusBadge
+            label={detail.code.status === "active" ? "الكود فعّال" : "الكود موقوف"}
+            tone={detail.code.status === "active" ? "success" : "neutral"}
+          />
+        )}
       </div>
 
       {/* current cycle + pinned rule (§6) */}
       <div>
-        <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">Current cycle</h4>
+        <h4 className="mb-2 text-tiny font-semibold tracking-wide text-ink-faint">الدورة الحالية</h4>
         {detail.progress.length === 0 ? (
-          <p className="text-sm text-slate-500">No progress.</p>
+          <p className="text-sm text-ink-faint">لم يبدأ هذا المستخدم أي دورة دعوات بعد.</p>
         ) : (
           detail.progress.map((p) => (
-            <p key={p.reward_type} className="text-sm text-slate-700">
-              {p.qualified_in_cycle} qualified · cycle {p.cycle_index} · pinned rule v
-              {p.pinned_rule_version ?? "—"} · {p.cycle_state}
+            <p key={p.reward_type} className="tnum text-sm text-ink-soft">
+              {fmt(p.qualified_in_cycle)} دعوة مُحتسَبة · الدورة رقم {fmt(p.cycle_index)} · مثبَّتة على
+              النسخة {p.pinned_rule_version ?? "—"} · {cycleStateLabel(p.cycle_state)}
             </p>
           ))
         )}
@@ -382,13 +673,14 @@ function DetailPanel({ detail, flash, onChanged }: { detail: Detail; flash: Flas
 
       {/* current entitlement (§6) */}
       <div>
-        <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">Current entitlement</h4>
+        <h4 className="mb-2 text-tiny font-semibold tracking-wide text-ink-faint">الميزة الحالية</h4>
         {detail.entitlement.length === 0 ? (
-          <p className="text-sm text-slate-500">None.</p>
+          <p className="text-sm text-ink-faint">لا توجد ميزة مفعّلة لهذا المستخدم.</p>
         ) : (
           detail.entitlement.map((e) => (
-            <p key={e.entitlement_type} className="text-sm text-slate-700">
-              {e.entitlement_type} · {e.status} · ends {fmtDate(e.ends_at)}
+            <p key={e.entitlement_type} className="text-sm text-ink-soft">
+              {entitlementTypeLabel(e.entitlement_type)} · {entitlementStatusLabel(e.status)} · تنتهي{" "}
+              {fmtDateLong(e.ends_at)}
             </p>
           ))
         )}
@@ -396,15 +688,18 @@ function DetailPanel({ detail, flash, onChanged }: { detail: Detail; flash: Flas
 
       {/* grant history from the immutable ledger (§6) */}
       <div>
-        <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">Grant history (immutable)</h4>
+        <h4 className="mb-2 text-tiny font-semibold tracking-wide text-ink-faint">
+          سجل المكافآت (لا يُعدَّل)
+        </h4>
         {detail.grants.length === 0 ? (
-          <p className="text-sm text-slate-500">No grants.</p>
+          <p className="text-sm text-ink-faint">لم يحصل هذا المستخدم على أي مكافأة بعد.</p>
         ) : (
-          <div className="space-y-1 text-sm text-slate-700">
+          <div className="tnum space-y-1 text-sm text-ink-soft">
             {detail.grants.map((g) => (
               <p key={g.id}>
-                v{g.rule_version} · cycle {g.cycle_index} · {g.reward_days_granted}d → ends{" "}
-                {fmtDate(g.resulting_ends_at)} · {fmtDate(g.created_at)}
+                النسخة {fmt(g.rule_version)} · الدورة {fmt(g.cycle_index)} ·{" "}
+                {fmt(g.reward_days_granted)} يومًا ← تنتهي {fmtDateLong(g.resulting_ends_at)} · مُنحت
+                في {fmtDateLong(g.created_at)}
               </p>
             ))}
           </div>
@@ -413,27 +708,36 @@ function DetailPanel({ detail, flash, onChanged }: { detail: Detail; flash: Flas
 
       {/* referrals list — short ids only, "deleted user" for de-identified rows (§6) */}
       <div>
-        <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">Referrals made</h4>
+        <h4 className="mb-2 text-tiny font-semibold tracking-wide text-ink-faint">الدعوات التي أرسلها</h4>
         {detail.referrals.length === 0 ? (
-          <p className="text-sm text-slate-500">None.</p>
+          <p className="text-sm text-ink-faint">لا توجد دعوات.</p>
         ) : (
           <div className="space-y-2">
             {detail.referrals.map((r) => (
               <div
                 key={r.id}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                className="flex flex-wrap items-center gap-3 rounded-field border border-hairline bg-surface px-3.5 py-2.5 text-sm"
               >
-                <span className="font-mono text-xs text-slate-500">
+                <span className="ltr rounded bg-muted px-1.5 py-0.5 font-mono text-micro text-ink-soft">
                   {r.referred_user === "deleted user"
-                    ? "deleted user"
+                    ? "حساب محذوف"
                     : r.referred_user
                       ? shortId(r.referred_user)
                       : "—"}
                 </span>
-                <span className="text-slate-500">{r.attribution_method}</span>
-                <StatusBadge status={r.status} />
-                {r.qualified_at && <span className="text-xs text-slate-400">q {fmtDate(r.qualified_at)}</span>}
-                {r.rejection_reason && <span className="text-xs text-red-500">{r.rejection_reason}</span>}
+                <span className="text-ink-soft">{attributionLabel(r.attribution_method)}</span>
+                <StatusBadge
+                  label={referralStatusLabel(r.status)}
+                  tone={referralStatusTone(r.status)}
+                />
+                {r.qualified_at && (
+                  <span className="text-micro text-ink-faint">
+                    احتُسبت {fmtDateLong(r.qualified_at)}
+                  </span>
+                )}
+                {r.rejection_reason && (
+                  <span className="text-micro text-danger">{r.rejection_reason}</span>
+                )}
                 {r.status === "attributed" && (
                   <ReferralAction kind="reject" referralId={r.id} flash={flash} onDone={onChanged} />
                 )}
@@ -453,77 +757,186 @@ function DetailPanel({ detail, flash, onChanged }: { detail: Detail; flash: Flas
 }
 
 // ── manual entitlement / progress / code actions (§7) ────────────────────────
+
+/** What each manual action actually does, in the operator's words. */
+const ACTION_OPTIONS = [
+  { value: "grant", label: "منح ميزة «بدون إعلانات»" },
+  { value: "extend", label: "تمديد مدة الميزة" },
+  { value: "shorten", label: "تقصير مدة الميزة" },
+  { value: "revoke", label: "سحب الميزة" },
+  { value: "adjust_progress", label: "تعديل عدد الدعوات المُحتسَبة" },
+  { value: "rotate_code", label: "تدوير كود الدعوة" },
+];
+
+const ACTION_HINT: Record<string, string> = {
+  grant: "يمنح المستخدم تصدير التقارير بدون ظهور إعلان، لعدد الأيام الذي تحدّده.",
+  extend: "يضيف الأيام المحدّدة إلى نهاية المدة الحالية للميزة.",
+  shorten: "يقصّر نهاية المدة الحالية. الأيام التي استُهلكت فعلًا لا تُسترجع.",
+  revoke: "يوقف الميزة فورًا. المستخدم ستظهر له الإعلانات من جديد.",
+  adjust_progress: "يضبط عدد الدعوات المُحتسَبة في الدورة الحالية على الرقم الذي تكتبه.",
+  rotate_code: "ينشئ كود دعوة جديدًا ويوقف استخدام الكود الحالي. الروابط القديمة تتوقف عن العمل.",
+};
+
 function ManualActions({ userId, flash, onDone }: { userId: string; flash: Flash; onDone: () => void }) {
   const [action, setAction] = useState("grant");
   const [days, setDays] = useState("7");
   const [progress, setProgress] = useState("0");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<ConfirmSpec | null>(null);
+  const intent = useOperationIntent();
 
   const needsDays = action === "grant" || action === "extend" || action === "shorten";
   const isProgress = action === "adjust_progress";
   const isRotate = action === "rotate_code";
 
   async function run() {
-    if (!reason.trim()) return flash(null, "A reason is required.");
     setBusy(true);
-    const operation_id = crypto.randomUUID(); // one intent, reused on retry
+    // Audit H-13: one operation_id per intent, reused on retry. The intent key
+    // includes EVERY field that defines the action, so changing the action,
+    // target, days, progress, or reason begins a new intent (new id) — while a
+    // pure network retry of the unchanged action reuses the id and the server
+    // (referral_admin_claim / apply_entitlement_mutation) no-ops the duplicate.
     let url = "";
-    let body: Record<string, unknown> = { operation_id, reason };
+    let payload: Record<string, unknown> = { reason };
 
     if (action === "grant" || action === "extend") {
       url = `/api/entitlements/${action}`;
-      body = { ...body, user_id: userId, action, duration_days: Number(days) };
+      payload = { ...payload, user_id: userId, action, duration_days: Number(days) };
     } else if (action === "revoke" || action === "shorten") {
       url = "/api/entitlements/revoke";
-      body = { ...body, user_id: userId, action, ...(action === "shorten" ? { duration_days: Number(days) } : {}) };
+      payload = {
+        ...payload,
+        user_id: userId,
+        action,
+        ...(action === "shorten" ? { duration_days: Number(days) } : {}),
+      };
     } else if (isProgress) {
       url = "/api/referral-progress/adjust";
-      body = { ...body, referrer_user_id: userId, reward_type: REWARD_TYPE, qualified_in_cycle: Number(progress) };
+      payload = {
+        ...payload,
+        referrer_user_id: userId,
+        reward_type: REWARD_TYPE,
+        qualified_in_cycle: Number(progress),
+      };
     } else if (isRotate) {
       url = "/api/referral-codes/rotate";
-      body = { ...body, user_id: userId };
+      payload = { ...payload, user_id: userId };
     }
 
-    const { ok, json } = await api(url, {
+    const intentKey = operationIntentKey(action, payload);
+    const operation_id = intent.begin(intentKey);
+    const r = await api(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ operation_id, ...payload }),
     });
     setBusy(false);
-    if (!ok) return flash(null, errText(json, "Action failed"));
-    const dup = json?.result?.duplicate ? " (already applied)" : "";
+    setConfirm(null);
+    if (!outcomeKnown(r)) {
+      return flash(
+        null,
+        "حدثت مشكلة في الاتصال — قد يكون الإجراء طُبِّق وقد لا يكون. أكّد الإجراء نفسه مرة أخرى؛ إعادة المحاولة آمنة ولن تُطبِّقه مرتين.",
+      );
+    }
+    intent.resolved(intentKey, operation_id);
+    if (!r.ok) return flash(null, errText(r.json, "تعذّر تنفيذ الإجراء"));
+    const dup = r.json?.result?.duplicate ? " (كان مطبَّقًا بالفعل)" : "";
     setReason("");
-    flash(`Done: ${action}${dup}.`, null);
+    flash(`تم تنفيذ الإجراء${dup}.`, null);
     onDone();
   }
 
+  function ask() {
+    if (!reason.trim()) return flash(null, "اكتب سبب الإجراء أولًا (4 أحرف على الأقل).");
+    const label = ACTION_OPTIONS.find((a) => a.value === action)?.label ?? action;
+    const destructive = action === "revoke" || action === "shorten" || action === "rotate_code";
+    setConfirm({
+      title: `تأكيد: ${label}`,
+      confirmLabel: "تأكيد الإجراء",
+      tone: destructive ? "danger" : "brand",
+      consequence: (
+        <>
+          {ACTION_HINT[action]}
+          {needsDays && (
+            <>
+              <br />
+              المدة المحدّدة: <strong className="text-ink">{fmt(Number(days))} يومًا</strong>.
+            </>
+          )}
+          {isProgress && (
+            <>
+              <br />
+              العدد الجديد: <strong className="text-ink">{fmt(Number(progress))}</strong>.
+            </>
+          )}
+          <br />
+          <span className="text-tiny">
+            يُسجَّل هذا الإجراء باسمك في سجل العمليات مع السبب الذي كتبته، ولا يمكن حذفه.
+          </span>
+        </>
+      ),
+    });
+  }
+
   return (
-    <div className="rounded-lg border border-slate-300 bg-white p-4">
-      <h4 className="mb-3 text-xs font-semibold uppercase text-slate-500">Manual action</h4>
-      <div className="grid gap-3 md:grid-cols-3">
-        <Select
-          label="Action"
+    <div className="rounded-card border border-line bg-surface p-4">
+      <SectionHeader
+        title="إجراء يدوي"
+        description="تدخّل مباشر على ميزة المستخدم أو على عدّاد دعواته. كل إجراء يحتاج سببًا ويُسجَّل."
+      />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <SelectField
+          label="الإجراء"
           value={action}
-          options={["grant", "extend", "shorten", "revoke", "adjust_progress", "rotate_code"]}
-          onChange={setAction}
+          onChange={(e) => setAction(e.target.value)}
+          options={ACTION_OPTIONS}
+          hint={ACTION_HINT[action]}
         />
-        {needsDays && <Input label="Days" value={days} onChange={setDays} />}
-        {isProgress && <Input label="New qualified_in_cycle" value={progress} onChange={setProgress} />}
+        {needsDays && (
+          <TextField
+            label="عدد الأيام"
+            type="number"
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+          />
+        )}
+        {isProgress && (
+          <TextField
+            label="عدد الدعوات المُحتسَبة الجديد"
+            type="number"
+            value={progress}
+            onChange={(e) => setProgress(e.target.value)}
+          />
+        )}
       </div>
-      <Reason value={reason} onChange={setReason} />
-      <button
-        className="mt-3 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        disabled={busy}
-        onClick={run}
-      >
-        {busy ? "Working…" : `Confirm ${action}`}
-      </button>
+
+      <TextAreaField
+        label="سبب الإجراء"
+        required
+        rows={2}
+        maxLength={500}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        className="mt-4"
+        hint="من 4 إلى 500 حرف. يظهر في سجل العمليات ولا يمكن تعديله لاحقًا."
+      />
+
+      <div className="mt-3">
+        <Button onClick={ask} disabled={busy}>
+          {busy ? "جارٍ التنفيذ…" : "تنفيذ الإجراء"}
+        </Button>
+      </div>
+
       {(action === "revoke" || action === "shorten") && (
-        <p className="mt-2 text-xs text-slate-500">
-          Revoke/shorten is separate from fraud reversal. Consumed ad-free time is never rewritten.
-        </p>
+        <HelpNote tone="warning" className="mt-3">
+          سحب الميزة أو تقصير مدتها إجراء إداري منفصل تمامًا عن إلغاء احتساب دعوة بسبب تلاعب. الوقت
+          الذي استُهلك فعلًا بدون إعلانات لا يُعاد حسابه في الحالتين.
+        </HelpNote>
       )}
+
+      <ConfirmDialog spec={confirm} busy={busy} onCancel={() => setConfirm(null)} onConfirm={run} />
     </div>
   );
 }
@@ -543,22 +956,37 @@ function ReferralAction({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<ConfirmSpec | null>(null);
+  const intent = useOperationIntent();
+
+  const word = kind === "reject" ? "رفض الدعوة" : "إلغاء احتساب الدعوة";
 
   async function run() {
-    if (!reason.trim()) return flash(null, "A reason is required.");
     setBusy(true);
-    const operation_id = crypto.randomUUID();
+    // Audit H-13: one id per reject/reverse intent, reused on retry so a lost
+    // response cannot double-apply and corrupt the audit history.
+    const payload = { referral_id: referralId, reason };
+    const intentKey = operationIntentKey(kind, payload);
+    const operation_id = intent.begin(intentKey);
     const url = kind === "reject" ? "/api/referrals/reject" : "/api/referrals/reverse";
-    const { ok, json } = await api(url, {
+    const r = await api(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ operation_id, referral_id: referralId, reason }),
+      body: JSON.stringify({ operation_id, ...payload }),
     });
     setBusy(false);
-    if (!ok) return flash(null, errText(json, `${kind} failed`));
+    setConfirm(null);
+    if (!outcomeKnown(r)) {
+      return flash(
+        null,
+        `حدثت مشكلة في الاتصال — قد يكون «${word}» طُبِّق وقد لا يكون. أكّد الإجراء نفسه مرة أخرى؛ إعادة المحاولة آمنة.`,
+      );
+    }
+    intent.resolved(intentKey, operation_id);
+    if (!r.ok) return flash(null, errText(r.json, `تعذّر تنفيذ «${word}»`));
     setOpen(false);
     setReason("");
-    flash(`Referral ${kind}d.`, null);
+    flash(`تم تنفيذ «${word}».`, null);
     onDone();
   }
 
@@ -566,32 +994,62 @@ function ReferralAction({
     return (
       <button
         onClick={() => setOpen(true)}
-        className={`rounded-lg border px-2 py-1 text-xs ${
-          kind === "reverse" ? "border-red-200 text-red-600" : "border-amber-200 text-amber-700"
+        className={`rounded-field border px-2.5 py-1 text-micro font-medium transition-colors ${
+          kind === "reverse"
+            ? "border-danger/25 text-danger hover:bg-danger-bg"
+            : "border-warning/30 text-warning hover:bg-warning-bg"
         }`}
       >
-        {kind}
+        {word}
       </button>
     );
   }
+
   return (
-    <div className="flex w-full items-center gap-2">
+    <div className="flex w-full flex-wrap items-center gap-2">
       <input
-        className="flex-1 rounded border border-slate-200 px-2 py-1 text-xs"
-        placeholder={`reason to ${kind}`}
+        className="min-w-[200px] flex-1 rounded-field border border-line bg-surface px-2.5 py-1.5 text-micro text-ink"
+        placeholder={`سبب ${word} (4 أحرف على الأقل)`}
+        aria-label={`سبب ${word}`}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
+        maxLength={500}
       />
-      <button
-        className="rounded bg-brand-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+      <Button
+        size="sm"
+        variant="danger"
         disabled={busy}
-        onClick={run}
+        onClick={() => {
+          if (!reason.trim()) return flash(null, "اكتب السبب أولًا (4 أحرف على الأقل).");
+          setConfirm({
+            title: `تأكيد: ${word}`,
+            confirmLabel: "تأكيد",
+            tone: "danger",
+            consequence:
+              kind === "reject" ? (
+                <>
+                  لن تُحتسب هذه الدعوة ضمن دورة صاحب الكود، ولن تقرّبه من المكافأة.
+                  <br />
+                  <span className="text-tiny">يُسجَّل الإجراء باسمك مع السبب في سجل العمليات.</span>
+                </>
+              ) : (
+                <>
+                  الدعوة كانت مُحتسَبة، وسيُلغى احتسابها وينقص عدّاد دورة صاحب الكود.{" "}
+                  <strong className="text-ink">
+                    المكافأة التي مُنحت سابقًا لا تُسحب تلقائيًا
+                  </strong>{" "}
+                  — استخدم «سحب الميزة» إن لزم ذلك.
+                </>
+              ),
+          });
+        }}
       >
-        confirm
-      </button>
-      <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpen(false)}>
-        cancel
-      </button>
+        تأكيد
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => setOpen(false)}>
+        إلغاء
+      </Button>
+      <ConfirmDialog spec={confirm} busy={busy} onCancel={() => setConfirm(null)} onConfirm={run} />
     </div>
   );
 }
@@ -609,163 +1067,111 @@ function ReportAdsSection({ flash }: { flash: Flash }) {
   }, [flash]);
 
   return (
-    <Section title="Report Ads (diagnostics)" subtitle="Read-only. There is no report_ads_config — nothing here is editable.">
-      <div className="space-y-2 text-sm text-slate-700">
+    <Card>
+      <SectionHeader
+        title="إعلانات التقارير — عرض فقط"
+        description="لا يوجد أي إعداد قابل للتحرير هنا. هذه الشاشة تعرض الحالة الحالية فقط."
+      />
+      <div className="space-y-2.5 text-sm text-ink-soft">
         <p>
-          <span className="font-medium">enable_report_ads:</span>{" "}
+          <span className="font-medium text-ink">حالة الميزة:</span>{" "}
           {flag ? (
             <>
-              {flag.is_active ? "on" : "off"}
-              {flag.rollout_percent != null ? ` · rollout ${flag.rollout_percent}%` : ""} — edit on the Feature
-              Flags screen.
+              {flag.is_active ? "مفعّلة" : "متوقفة"}
+              {flag.rollout_percent != null ? ` · نسبة الإطلاق ${fmt(flag.rollout_percent)}%` : ""} —
+              تُعدَّل من صفحة «إعدادات المزايا».
             </>
           ) : (
-            "unknown"
+            "غير معروفة"
           )}
         </p>
         <p>
-          <span className="font-medium">Effective ad gate:</span> enable_report_ads ∧ valid build config ∧ UMP
-          canRequestAds ∧ entitlement VERIFIED_INACTIVE (fresh) ∧ ad available.
+          <span className="font-medium text-ink">متى يظهر الإعلان فعليًا؟</span> عندما تتحقق كل هذه
+          الشروط معًا: الميزة مفعّلة، وإعدادات النسخة صحيحة، وموافقة المستخدم على الإعلانات قائمة،
+          وميزة «بدون إعلانات» غير سارية له، ويوجد إعلان متاح.
         </p>
-        <p className="text-slate-500">
-          Ad-unit IDs and environment are supplied by build configuration and are never shown or edited here.
-          V1 policy is fail-open: one ad opportunity per export.
+        <p className="text-ink-faint">
+          معرّفات وحدات الإعلان وبيئتها تأتي من إعدادات بناء التطبيق، ولا تُعرض ولا تُعدَّل من هنا.
+          السياسة الحالية: فرصة إعلان واحدة لكل عملية تصدير، وفي حال الفشل يكتمل التصدير بدون إعلان.
         </p>
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Flag flips require catalog sync + app restart — they are not instant. Same-session flag reactivity is
-          required rollout hardening before enable_report_ads = true in production.
-        </p>
+        <HelpNote tone="warning">
+          تغيير حالة الميزة لا يسري فورًا: يحتاج الجهاز إلى مزامنة الكتالوج وإعادة تشغيل التطبيق.
+          تفعيل استجابة الجهاز داخل الجلسة نفسها شرط لازم قبل تشغيل هذه الميزة على المستخدمين
+          الحقيقيين.
+        </HelpNote>
       </div>
-    </Section>
+    </Card>
   );
 }
 
 // ── 8. Audit history (spec §9) — append-only, de-identified ──────────────────
 function AuditSection({ flash }: { flash: Flash }) {
   const [rows, setRows] = useState<AuditRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
   useEffect(() => {
     void (async () => {
       const { ok, json } = await api("/api/referral-audit");
-      if (!ok) return flash(null, errText(json, "Failed to load audit"));
+      setLoading(false);
+      if (!ok) return flash(null, errText(json, "تعذّر تحميل سجل العمليات"));
       setRows((json.audit ?? []) as AuditRow[]);
     })();
   }, [flash]);
 
   return (
-    <Section title="Audit history" subtitle="Append-only. No update or delete. Snapshots are the allowlisted schema.">
-      {rows.length === 0 ? (
-        <p className="text-sm text-slate-500">No audit rows.</p>
+    <Card>
+      <SectionHeader
+        title="سجل العمليات"
+        description="كل إجراء إداري يُضاف إلى هذا السجل ولا يُعدَّل ولا يُحذف. لا يحتوي على بيانات شخصية."
+        icon={History}
+      />
+
+      {loading ? (
+        <LoadingState label="جارٍ تحميل السجل…" />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon={History}
+          title="لا توجد عمليات مسجّلة"
+          description="سيظهر هنا كل إجراء إداري بمجرد تنفيذه."
+        />
       ) : (
         <div className="space-y-2">
           {rows.map((a) => (
-            <div key={a.id} className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm">
+            <div key={a.id} className="rounded-field border border-hairline bg-surface px-4 py-3 text-sm">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="font-semibold text-slate-900">{a.action}</span>
-                <span className="text-xs text-slate-500">{fmtDate(a.created_at)}</span>
-                <span className="font-mono text-xs text-slate-400">
-                  actor {shortId(a.actor_admin_id)} · target {shortId(a.target_user_id)}
-                </span>
+                <span className="font-semibold text-ink">{auditActionLabel(a.action)}</span>
+                <span className="text-micro text-ink-faint">{fmtDateLong(a.created_at)}</span>
+                <span className="text-micro text-ink-faint">المنفِّذ</span>
+                <CopyId value={a.actor_admin_id} label="معرّف المسؤول" />
+                <span className="text-micro text-ink-faint">المستخدم</span>
+                <CopyId value={a.target_user_id} label="معرّف المستخدم" />
               </div>
-              <p className="mt-1 text-slate-600">{a.reason}</p>
+              <p className="mt-1.5 text-ink-soft">{a.reason}</p>
               {(a.before_state || a.after_state) && (
-                <p className="mt-1 font-mono text-xs text-slate-400">
-                  {JSON.stringify(a.before_state)} → {JSON.stringify(a.after_state)}
-                </p>
+                <>
+                  <button
+                    onClick={() => setExpanded(expanded === a.id ? null : a.id)}
+                    className="mt-1.5 text-micro font-medium text-brand-700 hover:text-brand-800"
+                  >
+                    {expanded === a.id ? "إخفاء التفاصيل التقنية" : "عرض التفاصيل التقنية"}
+                  </button>
+                  {expanded === a.id && (
+                    <pre className="ltr mt-2 overflow-x-auto rounded-field bg-muted p-2.5 font-mono text-micro text-ink-soft">
+                      {JSON.stringify(a.before_state)} → {JSON.stringify(a.after_state)}
+                    </pre>
+                  )}
+                </>
               )}
             </div>
           ))}
         </div>
       )}
-    </Section>
+    </Card>
   );
 }
 
 // ── small presentational helpers (local, per admin convention) ───────────────
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-      {subtitle && <p className="mb-4 text-sm text-slate-500">{subtitle}</p>}
-      {children}
-    </section>
-  );
-}
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-      <p className="text-xs uppercase text-slate-500">{label}</p>
-      <p className="text-xl font-semibold text-slate-900">{value}</p>
-    </div>
-  );
-}
-function StatusBadge({ status }: { status: string }) {
-  const color =
-    status === "qualified"
-      ? "bg-emerald-100 text-emerald-700"
-      : status === "rejected" || status === "reversed"
-        ? "bg-red-100 text-red-700"
-        : "bg-slate-100 text-slate-600";
-  return <span className={`rounded-full px-2 py-0.5 text-xs ${color}`}>{status}</span>;
-}
-function Input({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-slate-700">{label}</span>
-      <input
-        className="w-full rounded-lg border border-slate-200 px-3 py-2"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </label>
-  );
-}
-function Select({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-slate-700">{label}</span>
-      <select
-        className="w-full rounded-lg border border-slate-200 px-3 py-2"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-function Reason({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <label className="mt-3 block text-sm">
-      <span className="mb-1 block font-medium text-slate-700">Reason (required, 4–500 chars)</span>
-      <textarea
-        className="w-full rounded-lg border border-slate-200 px-3 py-2"
-        rows={2}
-        value={value}
-        maxLength={500}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </label>
-  );
-}
 function shortId(id: string | null): string {
   return id ? id.slice(0, 8) : "—";
-}
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(0, 10);
 }

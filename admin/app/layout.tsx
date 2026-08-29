@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Mali Admin",
-  description: "Mali — Dynamic Catalog Admin Panel",
+  title: "قِرش — لوحة الإدارة",
+  description: "لوحة إدارة قِرش — المستخدمون، النمو، الكتالوج، وإعدادات النظام.",
+  icons: { icon: "/brand/qirsh-coin.png" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ar" dir="rtl">
       <body>{children}</body>
     </html>
   );
