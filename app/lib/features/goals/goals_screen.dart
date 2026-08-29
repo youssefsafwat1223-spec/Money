@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../common/money_text.dart';
+import '../../domain/finance/goal_pacing.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
@@ -122,6 +124,13 @@ class _GoalCard extends StatelessWidget {
     final percent = (progress * 100).round();
     final remaining =
         (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
+    // UX-025 — exact minor-unit arithmetic; the double above is display-only.
+    final pacing = goalPacing(
+      target: goal.targetMoney,
+      saved: goal.savedMoney,
+      deadline: goal.deadline,
+      now: DateTime.now(),
+    );
     // نفس لغة ويدجت الهدف في الداشبورد (design-system §15.9): كارت هادي +
     // تايل أخضر + كبسولة نسبة + شريط سائل — بدل التدرّج الكحلي القديم.
     final tone = remaining == 0 ? c.success : c.income;
@@ -170,6 +179,50 @@ class _GoalCard extends StatelessWidget {
                             remaining == 0 ? c.success : c.textLight,
                           ),
                         ),
+                        // UX-025 — the date and the rate that make a goal a
+                        // PLAN rather than a number.
+                        //
+                        // `deadline` was already stored, already used to order
+                        // the Home preview, and already printed in the exported
+                        // PDF — and never shown on the screen where the user
+                        // manages the goal. The required monthly contribution
+                        // is derivable from data already present and was never
+                        // shown either.
+                        //
+                        // Subscriptions renders «بعد 3 يوم» and the installment
+                        // card «القسط القادم: بعد 7 يوم»: time-to-target was
+                        // surfaced for obligations and withheld from goals.
+                        if (pacing.requiredPerMonth case final rate?) ...[
+                          const SizedBox(height: 3),
+                          Row(
+                            children: [
+                              Icon(AppLucideIcons.calendarDays,
+                                  size: 12, color: c.textLight),
+                              const SizedBox(width: 3),
+                              Flexible(
+                                child: Text(
+                                  _goalDeadlineLabel(pacing.daysRemaining),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.caption(c.textLight),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text('·',
+                                  style: AppTypography.caption(c.textLight)),
+                              const SizedBox(width: 6),
+                              MoneyText(rate,
+                                  style: AppTypography.caption(c.income)),
+                              const SizedBox(width: 3),
+                              Text('/شهر',
+                                  style: AppTypography.caption(c.textLight)),
+                            ],
+                          ),
+                        ] else if (pacing.isOverdue) ...[
+                          const SizedBox(height: 3),
+                          Text('تجاوز الموعد المستهدف',
+                              style: AppTypography.caption(c.warning)),
+                        ],
                       ],
                     ),
                   ),
@@ -287,4 +340,17 @@ class _EmptyGoalsCard extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// UX-025 — time to target, in the same voice Subscriptions already uses
+/// («بعد 3 يوم»), so the two surfaces read as one product.
+String _goalDeadlineLabel(int days) {
+  if (days == 0) return 'الموعد اليوم';
+  if (days == 1) return 'باقي يوم';
+  if (days == 2) return 'باقي يومان';
+  if (days < 11) return 'باقي $days أيام';
+  if (days < 60) return 'باقي $days يوم';
+  final months = (days / 30).round();
+  return months == 1 ? 'باقي شهر' : 'باقي $months شهر';
 }

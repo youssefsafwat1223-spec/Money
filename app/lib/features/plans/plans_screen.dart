@@ -121,10 +121,35 @@ class _PlanCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(plan.name,
-                        style: AppTypography.bodyStrong(c.textMain),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(plan.name,
+                              style: AppTypography.bodyStrong(c.textMain),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        // UX-006 — a closed plan sat in the main list looking
+                        // identical to an active one. Whether closed plans
+                        // belong in a separate tab is a product call the QA
+                        // left open; labelling them is not, and it is what
+                        // makes the list readable either way.
+                        if (plan.status == PlanStatus.closed) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: c.textLight.withValues(alpha: 0.14),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                            ),
+                            child: Text('منتهية',
+                                style: AppTypography.caption(c.textSecondary)),
+                          ),
+                        ],
+                      ],
+                    ),
                     Text(
                       '${Formatters.fullDate(plan.startDate, context)} - ${Formatters.fullDate(plan.endDate, context)}',
                       style: AppTypography.caption(c.textLight),
@@ -132,10 +157,34 @@ class _PlanCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'حذف',
-                icon: Icon(AppLucideIcons.trash2, color: c.textLight, size: 20),
-                onPressed: () => _confirmDelete(context, ref),
+              // UX-027 — delete was the ONLY control on the card, so the most
+              // prominent affordance was the most destructive one. Worse, the
+              // list also shows CLOSED plans (UX-006) that a user would
+              // reasonably want to tidy away — and permanent deletion was the
+              // only tool offered for that.
+              //
+              // Same family as F-017 (Admin confirmed deleting a draft but not
+              // publishing a force-update): the destructive action is the
+              // easiest one to reach. Edit now leads; delete is one level in and
+              // still confirmed.
+              PopupMenuButton<String>(
+                tooltip: 'خيارات الخطة',
+                icon: Icon(AppLucideIcons.moreVertical,
+                    color: c.textLight, size: 20),
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    PlanFormSheet.show(context, existing: plan);
+                  } else if (value == 'delete') {
+                    _confirmDelete(context, ref);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'edit', child: Text('تعديل')),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text('حذف', style: TextStyle(color: c.danger)),
+                  ),
+                ],
               ),
             ],
           ),
