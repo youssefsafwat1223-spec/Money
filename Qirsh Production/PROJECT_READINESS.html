@@ -1,0 +1,739 @@
+<!--
+  QIRSH — PRODUCTION READINESS DASHBOARD
+  ======================================
+  This file is a STATUS SNAPSHOT, not the execution guide.
+
+  * The authoritative step-by-step instructions live in
+    QIRSH_PRODUCTION_RELEASE_RUNBOOK.md. This page links to it; it never
+    replaces it.
+  * Update this file whenever a runbook milestone changes state. A stale
+    dashboard is worse than no dashboard, because it is believed.
+  * NEVER insert a secret value here — not a key, not a token, not a
+    connection string. Names and statuses only.
+  * Every status must be backed by repository evidence. "The code exists" is
+    not the same as "it is verified live", and the two are tracked separately
+    throughout.
+
+  Generated: 2026-08-30 · Certified HEAD: d24e2ed0607aa736e8f68b5c9f069ffb98c2925b
+  Self-contained: no external CSS, JS, fonts or images. Opens by double-click.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qirsh — Production Readiness</title>
+
+<style>
+  :root {
+    --bg:#0a0d14; --panel:#121724; --panel-2:#0f1420; --line:#1e2637;
+    --ink:#e8ecf5; --muted:#8b97ad; --faint:#5d6880;
+    --brand:#4d7cff; --brand-dim:#2a4a9e;
+    --green:#2fbf71; --amber:#e0a33a; --red:#e5484d;
+    --blue:#3e8fd8; --purple:#9a6ce8; --gray:#6b7688;
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f5f7fb; --panel:#ffffff; --panel-2:#fafbfe; --line:#e2e7f0;
+      --ink:#111726; --muted:#5a6478; --faint:#8a94a8;
+      --brand:#021B79; --brand-dim:#4667c4;
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-text-size-adjust:100%; padding:0 0 5rem;
+  }
+  .wrap { max-width:1180px; margin:0 auto; padding:0 1.1rem; }
+
+  /* ── header ─────────────────────────────────────────────── */
+  header { padding:2.6rem 0 1.4rem; }
+  .brand { display:flex; align-items:center; gap:.7rem; margin-bottom:.35rem; }
+  .coin {
+    width:34px; height:34px; border-radius:50%; flex:none;
+    background:linear-gradient(145deg,#c9a227,#8a6d12);
+    display:grid; place-items:center; color:#fff; font-weight:700; font-size:15px;
+  }
+  h1 { font-size:1.65rem; margin:0; letter-spacing:-.02em; }
+  .sub { color:var(--muted); font-size:.92rem; margin-top:.15rem; }
+  .snapshot-note {
+    margin-top:1rem; padding:.6rem .85rem; border-radius:9px;
+    background:rgba(224,163,58,.1); border:1px solid rgba(224,163,58,.32);
+    color:var(--amber); font-size:.83rem;
+  }
+
+  /* ── hero ───────────────────────────────────────────────── */
+  .hero {
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:1.5rem; margin:1.2rem 0 1.6rem;
+  }
+  .hero-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1.1rem; }
+  .stat-label { font-size:.7rem; letter-spacing:.09em; text-transform:uppercase; color:var(--faint); margin-bottom:.35rem; }
+  .stat-value { font-size:1.02rem; font-weight:600; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.8rem; word-break:break-all; }
+
+  .next {
+    margin-top:1.4rem; padding:1.15rem 1.25rem; border-radius:11px;
+    background:linear-gradient(135deg,rgba(77,124,255,.14),rgba(77,124,255,.04));
+    border:1px solid rgba(77,124,255,.4);
+  }
+  .next h3 { margin:0 0 .5rem; font-size:.72rem; letter-spacing:.11em; text-transform:uppercase; color:var(--brand); }
+  .next .headline { font-size:1.12rem; font-weight:650; margin-bottom:.5rem; line-height:1.4; }
+  .next dl { display:grid; grid-template-columns:auto 1fr; gap:.28rem .85rem; margin:.7rem 0 0; font-size:.88rem; }
+  .next dt { color:var(--faint); white-space:nowrap; }
+  .next dd { margin:0; color:var(--muted); }
+
+  /* ── progress ───────────────────────────────────────────── */
+  .bar { height:7px; border-radius:4px; background:var(--line); overflow:hidden; margin:.55rem 0 .4rem; }
+  .bar > i { display:block; height:100%; background:linear-gradient(90deg,var(--green),#4d7cff); }
+  .bar-note { font-size:.78rem; color:var(--faint); }
+
+  /* ── legend ─────────────────────────────────────────────── */
+  .legend { display:flex; flex-wrap:wrap; gap:.45rem; margin:1.3rem 0 .4rem; }
+
+  /* ── badges ─────────────────────────────────────────────── */
+  .b {
+    display:inline-flex; align-items:center; gap:.35rem; white-space:nowrap;
+    padding:.16rem .55rem; border-radius:20px; font-size:.72rem; font-weight:600;
+    border:1px solid transparent;
+  }
+  .b::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .b-done   { color:var(--green);  background:rgba(47,191,113,.12); border-color:rgba(47,191,113,.3); }
+  .b-wait   { color:var(--amber);  background:rgba(224,163,58,.12); border-color:rgba(224,163,58,.3); }
+  .b-block  { color:var(--red);    background:rgba(229,72,77,.12);  border-color:rgba(229,72,77,.32); }
+  .b-owner  { color:var(--blue);   background:rgba(62,143,216,.12); border-color:rgba(62,143,216,.3); }
+  .b-claude { color:var(--purple); background:rgba(154,108,232,.12);border-color:rgba(154,108,232,.3); }
+  .b-opt    { color:var(--gray);   background:rgba(107,118,136,.12);border-color:rgba(107,118,136,.3); }
+
+  /* ── sections & cards ───────────────────────────────────── */
+  h2 {
+    font-size:.75rem; letter-spacing:.12em; text-transform:uppercase; color:var(--faint);
+    margin:2.4rem 0 .85rem; padding-bottom:.5rem; border-bottom:1px solid var(--line);
+  }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:1rem; }
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:1.15rem 1.25rem;
+  }
+  .card.blocker { border-color:rgba(229,72,77,.4); background:rgba(229,72,77,.05); }
+  .card.ok      { border-color:rgba(47,191,113,.3); }
+  .card h3 { margin:0 0 .2rem; font-size:1rem; display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+  .card .ref { font-size:.75rem; color:var(--faint); margin-bottom:.8rem; }
+  .card .ref a { color:var(--brand); text-decoration:none; }
+  .card .ref a:hover { text-decoration:underline; }
+
+  ul.items { list-style:none; margin:0; padding:0; }
+  ul.items li {
+    display:flex; align-items:flex-start; gap:.6rem;
+    padding:.42rem 0; border-bottom:1px solid var(--line); font-size:.88rem;
+  }
+  ul.items li:last-child { border-bottom:0; }
+  ul.items .t { flex:1; min-width:0; }
+  ul.items .n { display:block; color:var(--faint); font-size:.78rem; margin-top:.12rem; }
+
+  /* ── pipeline ───────────────────────────────────────────── */
+  .pipe { display:flex; flex-wrap:wrap; gap:.5rem; align-items:stretch; margin-top:.4rem; }
+  .step {
+    flex:1 1 130px; padding:.7rem .75rem; border-radius:10px;
+    border:1px solid var(--line); background:var(--panel-2); position:relative;
+  }
+  .step.done { border-color:rgba(47,191,113,.45); background:rgba(47,191,113,.08); }
+  .step.now  { border-color:rgba(224,163,58,.5);  background:rgba(224,163,58,.08); }
+  .step .k { font-size:.68rem; letter-spacing:.07em; text-transform:uppercase; color:var(--faint); }
+  .step .v { font-size:.85rem; font-weight:600; margin-top:.2rem; }
+
+  /* ── tables ─────────────────────────────────────────────── */
+  .tw { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.85rem; }
+  th, td { text-align:start; padding:.5rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--faint); font-weight:600; font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
+
+  /* ── details ────────────────────────────────────────────── */
+  details {
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:1rem 1.25rem; margin-top:1rem;
+  }
+  summary { cursor:pointer; font-weight:600; font-size:.92rem; }
+  summary::marker { color:var(--brand); }
+  details .body { margin-top:.9rem; }
+
+  footer { margin-top:2.6rem; padding-top:1.2rem; border-top:1px solid var(--line); color:var(--faint); font-size:.82rem; }
+  a { color:var(--brand); }
+  code { background:var(--panel-2); border:1px solid var(--line); padding:.08em .35em; border-radius:5px; font-size:.86em; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="brand">
+    <div class="coin">ق</div>
+    <h1>Qirsh — Production Readiness</h1>
+  </div>
+  <div class="sub">Status snapshot · generated 2026-08-30</div>
+  <div class="snapshot-note">
+    <strong>Status snapshot.</strong> Verify against the Master Runbook before any
+    destructive or production action. This page shows <em>where things stand</em>;
+    <a href="QIRSH_PRODUCTION_RELEASE_RUNBOOK.md">QIRSH_PRODUCTION_RELEASE_RUNBOOK.md</a>
+    is the authority on <em>how to do them</em>.
+  </div>
+</header>
+
+<!-- ══ HERO ══════════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-grid">
+    <div>
+      <div class="stat-label">Current status</div>
+      <div class="stat-value">
+        SOURCE READY · <span style="color:var(--amber)">BACKEND PENDING</span>
+      </div>
+      <div class="bar-note" style="margin-top:.3rem">Device QA pending · Store release pending</div>
+    </div>
+    <div>
+      <div class="stat-label">Latest certified HEAD</div>
+      <div class="stat-value mono">d24e2ed0607aa736e8f68b5c9f069ffb98c2925b</div>
+    </div>
+    <div>
+      <div class="stat-label">Last verified baseline</div>
+      <div class="stat-value" style="color:var(--green)">12/12 gates · ALL PASSED</div>
+      <div class="bar-note" style="margin-top:.3rem">Strict mode, pristine tree, first attempt</div>
+    </div>
+    <div>
+      <div class="stat-label">Release milestones</div>
+      <div class="stat-value">2 of 14 complete</div>
+      <div class="bar"><i style="width:14.3%"></i></div>
+      <div class="bar-note">
+        Counted from the 14 milestones in the runbook — see
+        <a href="#milestones">the list</a>. Not a guess.
+      </div>
+    </div>
+  </div>
+
+  <div class="next">
+    <h3>▶ Next recommended action</h3>
+    <div class="headline">Create the new Supabase production project</div>
+    <dl>
+      <dt>Who</dt>          <dd><span class="b b-owner">OWNER ACTION</span> <span class="b b-opt">EXTERNAL CONSOLE</span> — only you can do this</dd>
+      <dt>Why now</dt>      <dd>Everything backend-shaped waits on it, and it gates the longest chain: secrets → migrations → functions → capability proof.</dd>
+      <dt>Where</dt>        <dd>supabase.com/dashboard → New project</dd>
+      <dt>Done when</dt>    <dd>Project is Active and you have recorded the Project Ref, URL, anon key, service_role key and DB password.</dd>
+      <dt>Unlocks</dt>      <dd>Claude can then set secrets, apply migrations 0001–0091, and deploy 24 Edge Functions — all with your explicit authorisation.</dd>
+      <dt>Steps</dt>        <dd><a href="QIRSH_PRODUCTION_RELEASE_RUNBOOK.md">Runbook §2.1</a></dd>
+    </dl>
+    <div style="margin-top:1rem; padding-top:.85rem; border-top:1px solid rgba(77,124,255,.28)">
+      <div class="stat-label" style="color:var(--brand)">Can run in parallel — no dependency on Supabase</div>
+      <ul class="items" style="margin-top:.35rem">
+        <li><span class="b b-owner">OWNER</span><span class="t">Apple Developer setup — App IDs, capabilities, APNs key <span class="n">Runbook §5 · the long pole for iOS</span></span></li>
+        <li><span class="b b-owner">OWNER</span><span class="t">Generate the Android production keystore <span class="n">Runbook §6 · 10 minutes, and irreversible if lost</span></span></li>
+        <li><span class="b b-owner">OWNER</span><span class="t">Host the legal site (any free HTTPS static host) <span class="n">Runbook §1.3 · artifacts already built</span></span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══ LEGEND ════════════════════════════════════════════════ -->
+<h2>Status legend</h2>
+<div class="legend">
+  <span class="b b-done">COMPLETE</span>
+  <span class="b b-wait">TODO / WAITING</span>
+  <span class="b b-block">BLOCKER</span>
+  <span class="b b-owner">OWNER ACTION</span>
+  <span class="b b-claude">CLAUDE ACTION</span>
+  <span class="b b-opt">OPTIONAL</span>
+</div>
+<div class="tw" style="margin-top:.7rem">
+  <table>
+    <tr><th>Label</th><th>Meaning</th></tr>
+    <tr><td><span class="b b-done">COMPLETE</span></td><td>Done <em>and verified at the level claimed</em>. Never means "the code exists".</td></tr>
+    <tr><td><span class="b b-wait">TODO</span></td><td>Not started, or waiting on a prerequisite.</td></tr>
+    <tr><td><span class="b b-block">BLOCKER</span></td><td>Production cannot proceed until resolved.</td></tr>
+    <tr><td><span class="b b-owner">OWNER ACTION</span></td><td>Needs Youssef — an account, a card, a device, or a decision.</td></tr>
+    <tr><td><span class="b b-claude">CLAUDE ACTION</span></td><td>Claude can perform it.</td></tr>
+    <tr><td><span class="b b-claude">AUTH REQUIRED</span></td><td>Claude can perform it <em>only after explicit production authorisation</em>.</td></tr>
+    <tr><td><span class="b b-owner">DEVICE</span></td><td>Needs a real phone. A simulator is not evidence.</td></tr>
+    <tr><td><span class="b b-opt">EXTERNAL CONSOLE</span></td><td>Apple, Google, or Supabase dashboard.</td></tr>
+    <tr><td><span class="b b-opt">OPTIONAL</span></td><td>Can ship without it.</td></tr>
+  </table>
+</div>
+
+<!-- ══ SOURCE ════════════════════════════════════════════════ -->
+<h2>Source &amp; local — do not repeat this work</h2>
+<div class="cards">
+
+  <div class="card ok">
+    <h3>Audit &amp; remediation <span class="b b-done">COMPLETE</span></h3>
+    <div class="ref">Detail: <a href="01_Current_Status/completed_source_local_work.md">01_Current_Status/completed_source_local_work.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Full source/local audit and remediation<span class="n">Phases 0–9, closed locally</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Exact-money architecture — integer minor units<span class="n">money.dart · currency_scale.dart · money_format.dart</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Planning money conversion, schema v29 → v31</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Consent enforcement, fail-closed<span class="n">Egress inventory: 12 gated · 1 exempt · 0 open</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">SQLCipher, fail-closed on missing extension<span class="n">Key in the platform keychain</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Backup / restore overhaul + portability</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Guarded tombstones, CAS conflict typing<span class="n">Live 2-client gate · zero PGRST116</span></span></li>
+    </ul>
+  </div>
+
+  <div class="card ok">
+    <h3>Phase J — UI/UX <span class="b b-done">COMPLETE</span></h3>
+    <div class="ref">Detail: <a href="../docs/audit/QIRSH_PHASE_J_UIUX_CLOSURE.md">docs/audit/QIRSH_PHASE_J_UIUX_CLOSURE.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t"><strong>39 / 39 findings closed</strong><span class="n">37 UX findings + R-8 + R-8a</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">10 further findings discovered and fixed<span class="n">Including 2 places the QA backlog's own index contradicted its finding text</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Authoritative QA source now tracked<span class="n">docs/qa/phase_j_source/ — it previously existed only in an untracked folder</span></span></li>
+      <li><span class="b b-wait">1 residual</span><span class="t">UX-035 needs device verification<span class="n">Exactness fixed; legibility floor added; original repro never captured</span></span></li>
+    </ul>
+  </div>
+
+  <div class="card ok">
+    <h3>Backend source <span class="b b-done">READY LOCALLY</span></h3>
+    <div class="ref">Detail: <a href="02_Supabase/migrations.md">02_Supabase/migrations.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Migrations <code>0001</code>–<code>0091</code><span class="n">No gaps, no duplicates, 41 SECURITY DEFINER functions locked down</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Fresh-database dry-run: <strong>91/91 apply in filename order</strong><span class="n">Disposable postgres:17, <code>--network none</code></span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Rollback coverage for 0084–0091<span class="n">Lint-enforced from floor 0084; verified to fail when a file is removed</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Roll-back → fix → roll-forward proven</span></li>
+      <li><span class="b b-done">✓</span><span class="t">24 Edge Functions — source + tests pass<span class="n">Both workers fail closed on a missing secret</span></span></li>
+    </ul>
+  </div>
+
+  <div class="card ok">
+    <h3>Release baseline <span class="b b-done">CERTIFIED</span></h3>
+    <div class="ref">Detail: <a href="01_Current_Status/current_release_status.md">01_Current_Status/current_release_status.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Strict gate 12/12, 0 failed<span class="n">REQUIRE_ALL_GATES=1 · REQUIRE_PRISTINE_TREE=1</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Flutter 2,855 bulk + 24 crypto (serialized)</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Admin 113/113 · Deno all 24 functions</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Tracked diff vs HEAD: <strong>0</strong></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Legal static site generator + IBM Plex OFL<span class="n">Licence assembled from the font binary's own metadata</span></span></li>
+    </ul>
+  </div>
+
+</div>
+
+<!-- ══ BLOCKERS ══════════════════════════════════════════════ -->
+<h2>Current blockers</h2>
+<div class="cards">
+  <div class="card blocker">
+    <h3>Release blockers <span class="b b-block">4</span></h3>
+    <div class="ref">These genuinely stop production. Nothing else does.</div>
+    <ul class="items">
+      <li><span class="b b-block">1</span><span class="t">No production Supabase project exists<span class="n">Blocks all backend work · Runbook §2.1</span></span></li>
+      <li><span class="b b-block">2</span><span class="t">Legal site not publicly hosted<span class="n">Both stores require a reachable privacy URL · artifacts ready, hosting pending</span></span></li>
+      <li><span class="b b-block">3</span><span class="t">No Android production keystore<span class="n">No signed AAB without it · irreplaceable once the app ships</span></span></li>
+      <li><span class="b b-block">4</span><span class="t">Apple configuration incomplete<span class="n">App IDs, capabilities, APNs key, profiles · Runbook §5</span></span></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Optional — can ship without <span class="b b-opt">NOT BLOCKING</span></h3>
+    <div class="ref">Deliberately not treated as blockers.</div>
+    <ul class="items">
+      <li><span class="b b-opt">OPT</span><span class="t">Gemini AI fallback (<code>GEMINI_API_KEY</code>)<span class="n">Absent key ⇒ local classifier and deterministic parser continue normally</span></span></li>
+      <li><span class="b b-opt">OPT</span><span class="t">Merchant enrichment (<code>GOOGLE_MAPS_API_KEY</code>)<span class="n">Soft-degrades to local heuristics by design</span></span></li>
+      <li><span class="b b-opt">OPT</span><span class="t">AdMob production IDs<span class="n">Absent ⇒ warns and ships with ads off; malformed fails the build</span></span></li>
+      <li><span class="b b-opt">OPT</span><span class="t">Sentry (<code>SENTRY_DSN</code>)<span class="n">Absent ⇒ reporting disabled, no crash</span></span></li>
+      <li><span class="b b-opt">OPT</span><span class="t">Cloud financial sync (exactPush / exactPull)<span class="n">Off by design; the app is fully functional locally. Activation is a post-beta decision</span></span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ SUPABASE ══════════════════════════════════════════════ -->
+<h2>Supabase backend</h2>
+<div class="cards">
+  <div class="card ok">
+    <h3>Ready locally <span class="b b-done">COMPLETE</span></h3>
+    <div class="ref">Detail: <a href="02_Supabase/">02_Supabase/</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">91 migrations, dry-run proven on a fresh DB</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Rollback files for every migration from 0084</span></li>
+      <li><span class="b b-done">✓</span><span class="t">24 Edge Functions, tests and lint pass</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Secrets inventory traced from actual usage</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Exact production execution order documented</span></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Required for production <span class="b b-wait">PENDING</span></h3>
+    <div class="ref">Detail: <a href="02_Supabase/new_project_bootstrap.md">02_Supabase/new_project_bootstrap.md</a></div>
+    <ul class="items">
+      <li><span class="b b-owner">OWNER</span><span class="t"><strong>Create the new production project</strong><span class="n">◀ current next action</span></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Record Project Ref, URL, anon + service_role keys, DB password</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Link the CLI and <em>verify the target ref</em></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Enable pgcrypto, pg_cron, pg_net · create the private <code>backups</code> bucket</span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Configure Apple + Google providers<span class="n">Google needs "skip nonce checks" ON, or device sign-in fails</span></span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Set Edge secrets, apply 0001–0091, deploy 24 functions</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Backend verification sweep</span></li>
+    </ul>
+  </div>
+
+  <div class="card blocker">
+    <h3>⚠ Wrong-project hazard <span class="b b-block">READ FIRST</span></h3>
+    <div class="ref">Runbook §0.1</div>
+    <p style="margin:.2rem 0 .6rem; font-size:.88rem; color:var(--muted)">
+      <code>supabase/.temp/project-ref</code> currently points at
+      <code>bdhqjijscwdzqwqanygv</code> ("Nbjg") — <strong>neither production nor
+      staging</strong>. It is gitignored, so it is local state, not a repo leak.
+      But any <code>db push</code> or <code>functions deploy</code> run today
+      lands there <strong>and looks like it worked</strong>.
+    </p>
+    <p style="margin:0; font-size:.88rem; color:var(--muted)">
+      Before every remote command: <code>cat supabase/.temp/project-ref</code> and
+      confirm it matches the intended production ref. A mismatch is a full stop.
+    </p>
+  </div>
+</div>
+
+<!-- ══ CAPABILITIES ══════════════════════════════════════════ -->
+<h2>Cloud sync &amp; capabilities</h2>
+<div class="card">
+  <h3>Activation sequence <span class="b b-wait">STAGE 1 OF 7</span></h3>
+  <div class="ref">Detail: <a href="07_Cloud_Capabilities/capability_model.md">07_Cloud_Capabilities/capability_model.md</a></div>
+  <div class="pipe">
+    <div class="step now">   <div class="k">Stage 1</div><div class="v">Backend ready</div><div class="k" style="margin-top:.3rem">pending</div></div>
+    <div class="step">       <div class="k">Stage 2</div><div class="v">PUSH proof</div><div class="k" style="margin-top:.3rem">not started</div></div>
+    <div class="step">       <div class="k">Stage 3</div><div class="v">exactPush ON</div><div class="k" style="margin-top:.3rem">not started</div></div>
+    <div class="step">       <div class="k">Stage 4</div><div class="v">PUSH verified</div><div class="k" style="margin-top:.3rem">not started</div></div>
+    <div class="step">       <div class="k">Stage 5</div><div class="v">PULL proof</div><div class="k" style="margin-top:.3rem">not started</div></div>
+    <div class="step">       <div class="k">Stage 6</div><div class="v">exactPull ON</div><div class="k" style="margin-top:.3rem">not started</div></div>
+    <div class="step">       <div class="k">Stage 7</div><div class="v">PULL verified</div><div class="k" style="margin-top:.3rem">not started</div></div>
+  </div>
+
+  <div style="margin-top:1.1rem" class="tw">
+    <table>
+      <tr><th>Gate</th><th>Code</th><th>Live proof</th><th>Ships as</th></tr>
+      <tr><td><code>exactPushTransportCapability</code></td><td><span class="b b-done">READY</span></td><td><span class="b b-wait">NOT PROVEN</span></td><td><code>unknown</code></td></tr>
+      <tr><td><code>exactPullTransportCapability</code></td><td><span class="b b-done">READY</span></td><td><span class="b b-wait">NOT PROVEN</span></td><td><code>unknown</code></td></tr>
+      <tr><td><code>planningServerCurrencyCapability</code></td><td><span class="b b-done">READY</span></td><td><span class="b b-wait">NOT PROVEN</span></td><td><code>unknown</code></td></tr>
+      <tr><td><code>kServerRevisionCas</code></td><td><span class="b b-done">READY</span></td><td><span class="b b-wait">NOT ACTIVATED</span></td><td><code>false</code></td></tr>
+    </table>
+  </div>
+
+  <div class="snapshot-note" style="margin-top:1rem">
+    <strong>Code readiness is not live proof.</strong> All four ship disabled by
+    design — financial cloud sync is off. Authority is positive-proof only: both
+    <code>unknown</code> and <code>unsupported</code> block.
+    <br><br>
+    <strong>Activation is a code change, not a toggle.</strong> The providers are
+    hardcoded and not wired to <code>FeatureFlagService</code>, so no dashboard
+    switch can enable them — which is why the <em>fast kill switch is the feature
+    flags</em>, not the capabilities.
+    <br><br>
+    Live capability proof should <strong>not</strong> block unrelated release
+    preparation. Apple, Android, legal and device QA all proceed independently.
+  </div>
+</div>
+
+<!-- ══ AI ════════════════════════════════════════════════════ -->
+<h2>AI architecture</h2>
+<div class="cards">
+  <div class="card ok">
+    <h3>Primary — on-device classifier <span class="b b-done">SHIPPING</span></h3>
+    <div class="ref">Detail: <a href="03_AI/local_classifier.md">03_AI/local_classifier.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Pure Dart TF-IDF char n-gram, on device<span class="n">Trained on the ~330-pair merchant catalog already shipped</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t"><strong>Zero per-request cost</strong> · no network · no model asset<span class="n">Sub-millisecond, no native dependency</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Abstains below a confidence floor<span class="n">Precision when it speaks, not coverage</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Write fence: category + display name only<span class="n">Never amount, currency, direction, account, card or any _minor field</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">No key, no network, no consent required<span class="n">This is the normal path</span></span></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Optional — Gemini fallback <span class="b b-opt">WIRED · NOT REQUIRED</span></h3>
+    <div class="ref">Detail: <a href="03_AI/gemini_optional_fallback.md">03_AI/gemini_optional_fallback.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Implemented and gated — <em>not</em> pending work<span class="n">SupabaseAiParserClient → parse-sms Edge Function</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Key is <strong>server-side only</strong><span class="n">The app never holds a Gemini key</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Double-gated: AI consent + EgressClass.aiProcessing<span class="n">Fails closed with <code>ai_consent_off</code></span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Invoked only when the deterministic parser cannot resolve</span></li>
+      <li><span class="b b-done">✓</span><span class="t">No financial authority — ever<span class="n">Deterministic parser stays authoritative for money</span></span></li>
+      <li><span class="b b-opt">OPT</span><span class="t"><code>GEMINI_API_KEY</code> not required to ship<span class="n">Absent ⇒ <code>upstream_unavailable</code>; local operation continues. Disable with <code>supabase secrets unset</code></span></span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ LEGAL ═════════════════════════════════════════════════ -->
+<h2>Legal</h2>
+<div class="cards">
+  <div class="card ok">
+    <h3>Prepared locally <span class="b b-done">COMPLETE</span></h3>
+    <div class="ref">Detail: <a href="04_Legal/hosting_instructions.md">04_Legal/hosting_instructions.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Privacy Policy written<span class="n">docs/legal/PRIVACY_POLICY.md · fact-checked against code by test</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Terms of Use written<span class="n">docs/legal/TERMS.md</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Static site generator, dependency-free<span class="n">tools/build_legal_site.py → /privacy and /terms</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t"><code>LEGAL_BASE_URL</code> wired into all 3 CI workflows<span class="n">Plus the empty-define trap fixed in Dart</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Live hosting <span class="b b-block">BLOCKER</span></h3>
+    <div class="ref">Runbook §1.3 — a paid domain is <em>not</em> required</div>
+    <ul class="items">
+      <li><span class="b b-owner">OWNER</span><span class="t">Publish <code>build/legal/</code> to any HTTPS static host<span class="n">Cloudflare Pages, Netlify Drop or GitHub Pages — all free</span></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t"><code>/privacy</code> and <code>/terms</code> return 200</span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Build with <code>--dart-define=LEGAL_BASE_URL=…</code></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Verify both links from inside the installed app</span></li>
+      <li><span class="b b-claude">CLAUDE</span><span class="t">Remove the placeholder assertion once live<span class="n">The test is written to fail as good news</span></span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ APPLE / ANDROID ═══════════════════════════════════════ -->
+<h2>Apple</h2>
+<div class="cards">
+  <div class="card ok">
+    <h3>In the repository <span class="b b-done">COMPLETE</span></h3>
+    <div class="ref">Detail: <a href="05_Apple/signing.md">05_Apple/signing.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">iOS implementation, bundle <code>com.youssefsafwat.mali</code></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Share extension + Shortcuts extension</span></li>
+      <li><span class="b b-done">✓</span><span class="t">Entitlements: App Group, Sign in with Apple, aps-environment<span class="n">Keychain groups ordered correctly — app's own group first</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Purpose strings in Arabic; no location permission</span></li>
+      <li><span class="b b-done">✓</span><span class="t"><code>ITSAppUsesNonExemptEncryption = false</code><span class="n">Confirm against Apple's current criteria before submitting — it is a legal declaration</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>External console <span class="b b-wait">PENDING</span></h3>
+    <div class="ref">Detail: <a href="05_Apple/apple_developer.md">05_Apple/apple_developer.md</a> · <a href="05_Apple/apns.md">apns.md</a></div>
+    <ul class="items">
+      <li><span class="b b-owner">OWNER</span><span class="t">Developer Program membership → Team ID</span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Three App IDs — app + both extensions<span class="n">A missing extension profile fails the signed build late</span></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">App Group + capabilities enabled</span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">APNs auth key (.p8) → Key ID<span class="n">Downloadable exactly once</span></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Services ID for Sign in with Apple<span class="n">Return URL needs the new Supabase ref</span></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Distribution certificate + 3 profiles</span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">App Store Connect record · TestFlight · submission</span></li>
+    </ul>
+  </div>
+</div>
+
+<h2>Android</h2>
+<div class="cards">
+  <div class="card ok">
+    <h3>In the repository <span class="b b-done">COMPLETE</span></h3>
+    <div class="ref">Detail: <a href="06_Android/signing_keystore.md">06_Android/signing_keystore.md</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Package <code>com.youssefsafwat.mali</code></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Minimal permissions<span class="n"><code>RECEIVE_SMS</code> not <code>READ_SMS</code> · no Play-restricted exact alarms · 2 exported components, both necessary</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Signing config <strong>fails closed</strong><span class="n">Release never falls back to the debug key — 10 tests enforce it</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">AdMob id shape-validated at build time<span class="n">Malformed fails the build; absent ships with ads off</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>External / owner <span class="b b-wait">PENDING</span></h3>
+    <div class="ref">Detail: <a href="06_Android/play_console.md">06_Android/play_console.md</a></div>
+    <ul class="items">
+      <li><span class="b b-owner">OWNER</span><span class="t"><strong>Generate the production keystore</strong><span class="n">Back up in 2 independent places — losing it ends the app's life on Play</span></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t"><code>android/key.properties</code> filled in<span class="n">Currently absent, as expected</span></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Play Console app + Play App Signing enrolment</span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Data Safety + notification-listener justification<span class="n">The most common rejection reason for this app category</span></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Internal testing · production AAB · rollout</span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ DEVICE QA ═════════════════════════════════════════════ -->
+<h2>Physical-device QA</h2>
+<div class="cards">
+  <div class="card">
+    <h3>iPhone <span class="b b-wait">NOT STARTED</span></h3>
+    <div class="ref">Detail: <a href="05_Apple/physical_device_qa.md">05_Apple/physical_device_qa.md</a></div>
+    <ul class="items">
+      <li><span class="b b-owner">DEVICE</span><span class="t">Face ID · biometric lock</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Share extension + Shortcut capture</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">APNs — foreground, background <em>and terminated</em><span class="n">Three different code paths</span></span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Shared Keychain + App Group handoff</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Dynamic Island clearance · Dynamic Type at max</span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Android <span class="b b-wait">NOT STARTED</span></h3>
+    <div class="ref">Detail: <a href="06_Android/physical_device_qa.md">06_Android/physical_device_qa.md</a></div>
+    <ul class="items">
+      <li><span class="b b-owner">DEVICE</span><span class="t">Notification-listener grant / revoke / re-grant</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Real bank SMS capture, app swiped away</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Vendor skins — Samsung and Xiaomi differ meaningfully<span class="n">A Pixel-only pass is not coverage</span></span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Battery optimisation · reboot · Doze</span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Shared — both platforms <span class="b b-wait">NOT STARTED</span></h3>
+    <div class="ref">Detail: <a href="08_Device_QA/device_qa_checklist.md">08_Device_QA/device_qa_checklist.md</a></div>
+    <ul class="items">
+      <li><span class="b b-owner">DEVICE</span><span class="t">Exact money — KWD <code>12.345</code>, budget reconciliation, refunds</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Auth: Apple + Google · sign-out preserves unsynced data</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Backup / restore — money byte-identical</span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Consent defaults OFF · offline · background / resume · RTL</span></li>
+    </ul>
+  </div>
+  <div class="card blocker">
+    <h3>UX-035 — its own item <span class="b b-block">DEVICE REQUIRED</span></h3>
+    <div class="ref">Detail: <a href="08_Device_QA/UX_035_verification.md">08_Device_QA/UX_035_verification.md</a></div>
+    <p style="margin:.2rem 0 .6rem; font-size:.88rem; color:var(--muted)">
+      The one Phase J finding whose original reproduction was never captured.
+      Very large values reportedly collapsed into an unreadable «0 0 0».
+    </p>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Exactness half fixed and tested past 2<sup>53</sup></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Legibility floor added<span class="n">hero_amount_size.dart</span></span></li>
+      <li><span class="b b-owner">DEVICE</span><span class="t">Verify at maximum text size, ar + en, with screenshots<span class="n">If the repro shows a different cause, the shipped fix is the <em>wrong</em> fix — stated openly in the source</span></span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ SECRETS ═══════════════════════════════════════════════ -->
+<h2>Secrets &amp; configuration</h2>
+<div class="card">
+  <h3>Inventory <span class="b b-wait">NONE SET FOR PRODUCTION</span></h3>
+  <div class="ref">
+    Traced from actual repository usage. Detail:
+    <a href="02_Supabase/secrets_checklist.md">02_Supabase/secrets_checklist.md</a>
+    · <strong>No secret value appears anywhere in this workspace.</strong>
+  </div>
+  <div class="tw">
+    <table>
+      <tr><th>Name</th><th>Status</th><th>Required</th><th>Owner</th><th>Source</th><th>If absent</th></tr>
+      <tr><td colspan="6" style="color:var(--faint);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;padding-top:.9rem">Platform-injected — do not set</td></tr>
+      <tr><td><code>SUPABASE_URL</code> / <code>ANON_KEY</code> / <code>SERVICE_ROLE_KEY</code></td><td><span class="b b-opt">AUTO</span></td><td>—</td><td>Supabase</td><td>platform</td><td>n/a</td></tr>
+
+      <tr><td colspan="6" style="color:var(--faint);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;padding-top:.9rem">Edge Function secrets</td></tr>
+      <tr><td><code>PURGE_WORKER_SECRET</code></td><td><span class="b b-wait">TODO</span></td><td><strong>Required</strong></td><td>Claude (AUTH)</td><td><code>openssl rand</code></td><td>Worker 403s everything; deletions stop</td></tr>
+      <tr><td><code>NOTIFICATION_RETRY_WORKER_SECRET</code></td><td><span class="b b-wait">TODO</span></td><td><strong>Required</strong></td><td>Claude (AUTH)</td><td><code>openssl rand</code></td><td>Worker 401s everything; retries stop</td></tr>
+      <tr><td><code>APNS_KEY_ID</code></td><td><span class="b b-wait">TODO</span></td><td>For push</td><td>Youssef</td><td>Apple → Keys</td><td>iOS push unsigned</td></tr>
+      <tr><td><code>APNS_TEAM_ID</code></td><td><span class="b b-wait">TODO</span></td><td>For push</td><td>Youssef</td><td>Apple membership</td><td>as above</td></tr>
+      <tr><td><code>APNS_BUNDLE_ID</code></td><td><span class="b b-wait">TODO</span></td><td>For push</td><td>Youssef</td><td><code>com.youssefsafwat.mali</code></td><td>as above</td></tr>
+      <tr><td><code>APNS_PRIVATE_KEY</code></td><td><span class="b b-wait">TODO</span></td><td>For push</td><td>Youssef</td><td>the .p8 file</td><td>as above</td></tr>
+      <tr><td><code>GEMINI_API_KEY</code></td><td><span class="b b-opt">OPTIONAL</span></td><td>Optional</td><td>Youssef</td><td>Google AI Studio</td><td><strong>App works normally</strong></td></tr>
+      <tr><td><code>GEMINI_MODEL</code></td><td><span class="b b-opt">OPTIONAL</span></td><td>Optional</td><td>Youssef</td><td>model name</td><td>in-code default</td></tr>
+      <tr><td><code>GOOGLE_MAPS_API_KEY</code></td><td><span class="b b-opt">OPTIONAL</span></td><td>Optional</td><td>Youssef</td><td>Google Cloud</td><td>local heuristics</td></tr>
+
+      <tr><td colspan="6" style="color:var(--faint);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;padding-top:.9rem">App build-time (--dart-define)</td></tr>
+      <tr><td><code>LEGAL_BASE_URL</code></td><td><span class="b b-block">BLOCKER</span></td><td><strong>Required</strong></td><td>Youssef</td><td>your legal host</td><td>Falls back to a host that does not resolve</td></tr>
+      <tr><td><code>SUPABASE_URL</code> / <code>ANON_KEY</code></td><td><span class="b b-wait">TODO</span></td><td>For cloud</td><td>Youssef</td><td>new project</td><td>Cloud features unavailable; app still runs</td></tr>
+      <tr><td><code>SENTRY_DSN</code></td><td><span class="b b-opt">OPTIONAL</span></td><td>Optional</td><td>Youssef</td><td>Sentry</td><td>Reporting off, no crash</td></tr>
+
+      <tr><td colspan="6" style="color:var(--faint);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;padding-top:.9rem">Android signing</td></tr>
+      <tr><td><code>ANDROID_KEYSTORE_*</code> (4 values)</td><td><span class="b b-block">BLOCKER</span></td><td><strong>Required</strong></td><td>Youssef</td><td><code>keytool</code></td><td><strong>Release build fails</strong> — never falls back to the debug key</td></tr>
+      <tr><td><code>ADMOB_APP_ID_ANDROID</code> / <code>_IOS</code></td><td><span class="b b-opt">OPTIONAL</span></td><td>Optional</td><td>Youssef</td><td>AdMob</td><td>Warns; ships with ads off</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ══ BETA / STORE ══════════════════════════════════════════ -->
+<h2>Beta &amp; store release</h2>
+<div class="cards">
+  <div class="card">
+    <h3>Internal beta <span class="b b-wait">NOT STARTED</span></h3>
+    <div class="ref">Detail: <a href="09_Beta/">09_Beta/</a></div>
+    <ul class="items">
+      <li><span class="b b-wait">TODO</span><span class="t">TestFlight internal testing<span class="n">No Beta App Review needed for internal</span></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Play internal testing track</span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Beta acceptance — 10 BLOCKING criteria at zero<span class="n">≥1 week use · ≥2 real banks per platform</span></span></li>
+      <li><span class="b b-opt">NOTE</span><span class="t">Ship with sync flags off and capabilities <code>unknown</code><span class="n">State it in tester notes or it gets reported as a bug</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Store release <span class="b b-wait">NOT STARTED</span></h3>
+    <div class="ref">Detail: <a href="10_Store_Release/">10_Store_Release/</a></div>
+    <ul class="items">
+      <li><span class="b b-wait">TODO</span><span class="t">App Store submission + review</span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Google Play submission + review</span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Staged rollout 5% → 20% → 50% → 100%<span class="n">≥24h at each step; halt on any regression</span></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Post-release monitoring<span class="n">Any support report of a wrong amount is a halt</span></span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ ACTIONS ═══════════════════════════════════════════════ -->
+<h2>Who does what next</h2>
+<div class="cards">
+  <div class="card">
+    <h3>Youssef — prioritised <span class="b b-owner">6 ACTIONS</span></h3>
+    <div class="ref">The first three are independent and can run in parallel.</div>
+    <ul class="items">
+      <li><span class="b b-owner">1</span><span class="t"><strong>Create the new Supabase production project</strong><span class="n">Runbook §2.1 · unblocks the longest chain</span></span></li>
+      <li><span class="b b-owner">2</span><span class="t">Host the legal site → get the HTTPS URL<span class="n">Runbook §1.3 · free hosting is fine</span></span></li>
+      <li><span class="b b-owner">3</span><span class="t">Generate + back up the Android keystore<span class="n">Runbook §6.1 · 10 minutes, irreversible if lost</span></span></li>
+      <li><span class="b b-owner">4</span><span class="t">Apple Developer configuration<span class="n">Runbook §5 · needs the Supabase ref for the Sign-in return URL</span></span></li>
+      <li><span class="b b-owner">5</span><span class="t">Create App Store Connect + Play Console records</span></li>
+      <li><span class="b b-owner">6</span><span class="t">Physical-device QA on both platforms, incl. UX-035</span></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Claude <span class="b b-claude">1 NOW · 6 ON AUTH</span></h3>
+    <div class="ref">Nothing remote happens without your explicit authorisation.</div>
+    <ul class="items">
+      <li><span class="b b-claude">NOW</span><span class="t">Rebuild the legal static site on demand<span class="n">Purely local · <code>python3 tools/build_legal_site.py</code></span></span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Link the Supabase CLI + verify the target ref<span class="n">After you supply the ref and authorise</span></span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Set Edge Function secrets</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Apply migrations 0001–0091</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Deploy 24 Edge Functions + verification sweep</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Build signed release artifacts</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Prove and activate exactPush, then exactPull<span class="n">Only after internal beta</span></span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ MILESTONES ════════════════════════════════════════════ -->
+<h2 id="milestones">Release milestones — the readiness denominator</h2>
+<div class="card">
+  <div class="ref">
+    The "2 of 14" figure at the top is counted from exactly these, one point each.
+    No weighting, no estimate.
+  </div>
+  <div class="tw">
+    <table>
+      <tr><th>#</th><th>Milestone</th><th>Status</th></tr>
+      <tr><td>1</td><td>Source / local work complete</td><td><span class="b b-done">COMPLETE</span></td></tr>
+      <tr><td>2</td><td>Release baseline certified (strict gate green)</td><td><span class="b b-done">COMPLETE</span></td></tr>
+      <tr><td>3</td><td>Legal site publicly hosted</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>4</td><td>New Supabase production project created</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>5</td><td>Backend provisioned (secrets, migrations, functions)</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>6</td><td>Apple configuration complete</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>7</td><td>Android keystore created and backed up</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>8</td><td>Signed release builds produced</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>9</td><td>Physical-device QA passed (incl. UX-035)</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>10</td><td>Internal beta accepted</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>11</td><td>exactPush proven and activated</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>12</td><td>exactPull proven and activated</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>13</td><td>Store submissions approved</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>14</td><td>Staged rollout complete + monitored</td><td><span class="b b-wait">TODO</span></td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ══ TECHNICAL EVIDENCE ════════════════════════════════════ -->
+<details>
+  <summary>Technical evidence — certified baseline</summary>
+  <div class="body tw">
+    <table>
+      <tr><th>Item</th><th>Value</th></tr>
+      <tr><td>Certified HEAD</td><td class="mono">d24e2ed0607aa736e8f68b5c9f069ffb98c2925b</td></tr>
+      <tr><td>Gate command</td><td class="mono">REQUIRE_ALL_GATES=1 REQUIRE_PRISTINE_TREE=1 tools/ci_gates.sh</td></tr>
+      <tr><td>Gate result</td><td class="mono">{"passed":12,"failed":0,"tool_missing":0,"caller_skipped":0,"artifact_pending":1,"strict":1,"manifest":"satisfied"}</td></tr>
+      <tr><td>Verdict</td><td>ALL RUN GATES PASSED · exit 0 · first attempt</td></tr>
+      <tr><td>Flutter — bulk</td><td>2,855 passed · 1 skipped · 0 failed</td></tr>
+      <tr><td>Flutter — crypto</td><td>24 passed (serialized, <code>--concurrency=1</code>)</td></tr>
+      <tr><td>Admin</td><td>113 / 113 passed</td></tr>
+      <tr><td>Deno</td><td>All 24 Edge Functions passed · lint clean · 2 ignored (live-Postgres, declared)</td></tr>
+      <tr><td>Migrations</td><td>0001–0091 · no gaps or duplicates · 41 SECURITY DEFINER locked down · rollback coverage from 0084: 0 missing</td></tr>
+      <tr><td>TypeScript</td><td>Covered by the admin suite; <code>tsc --noEmit</code> independently clean</td></tr>
+      <tr><td>Arch guards</td><td>MALI-034 (6 checks) · MALI-037 deps policy · pristine-tree guard</td></tr>
+      <tr><td>Git — tracked diff</td><td><strong>0</strong> files differ from HEAD</td></tr>
+      <tr><td>Git — untracked</td><td><code>demo-docker/</code>, <code>research/</code> — audited; no authoritative material remains untracked</td></tr>
+      <tr><td><code>artifact_pending: 1</code></td><td>iOS packaging inventory — needs a built <code>Runner.app</code>. Never counted as a pass; deferred to a post-build step.</td></tr>
+      <tr><td>Dashboard generated</td><td>2026-08-30</td></tr>
+    </table>
+  </div>
+</details>
+
+<footer>
+  <strong>Qirsh — قِرش</strong> · Production readiness snapshot ·
+  Authority: <a href="QIRSH_PRODUCTION_RELEASE_RUNBOOK.md">QIRSH_PRODUCTION_RELEASE_RUNBOOK.md</a>
+  <br><br>
+  This page reports status. It does not perform actions, and it is not a
+  substitute for reading the runbook before a production step.
+  Nothing here has been pushed, deployed, or sent to production or staging.
+</footer>
+
+</div>
