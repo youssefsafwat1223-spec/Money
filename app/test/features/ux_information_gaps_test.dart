@@ -46,7 +46,11 @@ void main() {
       expect(source.contains("subtitle: 'إجمالي الصرف الشهري'"), isFalse,
           reason: 'it measured active subscriptions only, while the counters '
               'beneath it also announced installments');
-      expect(source, contains("subtitle: 'الاشتراكات الشهرية'"));
+      // UX-024 later made this conditional — the subtitle now also names the
+      // account the list is scoped to — so both branches are asserted rather
+      // than the single literal that used to be there.
+      expect(source, contains("'الاشتراكات الشهرية'"));
+      expect(source, contains("'الاشتراكات الشهرية · \$scopeAccountName'"));
     });
 
     test('the calculation is untouched', () {

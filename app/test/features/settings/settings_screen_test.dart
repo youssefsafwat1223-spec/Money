@@ -76,7 +76,12 @@ void main() {
     // Every group renders together in one scroll (general + notifications +
     // data), instead of being hidden behind tabs.
     for (final label in const [
-      'إدارة أموالك',
+      // UX-029 — «إدارة أموالك» held ten flat entries and read as a second
+      // navigation bar. It is split into destinations and configuration; this
+      // test's subject is that every group renders in ONE scroll rather than
+      // behind tabs, so it asserts both halves are present.
+      'حساباتك والتزاماتك',
+      'أدوات وإعدادات',
       'تأكيد عملة الميزانيات والأهداف',
       'رصد العمليات',
       'تنبيهاتك',
