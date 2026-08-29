@@ -5,7 +5,7 @@ import '../../engine/ai/ai_sender_failure_tracker.dart';
 import '../../engine/ai/grounding_check.dart';
 import '../../engine/categorization/category.dart';
 import '../../engine/categorization/categorizer.dart';
-import '../../engine/intelligence/merchant_classifier.dart';
+import '../../engine/intelligence/merchant_intelligence_store.dart';
 import '../../engine/categorization/merchant_category_map.dart';
 import '../../engine/dedup/transaction_dedup.dart';
 import '../../engine/models/parsed_transaction.dart';
@@ -289,7 +289,14 @@ class AddTransactionUseCase {
     // to pending review (never auto-confirmed into canonical authority).
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
+    // OD-13 lifecycle fix: ONE long-lived model, not one per categorizer per
+    // transaction. Optional so every existing construction site (and every
+    // test) keeps working unchanged; when omitted this instance owns its own,
+    // which still collapses the previous two constructions per call into one.
+    MerchantIntelligenceStore? merchantIntelligence,
   })  : _transactionRepository = transactionRepository,
+        _merchantIntelligence =
+            merchantIntelligence ?? MerchantIntelligenceStore(),
         _coordinator = coordinator,
         _merchantCategoryRepository = merchantCategoryRepository,
         _parserIsolate = parserIsolate ?? const ParserIsolate(),
@@ -318,6 +325,8 @@ class AddTransactionUseCase {
   final MerchantCategoryRepository _merchantCategoryRepository;
   final SuspectedDuplicateRepository? _suspectedDuplicateRepository;
   final ParserIsolate _parserIsolate;
+  /// The on-device merchant model, built once. See [MerchantIntelligenceStore].
+  final MerchantIntelligenceStore _merchantIntelligence;
   final RecordEngagementUseCase? _recordEngagementUseCase;
   final Future<void> Function(String key, {String? dimension})? _logMetric;
   final Future<List<BankProfile>> Function({String? senderId})?
@@ -466,7 +475,7 @@ class AddTransactionUseCase {
     // (Starbucks, Amazon, etc.) should not require confirmation even on first visit.
     final preCategory = Categorizer(
       remoteKeywords: const [],
-      intelligence: CharNgramMerchantClassifier(),
+      intelligence: _merchantIntelligence,
     ).categorize(parsed);
     final isNewMerchant = merchant == null
         ? false
@@ -514,7 +523,9 @@ class AddTransactionUseCase {
       // OD-13 — on-device merchant model. It runs ONLY where every
       // deterministic source has already declined (see `Categorizer`), and
       // performs no I/O, so it neither delays capture nor egresses anything.
-      intelligence: CharNgramMerchantClassifier(),
+      // Shared instance: constructing it here fitted ~330 exemplars on every
+      // single transaction, twice.
+      intelligence: _merchantIntelligence,
     );
     var effectiveParsed = parsed;
     final hasAiCategory = aiCategoryKey != null;
