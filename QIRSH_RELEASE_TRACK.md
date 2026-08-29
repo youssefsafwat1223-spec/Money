@@ -162,3 +162,38 @@ per-feature kill switch until C-10 lands.
 **The source is release-ready; the release is not.** Every remaining item needs
 credentials, a domain, a device, or an authorised deployment — none of which I
 may perform. Nothing on the list is waiting on further code.
+
+
+---
+
+## FINAL UPDATE — 2026-08-29, after the full §10 audit
+
+### Source state
+
+**No safely actionable Critical or High source/local work remains.** The
+fourteen-area audit is complete, the previously-unreviewed working tree has been
+read in full, and the fifteen Critical/High findings it contained are fixed with
+regression coverage.
+
+Gates at committed HEAD, isolated checkout, serialized: analyze clean ·
+Flutter 2675/0 · admin 102/0 · tsc clean · SQL 228/0 · Deno 152/0 ·
+relative-import completeness 0 missing.
+
+### What remains — ALL external, none of it code
+
+| # | Blocker | Why only the owner can do it |
+|---|---|---|
+| 1 | **Privacy/Terms hosting** | Needs a domain. `docs/legal/PRIVACY_POLICY.md` and `TERMS.md` are written and describe the shipped behaviour; build with `--dart-define=LEGAL_BASE_URL=…` once live. Both stores require a reachable privacy URL. |
+| 2 | **Apply migrations 0087–0090** | Written, reviewed, each with a rollback. None applied anywhere. |
+| 3 | **Deploy Edge Functions** | Source-only, including the H-24 erasure sweep. |
+| 4 | **Activate capabilities** | All three ship `unknown`. See the runbook — **flip PUSH before PULL**. |
+| 5 | **iPhone verification for H-19** | Needs a paid Apple Developer account and a device. |
+| 6 | **Supabase provider settings** | Apple sign-in must keep nonce checking ON (H-9). The code fix is void if an operator disables it. |
+| 7 | **Signing and store submission** | Requires the owner's credentials. |
+
+### One thing to do BEFORE deploying
+
+Apply `0087` before or with the parser-rule deployment. The admin guard now
+refuses to promote a rule to `passed` without evidence, and returns 503 if `0089`
+is absent — but `0087`'s CHECK is what makes an evidence-free `passed` row
+unrepresentable in the database itself.
