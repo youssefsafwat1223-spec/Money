@@ -18,9 +18,17 @@ class AppTypography {
   /// Bundled fallbacks for whatever IBM Plex Sans Arabic lacks.
   static const List<String> _fontFallback = ['Vazirmatn', 'Alexandria'];
 
-  /// Canonical app text style. Vazirmatn (bundled) supplies both the Arabic and
-  /// Latin glyphs; Alexandria + IBM Plex Sans Arabic (bundled) are the fallback
-  /// safety net.
+  /// Canonical app text style. **IBM Plex Sans Arabic** (bundled) supplies both
+  /// the Arabic and Latin glyphs — it is [fontFamily], the approved family in
+  /// `BRAND_AND_DESIGN_SYSTEM.md` §7, and the same face the PDF report renderer
+  /// draws with so export matches screen. Vazirmatn + Alexandria are the
+  /// bundled fallbacks ([_fontFallback]).
+  ///
+  /// This comment previously said the reverse — that Vazirmatn was primary and
+  /// IBM Plex a fallback — which contradicted the two constants directly above
+  /// it and misled a reader into reporting the wrong family. Kept accurate
+  /// deliberately: a comment that disagrees with its own file is worse than no
+  /// comment.
   /// This is a plain [TextStyle] over the bundled family — identical size /
   /// weight / height / letter-spacing / colour / shadows / tabular figures as
   /// before, only the font source changed (runtime fetch → bundled).
@@ -57,17 +65,27 @@ class AppTypography {
   static TextStyle amountSmall(Color c) => custom(
       size: 18, weight: FontWeight.w600, height: 1.25, tabular: true, color: c);
 
+  // UX-002 — the scale below follows `BRAND_AND_DESIGN_SYSTEM.md` §7 with ONE
+  // deliberate deviation: sizes for Display / Title-1 / Title-2 are one step
+  // SMALLER than the spec (32/24/20 rather than 34/28/22).
+  //
+  // That deviation predates Phase J and is kept, because the owner's density
+  // brief asks for a more compact, professional feel and these are the styles
+  // that dominate perceived bulk. Weights, however, had drifted HEAVIER than
+  // the spec (w700 where it says SemiBold 600, w600 where it says Medium 500);
+  // those are corrected here, which serves the spec and the density goal at the
+  // same time — heavy type reads as large type.
   static TextStyle display(Color c) =>
       custom(size: 32, weight: FontWeight.w700, height: 1.06, color: c);
 
   static TextStyle title1(Color c) =>
-      custom(size: 24, weight: FontWeight.w700, height: 1.18, color: c);
+      custom(size: 24, weight: FontWeight.w600, height: 1.18, color: c);
 
   static TextStyle title2(Color c) =>
-      custom(size: 20, weight: FontWeight.w700, height: 1.24, color: c);
+      custom(size: 20, weight: FontWeight.w600, height: 1.24, color: c);
 
   static TextStyle headline(Color c) =>
-      custom(size: 18, weight: FontWeight.w700, height: 1.30, color: c);
+      custom(size: 18, weight: FontWeight.w600, height: 1.30, color: c);
 
   static TextStyle title(Color c) =>
       custom(size: 16, weight: FontWeight.w600, height: 1.40, color: c);
@@ -76,13 +94,13 @@ class AppTypography {
       custom(size: 16, weight: FontWeight.w400, height: 1.50, color: c);
 
   static TextStyle bodyStrong(Color c) =>
-      custom(size: 16, weight: FontWeight.w600, height: 1.50, color: c);
+      custom(size: 16, weight: FontWeight.w500, height: 1.50, color: c);
 
   static TextStyle callout(Color c) =>
       custom(size: 15, weight: FontWeight.w400, height: 1.46, color: c);
 
   static TextStyle subhead(Color c) =>
-      custom(size: 14, weight: FontWeight.w600, height: 1.43, color: c);
+      custom(size: 14, weight: FontWeight.w500, height: 1.43, color: c);
 
   static TextStyle footnote(Color c) =>
       custom(size: 13, weight: FontWeight.w400, height: 1.38, color: c);
