@@ -236,6 +236,62 @@ source change.
 
 ---
 
+## 5b. FINAL GATE — clean HEAD, strict mode
+
+**Final HEAD: `8a97a9ba759efb6d1f31f132ed7759b38789aa5c`**
+
+```
+REQUIRE_ALL_GATES=1 tools/ci_gates.sh
+CI_GATES_JSON {"passed":12,"failed":0,"tool_missing":0,"caller_skipped":0,
+               "artifact_pending":1,"strict":1,"node_skipped":"70",
+               "deno_ignored":"2","manifest":"satisfied","lint_exceptions":7}
+ALL RUN GATES PASSED
+```
+
+**First attempt green. No rerun, no normalisation.**
+
+| gate | result |
+|---|---|
+| migration lint | ✓ |
+| deno edge-function tests (all functions) | ✓ |
+| deno lint | ✓ |
+| flutter analyze | ✓ (0 issues) |
+| flutter test — bulk | ✓ **2840 passed, 0 failed** (1 skipped) |
+| flutter test — crypto (serialized, `--concurrency=1`) | ✓ **24 passed** |
+| node contract tests | ✓ |
+| skip/ignore manifest | ✓ satisfied |
+| admin authorization tests | ✓ (113 — 102 pre-existing + 11 new UX-017…021) |
+| l10n freshness | ✓ |
+| MALI-034 architecture guard (6 checks) | ✓ |
+| MALI-037 dependency policy | ✓ |
+
+**The clean-HEAD claim, stated precisely.** The gate ran with
+`REQUIRE_PRISTINE_TREE=1`, which asserts that **no tracked file differs from
+HEAD** — so "the gate passed" and "HEAD passes" are the same statement, verified
+by the gate rather than assumed. That was checked independently first:
+`git diff --name-only HEAD` → 0, `git diff --cached --name-only` → 0. The six
+untracked directories present (`demo-docker/`, `research/`, and four Markdown
+files) are not tracked and cannot affect a tracked-file comparison; the separate
+`head_completeness_test` additionally asserts that no committed test reads an
+untracked file and no committed Deno file imports an uncommitted one, so an
+untracked directory cannot be silently load-bearing either.
+
+**A detached pristine worktree was attempted first and abandoned deliberately.**
+`npm ci` into `~/.claude/jobs/` did not complete in a reasonable time (and a
+byte-copy of the resolved tree was slower still), so the gate was run in the
+main checkout **after proving its tracked tree is byte-identical to HEAD**.
+That is the same guarantee — `REQUIRE_PRISTINE_TREE=1` is precisely the check the
+worktree was there to make true by construction — reached by verification
+instead. Recorded rather than glossed, because "green from a pristine checkout"
+and "green from a tree proven identical to HEAD" are worth distinguishing.
+
+**The one artifact-pending gate is not a pass.** iOS packaging inventory needs a
+built `Runner.app`; it is classified `artifact_pending`, never `PASS`, and is
+deferred to a mandatory post-build step. The static Info.plist / privacy-manifest
+source contract does run, in the flutter test stage.
+
+---
+
 ## 6. PRODUCTION SAFETY
 
 Nothing was pushed, deployed, or sent to production or evidence staging. No remote
