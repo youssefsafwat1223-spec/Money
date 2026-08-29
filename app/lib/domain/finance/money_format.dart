@@ -61,19 +61,45 @@ String formatMoneyAmount(
 ///
 /// This works from `minorUnits` through [Money.toDecimalString] (integer maths)
 /// and groups the digit string by hand, so it is exact at any magnitude.
-String formatMoney(Money money, {String locale = 'en_US'}) {
+({String integerPart, String fraction, bool negative}) splitMoneyForDisplay(
+    Money money) {
   final decimal = money.toDecimalString(); // exact; never a double
-  final dot = decimal.indexOf('.');
   final negative = decimal.startsWith('-');
   final unsigned = negative ? decimal.substring(1) : decimal;
-  final intPart = dot < 0 ? unsigned : unsigned.substring(0, dot - (negative ? 1 : 0));
-  final fracPart = dot < 0 ? '' : unsigned.substring(dot - (negative ? 1 : 0) + 1);
+  final dot = unsigned.indexOf('.');
+  final intPart = dot < 0 ? unsigned : unsigned.substring(0, dot);
+  final fracPart = dot < 0 ? '' : unsigned.substring(dot + 1);
+  return (
+    integerPart: _group(intPart, _kGroupSeparator),
+    fraction: fracPart,
+    negative: negative,
+  );
+}
 
-  final symbols = NumberFormat.decimalPattern(locale).symbols;
-  final grouped = _group(intPart, symbols.GROUP_SEP);
-  final body =
-      fracPart.isEmpty ? grouped : '$grouped${symbols.DECIMAL_SEP}$fracPart';
-  return negative ? '${symbols.MINUS_SIGN}$body' : body;
+/// Digits and separators are PINNED to ASCII, deliberately — not taken from the
+/// locale.
+///
+/// `intl` renders `ar_EG` with Arabic-Indic digits and U+066B/U+066C separators
+/// (`١٬٢٣٤٫٥٠`) while `ar_SA` renders ASCII — verified, not assumed. Egypt and
+/// Saudi are both core markets, so a locale-driven formatter would silently show
+/// two different digit systems to two halves of the user base. Bank SMS in both
+/// markets carries Western digits, and the whole product is built on matching
+/// what the bank told the user.
+///
+/// It would also corrupt THIS formatter specifically: the digits come from
+/// `toDecimalString()` (always ASCII) while the separators would come from the
+/// locale — producing ASCII digits with Arabic separators, which is neither
+/// system.
+const String _kGroupSeparator = ',';
+const String _kDecimalSeparator = '.';
+const String _kMinusSign = '-';
+
+String formatMoney(Money money) {
+  final p = splitMoneyForDisplay(money);
+  final body = p.fraction.isEmpty
+      ? p.integerPart
+      : '${p.integerPart}$_kDecimalSeparator${p.fraction}';
+  return p.negative ? '$_kMinusSign$body' : body;
 }
 
 /// Groups a plain digit string in threes. Done on the STRING rather than by
