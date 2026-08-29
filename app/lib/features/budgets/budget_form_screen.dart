@@ -470,7 +470,10 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       Future.microtask(_refreshSuggestedAmount);
       return;
     }
-    _amountController.text = budget.amount.toStringAsFixed(0);
+    // Seed from the CANONICAL money, not the display double: `_save()` parses
+    // this text straight back into Money, so any rounding here silently
+    // rewrites the stored amount on an untouched Save (1500.50 → 1501).
+    _amountController.text = budget.amountMoney.toDecimalString();
     _period = budget.period;
     _categoryId = budget.categoryId;
     _categoryId = budget.categoryId;

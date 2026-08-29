@@ -397,11 +397,14 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       return;
     }
     _nameController.text = goal.name;
-    _amountController.text = goal.targetAmount.toStringAsFixed(0);
+    // Seed from CANONICAL money: `_save()` parses this text straight back into
+    // Money, so rounding here silently rewrites the stored target on an
+    // untouched Save.
+    _amountController.text = goal.targetMoney.toDecimalString();
     _deadline = goal.deadline?.toLocal();
     if (goal.hasAutoSave) {
       _autoSaveOn = true;
-      _autoSaveController.text = goal.autoSaveAmount!.toStringAsFixed(0);
+      _autoSaveController.text = goal.autoSaveMoney!.toDecimalString();
       _autoSavePeriod = goal.autoSavePeriod ?? 'monthly';
     }
     _seeded = true;

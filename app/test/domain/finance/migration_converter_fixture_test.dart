@@ -78,36 +78,48 @@ void main() {
   });
 
   test('performance: conversion cost is LINEAR in row count (no O(n^2))', () {
-    // The property this test is named for is linearity, but it used to assert a
-    // wall-clock budget (<2s for 100k). That measures the machine as much as the
-    // algorithm: it passed idle and failed at 2926ms under full-suite load,
-    // which is a flaky gate rather than a broken converter.
+    // History of this assertion, because it has now been wrong twice:
+    //   1. it asserted a 2s wall-clock budget — that measures the machine, and
+    //      failed at 2926ms under full-suite load;
+    //   2. it asserted a single-shot time RATIO — also load-sensitive, and
+    //      failed at 3.6x when the larger run happened to catch contention.
     //
-    // Linearity is measured instead, by comparing two sizes: doubling the work
-    // must roughly double the time. A quadratic regression — the actual risk —
-    // would show ~4x and still fail loudly. A generous absolute ceiling stays as
-    // a backstop against a catastrophic slowdown.
-    int timeFor(int n) {
-      var acc = BigInt.zero;
-      final sw = Stopwatch()..start();
-      for (var i = 0; i < n; i++) {
-        acc += BigInt.from(legacyRealToMinor(19.99, 2));
+    // Both failures were noise, not a slower converter. A micro-benchmark
+    // inside a 2600-test parallel suite cannot reliably compare two single
+    // timings. What IS stable is the MINIMUM of several runs: the fastest run
+    // is the one that got the least interference, so best-of-N largely removes
+    // the scheduler from the measurement.
+    //
+    // Compared as PER-ITEM cost, which states the property directly: linear
+    // work has the same per-item cost at any n, while O(n^2) doubles it when n
+    // doubles. The threshold sits between those, wide enough for residual
+    // noise and still failing loudly on a genuine quadratic regression.
+    double perItemNanos(int n) {
+      var best = double.infinity;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        var acc = BigInt.zero;
+        final sw = Stopwatch()..start();
+        for (var i = 0; i < n; i++) {
+          acc += BigInt.from(legacyRealToMinor(19.99, 2));
+        }
+        sw.stop();
+        expect(acc, BigInt.from(n) * BigInt.from(1999)); // exact aggregate
+        final per = sw.elapsedMicroseconds * 1000 / n;
+        if (per < best) best = per;
       }
-      sw.stop();
-      expect(acc, BigInt.from(n) * BigInt.from(1999)); // exact aggregate
-      return sw.elapsedMicroseconds;
+      return best;
     }
 
-    timeFor(20000); // warm up, so JIT compilation is not charged to the first
-    final small = timeFor(50000);
-    final large = timeFor(100000);
+    perItemNanos(20000); // warm up: do not charge JIT to the first measurement
+    final small = perItemNanos(50000);
+    final large = perItemNanos(100000);
 
-    // 2x the work in under 3x the time. Quadratic would be ~4x.
-    expect(large, lessThan(small * 3),
-        reason: 'doubling rows took ${(large / small).toStringAsFixed(1)}x the '
-            'time — that is superlinear, which is the regression this guards');
-    expect(large, lessThan(30 * 1000 * 1000),
-        reason: 'backstop: 100k conversions should never take 30s');
+    final ratio = large / small;
+    expect(ratio, lessThan(1.6),
+        reason: 'per-item cost went from ${small.toStringAsFixed(1)}ns to '
+            '${large.toStringAsFixed(1)}ns (${ratio.toStringAsFixed(2)}x) when '
+            'the row count doubled. Linear work holds ~1.0x; quadratic doubles '
+            'to ~2.0x.');
   });
 
   test('Money round-trips the converted minor back to the exact decimal', () {

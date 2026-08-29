@@ -53,8 +53,10 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
     super.initState();
     final e = widget.existing;
     _nameController = TextEditingController(text: e?.name ?? '');
+    // CANONICAL seed — `_save()` parses this back into Money, so rounding here
+    // silently rewrote the plan budget on an untouched Save.
     _budgetController = TextEditingController(
-        text: e == null ? '' : e.budgetAmount.toStringAsFixed(0));
+        text: e == null ? '' : e.budgetAmountMoney.toDecimalString());
     _start = e?.startDate ?? DateTime.now();
     _end = e?.endDate ?? DateTime.now().add(const Duration(days: 7));
     _accountIds = {...?e?.accountIds};
