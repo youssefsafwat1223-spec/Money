@@ -57,7 +57,7 @@ void main() {
       }
     });
 
-    // UX-002 — these pin the APPROVED scale (`BRAND_AND_DESIGN_SYSTEM.md` §7),
+    // UX-002 — these pin the APPROVED scale (`docs/design/BRAND_AND_DESIGN_SYSTEM.md` §7),
     // not whatever the file happened to contain. Title-2 and Headline are
     // SemiBold 600 there; the implementation had drifted to Bold 700, and that
     // drift is what this test previously froze in place. A snapshot of the

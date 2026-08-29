@@ -20,7 +20,7 @@ class AppTypography {
 
   /// Canonical app text style. **IBM Plex Sans Arabic** (bundled) supplies both
   /// the Arabic and Latin glyphs — it is [fontFamily], the approved family in
-  /// `BRAND_AND_DESIGN_SYSTEM.md` §7, and the same face the PDF report renderer
+  /// `docs/design/BRAND_AND_DESIGN_SYSTEM.md` §7, and the same face the PDF report renderer
   /// draws with so export matches screen. Vazirmatn + Alexandria are the
   /// bundled fallbacks ([_fontFallback]).
   ///
@@ -65,7 +65,7 @@ class AppTypography {
   static TextStyle amountSmall(Color c) => custom(
       size: 18, weight: FontWeight.w600, height: 1.25, tabular: true, color: c);
 
-  // UX-002 — the scale below follows `BRAND_AND_DESIGN_SYSTEM.md` §7 with ONE
+  // UX-002 — the scale below follows `docs/design/BRAND_AND_DESIGN_SYSTEM.md` §7 with ONE
   // deliberate deviation: sizes for Display / Title-1 / Title-2 are one step
   // SMALLER than the spec (32/24/20 rather than 34/28/22).
   //

@@ -1,6 +1,6 @@
 // C-1 — static contract checks for the parser-validation evidence invariant.
 //
-// The defect these guard (QIRSH_MASTER_PLAN_V2.md §10.1):
+// The defect these guard (docs/plans/QIRSH_MASTER_PLAN_V2.md §10.1):
 //   `catalog-delta` refuses to serve parsers unless validation_status='passed',
 //   but `0004_parser_lab.sql:15` blanket-stamped every pre-existing parser
 //   'passed' without running a golden test. Combined with F-016 (catalog rules

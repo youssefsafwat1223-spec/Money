@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// ## Why this exists
 /// Some workstreams in this repo are deliberately quarantined — implemented in
 /// the working tree but NOT committed, because review rejected them
-/// (`QIRSH_MASTER_PLAN_V2.md` §12.2, §8a). Their tests live beside them.
+/// (`docs/plans/QIRSH_MASTER_PLAN_V2.md` §12.2, §8a). Their tests live beside them.
 ///
 /// Three separate times during the 2026-08-28 remediation run, a file carrying
 /// BOTH landed work and quarantined tests was staged whole with `git add`, which

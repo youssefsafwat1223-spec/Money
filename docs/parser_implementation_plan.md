@@ -1,6 +1,6 @@
 # Mali Parser — Implementation Plan
 
-**Based on:** `mali_parser_buildspec.md` audit vs. existing codebase  
+**Based on:** `docs/specs/mali_parser_buildspec.md` audit vs. existing codebase  
 **Date:** June 2026  
 **Status:** Awaiting owner approval before any implementation begins
 

@@ -29,7 +29,7 @@ bool _matchesSenderAlias(String rawSender, String compactSender, String alias) {
 /// ملف تعريف بنك/محفظة (P0 للسوق السعودي).
 ///
 /// هذا هيكل مبدئي: الكشف عبر كلمات مفتاحية في النص أو معرّف المرسِل.
-/// Codex يوسّعه بقواعد regex لكل بنك من SAUDI_MARKET_SPEC.md وبقاعدة
+/// Codex يوسّعه بقواعد regex لكل بنك من docs/specs/SAUDI_MARKET_SPEC.md وبقاعدة
 /// بيانات `parsing_rules` القابلة للتحديث عن بُعد.
 class BankProfile {
   const BankProfile({

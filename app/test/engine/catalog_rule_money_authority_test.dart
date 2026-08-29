@@ -5,7 +5,7 @@ import 'package:money_companion/engine/parser/parser_engine.dart';
 /// C-1 — an admin-authored catalog rule must not, on its own, write CONFIRMED
 /// money into the ledger.
 ///
-/// Chain this guards (QIRSH_MASTER_PLAN_V2.md §10.1):
+/// Chain this guards (docs/plans/QIRSH_MASTER_PLAN_V2.md §10.1):
 ///   * `catalog-delta` serves only `validation_status='passed'` parsers
 ///     (`supabase/functions/catalog-delta/index.ts:96-98`) — but migration
 ///     `0004_parser_lab.sql:15` blanket-stamped every pre-existing rule

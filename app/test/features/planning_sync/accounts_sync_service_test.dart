@@ -762,7 +762,7 @@ void main() {
     // ── F-021 pull-half tests are deliberately NOT here ─────────────────────
     //
     // `accounts_pull_service`'s evidence-based conflict logic is QUARANTINED
-    // (QIRSH_MASTER_PLAN_V2.md §12.2): three independent reviewers reached DO
+    // (docs/plans/QIRSH_MASTER_PLAN_V2.md §12.2): three independent reviewers reached DO
     // NOT LAND, because the base-proof refresh targets the row while the push
     // guard reads the base from the outbox payload, and the conflict→pending
     // demotion strands rows with no outbox item.

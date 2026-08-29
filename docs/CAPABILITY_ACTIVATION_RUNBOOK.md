@@ -1,6 +1,6 @@
 # QIRSH — EXACT-FINANCIAL TRANSPORT ACTIVATION RUNBOOK
 
-**Phase F of `QIRSH_MASTER_PLAN_V2.md`. Prepared 2026-08-28. NOT EXECUTED.**
+**Phase F of `docs/plans/QIRSH_MASTER_PLAN_V2.md`. Prepared 2026-08-28. NOT EXECUTED.**
 
 > This runbook is written but deliberately **not run**. Every step below requires
 > explicit owner authorisation, and several touch a remote project. Nothing here

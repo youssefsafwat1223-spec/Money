@@ -7,7 +7,7 @@ Baseline: tree `1c9cc6bd`, server migrations `0001→0080`, Drift v30. Coupons i
 
 Revision log (r2): normalized tag model (`coupon_tags` + `coupon_tag_links`, no `tags[]` array); Coupon-owned display categories decoupled from financial categories (`coupon_categories` + optional spend-hint field); country targeting canonicalized (empty set = global, ISO codes); full Storage security contract; explicit admin mutation authority chain; analytics event set finalized (`impression`, `detail_view`, `code_copy`, `cta_click`); V1 local-state reduction reflected in staging/tests.
 
-## 0. Product contract (from PRODUCT_SPEC.md F19 / MONETIZATION_PLAN.md §7)
+## 0. Product contract (from docs/specs/PRODUCT_SPEC.md F19 / docs/plans/MONETIZATION_PLAN.md §7)
 
 - Contextual, privacy-respecting offers: **matching runs on-device**; the server ships a *public* catalog and never receives financial data for targeting.
 - Coupons are free for all users (not paywalled).

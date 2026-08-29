@@ -1,4 +1,4 @@
-/// عيّنات رسائل تمثيلية (SAUDI_MARKET_SPEC.md §4) — أساس الـ golden tests.
+/// عيّنات رسائل تمثيلية (docs/specs/SAUDI_MARKET_SPEC.md §4) — أساس الـ golden tests.
 ///
 /// ⚠️ هذه قوالب تمثيلية. تُستبدل/تُكمَّل بـ corpus رسائل حقيقية مجهّلة
 /// قبل الإطلاق (BUILD_PLAN §1).

@@ -63,7 +63,7 @@ void main() {
     expect(legalUrlsArePlaceholder, isTrue,
         reason: 'LEGAL_BASE_URL now points somewhere else — if that host is '
             'live and serving docs/legal/, C-5 is resolved: update '
-            'QIRSH_RELEASE_TRACK.md and remove this assertion');
+            'Qirsh Production/01_Current_Status/QIRSH_RELEASE_TRACK.md and remove this assertion');
   });
 
   test('the screen does not hardcode a URL of its own', () {

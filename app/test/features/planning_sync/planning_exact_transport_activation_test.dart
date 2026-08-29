@@ -241,7 +241,7 @@ void main() {
   test(
       'F-029: an unresolvable category FAILS CLOSED — nothing is queued, and '
       'the local id never reaches the wire', () async {
-    // Independent review (QIRSH_MASTER_PLAN_V2.md §3, F-029) flagged that the
+    // Independent review (docs/plans/QIRSH_MASTER_PLAN_V2.md §3, F-029) flagged that the
     // id→key lookup failed OPEN: when the category row could not be resolved it
     // transmitted the known-invalid local id anyway. That is the exact value
     // whose arrival on the server silently re-categorises the budget to `other`

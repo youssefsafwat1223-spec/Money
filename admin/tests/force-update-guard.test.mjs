@@ -107,7 +107,7 @@ test("the form arms only through the typed consequence dialog and states the ver
 
 // ── C-2 — the guard must judge the EFFECTIVE post-write state ──────────────
 //
-// Independent review (QIRSH_MASTER_PLAN_V2.md §9.1) found the guard evaluates
+// Independent review (docs/plans/QIRSH_MASTER_PLAN_V2.md §9.1) found the guard evaluates
 // only the incoming payload and never reads the stored row. `armsForceUpdate`
 // needs severity AND is_active in the SAME object, and a partial PATCH omits
 // one of them — so a force-update can be armed with no token at all:

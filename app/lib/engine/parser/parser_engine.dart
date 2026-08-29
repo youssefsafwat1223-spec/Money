@@ -11,7 +11,7 @@ import 'parse_result.dart';
 /// محرّك تحليل رسائل البنك → [ParsedTransaction].
 ///
 /// Dart نقي بالكامل (لا يستورد flutter) ليُختبر بـ golden tests.
-/// مبدئي وقابل للتوسعة: يغطّي القوالب التمثيلية السعودية (SAUDI_MARKET_SPEC.md).
+/// مبدئي وقابل للتوسعة: يغطّي القوالب التمثيلية السعودية (docs/specs/SAUDI_MARKET_SPEC.md).
 class ParserEngine {
   const ParserEngine();
 
