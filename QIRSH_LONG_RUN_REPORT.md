@@ -662,3 +662,122 @@ Independent review is most valuable on these, in this order.
 ## 6. Release
 - `a67e1284` **F-024** — does `kAppVersion` reach every version-targeted decision?
 - `44afd4aa` **C-5** — does the policy accurately describe the shipped behaviour?
+
+
+---
+
+# SPRINT 3 — FULL §10 AUDIT + COMPLETE REVIEW OF THE WORKING TREE (2026-08-29)
+
+**Starting HEAD:** `58335026` · **Ending HEAD:** `8fdf6ddc` · **19 commits**
+(89 commits across the whole session)
+
+## T1. Why this sprint existed
+
+Sprint 2 ended with me reporting LONG RUN INCOMPLETE for two stated reasons: the
+§10 fresh audit had not been done across all fourteen areas, and ~1,900 lines of
+unreviewed workstreams sat in the working tree. Both are now done.
+
+**Fifteen Critical/High findings were found in that unreviewed code.** Every one
+was reproduced against committed HEAD before being fixed.
+
+## T2. Findings — money corruption
+
+| ID | Finding |
+|---|---|
+| **C-2 portability** | Export→import destroyed canonical money. The export emitted neither `_minor` nor `currency`; the import wrote only the legacy REAL column. Restored budgets/goals had NULL minors, and `money_codec` THROWS on those — the rows are present and unreadable. Proven: 5 failures with the fix reverted, 0 with it. |
+| **Parser: 3-decimal truncation** | All twelve seeded catalog rules capture `(?:\.[0-9]{1,2})?` — a 2-decimal assumption in admin-authored DATA. Against KWD/BHD/OMR/JOD/TND/LYD/IQD it captured `12.45` from `12.450`: a **10x error in minor units**, undetectable downstream because 12.45 is a valid amount. |
+| **Parser: glued currency** | `SAR129.90` parsed as **90**. Root cause was two independent currency lists — the engine's matcher and the normaliser's un-gluer — so any code one knew and the other did not truncated the amount. Now one shared alternation. |
+| **Forms rewrote money on a no-op Save** | Five forms seeded the amount field from a rounded display double, and `_save()` parses that field straight back into Money. Open a 1500.50 budget, touch nothing, press Save → 1501.00. On KWD: 12.345 → 12. `bill_details_sheet` seeded the PAYMENT field, so the error repeated on every payment. |
+
+## T3. Findings — data loss
+
+| ID | Finding |
+|---|---|
+| **H-8** | Sign-out wipe was `read(dbKey) → deleteAll() → write(dbKey)`. Process death in that window leaves the encrypted database file on disk with **no key** — the user's entire history permanently unreadable, from a routine sign-out. |
+| **H-20** | A committed restore reported as ROLLED BACK when a post-commit step failed. The user is told their data was untouched while the database has been replaced, and every decision they make next rests on that falsehood. |
+| **H-3** | Sign-out pushed the outboxes, but rows that never reached the cloud were never QUEUED — so the guard asked the user to discard exactly the data it had done nothing to save. |
+| **H-24** | Account deletion erased one tracked `blob_path`, while bucket RLS lets a user own any object under their prefix. The account was deleted and the encrypted backups remained. |
+
+## T4. Findings — cross-account, security, availability
+
+| ID | Finding |
+|---|---|
+| **H-23** | Backup crypto keys were device-global. A second account on the same device read the first account's cached state as its own. |
+| **MALI-012** | A mid-drain account switch imported one account's captures into another's database — and acknowledged them to the relay, destroying the evidence. |
+| **H-9** | Apple Sign-In had no nonce binding: a still-valid identity token could be replayed for its whole validity window. The runbook change is part of the fix — the protection is void the moment an operator enables "skip nonce checks". |
+| **Admin dev guard** | `npm run dev` pointed a developer's laptop at the deployed project, including production, where every admin mutation is service-role. Now fails closed in middleware and in the client factories. |
+| **C-4 / H-5** | An ad SDK failure suppressed the user's report export entirely and left `_loading` true forever. Ads failing must degrade to "no ad", never to "no report". |
+
+## T5. Defects in my OWN earlier work, found by this sweep
+
+Recorded separately because they are the ones I was least likely to look for.
+
+1. **The AI's on-device learning never persisted.** I described it as the
+   model's non-fakeable differentiator. As wired, `AddTransactionUseCase` built
+   a fresh classifier TWICE per transaction — ~8.6ms of fitting for a ~0.3ms
+   prediction — and no instance outlived the call, so every correction was
+   discarded immediately. The accuracy numbers stand; the learning claim did not.
+2. **A raw NUL byte in a source file.** `merchant_intelligence_store.dart` used a
+   literal NUL as a key separator, so git classified it BINARY and my own commit
+   showed `Bin 0 -> 3387 bytes` with no diff. A file that produces no diff cannot
+   be reviewed. No gate could catch it: the code was correct, only the encoding
+   was wrong.
+3. **A broken HEAD import.** The H-24 commit landed an Edge Function importing
+   `./process_one.ts` without staging that file. `deno test` runs against the
+   working tree, so the gate was green while HEAD was broken. Now generalised:
+   every relative import in BOTH the Deno and Dart trees is verified to be a
+   committed file (0 missing in each).
+4. **My structural money check listed three files by hand** and therefore missed
+   two more instances of the identical defect. Now repo-wide with a reasoned
+   allowlist.
+5. **Three flaky-gate defects**, none normalised away: four backup tests omitted
+   the `@Timeout(3 min)` every sibling crypto test carries; the process-liveness
+   test allowed a cold `dart` process 5s to start, JIT and take an OS lock; and
+   my own linearity test was wrong twice (wall-clock, then a single-shot ratio)
+   before settling on best-of-3 per-item cost, verified stable across three runs.
+
+## T6. The §10 audit — all fourteen areas
+
+| # | Area | Result |
+|---|---|---|
+| 1 | Financial corruption / data-loss | 4 findings fixed |
+| 2 | Exact money | 4 findings fixed; all remaining doubles are derived display accessors |
+| 3 | Capability authority | Clean — all still `unknown` |
+| 4 | CAS / concurrency | Clean — `kServerRevisionCas = false`; C-6 closed on all three paths |
+| 5 | Consent / privacy | Clean — 12 gated, 1 exempt, **0 open** |
+| 6 | AI egress / containment | Clean — write-fence holds; 1 lifecycle defect fixed |
+| 7 | Parser correctness | 2 Critical findings fixed |
+| 8 | Force-update security | Clean — RPC-armed, fails closed |
+| 9 | Auth / authorization | 1 finding (H-9); entitlement routes verified gated via shared helper |
+| 10 | Migrations | Clean — all four carry rollbacks |
+| 11 | Backup / restore | 3 findings fixed |
+| 12 | Feature flags | Clean — C-10 rollout honoured |
+| 13 | Gamification | Clean — union seed per key |
+| 14 | Release configuration | Clean — F-024 landed, C-5 placeholder flagged |
+
+Two things that looked like findings and were not, checked before being written
+down: the three entitlement API routes gate through a shared helper rather than
+in-file, and a `catch → return true` in the backfill comparator returns
+"mismatched", which is the fail-closed direction.
+
+## T7. Final gates — committed HEAD, isolated checkout, serialized
+
+| Gate | Result |
+|---|---|
+| `flutter analyze` | **clean** |
+| Full Flutter suite | **2675 pass · 1 skip · 0 fail** |
+| Admin `node --test` | **102 / 0** |
+| `tsc --noEmit` | **clean** |
+| SQL / migration contract | **228 / 0** (70 credential-gated) |
+| Deno (all functions, `--allow-all`) | **152 / 0** |
+| Relative-import completeness | **0 missing** (Deno and Dart) |
+
+## T8. The working tree is now STALE, not pending
+
+Every remaining `app/lib` diff would REVERT landed work — C-3 consent gates, C-6
+guarded updates, F-024 version identity, C-5 URL centralisation. The tree is
+behind HEAD, not ahead of it.
+
+This is the material change from Sprint 2: there is no longer unreviewed source
+sitting in the working tree. What remains is the admin UI presentational
+workstream (labels, tones, table extraction), which carries no finding.
