@@ -840,6 +840,48 @@ class DriftTransactionRepository implements TransactionRepository {
   }
 
   @override
+  /// UX-022 — the REFUND component of the netted expense total, as a positive
+  /// magnitude.
+  ///
+  /// `expenseTotalBetween` implements the documented contract
+  /// `net expense = Σpayment + Σwithdrawal − Σrefund`, so a refund subtracts
+  /// SILENTLY and no surface can explain the difference. In the QA's concrete
+  /// case the Reports total read 2,120.00 against transactions of 420.00 +
+  /// 1,899.00 with a 199.00 refund: correct, and unexplainable on screen.
+  ///
+  /// This does NOT change that contract — it reports one of its inputs so the
+  /// UI can show `gross − refunds = net`. Same window, same scope, same
+  /// exclusions, so the three figures always reconcile.
+  Future<Money> refundTotalBetween({
+    required DateTime from,
+    required DateTime to,
+    required String currency,
+    String? accountId,
+  }) async {
+    final aggregate = _financialAggregateSql(
+      _FinancialAggregateFlow.expense,
+      accountId: accountId,
+    );
+    final row = await _db.customSelect(
+      '''
+        SELECT COALESCE(SUM(amount_minor), 0) AS t
+        FROM transactions
+        WHERE ${aggregate.where}
+          AND type = 'refund'
+          AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
+          AND UPPER(currency) = ?;
+      ''',
+      variables: [
+        Variable.withString(dateTimeToSql(from.toUtc())),
+        Variable.withString(dateTimeToSql(to.toUtc())),
+        ..._accountVars(accountId),
+        Variable.withString(currency.trim().toUpperCase()),
+      ],
+    ).getSingle();
+    return Money(row.read<int>('t'), currency);
+  }
+
+  @override
   Future<Money> incomeTotalBetween({
     required DateTime from,
     required DateTime to,

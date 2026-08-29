@@ -178,6 +178,19 @@ abstract class TransactionRepository {
     String? accountId,
   });
 
+  /// UX-022 — the REFUND component of [expenseTotalBetween], as a positive
+  /// magnitude, over the same window and scope.
+  ///
+  /// Reports must be able to show `gross − refunds = net` without changing the
+  /// netting contract, which is correct and centrally documented. This reports
+  /// an input to that contract; it does not alter it.
+  Future<Money> refundTotalBetween({
+    required DateTime from,
+    required DateTime to,
+    required String currency,
+    String? accountId,
+  });
+
   /// إجمالي الدخل خلال فترة نصف-مفتوحة `[from, to)` (MALI-028) — يُعرض في
   /// Dashboard/العمليات ولا يستهلك الميزانيات. الاسترداد ليس دخلاً.
   Future<Money> incomeTotalBetween({

@@ -11,14 +11,30 @@ class ReportSection {
   const ReportSection({
     required this.total,
     required this.prevTotal,
+    required this.refunds,
     required this.topCategories,
     required this.topMerchants,
     required this.dailySpend,
     required this.anomaly,
   });
 
+  /// Net expense: `Σpayment + Σwithdrawal − Σrefund` (the documented contract).
   final Money total;
   final Money prevTotal;
+
+  /// UX-022 — refunds included in [total], as a positive magnitude.
+  ///
+  /// Refunds were netted into the total silently, so a screen could show
+  /// 2,120.00 for transactions of 420.00 + 1,899.00 with a 199.00 refund and
+  /// offer no way to understand the difference. Carrying the component lets the
+  /// UI state `gross − refunds = net` instead of asking the user to trust it.
+  final Money refunds;
+
+  /// Expenses BEFORE refunds are deducted. Derived, never queried separately,
+  /// so it cannot drift from [total].
+  Money get grossExpense => total + refunds;
+
+  bool get hasRefunds => !refunds.isZero;
   final List<CategorySlice> topCategories;
   final List<MerchantSpend> topMerchants;
   final List<DailySpend> dailySpend;
@@ -117,6 +133,9 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
         from: from, to: to, currency: currency, accountId: accountId);
     final prevTotal = await txRepo.expenseTotalBetween(
         from: prevFrom, to: prevTo, currency: currency, accountId: accountId);
+    // UX-022 — one of `total`'s own inputs, so the screen can explain it.
+    final refunds = await txRepo.refundTotalBetween(
+        from: from, to: to, currency: currency, accountId: accountId);
     final breakdown = await txRepo.categoryBreakdown(
         from: from, to: to, currency: currency, accountId: accountId);
     final sumAll = Money.sum(breakdown.map((item) => item.total), currency);
@@ -139,6 +158,7 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
     return ReportSection(
       total: total,
       prevTotal: prevTotal,
+      refunds: refunds,
       topCategories: topCategories,
       topMerchants: topMerchants,
       dailySpend: dailySpend,

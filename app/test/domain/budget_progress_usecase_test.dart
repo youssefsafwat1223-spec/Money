@@ -111,6 +111,19 @@ class _FakeTransactionRepository implements TransactionRepository {
   }
 
   @override
+  @override
+  Future<Money> refundTotalBetween({
+    required DateTime from,
+    required DateTime to,
+    required String currency,
+    String? accountId,
+  }) async =>
+      // UX-022 — this fake exercises budget progress, which consumes the NET
+      // total. No refunds are modelled here, so the netted and gross figures
+      // coincide and the assertions are unaffected.
+      Money.zero(currency);
+
+  @override
   Future<Money> expenseTotalBetween({
     required DateTime from,
     required DateTime to,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../common/money_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/async_reload_safe.dart';
 
@@ -370,8 +371,57 @@ class _PeriodCard extends StatelessWidget {
               _money(section.total,
                   currencyLabel: currencyLabel, privacyMode: privacyMode),
               style: AppTypography.amountHero(c.textMain)),
-          Text('مصروف الفترة المختارة',
+          Text(
+              section.hasRefunds ? 'صافي مصروف الفترة' : 'مصروف الفترة المختارة',
               style: AppTypography.caption(c.textLight)),
+          // UX-022 — explain the netting instead of asking the user to trust it.
+          //
+          // Refunds subtract silently under the documented contract
+          // (net = payments + withdrawals − refunds), so the QA's real case
+          // showed 2,120.00 for transactions of 420.00 + 1,899.00 with a 199.00
+          // refund, and nothing on screen accounted for the 199. The three
+          // figures below are that same contract, written out.
+          //
+          // Shown ONLY when a refund exists, so a period without one keeps the
+          // single clean headline it has today.
+          if (section.hasRefunds) ...[
+            const SizedBox(height: AppSpacing.s3),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.s3, vertical: AppSpacing.s2),
+              decoration: BoxDecoration(
+                color: c.surfaceMuted,
+                borderRadius: BorderRadius.circular(AppRadius.card),
+              ),
+              child: Column(
+                children: [
+                  _RefundLine(
+                    label: 'إجمالي المصروفات',
+                    amount: section.grossExpense,
+                    currencyLabel: currencyLabel,
+                    privacyMode: privacyMode,
+                  ),
+                  const SizedBox(height: 4),
+                  _RefundLine(
+                    label: 'المرتجعات',
+                    amount: section.refunds,
+                    currencyLabel: currencyLabel,
+                    privacyMode: privacyMode,
+                    negative: true,
+                    color: c.success,
+                  ),
+                  const Divider(height: AppSpacing.s3),
+                  _RefundLine(
+                    label: 'الصافي',
+                    amount: section.total,
+                    currencyLabel: currencyLabel,
+                    privacyMode: privacyMode,
+                    strong: true,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -956,5 +1006,55 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(covariant _TabBarDelegate oldDelegate) {
     return oldDelegate.child != child;
+  }
+}
+
+
+/// One line of the UX-022 refund breakdown. Amounts render through [MoneyText]
+/// so the three figures are exact and therefore always reconcile on screen.
+class _RefundLine extends StatelessWidget {
+  const _RefundLine({
+    required this.label,
+    required this.amount,
+    required this.currencyLabel,
+    required this.privacyMode,
+    this.negative = false,
+    this.strong = false,
+    this.color,
+  });
+
+  final String label;
+  final Money amount;
+  final String currencyLabel;
+  final bool privacyMode;
+  final bool negative;
+  final bool strong;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final tone = color ?? (strong ? c.textMain : c.textSecondary);
+    final style =
+        strong ? AppTypography.bodyStrong(tone) : AppTypography.callout(tone);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: AppTypography.callout(c.textLight)),
+        if (privacyMode)
+          Text('••••', style: style)
+        else
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (negative)
+                Text('−', style: style, textDirection: TextDirection.ltr),
+              MoneyText(amount, style: style),
+              const SizedBox(width: 3),
+              Text(currencyLabel, style: AppTypography.caption(c.textLight)),
+            ],
+          ),
+      ],
+    );
   }
 }
