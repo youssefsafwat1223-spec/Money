@@ -74,6 +74,11 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  # Used by test/architecture/ci_release_gate_authority_test.dart to parse
+  # codemagic.yaml STRUCTURALLY (not via fragile whitespace scans). Declared
+  # directly so a transitive-dependency change can never break the CI-authority
+  # contract test.
+  yaml: ^3.1.2
   # لاختبار مسار إجراءات الإشعار الخلفية عبر PathProviderPlatform وهمي.
   path_provider_platform_interface: ^2.1.2
   plugin_platform_interface: ^2.1.8

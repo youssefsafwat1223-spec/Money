@@ -5,7 +5,7 @@
 # privacy-manifest packaging, executables, and bundle identifiers — things unit
 # tests cannot see because they concern the final .app/.appex bundles.
 #
-# Usage: tools/verify_ios_packaging.sh [path/to/Runner.app]
+# Usage: tools/verify_ios_packaging.sh [path/to/Runner.app] [provenance-sidecar]
 # Default path: build/ios/iphonesimulator/Runner.app
 #
 # PROVENANCE GATE (MALI-043 closure): a built bundle is only CURRENT evidence if
@@ -21,6 +21,7 @@
 set -euo pipefail
 
 APP="${1:-build/ios/iphonesimulator/Runner.app}"
+PROVENANCE="${2:-$APP.provenance}"
 MAIN_BUNDLE_ID="com.youssefsafwat.mali"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -44,7 +45,7 @@ ok()   { echo "  ✓ $*"; }
 echo "Inspecting $APP"
 
 # --- Provenance gate: is this bundle CURRENT? ------------------------------------
-SIDE="$APP.provenance"
+SIDE="$PROVENANCE"
 CUR_SHA="$(bash "$REPO_ROOT/tools/ios_input_sha.sh")"
 if [ ! -f "$SIDE" ]; then
   echo "NOT CURRENT: no provenance sidecar ($SIDE). This bundle's origin is" >&2

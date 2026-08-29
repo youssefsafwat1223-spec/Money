@@ -10,6 +10,7 @@ import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/domain/errors/repo_exceptions.dart';
 import 'package:money_companion/features/capture/services/transactions_backfill_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -75,6 +76,48 @@ SupabaseClient _refusingClient() {
     'refused first, or there were zero local rows to upload',
   );
 }
+
+SupabaseClient _existingTransactionClient(Map<String, dynamic> row) {
+  final http = MockClient((request) async {
+    expect(request.method, 'GET');
+    expect(request.url.path, contains('user_transactions'));
+    return Response(
+      jsonEncode(row),
+      200,
+      headers: const {'content-type': 'application/json'},
+      request: request,
+    );
+  });
+  return SupabaseClient(
+    'https://example.supabase.co',
+    'public-anon-key',
+    accessToken: () async => 'token',
+    httpClient: http,
+  );
+}
+
+Future<void> _seedSecondaryMoneyTransaction(AppDatabase db) async {
+  const now = '2026-08-24T10:00:00.000Z';
+  await db.customStatement('''
+    INSERT INTO transactions(id,amount,currency,type,source,balance_after,
+      foreign_amount,foreign_currency,direction,occurred_at,raw_message,
+      parse_confidence,status,created_at,updated_at)
+    VALUES('money-tx',10.25,'SAR','payment','manual',90.75,2.125,'KWD','debit',
+      '$now','',1,'confirmed','$now','$now');
+  ''');
+  await backfillNonPlanningMoneyV30(db);
+}
+
+Map<String, dynamic> _matchingRemoteTransaction() => {
+      'id': 'server-money-tx',
+      'amount_text': '10.25',
+      'currency': 'SAR',
+      'balance_after_text': '90.75',
+      'foreign_amount_text': '2.125',
+      'foreign_currency': 'KWD',
+      'direction': 'debit',
+      'transaction_type': 'expense',
+    };
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -237,6 +280,72 @@ void main() {
     expect(row.readNullable<String>('server_id'), isNull,
         reason: 'a rejected write must not stamp a server_id (fail-closed)');
     expect(row.readNullable<String>('sync_status'), isNot('synced'));
+  });
+
+  group('H-2 exact monetary reconciliation', () {
+    Future<({TransactionBackfillReport report, Map<String, Object?> local})>
+        run(
+      Map<String, dynamic> remote,
+    ) async {
+      final db = await _openDb();
+      addTearDown(db.close);
+      await db.customStatement("UPDATE accounts SET server_id = 'srv-acct';");
+      await _seedSecondaryMoneyTransaction(db);
+      final report = await TransactionsBackfillService(
+        db: db,
+        getAuthUserId: () async => 'user-a',
+        getLocalDataOwnerUid: () async => 'user-a',
+        getClient: () => _existingTransactionClient(remote),
+        coordinator: const FixedPlanningCutoverCoordinator(
+          PlanningCutoverState.canonical,
+        ),
+      ).run();
+      final local = (await db
+              .customSelect(
+                "SELECT server_id,synced_at,sync_status FROM transactions WHERE id='money-tx';",
+              )
+              .getSingle())
+          .data;
+      return (report: report, local: local);
+    }
+
+    test('remote balance_after mismatch is conflict, never synced', () async {
+      final remote = _matchingRemoteTransaction()
+        ..['balance_after_text'] = '90.76';
+      final result = await run(remote);
+
+      expect(result.report.mismatchedLocalIds, ['money-tx']);
+      expect(result.local['sync_status'], 'conflict');
+      expect(result.local['synced_at'], isNull);
+    });
+
+    test('remote foreign amount mismatch is conflict, never synced', () async {
+      final remote = _matchingRemoteTransaction()
+        ..['foreign_amount_text'] = '2.126';
+      final result = await run(remote);
+
+      expect(result.report.mismatchedLocalIds, ['money-tx']);
+      expect(result.local['sync_status'], 'conflict');
+      expect(result.local['synced_at'], isNull);
+    });
+
+    test('remote foreign currency mismatch is conflict, never synced',
+        () async {
+      final remote = _matchingRemoteTransaction()..['foreign_currency'] = 'SAR';
+      final result = await run(remote);
+
+      expect(result.report.mismatchedLocalIds, ['money-tx']);
+      expect(result.local['sync_status'], 'conflict');
+      expect(result.local['synced_at'], isNull);
+    });
+
+    test('all monetary dimensions matching stamps the row synced', () async {
+      final result = await run(_matchingRemoteTransaction());
+
+      expect(result.report.mismatchedLocalIds, isEmpty);
+      expect(result.local['sync_status'], 'synced');
+      expect(result.local['synced_at'], isNotNull);
+    });
   });
 
   // The exact scenario from the release-blocker report: User A creates local

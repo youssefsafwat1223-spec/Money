@@ -10,6 +10,7 @@ import 'package:money_companion/data/repositories/drift_transaction_repository.d
 import 'package:money_companion/domain/entities/captured_message.dart';
 import 'package:money_companion/domain/usecases/add_transaction_usecase.dart';
 import 'package:money_companion/domain/usecases/ingest_captured_message_usecase.dart';
+import 'package:money_companion/engine/ai/ai_parser_client.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -17,6 +18,26 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
   @override
   Future<String?> readStoredKey() async => 'memory-key';
+}
+
+class _CountingAiClient implements AiParserClient {
+  int calls = 0;
+
+  @override
+  Future<AiParseResponse?> parse({
+    required String sanitizedSms,
+    required String senderId,
+    required String installId,
+  }) async {
+    calls++;
+    return const AiParseResponse(
+      amount: 82,
+      amountText: '82.00',
+      currency: 'SAR',
+      merchantName: 'UNLISTED ROASTER',
+      type: 'payment',
+    );
+  }
 }
 
 void main() {
@@ -92,6 +113,39 @@ void main() {
 
     expect(result.disposition, CapturedMessageDisposition.notifyOnly);
     expect(result.addTransactionResult.requiresConfirmation, isFalse);
+  });
+
+  test('native recovery can force on-device-only ingestion', () async {
+    final ai = _CountingAiClient();
+    var remoteMerchantLookups = 0;
+    final localOnlyIngest = IngestCapturedMessageUseCase(
+      AddTransactionUseCase(
+        transactionRepository: DriftTransactionRepository(db),
+        merchantCategoryRepository: DriftMerchantCategoryRepository(db),
+        suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
+        aiClient: ai,
+        loadAiConsent: () async => true,
+        resolveMerchantCategory: (_) async {
+          remoteMerchantLookups++;
+          return null;
+        },
+      ),
+    );
+
+    final result = await localOnlyIngest.fromCapturedMessage(
+      CapturedMessage(
+        text: 'عملية شراء\nمبلغ:SAR 82.00\nلدى:UNLISTED ROASTER',
+        senderId: 'SNB',
+        source: CapturedMessageSource.iosShortcut,
+        receivedAt: DateTime.utc(2026, 8, 20),
+      ),
+      onDeviceOnly: true,
+    );
+
+    expect(result.transactionId, isNotNull);
+    expect(ai.calls, 0, reason: 'the retained raw SMS must not be sent to AI');
+    expect(remoteMerchantLookups, 0,
+        reason: 'native recovery is fully local, including enrichment');
   });
 
   test('new merchant capture requests confirmation', () async {
