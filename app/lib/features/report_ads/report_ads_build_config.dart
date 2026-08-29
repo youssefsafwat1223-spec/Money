@@ -52,8 +52,15 @@ class ReportAdsBuildConfig {
   // Shape validation (§15). App IDs use `~`, ad units use `/` — mixing the two
   // up is the classic AdMob misconfiguration, and it must degrade to "no ads"
   // rather than reach the SDK.
-  static final RegExp _appIdShape = RegExp(r'^ca-app-pub-\d{10,22}~\d{6,12}$');
-  static final RegExp _unitIdShape = RegExp(r'^ca-app-pub-\d{10,22}/\d{6,12}$');
+  //
+  // Audit H-7: these mirror the shape the native SDK itself enforces —
+  // `^ca-app-pub-[0-9]{16}~[0-9]{10}$`, verified by disassembling
+  // `zzev#attachInfo` in play-services-ads-api:25.3.0, which throws
+  // IllegalStateException at PROCESS START on a mismatch. Keeping the Dart gate
+  // looser than the SDK's would let a value pass here and still crash at launch.
+  static final RegExp _appIdShape = RegExp(r'^ca-app-pub-[0-9]{16}~[0-9]{10}$');
+  static final RegExp _unitIdShape =
+      RegExp(r'^ca-app-pub-[0-9]{16}/[0-9]{10}$');
 
   /// Whether [value] is a well-formed AdMob **application** id (`…~…`).
   static bool isValidAppId(String value) => _appIdShape.hasMatch(value);

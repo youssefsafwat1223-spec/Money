@@ -19,6 +19,8 @@ enum ReportExportPhase {
   completed,
 }
 
+enum _AdOpportunityResult { proceed, cancelled, superseded }
+
 /// Wraps the existing report-export choke point with a narrow state machine
 /// (R4). It owns NO report logic — `generate` (the caller's closure around the
 /// report-export choke point) is invoked EXACTLY ONCE per accepted attempt.
@@ -38,13 +40,15 @@ class ReportExportCoordinator {
     required ReportExportAdGateway gateway,
     required ReportAdsAnalytics analytics,
     String Function()? mintAttemptId,
+    Duration adOpportunityDeadline = const Duration(minutes: 6),
   })  : _reportAdsEnabled = reportAdsEnabled,
         _adConfigAvailable = adConfigAvailable,
         _entitlement = entitlement,
         _consent = consent,
         _gateway = gateway,
         _analytics = analytics,
-        _mintAttemptId = mintAttemptId ?? _defaultMintAttemptId;
+        _mintAttemptId = mintAttemptId ?? _defaultMintAttemptId,
+        _adOpportunityDeadline = adOpportunityDeadline;
 
   final bool Function() _reportAdsEnabled;
   final bool Function() _adConfigAvailable;
@@ -53,6 +57,7 @@ class ReportExportCoordinator {
   final ReportExportAdGateway _gateway;
   final ReportAdsAnalytics _analytics;
   final String Function() _mintAttemptId;
+  final Duration _adOpportunityDeadline;
 
   static int _seq = 0;
   static String _defaultMintAttemptId() => 'export-${_seq++}';
@@ -97,26 +102,61 @@ class ReportExportCoordinator {
     }
 
     try {
-      final showAd = await _shouldShowAd(attempt);
-      if (_currentAttemptId != attempt) return; // superseded
-      if (showAd) {
-        if (confirmAdNotice != null) {
-          _phase = ReportExportPhase.confirmingAd;
-          final proceed = await confirmAdNotice();
-          if (_currentAttemptId != attempt) return; // superseded while open
-          if (!proceed) {
-            // Explicit cancellation of this attempt. Deliberately NOT
-            // fail-open: the user asked to stop, so we must not quietly
-            // generate the report anyway. `advanced` stays false and the
-            // finally block returns the machine to idle.
-            return;
-          }
+      // One deadline owns the complete ad opportunity: entitlement, UMP,
+      // preload, notice, the ad.show() trigger and the terminal show callback.
+      // Future.microtask ensures the timer is attached before any stage starts.
+      // Report generation deliberately sits outside this deadline.
+      var opportunityOpen = true;
+      bool isCurrentOpportunity() =>
+          opportunityOpen && _currentAttemptId == attempt;
+      void closeOpportunity() {
+        opportunityOpen = false;
+        if (_phase != ReportExportPhase.preparingAd &&
+            _phase != ReportExportPhase.confirmingAd &&
+            _phase != ReportExportPhase.presentingAd) {
+          return;
         }
-        _phase = ReportExportPhase.presentingAd;
-        final outcome = await _gateway.showIfAvailable();
-        _recordOutcome(outcome);
-        if (_currentAttemptId != attempt) return; // superseded during present
+        try {
+          // The concrete gateway's disposal is reusable: it also invalidates
+          // late load callbacks and clears any active presentation.
+          _gateway.dispose();
+        } catch (_) {
+          // Cleanup is best-effort; report generation remains fail-open.
+        }
       }
+
+      _AdOpportunityResult result;
+      try {
+        final opportunity = Future<_AdOpportunityResult>.microtask(
+          () => _runAdOpportunity(
+            isCurrentOpportunity,
+            confirmAdNotice: confirmAdNotice,
+          ),
+        );
+        result = await opportunity.timeout(
+          _adOpportunityDeadline,
+          onTimeout: () {
+            // Future.timeout cannot cancel its source. Close this attempt's ad
+            // token so a late consent/load/show continuation cannot create a
+            // second opportunity after the report has already advanced.
+            closeOpportunity();
+            return _AdOpportunityResult.proceed;
+          },
+        );
+      } catch (_) {
+        // Audit H-6: an exception anywhere in the ad stage must never cost the
+        // user their accepted report-export attempt.
+        closeOpportunity();
+        result = _AdOpportunityResult.proceed;
+      }
+      if (_currentAttemptId != attempt) return; // superseded
+      opportunityOpen = false;
+      if (result == _AdOpportunityResult.cancelled) {
+        // Explicit cancellation of this attempt. Deliberately NOT fail-open:
+        // the user asked to stop, so do not quietly generate the report.
+        return;
+      }
+      if (result == _AdOpportunityResult.superseded) return;
       // Fail-open: every path (ad shown / skipped / failed / interrupted) lands
       // here and generates exactly once.
       await advanceOnce();
@@ -129,23 +169,54 @@ class ReportExportCoordinator {
     }
   }
 
+  Future<_AdOpportunityResult> _runAdOpportunity(
+    bool Function() isCurrent, {
+    Future<bool> Function()? confirmAdNotice,
+  }) async {
+    final showAd = await _shouldShowAd(isCurrent);
+    if (!isCurrent()) return _AdOpportunityResult.superseded;
+    if (!showAd) return _AdOpportunityResult.proceed;
+
+    if (confirmAdNotice != null) {
+      _phase = ReportExportPhase.confirmingAd;
+      final proceed = await confirmAdNotice();
+      if (!isCurrent()) return _AdOpportunityResult.superseded;
+      if (!proceed) return _AdOpportunityResult.cancelled;
+    }
+
+    _phase = ReportExportPhase.presentingAd;
+    // Same contract as the gate: a presentation failure is an ad outcome,
+    // never a reason to withhold the report.
+    try {
+      final outcome = await _gateway.showIfAvailable();
+      if (!isCurrent()) return _AdOpportunityResult.superseded;
+      _recordOutcome(outcome);
+    } catch (_) {
+      if (!isCurrent()) return _AdOpportunityResult.superseded;
+      _analytics.adShowFailed();
+    }
+    return _AdOpportunityResult.proceed;
+  }
+
   /// Evaluate the full ad gate (§8). ANY false term ⇒ no ad.
-  Future<bool> _shouldShowAd(String attempt) async {
+  Future<bool> _shouldShowAd(bool Function() isCurrent) async {
     if (!_reportAdsEnabled()) return false;
     if (!_adConfigAvailable()) return false;
 
     _phase = ReportExportPhase.resolvingEntitlement;
     final state = await _entitlement.resolve();
-    if (_currentAttemptId != attempt) return false;
+    if (!isCurrent()) return false;
     // Only VERIFIED_INACTIVE is eligible; ACTIVE and UNKNOWN both skip the ad.
     if (state != ReportEntitlementState.verifiedInactive) return false;
 
-    if (!await _consent.canRequestAds()) return false;
-    if (_currentAttemptId != attempt) return false;
+    final canRequestAds = await _consent.canRequestAds();
+    if (!isCurrent()) return false;
+    if (!canRequestAds) return false;
 
     _phase = ReportExportPhase.preparingAd;
     _analytics.adLoadRequested();
     if (!_gateway.isAvailable) await _gateway.preload();
+    if (!isCurrent()) return false;
     if (!_gateway.isAvailable) {
       _analytics.adLoadFailed();
       return false;

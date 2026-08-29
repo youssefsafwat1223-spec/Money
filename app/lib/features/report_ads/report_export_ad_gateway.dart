@@ -53,7 +53,16 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
 
   InterstitialAd? _ad;
   bool _loading = false;
+  int _loadGeneration = 0;
+  void Function()? _cancelPresentation;
   static bool _mobileAdsInitialized = false;
+
+  // Bounds for every SDK await (audit H-5). Generous rather than tight: the
+  // goal is to guarantee termination, not to police the network. An interstitial
+  // presentation is seconds long, so minutes here only catches a dead callback.
+  static const Duration _initTimeout = Duration(seconds: 10);
+  static const Duration _loadTimeout = Duration(seconds: 30);
+  static const Duration _showTimeout = Duration(minutes: 5);
 
   String? get _unitId => ReportAdsBuildConfig.interstitialUnitId(_platform);
 
@@ -71,29 +80,69 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
   @override
   Future<void> preload() async {
     if (_ad != null || _loading) return; // bounded: one in-flight load, no loop
+    // Audit C-4/A1: require the COMPLETE configuration, not just an ad unit.
+    // Initialising the SDK with a unit id but an absent application id raises
+    // the SDK's invalid-initialization exception (on iOS an empty
+    // GADApplicationIdentifier), so this precondition must match the
+    // coordinator's rather than being weaker than it.
+    if (!ReportAdsBuildConfig.isConfiguredFor(_platform)) return;
     final unitId = _unitId;
     if (unitId == null) return; // no ad configuration → nothing to preload
     _loading = true;
-    await _ensureMobileAds();
-    final completer = Completer<void>();
-    InterstitialAd.load(
-      adUnitId: unitId,
-      // V1 is non-personalized (no ATT / IDFA): request NPA explicitly.
-      request: const AdRequest(extras: {'npa': '1'}),
-      adLoadCallback: InterstitialAdLoadCallback(
-        onAdLoaded: (ad) {
-          _ad = ad;
-          _loading = false;
+    final generation = ++_loadGeneration;
+    void invalidateLoad() {
+      if (generation != _loadGeneration) return;
+      _loadGeneration++;
+      _loading = false;
+      _ad?.dispose();
+      _ad = null;
+    }
+
+    // Audit H-5: every await here is bounded and `_loading` is released on EVERY
+    // path. Previously an initialize() throw left `_loading` true forever (so no
+    // ad could ever load again) and propagated into the export path, suppressing
+    // the user's report entirely.
+    try {
+      await _ensureMobileAds().timeout(_initTimeout);
+      if (generation != _loadGeneration) return;
+      final completer = Completer<void>();
+      // The Future returned by load() is NOT the completion signal (the
+      // callbacks are), but it CAN reject on a platform-channel failure before
+      // either callback fires. Unawaited, that became an unhandled async error
+      // and the completer never completed — a permanent hang.
+      unawaited(
+        InterstitialAd.load(
+          adUnitId: unitId,
+          // V1 is non-personalized (no ATT / IDFA): request NPA explicitly.
+          request: const AdRequest(extras: {'npa': '1'}),
+          adLoadCallback: InterstitialAdLoadCallback(
+            onAdLoaded: (ad) {
+              if (generation != _loadGeneration) {
+                ad.dispose();
+                if (!completer.isCompleted) completer.complete();
+                return;
+              }
+              _ad = ad;
+              if (!completer.isCompleted) completer.complete();
+            },
+            onAdFailedToLoad: (error) {
+              invalidateLoad();
+              if (!completer.isCompleted) completer.complete();
+            },
+          ),
+        ).catchError((Object _) {
+          invalidateLoad();
           if (!completer.isCompleted) completer.complete();
-        },
-        onAdFailedToLoad: (error) {
-          _ad = null;
-          _loading = false;
-          if (!completer.isCompleted) completer.complete();
-        },
-      ),
-    );
-    return completer.future;
+        }),
+      );
+      await completer.future.timeout(_loadTimeout, onTimeout: invalidateLoad);
+    } catch (_) {
+      // Fail closed for ads, fail OPEN for the report: the coordinator sees
+      // "no ad available" and proceeds to generate.
+      invalidateLoad();
+    } finally {
+      if (generation == _loadGeneration) _loading = false;
+    }
   }
 
   @override
@@ -103,33 +152,71 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
     _ad = null; // consume: an interstitial may be shown only once
 
     final completer = Completer<ReportAdOutcome>();
+    var disposed = false;
+    void disposeAd() {
+      if (disposed) return;
+      disposed = true;
+      ad.dispose();
+    }
+
     void finish(ReportAdOutcome outcome) {
       if (!completer.isCompleted) completer.complete(outcome);
     }
 
+    _cancelPresentation = disposeAd;
+
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
+        disposeAd();
         finish(ReportAdOutcome.dismissed);
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
-        ad.dispose();
+        disposeAd();
         finish(ReportAdOutcome.failedToShow);
       },
     );
 
+    // Audit H-5: the completer previously resolved ONLY from a terminal
+    // callback. If the ad activity died without delivering one (process
+    // interruption), `showIfAvailable()` never completed, `_inFlight` stayed
+    // true, and every later Export tap was silently swallowed for the rest of
+    // the session. This is also the only path that can now actually produce
+    // `lifecycleInterrupted`, which nothing used to return. Schedule the whole
+    // trigger + callback sequence as one Future so the timeout is armed BEFORE
+    // `ad.show()` is invoked; the platform-method Future itself may hang.
+    final presentation = Future<ReportAdOutcome>.microtask(() async {
+      try {
+        await ad.show();
+      } catch (_) {
+        disposeAd();
+        finish(ReportAdOutcome.failedToShow);
+      }
+      return completer.future;
+    });
     try {
-      await ad.show();
-    } catch (_) {
-      ad.dispose();
-      finish(ReportAdOutcome.failedToShow);
+      return await presentation.timeout(_showTimeout, onTimeout: () {
+        disposeAd();
+        finish(ReportAdOutcome.lifecycleInterrupted);
+        return ReportAdOutcome.lifecycleInterrupted;
+      });
+    } finally {
+      if (identical(_cancelPresentation, disposeAd)) {
+        _cancelPresentation = null;
+      }
     }
-    return completer.future;
+  }
+
+  void _abandonOpportunity() {
+    // Invalidate first: a load callback racing this cleanup must dispose its ad
+    // instead of publishing it as available for a later export.
+    _loadGeneration++;
+    _loading = false;
+    _ad?.dispose();
+    _ad = null;
+    _cancelPresentation?.call();
+    _cancelPresentation = null;
   }
 
   @override
-  void dispose() {
-    _ad?.dispose();
-    _ad = null;
-  }
+  void dispose() => _abandonOpportunity();
 }

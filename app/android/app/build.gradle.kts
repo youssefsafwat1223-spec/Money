@@ -35,13 +35,54 @@ fun releaseSigningValue(envName: String, propertyName: String): String? {
 // never a production build quietly serving on Google's sample identifiers.
 val admobTestAppIdAndroid = "ca-app-pub-3940256099942544~3347511713"
 
+// Audit C-4 (CRITICAL). The Google Mobile Ads SDK validates this value in
+// `MobileAdsInitProvider`, a ContentProvider with android:initOrder="100" — it
+// runs at PROCESS START, before any Dart code. A malformed id therefore raises
+// the SDK's invalid-initialization exception and crashes the app on EVERY
+// launch, for every user, whether or not ads are enabled. No Dart guard can
+// defend this, because Dart has not started yet. Gradle previously accepted any
+// non-blank string, so a single typo in a CI variable shipped a crashing build.
+// EXACTLY the shape the SDK itself enforces. Verified by disassembling
+// com.google.android.gms.ads.internal.client.zzev#attachInfo in
+// play-services-ads-api:25.3.0, which applies `^ca-app-pub-[0-9]{16}~[0-9]{10}$`
+// at process start and throws IllegalStateException on a mismatch. A looser
+// gate here would pass a value that still crashes the app at launch.
+val admobAppIdShape = Regex("""^ca-app-pub-[0-9]{16}~[0-9]{10}$""")
+val admobTestPublisher = "ca-app-pub-3940256099942544"
+
 fun admobAppIdFor(isRelease: Boolean): String {
     if (!isRelease) return admobTestAppIdAndroid
-    val fromEnv = System.getenv("ADMOB_APP_ID_ANDROID")
-    if (!fromEnv.isNullOrBlank()) return fromEnv
-    val fromProperty = project.findProperty("ADMOB_APP_ID_ANDROID") as String?
-    if (!fromProperty.isNullOrBlank()) return fromProperty
-    return admobTestAppIdAndroid
+    val supplied = System.getenv("ADMOB_APP_ID_ANDROID")
+        ?: project.findProperty("ADMOB_APP_ID_ANDROID") as String?
+    if (supplied.isNullOrBlank()) {
+        // Absent is legal: the manifest keeps a VALID (sample) id so the SDK can
+        // start, and ReportAdsBuildConfig independently reports "not configured"
+        // so no ad is ever requested. Loud, because a release built this way
+        // ships with monetization silently off.
+        logger.warn(
+            "AdMob: ADMOB_APP_ID_ANDROID is not set — this RELEASE build carries " +
+                "Google's sample application id and will serve no ads."
+        )
+        return admobTestAppIdAndroid
+    }
+    val value = supplied.trim()
+    // Fail the BUILD rather than shipping an artifact that cannot launch.
+    if (!admobAppIdShape.matches(value)) {
+        throw GradleException(
+            "AdMob: ADMOB_APP_ID_ANDROID is malformed. Expected " +
+                "ca-app-pub-<digits>~<digits> (an APPLICATION id uses '~'; an ad " +
+                "UNIT id uses '/'). A malformed value crashes the app at launch " +
+                "via MobileAdsInitProvider. Value not echoed."
+        )
+    }
+    if (value.startsWith(admobTestPublisher)) {
+        throw GradleException(
+            "AdMob: ADMOB_APP_ID_ANDROID was explicitly set to Google's TEST " +
+                "publisher for a RELEASE build. Unset it to build without ads, " +
+                "or supply the production application id."
+        )
+    }
+    return value
 }
 
 val releaseStoreFilePath = releaseSigningValue("ANDROID_KEYSTORE_PATH", "storeFile")
