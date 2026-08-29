@@ -861,14 +861,15 @@ There is no unreviewed source left in the working tree.
 
 # FINAL — REPOSITORY-CONSISTENCY PASS (2026-08-29)
 
-**Final HEAD:** `f79250c2` · branch `feat/phase1-data-integrity` · **100 commits**
+**Final HEAD:** `78235519` · branch `feat/phase1-data-integrity` · **101 commits**
 this session · nothing pushed, deployed, or applied remotely.
 
 ## F1. AUTHORITATIVE GATE NUMBERS
 
 **These supersede every earlier figure in this document.** All measured on a
-pristine checkout of `f79250c2` (`git status` empty), serialized, with
-`REQUIRE_PRISTINE_TREE=1`.
+pristine checkout of the EXACT final HEAD `78235519` (`git status` empty),
+serialized, with `REQUIRE_PRISTINE_TREE=1` — re-run at that SHA rather than
+inherited from its parent, so the numbers describe the commit being reported.
 
 | Gate | Result |
 |---|---|
