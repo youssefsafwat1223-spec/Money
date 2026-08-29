@@ -20,14 +20,35 @@
 /// it resolves and serves the documents in `docs/legal/`.
 library;
 
+/// The intended host, used when no override is supplied.
+const String _kDefaultLegalBaseUrl = 'https://mali.youssefsafwat.com';
+
+/// Raw build-time override. May be EMPTY — see [kLegalBaseUrl].
+const String _kLegalBaseUrlOverride = String.fromEnvironment('LEGAL_BASE_URL');
+
 /// Base host for the published legal documents.
 ///
 /// Override at build time once the host is live and serving:
 ///   --dart-define=LEGAL_BASE_URL=https://your-host.example
-const String kLegalBaseUrl = String.fromEnvironment(
-  'LEGAL_BASE_URL',
-  defaultValue: 'https://mali.youssefsafwat.com',
-);
+///
+/// ## Why this is not a plain `defaultValue:`
+///
+/// `String.fromEnvironment` falls back to `defaultValue` only when the key is
+/// UNDEFINED. A key defined as the empty string returns the empty string — and
+/// CI passes `--dart-define=LEGAL_BASE_URL="${LEGAL_BASE_URL:-}"`, which
+/// expands to exactly that whenever the variable is not set in the build
+/// environment.
+///
+/// With a bare `defaultValue:` that build produced `Uri.parse('/privacy')` — a
+/// relative URI with no scheme and no host, which `url_launcher` cannot open.
+/// The failure mode was worse than the dead link it replaced: a dead link at
+/// least tells the user where it meant to go, and this one is invisible until
+/// someone taps it, which for a store reviewer is exactly once.
+///
+/// Comparing against `''` keeps the whole expression const-evaluable, so this
+/// stays a compile-time constant.
+const String kLegalBaseUrl =
+    _kLegalBaseUrlOverride == '' ? _kDefaultLegalBaseUrl : _kLegalBaseUrlOverride;
 
 /// Published from `docs/legal/PRIVACY_POLICY.md`.
 final Uri kPrivacyPolicyUrl = Uri.parse('$kLegalBaseUrl/privacy');
@@ -41,5 +62,4 @@ final Uri kTermsUrl = Uri.parse('$kLegalBaseUrl/terms');
 /// relying on someone remembering. It is NOT used to hide the links in the UI:
 /// showing a dead link is bad, but silently removing the privacy policy from a
 /// shipping app is worse, and the correct fix is to own the host.
-bool get legalUrlsArePlaceholder =>
-    kLegalBaseUrl == 'https://mali.youssefsafwat.com';
+bool get legalUrlsArePlaceholder => kLegalBaseUrl == _kDefaultLegalBaseUrl;

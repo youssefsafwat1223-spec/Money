@@ -76,6 +76,41 @@ void main() {
             'core/config/legal_urls.dart');
   });
 
+  group('an EMPTY --dart-define does not produce a hostless URL', () {
+    // CI passes `--dart-define=LEGAL_BASE_URL="${LEGAL_BASE_URL:-}"`, which
+    // expands to the empty string whenever the variable is unset in the build
+    // environment. `String.fromEnvironment` honours `defaultValue` only for an
+    // UNDEFINED key, so an empty define used to win and produce
+    // `Uri.parse('/privacy')` — no scheme, no host, unopenable.
+    //
+    // Worse than the dead link it replaced: a dead link says where it meant to
+    // go, and this one is invisible until someone taps it.
+    test('the URLs always carry a scheme and host', () {
+      expect(kPrivacyPolicyUrl.hasScheme, isTrue);
+      expect(kPrivacyPolicyUrl.host, isNotEmpty);
+      expect(kTermsUrl.hasScheme, isTrue);
+      expect(kTermsUrl.host, isNotEmpty);
+    });
+
+    test('the guard is const-evaluable, not a runtime fallback', () {
+      // Comparing against '' keeps kLegalBaseUrl a compile-time constant. A
+      // runtime fallback would work but would stop the tree-shaker from seeing
+      // the value, and would let a null-ish state exist mid-startup.
+      final src = File('lib/core/config/legal_urls.dart').readAsStringSync();
+      expect(src, contains("_kLegalBaseUrlOverride == ''"));
+      expect(src, contains('const String kLegalBaseUrl'));
+    });
+
+    test('CI passes the define in every build workflow', () {
+      // It was absent from all three, so a CI build shipped the placeholder
+      // even after the host went live.
+      final ci = File('../codemagic.yaml').readAsStringSync();
+      expect('--dart-define=LEGAL_BASE_URL'.allMatches(ci).length, 3,
+          reason: 'ios-unsigned-sideload, ios-signed-release and '
+              'android-release must all pass it');
+    });
+  });
+
   group('the publishable site matches the URLs the app opens', () {
     // Release prep — `tools/build_legal_site.py` renders docs/legal/ into a
     // static site the owner can upload to any host with no build step. The
