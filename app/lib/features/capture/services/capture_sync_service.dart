@@ -1,6 +1,8 @@
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/install_id.dart';
+import '../../../data/db/ownership_guard.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
+import '../../../data/repositories/drift_smart_inbox_repository.dart';
 import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
@@ -34,8 +36,11 @@ class CaptureSyncService {
     required DriftUserSettingsRepository settingsRepository,
     required DriftTransactionRepository transactionRepository,
     required DriftDedupStore dedupStore,
+    required DriftSmartInboxRepository smartInboxRepository,
     required DriftSuspectedDuplicateRepository suspectedDuplicateRepository,
     required CaptureDeviceRegistrationService registrationService,
+    required OwnershipGuard ownershipGuard,
+    required String? Function() currentUserId,
     AccountRepository? accountRepository,
     CaptureBackendClient? client,
     bool? backendConfigured,
@@ -48,8 +53,11 @@ class CaptureSyncService {
   })  : _settingsRepository = settingsRepository,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
+        _smartInboxRepository = smartInboxRepository,
         _suspectedDuplicateRepository = suspectedDuplicateRepository,
         _registrationService = registrationService,
+        _ownershipGuard = ownershipGuard,
+        _currentUserId = currentUserId,
         _accountRepository = accountRepository,
         _client = client,
         _backendConfigured = backendConfigured,
@@ -62,8 +70,11 @@ class CaptureSyncService {
   final DriftUserSettingsRepository _settingsRepository;
   final DriftTransactionRepository _transactionRepository;
   final DriftDedupStore _dedupStore;
+  final DriftSmartInboxRepository _smartInboxRepository;
   final DriftSuspectedDuplicateRepository _suspectedDuplicateRepository;
   final CaptureDeviceRegistrationService _registrationService;
+  final OwnershipGuard _ownershipGuard;
+  final String? Function() _currentUserId;
   final AccountRepository? _accountRepository;
   final CaptureBackendClient? _client;
   final bool? _backendConfigured;
@@ -100,6 +111,32 @@ class CaptureSyncService {
   }
 
   Future<CaptureSyncResult> _syncOnce() async {
+    // Bind the complete fetch/import/ack run to one account admission. The auth
+    // UID is checked as well as the secure admission generation so an A fetch can
+    // never resume against B (including A→B→A/same-UID re-login races).
+    final admissionToken = await _ownershipGuard.capture();
+    late final String? admittedUserId;
+    try {
+      admittedUserId = _currentUserId();
+    } catch (_) {
+      throw const StaleOwnershipException();
+    }
+
+    Future<void> requireCurrentAdmission() async {
+      try {
+        if (_currentUserId() != admittedUserId ||
+            admissionToken.ownerUid != admittedUserId ||
+            !await _ownershipGuard.isCurrent(admissionToken)) {
+          throw const StaleOwnershipException();
+        }
+      } on StaleOwnershipException {
+        rethrow;
+      } catch (_) {
+        throw const StaleOwnershipException();
+      }
+    }
+
+    await requireCurrentAdmission();
     final settings = await _settingsRepository.getSettings();
     final backendConfigured = _backendConfigured ?? SupabaseConfig.isConfigured;
     if (!settings.cloudProcessingEnabled || !backendConfigured) {
@@ -126,6 +163,7 @@ class CaptureSyncService {
           anonKey: SupabaseConfig.anonKey,
         );
     final installId = await (_loadInstallId ?? InstallId.get)();
+    await requireCurrentAdmission();
     final captures = await client.syncCaptures(
       installId: installId,
       deviceSecret: secret,
@@ -143,7 +181,8 @@ class CaptureSyncService {
         imported.add(capture.payloadId);
         continue;
       }
-      final needsReviewTransactionId = await _importCapture(capture);
+      final needsReviewTransactionId =
+          await _importCapture(capture, requireCurrentAdmission);
       if (needsReviewTransactionId != null) {
         needsReviewTransactionIds.add(needsReviewTransactionId);
       }
@@ -151,6 +190,9 @@ class CaptureSyncService {
     }
 
     if (imported.isNotEmpty) {
+      // Native/relay deletion is a separate side-effect boundary. A stale run
+      // leaves every capture server-side for the authoritative admission.
+      await requireCurrentAdmission();
       await client.syncCaptures(
         installId: installId,
         deviceSecret: secret,
@@ -167,7 +209,15 @@ class CaptureSyncService {
 
   Future<bool> isPayloadImported(String payloadId) async {
     final txId = await transactionIdForPayload(payloadId);
-    return txId != null;
+    if (txId == null) return false;
+    // Older builds could commit this marker without preserving the capture.
+    // It must not authorize native deletion until the deterministic review row
+    // has also committed. A relay redelivery can then repair the legacy state;
+    // if the relay expired, the native queue falls through to local ingestion.
+    if (txId.startsWith('rejected:')) {
+      return _smartInboxRepository.hasUnprocessableCapture(payloadId);
+    }
+    return true;
   }
 
   /// Retries a native payload whose extension may have been killed in-flight.
@@ -223,8 +273,126 @@ class CaptureSyncService {
     );
   }
 
-  Future<String?> _importCapture(ProcessedCaptureDto capture) async {
+  /// Converts an otherwise lossy native capture into a durable Smart Inbox
+  /// review item and records the permanent payload marker in one transaction.
+  /// A re-delivery after commit-before-native-ack sees the marker (and the same
+  /// deterministic review id), so it cannot create a second logical item.
+  ///
+  /// Ownership is checked inside the database transaction both before and
+  /// after the writes. A generation change throws, rolling the transaction
+  /// back; the caller must then leave the native lease unacknowledged.
+  Future<String> persistUnprocessableCapture(
+    SharedCapturedMessage message, {
+    required Future<bool> Function() isOwnerCurrent,
+  }) async {
+    final payloadId = message.id?.trim();
+    if (payloadId == null || payloadId.isEmpty) {
+      throw StateError('unprocessable_capture_missing_payload_id');
+    }
+    return _dedupStore.runAtomically(() async {
+      Future<void> requireOwner() async {
+        if (!await isOwnerCurrent()) throw const StaleOwnershipException();
+      }
+
+      await requireOwner();
+      final itemId = await _saveUnprocessableCaptureAndMarker(
+        payloadId: payloadId,
+        rawMessage: message.text,
+        source: message.source.name,
+        senderId: message.sender,
+        receivedAt: message.receivedAt,
+        requireCurrentAdmission: requireOwner,
+      );
+      await requireOwner();
+      return itemId;
+    });
+  }
+
+  /// Writes the deterministic Smart Inbox row and permanent payload marker.
+  /// The caller owns the surrounding database transaction.
+  Future<String> _saveUnprocessableCaptureAndMarker({
+    required String payloadId,
+    required String rawMessage,
+    required String source,
+    String? senderId,
+    DateTime? receivedAt,
+    Future<void> Function()? requireCurrentAdmission,
+  }) async {
+    await requireCurrentAdmission?.call();
+    final itemId = await _smartInboxRepository.saveUnprocessableCapture(
+      payloadId: payloadId,
+      rawMessage: rawMessage,
+      source: source,
+      senderId: senderId,
+      receivedAt: receivedAt,
+    );
+    await requireCurrentAdmission?.call();
+    await markPayloadImported(
+      payloadId: payloadId,
+      transactionId: 'smart_inbox:$itemId',
+    );
+    return itemId;
+  }
+
+  /// A backend `rejected` capture is an explicitly submitted capture that the
+  /// parser could not turn into a transaction. The backend status vocabulary
+  /// has no `ignored` state: its other terminal statuses are `processed`,
+  /// `needs_review`, and `duplicate`. Therefore rejection is recoverable review
+  /// work, while intentional OTP/promo drops remain the local ingest service's
+  /// `ignored` disposition.
+  Future<void> _persistBackendUnprocessableCapture(
+    ProcessedCaptureDto capture,
+    Future<void> Function() requireCurrentAdmission,
+  ) async {
     final parsed = capture.parsed;
+    final sanitizedText = capture.sanitizedText;
+    final rawMessage = sanitizedText != null && sanitizedText.isNotEmpty
+        ? sanitizedText
+        : SmsSanitizer.sanitize(
+            _string(parsed['rawMessage']) ??
+                'Backend capture ${capture.payloadId} could not be parsed',
+          );
+    await _saveUnprocessableCaptureAndMarker(
+      payloadId: capture.payloadId,
+      rawMessage: rawMessage,
+      source: 'backend_${capture.status}',
+      senderId: _string(parsed['senderId']),
+      receivedAt: _date(parsed['comparisonTimestamp']) ?? capture.createdAt,
+      requireCurrentAdmission: requireCurrentAdmission,
+    );
+  }
+
+  Future<String?> _importCapture(
+    ProcessedCaptureDto capture,
+    Future<void> Function() requireCurrentAdmission,
+  ) {
+    // One capture's account/review/transaction/dedup writes share a transaction.
+    // The closing admission check is still inside that transaction, so an owner
+    // change during any repository await rolls the complete capture back.
+    return _dedupStore.runAtomically(() async {
+      await requireCurrentAdmission();
+      final result = await _importCaptureAtomically(
+        capture,
+        requireCurrentAdmission,
+      );
+      await requireCurrentAdmission();
+      return result;
+    });
+  }
+
+  Future<String?> _importCaptureAtomically(
+    ProcessedCaptureDto capture,
+    Future<void> Function() requireCurrentAdmission,
+  ) async {
+    final parsed = capture.parsed;
+    // `rejected` is the backend's explicit unprocessable outcome. Never infer
+    // an intentional drop from missing parsed fields: the native/local ingest
+    // path alone produces the separate `ignored` OTP/promo disposition.
+    if (capture.status == 'rejected') {
+      await _persistBackendUnprocessableCapture(
+          capture, requireCurrentAdmission);
+      return null;
+    }
     var duplicateOf = _string(parsed['possibleDuplicateOfTransactionId']);
     final duplicatePayloadId = _string(parsed['possibleDuplicateOfPayloadId']);
     if (duplicateOf == null && duplicatePayloadId != null) {
@@ -257,6 +425,7 @@ class CaptureSyncService {
           duplicateCurrency,
         );
       }
+      await requireCurrentAdmission();
       await _suspectedDuplicateRepository.save(
         SuspectedDuplicateEntity(
           id: capture.payloadId,
@@ -278,6 +447,7 @@ class CaptureSyncService {
           duplicateReason: 'backend_suspicious_duplicate',
         ),
       );
+      await requireCurrentAdmission();
       await markPayloadImported(
         payloadId: capture.payloadId,
         transactionId: duplicateOf,
@@ -289,10 +459,8 @@ class CaptureSyncService {
     final amountText = _string(parsed['amount_text']);
     final currency = _string(parsed['currency']);
     if ((amount == null && amountText == null) || currency == null) {
-      await markPayloadImported(
-        payloadId: capture.payloadId,
-        transactionId: 'rejected:${capture.payloadId}',
-      );
+      await _persistBackendUnprocessableCapture(
+          capture, requireCurrentAdmission);
       return null;
     }
 
@@ -305,9 +473,8 @@ class CaptureSyncService {
         amountMoney = parseCaptureMoney(amountText, normalizedCurrency);
       } on Exception {
         if (amount == null) {
-          await markPayloadImported(
-              payloadId: capture.payloadId,
-              transactionId: 'rejected:${capture.payloadId}');
+          await _persistBackendUnprocessableCapture(
+              capture, requireCurrentAdmission);
           return null;
         }
         // LEGACY_LOSSY capture fallback (pending review).
@@ -328,7 +495,10 @@ class CaptureSyncService {
           canonicalMode: _coordinator.state() == PlanningCutoverState.canonical,
         ) ==
         AiCaptureIngress.legacyPendingReview;
-    final account = await _accountForCurrency(normalizedCurrency);
+    final account = await _accountForCurrency(
+      normalizedCurrency,
+      requireCurrentAdmission,
+    );
     final occurredAt = _date(parsed['occurredAt']) ??
         _date(parsed['comparisonTimestamp']) ??
         capture.createdAt ??
@@ -398,22 +568,18 @@ class CaptureSyncService {
           _string(parsed['possibleDuplicateOfTransactionId']),
       duplicateReason: _string(parsed['duplicateReason']),
     );
-    // Atomic import (MALI-012): transaction row (+outbox, via the repo's own
-    // transaction → savepoint) and the payload dedup marker commit or roll back
-    // together — a kill between them can no longer leave an imported row whose
-    // payload re-imports as a duplicate, nor a marked payload whose transaction
-    // never landed.
-    final saved = await _dedupStore.runAtomically(() async {
-      final inserted = await _transactionRepository.saveTransaction(
-        transaction: transaction,
-        categoryKey: _string(parsed['category']),
-      );
-      await markPayloadImported(
-        payloadId: capture.payloadId,
-        transactionId: inserted.id,
-      );
-      return inserted;
-    });
+    // Atomic import (MALI-012): the surrounding per-capture transaction includes
+    // any account creation, the transaction/outbox row, and its dedup marker.
+    await requireCurrentAdmission();
+    final saved = await _transactionRepository.saveTransaction(
+      transaction: transaction,
+      categoryKey: _string(parsed['category']),
+    );
+    await requireCurrentAdmission();
+    await markPayloadImported(
+      payloadId: capture.payloadId,
+      transactionId: saved.id,
+    );
     return legacyLossyReview ||
             capture.status == 'needs_review' ||
             capture.status == 'duplicate'
@@ -446,8 +612,10 @@ class CaptureSyncService {
     String normalized, {
     required bool isDefault,
     required int sortOrder,
-  }) {
+    required Future<void> Function() requireCurrentAdmission,
+  }) async {
     final now = DateTime.now().toUtc();
+    await requireCurrentAdmission();
     return repository.create(
       AccountEntity(
         id: '',
@@ -462,7 +630,10 @@ class CaptureSyncService {
     );
   }
 
-  Future<AccountEntity?> _accountForCurrency(String currency) async {
+  Future<AccountEntity?> _accountForCurrency(
+    String currency,
+    Future<void> Function() requireCurrentAdmission,
+  ) async {
     final normalized = currency.trim().toUpperCase();
     if (normalized.isEmpty) return null;
     final repository = _accountRepository;
@@ -478,6 +649,7 @@ class CaptureSyncService {
         normalized,
         isDefault: _currencyAccountTotal == 0,
         sortOrder: _currencyAccountTotal,
+        requireCurrentAdmission: requireCurrentAdmission,
       );
       _currencyAccountTotal++;
       cache[normalized] = created;
@@ -496,6 +668,7 @@ class CaptureSyncService {
       normalized,
       isDefault: accounts.isEmpty,
       sortOrder: accounts.length,
+      requireCurrentAdmission: requireCurrentAdmission,
     );
   }
 

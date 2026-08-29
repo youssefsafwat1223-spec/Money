@@ -2,12 +2,15 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/ownership_guard.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_dedup_store.dart';
+import 'package:money_companion/data/repositories/drift_smart_inbox_repository.dart';
 import 'package:money_companion/data/repositories/drift_suspected_duplicate_repository.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
+import 'package:money_companion/domain/entities/captured_message.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
@@ -47,9 +50,15 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
 }
 
 class _FakeCaptureBackendClient implements CaptureBackendClient {
-  _FakeCaptureBackendClient(this._captures);
+  _FakeCaptureBackendClient(
+    this._captures, {
+    this.afterFetch,
+    this.beforeRelayAck,
+  });
 
   final List<ProcessedCaptureDto> _captures;
+  final Future<void> Function()? afterFetch;
+  final Future<void> Function(List<String> payloadIds)? beforeRelayAck;
   final ackedPayloadIds = <String>[];
   final processedPayloadIds = <String>[];
 
@@ -73,6 +82,11 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
     required String deviceSecret,
     List<String> ackPayloadIds = const [],
   }) async {
+    if (ackPayloadIds.isNotEmpty) {
+      await beforeRelayAck?.call(ackPayloadIds);
+    } else {
+      await afterFetch?.call();
+    }
     ackedPayloadIds.addAll(ackPayloadIds);
     return ackPayloadIds.isEmpty ? _captures : const [];
   }
@@ -114,6 +128,23 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
       'device-secret';
 }
 
+class _MutableOwnershipGuard extends OwnershipGuard {
+  _MutableOwnershipGuard(String? uid, String? generation)
+      : _current = AdmissionToken(ownerUid: uid, generation: generation);
+
+  AdmissionToken _current;
+
+  void rotate(String? uid, String? generation) {
+    _current = AdmissionToken(ownerUid: uid, generation: generation);
+  }
+
+  @override
+  Future<AdmissionToken> capture() async => _current;
+
+  @override
+  Future<bool> isCurrent(AdmissionToken token) async => token == _current;
+}
+
 void main() {
   late AppDatabase db;
   late DriftUserSettingsRepository settingsRepository;
@@ -138,13 +169,19 @@ void main() {
     _FakeCaptureBackendClient client, {
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
+    OwnershipGuard? ownershipGuard,
+    String? Function()? currentUserId,
   }) {
     return CaptureSyncService(
       settingsRepository: settingsRepository,
       transactionRepository: DriftTransactionRepository(db),
       dedupStore: DriftDedupStore(db),
+      smartInboxRepository: DriftSmartInboxRepository(db),
       suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
       registrationService: _FakeRegistrationService(),
+      ownershipGuard:
+          ownershipGuard ?? _MutableOwnershipGuard('user-A', 'generation-A'),
+      currentUserId: currentUserId ?? () => 'user-A',
       accountRepository: DriftAccountRepository(db),
       client: client,
       backendConfigured: true,
@@ -168,8 +205,11 @@ void main() {
       settingsRepository: settingsRepository,
       transactionRepository: DriftTransactionRepository(db),
       dedupStore: DriftDedupStore(db),
+      smartInboxRepository: DriftSmartInboxRepository(db),
       suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
       registrationService: _FakeRegistrationService(),
+      ownershipGuard: _MutableOwnershipGuard('user-A', 'generation-A'),
+      currentUserId: () => 'user-A',
       accountRepository: counting,
       client: client,
       backendConfigured: true,
@@ -193,9 +233,13 @@ void main() {
     final result = await syncService.sync();
     final transactionId =
         await syncService.transactionIdForPayload('payload-needs-review');
+    final transactions = await DriftTransactionRepository(db).getAll();
 
     expect(result.needsReviewTransactionIds, [transactionId]);
     expect(client.ackedPayloadIds, ['payload-needs-review']);
+    expect(transactions.single.status, TransactionStatus.pending);
+    expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty,
+        reason: 'needs_review keeps its existing pending-transaction path');
   });
 
   test('processed capture is not recorded for review', () async {
@@ -210,6 +254,306 @@ void main() {
     final transactions = await DriftTransactionRepository(db).getAll();
     expect(transactions.single.amountMoney, Money.parse('42', 'SAR'));
     expect(transactions.single.status, TransactionStatus.confirmed);
+    expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty);
+  });
+
+  group('NEW-H-2 backend-import ownership admission', () {
+    test('A -> B after fetch aborts before transaction import or relay ack',
+        () async {
+      final guard = _MutableOwnershipGuard('user-A', 'generation-A');
+      var currentUserId = 'user-A';
+      final client = _FakeCaptureBackendClient(
+        [_capture(payloadId: 'payload-owned-by-A', status: 'processed')],
+        afterFetch: () async {
+          guard.rotate('user-B', 'generation-B');
+          currentUserId = 'user-B';
+        },
+      );
+      final syncService = service(
+        client,
+        ownershipGuard: guard,
+        currentUserId: () => currentUserId,
+      );
+      final accountIdsBefore =
+          (await DriftAccountRepository(db).getAll()).map((a) => a.id).toSet();
+
+      await expectLater(
+        syncService.sync(),
+        throwsA(isA<StaleOwnershipException>()),
+      );
+
+      expect(await DriftTransactionRepository(db).getAll(), isEmpty,
+          reason: "A's capture must not enter B's transaction context");
+      expect(
+        (await DriftAccountRepository(db).getAll()).map((a) => a.id).toSet(),
+        accountIdsBefore,
+        reason: "A's currency account must not enter B's context",
+      );
+      expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty);
+      expect(
+        await syncService.transactionIdForPayload('payload-owned-by-A'),
+        isNull,
+      );
+      expect(client.ackedPayloadIds, isEmpty,
+          reason: 'a stale admission must leave the relay capture retryable');
+    });
+
+    test('A -> B after fetch aborts before Smart Inbox review or relay ack',
+        () async {
+      final guard = _MutableOwnershipGuard('user-A', 'generation-A');
+      var currentUserId = 'user-A';
+      final client = _FakeCaptureBackendClient(
+        [
+          const ProcessedCaptureDto(
+            payloadId: 'rejected-owned-by-A',
+            status: 'rejected',
+            parsed: {},
+            notification: {},
+            sanitizedText: 'Unparseable capture owned by A',
+          ),
+        ],
+        afterFetch: () async {
+          guard.rotate('user-B', 'generation-B');
+          currentUserId = 'user-B';
+        },
+      );
+      final syncService = service(
+        client,
+        ownershipGuard: guard,
+        currentUserId: () => currentUserId,
+      );
+
+      await expectLater(
+        syncService.sync(),
+        throwsA(isA<StaleOwnershipException>()),
+      );
+
+      expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty,
+          reason: "A's review row must not enter B's Smart Inbox context");
+      expect(
+        await syncService.transactionIdForPayload('rejected-owned-by-A'),
+        isNull,
+      );
+      expect(client.ackedPayloadIds, isEmpty);
+    });
+
+    test('same admission imports transaction and review then acks both',
+        () async {
+      final guard = _MutableOwnershipGuard('user-A', 'generation-A');
+      final client = _FakeCaptureBackendClient([
+        _capture(payloadId: 'same-owner-transaction', status: 'processed'),
+        const ProcessedCaptureDto(
+          payloadId: 'same-owner-review',
+          status: 'rejected',
+          parsed: {},
+          notification: {},
+          sanitizedText: 'Same-owner unparseable capture',
+        ),
+      ]);
+
+      final result = await service(
+        client,
+        ownershipGuard: guard,
+        currentUserId: () => 'user-A',
+      ).sync();
+
+      expect(await DriftTransactionRepository(db).getAll(), hasLength(1));
+      expect(await DriftSmartInboxRepository(db).getOpen(), hasLength(1));
+      expect(result.importedPayloadIds,
+          {'same-owner-transaction', 'same-owner-review'});
+      expect(client.ackedPayloadIds,
+          ['same-owner-transaction', 'same-owner-review']);
+    });
+  });
+
+  test('backend rejected capture leaves a durable review, not a bare marker',
+      () async {
+    const payloadId = 'payload-backend-rejected';
+    const sanitizedRaw = 'Card activity could not be parsed [ACCOUNT]';
+    late CaptureSyncService syncService;
+    var relayAckObservedDurableState = false;
+    final client = _FakeCaptureBackendClient(
+      [
+        ProcessedCaptureDto(
+          payloadId: payloadId,
+          status: 'rejected',
+          parsed: const {},
+          notification: const {},
+          sanitizedText: sanitizedRaw,
+          failureReason: 'not_parseable',
+          createdAt: DateTime.utc(2026, 8, 20, 12),
+        ),
+      ],
+      beforeRelayAck: (payloadIds) async {
+        final reviews = await DriftSmartInboxRepository(db).getOpen();
+        relayAckObservedDurableState = payloadIds.single == payloadId &&
+            reviews.length == 1 &&
+            reviews.single.payloadId == payloadId &&
+            await syncService.transactionIdForPayload(payloadId) ==
+                'smart_inbox:local_capture:$payloadId';
+      },
+    );
+    syncService = service(client);
+
+    await syncService.sync();
+
+    expect(relayAckObservedDurableState, isTrue,
+        reason: 'review row + marker must commit before relay/native ack');
+    final reviews = await DriftSmartInboxRepository(db).getOpen();
+    expect(reviews, hasLength(1));
+    expect(reviews.single.payloadId, payloadId);
+    expect(reviews.single.body, sanitizedRaw);
+    expect(
+      await syncService.transactionIdForPayload(payloadId),
+      'smart_inbox:local_capture:$payloadId',
+    );
+    expect(await db.count('transactions'), 0);
+  });
+
+  test('backend rejected redelivery creates exactly one review item',
+      () async {
+    const payloadId = 'payload-backend-rejected-redelivery';
+    final client = _FakeCaptureBackendClient([
+      const ProcessedCaptureDto(
+        payloadId: payloadId,
+        status: 'rejected',
+        parsed: {},
+        notification: {},
+        sanitizedText: 'Unparseable transfer [ACCOUNT]',
+        failureReason: 'not_parseable',
+      ),
+    ]);
+    final syncService = service(client);
+
+    await syncService.sync();
+    await syncService.sync();
+
+    final reviews = await DriftSmartInboxRepository(db).getOpen();
+    expect(reviews, hasLength(1));
+    expect(reviews.single.id, 'local_capture:$payloadId');
+    expect(client.ackedPayloadIds, [payloadId, payloadId]);
+  });
+
+  test('backend rejected review and marker roll back together', () async {
+    const payloadId = 'payload-backend-rejected-atomic';
+    final client = _FakeCaptureBackendClient([
+      const ProcessedCaptureDto(
+        payloadId: payloadId,
+        status: 'rejected',
+        parsed: {},
+        notification: {},
+        sanitizedText: 'Atomic unparseable capture',
+      ),
+    ]);
+    final syncService = service(client);
+    await db.customStatement('''
+      CREATE TRIGGER fail_rejected_payload_marker
+      BEFORE INSERT ON dedup_hashes
+      WHEN NEW.hash = 'capture_payload:$payloadId'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced_marker_failure');
+      END;
+    ''');
+
+    await expectLater(syncService.sync(), throwsA(anything));
+
+    expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty,
+        reason: 'the preceding review insert must roll back with the marker');
+    expect(await syncService.transactionIdForPayload(payloadId), isNull);
+    expect(client.ackedPayloadIds, isEmpty,
+        reason: 'the relay/native copy remains when the DB commit fails');
+  });
+
+  test('bare legacy rejected marker cannot authorize ack until repaired',
+      () async {
+    const payloadId = 'payload-legacy-bare-rejected';
+    final client = _FakeCaptureBackendClient([
+      const ProcessedCaptureDto(
+        payloadId: payloadId,
+        status: 'rejected',
+        parsed: {},
+        notification: {},
+        sanitizedText: 'Legacy unparseable capture',
+      ),
+    ]);
+    final syncService = service(client);
+    await syncService.markPayloadImported(
+      payloadId: payloadId,
+      transactionId: 'rejected:$payloadId',
+    );
+
+    expect(await syncService.isPayloadImported(payloadId), isFalse,
+        reason: 'a bare marker must not delete the last durable native copy');
+
+    await syncService.sync();
+
+    expect(await DriftSmartInboxRepository(db).getOpen(), hasLength(1));
+    expect(await syncService.isPayloadImported(payloadId), isTrue,
+        reason: 'the legacy marker is safe only after its review row commits');
+    expect(client.ackedPayloadIds, [payloadId]);
+  });
+
+  test('pendingSend rejected replay is durable before native ack is allowed',
+      () async {
+    const payloadId = 'payload-pending-send-rejected';
+    const sanitizedRaw = 'Unsupported debit [CARD] [AMOUNT]';
+    final client = _FakeCaptureBackendClient([
+      const ProcessedCaptureDto(
+        payloadId: payloadId,
+        status: 'rejected',
+        parsed: {},
+        notification: {},
+        sanitizedText: sanitizedRaw,
+        failureReason: 'not_parseable',
+      ),
+    ]);
+    final syncService = service(client);
+    final native = SharedCapturedMessage(
+      id: payloadId,
+      text: 'Unsupported debit 1234 500',
+      source: CapturedMessageSource.iosShortcut,
+      status: 'pendingSend',
+      receivedAt: DateTime.utc(2026, 8, 20, 12),
+    );
+
+    expect(await syncService.retryPendingSend(native), isTrue);
+    await syncService.sync();
+
+    // This is the exact predicate used by app_shell's marker-driven native ack
+    // path after pendingSend succeeds. It becomes true only after the review
+    // row and marker transaction above has committed.
+    expect(await syncService.isPayloadImported(payloadId), isTrue);
+    final reviews = await DriftSmartInboxRepository(db).getOpen();
+    expect(reviews, hasLength(1));
+    expect(reviews.single.payloadId, payloadId);
+    expect(reviews.single.body, sanitizedRaw);
+    expect(client.processedPayloadIds, [payloadId]);
+  });
+
+  test('malformed non-rejected relay also becomes durable review work',
+      () async {
+    const payloadId = 'payload-malformed-needs-review';
+    final client = _FakeCaptureBackendClient([
+      const ProcessedCaptureDto(
+        payloadId: payloadId,
+        status: 'needs_review',
+        parsed: {'rawMessage': 'Malformed legacy relay capture'},
+        notification: {},
+        sanitizedText: 'Malformed legacy relay capture',
+      ),
+    ]);
+    final syncService = service(client);
+
+    await syncService.sync();
+
+    final reviews = await DriftSmartInboxRepository(db).getOpen();
+    expect(reviews, hasLength(1));
+    expect(reviews.single.payloadId, payloadId);
+    expect(
+      await syncService.transactionIdForPayload(payloadId),
+      'smart_inbox:local_capture:$payloadId',
+    );
+    expect(await db.count('transactions'), 0);
   });
 
   test('processed capture prefers exact amount_text over legacy JSON number',
@@ -470,6 +814,8 @@ void main() {
       DuplicateStatus.suspiciousDuplicate,
     );
     expect(result.needsReviewTransactionIds, [transactions.single.id]);
+    expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty,
+        reason: 'duplicate retains its existing pending-transaction path');
   });
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../data/db/ownership_guard.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -1076,6 +1077,13 @@ final notificationLogSyncServiceProvider =
 final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return CaptureSyncService(
+    // NEW-H-2 / MALI-012: re-check ownership at every step of the drain so a
+    // mid-drain account switch cannot import one user's captures into another's
+    // database.
+    smartInboxRepository: DriftSmartInboxRepository(db),
+    ownershipGuard: OwnershipGuard(),
+    currentUserId: () =>
+        supabase.Supabase.instance.client.auth.currentUser?.id,
     settingsRepository: DriftUserSettingsRepository(db),
     // Relay captures land in Drift AND enqueue on the ledger outbox, so the
     // background push publishes them to Supabase exactly like a manual add.

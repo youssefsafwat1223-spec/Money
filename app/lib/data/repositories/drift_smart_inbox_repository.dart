@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../domain/entities/smart_inbox_item_entity.dart';
@@ -8,6 +10,73 @@ import '../db/sql_value_codec.dart';
 class DriftSmartInboxRepository implements SmartInboxRepository {
   const DriftSmartInboxRepository(this._db);
   final AppDatabase _db;
+
+  /// Persists a native capture that looked financial but could not be parsed.
+  ///
+  /// The payload id is the durable business key: a crash/re-delivery executes
+  /// the same INSERT OR IGNORE and therefore keeps one review card. This is a
+  /// local Smart Inbox item (there is no server-authored row to push), while the
+  /// raw SMS remains available in [body] for manual recovery.
+  Future<String> saveUnprocessableCapture({
+    required String payloadId,
+    required String rawMessage,
+    required String source,
+    String? senderId,
+    DateTime? receivedAt,
+  }) async {
+    final itemId = 'local_capture:$payloadId';
+    final now = DateTime.now().toUtc();
+    final effectiveReceivedAt = (receivedAt ?? now).toUtc();
+    await _db.customInsert(
+      '''
+        INSERT OR IGNORE INTO smart_inbox_items(
+          id, server_id, transaction_id, payload_id,
+          type, title, body, status, confidence, metadata_json,
+          server_created_at, server_updated_at, synced_at,
+          dismissed_locally, pending_sync, created_at, updated_at
+        ) VALUES (?, ?, NULL, ?, 'needs_review', ?, ?, 'open', NULL, ?,
+                  ?, NULL, ?, 0, 0, ?, ?);
+      ''',
+      variables: [
+        Variable.withString(itemId),
+        Variable.withString(itemId),
+        Variable.withString(payloadId),
+        Variable.withString('رسالة بنكية غير مدعومة تحتاج مراجعة'),
+        Variable.withString(rawMessage),
+        Variable.withString(jsonEncode({
+          'capture_disposition': 'unprocessable',
+          'source': source,
+          if (senderId != null && senderId.isNotEmpty) 'sender_id': senderId,
+          'received_at': effectiveReceivedAt.toIso8601String(),
+          'local_only': true,
+        })),
+        Variable.withString(dateTimeToSql(effectiveReceivedAt)),
+        Variable.withString(dateTimeToSql(now)),
+        Variable.withString(dateTimeToSql(now)),
+        Variable.withString(dateTimeToSql(now)),
+      ],
+    );
+    return itemId;
+  }
+
+  /// Bare legacy `rejected:<payloadId>` dedup markers are not durable capture
+  /// results on their own. This lets the native drain require the deterministic
+  /// review row before treating such a marker as safe acknowledgement proof.
+  Future<bool> hasUnprocessableCapture(String payloadId) async {
+    final itemId = 'local_capture:$payloadId';
+    final row = await _db.customSelect(
+      '''
+        SELECT 1 FROM smart_inbox_items
+        WHERE id = ? AND payload_id = ?
+        LIMIT 1;
+      ''',
+      variables: [
+        Variable.withString(itemId),
+        Variable.withString(payloadId),
+      ],
+    ).getSingleOrNull();
+    return row != null;
+  }
 
   @override
   Future<List<SmartInboxItemEntity>> getOpen() async {
