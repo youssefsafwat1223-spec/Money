@@ -2119,6 +2119,14 @@ String _unsyncedSignOutMessage(UnsyncedInventory inv) {
   if (inv.localOnlyCards > 0) {
     parts.add('${inv.localOnlyCards} بطاقة محفوظة على هذا الجهاز فقط');
   }
+  // Audit H-3: rows that never reached the cloud and are not even queued —
+  // previously invisible here, so sign-out destroyed them without a word.
+  if (inv.unprovenFinancialRows > 0) {
+    parts.add('${inv.unprovenFinancialRows} سجل مالي لم يُرفع للسحابة بعد');
+  }
+  if (inv.unresolvedConflicts > 0) {
+    parts.add('${inv.unresolvedConflicts} سجل به تعارض لم يُحلّ');
+  }
   final list = parts.join('، ');
   return 'لديك بيانات لم تُرفع للسحابة وسيحذفها تسجيل الخروج: $list. '
       'خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.';

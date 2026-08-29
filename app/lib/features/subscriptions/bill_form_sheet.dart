@@ -158,8 +158,11 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     final bill = widget.bill;
     _nameController =
         TextEditingController(text: bill?.name ?? widget.initialName ?? '');
+    // Seed from CANONICAL money. `toStringAsFixed(2)` truncated 3-decimal
+    // currencies (KWD/BHD/OMR), and `_save()` parses this text straight back
+    // into Money — so a 12.345 KWD bill grew by 0.005 on every edit.
     _amountController = TextEditingController(
-        text: bill == null ? '' : bill.amount.toStringAsFixed(2));
+        text: bill == null ? '' : bill.amountMoney.toDecimalString());
     _customDaysController =
         TextEditingController(text: bill?.customIntervalDays?.toString() ?? '');
     _totalInstController =
@@ -167,9 +170,9 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     _paidCountController =
         TextEditingController(text: bill?.paidCount?.toString() ?? '');
     _manualPaidController = TextEditingController(
-        text: bill?.manualPaidAmount?.toStringAsFixed(2) ?? '');
+        text: bill?.manualPaidMoney?.toDecimalString() ?? '');
     _totalPurchaseController = TextEditingController(
-        text: bill?.totalPurchaseAmount?.toStringAsFixed(0) ?? '');
+        text: bill?.totalPurchaseMoney?.toDecimalString() ?? '');
     _lenderController = TextEditingController(text: bill?.lenderName ?? '');
     _interestController = TextEditingController(
         text: bill?.interestRate != null

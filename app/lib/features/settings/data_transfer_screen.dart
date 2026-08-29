@@ -707,7 +707,7 @@ class _ResultPanel extends StatelessWidget {
           const SizedBox(height: 8),
           Text('تمت الإضافة: ${result.imported}'),
           Text('مكرر: ${result.duplicates}'),
-          Text('متجاهل: ${result.skipped}'),
+          Text('معزول للحماية: ${result.skipped}'),
           Text('فشل: ${result.failed}'),
           if (result.cacheRepairPending)
             const Text(

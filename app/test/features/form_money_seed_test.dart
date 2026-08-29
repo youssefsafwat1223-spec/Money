@@ -24,6 +24,8 @@ void main() {
     'lib/features/budgets/budget_form_screen.dart',
     'lib/features/goals/goal_form_screen.dart',
     'lib/features/plans/plan_form_sheet.dart',
+    'lib/features/subscriptions/bill_form_sheet.dart',
+    'lib/features/subscriptions/bill_details_sheet.dart',
   ];
 
   group('the round trip a Save performs', () {
@@ -70,25 +72,51 @@ void main() {
   });
 
   group('no form re-introduces the pattern', () {
-    test('no money field is seeded through toStringAsFixed', () {
-      // The structural half. Fixing three files does not stop a fourth form
-      // from being written the same way, and the failure is invisible in
-      // testing because it only shows up as a slightly different stored number.
-      for (final path in forms) {
-        final src = File(path).readAsStringSync();
-        final offenders = RegExp(r'\.text\s*=\s*[^;]*toStringAsFixed')
+    /// Files allowed to build a money string with `toStringAsFixed`, each with
+    /// the reason. Scanned repo-wide rather than checked against a hand-listed
+    /// set of forms: my first version of this test listed three files and
+    /// missed two more instances of the identical defect in the bill sheets.
+    const allowed = <String, String>{
+      'lib/features/budgets/allocate_income_sheet.dart':
+          'GENERATES a proposal from an income split — it does not seed an '
+              'existing stored amount. Rounding a suggestion to whole units is '
+              'deliberate, and the user reviews it before saving.',
+    };
+
+    test('no form seeds a stored money value through toStringAsFixed', () {
+      final offenders = <String>[];
+      for (final e in Directory('lib/features').listSync(recursive: true)) {
+        if (e is! File || !e.path.endsWith('.dart')) continue;
+        final rel = e.path;
+        final src = e.readAsStringSync();
+        final hits = RegExp(r'\.text\s*=\s*[^;]*toStringAsFixed')
             .allMatches(src)
-            .map((m) => m.group(0))
+            .map((m) => m.group(0)!.trim())
             .toList();
-        expect(offenders, isEmpty,
-            reason: '$path seeds a text field via toStringAsFixed:\n'
-                '  ${offenders.join('\n  ')}\n'
-                'Seed from the canonical Money (toDecimalString) — the value '
-                'seeded here is what Save stores.');
+        if (hits.isEmpty) continue;
+        if (allowed.keys.any((k) => rel.endsWith(k.split('lib/').last))) {
+          continue;
+        }
+        offenders.add('$rel: ${hits.join(', ')}');
       }
+
+      expect(offenders, isEmpty,
+          reason: 'these seed a text field from a rounded string, and the field '
+              'is parsed back into Money on save — so the seed silently becomes '
+              'the stored value:\n  ${offenders.join('\n  ')}\n\n'
+              'Seed from canonical Money (toDecimalString), or add the file to '
+              '`allowed` WITH the reason it is generating a proposal rather '
+              'than reflecting a stored amount.');
     });
 
-    test('each form seeds from canonical money', () {
+    test('every allowance names a real file and a reason', () {
+      allowed.forEach((path, reason) {
+        expect(File(path).existsSync(), isTrue, reason: '$path no longer exists');
+        expect(reason.trim(), isNotEmpty, reason: path);
+      });
+    });
+
+    test('each edit form seeds from canonical money', () {
       for (final path in forms) {
         final src = File(path).readAsStringSync();
         expect(src, contains('toDecimalString'),

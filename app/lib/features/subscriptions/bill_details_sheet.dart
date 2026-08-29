@@ -309,8 +309,11 @@ class BillDetailsSheet extends ConsumerWidget {
     final remainingAmount = remainingAmountMoney.toDouble();
     final canPayFull = isInstallment && remainingCount > 1;
 
+    // CANONICAL seed: this text is parsed back into Money when the payment is
+    // recorded, so truncating here shifted the recorded payment (KWD 12.345 →
+    // 12.350) on every single payment.
     final amountController =
-        TextEditingController(text: bill.amount.toStringAsFixed(2));
+        TextEditingController(text: bill.amountMoney.toDecimalString());
     final noteController = TextEditingController();
     var payFull = false;
     var busy = false;
@@ -362,9 +365,12 @@ class BillDetailsSheet extends ConsumerWidget {
                         ? null
                         : (value) => setDialogState(() {
                               payFull = value ?? false;
+                              // Exact: `remainingAmountMoney` is already
+                              // Money*int. Rounding it here made "pay all
+                              // remaining" overshoot the real debt.
                               amountController.text = payFull
-                                  ? remainingAmount.toStringAsFixed(2)
-                                  : bill.amount.toStringAsFixed(2);
+                                  ? remainingAmountMoney.toDecimalString()
+                                  : bill.amountMoney.toDecimalString();
                             }),
                   ),
                 ],
