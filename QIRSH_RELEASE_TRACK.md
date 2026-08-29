@@ -175,9 +175,14 @@ fourteen-area audit is complete, the previously-unreviewed working tree has been
 read in full, and the fifteen Critical/High findings it contained are fixed with
 regression coverage.
 
-Gates at committed HEAD, isolated checkout, serialized: analyze clean ·
-Flutter 2675/0 · admin 102/0 · tsc clean · SQL 228/0 · Deno 152/0 ·
-relative-import completeness 0 missing.
+Gates at PRISTINE HEAD (`git status` empty after `git clean`, serialized):
+analyze clean · Flutter **2741/0** · admin **101/0** · tsc clean ·
+SQL **228/0** · Deno **152/0**.
+
+> Superseded earlier figures. Numbers reported before the HEAD-completeness
+> sweep were measured against the working tree, which was more complete than
+> HEAD in five places — including a migration sequence that jumped 0083 → 0087.
+> See `QIRSH_LONG_RUN_REPORT.md` §A1.
 
 ### What remains — ALL external, none of it code
 
