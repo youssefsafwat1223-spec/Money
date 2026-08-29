@@ -62,3 +62,8 @@ admin/node_modules/
 
 # R7 I3 — CI-generated AdMob release config (never committed)
 app/ios/Flutter/AdMob.xcconfig
+
+# Generated legal site (tools/build_legal_site.py). Reproducible from
+# docs/legal/, so the artifact is built at publish time rather than committed —
+# a stale committed copy of a privacy policy is a liability.
+/build/
