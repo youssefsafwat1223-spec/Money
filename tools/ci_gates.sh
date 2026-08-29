@@ -50,6 +50,17 @@ pass_count=0; fail_count=0; unavail_count=0; fail=0
 # stays non-fatal, because it is deferred to a mandatory post-build step in the
 # release workflow (never classified as PASS — requirement 9).
 REQUIRE_ALL_GATES="${REQUIRE_ALL_GATES:-0}"
+
+# Repo-coherence: a RELEASE gate must test the code being released. Six times in
+# the 2026-08 audit a gate was green about code HEAD did not contain, because
+# every suite runs against the working tree. Under strict mode the Flutter suite
+# additionally asserts that no tracked file differs from HEAD, so a pass and
+# "HEAD passes" are the same statement. Outside strict mode the same test only
+# PRINTS how many files differ, because failing every dirty local run would make
+# the suite unusable — and a gate people routinely ignore is not a gate.
+if [ "$REQUIRE_ALL_GATES" = "1" ]; then
+  export REQUIRE_PRISTINE_TREE="${REQUIRE_PRISTINE_TREE:-1}"
+fi
 # Batch-15 follow-up: preserve the REASON a stage did not run as a PASS. A broad
 # "external" bucket erased the distinction between (a) a caller deliberately
 # skipping a mandatory test — which is NOT evidence and is fatal for a release —

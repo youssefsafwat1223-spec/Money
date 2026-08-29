@@ -130,4 +130,61 @@ void main() {
               '  ${broken.join('\n  ')}');
     });
   });
+
+  group('the gate result describes HEAD, not a working tree', () {
+    /// The one divergence class this file cannot detect statically.
+    ///
+    /// The other checks catch a file being ABSENT from HEAD. They cannot catch
+    /// a file being PRESENT but OLDER than the tests asserting against it —
+    /// which is exactly how the admin UI break hid: `coupon-admin.test.mjs` was
+    /// committed asserting behaviour that only the working tree's pages had, so
+    /// the suite read 102/0 locally and 94/7 at HEAD.
+    ///
+    /// Detecting that statically would mean understanding what each test
+    /// asserts, which is not a maintainable check. What IS deterministic is
+    /// asking whether the tree the gate is running against equals HEAD. If it
+    /// does, "the gate passed" and "HEAD passes" are the same statement; if it
+    /// does not, they are two different claims and only one of them was tested.
+    ///
+    /// Enforced only under `REQUIRE_PRISTINE_TREE=1`, which `ci_gates.sh` sets
+    /// in strict/release mode. Failing on every dirty tree would make the suite
+    /// unusable during normal development, and a gate people must routinely
+    /// ignore is not a gate.
+    test('under REQUIRE_PRISTINE_TREE, no tracked file differs from HEAD', () {
+      final strict =
+          Platform.environment['REQUIRE_PRISTINE_TREE'] == '1';
+
+      final r = Process.runSync(
+        'git',
+        ['status', '--porcelain', '--untracked-files=no'],
+        workingDirectory: repoRoot,
+        stdoutEncoding: utf8,
+      );
+      final dirty = (r.stdout as String)
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+
+      if (!strict) {
+        // Reported, never asserted, outside strict mode — the number is the
+        // useful part: it says how far this run's evidence is from HEAD's.
+        // ignore: avoid_print
+        print(dirty.isEmpty
+            ? 'tree matches HEAD — this gate result describes HEAD'
+            : 'NOTE: ${dirty.length} tracked file(s) differ from HEAD; this '
+                'gate result describes the WORKING TREE, not HEAD. Re-run with '
+                'REQUIRE_PRISTINE_TREE=1 on a clean checkout before treating it '
+                'as release evidence.');
+        return;
+      }
+
+      expect(dirty, isEmpty,
+          reason: 'REQUIRE_PRISTINE_TREE=1 but ${dirty.length} tracked file(s) '
+              'differ from HEAD:\n  ${dirty.take(20).join('\n  ')}\n\n'
+              'A release gate must test the code being released. With a dirty '
+              'tree, a pass proves something about your local files and '
+              'nothing about the commit.');
+    });
+  });
 }
