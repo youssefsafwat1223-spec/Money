@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../common/money_text.dart';
+import '../../domain/finance/money.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -47,6 +49,7 @@ class AccountsScreen extends ConsumerWidget {
                   120,
                 ),
                 children: [
+                  _CurrencyTotals(accounts: accounts),
                   for (final account in accounts) ...[
                     _AccountCard(account: account),
                     const SizedBox(height: AppSpacing.s3),
@@ -70,6 +73,70 @@ class AccountsScreen extends ConsumerWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// UX-013 — totals, grouped BY CURRENCY.
+///
+/// A single "total across accounts" is not available to this app: summing money
+/// of different currencies is forbidden by the financial-semantics contract and
+/// there is no FX layer. Grouping is the honest form of the same answer — it
+/// tells the user how much they have without inventing a rate.
+class _CurrencyTotals extends StatelessWidget {
+  const _CurrencyTotals({required this.accounts});
+
+  final List<AccountEntity> accounts;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final totals = <String, int>{};
+    for (final a in accounts) {
+      final m = a.currentBalanceMoney;
+      if (m == null) continue;
+      totals[m.currency] = (totals[m.currency] ?? 0) + m.minorUnits;
+    }
+    if (totals.isEmpty) return const SizedBox.shrink();
+
+    final entries = totals.entries.toList()
+      ..sort((x, y) => y.value.abs().compareTo(x.value.abs()));
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+      child: Wrap(
+        spacing: AppSpacing.s2,
+        runSpacing: AppSpacing.s2,
+        children: [
+          for (final e in entries)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.s3, vertical: 6),
+              decoration: BoxDecoration(
+                color: c.primary.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  MoneyText(
+                    Money(e.value, e.key),
+                    style: AppTypography.caption(
+                      e.value < 0 ? c.warning : c.primary,
+                    ).copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    Currency.arabicLabel(e.key),
+                    style: AppTypography.caption(
+                      e.value < 0 ? c.warning : c.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -158,6 +225,31 @@ class _AccountCard extends ConsumerWidget {
                     '${accountTypeLabel(account.type)} · ${Currency.arabicLabel(account.currency)} (${account.currency})',
                     style: AppTypography.caption(c.textLight),
                   ),
+                  // UX-013 — the balance was the one thing this screen never
+                  // answered. A negative balance is normal for a credit card,
+                  // so it is coloured as information rather than as an error,
+                  // and carries an explicit sign so it can never read as a
+                  // positive figure.
+                  if (account.currentBalanceMoney case final balance?) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: MoneyText(
+                            balance,
+                            style: AppTypography.bodyStrong(
+                              balance.minorUnits < 0 ? c.warning : c.textMain,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          Currency.arabicLabel(account.currency),
+                          style: AppTypography.caption(c.textLight),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
