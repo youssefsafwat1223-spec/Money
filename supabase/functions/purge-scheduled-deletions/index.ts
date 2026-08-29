@@ -1,4 +1,5 @@
 import { bearerSecretAuthorized, corsHeaders, json, serviceClient } from '../_shared/capture_auth.ts';
+import { eraseBackupObjects } from '../_shared/storage_erasure.ts';
 
 // Scheduled worker for the approved 30-day account deletion policy.
 //
@@ -19,10 +20,12 @@ import { bearerSecretAuthorized, corsHeaders, json, serviceClient } from '../_sh
 // tracks per-step completion:
 //
 //   enqueue due profiles  → capture blob path while it still exists
-//   step 1: storage       → remove backup blob   (missing blob = success)
+//   step 1: storage       → bounded pre-SQL prefix sweep (fail closed)
 //   step 2: sql           → purge_user_data RPC  (single transaction)
 //   step 3: auth          → auth.admin.deleteUser (user-not-found = success)
-//   done                  → delete the queue row
+//   step 4: storage       → after Auth is gone, converge again and prove the
+//                           `<uid>/` prefix empty (catches concurrent uploads)
+//   done                  → dequeue only after the terminal empty-prefix proof
 //
 // A failure at any step records stage/error/attempts and leaves the queue row
 // in place; the next run resumes at the first incomplete step. Every step is
@@ -68,8 +71,8 @@ Deno.serve(async (req) => {
       .select('blob_path')
       .eq('user_id', userId)
       .maybeSingle();
-    // On a read error enqueue anyway with a null path: erasure must not be
-    // blocked by backup metadata, and the storage step treats null as done.
+    // On a read error enqueue anyway with a null path: erasure must not depend
+    // on metadata, and the authoritative owned-prefix sweep still runs.
     const blobPath = backupRow.error ? null : (backupRow.data?.blob_path as string | undefined);
     const inserted = await supabase
       .from('account_purge_queue')
@@ -110,16 +113,23 @@ Deno.serve(async (req) => {
   for (const item of (queue.data ?? []) as QueueRow[]) {
     const userId = item.user_id;
     try {
-      // Step 1 — Storage blob. A missing object is success (already removed).
+      // Step 1 — Storage objects. Sweep the user's WHOLE `<uid>/` prefix, not
+      // just the single blob_path: the bucket RLS lets a user own any object
+      // under their prefix, so removing one tracked path would not prove the
+      // erasure invariant (audit H-24). A missing object is success; a real
+      // list/remove error or a bounded, not-yet-complete sweep keeps the step
+      // incomplete so the SQL purge below does NOT proceed while a recoverable
+      // object may remain.
       if (!item.storage_deleted_at) {
-        if (item.blob_path) {
-          const removed = await supabase.storage.from('backups').remove([item.blob_path]);
-          // `remove` reports missing objects in-band, not as an error; a real
-          // error (network/policy) must keep the step incomplete.
-          if (removed.error) {
-            await markFailure(userId, item.attempts, 'remove_storage_blob', removed.error.message);
-            continue;
-          }
+        const erased = await eraseBackupObjects(supabase.storage, userId, item.blob_path);
+        if (!erased.complete) {
+          await markFailure(
+            userId,
+            item.attempts,
+            'remove_storage_blob',
+            erased.error ?? 'storage_erasure_incomplete_retryable',
+          );
+          continue;
         }
         const marked = await markStep(userId, { storage_deleted_at: nowIso() });
         if (marked.error) {
@@ -161,7 +171,25 @@ Deno.serve(async (req) => {
         }
       }
 
-      // All steps complete — retire the saga row.
+      // Step 4 — terminal Storage convergence. The pre-SQL sweep cannot be the
+      // terminal proof because the still-authenticated user could upload after
+      // its listing. Auth is now gone and migration 0086 makes Auth-row
+      // liveness mandatory for backup INSERT/UPDATE, so even a lingering valid
+      // JWT cannot write; this re-sweep's consecutive empty listings are
+      // authoritative. Any real error or bounded incomplete run retains the
+      // durable queue row for retry.
+      const terminalErasure = await eraseBackupObjects(supabase.storage, userId, item.blob_path);
+      if (!terminalErasure.complete) {
+        await markFailure(
+          userId,
+          item.attempts,
+          'verify_terminal_storage_erasure',
+          terminalErasure.error ?? 'terminal_storage_erasure_incomplete_retryable',
+        );
+        continue;
+      }
+
+      // All steps and the post-Auth empty-prefix proof are complete.
       const done = await supabase.from('account_purge_queue').delete().eq('user_id', userId);
       if (done.error) {
         await markFailure(userId, item.attempts, 'dequeue', done.error.message);

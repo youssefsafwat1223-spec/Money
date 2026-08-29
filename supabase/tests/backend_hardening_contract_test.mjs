@@ -194,12 +194,16 @@ test('process-ios-sms: bounded body, schema, server consent before any Gemini', 
   assert.doesNotMatch(fn, /await req\.json\(\)/);
   assert.match(fn, /unsupported_schema_version/); // strict schema version
   assert.match(fn, /payload_too_large/); // bounded field lengths
-  // Consent is server-owned; allowAi is compat-only and cannot override OFF.
-  assert.match(fn, /ai_consent_granted/);
-  assert.match(fn, /const aiAllowed = allowAi && serverAiConsent/);
+  // Consent is server-owned; cloud processing is the master gate, and AI
+  // requires the narrower server grant in addition to the caller flag.
+  assert.match(fn, /\.from\('capture_devices'\)\s*\.select\('ai_consent_granted, cloud_processing_enabled, revoked_at'\)/);
+  assert.match(fn, /consent\.data\?\.revoked_at != null[\s\S]*?apiError\('credential_revoked'/);
+  assert.match(fn, /consent\.data\.cloud_processing_enabled !== true[\s\S]*?apiError\('consent_required'/);
+  assert.match(fn, /aiAllowed: allowAi && consent\.data\.ai_consent_granted === true/);
+  assert.match(fn, /const aiAllowed = consentGate\.aiAllowed/);
   assert.match(fn, /allowAi: aiAllowed/); // parseSms gets the server-gated flag
   // No Gemini before consent: the consent read precedes parseSms().
-  const consentIdx = fn.indexOf('ai_consent_granted');
+  const consentIdx = fn.indexOf(".select('ai_consent_granted, cloud_processing_enabled, revoked_at')");
   const parseIdx = fn.indexOf('await parseSms(');
   assert.ok(consentIdx > 0 && parseIdx > consentIdx, 'consent resolved before parseSms');
   // Privacy: the metadata log object carries only booleans/metadata — never the

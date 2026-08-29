@@ -237,7 +237,7 @@ export async function resolveVerifiedIdentity(
     if (!data || !timingSafeEqual(data.device_secret_hash, providedHash)) {
       return { ok: false, response: apiError('invalid_device_credential', { correlationId: cid }) };
     }
-    if (data.revoked_at) {
+    if (data.revoked_at != null) {
       return { ok: false, response: apiError('credential_revoked', { correlationId: cid }) };
     }
     // Best-effort liveness touch; never blocks the request.
@@ -264,7 +264,7 @@ export async function resolveVerifiedIdentity(
     const { data: userData, error } = await supabase.auth.getUser(token);
     const user = !error ? userData?.user : null;
     if (user?.id) {
-      const { data: settings } = await supabase
+      const { data: settings, error: settingsError } = await supabase
         .from('user_settings')
         .select('ai_consent_granted, cloud_processing_enabled')
         .eq('user_id', user.id)
@@ -276,9 +276,9 @@ export async function resolveVerifiedIdentity(
           ownerKey: `u:${user.id}`,
           userId: user.id,
           installIdHash: null,
-          // Fail closed: a missing settings row is treated as consent OFF.
-          aiConsent: settings?.ai_consent_granted === true,
-          cloudConsent: settings?.cloud_processing_enabled === true,
+          // Fail closed: a missing or errored settings read is consent OFF.
+          aiConsent: !settingsError && settings?.ai_consent_granted === true,
+          cloudConsent: !settingsError && settings?.cloud_processing_enabled === true,
         },
       };
     }
@@ -375,13 +375,14 @@ export async function completeIdempotency(
 export type ConsentKind = 'ai' | 'cloud';
 
 /// Returns a `consent_required` Response when the verified identity has not
-/// granted the required processing consent; null when it is granted.
+/// granted the required processing consent; null when it is granted. Cloud is
+/// the master gate: AI requires BOTH cloud-processing and AI consent.
 export function consentError(
   identity: VerifiedIdentity,
   kind: ConsentKind,
   cid: string,
 ): Response | null {
-  const granted = kind === 'ai' ? identity.aiConsent : identity.cloudConsent;
+  const granted = kind === 'ai' ? identity.cloudConsent && identity.aiConsent : identity.cloudConsent;
   if (granted) return null;
   return apiError('consent_required', { correlationId: cid, retryable: false });
 }

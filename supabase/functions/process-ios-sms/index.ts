@@ -18,6 +18,7 @@ import {
 } from '../_shared/notification_retry_policy.ts';
 import { type FingerprintReservationStore, reserveCaptureFingerprint } from '../_shared/fingerprint_reservation.ts';
 import { isDirectCaptureWriteEnabled, isLedgerDualWriteEnabled, upsertLedgerTransaction } from '../_shared/ledger.ts';
+import { apiError, correlationId } from '../_shared/ai_endpoint.ts';
 import { extractCaptureAmount, withValidatedModelAmountText } from './money.ts';
 
 type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
@@ -55,9 +56,54 @@ const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-Deno.serve(async (req) => {
+type ProcessIosSmsDependencies = {
+  createServiceClient: typeof serviceClient;
+  verifyDevice: typeof verifyDevice;
+};
+
+const defaultDependencies: ProcessIosSmsDependencies = {
+  createServiceClient: serviceClient,
+  verifyDevice,
+};
+
+export type CaptureProcessingConsent =
+  | { ok: true; aiAllowed: boolean }
+  | { ok: false; response: Response };
+
+/// Applies the device-scoped consent contract to a fresh capture_devices read.
+/// Cloud processing is the master gate for ALL parsing/storage/delivery work in
+/// this endpoint. AI is a narrower, additional grant and never bypasses cloud.
+export function captureProcessingConsent(
+  consent: {
+    data: {
+      ai_consent_granted?: unknown;
+      cloud_processing_enabled?: unknown;
+      revoked_at?: unknown;
+    } | null;
+    error: unknown;
+  },
+  allowAi: boolean,
+  cid: string,
+): CaptureProcessingConsent {
+  if (consent.data?.revoked_at != null) {
+    return { ok: false, response: apiError('credential_revoked', { correlationId: cid }) };
+  }
+  if (consent.error || !consent.data || consent.data.cloud_processing_enabled !== true) {
+    return { ok: false, response: apiError('consent_required', { correlationId: cid }) };
+  }
+  return {
+    ok: true,
+    aiAllowed: allowAi && consent.data.ai_consent_granted === true,
+  };
+}
+
+export async function handleProcessIosSms(
+  req: Request,
+  dependencies: ProcessIosSmsDependencies = defaultDependencies,
+): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  const cid = correlationId();
 
   // MALI-060n — gate ordering. Every gate below completes BEFORE any Gemini
   // (paid upstream) call, which lives in parseSms():
@@ -66,7 +112,7 @@ Deno.serve(async (req) => {
   //   2b. length     → bounded SMS / sender / field lengths
   //   3. device auth → verifyDevice (device secret)
   //   4. ownership   → auth.userId / auth.installIdHash (server-derived)
-  //   5. consent     → server-owned ai_consent_granted (allowAi is compat-only)
+  //   5. consent     → server cloud master gate, then optional AI grant
   //   (idempotency replay is checked before the quota bump ON PURPOSE, so a
   //    legitimate lost-response retry does not consume quota; both still precede
   //    parseSms.)
@@ -113,26 +159,22 @@ Deno.serve(async (req) => {
     return json({ error: 'invalid_fields' }, 400);
   }
 
-  const supabase = serviceClient();
-  const auth = await verifyDevice(supabase, installId, deviceSecret);
+  const supabase = dependencies.createServiceClient();
+  const auth = await dependencies.verifyDevice(supabase, installId, deviceSecret);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
-  // MALI-060n — AI authority is the SERVER-owned per-device consent record, not
-  // the caller's allowAi flag. allowAi is compatibility metadata only: AI runs
-  // only when the verified device has BOTH granted consent AND requested it, so
-  // allowAi=true can never override a server OFF, and a revoked credential
-  // blocks AI on the very next request. The read fails CLOSED (missing row /
-  // absent column / any error ⇒ consent OFF), which also keeps this correct
-  // while migration 0071 is undeployed (server AI simply stays off; the client
-  // degrades to a local parse).
+  // Fresh server authority on every request, before idempotency lookup, parse,
+  // storage, ledger writes, or APNs. Missing/error/OFF fails closed. This local
+  // processing gate deliberately does not change verifyDevice: sync-captures is
+  // delivery-only and may still return captures processed before revocation.
   const consent = await supabase
     .from('capture_devices')
-    .select('ai_consent_granted, revoked_at')
+    .select('ai_consent_granted, cloud_processing_enabled, revoked_at')
     .eq('install_id_hash', auth.installIdHash)
     .maybeSingle();
-  const serverAiConsent = !consent.error && !!consent.data &&
-    consent.data.ai_consent_granted === true && consent.data.revoked_at == null;
-  const aiAllowed = allowAi && serverAiConsent;
+  const consentGate = captureProcessingConsent(consent, allowAi, cid);
+  if (!consentGate.ok) return consentGate.response;
+  const aiAllowed = consentGate.aiAllowed;
 
   const existing = await supabase
     .from('processed_captures')
@@ -317,7 +359,9 @@ Deno.serve(async (req) => {
     },
     pushSent,
   });
-});
+}
+
+if (import.meta.main) Deno.serve((req) => handleProcessIosSms(req));
 
 // Replay of an already-stored payload (the App Intent retries after a client
 // timeout). If APNs was never confirmed sent, try again now: the stable

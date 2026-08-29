@@ -206,6 +206,24 @@ Deno.test('a real user JWT yields a user identity with user_settings consent', a
   }
 });
 
+Deno.test('JWT consent is refused when user_settings stores both grants false', async () => {
+  const supabase = fakeSupabase({
+    user: { data: { user: { id: 'user-77' } }, error: null },
+    settings: {
+      data: { ai_consent_granted: false, cloud_processing_enabled: false },
+      error: null,
+    },
+  });
+  const out = await resolveVerifiedIdentity(req('Bearer real-user-jwt'), supabase, {}, CID);
+  assertEquals(out.ok, true);
+  if (out.ok) {
+    assertEquals(out.identity.aiConsent, false);
+    assertEquals(out.identity.cloudConsent, false);
+    assertEquals(consentError(out.identity, 'ai', CID)?.status, 403);
+    assertEquals(consentError(out.identity, 'cloud', CID)?.status, 403);
+  }
+});
+
 Deno.test('a signed-in user with no settings row fails consent closed', async () => {
   const supabase = fakeSupabase({
     user: { data: { user: { id: 'user-77' } }, error: null },
@@ -217,6 +235,37 @@ Deno.test('a signed-in user with no settings row fails consent closed', async ()
     assertEquals(out.identity.aiConsent, false);
     assertEquals(out.identity.cloudConsent, false);
   }
+});
+
+Deno.test('JWT settings lookup error fails both consent flags closed', async () => {
+  const supabase = fakeSupabase({
+    user: { data: { user: { id: 'user-77' } }, error: null },
+    settings: {
+      data: { ai_consent_granted: true, cloud_processing_enabled: true },
+      error: { message: 'lookup failed' },
+    },
+  });
+  const out = await resolveVerifiedIdentity(req('Bearer real-user-jwt'), supabase, {}, CID);
+  assertEquals(out.ok, true);
+  if (out.ok) {
+    assertEquals(out.identity.aiConsent, false);
+    assertEquals(out.identity.cloudConsent, false);
+    assertEquals(consentError(out.identity, 'ai', CID)?.status, 403);
+    assertEquals(consentError(out.identity, 'cloud', CID)?.status, 403);
+  }
+});
+
+Deno.test('JWT AI path also requires the cloud-processing master gate', async () => {
+  const supabase = fakeSupabase({
+    user: { data: { user: { id: 'user-77' } }, error: null },
+    settings: {
+      data: { ai_consent_granted: true, cloud_processing_enabled: false },
+      error: null,
+    },
+  });
+  const out = await resolveVerifiedIdentity(req('Bearer real-user-jwt'), supabase, {}, CID);
+  assertEquals(out.ok, true);
+  if (out.ok) assertEquals(consentError(out.identity, 'ai', CID)?.status, 403);
 });
 
 // ── Consent gate ────────────────────────────────────────────────────────────
@@ -233,6 +282,18 @@ Deno.test('consentError blocks the missing kind and passes the granted one', () 
   assertEquals(consentError(base, 'cloud', CID), null);
   const blocked = consentError(base, 'ai', CID);
   assertEquals(blocked?.status, 403);
+});
+
+Deno.test('AI consent cannot bypass the cloud-processing master gate', () => {
+  const cloudOff: VerifiedIdentity = {
+    kind: 'device',
+    ownerKey: 'd:x',
+    userId: null,
+    installIdHash: 'x',
+    aiConsent: true,
+    cloudConsent: false,
+  };
+  assertEquals(consentError(cloudOff, 'ai', CID)?.status, 403);
 });
 
 Deno.test('correlationId is opaque and unique', () => {
