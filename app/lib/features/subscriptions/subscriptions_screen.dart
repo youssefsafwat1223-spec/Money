@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../domain/finance/money_format.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -64,6 +65,17 @@ class SubscriptionsScreen extends ConsumerWidget {
         // isolated); converted to double only here at the display leaf.
         final monthlyTotal =
             subscriptionMonthlyTotalMoney(subs, baseCur).toDouble();
+        // UX-023 — the installment obligation as its OWN line, so the header's
+        // metric and the counters beneath it describe the same world.
+        //
+        // `monthlyEquivalentsTotalMoney` is deliberately filter-free ("the
+        // caller decides"), which is precisely the footgun that produced F-027
+        // when a caller forgot. The active filter is therefore explicit here
+        // rather than assumed.
+        final installmentMonthly = monthlyEquivalentsTotalMoney(
+          insts.where((b) => b.status == BillStatus.active),
+          baseCur,
+        );
 
         return DefaultTabController(
           length: 2,
@@ -79,6 +91,7 @@ class SubscriptionsScreen extends ConsumerWidget {
                         children: [
                           _BillsHeader(
                             monthly: monthlyTotal,
+                            installmentMonthly: installmentMonthly,
                             subsCount: subs.length,
                             instsCount: insts.length,
                             currency: Currency.arabicLabel(baseCur),
@@ -170,12 +183,14 @@ class _BillsHeader extends StatelessWidget {
     required this.subsCount,
     required this.instsCount,
     required this.currency,
+    required this.installmentMonthly,
   });
 
   final double monthly;
   final int subsCount;
   final int instsCount;
   final String currency;
+  final Money installmentMonthly;
 
   @override
   Widget build(BuildContext context) {
@@ -183,7 +198,20 @@ class _BillsHeader extends StatelessWidget {
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
       title: 'الاشتراكات والفواتير',
-      subtitle: 'إجمالي الصرف الشهري',
+      // UX-023 — name the metric for what it measures.
+      //
+      // It read «إجمالي الصرف الشهري» — "total monthly spend" — while the
+      // calculation is `subscriptionMonthlyTotalMoney(subs, …)`: ACTIVE
+      // SUBSCRIPTIONS ONLY. With الراجحي selected it showed 399.00 while the
+      // counters directly beneath it read «1 اشتراكات نشطة · 1 أقساط جارية»,
+      // so the real monthly commitment was 399.00 + 458.25 = 857.25.
+      //
+      // The exclusion is deliberate and documented (MALI-064n) — a finite
+      // installment is genuinely not an open-ended subscription. The defect was
+      // the LABEL claiming to be a total, which the QA classed as the same shape
+      // as UX-022: correct mathematics, a label that does not describe them.
+      // The calculation is untouched.
+      subtitle: 'الاشتراكات الشهرية',
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
@@ -198,6 +226,14 @@ class _BillsHeader extends StatelessWidget {
       metrics: [
         CalmMetric(label: 'اشتراكات نشطة', value: '$subsCount'),
         CalmMetric(label: 'أقساط جارية', value: '$instsCount'),
+        // The figure the header used to omit: what the installments actually
+        // commit per month. Shown only when there is one, so the strip does not
+        // carry a permanent «0.00».
+        if (installmentMonthly.minorUnits > 0)
+          CalmMetric(
+            label: 'التزام الأقساط شهرياً',
+            value: formatMoney(installmentMonthly),
+          ),
         CalmMetric(
             label: 'سنوياً المجموع', value: Formatters.amount(monthly * 12)),
       ],

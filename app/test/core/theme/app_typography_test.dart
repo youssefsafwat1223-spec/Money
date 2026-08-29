@@ -57,14 +57,23 @@ void main() {
       }
     });
 
-    test('named styles keep their exact size/weight/height/features', () {
+    // UX-002 — these pin the APPROVED scale (`BRAND_AND_DESIGN_SYSTEM.md` §7),
+    // not whatever the file happened to contain. Title-2 and Headline are
+    // SemiBold 600 there; the implementation had drifted to Bold 700, and that
+    // drift is what this test previously froze in place. A snapshot of the
+    // current value protects nothing — it only makes the next correction look
+    // like a regression.
+    test('named styles match the approved spec: size/weight/height/features',
+        () {
       const c = Color(0xFF000000);
       final body = AppTypography.body(c);
       expect((body.fontFamily, body.fontSize, body.fontWeight, body.height),
           ('IBMPlexSansArabic', 16.0, FontWeight.w400, 1.50));
       final t2 = AppTypography.title2(c);
+      // §7 Title-2: SemiBold. (Size is one step below the spec's 22 by the
+      // documented density deviation — see app_typography.dart.)
       expect((t2.fontFamily, t2.fontSize, t2.fontWeight, t2.height),
-          ('IBMPlexSansArabic', 20.0, FontWeight.w700, 1.24));
+          ('IBMPlexSansArabic', 20.0, FontWeight.w600, 1.24));
       final hero = AppTypography.amountHero(c);
       expect(hero.fontFamily, 'IBMPlexSansArabic');
       expect(hero.fontSize, 40);
@@ -78,7 +87,7 @@ void main() {
       expect(theme.bodyLarge!.fontSize, 16);
       expect(theme.headlineMedium!.fontFamily, 'IBMPlexSansArabic'); // title2
       expect(theme.headlineMedium!.fontSize, 20);
-      expect(theme.headlineMedium!.fontWeight, FontWeight.w700);
+      expect(theme.headlineMedium!.fontWeight, FontWeight.w600); // §7 SemiBold
     });
 
     testWidgets('offline: Arabic + English render with the bundled family, no network',

@@ -212,7 +212,17 @@ class _HomeBody extends ConsumerWidget {
         orElse: () => accounts.firstWhere((a) => a.isDefault,
             orElse: () => accounts.first),
       );
-      accountLabel = 'حساب ${_currencyLabel(selected.currency)}';
+      // UX-007 — name the account, do not describe its currency.
+      //
+      // This read «حساب ريال» for every riyal account, so switching الراجحي →
+      // مدى changed every headline figure on Home (2,120.00 → 2,736.05) while
+      // the chip said the same thing. The user could not tell what the numbers
+      // referred to. The QA classed it an INFORMATION gap, not styling.
+      //
+      // The currency stays as secondary context because Home totals are
+      // per-currency and the two accounts may differ.
+      accountLabel =
+          '${selected.name} · ${_currencyLabel(selected.currency)}';
     }
     return Row(
       children: [

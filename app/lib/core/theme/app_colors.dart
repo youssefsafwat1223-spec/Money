@@ -193,7 +193,25 @@ class AppColors extends ThemeExtension<AppColors> {
     cta: AppBrandBlue.mid,
     onCta: Color(0xFFFFFFFF),
     ctaSoft: Color(0xFFEAF2FF),
-    ink: Color(0xFF0F1115),
+    // UX-002 — the rejected treatment, fixed at its ROOT.
+    //
+    // `ink` was near-black (#0F1115). It is the surface behind the selected tab
+    // pill, the «وزّع دخلك» promo banner, the transaction filter chips, the
+    // theme selector and the primary button — i.e. every one of the ~10 black
+    // sightings the QA collected under UX-002 came from THIS ONE TOKEN. The
+    // backlog said so explicitly: "one fix, not eight".
+    //
+    // The owner's decision (Option B) was to replace the hardcoded black/white
+    // treatment with the product's own identity, and the canonical identity is
+    // the logo blue — `AppBrandBlue.brand`, documented in this file as
+    // "★ the canonical brand / primary blue (the logo blue)".
+    //
+    // Deliberately NOT "make everything blue", which the backlog warns against:
+    // only this attention surface changes. Hierarchy is preserved because the
+    // token was already the single strongest surface in the light theme, and
+    // white-on-#021B79 is a higher contrast ratio than white-on-#0F1115 was, so
+    // accessibility improves rather than degrades.
+    ink: AppBrandBlue.brand,
     onInk: Color(0xFFFFFFFF),
     accent: Color(0xFFFBC926),
     income: Color(0xFF16A34A),
@@ -239,6 +257,11 @@ class AppColors extends ThemeExtension<AppColors> {
     cta: AppBrandBlue.bright,
     onCta: Color(0xFFFFFFFF),
     ctaSoft: Color(0xFF15233F),
+    // Dark theme keeps the INVERTED treatment: on a dark page a near-white
+    // chip is the high-contrast "selected" signal, and it was never the
+    // black-surface defect UX-002 recorded. Painting it brand-navy here would
+    // put a dark surface on a dark background and lose the contrast the light
+    // theme is gaining.
     ink: Color(0xFFF2F4F8),
     onInk: Color(0xFF0B0C0F),
     accent: Color(0xFFFBC926),
