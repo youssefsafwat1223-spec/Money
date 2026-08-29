@@ -781,3 +781,77 @@ behind HEAD, not ahead of it.
 This is the material change from Sprint 2: there is no longer unreviewed source
 sitting in the working tree. What remains is the admin UI presentational
 workstream (labels, tones, table extraction), which carries no finding.
+
+
+---
+
+# SPRINT 3 ADDENDUM — HEAD COMPLETENESS (2026-08-29)
+
+## A1. The finding that changed how everything else was measured
+
+Late in the sweep I discovered that **every gate I had been running was measured
+against the WORKING TREE, and the working tree was systematically more complete
+than HEAD.** Five separate instances, three of them created by me during this
+session:
+
+| # | Break | How it presented |
+|---|---|---|
+| 1 | `process-notification-retries/index.ts` committed importing `./process_one.ts`, which was never staged | Deno 152/0 in the tree; a committed function importing a non-existent file |
+| 2 | Migrations 0084, 0085, 0086 uncommitted — sequence jumped 0083 → 0087 | SQL **228/0** in the tree, **206/1** on a clean checkout |
+| 3 | `verify_ios_release_artifact.sh` untracked | a committed test could not load at all at HEAD |
+| 4 | Updated admin tests landed WITHOUT the UI pages they assert | admin **102/0** in the tree, **94/7** at HEAD |
+| 5 | `app/tools/verify_ios_packaging.sh` untracked while `ci_gates.sh` invokes it | caught BEFORE it reached HEAD |
+
+Instance 2 is the one that mattered most beyond the test suite: anyone applying
+migrations from the committed tree would have jumped 0083 → 0087, silently
+skipping the purge-completeness restore, the absent-row locking family
+(H-10/H-11/H-12) and the backups write barrier.
+
+Instance 4 was the most embarrassing: the seven failures assert that permanent
+delete is confirm-gated and prefix-scoped, that admin-local dates convert to
+absolute UTC before persisting, and that analytics are labelled directional
+rather than as redemptions. All real properties, all failing at HEAD while I
+reported them green.
+
+## A2. The guard, and its honest limit
+
+`app/test/architecture/head_completeness_test.dart` now asserts, against
+`git ls-files` so it sees what a fresh clone would get:
+* the migration sequence has no holes and no duplicate numbers;
+* no committed Deno file imports an uncommitted one;
+* no committed test reads an untracked repo file.
+
+Verified to fire: un-staging 0085 fails it with "the COMMITTED migration sequence
+skips 0085".
+
+**It does NOT catch instance 4.** There the file exists at HEAD — it is simply an
+older version than the tests asserting against it. Detecting that is a harder
+problem than presence, and the guard should not be read as covering it. The
+working control for that case remains: run the gates from a clean checkout.
+
+## A3. Final gates — PRISTINE HEAD (`git status` empty after `git clean`)
+
+| Gate | Result |
+|---|---|
+| `flutter analyze` | **clean** |
+| Full Flutter suite | **2741 pass · 1 skip · 0 fail** |
+| Admin `node --test` | **101 / 0** |
+| `tsc --noEmit` | **clean** |
+| SQL / migration contract | **228 / 0** (70 credential-gated) |
+| Deno (all functions) | **152 / 0** |
+
+These are the first numbers in this report measured from a tree that is
+byte-identical to what a fresh clone of HEAD produces. Earlier figures were
+true of the working tree and, as A1 shows, not always of HEAD.
+
+## A4. What is left in the working tree
+
+Three groups, all deliberate:
+* **STALE** — every remaining `app/lib` and `app/test` diff would REVERT landed
+  work (C-3 gates, C-6 guards, F-024, C-5, the `@Timeout` annotations).
+* **Out of scope** — `demo-docker/`, `research/`, brand assets, fonts, and
+  superseded planning documents. None carries a finding.
+* **`admin/tsconfig.tsbuildinfo`** — a tracked TypeScript build artifact.
+  Committing its churn is noise; untracking it is unrelated cleanup.
+
+There is no unreviewed source left in the working tree.
