@@ -202,3 +202,56 @@ Apply `0087` before or with the parser-rule deployment. The admin guard now
 refuses to promote a rule to `passed` without evidence, and returns 503 if `0089`
 is absent — but `0087`'s CHECK is what makes an evidence-free `passed` row
 unrepresentable in the database itself.
+
+---
+
+## RELEASE-PREP UPDATE — 2026-08-29, HEAD `cf7b8071`
+
+Everything below was done locally. Nothing was pushed, deployed, or sent to
+production (`vrombzdgwqjjiijbidqb`) or evidence staging (`dpdukyozedajelflkeix`),
+both of which retain ZERO contact.
+
+### Closed since the last update
+
+| Item | Was | Now |
+|---|---|---|
+| IBM Plex OFL licence | EXTERNAL | **CLOSED** — assembled from IBM's own `name` table (nameID 0) in the shipped `.ttf` plus the canonical OFL 1.1 body already in the repo. Nothing downloaded, nothing written from memory. |
+| Font licences unreachable in-app | not tracked | **CLOSED** — `registerBundledFontLicenses()`; a test fails if a family is added to pubspec without its licence file. |
+| Rollbacks for 0084–0091 | claimed present | **were absent** — all eight written, and rollback coverage is now a lint rule (`ROLLBACK_FLOOR=84`), verified to fail when a file is removed. |
+| Migration dry-run | never run | **CLOSED** — all 91 apply cleanly in filename order on a fresh disposable Postgres; 0084–0091 re-apply after rollback. |
+| Legal docs → publishable | Markdown only | **CLOSED** — `tools/build_legal_site.py` emits a directory-style static site (`/privacy`, `/terms`), no dependencies. Owner's task is now an upload. |
+| `LEGAL_BASE_URL` in CI | **absent from all 3 workflows** | **CLOSED** — added, plus the empty-define trap fixed in Dart. |
+
+### New findings
+
+1. **Linked-project hazard.** `supabase/.temp/project-ref` = `bdhqjijscwdzqwqanygv`
+   ("Nbjg"), which is neither production nor evidence staging. Gitignored, so
+   local state only — but any `supabase db push` / `functions deploy` today
+   lands there and looks successful. See runbook §0.
+2. **`LEGAL_BASE_URL` empty-define trap.** `String.fromEnvironment` uses
+   `defaultValue` only for an UNDEFINED key. `"${LEGAL_BASE_URL:-}"` expands to
+   `""`, which would have produced a hostless `/privacy` URI — silent failure,
+   worse than the dead link. Fixed at the Dart layer.
+3. **Capability activation is a code change.** The three providers in
+   `exact_transport_capability.dart` are hardcoded to `unknown` and not wired to
+   `FeatureFlagService`. The fast kill switch is therefore the feature flags,
+   not the capabilities.
+4. **0087 is user-visible.** It demotes evidence-free `passed` parsers, and
+   `catalog-delta` serves only `passed` rules — some banks stop parsing until
+   their rules gain golden-test evidence.
+
+### Still EXTERNAL
+
+| # | Item | Why it cannot be done here |
+|---|---|---|
+| 1 | A host serving `docs/legal/` | needs a domain and hosting account |
+| 2 | Android keystore | must be generated and stored by the owner; cannot be recreated if lost |
+| 3 | Apply 0084–0091 | needs production credentials + explicit authorisation |
+| 4 | Deploy 24 Edge Functions | same |
+| 5 | Set Edge secrets | owner holds the API keys |
+| 6 | Physical-device QA (iPhone + Android) | needs the hardware |
+| 7 | UX-035 device repro | needs a device at large text scale |
+| 8 | Apple/Google console configuration | owner accounts |
+| 9 | Android release build validation | **blocked in this sandbox** — Gradle's JVM TLS handshake to `dl.google.com` is terminated while `curl` to the same URL returns 200. Environment limitation, not a repo defect; the signing config is covered by 10 structural tests. |
+
+See `QIRSH_RELEASE_RUNBOOK.md` for the exact commands.
