@@ -1,0 +1,31 @@
+-- ROLLBACK for 0084_purge_user_data_restore.sql
+--
+-- 0084 does ONE thing: `CREATE OR REPLACE FUNCTION public.purge_user_data(uuid)`.
+-- The function is not new — 0083_referral_rewards.sql defines the version 0084
+-- replaced (earlier versions live in 0042 / 0065 / 0072).
+--
+-- THEREFORE: DO NOT `DROP FUNCTION`. Dropping it would leave account deletion
+-- with no implementation at all, which is far worse than the completeness gap
+-- 0084 fixed — and `delete_user_account()` calls it.
+--
+-- The rollback is to restore the PREVIOUS BODY, which is done by re-running the
+-- migration that contains it. 0083 is idempotent (every CREATE TABLE/INDEX uses
+-- IF NOT EXISTS, every top-level INSERT has ON CONFLICT), verified by applying
+-- it twice to a throwaway database — see supabase/tools/dryrun_migrations.sh.
+--
+--   \i supabase/migrations/0083_referral_rewards.sql
+--
+-- Or, from the CLI:
+--   psql "$DATABASE_URL" -f supabase/migrations/0083_referral_rewards.sql
+--
+-- WHAT YOU LOSE BY ROLLING BACK: 0084 restored deletion completeness (rows the
+-- previous version left behind) and de-identified the referral audit trail. The
+-- prior version leaves personal data behind on account deletion. That is a
+-- GDPR/CCPA exposure, so this rollback should be a brief emergency measure and
+-- not a resting state.
+--
+-- The grants 0084 sets are the same ones 0083 sets, so they need no separate
+-- restoration. Re-asserted here so the end state is explicit rather than
+-- inherited:
+revoke all on function public.purge_user_data(uuid) from public, anon, authenticated;
+grant execute on function public.purge_user_data(uuid) to service_role;

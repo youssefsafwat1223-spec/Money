@@ -63,7 +63,35 @@ done
 sd_count=$(printf '%s\n' "$sd_funcs" | grep -c . || true)
 echo "  SECURITY DEFINER functions checked: $sd_count"
 
+# 3) Rollback coverage. Release prep found migrations 0084-0091 shipped with no
+#    entry in supabase/rollback/ at all, while fifteen earlier migrations had
+#    one — the convention existed and had quietly stopped being followed. A
+#    migration with no documented reversal is one you cannot safely apply to
+#    production at 2am.
+#
+#    Coverage starts at ROLLBACK_FLOOR because the early chain predates the
+#    convention; retrofitting reversals for the initial schema would be fiction
+#    rather than safety. The floor is a single number so raising it is a visible
+#    decision instead of a silent drift.
+ROLLBACK_DIR="$(dirname "$0")/../rollback"
+ROLLBACK_FLOOR=84
+missing_rollback=0
+if [ -d "$ROLLBACK_DIR" ]; then
+  for f in "$MIG_DIR"/*.sql; do
+    base=$(basename "$f" .sql)
+    n=$(echo "$base" | sed -E 's/^0*([0-9]+)_.*/\1/')
+    [ "$n" -lt "$ROLLBACK_FLOOR" ] && continue
+    if [ ! -f "$ROLLBACK_DIR/${base}_rollback.sql" ]; then
+      note "migration '$base' has no rollback: expected rollback/${base}_rollback.sql"
+      missing_rollback=$((missing_rollback + 1))
+    fi
+  done
+  echo "  rollback coverage from $ROLLBACK_FLOOR: $missing_rollback missing"
+else
+  note "rollback directory not found: $ROLLBACK_DIR"
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "PASS: migrations lint (numbering + SECURITY DEFINER lockdown)."
+  echo "PASS: migrations lint (numbering + SECURITY DEFINER lockdown + rollback coverage)."
 fi
 exit "$fail"

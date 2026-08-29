@@ -75,4 +75,51 @@ void main() {
         reason: 'privacy_screen.dart must take its URLs from '
             'core/config/legal_urls.dart');
   });
+
+  group('the publishable site matches the URLs the app opens', () {
+    // Release prep — `tools/build_legal_site.py` renders docs/legal/ into a
+    // static site the owner can upload to any host with no build step. The
+    // generator and the app must agree on the paths, or the owner publishes
+    // /privacy while the app opens /privacy-policy and nobody notices until a
+    // store reviewer clicks the link.
+    final generator =
+        File('../tools/build_legal_site.py').readAsStringSync();
+
+    test('the generator exists and is dependency-free', () {
+      expect(generator, contains('PAGES = {'));
+      // A release artifact that needs `pip install` before it can be
+      // regenerated is one more thing to fail at the worst moment.
+      expect(generator.contains('import requests'), isFalse);
+      expect(generator.contains('import markdown'), isFalse);
+    });
+
+    test('it publishes exactly the paths the app builds', () {
+      // kPrivacyPolicyUrl.path is '/privacy'; the generator writes the
+      // directory 'privacy' so a static host serves it at that path.
+      for (final entry in {
+        kPrivacyPolicyUrl: 'PRIVACY_POLICY.md',
+        kTermsUrl: 'TERMS.md',
+      }.entries) {
+        final segment = entry.key.path.replaceAll('/', '');
+        expect(generator, contains('"${entry.value}": ("$segment"'),
+            reason: 'the app opens ${entry.key.path} — the generator must '
+                'publish ${entry.value} at that exact segment');
+      }
+    });
+
+    test('it renders directory-style, so extensionless URLs resolve', () {
+      // /privacy must work without a trailing .html on GitHub Pages, Netlify,
+      // Cloudflare Pages and S3 alike — which means privacy/index.html.
+      expect(generator, contains('index.html'));
+      expect(generator, contains('dest.mkdir'));
+    });
+
+    test('an empty render fails the build instead of publishing a blank page',
+        () {
+      // A silently-empty privacy policy would satisfy a store reviewer's URL
+      // check while telling the user nothing.
+      expect(generator, contains('rendered to'));
+      expect(generator, contains('len(body) < 500'));
+    });
+  });
 }

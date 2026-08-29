@@ -1,0 +1,38 @@
+-- ROLLBACK for 0088_explicit_owner_table_grants.sql (DF-002)
+--
+-- 0088 declares, rather than assumes, the privileges the client depends on:
+-- it GRANTs SELECT/INSERT/UPDATE/DELETE to `authenticated` on seventeen
+-- owner-scoped tables that previously had no grant statement anywhere in
+-- `supabase/migrations/` and worked only through Supabase's platform defaults.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- READ THIS BEFORE RUNNING. This rollback is almost certainly NOT what you want.
+--
+-- Because 0088 only made an EXISTING effective privilege explicit, revoking is
+-- not a return to the previous behaviour — it is a change to something neither
+-- state had. On a project where the platform default granted these privileges,
+-- revoking them BREAKS THE APP: every read and write to those tables starts
+-- failing with `permission denied`, for every user, immediately.
+--
+-- If 0088 caused a problem, the problem is a table that should NOT have been in
+-- the list. Fix that by revoking THAT TABLE, not all seventeen.
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- Provided for completeness. Uncomment deliberately.
+--
+-- DO $$
+-- DECLARE
+--   t TEXT;
+--   owner_tables CONSTANT TEXT[] := ARRAY[
+--     -- Copy the exact array from 0088_explicit_owner_table_grants.sql so the
+--     -- two can never drift; it is deliberately NOT duplicated here.
+--   ];
+-- BEGIN
+--   FOREACH t IN ARRAY owner_tables LOOP
+--     IF EXISTS (SELECT 1 FROM information_schema.tables
+--                 WHERE table_schema = 'public' AND table_name = t) THEN
+--       EXECUTE format(
+--         'REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I FROM authenticated;', t);
+--     END IF;
+--   END LOOP;
+-- END $$;

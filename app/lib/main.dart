@@ -12,6 +12,7 @@ import 'core/observability/diagnostics.dart';
 import 'core/observability/telemetry_sanitizer.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/font_licenses.dart';
 import 'data/db/app_database.dart';
 import 'data/db/planning_canonical_invariants.dart';
 import 'data/db/planning_cutover.dart';
@@ -20,6 +21,11 @@ import 'core/utils/app_lucide_icons.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The bundled fonts' OFL notices. Registered here rather than lazily so the
+  // obligation is discharged on every launch path, including the one that skips
+  // Sentry. The generator is lazy internally, so this costs nothing until the
+  // licence page is actually opened.
+  registerBundledFontLicenses();
   // MALI-039 — redact + bound every diagnostic line (all call sites, plugins,
   // future code) before it reaches the platform log, in debug and release.
   Diag.installRedactingSink();
