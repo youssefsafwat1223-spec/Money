@@ -16,6 +16,7 @@ import '../report_ads/report_ads_providers.dart';
 import 'sync_cadence.dart';
 import '../../data/db/financial_cache_reconcile_map.dart';
 import '../../data/db/legacy_financial_cache_reconciler.dart';
+import '../../data/db/ownership_guard.dart';
 import 'legacy_reconcile_domains.dart';
 import '../../core/diagnostics/duplicate_trace_service.dart';
 import '../../core/exporting/export_providers.dart';
@@ -49,6 +50,7 @@ import '../capture/services/local_notification_service.dart';
 import '../capture/services/notification_log_service.dart';
 import '../capture/services/pending_notification_actions.dart';
 import '../capture/services/native_capture_bridge.dart';
+import '../capture/services/shared_capture_handoff_service.dart';
 import '../../core/tracking/user_activity_service.dart';
 import '../cards/cards_providers.dart';
 import '../onboarding/force_update_screen.dart';
@@ -586,6 +588,14 @@ class _AppShellState extends ConsumerState<AppShell> {
       }
     }
 
+    // Audit H-3: the outbox pushes below can only flush QUEUED intents. Rows
+    // that never reached the cloud and were never queued (the legacy /
+    // failed-backfill class) have no outbox entry, so pushing does nothing for
+    // them. Give them a real chance to persist before the user is asked to
+    // discard anything — this is the retry the sign-out path was missing.
+    await attempt(() async {
+      await ref.read(startupSyncReconcileServiceProvider).run();
+    });
     await attempt(() async {
       await ref.read(accountsPushServiceProvider).push();
     });
@@ -694,7 +704,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     // the flag unset so the next cycle retries.
     if (!_didReconcile) {
       final outcome = await ref.read(startupSyncReconcileServiceProvider).run();
-      if (outcome != ReconcileOutcome.failed) _didReconcile = true;
+      // Audit H-1: a PARTIAL reconcile must retry too. Latching the one-shot
+      // flag on anything short of proven-complete meant a half-finished
+      // backfill was never attempted again this session, while the unresolved
+      // rows stayed invisible to the pre-sign-out inventory.
+      if (!outcome.shouldRetry) _didReconcile = true;
     }
     // MALI-034: in-slot legacy financial-cache reconciliation, built once with
     // THIS run's admission generation. A domain carrying a legacy dirty marker is
@@ -803,6 +817,13 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (_isConsumingSharedInput) return;
     _isConsumingSharedInput = true;
     try {
+      // Bind the whole drain to the current account admission. Sign-out rotates
+      // this generation before wiping local/native state, so stale work cannot
+      // persist or acknowledge a capture under the next account.
+      final ownershipGuard = OwnershipGuard();
+      final admissionToken = await ownershipGuard.capture();
+      Future<bool> isOwnerCurrent() => ownershipGuard.isCurrent(admissionToken);
+
       CaptureSyncResult? backendSync;
       try {
         backendSync = await ref.read(captureSyncServiceProvider).sync();
@@ -838,11 +859,18 @@ class _AppShellState extends ConsumerState<AppShell> {
 
       // Positive per-item acknowledgement: removes the leased message from
       // the native queue only after it was fully handled locally.
-      Future<void> ackMessage(SharedCapturedMessage message) async {
+      Future<bool> ackMessage(SharedCapturedMessage message) async {
         final id = message.id;
-        if (id == null || id.isEmpty) return;
-        await NativeCaptureBridge.acknowledgeSharedMessage(id);
+        if (id == null || id.isEmpty) return false;
+        if (!await isOwnerCurrent()) throw const StaleOwnershipException();
+        return NativeCaptureBridge.acknowledgeSharedMessage(id);
       }
+
+      final handoff = SharedCaptureHandoffService(
+        captureSyncService: ref.read(captureSyncServiceProvider),
+        isOwnerCurrent: isOwnerCurrent,
+        acknowledge: NativeCaptureBridge.acknowledgeSharedMessage,
+      );
 
       for (final message in messages) {
         // كل رسالة في try مستقلة، والطابور الأصلي لا يُمسح دفعة واحدة بعد
@@ -850,6 +878,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         // (ack)، والفاشلة تبقى في الطابور كما هي وتُعاد محاولتها في السحب
         // التالي — لا فقدان للدفعة عند انهيار/انتهاء جلسة في المنتصف.
         try {
+          if (!await isOwnerCurrent()) throw const StaleOwnershipException();
           if (message.status == 'pendingSend') {
             final captureSync = ref.read(captureSyncServiceProvider);
             final sent = await captureSync.retryPendingSend(message);
@@ -897,20 +926,30 @@ class _AppShellState extends ConsumerState<AppShell> {
             // last-resort fallback.
             receivedAt: message.receivedAt,
           );
-          final result = await ingestUseCase.fromCapturedMessage(captured);
+          final result = await ingestUseCase.fromCapturedMessage(
+            captured,
+            // The durable native copy is the local recovery path. A later drain
+            // must never re-send its SMS to AI/discovery/enrichment services,
+            // especially after consent has been revoked.
+            onDeviceOnly: true,
+          );
           if (kDebugMode) {
             debugPrint(
               '[Capture] disposition=${result.disposition} '
               'hasTransaction=${result.transactionId != null}',
             );
           }
-          // Flag the payload as imported so a later backend sync skips the same
-          // capture instead of importing it a second time (list showed it twice).
-          if (message.id != null && result.transactionId != null) {
-            await ref.read(captureSyncServiceProvider).markPayloadImported(
-                  payloadId: message.id!,
-                  transactionId: result.transactionId!,
-                );
+          // The one ack boundary: transaction/review/duplicate outcomes get a
+          // permanent payload marker; unprocessable captures first become a
+          // deterministic Smart Inbox row containing the raw SMS. Only an
+          // intentional ignored message may acknowledge without a durable row.
+          await handoff.complete(
+            message: message,
+            disposition: result.disposition,
+            transactionId: result.transactionId,
+          );
+          if (result.disposition == CapturedMessageDisposition.unprocessable) {
+            ref.invalidate(smartInboxItemsProvider);
           }
           // MALI-061n §12 — one authority per capture. Reached only for a
           // freshly-imported payload (the already-imported branch acks + skips
@@ -923,6 +962,9 @@ class _AppShellState extends ConsumerState<AppShell> {
             alreadyImported: false,
             ownerValid: true,
           )) {
+            if (!await isOwnerCurrent()) {
+              throw const StaleOwnershipException();
+            }
             await _showCapturedMessageNotification(
               result,
               notificationPreferences,
@@ -937,14 +979,17 @@ class _AppShellState extends ConsumerState<AppShell> {
           pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
             message.sender,
           );
-          // Fully handled — release the lease.
-          await ackMessage(message);
         } on AuthRepoException {
           // Every remaining message would fail identically until re-auth —
           // stop draining. Nothing was deleted from the native queue (peek,
           // not consume), so this message AND the whole remainder stay leased
           // and are retried after the centralized recovery re-auths.
           await _handleAuthRequiredFailure();
+          break;
+        } on StaleOwnershipException {
+          // The account admission changed while this drain was in flight.
+          // Persist/marker transactions roll back and no native ack occurs;
+          // stop so the new admission can make its own ownership decision.
           break;
         } catch (error) {
           // Not acked — the message stays in the native queue and is retried

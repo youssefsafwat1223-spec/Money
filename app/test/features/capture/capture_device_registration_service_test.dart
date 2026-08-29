@@ -258,6 +258,46 @@ void main() {
     expect(client.consentCalls.last, (ai: false, cloud: false));
   });
 
+  test('iOS full revoke pushes both consent flags false to the server',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'qirsh_capture_device_secret': 'existing-secret',
+    });
+    // Cloud is the master gate. Keep the local AI preference accepted to prove
+    // the iOS cloud-OFF branch does not preserve that stale grant server-side.
+    await setConsent(ai: true, cloud: false);
+    final client = _ConsentRecordingClient();
+    final nativeWrites = <({bool ai, bool cloud})>[];
+    final service = CaptureDeviceRegistrationService(
+      settingsRepository: settingsRepository,
+      client: client,
+      storage: const FlutterSecureStorage(),
+      isIos: () => true,
+      isAndroid: () => false,
+      isBackendConfigured: () => true,
+      loadInstallId: () async => 'install-id',
+      writeNativeBackendConfig: ({
+        required cloudProcessingEnabled,
+        required installId,
+        deviceSecret,
+        required backendUrl,
+        required anonKey,
+        required aiConsentGranted,
+      }) async {
+        nativeWrites.add((
+          ai: aiConsentGranted,
+          cloud: cloudProcessingEnabled,
+        ));
+      },
+    );
+
+    await service.syncBackendState();
+
+    expect(nativeWrites, [(ai: false, cloud: false)]);
+    expect(client.registeredPlatforms, isEmpty);
+    expect(client.consentCalls, [(ai: false, cloud: false)]);
+  });
+
   test('Android offline registration fails closed without throwing', () async {
     FlutterSecureStorage.setMockInitialValues({});
     await setConsent(ai: true, cloud: true);

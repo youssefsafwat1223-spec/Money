@@ -77,16 +77,37 @@ void main() {
     expect(second, equals(first));
   });
 
-  test('performance: 100k conversions are linear (no O(n^2)); < 2s', () {
-    final sw = Stopwatch()..start();
-    var acc = BigInt.zero;
-    for (var i = 0; i < 100000; i++) {
-      acc += BigInt.from(legacyRealToMinor(19.99, 2));
+  test('performance: conversion cost is LINEAR in row count (no O(n^2))', () {
+    // The property this test is named for is linearity, but it used to assert a
+    // wall-clock budget (<2s for 100k). That measures the machine as much as the
+    // algorithm: it passed idle and failed at 2926ms under full-suite load,
+    // which is a flaky gate rather than a broken converter.
+    //
+    // Linearity is measured instead, by comparing two sizes: doubling the work
+    // must roughly double the time. A quadratic regression — the actual risk —
+    // would show ~4x and still fail loudly. A generous absolute ceiling stays as
+    // a backstop against a catastrophic slowdown.
+    int timeFor(int n) {
+      var acc = BigInt.zero;
+      final sw = Stopwatch()..start();
+      for (var i = 0; i < n; i++) {
+        acc += BigInt.from(legacyRealToMinor(19.99, 2));
+      }
+      sw.stop();
+      expect(acc, BigInt.from(n) * BigInt.from(1999)); // exact aggregate
+      return sw.elapsedMicroseconds;
     }
-    sw.stop();
-    expect(acc, BigInt.from(100000) * BigInt.from(1999)); // exact aggregate
-    expect(sw.elapsedMilliseconds, lessThan(2000),
-        reason: 'converter must stay linear per row');
+
+    timeFor(20000); // warm up, so JIT compilation is not charged to the first
+    final small = timeFor(50000);
+    final large = timeFor(100000);
+
+    // 2x the work in under 3x the time. Quadratic would be ~4x.
+    expect(large, lessThan(small * 3),
+        reason: 'doubling rows took ${(large / small).toStringAsFixed(1)}x the '
+            'time — that is superlinear, which is the regression this guards');
+    expect(large, lessThan(30 * 1000 * 1000),
+        reason: 'backstop: 100k conversions should never take 30s');
   });
 
   test('Money round-trips the converted minor back to the exact decimal', () {

@@ -114,17 +114,12 @@ class CaptureDeviceRegistrationService {
       }
     }
 
-    try {
-      await _backendClient.setDeviceConsent(
-        installId: installId,
-        deviceSecret: secret,
-        aiConsentGranted: settings.aiConsentGranted,
-        cloudProcessingEnabled: settings.cloudProcessingEnabled,
-      );
-    } catch (_) {
-      // Consent push is retried on the next sync; a stale server row still fails
-      // closed (defaults FALSE), never open.
-    }
+    await _pushDeviceConsent(
+      installId: installId,
+      deviceSecret: secret,
+      aiConsentGranted: settings.aiConsentGranted,
+      cloudProcessingEnabled: settings.cloudProcessingEnabled,
+    );
   }
 
   Future<void> syncNativeState() async {
@@ -141,6 +136,17 @@ class CaptureDeviceRegistrationService {
         anonKey: SupabaseConfig.anonKey,
         aiConsentGranted: false,
       );
+      // The native bridge is OFF, but an existing verified server row must also
+      // receive the revocation. With no backend or no secret there is no safe,
+      // authenticated row to update, so preserve those guards.
+      if (_isBackendConfigured() && secret != null && secret.isNotEmpty) {
+        await _pushDeviceConsent(
+          installId: installId,
+          deviceSecret: secret,
+          aiConsentGranted: false,
+          cloudProcessingEnabled: false,
+        );
+      }
       return;
     }
 
@@ -173,17 +179,12 @@ class CaptureDeviceRegistrationService {
     // AI/paid endpoints enforce it authoritatively (revocation propagates the
     // moment the user toggles it, since syncNativeState re-runs). Best-effort:
     // a failure here must never block native config or local capture.
-    try {
-      await _backendClient.setDeviceConsent(
-        installId: installId,
-        deviceSecret: secret,
-        aiConsentGranted: settings.aiConsentGranted,
-        cloudProcessingEnabled: settings.cloudProcessingEnabled,
-      );
-    } catch (_) {
-      // Consent push is retried on the next sync; a stale server row still fails
-      // closed (defaults FALSE), never open.
-    }
+    await _pushDeviceConsent(
+      installId: installId,
+      deviceSecret: secret,
+      aiConsentGranted: settings.aiConsentGranted,
+      cloudProcessingEnabled: settings.cloudProcessingEnabled,
+    );
     try {
       final token = await _loadApnsToken();
       if (token != null) {
@@ -195,6 +196,25 @@ class CaptureDeviceRegistrationService {
       if (kDebugMode) {
         debugPrint('[Capture] APNs registration deferred: $error');
       }
+    }
+  }
+
+  Future<void> _pushDeviceConsent({
+    required String installId,
+    required String deviceSecret,
+    required bool aiConsentGranted,
+    required bool cloudProcessingEnabled,
+  }) async {
+    try {
+      await _backendClient.setDeviceConsent(
+        installId: installId,
+        deviceSecret: deviceSecret,
+        aiConsentGranted: aiConsentGranted,
+        cloudProcessingEnabled: cloudProcessingEnabled,
+      );
+    } catch (_) {
+      // Best-effort: startup/resume/next capture sync retries the same absolute
+      // consent state. No SMS or financial payload is sent by this call.
     }
   }
 
