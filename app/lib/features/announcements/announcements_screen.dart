@@ -13,6 +13,7 @@ import '../../domain/entities/engagement_entities.dart';
 import '../common/widgets.dart';
 import '../settings/settings_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/formatters.dart';
 
 class AnnouncementsScreen extends ConsumerWidget {
   const AnnouncementsScreen({super.key});
@@ -57,6 +58,7 @@ class AnnouncementsScreen extends ConsumerWidget {
               ),
             ),
             IconButton(
+              tooltip: 'إغلاق',
               onPressed: () => Navigator.of(context).maybePop(),
               icon: const Icon(AppLucideIcons.x),
             ),
@@ -154,7 +156,25 @@ class _MessageCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(item.badge, style: AppTypography.caption(c.textLight)),
+                    // UX-031 — the screen calls itself «تاريخ إشعارات قرش» and
+                    // sorts every row by `sortAt`, and then showed no dates at
+                    // all: a history in which nothing is dated. The date is
+                    // stated beside the badge because the two together are what
+                    // make a row identifiable — «إشعار مرسل» alone does not
+                    // distinguish this month's budget warning from last
+                    // month's.
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(item.badge,
+                              style: AppTypography.caption(c.textLight),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        Text(' · ${item.dateLabel(context)}',
+                            style: AppTypography.caption(c.textLight)),
+                      ],
+                    ),
                     const SizedBox(height: 3),
                     Text(item.title,
                         style: AppTypography.bodyStrong(c.textPrimary)),
@@ -246,6 +266,23 @@ class _MessageItem {
   final String? url;
   final String? actionLabel;
   final bool dismissible;
+
+  /// UX-031 — the date, said accurately for what each source actually records.
+  ///
+  /// `sortAt` is not one kind of instant. For a delivered notification it is
+  /// `sentAt` — genuinely when the user received it. For a campaign or an
+  /// announcement it is `validFrom` — when the item BEGAN being shown, which is
+  /// not the same claim. Printing one undifferentiated timestamp would date a
+  /// server-side publication window as though it were a delivery.
+  String dateLabel(BuildContext context) {
+    final date = Formatters.dateGroupLabel(sortAt, context);
+    return switch (source) {
+      _MessageSource.history => date,
+      _MessageSource.campaign ||
+      _MessageSource.announcement =>
+        'من $date',
+    };
+  }
 
   static _MessageItem fromHistory(NotificationHistoryEntry entry) {
     return _MessageItem(

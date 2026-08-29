@@ -441,7 +441,8 @@ export default function CampaignsPage() {
             search={search}
             onSearch={setSearch}
             placeholder="ابحث في عناوين الحملات ونصوصها…"
-            resultLabel={`${fmt(visible.length)} من ${fmt(campaigns.length)}`}
+            visibleCount={visible.length}
+        totalCount={campaigns.length}
           >
             <FilterSelect
               label="الحالة"

@@ -1015,7 +1015,12 @@ class DriftTransactionRepository implements TransactionRepository {
       '''
         SELECT category_id AS cid,
                SUM(${aggregate.signedAmountMinor}) AS total,
-               COUNT(*) AS tx_count
+               COUNT(*) AS tx_count,
+               -- UX-022: the refund magnitude folded into `total`, computed in
+               -- the SAME pass so the two can never disagree about scope. The
+               -- netting expression above is untouched.
+               SUM(CASE WHEN type = 'refund' THEN amount_minor ELSE 0 END)
+                 AS refund_total
         FROM transactions
         WHERE ${aggregate.where}
           AND category_id IS NOT NULL
@@ -1036,6 +1041,7 @@ class DriftTransactionRepository implements TransactionRepository {
             categoryId: r.read<String>('cid'),
             total: Money(r.read<int>('total'), currency),
             count: r.read<int>('tx_count'),
+            refunds: Money(r.read<int>('refund_total'), currency),
           ),
         )
         .toList();
@@ -1091,7 +1097,13 @@ class DriftTransactionRepository implements TransactionRepository {
       '''
         SELECT m.raw_name AS name,
                SUM(${aggregate.signedAmountMinor}) AS total,
-               COUNT(*) AS tx_count
+               COUNT(*) AS tx_count,
+               -- UX-022: same pass, same scope. `COUNT(*)` stays the true row
+               -- count — a refund IS one of the rows the total is built from.
+               -- What was missing was the refund itself, which is what made
+               -- «1,700.00 · 2 عمليات» impossible to reconcile.
+               SUM(CASE WHEN t.type = 'refund' THEN t.amount_minor ELSE 0 END)
+                 AS refund_total
         FROM transactions t
         INNER JOIN merchants m ON m.id = t.merchant_id
         WHERE ${aggregate.where}
@@ -1114,6 +1126,7 @@ class DriftTransactionRepository implements TransactionRepository {
               name: r.read<String>('name'),
               total: Money(r.read<int>('total'), currency),
               count: r.read<int>('tx_count'),
+              refunds: Money(r.read<int>('refund_total'), currency),
             ))
         .toList();
   }

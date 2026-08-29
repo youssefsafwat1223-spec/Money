@@ -44,11 +44,19 @@ class BudgetAlertContent {
 class BudgetAlertPlanner {
   const BudgetAlertPlanner();
 
+  /// UX-037 — [accountLabel] is REQUIRED and nullable rather than optional.
+  ///
+  /// The account was already resolved by the only caller and simply never
+  /// reached the text. Making it optional would let a future caller silently
+  /// drop it again and reproduce the finding; making it required-and-nullable
+  /// forces the caller to state that it genuinely does not know, which happens
+  /// only when there is no account at all.
   BudgetAlertContent? plan({
     required BudgetProgressEntry entry,
     required DateTime now,
     required String currencyLabel,
     required String categoryLabel,
+    required String? accountLabel,
   }) {
     final ratio = entry.ratio;
     final bucket = ratio >= 1.0
@@ -80,22 +88,37 @@ class BudgetAlertPlanner {
 
     String fmt(Money value) => value.toDecimalString();
 
+    // UX-037 — a budget alert must say WHICH budget crossed WHICH threshold.
+    //
+    // The QA's case: a shopping-budget warning arriving right after an
+    // unrelated food purchase read as though the food transaction had been
+    // filed under shopping. The notification named neither the account nor the
+    // threshold, so the only context the user had was the transaction they had
+    // just watched arrive — and they attributed the alert to it.
+    //
+    // Naming the budget's own account and the crossed threshold removes that
+    // reading: the alert now describes a state of a named budget rather than
+    // an unattributed reaction to a recent event.
+    final scope =
+        accountLabel == null ? categoryLabel : '$categoryLabel في $accountLabel';
+
     final String title;
     final String body;
     if (bucket == 3) {
       title = 'تجاوزت $categoryLabel';
-      body =
-          'صرفت ${fmt(entry.spent - budget.amountMoney)} $currencyLabel زيادة عن الميزانية.';
+      body = 'ميزانية $scope وصلت ١٠٠٪ من حدّها — '
+          'صرفت ${fmt(entry.spent - budget.amountMoney)} $currencyLabel زيادة عنها.';
     } else if (bucket == 2) {
       title = '$categoryLabel على وشك الاكتمال';
-      body = 'بقيلك ${fmt(remaining)} $currencyLabel فقط — '
-          'معدلك الحالي سيستهلكها في $daysRemaining يوم.';
+      body = 'ميزانية $scope عدّت ٩٠٪ — بقيلك ${fmt(remaining)} $currencyLabel '
+          'فقط، ومعدلك الحالي سيستهلكها في $daysRemaining يوم.';
     } else {
       title = 'وصلت ٧٥٪ من $categoryLabel';
       body = projected.compareTo(budget.amountMoney) > 0
-          ? 'بقيلك ${fmt(remaining)} $currencyLabel. '
+          ? 'ميزانية $scope عدّت ٧٥٪ — بقيلك ${fmt(remaining)} $currencyLabel. '
               'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - budget.amountMoney)} $currencyLabel.'
-          : 'بقيلك ${fmt(remaining)} $currencyLabel حتى نهاية الفترة.';
+          : 'ميزانية $scope عدّت ٧٥٪ — بقيلك ${fmt(remaining)} $currencyLabel '
+              'حتى نهاية الفترة.';
     }
 
     final type = bucket == 3

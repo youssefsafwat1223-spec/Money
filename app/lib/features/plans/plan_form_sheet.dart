@@ -146,8 +146,22 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
     final c = context.colors;
     final accounts = ref.watch(accountsProvider).valueOrNull ?? const [];
     final cards = ref.watch(cardSummariesProvider).valueOrNull ?? const [];
-    final currency = Currency.arabicLabel(
-        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    // UX-036 — the currency shown must be the one this plan is actually
+    // denominated in.
+    //
+    // The hardcoded «جنيه» is gone, but the residual half of the finding
+    // remained: the suffix read the BASE currency while `_save` writes
+    // `existing.currency`. Editing an EGP plan on a SAR base therefore labelled
+    // the field «ريال» while the value was parsed and stored as EGP — the same
+    // defect the finding describes, one step further in.
+    //
+    // A plan's currency is immutable once created (the membership query filters
+    // `UPPER(t.currency) = ?`, so a plan only ever counts transactions in its
+    // own currency). Reading it from the row is therefore both correct and the
+    // explicit mixed-currency rule the finding asked for.
+    final planCurrencyCode = widget.existing?.currency ??
+        (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final currency = Currency.arabicLabel(planCurrencyCode);
 
     return AppSheetScaffold(
       title: widget.existing == null ? 'خطة جديدة' : 'تعديل الخطة',
@@ -200,6 +214,16 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
           ),
           const SizedBox(height: AppSpacing.s4),
           _sectionLabel(c, 'الحسابات اللي هتصرف منها'),
+          const SizedBox(height: 2),
+          // UX-036 — the mixed-currency rule, stated rather than left to be
+          // discovered. The plan counts only transactions in its own currency,
+          // so selecting an account in another one is legal and simply
+          // contributes nothing. Silence here is what made a mismatched
+          // currency label look like a bug rather than a scope.
+          Text(
+            'الخطة بتحسب عمليات $currency بس — أي حساب بعملة تانية مش هيتحسب فيها.',
+            style: AppTypography.caption(c.textLight),
+          ),
           const SizedBox(height: AppSpacing.s2),
           Wrap(
             spacing: 8,

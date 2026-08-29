@@ -36,9 +36,24 @@ export default async function CategoriesPage() {
         this Admin, and inventing a form would imply a capability that does not
         exist. The note below says so plainly instead of showing a dead button.
       */}
+      {/*
+        UX-019 — the note used to attribute the key dependency to "قواعد قراءة
+        الرسائل" (`sms_parsers`). That table has no category column at all, so
+        the stated reason for not editing a key was simply not the real one — an
+        operator acting on it would have been reasoning from a false model.
+
+        The actual dependents are the tables that STORE a category key as plain
+        TEXT with no foreign key: users' transactions, their budgets, and the
+        merchant→category keyword map (0006_merchant_keywords.sql). Because
+        there is no FK, renaming a key silently orphans those rows instead of
+        failing loudly — which is precisely why it must not be edited, and a
+        sharper reason than the one it replaces.
+      */}
       <HelpNote>
-        هذه القائمة للاطّلاع فقط في هذه اللوحة. «المفتاح الثابت» لكل فئة تعتمد عليه قواعد قراءة
-        الرسائل، ولذلك لا يُعدَّل من هنا — تغييره يفصل العمليات القديمة عن فئتها.
+        هذه القائمة للاطّلاع فقط في هذه اللوحة. «المفتاح الثابت» مخزَّن كنص داخل عمليات المستخدمين
+        وميزانياتهم وجدول كلمات التجّار، بدون رابط يمنع كسره —{" "}
+        <strong>تغييره لا يفشل، بل يفصل البيانات القديمة عن فئتها بصمت</strong>، ولذلك لا يُعدَّل من
+        هنا.
       </HelpNote>
 
       {error ? (

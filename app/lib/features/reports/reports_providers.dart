@@ -149,6 +149,7 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
         total: item.total,
         percent: sumAll.isZero ? 0 : item.total.toDouble() / sumAll.toDouble(),
         count: item.count,
+        refunds: item.refunds,
       ));
     }
     final topMerchants = await txRepo.merchantBreakdown(

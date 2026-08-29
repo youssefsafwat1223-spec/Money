@@ -2,6 +2,24 @@
 
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmt } from "@/lib/utils";
+
+/**
+ * UX-020 — «0 من 0» read as breakage.
+ *
+ * Every table computed its own `«{visible} من {total}»` string, so an empty
+ * page (Coupons had 0 coupons and 0 coupon categories) rendered «0 من 0» —
+ * which an operator reads as *the page failed to load*, not *there is nothing
+ * here yet*. The empty state below it already says the truthful thing.
+ *
+ * Deriving the label from the two counts HERE, rather than at six call sites,
+ * makes "an empty collection shows no counter" a property of the component
+ * instead of a convention every future table has to remember.
+ */
+export function resultCountLabel(visible: number, total: number): string | undefined {
+  if (total === 0) return undefined;
+  return `${fmt(visible)} من ${fmt(total)}`;
+}
 
 /** Search box + inline selects, sharing one row above a table. */
 export function FilterBar({
@@ -10,15 +28,24 @@ export function FilterBar({
   placeholder = "ابحث…",
   children,
   resultLabel,
+  visibleCount,
+  totalCount,
   className,
 }: {
   search: string;
   onSearch: (v: string) => void;
   placeholder?: string;
   children?: React.ReactNode;
+  /** Prefer [visibleCount]/[totalCount]; this stays for non-count labels. */
   resultLabel?: string;
+  visibleCount?: number;
+  totalCount?: number;
   className?: string;
 }) {
+  const label =
+    visibleCount !== undefined && totalCount !== undefined
+      ? resultCountLabel(visibleCount, totalCount)
+      : resultLabel;
   return (
     <div className={cn("flex flex-wrap items-center gap-2.5", className)}>
       <div className="relative min-w-[220px] flex-1">
@@ -45,8 +72,8 @@ export function FilterBar({
         )}
       </div>
       {children}
-      {resultLabel && (
-        <span className="tnum whitespace-nowrap text-tiny text-ink-faint">{resultLabel}</span>
+      {label && (
+        <span className="tnum whitespace-nowrap text-tiny text-ink-faint">{label}</span>
       )}
     </div>
   );

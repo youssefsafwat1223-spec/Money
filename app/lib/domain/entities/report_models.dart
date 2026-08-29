@@ -7,11 +7,29 @@ class MerchantSpend {
     required this.name,
     required this.total,
     this.count = 0,
+    this.refunds,
   });
 
   final String name;
+
+  /// The NET figure — the documented `payments + withdrawals − refunds`
+  /// contract. Unchanged by UX-022; only explained by it.
   final Money total;
   final int count;
+
+  /// UX-022 — the refund magnitude folded into [total], when there is one.
+  ///
+  /// The QA's row read «نون · 1,700.00 · 2 عمليات» and neither transaction was
+  /// 1,700: an expense of 1,899 and a refund of 199. The `COUNT(*)` was not
+  /// wrong — a refund IS one of the transactions the total is built from — but
+  /// pairing a netted amount with a raw count and no refund left the implied
+  /// average meaningless.
+  ///
+  /// Null (not zero) when the caller did not ask for it, so "not queried" and
+  /// "queried, no refunds" stay distinguishable.
+  final Money? refunds;
+
+  bool get hasRefunds => (refunds?.minorUnits ?? 0) > 0;
 }
 
 /// اشتراك متكرر مُكتشَف (نفس المتجر بمبلغ متقارب عبر أشهر). MALI-026 (B8-3 §16
@@ -45,7 +63,13 @@ class DailySpend {
   const DailySpend({required this.day, required this.total});
 
   final DateTime day;
+
+  /// Net spend for the day. UX-022: this goes NEGATIVE on a day whose refunds
+  /// exceed its spending — a real state that the chart used to render as an
+  /// unexplained downward bar.
   final Money total;
+
+  bool get isRefundDay => total.minorUnits < 0;
 }
 
 /// إجمالي المصروف والدخل لعملة واحدة — لعرض «كل الحسابات» بعملات منفصلة

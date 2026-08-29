@@ -38,6 +38,8 @@ class SubscriptionsScreen extends ConsumerWidget {
     final billsAsync = ref.watch(savedBillsProvider);
     final suggestionsAsync = ref.watch(subscriptionsProvider);
     final baseCur = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
+    // UX-024 — the same account the list was filtered by, not a second guess.
+    final scopeAccount = ref.watch(billsScopeAccountProvider).valueOrNull;
 
     return billsAsync.when(
       skipLoadingOnReload: true,
@@ -63,8 +65,7 @@ class SubscriptionsScreen extends ConsumerWidget {
         // normalized, active subscriptions only) — the ONE canonical metric.
         // Summed EXACTLY as Money in the base display currency (currency-
         // isolated); converted to double only here at the display leaf.
-        final monthlyTotal =
-            subscriptionMonthlyTotalMoney(subs, baseCur).toDouble();
+        final monthlyTotal = subscriptionMonthlyTotalMoney(subs, baseCur);
         // UX-023 — the installment obligation as its OWN line, so the header's
         // metric and the counters beneath it describe the same world.
         //
@@ -95,6 +96,7 @@ class SubscriptionsScreen extends ConsumerWidget {
                             subsCount: subs.length,
                             instsCount: insts.length,
                             currency: Currency.arabicLabel(baseCur),
+                            scopeAccountName: scopeAccount?.name,
                           ),
                         ],
                       ),
@@ -184,13 +186,20 @@ class _BillsHeader extends StatelessWidget {
     required this.instsCount,
     required this.currency,
     required this.installmentMonthly,
+    required this.scopeAccountName,
   });
 
-  final double monthly;
+  /// R-8 — exact Money. The yearly metric is `monthly × 12`, and multiplying a
+  /// double by twelve compounds whatever the conversion already lost.
+  final Money monthly;
   final int subsCount;
   final int instsCount;
   final String currency;
   final Money installmentMonthly;
+
+  /// UX-024 — the account the list is filtered to, or null when nothing scopes
+  /// it (no accounts yet), in which case there is nothing honest to claim.
+  final String? scopeAccountName;
 
   @override
   Widget build(BuildContext context) {
@@ -211,7 +220,12 @@ class _BillsHeader extends StatelessWidget {
       // the LABEL claiming to be a total, which the QA classed as the same shape
       // as UX-022: correct mathematics, a label that does not describe them.
       // The calculation is untouched.
-      subtitle: 'الاشتراكات الشهرية',
+      // UX-024 — the screen is correctly scoped to one account and said so
+      // nowhere, so «الاشتراكات (1)» read as "you have one subscription"
+      // rather than "one on this account". Same family as UX-007.
+      subtitle: scopeAccountName == null
+          ? 'الاشتراكات الشهرية'
+          : 'الاشتراكات الشهرية · $scopeAccountName',
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
@@ -221,7 +235,7 @@ class _BillsHeader extends StatelessWidget {
           initialType: BillType.subscription,
         ),
       ),
-      amount: Formatters.amount(monthly),
+      amount: formatMoney(monthly),
       currency: currency,
       metrics: [
         CalmMetric(label: 'اشتراكات نشطة', value: '$subsCount'),
@@ -235,7 +249,11 @@ class _BillsHeader extends StatelessWidget {
             value: formatMoney(installmentMonthly),
           ),
         CalmMetric(
-            label: 'سنوياً المجموع', value: Formatters.amount(monthly * 12)),
+          label: 'سنوياً المجموع',
+          value: formatMoney(
+            Money(monthly.minorUnits * 12, monthly.currency),
+          ),
+        ),
       ],
     );
   }

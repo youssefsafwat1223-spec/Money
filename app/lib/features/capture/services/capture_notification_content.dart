@@ -1,4 +1,6 @@
 import '../../../domain/entities/transaction_entity.dart';
+import '../../../domain/finance/money.dart';
+import '../../../domain/finance/money_format.dart';
 
 /// محتوى إشعار الالتقاط — builder واحد مشترك بين مساري الإشعارات
 /// (CapturedMessageProcessor في الخلفية و AppShell في الواجهة) حتى يظهر
@@ -67,9 +69,10 @@ CaptureNotificationContent buildDuplicateCaptureContent(
 
 /// المبلغ + العملة، مع المبلغ الأجنبي بين قوسين إن وُجد.
 String _amountLine(TransactionEntity tx) {
-  final base = '${fmtCaptureAmount(tx.amount)} ${tx.currency}';
-  if (tx.foreignAmount != null && tx.foreignCurrency != null) {
-    return '$base (${fmtCaptureAmount(tx.foreignAmount!)} ${tx.foreignCurrency})';
+  final base = '${fmtCaptureMoney(tx.amountMoney)} ${tx.currency}';
+  final foreign = tx.foreignMoney;
+  if (foreign != null && tx.foreignCurrency != null) {
+    return '$base (${fmtCaptureMoney(foreign)} ${tx.foreignCurrency})';
   }
   return base;
 }
@@ -132,6 +135,26 @@ String fmtCaptureAmount(double amount) {
   return amount == amount.truncateToDouble()
       ? amount.toInt().toString()
       : amount.toStringAsFixed(2);
+}
+
+/// R-8 — the same brevity rule, computed from exact minor units.
+///
+/// [fmtCaptureAmount] is hardcoded to two decimals, so a 3-decimal currency
+/// (KWD 12.345) was ROUNDED in the notification — a different number, not a
+/// different formatting of the same number. This reads the canonical scale
+/// registry instead.
+///
+/// The approved brevity behaviour is preserved deliberately: a whole amount
+/// still prints as `150`, not `150.00`. A lock-screen banner is glanced at, and
+/// the exact figure is one tap away in the app. What changes is that the digits
+/// it does show are now always right.
+String fmtCaptureMoney(Money money) {
+  final parts = splitMoneyForDisplay(money);
+  final sign = parts.negative ? '-' : '';
+  if (parts.fraction.isEmpty || int.tryParse(parts.fraction) == 0) {
+    return '$sign${parts.integerPart}';
+  }
+  return '$sign${parts.integerPart}.${parts.fraction}';
 }
 
 /// "اليوم 9:41 م" / "أمس 9:41 م" / "2/7 9:41 م" — بتوقيت الجهاز.

@@ -12,7 +12,7 @@ export default async function ParsersPage() {
   const { data: parsers, error } = await supabase
     .from("sms_parsers")
     .select(
-      "id, bank_id, sender_pattern, transaction_type, language, priority, validation_status, is_active, banks(name_ar, short_code)",
+      "id, bank_id, sender_pattern, message_pattern, transaction_type, language, priority, validation_status, is_active, banks(name_ar, short_code)",
     )
     .order("priority", { ascending: false });
 
@@ -25,6 +25,7 @@ export default async function ParsersPage() {
       bank_name: bank?.name_ar ?? null,
       bank_code: bank?.short_code ?? null,
       sender_pattern: p.sender_pattern as string | null,
+      message_pattern: p.message_pattern as string | null,
       transaction_type: p.transaction_type as string | null,
       language: p.language as string | null,
       priority: p.priority as number | null,

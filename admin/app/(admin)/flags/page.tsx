@@ -16,7 +16,7 @@ import { Button, Toggle } from "@/components/ui/form";
 import { ConfirmDialog, type ConfirmSpec } from "@/components/ui/confirm-dialog";
 import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
 import { CopyId } from "@/components/ui/copy-id";
-import { valueTypeLabel } from "@/lib/labels";
+import { flagDescription, isRetiredFlag, valueTypeLabel } from "@/lib/labels";
 import { fmt } from "@/lib/utils";
 
 type Flag = {
@@ -187,7 +187,8 @@ export default function FlagsPage() {
             search={search}
             onSearch={setSearch}
             placeholder="ابحث باسم الميزة أو وصفها…"
-            resultLabel={`${fmt(visible.length)} من ${fmt(flags.length)}`}
+            visibleCount={visible.length}
+        totalCount={flags.length}
           >
             <FilterSelect
               label="الحالة"
@@ -233,10 +234,21 @@ export default function FlagsPage() {
                             النوع: {valueTypeLabel(flag.value_type)}
                           </span>
                           {dirty && <StatusBadge label="تغييرات غير محفوظة" tone="warning" />}
+                          {/* UX-021 — an operator cannot discover from this
+                              panel that a switch is wired to nothing. */}
+                          {isRetiredFlag(flag.key) && (
+                            <StatusBadge label="غير مستخدمة في التطبيق" tone="neutral" />
+                          )}
                         </div>
                         <p className="mt-1.5 text-sm text-ink-soft">
-                          {flag.description || "لا يوجد وصف لهذه الميزة."}
+                          {flagDescription(flag.key, flag.description) ??
+                            "لا يوجد وصف لهذه الميزة."}
                         </p>
+                        {isRetiredFlag(flag.key) && (
+                          <p className="mt-1 text-tiny text-ink-faint">
+                            التطبيق لم يعد يقرأ هذه الميزة — تغييرها لن يؤثر على أي سلوك.
+                          </p>
+                        )}
                       </div>
 
                       <Toggle

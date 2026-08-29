@@ -13,6 +13,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     this.action,
     this.showBack = true,
     this.compact = false,
+    this.titleMaxLines = 1,
   });
 
   final String title;
@@ -22,6 +23,19 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final Widget? action;
   final bool showBack;
   final bool compact;
+
+  /// UX-014 — how many lines the title may occupy before it ellipsises.
+  ///
+  /// One line is right for a fixed screen name («الحسابات والمحافظ»). It is
+  /// wrong for a title that is USER DATA: an account named «الراجحي — الحساب
+  /// الجاري» rendered as «الراجحي — الحساب ال…» while «مدى — البطاقة الرئيسية»
+  /// happened to fit, so whether you could read your own account's name
+  /// depended on how long you had made it.
+  ///
+  /// Opt-in rather than a global default: raising it everywhere would give
+  /// every screen a two-line header for no benefit, and the bar's height has to
+  /// grow with it.
+  final int titleMaxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +55,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
         children: [
           Text(
             title,
-            maxLines: 1,
+            maxLines: titleMaxLines,
             overflow: TextOverflow.ellipsis,
             // Mockup `.tophead .h1`: 24px w600, tight tracking.
             style: compact
@@ -74,5 +88,10 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   }
 
   @override
-  Size get preferredSize => Size.fromHeight(subtitle == null ? 56 : 68);
+  Size get preferredSize {
+    final base = subtitle == null ? 56.0 : 68.0;
+    // The title style is 24px with tight leading; each extra permitted line
+    // needs its own room or the AppBar clips what it just allowed to wrap.
+    return Size.fromHeight(base + (titleMaxLines - 1) * 28.0);
+  }
 }

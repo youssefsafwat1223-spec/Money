@@ -56,6 +56,11 @@ class AccountDetailScreen extends ConsumerWidget {
       backgroundColor: c.bg,
       appBar: AppHeader(
         title: account.name,
+        // UX-014 — this title is user data, not a screen name. «الراجحي —
+        // الحساب الجاري» was cut to «الراجحي — الحساب ال…» while a shorter
+        // account fitted, so whether you could read your own account's name
+        // depended on how long you had named it.
+        titleMaxLines: 2,
         trailing: IconButton(
           tooltip: 'تعديل',
           icon: const Icon(AppLucideIcons.pencil),
@@ -218,8 +223,13 @@ class _ManagedCardRow extends ConsumerWidget {
                       CardNetworkBadge(network: card.network, height: 16),
                     ],
                   ),
+                  // UX-015 — «تلقائية / يدوية» is how the code classifies a
+                  // card's origin, not how a customer would describe it. The
+                  // distinction is worth keeping (it tells the user whether new
+                  // transactions will attach to this card by themselves), so it
+                  // is restated in plain language rather than hidden.
                   Text(
-                    '$title · ${card.source == CardSource.auto ? 'تلقائية' : 'يدوية'}',
+                    '$title · ${card.source == CardSource.auto ? 'اتعرفت من رسائل البنك' : 'أضفتها بنفسك'}',
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],

@@ -356,6 +356,9 @@ class CapturedMessageProcessor {
         now: now,
         currencyLabel: currencyLabel,
         categoryLabel: categoryLabel,
+        // UX-037 — the account was already resolved right here and never
+        // reached the notification text.
+        accountLabel: account?.name ?? defaultAccount?.name,
       );
       if (content == null) continue;
 

@@ -403,6 +403,7 @@ Future<void> _showAddContributionSheet(
                                 style: AppTypography.sectionTitle(c.textMain)),
                             const Spacer(),
                             IconButton(
+                              tooltip: 'إغلاق',
                               onPressed: () => Navigator.of(context).pop(),
                               icon: const Icon(AppLucideIcons.x),
                               style: IconButton.styleFrom(

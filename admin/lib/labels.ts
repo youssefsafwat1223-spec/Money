@@ -206,3 +206,80 @@ const VALUE_TYPE: Record<string, string> = {
   json: "إعداد متقدم",
 };
 export const valueTypeLabel = (v: string | null | undefined) => pick(VALUE_TYPE, v);
+
+/* ────────────────────────────────────── UX-021 — flag descriptions ── */
+
+/**
+ * UX-021 — raw English engineering notes were shown to a business operator.
+ *
+ * `feature_flags.description` is seeded from the migrations, and several rows
+ * read like commit messages: *"Phase 2: AccountRepository reads/writes go
+ * direct to Supabase instead of Drift."* An operator deciding whether to flip a
+ * switch cannot act on that, and it is in the wrong language for this panel.
+ *
+ * This maps the known keys to what flipping the switch actually DOES. It is a
+ * presentation layer on purpose: rewriting the seeded rows would need a
+ * migration against a database this pass does not touch, and the descriptions
+ * would still be wrong for any deployment already carrying the old text.
+ */
+const FLAG_DESCRIPTION: Record<string, string> = {
+  enable_goals: "إظهار قسم الأهداف داخل التطبيق.",
+  enable_coupons: "إظهار قسم الكوبونات والعروض داخل التطبيق.",
+  enable_announcements: "السماح بظهور لافتات الإعلانات على الشاشة الرئيسية.",
+  enable_referrals: "إظهار دعوة الأصدقاء ومكافآتها داخل التطبيق.",
+  enable_report_ads: "إظهار الإعلانات داخل شاشة التقارير.",
+  parser_engine_version: "إصدار محرك قراءة رسائل البنوك المستخدَم.",
+  ledger_dual_write: "كتابة العمليات إلى السحابة بالتوازي مع الجهاز.",
+  ledger_push_sync: "رفع عمليات الجهاز إلى السحابة.",
+  ledger_pull_sync: "تنزيل العمليات من السحابة إلى الجهاز.",
+  smart_inbox_pull_sync: "تنزيل عناصر صندوق المراجعة من السحابة.",
+  capture_direct_supabase_write: "كتابة الرسائل الملتقطة إلى السحابة مباشرة.",
+  planning_budgets_sync: "مزامنة الميزانيات بين الأجهزة.",
+  planning_goals_sync: "مزامنة الأهداف بين الأجهزة.",
+  planning_plans_sync: "مزامنة الخطط بين الأجهزة.",
+  planning_subscriptions_sync: "مزامنة الاشتراكات والفواتير بين الأجهزة.",
+};
+
+/**
+ * Keys the app no longer reads at all (MALI-034 retired the Supabase-primary
+ * routing). Verified against the client source: no `featureFlag(...)` call site
+ * references them. Flipping one of these changes nothing, and an operator has
+ * no way to discover that from the panel — so the panel says it.
+ */
+const RETIRED_FLAG_KEYS = new Set([
+  "accounts_supabase_primary",
+  "transactions_supabase_primary",
+  "budgets_supabase_primary",
+  "goals_supabase_primary",
+  "plans_supabase_primary",
+  "subscriptions_supabase_primary",
+  "smart_inbox_supabase_primary",
+]);
+
+export const isRetiredFlag = (key: string) => RETIRED_FLAG_KEYS.has(key);
+
+/**
+ * The operator-facing description for a flag.
+ *
+ * Falls back to whatever the row stores when the key is unknown — a flag added
+ * later must not silently lose its description just because this map has not
+ * caught up. Returning `undefined` lets the caller keep its own empty-state
+ * copy rather than this file inventing one.
+ */
+export function flagDescription(
+  key: string,
+  stored: string | null | undefined,
+): string | undefined {
+  return FLAG_DESCRIPTION[key] ?? stored ?? undefined;
+}
+
+/**
+ * UX-018 — keys that live in `categories` but are not spendable categories.
+ *
+ * `all_expenses` is the scope marker an "all expenses" budget stores in place
+ * of a category id. The client filters it out of every user-facing picker; the
+ * Admin list showed it as category 1 of 21.
+ */
+const SENTINEL_CATEGORY_KEYS = new Set(["all_expenses"]);
+
+export const isSentinelCategory = (key: string) => SENTINEL_CATEGORY_KEYS.has(key);

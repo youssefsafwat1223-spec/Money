@@ -55,7 +55,8 @@ export function BanksTable({ banks }: { banks: BankRow[] }) {
         search={search}
         onSearch={setSearch}
         placeholder="ابحث باسم البنك أو رمزه أو رقم المُرسِل…"
-        resultLabel={`${fmt(visible.length)} من ${fmt(banks.length)}`}
+        visibleCount={visible.length}
+        totalCount={banks.length}
       >
         <FilterSelect
           label="الحالة"

@@ -45,12 +45,19 @@ class CategorySlice {
     required this.total,
     required this.percent,
     this.count = 0,
+    this.refunds,
   });
 
   final CategoryView category;
   final Money total;
   final double percent; // 0..1
   final int count;
+
+  /// UX-022 — the refund magnitude netted into [total], when there is one.
+  /// تسوق displayed 1,700.00, which matched no transaction on the screen.
+  final Money? refunds;
+
+  bool get hasRefunds => (refunds?.minorUnits ?? 0) > 0;
 }
 
 class DashboardData {

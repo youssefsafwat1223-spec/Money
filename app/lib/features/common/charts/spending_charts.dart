@@ -9,6 +9,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/report_models.dart';
 import '../../../domain/finance/money.dart';
+import '../../../domain/finance/money_format.dart';
 import '../category_catalog.dart';
 import '../widgets.dart';
 
@@ -240,6 +241,11 @@ class _CapsuleBar extends StatelessWidget {
     final chartValue = day.total.toDouble();
     final ratio = maxValue <= 0 ? 0.0 : (chartValue / maxValue).clamp(0.0, 1.0);
     final barHeight = 24 + ratio * maxBarHeight;
+    // UX-022 item 3 — a day whose refunds exceed its spending nets NEGATIVE.
+    // The QA saw 19 Aug render as «−199.00»: an unexplained negative bar with
+    // nothing saying it was a refund day. The value is correct under the
+    // documented contract; it just needed a name.
+    final isRefundDay = day.isRefundDay;
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -250,11 +256,18 @@ class _CapsuleBar extends StatelessWidget {
             child: Column(
               children: [
                 Text(
-                  privacyMode ? '••••' : Formatters.amount(chartValue),
+                  // R-8 — from exact minor units, not a double at a hardcoded
+                  // two decimals.
+                  privacyMode ? '••••' : formatMoney(day.total),
                   textAlign: TextAlign.center,
-                  style: AppTypography.caption(c.textSecondary)
+                  style: AppTypography.caption(
+                          isRefundDay ? c.success : c.textSecondary)
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
+                if (isRefundDay && !privacyMode)
+                  Text('مرتجع',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.caption(c.success)),
                 if (showCurrencyLabel)
                   Text(
                     currencyLabel,

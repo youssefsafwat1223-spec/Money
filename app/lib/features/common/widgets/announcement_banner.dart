@@ -30,9 +30,28 @@ class AnnouncementBanner extends ConsumerWidget {
     ];
 
     if (allItems.isEmpty) return const SizedBox.shrink();
+
+    // UX-032 — the banner carried horizontal padding and no bottom margin, so
+    // with an announcement active it sat flush against the smart-inbox card
+    // below it («1 عملية في انتظار مراجعتك») and the two read as one merged
+    // blob. The operator's rule, adopted verbatim: **no widget may intrude into
+    // another widget.**
+    //
+    // The margin lives HERE rather than at the Home call site because this
+    // widget collapses to `SizedBox.shrink()` when there is nothing to show. A
+    // spacer added beside it on Home would leave a permanent gap on the far
+    // more common no-announcement screen — trading one rhythm defect for
+    // another. Placing it inside means the space exists exactly when the banner
+    // does, at every announcement length and in both the single and scrolling
+    // layouts.
     if (allItems.length == 1) {
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          0,
+          AppSpacing.gutter,
+          AppSpacing.s4,
+        ),
         child: allItems.first,
       );
     }
@@ -40,7 +59,12 @@ class AnnouncementBanner extends ConsumerWidget {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        0,
+        AppSpacing.gutter,
+        AppSpacing.s4,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: allItems.asMap().entries.map((entry) {

@@ -60,8 +60,10 @@ class MoneyText extends StatelessWidget {
 
   /// Unicode isolates. The amount is a self-contained LTR run: without these,
   /// Arabic text on either side reorders it.
-  static const String _fsi = '⁨';
-  static const String _pdi = '⁩';
+  // Written as escapes, not literals: the raw code points reorder this source
+  // file in an editor, so the compiler and the reader would see different text.
+  static const String _fsi = '\u2068';
+  static const String _pdi = '\u2069';
 
   @override
   Widget build(BuildContext context) {

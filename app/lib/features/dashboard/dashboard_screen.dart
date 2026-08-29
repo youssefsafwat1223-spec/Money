@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
+import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -30,6 +31,8 @@ import '../../domain/entities/goal_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/money.dart';
+import '../../domain/finance/hero_amount_size.dart';
+import '../../domain/finance/money_format.dart';
 import '../../core/security/app_lock_service.dart';
 import '../app/app_shell.dart';
 import '../cards/brand_mark.dart';
@@ -174,17 +177,28 @@ class _HomeBody extends ConsumerWidget {
               else ...[
                 _afterHero(context, ref),
                 _RecentSection(data: data, privacyMode: privacyMode),
-                if (data.budgetProgress.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.s4),
-                  _BudgetSection(data: data),
-                ],
+                // UX-010 — these three sections used to be omitted entirely
+                // when the selected account had nothing in them: «الأهداف»
+                // disappeared on مدى, «الميزانية» on الراجحي, with no header
+                // and no empty state. Switching accounts made whole sections
+                // vanish, which reads as breakage rather than "nothing here for
+                // this account".
+                //
+                // They now always render their header and say which of the two
+                // it is. This is the pairing the QA called for with UX-007 —
+                // now that the chip names the active account, "nothing on this
+                // account" is a sentence the user can act on.
+                //
+                // Note this branch is already inside `!data.isEmpty`: an
+                // account with no data at all still gets the whole-screen empty
+                // state rather than three empty section headers.
+                const SizedBox(height: AppSpacing.s4),
+                _BudgetSection(data: data),
                 const SizedBox(height: AppSpacing.s4),
                 _SubscriptionSection(privacyMode: privacyMode),
-                if (data.activeGoal != null) ...[
-                  const SizedBox(height: AppSpacing.s4),
-                  _GoalSection(
-                      goal: data.activeGoal!, privacyMode: privacyMode),
-                ],
+                const SizedBox(height: AppSpacing.s4),
+                _GoalSection(
+                    goal: data.activeGoal, privacyMode: privacyMode),
                 const SizedBox(height: AppSpacing.s4),
                 const _PlansSection(),
                 const SizedBox(height: AppSpacing.s4),
@@ -645,6 +659,28 @@ class _BlueZone extends ConsumerWidget {
                       ],
                     ),
                   ),
+                  // UX-008 — «عايز أحط الأيقونة بتاعة التطبيق من فوق كده خالص…
+                  // زي باقي التطبيقات». Home was the one screen that never
+                  // presented the product's identity: the empty space between
+                  // the greeting and the «+» button is exactly the area the
+                  // owner pointed at.
+                  //
+                  // The gold coin is used on the navy hero, not the blue one:
+                  // `getCoin` picks by THEME brightness, and this surface is
+                  // dark in both themes, so the light-theme blue coin would
+                  // disappear into it. `excludeFromSemantics` because the mark
+                  // is decorative — announcing "Qirsh logo" before the
+                  // greeting would put branding ahead of content for a screen
+                  // reader.
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 10),
+                    child: Image.asset(
+                      AppAssets.qirshCoinGold,
+                      width: 26,
+                      height: 26,
+                      excludeFromSemantics: true,
+                    ),
+                  ),
                   const _AddButton(),
                 ],
               ),
@@ -660,34 +696,43 @@ class _BlueZone extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 4),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Flexible(
-                    // FittedBox: at large text scales the full value scales down
-                    // to fit — a financial figure is never truncated.
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: AlignmentDirectional.centerStart,
-                      child: Text(
-                        privacyMode
-                            ? '••••••'
-                            : Formatters.amount(heroValue.toDouble()),
-                        maxLines: 1,
-                        style: AppTypography.amountHero(Colors.white)
-                            .copyWith(fontSize: 40, height: 1.0),
+              Builder(builder: (context) {
+                // R-8 — the largest, most-checked figure in the app was
+                // formatted through a double at a hardcoded two decimals.
+                final heroText =
+                    privacyMode ? '••••••' : formatMoney(heroValue);
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      // FittedBox: at large text scales the full value scales
+                      // down to fit — a financial figure is never truncated.
+                      // UX-035: it now scales down FROM a size already chosen
+                      // for the value's length, so a long figure starts legible
+                      // instead of shrinking continuously toward «0 0 0».
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: AlignmentDirectional.centerStart,
+                        child: Text(
+                          heroText,
+                          maxLines: 1,
+                          style: AppTypography.amountHero(Colors.white).copyWith(
+                            fontSize: heroAmountFontSize(heroText.length),
+                            height: 1.0,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 7),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 5),
-                    child: Text(currencyLabel,
-                        style: AppTypography.footnote(
-                            Colors.white.withValues(alpha: 0.72))),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 7),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 5),
+                      child: Text(currencyLabel,
+                          style: AppTypography.footnote(
+                              Colors.white.withValues(alpha: 0.72))),
+                    ),
+                  ],
+                );
+              }),
               if (hasTrend) ...[
                 const SizedBox(height: 9),
                 _trendChip(ratio),
@@ -965,6 +1010,24 @@ class _BudgetSection extends ConsumerWidget {
     final entries = data.budgetProgress.toList();
     Color toneOf(double ratio) =>
         ratio >= 1.0 ? c.danger : (ratio >= 0.8 ? c.warning : c.income);
+    // UX-010 — «الميزانية» disappeared entirely on an account with no budget.
+    if (entries.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: SectionHeader(
+              title: 'الميزانية',
+              trailing: 'إدارة',
+              onTrailingTap: () => context.push('/budgets'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          const _SectionEmptyNote('مفيش ميزانيات على الحساب ده.'),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1128,7 +1191,25 @@ class _SubscriptionSection extends ConsumerWidget {
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (subs) {
-        if (subs.isEmpty) return const SizedBox.shrink();
+        // UX-010 — an empty subscriptions list used to remove the section
+        // silently, so switching accounts made it vanish with no explanation.
+        if (subs.isEmpty) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: SectionHeader(
+                  title: 'الاشتراكات',
+                  trailing: 'الكل',
+                  onTrailingTap: () => context.push('/subscriptions'),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s2),
+              const _SectionEmptyNote('مفيش اشتراكات على الحساب ده.'),
+            ],
+          );
+        }
         final items = subs.take(6).toList();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1276,15 +1357,58 @@ class _SubWideCard extends StatelessWidget {
 
 // ─── Goal ─────────────────────────────────────────────────────────────────────
 
+/// UX-010 — what an account-scoped Home section shows when it has nothing.
+///
+/// Not [AppEmptyState]: that is a full-screen archetype with an illustration
+/// and a call to action, and three of them stacked on Home would be louder than
+/// the content they replace. One quiet line under the section's own header is
+/// enough to turn "this section is broken" into "there is nothing here for this
+/// account".
+class _SectionEmptyNote extends StatelessWidget {
+  const _SectionEmptyNote(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, AppSpacing.s2),
+      child: Text(text, style: AppTypography.caption(c.textSecondary)),
+    );
+  }
+}
+
 class _GoalSection extends StatelessWidget {
   const _GoalSection({required this.goal, required this.privacyMode});
-  final GoalEntity goal;
+
+  /// Null when the selected account has no goal — the section still renders its
+  /// header rather than disappearing (UX-010).
+  final GoalEntity? goal;
   final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final t = MaliTokens.of(context);
+    final goal = this.goal;
+    if (goal == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: SectionHeader(
+              title: 'الأهداف',
+              trailing: 'الكل',
+              onTrailingTap: () => context.push('/goals'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          const _SectionEmptyNote('مفيش أهداف على الحساب ده.'),
+        ],
+      );
+    }
     final ratio = goal.targetAmount > 0
         ? (goal.savedAmount / goal.targetAmount).clamp(0.0, 1.0)
         : 0.0;

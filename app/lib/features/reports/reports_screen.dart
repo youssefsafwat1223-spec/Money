@@ -16,6 +16,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
 import '../common/charts/spending_charts.dart';
 import '../common/motion.dart';
 import '../common/premium_loading.dart';
@@ -156,9 +157,11 @@ String _money(
   required String currencyLabel,
   required bool privacyMode,
 }) {
+  // R-8 — `Formatters.amount` is a double at a hardcoded two decimals, which
+  // mis-scales a 3-decimal currency and loses digits at large magnitudes.
   return privacyMode
       ? '•••• $currencyLabel'
-      : '${Formatters.amount(amount.toDouble())} $currencyLabel';
+      : '${formatMoney(amount)} $currencyLabel';
 }
 
 String _dateLabel(DateTime day) => '${day.day}/${day.month}';
@@ -707,9 +710,14 @@ class _CategoryLegendTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.subhead(c.textMain),
               ),
+              // UX-022 item 2 — «تسوق 1,700.00» matched no transaction: an
+              // expense of 1,899.00 with a 199.00 refund netted into it. The
+              // row now carries the refund, so the figure is explainable
+              // without changing the contract that produced it.
               Text(
                 '${_money(slice.total, currencyLabel: currencyLabel, privacyMode: privacyMode)}'
-                '${slice.count > 0 ? ' · ${slice.count} عملية' : ''}',
+                '${slice.count > 0 ? ' · ${slice.count} عملية' : ''}'
+                '${slice.hasRefunds && !privacyMode ? ' · شامل مرتجع ${formatMoney(slice.refunds!)}' : ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.caption(c.textLight),
@@ -777,10 +785,29 @@ class _MerchantBarRow extends StatelessWidget {
                   valueColor: AlwaysStoppedAnimation(c.primary),
                 ),
               ),
+              // UX-022 item 4 — «نون · 1,700.00 · 2 عمليات» matched no
+              // transaction, because one of the two rows was a 199.00 refund
+              // netted into the total. The count was never wrong: the refund
+              // genuinely is one of the transactions the total is built from.
+              // What was missing was the refund, which is what made the pair
+              // impossible to reconcile. Stating it makes the count coherent
+              // rather than dropping it and hiding the netting further.
               if (merchant.count > 0) ...[
                 const SizedBox(height: 3),
-                Text('${merchant.count} عملية',
-                    style: AppTypography.caption(c.textLight)),
+                Row(
+                  children: [
+                    Text('${merchant.count} عملية',
+                        style: AppTypography.caption(c.textLight)),
+                    if (merchant.hasRefunds && !privacyMode) ...[
+                      Text(' · شامل مرتجع ',
+                          style: AppTypography.caption(c.textLight)),
+                      MoneyText(
+                        merchant.refunds!,
+                        style: AppTypography.caption(c.textLight),
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ],
           ),

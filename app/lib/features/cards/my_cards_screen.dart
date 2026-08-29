@@ -141,6 +141,7 @@ class MyCardsScreen extends ConsumerWidget {
         child: Row(
           children: [
             IconButton(
+              tooltip: 'رجوع',
               icon: Icon(AppLucideIcons.arrowLeft, color: c.textMain, size: 20),
               onPressed: () => Navigator.of(context).maybePop(),
             ),

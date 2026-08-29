@@ -12,6 +12,7 @@ import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
 import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -22,6 +23,7 @@ import '../common/premium_loading.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../common/app_card.dart';
 import '../common/app_empty_state.dart';
+import '../common/money_text.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
@@ -126,10 +128,10 @@ class BudgetsScreen extends ConsumerWidget {
                           _BudgetsHeader(
                             tab: tab,
                             usedRatio: usedRatio,
-                            usedAmount: used.toDouble(),
-                            limit: limit.toDouble(),
-                            saved: saved.toDouble(),
-                            target: target.toDouble(),
+                            usedAmount: used,
+                            limit: limit,
+                            saved: saved,
+                            target: target,
                             progress: progress,
                             goalsCount: data.goals.length,
                             budgetsCount: budgetEntries.length,
@@ -160,7 +162,21 @@ class BudgetsScreen extends ConsumerWidget {
                             ),
                             alignment: Alignment.center,
                             child: AppPillTabBar(
-                              tabs: const ['الميزانيات', 'السجل', 'الأهداف'],
+                              // UX-026 — «السجل» named no domain. Entering
+                              // «الأهداف» and tapping it opened budget history,
+                              // which from a goals context reads as GOAL
+                              // history. Two of the three tabs are about
+                              // budgets, so the ambiguous one says which.
+                              //
+                              // The screen already titled the page «سجل
+                              // الميزانيات» once you were inside it — the tab
+                              // that got you there was the only thing that
+                              // didn't say so.
+                              tabs: const [
+                                'الميزانيات',
+                                'سجل الميزانيات',
+                                'الأهداف'
+                              ],
                               selectedIndex: tab,
                               onSelected: (value) => ref
                                   .read(budgetsPageTabProvider.notifier)
@@ -528,10 +544,13 @@ class _BudgetsHeader extends StatelessWidget {
 
   final int tab;
   final int usedRatio;
-  final double usedAmount;
-  final double limit;
-  final double saved;
-  final double target;
+  // UX-001 / R-8 — Money, not double. `Formatters.amount` is hardcoded to two
+  // decimals, so it silently mis-scales a 3-decimal currency (KWD) and a
+  // 0-decimal one (JPY). `formatMoney` reads the canonical scale registry.
+  final Money usedAmount;
+  final Money limit;
+  final Money saved;
+  final Money target;
   final int progress;
   final int goalsCount;
   final int budgetsCount;
@@ -559,8 +578,7 @@ class _BudgetsHeader extends StatelessWidget {
         ? [
             CalmMetric(label: 'أهداف نشطة', value: '$goalsCount'),
             CalmMetric(label: 'نسبة التقدم', value: '$progress%'),
-            CalmMetric(
-                label: 'إجمالي الادخار', value: Formatters.amount(saved)),
+            CalmMetric(label: 'إجمالي الادخار', value: formatMoney(saved)),
           ]
         : isAllLog
             ? [
@@ -572,8 +590,7 @@ class _BudgetsHeader extends StatelessWidget {
                 CalmMetric(label: 'ميزانيات', value: '$budgetsCount'),
                 CalmMetric(label: 'نسبة الاستهلاك', value: '$usedRatio%'),
                 CalmMetric(
-                    label: 'المصروف الفعلي',
-                    value: Formatters.amount(usedAmount)),
+                    label: 'المصروف الفعلي', value: formatMoney(usedAmount)),
               ];
     return CalmPageHeader(
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
@@ -586,7 +603,7 @@ class _BudgetsHeader extends StatelessWidget {
       trailing: _AddButton(onTap: onAdd),
       amount: isAllLog
           ? '$budgetsCount'
-          : Formatters.amount(isGoals ? target : limit),
+          : formatMoney(isGoals ? target : limit),
       currency: isAllLog ? 'ميزانية' : currencyLabel,
       metrics: metrics,
     );
@@ -768,8 +785,8 @@ class _BudgetCard extends StatelessWidget {
                 Expanded(
                   child: _BudgetAmountTile(
                     label: 'مصروف',
-                    value:
-                        '${Formatters.integer(entry.spent.toDouble())} $currencyLabel',
+                    amount: entry.spent,
+                    currencyLabel: currencyLabel,
                     color: c.textPrimary,
                   ),
                 ),
@@ -777,9 +794,8 @@ class _BudgetCard extends StatelessWidget {
                 Expanded(
                   child: _BudgetAmountTile(
                     label: isOver ? 'تجاوز' : 'باقي',
-                    value: isOver
-                        ? '${Formatters.integer((-entry.remaining).toDouble())} $currencyLabel'
-                        : '${Formatters.integer(entry.remaining.toDouble())} $currencyLabel',
+                    amount: isOver ? -entry.remaining : entry.remaining,
+                    currencyLabel: currencyLabel,
                     color: isOver ? c.danger : c.success,
                   ),
                 ),
@@ -787,8 +803,12 @@ class _BudgetCard extends StatelessWidget {
                 Expanded(
                   child: _BudgetAmountTile(
                     label: 'الحد',
-                    value:
-                        '${Formatters.integer(entry.budget.amount)} $currencyLabel',
+                    // `budget.amount` is the legacy double field; `amountMoney`
+                    // is the exact one, and it is what «مصروف» and «باقي» are
+                    // derived from — so the three tiles reconcile by
+                    // construction rather than by luck.
+                    amount: entry.budget.amountMoney,
+                    currencyLabel: currencyLabel,
                     color: c.textPrimary,
                   ),
                 ),
@@ -860,22 +880,26 @@ class _BudgetHistoryRow extends StatelessWidget {
         ? 'ميزانية $periodLabel · $dateLabel · جارية'
         : 'ميزانية $periodLabel · $dateLabel';
 
-    final String resultText;
+    // UX-001 — the label and the amount are kept apart so the amount can go
+    // through MoneyText. Interpolating it into the sentence is what forced the
+    // rounding in the first place.
+    final String resultLabel;
+    final Money resultAmount;
     final Color resultColor;
     final IconData? resultIcon;
     if (history.isCurrent) {
-      resultText = isOver
-          ? 'تجاوزت ${Formatters.integer((-entry.remaining).toDouble())}'
-          : 'باقي ${Formatters.integer(entry.remaining.toDouble())}';
+      resultLabel = isOver ? 'تجاوزت' : 'باقي';
+      resultAmount = isOver ? -entry.remaining : entry.remaining;
       resultColor = isOver ? c.danger : c.textSecondary;
       resultIcon = null;
     } else if (isOver) {
-      resultText =
-          'تجاوزت ${Formatters.integer((-entry.remaining).toDouble())}';
+      resultLabel = 'تجاوزت';
+      resultAmount = -entry.remaining;
       resultColor = c.danger;
       resultIcon = AppLucideIcons.alertTriangle;
     } else {
-      resultText = 'وفّرت ${Formatters.integer(entry.remaining.toDouble())}';
+      resultLabel = 'وفّرت';
+      resultAmount = entry.remaining;
       resultColor = c.success;
       resultIcon = AppLucideIcons.checkCircle;
     }
@@ -921,9 +945,16 @@ class _BudgetHistoryRow extends StatelessWidget {
                       const SizedBox(width: 4),
                     ],
                     Text(
-                      resultText,
+                      '$resultLabel ',
                       style: AppTypography.caption(resultColor)
                           .copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    Flexible(
+                      child: MoneyText(
+                        resultAmount,
+                        style: AppTypography.caption(resultColor)
+                            .copyWith(fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ],
                 ),
@@ -934,9 +965,23 @@ class _BudgetHistoryRow extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                '${Formatters.integer(entry.spent.toDouble())} / ${Formatters.integer(entry.budget.amountMoney.toDouble())}',
-                style: AppTypography.subhead(c.textPrimary),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: MoneyText(
+                      entry.spent,
+                      style: AppTypography.subhead(c.textPrimary),
+                    ),
+                  ),
+                  Text(' / ', style: AppTypography.subhead(c.textSecondary)),
+                  Flexible(
+                    child: MoneyText(
+                      entry.budget.amountMoney,
+                      style: AppTypography.subhead(c.textPrimary),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 2),
               Text(
@@ -950,6 +995,13 @@ class _BudgetHistoryRow extends StatelessWidget {
     );
   }
 }
+
+/// How many of a period's transactions the detail sheet renders.
+///
+/// The cap itself is fine — a sheet is not a ledger. What was not fine was that
+/// it was invisible: the sheet listed 20 rows and said nothing about the rest,
+/// so a 60-transaction period looked like a 20-transaction one.
+const int _kPeriodTransactionLimit = 20;
 
 class _BudgetPeriodDetailsSheet extends StatelessWidget {
   const _BudgetPeriodDetailsSheet({
@@ -1067,8 +1119,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   Expanded(
                     child: _BudgetAmountTile(
                       label: 'الحد',
-                      value:
-                          '${Formatters.integer(entry.budget.amount)} $currencyLabel',
+                      amount: entry.budget.amountMoney,
+                      currencyLabel: currencyLabel,
                       color: c.textPrimary,
                     ),
                   ),
@@ -1076,8 +1128,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   Expanded(
                     child: _BudgetAmountTile(
                       label: 'مصروف',
-                      value:
-                          '${Formatters.integer(entry.spent.toDouble())} $currencyLabel',
+                      amount: entry.spent,
+                      currencyLabel: currencyLabel,
                       color: c.textPrimary,
                     ),
                   ),
@@ -1085,9 +1137,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   Expanded(
                     child: _BudgetAmountTile(
                       label: isOver ? 'تجاوز' : 'باقي',
-                      value: isOver
-                          ? '${Formatters.integer((-entry.remaining).toDouble())} $currencyLabel'
-                          : '${Formatters.integer(entry.remaining.toDouble())} $currencyLabel',
+                      amount: isOver ? -entry.remaining : entry.remaining,
+                      currencyLabel: currencyLabel,
                       color: isOver ? c.danger : c.success,
                     ),
                   ),
@@ -1103,8 +1154,47 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.s4),
-            Text('عمليات الفترة',
-                style: AppTypography.bodyStrong(c.textPrimary)),
+            // UX-003 — the sheet was entirely read-only: you could open a
+            // budget's period, see that it had been exceeded, and have no way
+            // to act on it from here. "Actions" is one of the finding's own
+            // listed gaps.
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  BudgetFormScreen.showSheet(
+                    context,
+                    budgetId: entry.budget.id,
+                  );
+                },
+                icon: Icon(AppLucideIcons.pencil, size: 16, color: c.textMain),
+                label: Text('تعديل الميزانية',
+                    style: AppTypography.subhead(c.textMain)),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('عمليات الفترة',
+                      style: AppTypography.bodyStrong(c.textPrimary)),
+                ),
+                // UX-003 / F-009 class — the list was capped at 20 rows with no
+                // indicator, so a period with 60 transactions silently claimed
+                // to have 20. The backlog names this exact class: "a silent cap
+                // is the same class as F-009 (account detail capped at 20 rows
+                // with no indicator)". The count is always stated, so the list
+                // is honest whether or not it is truncated.
+                if (history.transactions.isNotEmpty)
+                  Text(
+                    history.transactions.length > _kPeriodTransactionLimit
+                        ? 'أحدث $_kPeriodTransactionLimit من ${history.transactions.length}'
+                        : '${history.transactions.length}',
+                    style: AppTypography.caption(c.textSecondary),
+                  ),
+              ],
+            ),
             const SizedBox(height: AppSpacing.s2),
             if (history.transactions.isEmpty)
               Container(
@@ -1120,12 +1210,24 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
               )
-            else
-              for (final tx in history.transactions.take(20))
+            else ...[
+              for (final tx
+                  in history.transactions.take(_kPeriodTransactionLimit))
                 _BudgetTransactionRow(
                   tx: tx,
                   currencyLabel: Currency.arabicLabel(tx.currency),
                 ),
+              if (history.transactions.length > _kPeriodTransactionLimit)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.s2),
+                  child: Text(
+                    'باقي ${history.transactions.length - _kPeriodTransactionLimit} عملية '
+                    'داخلة في الحساب — افتح «العمليات» لعرضها كلها.',
+                    style: AppTypography.caption(c.textSecondary),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+            ],
           ],
         ),
       ),
@@ -1210,11 +1312,13 @@ class _BudgetTransactionRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.s2),
-            Text(
-              '${Formatters.amount(tx.amount)} $currencyLabel',
+            MoneyText(
+              tx.amountMoney,
               style: AppTypography.caption(c.expense)
                   .copyWith(fontWeight: FontWeight.w700),
             ),
+            const SizedBox(width: 2),
+            Text(currencyLabel, style: AppTypography.caption(c.textSecondary)),
           ],
         ),
       ),
@@ -1234,11 +1338,17 @@ class _GoalPlannerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    // UX-001 — «باقي 845» on a card printing «الحد 1,200» was the report; the
+    // same integer rounding was applied to goals, where a goal one riyal short
+    // of its target read as complete.
+    final target = goal.targetMoney;
+    final savedMinor = goal.savedMoney.minorUnits;
     final progress =
-        goal.targetAmount == 0 ? 0.0 : goal.savedAmount / goal.targetAmount;
+        target.isZero ? 0.0 : savedMinor / target.minorUnits;
     final percent = (progress * 100).round();
+    final remainingMinor = target.minorUnits - savedMinor;
     final remaining =
-        (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
+        Money(remainingMinor > 0 ? remainingMinor : 0, target.currency);
 
     return AppCard(
       onTap: () => GoalDetailsScreen.showSheet(context, goal.id),
@@ -1265,34 +1375,55 @@ class _GoalPlannerCard extends StatelessWidget {
               minHeight: 10,
               backgroundColor: c.surface2,
               valueColor: AlwaysStoppedAnimation(
-                remaining == 0 ? c.success : c.primary,
+                remaining.isZero ? c.success : c.primary,
               ),
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
-          Text(
-            remaining == 0
-                ? 'اكتمل الهدف'
-                : 'باقي ${Formatters.integer(remaining)} $currencyLabel للوصول',
-            style: AppTypography.caption(
-              remaining == 0 ? c.success : c.textSecondary,
+          if (remaining.isZero)
+            Text('اكتمل الهدف', style: AppTypography.caption(c.success))
+          else
+            Row(
+              children: [
+                Text('باقي ', style: AppTypography.caption(c.textSecondary)),
+                Flexible(
+                  child: MoneyText(
+                    remaining,
+                    style: AppTypography.caption(c.textSecondary),
+                  ),
+                ),
+                Text(' $currencyLabel للوصول',
+                    style: AppTypography.caption(c.textSecondary)),
+              ],
             ),
-          ),
         ],
       ),
     );
   }
 }
 
+/// UX-001 — the tile that made a budget card contradict itself.
+///
+/// It used to take a pre-formatted `String` built with
+/// `Formatters.integer(money.toDouble())`. Three tiles sitting in one row each
+/// rounded independently, so مطاعم printed «مصروف 356» and «باقي 845» against
+/// «الحد 1,200» — 356 + 845 = 1,201, wrong by a riyal, in one glance. بقالة
+/// reconciled only by luck, because its fractional part happened to round the
+/// other way.
+///
+/// Taking a [Money] instead of a `String` is the fix and the guard: a caller
+/// cannot round on the way in, because there is no longer anywhere to do it.
 class _BudgetAmountTile extends StatelessWidget {
   const _BudgetAmountTile({
     required this.label,
-    required this.value,
+    required this.amount,
+    required this.currencyLabel,
     required this.color,
   });
 
   final String label;
-  final String value;
+  final Money amount;
+  final String currencyLabel;
   final Color color;
 
   @override
@@ -1303,11 +1434,15 @@ class _BudgetAmountTile extends StatelessWidget {
       children: [
         Text(label, style: AppTypography.caption(c.textSecondary)),
         const SizedBox(height: 2),
-        Text(
-          value,
-          textAlign: TextAlign.center,
+        // The amount owns its own line. Three exact figures with fils no longer
+        // fit beside a currency word at this width, and UX-035 is precisely the
+        // failure mode of squeezing a large value into a narrow box.
+        MoneyText(
+          amount,
           style: AppTypography.subhead(color),
+          textAlign: TextAlign.center,
         ),
+        Text(currencyLabel, style: AppTypography.caption(c.textSecondary)),
       ],
     );
   }

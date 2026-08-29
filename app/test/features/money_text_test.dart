@@ -66,7 +66,7 @@ void main() {
 
     testWidgets('the minus stays attached to the number', (tester) async {
       await _pump(tester, Money(-124050, 'SAR'));
-      final out = _rendered(tester).replaceAll('⁨', '').replaceAll('⁩', '');
+      final out = _rendered(tester).replaceAll('\u2068', '').replaceAll('\u2069', '');
       expect(out.startsWith('-'), isTrue,
           reason: 'a trailing minus reads as a positive amount');
       expect(out, '-1,240.50');

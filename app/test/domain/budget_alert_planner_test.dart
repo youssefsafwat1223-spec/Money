@@ -57,6 +57,7 @@ void main() {
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
+      accountLabel: 'الراجحي',
     );
     expect(content, isNull);
   });
@@ -67,6 +68,7 @@ void main() {
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
+      accountLabel: 'الراجحي',
     );
     expect(content, isNotNull);
     expect(content!.type, NotificationType.budgetWarning);
@@ -79,6 +81,7 @@ void main() {
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
+      accountLabel: 'الراجحي',
     );
     expect(content, isNotNull);
     expect(content!.type, NotificationType.budgetWarning);
@@ -91,6 +94,7 @@ void main() {
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
+      accountLabel: 'الراجحي',
     );
     expect(content, isNotNull);
     expect(content!.type, NotificationType.budgetOver);
@@ -108,6 +112,7 @@ void main() {
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
+      accountLabel: 'الراجحي',
     )!;
     final b = planner.plan(
       entry: _entry(
@@ -118,6 +123,7 @@ void main() {
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'المواصلات',
+      accountLabel: 'الراجحي',
     )!;
     expect(a.notifId, isNot(b.notifId));
   });
@@ -128,12 +134,14 @@ void main() {
       now: now,
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
+      accountLabel: 'الراجحي',
     )!;
     final b = planner.plan(
       entry: _entry(amountMinor: 100000, spentMinor: 130000),
       now: now.add(const Duration(hours: 2)),
       currencyLabel: 'ريال',
       categoryLabel: 'الطعام',
+      accountLabel: 'الراجحي',
     )!;
     expect(a.notifId, b.notifId);
   });

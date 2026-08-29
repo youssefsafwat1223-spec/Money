@@ -597,6 +597,7 @@ class TransactionSearchFieldState
         suffixIcon: query.isEmpty
             ? null
             : IconButton(
+                tooltip: 'مسح البحث',
                 padding: EdgeInsets.zero,
                 iconSize: 20,
                 onPressed: () {
@@ -792,6 +793,8 @@ class _FilterBar extends StatelessWidget {
         children: [
           _KindFilterChips(),
           SizedBox(width: 8),
+          _PendingFilterChip(),
+          SizedBox(width: 8),
           _CategoryFilterButton(),
         ],
       ),
@@ -826,6 +829,35 @@ class _KindFilterChips extends ConsumerWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// UX-016 — the missing «قيد المراجعة» filter.
+///
+/// The pending-only filter already existed and was reachable from exactly two
+/// places, both OUTSIDE this screen: the Home banner and a notification tap.
+/// On Transactions itself the app showed «1 قيد المراجعة» in the header, told
+/// the user to review those items — «راجعها عشان أرصدتك تفضل مظبوطة» — and then
+/// offered only الكل / مصروفات / دخل / تحويلات / التصنيف. It asked for a review
+/// it gave no way to start. Fine at the QA's 34 rows; impossible at 500.
+///
+/// A separate toggle rather than a fifth kind chip, because pending is a
+/// STATUS and the others are kinds: «مصروفات» and «قيد المراجعة» are a
+/// meaningful combination, and making it a fifth kind would have made them
+/// mutually exclusive. That also matches the existing provider, which ANDs
+/// `pendingOnly` with the kind filter rather than replacing it.
+class _PendingFilterChip extends ConsumerWidget {
+  const _PendingFilterChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final active = ref.watch(transactionsPendingFilterProvider);
+    return CalmChip(
+      label: 'قيد المراجعة',
+      selected: active,
+      onTap: () => ref.read(transactionsPendingFilterProvider.notifier).state =
+          !active,
     );
   }
 }
@@ -2065,8 +2097,41 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
                   child: Text('عمليات مشبوهة',
                       style: AppTypography.sectionTitle(c.textMain)),
                 ),
+                // NEW (Phase J §13) — «تجاهل الكل» dismissed the ENTIRE review
+                // queue on one tap: no count, no confirmation, no undo. It is
+                // the same shape as UX-027 and F-017 — the most destructive
+                // action being the easiest to reach — and it is worse here
+                // because it is a bulk action whose size the user cannot see
+                // from the button.
+                //
+                // It discards duplicate FLAGS rather than transactions, so no
+                // money is lost; what is lost is the queue that would have
+                // caught a genuine double charge. The confirmation states the
+                // count and what dismissing actually means.
                 TextButton(
                   onPressed: () async {
+                    final proceed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text('تجاهل ${dupes.length} تنبيه؟'),
+                        content: const Text(
+                          'هتتشال كل تنبيهات التكرار المعروضة. العمليات نفسها '
+                          'مش هتتأثر، لكن مش هينفع تراجعها من هنا تاني.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text('إلغاء'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: Text('تجاهل الكل',
+                                style: TextStyle(color: ctx.colors.danger)),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (proceed != true) return;
                     final repo = ref.read(suspectedDuplicateRepositoryProvider);
                     for (final d in dupes) {
                       await repo.delete(d.id);
@@ -2074,7 +2139,7 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
                     ref.invalidate(suspectedDuplicatesProvider);
                     if (context.mounted) Navigator.of(context).pop();
                   },
-                  child: Text('تجاهل الكل',
+                  child: Text('تجاهل الكل (${dupes.length})',
                       style: AppTypography.caption(c.textMuted)),
                 ),
               ],

@@ -21,6 +21,7 @@ export type ParserRow = {
   bank_name: string | null;
   bank_code: string | null;
   sender_pattern: string | null;
+  message_pattern: string | null;
   transaction_type: string | null;
   language: string | null;
   priority: number | null;
@@ -42,7 +43,8 @@ export function ParsersTable({ parsers }: { parsers: ParserRow[] }) {
       return (
         (p.bank_name ?? "").toLowerCase().includes(q) ||
         (p.bank_code ?? "").toLowerCase().includes(q) ||
-        (p.sender_pattern ?? "").toLowerCase().includes(q)
+        (p.sender_pattern ?? "").toLowerCase().includes(q) ||
+        (p.message_pattern ?? "").toLowerCase().includes(q)
       );
     });
   }, [parsers, search, status, type]);
@@ -56,8 +58,9 @@ export function ParsersTable({ parsers }: { parsers: ParserRow[] }) {
       <FilterBar
         search={search}
         onSearch={setSearch}
-        placeholder="ابحث باسم البنك أو نمط المُرسِل…"
-        resultLabel={`${fmt(visible.length)} من ${fmt(parsers.length)}`}
+        placeholder="ابحث باسم البنك أو نمط المُرسِل أو نمط الرسالة…"
+        visibleCount={visible.length}
+        totalCount={parsers.length}
       >
         <FilterSelect
           label="حالة الفحص"
@@ -98,6 +101,7 @@ export function ParsersTable({ parsers }: { parsers: ParserRow[] }) {
           columns={[
             "البنك",
             "نمط المُرسِل",
+            "نمط الرسالة",
             "نوع العملية",
             "اللغة",
             "الأولوية",
@@ -117,6 +121,20 @@ export function ParsersTable({ parsers }: { parsers: ParserRow[] }) {
                   title={p.sender_pattern ?? ""}
                 >
                   {p.sender_pattern ?? "—"}
+                </span>
+              </TD>
+              {/* UX-017 — `message_pattern` is the rule that actually EXTRACTS
+                  the amount, merchant and date; `sender_pattern` only decides
+                  which messages are considered. The list showed the second and
+                  hid the first, so an operator could not tell two rules for the
+                  same bank apart, nor see what a rule reads. Truncated with the
+                  full value on hover, matching the sender column. */}
+              <TD>
+                <span
+                  className="ltr block max-w-[260px] truncate rounded bg-muted px-1.5 py-0.5 font-mono text-micro text-ink-soft"
+                  title={p.message_pattern ?? ""}
+                >
+                  {p.message_pattern ?? "—"}
                 </span>
               </TD>
               <TD>

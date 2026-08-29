@@ -7,7 +7,7 @@ import { EmptyState, StatusBadge } from "@/components/ui/primitives";
 import { FilterBar, FilterSelect } from "@/components/ui/filter-bar";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import { CopyId } from "@/components/ui/copy-id";
-import { categoryTypeLabel } from "@/lib/labels";
+import { categoryTypeLabel, isSentinelCategory } from "@/lib/labels";
 import { fmt } from "@/lib/utils";
 
 export type CategoryRow = {
@@ -56,7 +56,8 @@ export function CategoriesTable({ categories }: { categories: CategoryRow[] }) {
         search={search}
         onSearch={setSearch}
         placeholder="ابحث باسم الفئة أو مفتاحها…"
-        resultLabel={`${fmt(visible.length)} من ${fmt(categories.length)}`}
+        visibleCount={visible.length}
+        totalCount={categories.length}
       >
         <FilterSelect
           label="النوع"
@@ -102,6 +103,18 @@ export function CategoriesTable({ categories }: { categories: CategoryRow[] }) {
                     aria-hidden
                   />
                   <NameCell title={c.name_ar ?? "—"} subtitle={c.name_en ?? undefined} />
+                  {/* UX-018 — `all_expenses` is a BUDGET SCOPE sentinel, not a
+                      category anything can be filed under. The app hides it
+                      from every category picker (settings_screen.dart,
+                      confirm_transaction_sheet.dart); Admin listed it beside 20
+                      real categories with nothing to distinguish it, so an
+                      operator would reasonably treat it as spendable.
+                      Labelled rather than hidden: the row is real, it is what
+                      an all-expenses budget stores, and an operator who finds
+                      it in the data should still find it here. */}
+                  {isSentinelCategory(c.key) && (
+                    <StatusBadge label="ليست فئة إنفاق" tone="warning" dot={false} />
+                  )}
                 </div>
               </TD>
               <TD className="text-ink-soft">{categoryTypeLabel(c.type)}</TD>

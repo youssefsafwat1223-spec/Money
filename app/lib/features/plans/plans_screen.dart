@@ -13,7 +13,9 @@ import '../../domain/entities/plan_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/plan_scope.dart';
 import '../common/app_card.dart';
+import '../common/money_text.dart';
 import '../common/app_empty_state.dart';
 import '../common/app_header.dart';
 import '../common/app_screen_scaffold.dart';
@@ -85,6 +87,30 @@ class PlansScreen extends ConsumerWidget {
   }
 }
 
+/// UX-004 — names the accounts and cards a plan actually counts.
+///
+/// Account names are read from the already-loaded [accountsProvider] rather
+/// than fetched per card. An id with no matching account is skipped rather than
+/// printed raw: a stale id is a data question, and a UUID on a plan card
+/// answers nothing.
+String _planScopeLabel(PlanEntity plan, WidgetRef ref) {
+  if (plan.scopeMode == PlanScopeMode.allExpenses) {
+    return 'كل المصروفات في الفترة';
+  }
+  final accounts = ref.watch(accountsProvider).valueOrNull ?? const [];
+  final byId = {for (final a in accounts) a.id: a.name};
+  final parts = <String>[
+    for (final id in plan.accountIds)
+      if (byId[id] != null) byId[id]!,
+    for (final last4 in plan.cardLast4s) 'بطاقة ••$last4',
+  ];
+  // The scope predicate is `account IN (...) OR card IN (...)`, so an id that
+  // no longer resolves still widens the plan. Saying «حسابات محددة» is honest
+  // about that; naming only the resolvable half would not be.
+  if (parts.isEmpty) return 'حسابات محددة';
+  return parts.join(' · ');
+}
+
 class _PlanCard extends ConsumerWidget {
   const _PlanCard({required this.progress});
 
@@ -154,6 +180,23 @@ class _PlanCard extends ConsumerWidget {
                       '${Formatters.fullDate(plan.startDate, context)} - ${Formatters.fullDate(plan.endDate, context)}',
                       style: AppTypography.caption(c.textLight),
                     ),
+                    // UX-004 — a plan is bound to accounts in the data and the
+                    // UI surfaced none of them, so a user could not tell which
+                    // accounts a plan covers. The inconsistency was internal:
+                    // the Subscriptions screen already names its owning
+                    // account.
+                    //
+                    // The empty case is NOT "unconfigured" — MALI-048n makes an
+                    // empty selection permanently mean «all expenses in the
+                    // period», and that is the contract stated in the plan
+                    // form. Rendering it as blank would hide the widest scope
+                    // the app has.
+                    Text(
+                      _planScopeLabel(plan, ref),
+                      style: AppTypography.caption(c.textLight),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
               ),
@@ -192,14 +235,24 @@ class _PlanCard extends ConsumerWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                '${Formatters.amount(progress.spent.toDouble())} $currency',
+              // R-8 / UX-001 — spent and budget are exact Money. Formatting one
+              // through a double and the other through the legacy REAL field is
+              // how a card ends up contradicting itself.
+              MoneyText(
+                progress.spent,
                 style: AppTypography.bodyStrong(c.textMain)
                     .copyWith(fontWeight: FontWeight.w700),
               ),
+              const SizedBox(width: 4),
+              Text(currency, style: AppTypography.caption(c.textLight)),
               const SizedBox(width: 6),
-              Text('من ${Formatters.amount(plan.budgetAmount)} $currency',
-                  style: AppTypography.caption(c.textLight)),
+              Text('من ', style: AppTypography.caption(c.textLight)),
+              Flexible(
+                child: MoneyText(
+                  plan.budgetAmountMoney,
+                  style: AppTypography.caption(c.textLight),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -216,19 +269,33 @@ class _PlanCard extends ConsumerWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  progress.isOver
-                      ? 'تجاوزت الميزانية بـ ${Formatters.amount((-progress.remaining).toDouble())} $currency'
-                      : 'باقي ${Formatters.amount(progress.remaining.toDouble())} $currency',
-                  style: AppTypography.caption(
-                      progress.isOver ? c.danger : c.textSecondary),
+                child: Row(
+                  children: [
+                    Text(
+                      progress.isOver ? 'تجاوزت الميزانية بـ ' : 'باقي ',
+                      style: AppTypography.caption(
+                          progress.isOver ? c.danger : c.textSecondary),
+                    ),
+                    Flexible(
+                      child: MoneyText(
+                        progress.isOver
+                            ? -progress.remaining
+                            : progress.remaining,
+                        style: AppTypography.caption(
+                            progress.isOver ? c.danger : c.textSecondary),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              if (plan.daysLeft > 0 && !progress.isOver)
-                Text(
-                  '${Formatters.amount(progress.perDayLeft.toDouble())} $currency/يوم · ${plan.daysLeft} يوم',
+              if (plan.daysLeft > 0 && !progress.isOver) ...[
+                MoneyText(
+                  progress.perDayLeft,
                   style: AppTypography.caption(c.textLight),
                 ),
+                Text('/يوم · ${plan.daysLeft} يوم',
+                    style: AppTypography.caption(c.textLight)),
+              ],
             ],
           ),
         ],

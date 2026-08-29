@@ -13,6 +13,8 @@ import '../../domain/finance/money.dart';
 import '../../domain/finance/money_input.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../cards/brand_mark.dart';
+import '../cards/cards_providers.dart';
+import '../../domain/entities/card_entity.dart';
 import '../common/category_catalog.dart';
 import '../common/transaction_direction.dart';
 import '../common/widgets.dart';
@@ -262,7 +264,41 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     _buildDetailRow(
                       context,
                       'المصدر',
-                      '${TransactionDetailsScreen._sourceLabels[tx.source] ?? '—'}${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}',
+                      TransactionDetailsScreen._sourceLabels[tx.source] ?? '—',
+                    ),
+                    // UX-034 — the account and the card were compressed into
+                    // one «المصدر» line («بطاقة · 1234») with the account
+                    // missing entirely. The finding is that linking, unlinking
+                    // and reassigning a card is hard to understand, and its
+                    // binding constraint is that the UI must "never hide
+                    // whether changing a card also changes its account".
+                    //
+                    // They are separate facts, so they are separate rows. The
+                    // account is stated even when there is no card, because a
+                    // transaction always belongs to one.
+                    _divider(c),
+                    _buildDetailRow(
+                      context,
+                      'الحساب',
+                      _accountName(ref, tx.accountId),
+                    ),
+                    _divider(c),
+                    _buildDetailRow(
+                      context,
+                      'البطاقة',
+                      tx.cardLast4 == null
+                          ? 'بدون بطاقة'
+                          : '•••• ${tx.cardLast4}',
+                      trailing: TextButton(
+                        onPressed: () => _editCard(context, ref, tx),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 0),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text('تغيير',
+                            style: AppTypography.footnote(c.cta)),
+                      ),
                     ),
                     _divider(c),
                     _buildDetailRow(
@@ -363,6 +399,126 @@ class _TransactionDetailsContent extends ConsumerWidget {
         return _buildScaffold(context, c, body,
             title: 'تفاصيل العملية', trailing: editButton);
       },
+    );
+  }
+
+  /// UX-034 — the account a transaction belongs to, by name.
+  ///
+  /// Falls back to a plain «—» rather than the raw id: a UUID on a detail sheet
+  /// answers nothing, and an unresolvable account is a data question rather
+  /// than something to render at the user.
+  String _accountName(WidgetRef ref, String? accountId) {
+    if (accountId == null) return '—';
+    final accounts = ref.watch(accountsProvider).valueOrNull ?? const [];
+    for (final a in accounts) {
+      if (a.id == accountId) return a.name;
+    }
+    return '—';
+  }
+
+  /// UX-034 — reassign or detach the transaction's card.
+  ///
+  /// The repository's `updateCard` writes `card_last4` and nothing else, so the
+  /// account genuinely does not move with it. That is the finding's binding
+  /// constraint — *"never hide whether changing a card also changes its
+  /// account"* — and since the answer is "it doesn't", the sheet says so
+  /// outright instead of leaving the user to infer it.
+  ///
+  /// Only cards belonging to the transaction's OWN account are offered.
+  /// Offering every card in the app would invite a pairing that contradicts the
+  /// account shown one row above.
+  Future<void> _editCard(
+    BuildContext context,
+    WidgetRef ref,
+    TransactionEntity tx,
+  ) async {
+    final cards = (ref.read(allCardsProvider).valueOrNull ?? const <CardEntity>[])
+        .where((card) => card.accountId == tx.accountId)
+        .toList(growable: false);
+
+    final choice = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => navySheetTheme(Builder(
+        builder: (sheetContext) {
+          final sc = sheetContext.colors;
+          return AppSheetScaffold(
+            title: 'بطاقة العملية',
+            subtitle: 'تغيير البطاقة لا ينقل العملية إلى حساب آخر.',
+            scrollable: true,
+            body: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final card in cards)
+                    ListTile(
+                      leading: Icon(AppLucideIcons.creditCard, color: sc.cta),
+                      title: Text('•••• ${card.last4}',
+                          style: AppTypography.subhead(sc.textMain)),
+                      trailing: card.last4 == tx.cardLast4
+                          ? Icon(AppLucideIcons.check, color: sc.success)
+                          : null,
+                      onTap: () =>
+                          Navigator.of(sheetContext).pop(card.last4),
+                    ),
+                  if (cards.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.s3),
+                      child: Text(
+                        'مفيش بطاقات مسجّلة على الحساب ده.',
+                        style: AppTypography.caption(sc.textSecondary),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.s2),
+                  ListTile(
+                    leading: Icon(AppLucideIcons.unlink, color: sc.textLight),
+                    title: Text('بدون بطاقة',
+                        style: AppTypography.subhead(sc.textMain)),
+                    subtitle: Text(
+                      'العملية تفضل في نفس الحساب وفي كل تقاريرك.',
+                      style: AppTypography.caption(sc.textSecondary),
+                    ),
+                    trailing: tx.cardLast4 == null
+                        ? Icon(AppLucideIcons.check, color: sc.success)
+                        : null,
+                    // Sentinel rather than null: null is also what a dismissed
+                    // sheet returns, and "the user backed out" must not be
+                    // read as "the user chose to detach the card".
+                    onTap: () => Navigator.of(sheetContext).pop('__none__'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      )),
+    );
+
+    if (choice == null || !context.mounted) return;
+    final next = choice == '__none__' ? null : choice;
+    if (next == tx.cardLast4) return;
+
+    await ref
+        .read(transactionRepositoryProvider)
+        .updateCard(transactionId: tx.id, cardLast4: next);
+    ref.invalidate(transactionByIdProvider(tx.id));
+    refreshTransactions(ref);
+    ref.invalidate(dashboardDataProvider);
+    ref.invalidate(cardSummariesProvider);
+    ref.invalidate(allCardsProvider);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(next == null
+            ? 'اتشالت البطاقة. العملية لسه في نفس الحساب.'
+            : 'اتربطت بالبطاقة •••• $next. الحساب زي ما هو.'),
+      ),
     );
   }
 

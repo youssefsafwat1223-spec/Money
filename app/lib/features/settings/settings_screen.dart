@@ -244,7 +244,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(children: [
                       if (settings != null) ...[
                         _Section(
-                          title: 'الحساب',
+                          // UX-028 — the other «الحساب». This group is profile
+                          // data, so it says so.
+                          title: 'بيانات حسابك',
                           children: [
                             _NavTile(
                               icon: AppLucideIcons.smartphone,
@@ -333,9 +335,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         const SizedBox(height: AppSpacing.s3),
         PremiumMotion(
             delay: const Duration(milliseconds: 80),
+            // UX-029 — «إدارة أموالك» had become the app's navigation hub: ten
+            // flat entries under one heading, with primary destinations
+            // reachable THROUGH Settings, which is where users go for
+            // configuration and not for their money.
+            //
+            // The QA's own diagnosis was that this compensates for UX-012 —
+            // the bottom-navigation icons were illegible, so a second,
+            // text-labelled route was built beside them — and its instruction
+            // was explicit: *"Fixing UX-012 should reduce this list, not
+            // duplicate it."*
+            //
+            // UX-012 is fixed: every bottom-nav destination now carries a text
+            // label (app_shell.dart), including «التحليلات» — which is the
+            // Reports screen. «الرؤى والتقارير» was therefore a duplicate route
+            // to a tab that is now legible, and it is removed.
+            //
+            // The rest are NOT duplicates: accounts, cards, subscriptions and
+            // plans have no tab of their own and legitimately live here. They
+            // are split from the configuration entries so ten undifferentiated
+            // rows stop reading as a second navigation bar.
             child: _Section(
-              title: 'إدارة أموالك',
-              description: 'كل الأدوات المالية في مكان واحد',
+              title: 'حساباتك والتزاماتك',
               children: [
                 // MALI-022: surface unresolved multi-device conflicts so they
                 // are no longer stuck/invisible. Shown only when some exist.
@@ -371,11 +392,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   subtitle: 'ميزانية رحلة أو مناسبة تتابع نفسها',
                   onTap: () => PlansScreen.open(context),
                 ),
+              ],
+            )),
+        const SizedBox(height: AppSpacing.s3),
+        PremiumMotion(
+            delay: const Duration(milliseconds: 100),
+            child: _Section(
+              title: 'أدوات وإعدادات',
+              children: [
                 _NavTile(
-                  icon: AppLucideIcons.barChart3,
-                  title: 'الرؤى والتقارير',
-                  subtitle: 'اتجاهات صرفك وتصنيفاتك ومتاجرك',
-                  onTap: () => context.push('/reports'),
+                  icon: AppLucideIcons.inbox,
+                  title: 'التصنيفات',
+                  subtitle: 'نظم المصروفات والدخل والتحويلات',
+                  onTap: () => _showCategoriesSheet(context, ref),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.trophy,
@@ -389,12 +418,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   subtitle: 'راجع عملة بيانات التخطيط القديمة بأمان',
                   onTap: () =>
                       context.push('/settings/planning-currency-repair'),
-                ),
-                _NavTile(
-                  icon: AppLucideIcons.inbox,
-                  title: 'التصنيفات',
-                  subtitle: 'نظم المصروفات والدخل والتحويلات',
-                  onTap: () => _showCategoriesSheet(context, ref),
                 ),
                 if (Platform.isIOS)
                   _NavTile(
@@ -681,6 +704,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             delay: const Duration(milliseconds: 100),
             child: _Section(
               title: 'الأمان والخصوصية',
+              // UX-030 — the strongest TRUE privacy claim the product can make
+              // was never made anywhere in the UI. The local database is opened
+              // with `PRAGMA cipher = 'sqlcipher'` and a key held in the
+              // platform keychain (`database_key_store.dart`), and the open
+              // FAILS CLOSED if the encryption extension is missing rather than
+              // continuing unencrypted (`app_database.dart`).
+              //
+              // Worth stating precisely because it is verifiable, and worth
+              // stating carefully: it claims local-database encryption, which
+              // is what the code does — not end-to-end encryption, which it
+              // does not.
+              description: 'بياناتك على الجهاز مخزّنة بقاعدة بيانات مشفّرة، '
+                  'ومفتاحها محفوظ في خزنة النظام',
               children: [
                 _NavTile(
                   icon: AppLucideIcons.heartPulse,
@@ -712,8 +748,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         const SizedBox(height: AppSpacing.s3),
         PremiumMotion(
             delay: const Duration(milliseconds: 120),
+            // UX-028 — «الحساب» was used as the heading TWICE: once near the
+            // top for profile data (رقم الموبايل · الدولة · العملة الأساسية)
+            // and again here for the destructive group. Two unrelated groups
+            // under an identical name. This one is named for what it does.
             child: _Section(
-              title: 'الحساب',
+              title: 'الخروج وحذف البيانات',
+              description: 'إجراءات لا يمكن التراجع عن بعضها',
               children: [
                 _NavTile(
                   icon: AppLucideIcons.repeat,

@@ -744,7 +744,8 @@ export default function CouponsPage() {
           search={search}
           onSearch={setSearch}
           placeholder="ابحث بعنوان العرض أو اسم الشريك أو المعرّف…"
-          resultLabel={`${fmt(visible.length)} من ${fmt(coupons.length)}`}
+          visibleCount={visible.length}
+        totalCount={coupons.length}
         >
           <FilterSelect
             label="الحالة"
