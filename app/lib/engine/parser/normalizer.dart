@@ -27,11 +27,27 @@ class Normalizer {
     return buffer.toString();
   }
 
+  /// ISO codes the parser recognises, as a regex alternation.
+  ///
+  /// Single source of truth: [ParserEngine] builds its currency matcher from
+  /// this, and [separateGluedCurrency] uses the same list. Two independent
+  /// lists that must agree is how a code gets de-glued but never detected.
+  static const String isoCurrencyAlternation =
+      r'SAR|AED|EGP|KWD|QAR|BHD|OMR|USD|EUR|GBP|TRY|INR|PKR|CAD|AUD|JPY|CNY|CHF|MAD|DZD|TND|JOD|IQD|LBP';
+
   /// توحيد رموز وكلمات العملات إلى رموز ISO.
+  ///
+  /// Order matters: every specific form must precede the generic one, or the
+  /// generic swallows it. `ر.ع` has to be handled before the bare `ريال`
+  /// fallback, and `دينار كويتي`/`دينار بحريني` before any bare `دينار`.
   static String normalizeCurrencyTokens(String input) {
     return input
         .replaceAll(RegExp(r'ر\.س\.?', caseSensitive: false), 'SAR')
+        .replaceAll(RegExp(r'ر\.ع\.?', caseSensitive: false), 'OMR')
+        .replaceAll(RegExp(r'ر\.ق\.?', caseSensitive: false), 'QAR')
         .replaceAll(RegExp(r'د\.إ\.?', caseSensitive: false), 'AED')
+        .replaceAll(RegExp(r'د\.ك\.?', caseSensitive: false), 'KWD')
+        .replaceAll(RegExp(r'د\.ب\.?', caseSensitive: false), 'BHD')
         .replaceAll(RegExp(r'ج\.م\.?', caseSensitive: false), 'EGP')
         .replaceAll('﷼', 'SAR')
         .replaceAll(RegExp(r'ريال\s+سعودي'), 'SAR')
@@ -43,6 +59,36 @@ class Normalizer {
         .replaceAll(RegExp(r'دينار\s+بحريني'), 'BHD')
         .replaceAll(RegExp(r'دولار\s+أمريكي|دولار\s+امريكي|دولار'), 'USD')
         .replaceAll(RegExp(r'ريال'), 'SAR');
+  }
+
+  static final RegExp _currencyBeforeDigits = RegExp(
+    '(?<![A-Za-z])($isoCurrencyAlternation)(?=[0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _currencyAfterDigits = RegExp(
+    '(?<=[0-9])($isoCurrencyAlternation)(?![A-Za-z])',
+    caseSensitive: false,
+  );
+
+  /// Inserts the missing space in `SAR129.90` / `129.90SAR`.
+  ///
+  /// Banks emit the currency glued to the amount, and every downstream matcher
+  /// assumes a token boundary there. The amount matcher in particular anchors
+  /// on `\b`, and in `SAR129.90` there is NO word boundary between `R` and `1`
+  /// — so the first boundary it finds is the one before the decimals, and it
+  /// extracts `90` from `129.90`. That is a silent 99.3% under-capture of a
+  /// financial value.
+  ///
+  /// Fixing it here rather than by loosening the number regex is deliberate.
+  /// Relaxing `\b` would make the matcher accept digits glued to ANY letters,
+  /// so reference numbers like `REF123456` would start being read as amounts.
+  /// The real defect is a missing token boundary, so the boundary is what gets
+  /// repaired — once, for every consumer of the normalised text.
+  static String separateGluedCurrency(String input) {
+    var text = input.replaceAllMapped(
+        _currencyBeforeDigits, (m) => '${m[1]} ');
+    text = text.replaceAllMapped(_currencyAfterDigits, (m) => ' ${m[1]}');
+    return text;
   }
 
   static String stripTashkeel(String input) {

@@ -16,8 +16,10 @@ class ParserEngine {
   const ParserEngine();
 
   // ── تعابير الاستخراج ──
-  static const String _currencyPattern =
-      r'SAR|AED|EGP|KWD|QAR|BHD|OMR|USD|EUR|GBP|TRY|INR|PKR|CAD|AUD|JPY|CNY|CHF|MAD|DZD|TND|JOD|IQD|LBP';
+  // Shared with Normalizer.separateGluedCurrency — a code this engine can match
+  // but the normaliser cannot un-glue (or vice versa) is exactly the gap that
+  // let `SAR129.90` parse as `90`.
+  static const String _currencyPattern = Normalizer.isoCurrencyAlternation;
   static final RegExp _currency =
       RegExp('(?:$_currencyPattern)', caseSensitive: false);
   static final RegExp _last4Star = RegExp(r'\*{2,}\s*([0-9]{4})');
@@ -157,6 +159,9 @@ class ParserEngine {
       extraProfiles: bankProfiles,
     );
     text = _applyCurrencyAliases(text, bank);
+    // After bank aliases too: an alias maps a bank's own token to an ISO code
+    // and can itself produce a glued `SAR129.90`.
+    text = Normalizer.separateGluedCurrency(text);
     final lines = text.split('\n');
     final lower = text.toLowerCase();
 

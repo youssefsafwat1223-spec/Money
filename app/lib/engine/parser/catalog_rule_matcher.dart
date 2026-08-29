@@ -117,13 +117,42 @@ CatalogRuleMatch? matchCatalogRule(
 
     return CatalogRuleMatch(
       rule: rule,
-      amountText: group('amount'),
+      amountText: untruncatedAmount(group('amount'), messageText),
       currencyText: group('currency'),
       merchant: group('merchant'),
-      balanceText: group('balance'),
+      balanceText: untruncatedAmount(group('balance'), messageText),
     );
   }
   return null;
+}
+
+/// Rejects a rule-captured money token that is a PREFIX of a longer number in
+/// the message.
+///
+/// All twelve seeded catalog rules capture the amount with
+/// `(?<amount>[0-9][0-9,]*(?:\.[0-9]{1,2})?)`. The `{1,2}` cap is a 2-decimal
+/// assumption baked into admin-authored data. Against a 3-decimal currency
+/// (KWD/BHD/OMR/JOD/TND/LYD/IQD) it captures `12.45` out of `12.450` — a silent
+/// 10x error in minor units, and exactly the class of mistake that cannot be
+/// caught downstream because `12.45` is itself a perfectly valid amount.
+///
+/// The patterns are being widened to `{1,3}` by migration `0091`, but the
+/// engine must not depend on every present and future admin getting the
+/// quantifier right. This is the same argument F-015 settled for merchant
+/// boundaries: the rules are DATA, so the structural invariant lives in the
+/// engine.
+///
+/// Returning null here is not a downgrade — the engine's own extraction, which
+/// has no such cap, then supplies the amount.
+String? untruncatedAmount(String? captured, String messageText) {
+  if (captured == null) return null;
+  // A digit immediately after the captured token means the capture stopped
+  // mid-number. Both sides are digit-normalised so an Arabic-Indic message
+  // (`١٢٫٤٥٠`) is checked on the same footing as a Latin one.
+  final haystack = Normalizer.normalizeDigits(messageText);
+  final needle = Normalizer.normalizeDigits(captured);
+  final continues = RegExp('${RegExp.escape(needle)}[0-9]');
+  return continues.hasMatch(haystack) ? null : captured;
 }
 
 /// Parses a rule-captured amount text exactly like admin-authored rules expect
