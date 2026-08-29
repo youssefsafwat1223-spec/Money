@@ -43,6 +43,21 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 pass_count=0; fail_count=0; unavail_count=0; fail=0
+# Audit H-15 / CI-02: strict mode for RELEASE gates. When REQUIRE_ALL_GATES=1, a
+# tool-missing gate (unavail) OR a caller-skipped mandatory test (caller_skipped)
+# becomes FATAL, so a release workflow cannot hollow-pass this gate. Only an
+# ARTIFACT-DEPENDENT gate (artifact_pending — iOS packaging needs a built bundle)
+# stays non-fatal, because it is deferred to a mandatory post-build step in the
+# release workflow (never classified as PASS — requirement 9).
+REQUIRE_ALL_GATES="${REQUIRE_ALL_GATES:-0}"
+# Batch-15 follow-up: preserve the REASON a stage did not run as a PASS. A broad
+# "external" bucket erased the distinction between (a) a caller deliberately
+# skipping a mandatory test — which is NOT evidence and is fatal for a release —
+# and (b) a gate that genuinely cannot run until an artifact exists (iOS
+# packaging), which is legitimately deferred to a post-build step.
+tool_missing_count=0     # UNAVAILABLE_TOOL   — fatal under strict
+caller_skipped_count=0   # CALLER_SKIPPED     — fatal under strict (not evidence)
+artifact_pending_count=0 # ARTIFACT_NOT_BUILT — deferred to post-build (never strict-fatal)
 node_skips="n/a"; deno_ignored="n/a"; manifest_state="not-run"
 LINT_EXCEPTIONS=7  # deno-lint-ignore no-explicit-any suppressions (2 prod Edge helpers + 5 test doubles); see PHASE_7_TEST_AND_CI_CONTRACT.md
 
@@ -53,7 +68,18 @@ NODE_TAP="$TMP/node.tap"; DENO_OUT="$TMP/deno.txt"
 step() { echo; echo "══ $1 ══"; }
 ok() { echo "  ✓ $1"; pass_count=$((pass_count + 1)); }
 bad() { echo "  ✗ $1"; fail_count=$((fail_count + 1)); fail=1; }
-unavail() { echo "  ! $1 — UNAVAILABLE (reported separately, not a pass)"; unavail_count=$((unavail_count + 1)); }
+# UNAVAILABLE_TOOL — a tool the gate needs is not installed. Fatal under strict.
+unavail() { echo "  ! $1 — UNAVAILABLE TOOL (not a pass)"; unavail_count=$((unavail_count + 1)); tool_missing_count=$((tool_missing_count + 1)); }
+# CALLER_SKIPPED — the caller bypassed a MANDATORY test (e.g. SKIP_FLUTTER_TEST).
+# A deliberately-bypassed test is NOT evidence, so under a release gate
+# (REQUIRE_ALL_GATES=1) this is FATAL. In normal/portable local mode it stays a
+# reported, non-fatal skip (the historically-permitted fast path).
+caller_skipped() { echo "  ! $1 — SKIPPED BY CALLER (mandatory; not evidence)"; caller_skipped_count=$((caller_skipped_count + 1)); }
+# ARTIFACT_NOT_YET_BUILT — a gate that genuinely cannot run before an artifact
+# exists (iOS packaging needs a built Runner.app). NEVER strict-fatal here; it is
+# DEFERRED to a mandatory POST-BUILD step in the release workflow. Its absence
+# pre-build is expected, not a gap.
+artifact_pending() { echo "  ~ $1 — ARTIFACT-DEPENDENT (deferred to a mandatory post-build check)"; artifact_pending_count=$((artifact_pending_count + 1)); }
 
 # --- Self-test: prove a failed gate makes the script exit non-zero ----------------
 if [ "${1:-}" = "--self-test" ]; then
@@ -89,14 +115,14 @@ step "flutter test (bulk — parallel; production-cost crypto excluded)"
 if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
   if ( cd "$ROOT/app" && flutter test --exclude-tags crypto-prod ); then ok "flutter test (bulk)"; else bad "flutter test (bulk)"; fi
 else
-  unavail "flutter test bulk (SKIP_FLUTTER_TEST=1)"
+  caller_skipped "flutter test bulk (SKIP_FLUTTER_TEST=1)"
 fi
 
 step "flutter test (crypto — serialized production-cost Argon2, --concurrency=1)"
 if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
   if ( cd "$ROOT/app" && flutter test --tags crypto-prod --concurrency=1 ); then ok "flutter test (crypto serialized)"; else bad "flutter test (crypto serialized)"; fi
 else
-  unavail "flutter test crypto (SKIP_FLUTTER_TEST=1)"
+  caller_skipped "flutter test crypto (SKIP_FLUTTER_TEST=1)"
 fi
 
 step "node contract tests"
@@ -164,11 +190,11 @@ if [ -d "$IOS_APP" ]; then
   bash "$ROOT/app/tools/verify_ios_packaging.sh" "$IOS_APP"; ios_rc=$?
   case "$ios_rc" in
     0) ok "ios packaging (CURRENT artifact — provenance-verified)" ;;
-    3) unavail "ios packaging: built artifact NOT CURRENT / no provenance — fresh build (tools/stamp_ios_provenance.sh) or external evidence pending" ;;
+    3) artifact_pending "ios packaging: built artifact NOT CURRENT / no provenance — fresh build (tools/stamp_ios_provenance.sh) or external evidence pending" ;;
     *) bad "ios packaging (structural regression on a current artifact)" ;;
   esac
 else
-  unavail "ios packaging (no built Runner.app; static Info.plist/privacy SOURCE contract runs in flutter test stage 4a)"
+  artifact_pending "ios packaging (no built Runner.app; static Info.plist/privacy SOURCE contract runs in flutter test stage 4a)"
 fi
 
 # --- intentional-failure injection self-test hook ---------------------------------
@@ -176,22 +202,37 @@ if [ "${CI_GATES_INJECT_FAILURE:-0}" = "1" ]; then
   step "INJECTED FAILURE (self-test)"; bad "intentional failure (CI_GATES_INJECT_FAILURE=1)"
 fi
 
+# Strict-mode fatality (Batch-15 follow-up). A tool-missing gate and a
+# caller-skipped MANDATORY test both make a release gate untrustworthy, so both
+# are FATAL under REQUIRE_ALL_GATES=1. An ARTIFACT-DEPENDENT gate (iOS packaging)
+# is NOT fatal — it is legitimately deferred to a mandatory post-build step.
+strict_fatal=$((tool_missing_count + caller_skipped_count))
+strict_note=""
+if [ "$REQUIRE_ALL_GATES" = "1" ] && [ "$strict_fatal" -gt 0 ] && [ "$fail" -eq 0 ]; then
+  fail=1
+  strict_note=" [STRICT: $tool_missing_count tool(s) missing, $caller_skipped_count caller-skipped mandatory test(s)]"
+fi
+
 echo
 echo "══ truthful summary ══"
 echo "  mandatory gates passed : $pass_count"
 echo "  mandatory gates failed : $fail_count"
-echo "  tools unavailable      : $unavail_count"
+echo "  tools unavailable      : $unavail_count  (strict: $([ "$REQUIRE_ALL_GATES" = "1" ] && echo FATAL || echo reported))"
+echo "  caller-skipped tests   : $caller_skipped_count  (strict: $([ "$REQUIRE_ALL_GATES" = "1" ] && echo FATAL || echo 'reported skip')) — a bypassed mandatory test is NOT evidence"
+echo "  artifact-dependent     : $artifact_pending_count  (deferred to a mandatory POST-BUILD check; never a pass, never strict-fatal)"
 echo "  node tests skipped     : $node_skips  (credentials absent — see manifest)"
 echo "  deno tests ignored     : $deno_ignored  (live-Postgres — see manifest)"
 echo "  skip/ignore manifest   : $manifest_state"
 echo "  external verification  : pending (device / live Supabase / native timing — see PHASE_6 checklist)"
 echo "  retained lint exceptions: $LINT_EXCEPTIONS deno-lint-ignore (no-explicit-any; loosely-typed Supabase Edge client — see PHASE_7 doc)"
-# machine-readable line for CI assertions (no secrets):
-echo "CI_GATES_JSON {\"passed\":$pass_count,\"failed\":$fail_count,\"unavailable\":$unavail_count,\"node_skipped\":\"$node_skips\",\"deno_ignored\":\"$deno_ignored\",\"manifest\":\"$manifest_state\",\"lint_exceptions\":$LINT_EXCEPTIONS}"
+# machine-readable line for CI assertions (no secrets). Each reason is preserved
+# as a distinct field — no broad bucket erases the classification (requirement 7).
+echo "CI_GATES_JSON {\"passed\":$pass_count,\"failed\":$fail_count,\"tool_missing\":$tool_missing_count,\"caller_skipped\":$caller_skipped_count,\"artifact_pending\":$artifact_pending_count,\"strict\":$REQUIRE_ALL_GATES,\"node_skipped\":\"$node_skips\",\"deno_ignored\":\"$deno_ignored\",\"manifest\":\"$manifest_state\",\"lint_exceptions\":$LINT_EXCEPTIONS}"
 echo
 if [ "$fail" -eq 0 ]; then
-  if [ "$unavail_count" -gt 0 ]; then echo "ALL RUN GATES PASSED ($unavail_count unavailable — see notes)"; else echo "ALL LOCAL GATES PASSED"; fi
+  extra=$((unavail_count + caller_skipped_count + artifact_pending_count))
+  if [ "$extra" -gt 0 ]; then echo "ALL RUN GATES PASSED ($unavail_count tool-missing, $caller_skipped_count caller-skipped, $artifact_pending_count artifact-pending — see notes)"; else echo "ALL LOCAL GATES PASSED"; fi
 else
-  echo "SOME GATES FAILED ($fail_count) — see ✗ above"
+  echo "SOME GATES FAILED ($fail_count)$strict_note — see ✗ above"
 fi
 exit "$fail"

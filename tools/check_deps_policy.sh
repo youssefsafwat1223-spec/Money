@@ -20,7 +20,14 @@ fail() { echo "  ✗ $1"; viol=1; }
 okc()  { echo "  ✓ $1"; }
 
 # Approved path dependencies (local first-party packages). Add here intentionally.
-APPROVED_PATH_DEPS="packages/native_glass_navbar"
+#   * packages/native_glass_navbar — first-party in-repo package.
+#   * ../third_party/file_picker — the vendored file_picker fork (R8B): upstream
+#     11.0.3 + one backported AGP-9 plugin-registration fix. It MUST resolve from
+#     the vendored path, never pub.dev (see QIRSH_FORK.md). It was vendored but
+#     never allowlisted here, so this gate was red on the committed tree — a gap
+#     Batch 15's strict release-gate run surfaced. Allowlisting it is required
+#     for the canonical gate to be green on the legitimate tree.
+APPROVED_PATH_DEPS="packages/native_glass_navbar ../third_party/file_picker"
 
 echo "══ MALI-037 dependency policy (offline) ══"
 

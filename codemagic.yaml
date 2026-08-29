@@ -38,6 +38,9 @@ workflows:
       cocoapods: default
       vars:
         BUNDLE_ID: "com.youssefsafwat.mali"
+        # One explicit output path is used for stamping, verification, artifact
+        # collection, and email publication. It is never wildcard-selected.
+        IOS_UNSIGNED_IPA: "app/money_companion-unsigned.ipa"
     scripts:
       - name: Flutter pub get
         working_directory: app
@@ -47,15 +50,20 @@ workflows:
         working_directory: app
         script: flutter gen-l10n
 
-      - name: Flutter analyze
-        working_directory: app
-        script: flutter analyze
-
-      - name: Flutter test
-        working_directory: app
+      # Audit H-15: even the unsigned sideload IPA is a production-configured,
+      # distributable RELEASE artifact, so it runs the same canonical gate before
+      # the build — a mandatory-gate failure makes the build and packaging below
+      # unreachable.
+      - name: Canonical gates (tools/ci_gates.sh, strict) — REQUIRED before build
         script: |
+          set -eu
+          if ! command -v deno >/dev/null 2>&1; then
+            curl -fsSL https://deno.land/install.sh | sh
+            export PATH="$HOME/.deno/bin:$PATH"
+          fi
+          ( cd admin && npm ci )
           security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-          flutter test
+          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       - name: Assert production Supabase config
         script: |
@@ -80,19 +88,32 @@ workflows:
       - name: Package .app into unsigned .ipa
         working_directory: app
         script: |
-          set -e
+          set -eu
           APP_PATH="build/ios/iphoneos/Runner.app"
           if [ ! -d "$APP_PATH" ]; then
             echo "Runner.app not found at $APP_PATH" && exit 1
           fi
-          rm -rf Payload money_companion-unsigned.ipa
+          IPA="$CM_BUILD_DIR/$IOS_UNSIGNED_IPA"
+          rm -rf Payload
+          rm -f "$IPA" "$IPA.provenance"
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -r -q money_companion-unsigned.ipa Payload
+          zip -r -q "$IPA" Payload
           rm -rf Payload
-          echo "Built $(pwd)/money_companion-unsigned.ipa"
+          echo "Built the single explicit unsigned artifact: $IPA"
+
+      # Provenance is produced after final packaging and before verification. It
+      # remains external, and its SHA-256 binds the exact immutable IPA bytes.
+      - name: Stamp and verify the EXACT packaged IPA — REQUIRED before email
+        working_directory: app
+        script: |
+          set -eu
+          IPA="$CM_BUILD_DIR/$IOS_UNSIGNED_IPA"
+          bash ../tools/stamp_ios_provenance.sh "$IPA"
+          bash ../tools/verify_ios_release_artifact.sh "$IPA"
     artifacts:
-      - app/money_companion-unsigned.ipa
+      - $IOS_UNSIGNED_IPA
+      - ${IOS_UNSIGNED_IPA}.provenance
       - app/build/ios/iphoneos/Runner.app
       - app/build/**/outputs/**/*.log
       - /tmp/xcodebuild_logs/*.log
@@ -122,22 +143,35 @@ workflows:
       flutter: 3.44.2
       xcode: latest
       cocoapods: default
+      vars:
+        # Candidate discovery must yield exactly one IPA. It is then renamed
+        # without changing bytes to this single publication path.
+        IOS_RELEASE_IPA: "app/build/ios/ipa/money_companion-signed.ipa"
     scripts:
       - name: Flutter pub get
         working_directory: app
         script: flutter pub get
 
+      # Audit H-15: the canonical gate runs BEFORE any signing material is set up
+      # or any artifact is built, so a mandatory-gate failure structurally makes
+      # provisioning, the signed build, and the TestFlight submission below
+      # unreachable (Codemagic aborts the workflow on a non-zero step). Same
+      # authority (tools/ci_gates.sh) as GitHub + the quality workflow; strict so
+      # a missing tool cannot hollow-pass a release gate.
+      - name: Canonical gates (tools/ci_gates.sh, strict) — REQUIRED before signing
+        script: |
+          set -eu
+          if ! command -v deno >/dev/null 2>&1; then
+            curl -fsSL https://deno.land/install.sh | sh
+            export PATH="$HOME/.deno/bin:$PATH"
+          fi
+          ( cd admin && npm ci )
+          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
+
       - name: Set up provisioning profiles
         script: |
           xcode-project use-profiles
-
-      - name: Flutter analyze & test
-        working_directory: app
-        script: |
-          flutter gen-l10n
-          flutter analyze
-          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-          flutter test
 
       - name: Assert production Supabase config
         script: |
@@ -168,12 +202,16 @@ workflows:
       - name: Build signed IPA
         working_directory: app
         script: |
+          set -eu
           # AdMob (R7 I3): release inputs are environment-provided, never
           # committed. The App ID must reach BOTH Dart (which decides ad
           # eligibility) and the native Info.plist (which the SDK reads) — the
           # latter via the AdMob.xcconfig step above. Absent values are legal:
           # the build then has NO ad configuration and report export simply
           # runs without ads.
+          # Remove only the prior export directory before codesign/export so a
+          # stale single IPA cannot masquerade as output from this build.
+          rm -rf build/ios/ipa
           flutter build ipa --release \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
@@ -183,8 +221,35 @@ workflows:
             --dart-define=ADMOB_APP_ID_IOS="${ADMOB_APP_ID_IOS:-}" \
             --dart-define=ADMOB_INTERSTITIAL_IOS="${ADMOB_INTERSTITIAL_IOS:-}" \
             --export-options-plist=/Users/builder/export_options.plist
+
+      # Resolve the export exactly once. Zero or multiple candidates fail before
+      # provenance or publishing. A metadata-only rename gives Codemagic one
+      # explicit path; hashes prove the signed bytes survive it unchanged.
+      # Provenance is then produced at build time, before a verifier requires it.
+      - name: Resolve, stamp, and verify the EXACT signed IPA — REQUIRED before submit
+        working_directory: app
+        script: |
+          set -eu
+          IPA_DIR="$CM_BUILD_DIR/app/build/ios/ipa"
+          CANDIDATE="$(bash ../tools/verify_ios_release_artifact.sh --resolve-only "$IPA_DIR")"
+          PUBLISH_DIR="$(cd "$(dirname "$CM_BUILD_DIR/$IOS_RELEASE_IPA")" && pwd -P)"
+          IPA="$PUBLISH_DIR/$(basename "$IOS_RELEASE_IPA")"
+          SHA_BEFORE_MOVE="$(shasum -a 256 "$CANDIDATE" | awk '{print $1}')"
+          if [ "$CANDIDATE" != "$IPA" ]; then
+            [ ! -e "$IPA" ] || { echo "ERROR: canonical IPA path already exists: $IPA"; exit 1; }
+            mv "$CANDIDATE" "$IPA"
+          fi
+          SHA_AFTER_MOVE="$(shasum -a 256 "$IPA" | awk '{print $1}')"
+          [ "$SHA_AFTER_MOVE" = "$SHA_BEFORE_MOVE" ] || {
+            echo "ERROR: signed IPA bytes changed while assigning the publication path."
+            exit 1
+          }
+          bash ../tools/stamp_ios_provenance.sh "$IPA"
+          bash ../tools/verify_ios_release_artifact.sh "$IPA"
     artifacts:
-      - app/build/ios/ipa/*.ipa
+      # App Store Connect receives the only collected .ipa: the exact path above.
+      - $IOS_RELEASE_IPA
+      - ${IOS_RELEASE_IPA}.provenance
       - /tmp/xcodebuild_logs/*.log
     publishing:
       app_store_connect:
@@ -228,11 +293,22 @@ workflows:
         working_directory: app
         script: flutter gen-l10n
 
-      - name: Flutter analyze & test
-        working_directory: app
+      # Audit H-15: the canonical gate runs BEFORE the upload key is materialised
+      # and BEFORE the release AAB is built, so a mandatory-gate failure makes the
+      # keystore, the signed build, the signer inspection, and any Play upload
+      # unreachable (Codemagic aborts on a non-zero step). The release AAB build
+      # below is itself the mandatory Android *release* compile; the auto-triggered
+      # quality workflow independently proves the Android *debug* compile on every
+      # push, so no redundant debug build is added here.
+      - name: Canonical gates (tools/ci_gates.sh, strict) — REQUIRED before signing
         script: |
-          flutter analyze
-          flutter test
+          set -eu
+          if ! command -v deno >/dev/null 2>&1; then
+            curl -fsSL https://deno.land/install.sh | sh
+            export PATH="$HOME/.deno/bin:$PATH"
+          fi
+          ( cd admin && npm ci )
+          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       - name: Assert production Supabase config
         script: |
@@ -308,7 +384,7 @@ workflows:
           # Belt-and-braces: the runner is ephemeral, but never leave key
           # material lying around for later steps or cached workspaces.
           rm -f "${CM_BUILD_DIR}/upload-keystore.jks" || true
-          echo "Materialised keystore removed.
+          echo "Materialised keystore removed."
     artifacts:
       - app/build/**/outputs/bundle/**/*.aab
       - app/build/**/outputs/**/mapping.txt
@@ -327,7 +403,31 @@ workflows:
   backend-and-quality-gates:
     name: Backend & Quality Gates
     instance_type: mac_mini_m2
-    max_build_duration: 75
+    max_build_duration: 90
+    # Audit H-16: this workflow (which holds the ONLY Android compile coverage)
+    # must run AUTOMATICALLY on the pre-release development path — never behind a
+    # human pressing "Run". It stays quality-only: no signing key, no production
+    # AdMob, no store upload, so it is safe to trigger on push/PR. Pure-docs
+    # changes are excluded so an Android build is not spent on a README edit.
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+        - pattern: master
+          include: true
+        - pattern: develop
+          include: true
+        - pattern: 'feat/*'
+          include: true
+      cancel_previous_builds: true
+      when:
+        changeset:
+          excludes:
+            - 'docs/**'
+            - '**/*.md'
     environment:
       flutter: 3.44.2
       # JDK 17 is what the project actually requires (sourceCompatibility /
@@ -336,31 +436,21 @@ workflows:
       # toolchain instead of whatever the image happens to ship.
       java: 17
     scripts:
-      - name: Migration lint (numbering + SECURITY DEFINER lockdown)
-        script: bash supabase/tools/check_migrations.sh
-
-      - name: Deno Edge-function tests
+      # Audit H-15/CI-02 + requirement 4: ONE canonical authority. Instead of a
+      # hand-maintained subset of gates, run tools/ci_gates.sh — the same script
+      # GitHub Actions runs — so the two paths can never drift. Prereqs (deno,
+      # admin deps, flutter packages) are set up first; REQUIRE_ALL_GATES=1 makes
+      # a tool-missing stage FATAL, so this can never hollow-pass.
+      - name: Canonical gates (tools/ci_gates.sh, strict)
         script: |
-          set -e
+          set -eu
           if ! command -v deno >/dev/null 2>&1; then
             curl -fsSL https://deno.land/install.sh | sh
             export PATH="$HOME/.deno/bin:$PATH"
           fi
-          cd supabase/functions && deno test --allow-all _shared/
-
-      - name: Admin panel lint & build
-        working_directory: admin
-        script: |
-          npm ci
-          npm run lint
-          npm run build
-
-      - name: Flutter analyze & test
-        working_directory: app
-        script: |
-          flutter pub get
-          flutter analyze
-          flutter test
+          ( cd admin && npm ci )      # ci_gates runs the admin authorization suite
+          ( cd app && flutter pub get )
+          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       # ── Android compile gate (R8C) ─────────────────────────────────────────
       # Android compilation used to happen ONLY in `android-release`: on release
