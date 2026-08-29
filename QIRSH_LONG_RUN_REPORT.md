@@ -855,3 +855,122 @@ Three groups, all deliberate:
   Committing its churn is noise; untracking it is unrelated cleanup.
 
 There is no unreviewed source left in the working tree.
+
+
+---
+
+# FINAL — REPOSITORY-CONSISTENCY PASS (2026-08-29)
+
+**Final HEAD:** `f79250c2` · branch `feat/phase1-data-integrity` · **100 commits**
+this session · nothing pushed, deployed, or applied remotely.
+
+## F1. AUTHORITATIVE GATE NUMBERS
+
+**These supersede every earlier figure in this document.** All measured on a
+pristine checkout of `f79250c2` (`git status` empty), serialized, with
+`REQUIRE_PRISTINE_TREE=1`.
+
+| Gate | Result |
+|---|---|
+| `flutter analyze` | **clean** |
+| Full Flutter suite (strict) | **2742 pass · 1 skip · 0 fail** |
+| Admin `node --test` | **101 / 0** |
+| `tsc --noEmit` (real binary) | **0 errors** |
+| SQL / migration contract | **228 / 0** (70 credential-gated) |
+| Deno (all functions) | **152 / 0** |
+| Repo/quarantine/coherence guards | included above, all passing |
+| Tree state AFTER running every gate | **dirty = 0** |
+
+> **Every earlier number in this report is superseded.** They were measured
+> against the working tree, which diverged from HEAD in seven places. Two of the
+> superseded figures were not merely optimistic but meaningless — see F2.
+
+## F2. What this pass found
+
+**1. HEAD did not compile.** The admin pages committed earlier import seven
+`@/components/ui/*` modules (primitives, form, table, pagination, filter-bar,
+confirm-dialog, copy-id); all seven were untracked, as were the brand images and
+four IBM Plex Sans Arabic fonts. Real `tsc` on a pristine checkout: `TS2307` on
+the first page it reads.
+
+**2. My tsc gate was not running tsc.** The pristine worktree has no
+`node_modules`, so `npx tsc` fell through to an unrelated `tsc` on PATH printing
+"This is not the tsc command you are looking for" — and the check was
+`grep -c error`, which counted zero. Every "tsc clean" reported from a pristine
+checkout was that banner. A gate that cannot fail is worse than no gate: it
+manufactures confident evidence for a claim it never tested. Now invoked as
+`./node_modules/.bin/tsc`.
+
+**3. A tracked build artifact made the pristine gate unsatisfiable.**
+`admin/tsconfig.tsbuildinfo` is in `.gitignore` twice but was still tracked —
+`.gitignore` does not apply to files already in the index. `tsc` rewrites it on
+every run, so running the gates dirtied the tree and `REQUIRE_PRISTINE_TREE=1`
+could never hold. Untracked; the tree now stays clean through a full gate run.
+
+**4. A file-mode divergence.** `app/tools/verify_ios_packaging.sh` was executable
+in the tree and 644 at HEAD. All call sites use `bash …`, so behaviour was
+unaffected, but the divergence is gone.
+
+Scans that came back clean: all committed `@/…` TS imports resolve to tracked
+files; all committed public-asset references resolve; all 24 declared Flutter
+assets/fonts are tracked; all script and `package.json` references resolve; the
+migration sequence is contiguous with no duplicates.
+
+## F3. The remaining working tree needs nothing committed
+
+26 tracked files still differ from HEAD. **Every one is STALE** — its tree copy
+would REVERT landed work. Verified per file, not assumed:
+
+* `catalog_sync_service.dart` restores raw `String.fromEnvironment('APP_VERSION')` (reverts F-024);
+* `planning_entities_sync_service_test.dart` restores the DELEGATING fake — the weaker one that made the conflict test pass for the wrong reason (reverts C-6);
+* `planning_push_service.dart` restores the pre-C-6 fetch-then-write TOCTOU;
+* the rest revert C-3 gates, C-5 URL centralisation, or `@Timeout` annotations.
+
+Across all 26, deletions exceed additions in every file. The pristine checkout
+passes **without any of them**, which F1 demonstrates directly.
+
+The 6 untracked entries are `demo-docker/`, `research/`, `AGENTS.md` and
+superseded planning documents. None is referenced by committed code — proven by
+the scans in F2, not by inspection.
+
+## F4. Residual coherence limitation — stated precisely
+
+`head_completeness_test.dart` deterministically catches:
+* migration-sequence holes and duplicate numbers;
+* committed Deno files importing uncommitted ones;
+* committed tests reading untracked repo files.
+
+**It does NOT statically detect a file that exists at HEAD but is OLDER than the
+tests asserting against it** — the shape that hid the admin break. Detecting that
+would require understanding what each test asserts; a similarity heuristic would
+give false confidence, so none was written.
+
+The compensating control is execution-based and deterministic: under
+`REQUIRE_PRISTINE_TREE=1` (set by `ci_gates.sh` whenever `REQUIRE_ALL_GATES=1`)
+the suite fails if any tracked file differs from HEAD. A release gate therefore
+cannot be satisfied from a dirty tree. For ordinary local runs the same test
+prints how many files differ, so the reader knows whether the result describes
+HEAD or their laptop.
+
+**Residual risk:** a stale-committed file whose tests are also stale-committed
+would pass a pristine run. Nothing in this repository detects that; only review
+does.
+
+## F5. Source/local vs external
+
+**SOURCE/LOCAL: COMPLETE.** No safely actionable Critical or High source-or-local
+issue remains. The fourteen-area audit is done, the previously-unreviewed working
+tree has been read in full, and the exact final HEAD passes every gate from a
+pristine checkout without needing anything from the dirty tree.
+
+**EXTERNAL — owner action required, none of it code:**
+
+| # | Blocker |
+|---|---|
+| 1 | Domain + hosting for `docs/legal/PRIVACY_POLICY.md` and `TERMS.md`; build with `--dart-define=LEGAL_BASE_URL=…` |
+| 2 | Apply migrations 0084–0091 (all written, reviewed, with rollbacks; none applied anywhere) |
+| 3 | Deploy Edge Functions (including the H-24 erasure sweep) |
+| 4 | Activate capabilities — **flip PUSH before PULL** (see the runbook) |
+| 5 | Physical iPhone verification for H-19 |
+| 6 | Supabase provider settings: Apple sign-in must keep nonce checking **ON** (H-9) |
+| 7 | Signing and store submission |
