@@ -1,5 +1,4 @@
 import 'dart:async';
-import '../../data/db/ownership_guard.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -17,6 +16,7 @@ import '../session/unsynced_inventory.dart';
 import '../data_portability/app_data_portability_service.dart';
 import '../data_portability/data_portability_models.dart';
 import '../../engine/ai/ai_parser_client.dart';
+import '../../engine/intelligence/merchant_intelligence_store.dart';
 import '../../engine/ai/bank_discovery_client.dart';
 import '../../data/catalog/announcement_service.dart';
 import '../../data/catalog/catalog_daos.dart';
@@ -28,6 +28,7 @@ import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../privacy/consent_authority.dart';
+import '../../data/db/ownership_guard.dart';
 import '../../data/db/planning_canonical_invariants.dart';
 import '../../data/db/planning_cutover.dart';
 import '../../data/repositories/account_deletion_service.dart';
@@ -118,12 +119,12 @@ final planningCutoverCoordinatorProvider =
   final db = ref.watch(appDatabaseProvider);
   return DbBackedPlanningCutoverCoordinator(
     initialState: PlanningCutoverState.canonical,
-    readUserVersion: () async => (await db
-            .customSelect('PRAGMA user_version;')
-            .getSingle())
-        .read<int>('user_version'),
+    readUserVersion: () async =>
+        (await db.customSelect('PRAGMA user_version;').getSingle())
+            .read<int>('user_version'),
     readMarker: () async => (await db
-            .customSelect('SELECT planning_cutover_state AS s FROM user_settings;')
+            .customSelect(
+                'SELECT planning_cutover_state AS s FROM user_settings;')
             .getSingle())
         .read<int>('s'),
     countCanonicalViolations: () async =>
@@ -230,7 +231,8 @@ StreamController<int> _coalescedRevision(
 /// family key); use the `k*RevisionTables` constants below. Display dependencies
 /// (e.g. `categories` for transaction rows) are included in each domain so a
 /// dependent write still refreshes — providers never go stale.
-final scopedRevisionProvider = StreamProvider.family<int, String>((ref, tablesKey) {
+final scopedRevisionProvider =
+    StreamProvider.family<int, String>((ref, tablesKey) {
   final tables = tablesKey.split(',').toSet();
   final db = ref.watch(appDatabaseProvider);
   return _coalescedRevision(ref, db.tableWriteStream, tables.contains).stream;
@@ -382,7 +384,6 @@ final accountDeletionStatusProvider =
   return ref.watch(accountDeletionServiceProvider).getStatus();
 });
 
-
 final catalogSyncServiceProvider = Provider<CatalogSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return CatalogSyncService(
@@ -513,20 +514,17 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
   );
 });
 
+/// Audit H-4: accounts PULL carries money (`initial_balance::text`,
+/// `current_balance::text`, …), so it must consult the exact PULL transport
+/// capability. It previously shared `_planningAccountsSyncEnabled` — a bare
+/// `() => true` — with the push side, so an explicitly `unsupported` transport
+/// could not disable it: every row would throw and wedge the cursor instead of
+/// the pull simply not running. `exactPullAllowed` requires the same positive
+/// proof as push; `unknown` and `unsupported` both block.
 final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return AccountsPullService(
     db: ref.watch(appDatabaseProvider),
-    // Audit H-4: accounts PULL carries money (`initial_balance::text`,
-    // `current_balance::text`). It shared `_planningAccountsSyncEnabled` — a
-    // bare `() => true` — with push, so an explicitly `unsupported` transport
-    // could not disable it: every row would throw and wedge the cursor instead
-    // of the pull simply not running.
-    // C-3 — financial PULL downloads this user's money. Read fresh at egress.
-    mayEgress: () => ConsentAuthority(
-      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
-          .getSettings(),
-    ).allows(EgressClass.financialSync),
     isEnabled: () =>
         _planningAccountsSyncEnabled() && exactPullAllowed(pullCap),
   );
@@ -583,19 +581,12 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
     // three planning-currency entities — every OTHER money-bearing entity
     // (subscriptions, plans, bill_payments) short-circuited to `true` and so
     // never consulted the pull transport at all. The capability now applies to
-    // the whole pull, with the planning gate layered on top.
-    // C-3 — financial PULL downloads this user's money. Read fresh at egress.
-    mayEgress: () => ConsentAuthority(
-      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
-          .getSettings(),
-    ).allows(EgressClass.financialSync),
-    // NEW-H-3: lets the pull re-enqueue a local consent revocation instead of
-    // marking the row synced and losing it.
-    outboxQueue: ref.watch(planningOutboxQueueProvider),
+    // the whole pull, with the planning gate layered on top of it.
     isEnabled: (entityType) =>
         exactPullAllowed(pullCap) &&
         _planningEntitySyncEnabledWithCurrency(
             entityType, planningCap, pullCap),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
@@ -610,23 +601,18 @@ final planningChildSyncServiceProvider =
     // §29/§30 — goal_contributions inherit the parent goal's server currency,
     // so they are deferred until the planning-currency + exact PUSH transport
     // capabilities are both verified (this is a push-direction service).
+    isEnabled: (entityType) => _planningEntitySyncEnabledWithCurrency(
+        entityType, planningCap, pushCap),
     // Pull authority is independent from push authority. The exact pull gate
-    // covers every child family; the planning-currency gate layers on top for
-    // goal contributions, using the pull-direction transport capability.
-    // C-3 — child rows carry money; consent precedes capability.
-    mayEgress: () => ConsentAuthority(
-      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
-          .getSettings(),
-    ).allows(EgressClass.financialSync),
+    // covers every child family; the planning-currency gate is layered on top
+    // for goal contributions, using the pull-direction transport capability.
     isPullEnabled: (entityType) =>
         exactPullAllowed(pullCap) &&
         _planningEntitySyncEnabledWithCurrency(
             entityType, planningCap, pullCap),
-    pullCapability: () => ref.read(exactPullTransportCapabilityProvider),
-    isEnabled: (entityType) => _planningEntitySyncEnabledWithCurrency(
-        entityType, planningCap, pushCap),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
+    pullCapability: () => ref.read(exactPullTransportCapabilityProvider),
   );
 });
 
@@ -1077,13 +1063,6 @@ final notificationLogSyncServiceProvider =
 final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return CaptureSyncService(
-    // NEW-H-2 / MALI-012: re-check ownership at every step of the drain so a
-    // mid-drain account switch cannot import one user's captures into another's
-    // database.
-    smartInboxRepository: DriftSmartInboxRepository(db),
-    ownershipGuard: OwnershipGuard(),
-    currentUserId: () =>
-        supabase.Supabase.instance.client.auth.currentUser?.id,
     settingsRepository: DriftUserSettingsRepository(db),
     // Relay captures land in Drift AND enqueue on the ledger outbox, so the
     // background push publishes them to Supabase exactly like a manual add.
@@ -1092,29 +1071,29 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
       outboxQueue: ref.watch(ledgerOutboxQueueProvider),
     ),
     dedupStore: DriftDedupStore(db),
+    smartInboxRepository: DriftSmartInboxRepository(db),
     suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
+    ownershipGuard: OwnershipGuard(),
+    currentUserId: () =>
+        supabase.Supabase.instance.client.auth.currentUser?.id,
     accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );
 });
 
+/// Audit H-4: the ledger pull carries money (`amount::text`,
+/// `balance_after::text`, `foreign_amount::text`) and must consult the exact
+/// PULL transport capability — `isPullEnabled: () => true` gave it no way to be
+/// switched off. `exactPullAllowed` requires positive transport proof.
 final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
-  final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   final db = ref.watch(appDatabaseProvider);
+  final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return LedgerSyncService(
     db: db,
     transactionRepository: DriftTransactionRepository(db),
     dedupStore: DriftDedupStore(db),
-    // Audit H-4: the ledger pull carries money (`amount::text`,
-    // `balance_after::text`, `foreign_amount::text`) and had no seam to be
-    // switched off.
-    // C-3 — financial PULL downloads this user's money. Read fresh at egress.
-    mayEgress: () => ConsentAuthority(
-      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
-          .getSettings(),
-    ).allows(EgressClass.financialSync),
     isPullEnabled: () => exactPullAllowed(pullCap),
   );
 });
@@ -1147,11 +1126,35 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
 final startupSyncReconcileServiceProvider =
     Provider<StartupSyncReconcileService>((ref) {
   return StartupSyncReconcileService(
-    // Audit H-4: the backfills are a push path; same authority as the outbox.
-    pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
     db: ref.watch(appDatabaseProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
+    // Audit H-4: the backfills are a push path and obey the same transport
+    // authority as the outbox push services.
+    pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
   );
+});
+
+/// OD-13 — the process-wide on-device merchant model.
+///
+/// One instance for the whole app. Capture used to build one per `Categorizer`,
+/// i.e. twice per transaction, refitting ~330 exemplars each time and throwing
+/// away anything learned. Sharing it here is what makes a user correction able
+/// to outlive the call that produced it.
+///
+/// It is seeded lazily from the user's persisted merchant confirmations, so the
+/// learned map stays the single source of truth and no second store exists.
+final merchantIntelligenceProvider =
+    Provider<MerchantIntelligenceStore>((ref) {
+  final store = MerchantIntelligenceStore();
+  // Fire-and-forget rehydrate: the model is an optional suggestion source, so
+  // capture must never wait on it. Until it resolves the model simply behaves
+  // as a freshly-seeded one, which is exactly the pre-fix behaviour.
+  ref
+      .watch(merchantCategoryRepositoryProvider)
+      .getLearnedCategoryMap()
+      .then(store.seedFromLearnedMap)
+      .catchError((_) {});
+  return store;
 });
 
 final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
@@ -1162,6 +1165,7 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
   return AddTransactionUseCase(
     transactionRepository: ref.watch(transactionRepositoryProvider),
     merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
+    merchantIntelligence: ref.watch(merchantIntelligenceProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
     logMetric: ref.watch(metricsClientProvider).logEvent,
     loadBankProfiles: ref.watch(rulesClientProvider).localBankProfiles,
@@ -1268,6 +1272,7 @@ final correctCategoryUseCaseProvider = Provider<CorrectCategoryUseCase>((ref) {
     transactionRepository: ref.watch(transactionRepositoryProvider),
     merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
+    merchantIntelligence: ref.watch(merchantIntelligenceProvider),
   );
 });
 
