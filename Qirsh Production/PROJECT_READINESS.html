@@ -467,19 +467,20 @@
     <h3>Live hosting <span class="b b-done">LIVE — TEMPORARY HOST</span></h3>
     <div class="ref">Detail: <a href="04_Legal/domain_status.md">04_Legal/domain_status.md</a></div>
     <ul class="items">
-      <li><span class="b b-done">✓</span><span class="t">Live at <code>qirsh-legal.albaraai-dev.workers.dev</code><span class="n">Approved temporary production host — HTTPS, production-safe, approved for store submission. Not a placeholder, not staging.</span></span></li>
-      <li><span class="b b-done">✓</span><span class="t"><code>/privacy</code> and <code>/terms</code> return 200<span class="n">Via a 307 to the trailing-slash form — Workers canonicalisation, accepted</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Live at <code>qirsh.site</code><span class="n">Canonical production host — Let's Encrypt TLS, HSTS, auto-renewal proven. <code>/privacy</code> and <code>/terms</code> return 200 directly. Workers host kept live as rollback.</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t"><code>/privacy</code> and <code>/terms</code> return 200<span class="n">Directly, no redirect — nginx <code>try_files</code></span></span></li>
       <li><span class="b b-done">✓</span><span class="t">Built-in default is the live host<span class="n">A build without the define still opens working links</span></span></li>
       <li><span class="b b-wait">TODO</span><span class="t">Build with <code>--dart-define=LEGAL_BASE_URL=…</code><span class="n">Still required for production release configuration</span></span></li>
       <li><span class="b b-wait">TODO</span><span class="t">Verify both links from inside the installed app</span></li>
     </ul>
   </div>
-  <div class="card">
-    <h3>Final custom domain <span class="b b-opt">FUTURE — NOT BLOCKING</span></h3>
-    <div class="ref">Migration steps: <a href="04_Legal/domain_status.md">04_Legal/domain_status.md</a></div>
+  <div class="card ok">
+    <h3>Canonical domain <span class="b b-done">MIGRATED</span></h3>
+    <div class="ref">Detail: <a href="04_Legal/domain_status.md">04_Legal/domain_status.md</a></div>
     <ul class="items">
-      <li><span class="b b-opt">FUTURE</span><span class="t">Migrate legal hosting to the final Qirsh custom domain<span class="n">Not purchased, not configured, not named. A branding/infrastructure task — it does <strong>not</strong> block this release while the temporary host stays healthy.</span></span></li>
-      <li><span class="b b-owner">OWNER</span><span class="t">Purchase and configure the domain<span class="n">Then: republish, verify, update the built-in default, Codemagic, App Store Connect, Play Console, and re-verify from installed builds</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Built-in default is <code>https://qirsh.site</code><span class="n">Migrated 2026-08-30; pinned tests updated; 23 tests pass in 4 define states</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Workers host kept live as rollback<span class="n">Shipped builds have its URL compiled in — do not delete</span></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Update Codemagic <code>LEGAL_BASE_URL</code> to <code>https://qirsh.site</code><span class="n">Links already work via the built-in default; this declares release intent</span></span></li>
     </ul>
   </div>
 </div>
@@ -641,7 +642,7 @@
       <tr><td><code>GOOGLE_MAPS_API_KEY</code></td><td><span class="b b-opt">OPTIONAL</span></td><td>Optional</td><td>Youssef</td><td>Google Cloud</td><td>local heuristics</td></tr>
 
       <tr><td colspan="6" style="color:var(--faint);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;padding-top:.9rem">App build-time (--dart-define)</td></tr>
-      <tr><td><code>LEGAL_BASE_URL</code></td><td><span class="b b-wait">TODO</span></td><td><strong>Required for production</strong></td><td>Youssef</td><td><code>https://qirsh-legal.albaraai-dev.workers.dev</code></td><td>Falls back to the live host — links still work, but the release host is undeclared: a configuration defect, catch before signing</td></tr>
+      <tr><td><code>LEGAL_BASE_URL</code></td><td><span class="b b-wait">TODO</span></td><td><strong>Required for production</strong></td><td>Youssef</td><td><code>https://qirsh.site</code></td><td>Falls back to the live host — links still work, but the release host is undeclared: a configuration defect, catch before signing</td></tr>
       <tr><td><code>SUPABASE_URL</code> / <code>ANON_KEY</code></td><td><span class="b b-wait">TODO</span></td><td>For cloud</td><td>Youssef</td><td>new project</td><td>Cloud features unavailable; app still runs</td></tr>
       <tr><td><code>SENTRY_DSN</code></td><td><span class="b b-opt">OPTIONAL</span></td><td>Optional</td><td>Youssef</td><td>Sentry</td><td>Reporting off, no crash</td></tr>
 

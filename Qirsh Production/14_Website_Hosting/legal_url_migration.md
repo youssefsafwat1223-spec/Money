@@ -1,16 +1,18 @@
 # Legal URL Migration — Workers → `qirsh.site`
 
-**Not started. `LEGAL_BASE_URL` and the built-in default are unchanged.**
+**COMPLETED 2026-08-30.** The built-in default is now `https://qirsh.site`.
+The Codemagic variable still needs updating — see step 4.
+Kept as the record of what was done, and of how to roll back.
 
-## Current state
+## State after migration
 
 | | |
 |---|---|
-| Live legal host | `https://qirsh-legal.albaraai-dev.workers.dev` |
-| Status | approved **temporary** production host — live, HTTPS, production-safe |
-| Built-in default (`legal_urls.dart`) | the Workers host |
-| Codemagic `LEGAL_BASE_URL` | the Workers host — still required for production |
-| Target | `https://qirsh.site` |
+| Canonical legal host | `https://qirsh.site` |
+| Rollback host | `https://qirsh-legal.albaraai-dev.workers.dev` — still live, do not delete |
+| Built-in default (`legal_urls.dart`) | **`https://qirsh.site`** |
+| Pinned tests | **`https://qirsh.site`** |
+| Codemagic `LEGAL_BASE_URL` | still the Workers URL — **needs updating** (step 4) |
 
 The Workers host **stays live throughout, and after.** It is the rollback, and
 builds already in users' hands have its URL compiled in.

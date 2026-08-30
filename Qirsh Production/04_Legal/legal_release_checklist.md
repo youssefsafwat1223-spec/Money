@@ -1,20 +1,19 @@
 # Legal Release Checklist
 
-Live host: **`https://qirsh-legal.albaraai-dev.workers.dev`** (no trailing slash).
+Canonical production host: **`https://qirsh.site`** (no trailing slash).
 
-**Approved temporary production host** — live, HTTPS, production-safe, and
-approved for current releases including store submission. It is not the final
-Qirsh branded domain, which is not purchased yet and **does not block this
-release**. See [`domain_status.md`](domain_status.md) for the migration task.
+Live over TLS on the Qirsh VPS, `/privacy` and `/terms` return **200 directly**.
+Migrated 2026-08-30 from `https://qirsh-legal.albaraai-dev.workers.dev`, which stays
+live as the rollback — see [`domain_status.md`](domain_status.md).
 
-- [x] `python3 tools/build_legal_site.py` run against current `docs/legal/`
-- [x] Site uploaded; `/privacy` and `/terms` both return 200
-      (via a 307 to the trailing-slash form — Workers Static Assets
-      canonicalisation, accepted; browsers and `url_launcher` follow it)
-- [x] Both pages render on a mobile browser
-- [x] `legalUrlsArePlaceholder` retired — the default is now the live host, so
-      the old "is the default still in use?" question no longer indicates
-      anything. Replaced by `legalBaseUrlIsBuildOverride`.
+- [x] `python3 tools/build_site.py` run against current `docs/legal/`
+- [x] Deployed to the Qirsh VPS; `/privacy` and `/terms` return **200 directly**
+      (nginx `try_files` — no trailing-slash redirect)
+- [x] Both pages render on a mobile browser, Arabic and English
+- [x] TLS: Let's Encrypt, chain valid, HSTS, `certbot renew --dry-run` succeeded
+- [x] Built-in default migrated to `https://qirsh.site`; pinned tests updated
+- [x] `legalUrlsArePlaceholder` retired — replaced by
+      `legalBaseUrlIsBuildOverride`
 - [ ] **`LEGAL_BASE_URL` set in the Codemagic `supabase` variable group —
       REQUIRED for production release configuration.** Not optional. The
       built-in live default is a safety fallback for users, not a substitute
@@ -22,6 +21,7 @@ release**. See [`domain_status.md`](domain_status.md) for the migration task.
       legal URLs, but it is still a **release-configuration defect** and must be
       caught before signing.
 - [ ] Release build made with the define
+- [ ] Workers rollback host retired (only once no shipped build points at it)
 - [ ] Both links verified from inside the installed app
 - [ ] Privacy URL entered in App Store Connect
 - [ ] Privacy URL entered in Play Console

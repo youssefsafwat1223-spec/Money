@@ -19,15 +19,20 @@
 /// build workflows.
 ///
 /// The host must keep serving the documents in `docs/legal/`, published by
-/// `tools/build_legal_site.py`. `legal_urls_test.dart` asserts the generator
-/// and these URLs agree on the exact path segments.
+/// `tools/build_site.py`. `legal_urls_test.dart` asserts the generator and
+/// these URLs agree on the exact path segments.
+///
+/// Migrated 2026-08-30 from `qirsh-legal.albaraai-dev.workers.dev`, which was
+/// the approved temporary host and remains live as the rollback target. See
+/// `Qirsh Production/04_Legal/domain_status.md`.
 library;
 
-/// Live legal site. Serves `/privacy` and `/terms` from `docs/legal/`.
+/// Live legal site. Serves `/privacy` and `/terms` from `docs/legal/`,
+/// published by `tools/build_site.py` and served by nginx on the Qirsh VPS.
 ///
 /// No trailing slash: the paths below are appended directly, so a trailing
 /// slash here would produce `//privacy`.
-const String _kLegalBaseUrl = 'https://qirsh-legal.albaraai-dev.workers.dev';
+const String _kLegalBaseUrl = 'https://qirsh.site';
 
 /// Raw build-time override. May be EMPTY — see [kLegalBaseUrl].
 const String _kLegalBaseUrlOverride = String.fromEnvironment('LEGAL_BASE_URL');

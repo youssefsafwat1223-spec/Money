@@ -3,15 +3,17 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/config/legal_urls.dart';
 
-/// C-5 — the Privacy/Terms links must be real before release.
+/// C-5 — the Privacy/Terms links must be real before release. CLOSED.
 ///
-/// The URLs were hardcoded in the Privacy screen pointing at a host that does
-/// not resolve, so the shipping build opens a dead link — and both app stores
-/// require a reachable privacy URL.
+/// The URLs were once hardcoded in the Privacy screen pointing at a host that
+/// did not resolve, so the shipping build opened a dead link — and both app
+/// stores require a reachable privacy URL.
 ///
-/// This test cannot make the host exist. What it CAN do is make the gap
-/// impossible to forget: the placeholder is named, asserted, and tied to the
-/// documents that must be published there.
+/// They now default to https://qirsh.site, which is live over TLS and serves
+/// docs/legal/. These tests pin that default, prove the build-time override
+/// still works, and keep the generators honest about the exact path segments.
+/// Migrated 2026-08-30 from the Workers host, which stays live as the
+/// rollback — see Qirsh Production/04_Legal/domain_status.md.
 void main() {
   test('the documents that must be published exist in the repo', () {
     // Writing the policy is repository work and is DONE. Only hosting is
@@ -62,7 +64,7 @@ void main() {
     // --dart-define=LEGAL_BASE_URL. Guarded on that, rather than asserted
     // unconditionally, so passing a staging host at test time does not fail a
     // build for doing exactly what the override exists for.
-    const liveHost = 'https://qirsh-legal.albaraai-dev.workers.dev';
+    const liveHost = 'https://qirsh.site';
 
     test('default base URL is the approved live host', () {
       if (legalBaseUrlIsBuildOverride) return;
@@ -92,12 +94,10 @@ void main() {
     test('the dead host it replaced is gone from the config', () {
       // The previous default did not resolve. If it comes back — by a revert,
       // a merge, or a copied line — every shipped link breaks silently.
-      final src =
-          File('lib/core/config/legal_urls.dart').readAsStringSync();
+      final src = File('lib/core/config/legal_urls.dart').readAsStringSync();
       expect(src.contains('mali.youssefsafwat.com'), isFalse,
           reason: 'the unresolvable host must not return as a default');
     });
-
   });
 
   group('override resolution', () {
@@ -106,7 +106,7 @@ void main() {
     // and `flutter test --dart-define=LEGAL_BASE_URL=...` proves the override.
     // Neither case is skipped silently — each is asserted in its own run.
     const override = String.fromEnvironment('LEGAL_BASE_URL');
-    const liveHost = 'https://qirsh-legal.albaraai-dev.workers.dev';
+    const liveHost = 'https://qirsh.site';
 
     test('an absent or EMPTY define falls back to the live default', () {
       if (override.isNotEmpty) return;
@@ -169,50 +169,70 @@ void main() {
     });
   });
 
-  group('the publishable site matches the URLs the app opens', () {
-    // Release prep — `tools/build_legal_site.py` renders docs/legal/ into a
-    // static site the owner can upload to any host with no build step. The
-    // generator and the app must agree on the paths, or the owner publishes
-    // /privacy while the app opens /privacy-policy and nobody notices until a
-    // store reviewer clicks the link.
-    final generator =
-        File('../tools/build_legal_site.py').readAsStringSync();
+  group('the publishable sites match the URLs the app opens', () {
+    // Two generators publish docs/legal/, and BOTH must agree with the paths
+    // the app opens — otherwise the owner publishes /privacy while the app
+    // opens /privacy-policy, and nobody notices until a store reviewer clicks.
+    //
+    //   build_site.py       -> qirsh.site, the canonical production host
+    //   build_legal_site.py -> the Workers host, kept live as the rollback
+    //
+    // Checking only one would let the other drift, and the one that drifted
+    // would be serving a URL nobody can reach.
+    const generators = {
+      'build_site.py': '../tools/build_site.py',
+      'build_legal_site.py': '../tools/build_legal_site.py',
+    };
 
-    test('the generator exists and is dependency-free', () {
-      expect(generator, contains('PAGES = {'));
-      // A release artifact that needs `pip install` before it can be
-      // regenerated is one more thing to fail at the worst moment.
-      expect(generator.contains('import requests'), isFalse);
-      expect(generator.contains('import markdown'), isFalse);
-    });
+    for (final entry in generators.entries) {
+      final name = entry.key;
+      final source = File(entry.value).readAsStringSync();
 
-    test('it publishes exactly the paths the app builds', () {
-      // kPrivacyPolicyUrl.path is '/privacy'; the generator writes the
-      // directory 'privacy' so a static host serves it at that path.
-      for (final entry in {
-        kPrivacyPolicyUrl: 'PRIVACY_POLICY.md',
-        kTermsUrl: 'TERMS.md',
-      }.entries) {
-        final segment = entry.key.path.replaceAll('/', '');
-        expect(generator, contains('"${entry.value}": ("$segment"'),
-            reason: 'the app opens ${entry.key.path} — the generator must '
-                'publish ${entry.value} at that exact segment');
-      }
-    });
+      test('$name exists and is dependency-free', () {
+        expect(source, contains('PAGES = {'));
+        // A release artifact that needs `pip install` before it can be
+        // regenerated is one more thing to fail at the worst moment.
+        expect(source.contains('import requests'), isFalse);
+        expect(source.contains('import markdown'), isFalse);
+      });
 
-    test('it renders directory-style, so extensionless URLs resolve', () {
-      // /privacy must work without a trailing .html on GitHub Pages, Netlify,
-      // Cloudflare Pages and S3 alike — which means privacy/index.html.
-      expect(generator, contains('index.html'));
-      expect(generator, contains('dest.mkdir'));
-    });
+      test('$name publishes exactly the paths the app builds', () {
+        // kPrivacyPolicyUrl.path is '/privacy'; the generator writes the
+        // directory 'privacy' so a static host serves it at that path.
+        for (final page in {
+          kPrivacyPolicyUrl: 'PRIVACY_POLICY.md',
+          kTermsUrl: 'TERMS.md',
+        }.entries) {
+          final segment = page.key.path.replaceAll('/', '');
+          expect(source, contains('"${page.value}": ("$segment"'),
+              reason: 'the app opens ${page.key.path} — $name must publish '
+                  '${page.value} at that exact segment');
+        }
+      });
 
-    test('an empty render fails the build instead of publishing a blank page',
-        () {
-      // A silently-empty privacy policy would satisfy a store reviewer's URL
-      // check while telling the user nothing.
-      expect(generator, contains('rendered to'));
-      expect(generator, contains('len(body) < 500'));
-    });
+      test('$name renders directory-style, so extensionless URLs resolve', () {
+        // /privacy must resolve without a trailing .html, which means
+        // privacy/index.html on disk.
+        expect(source, contains('index.html'));
+        expect(source, contains('dest.mkdir'));
+      });
+
+      test('$name fails the build rather than publishing a blank page', () {
+        // A silently-empty privacy policy would satisfy a store reviewer's URL
+        // check while telling the user nothing.
+        expect(source, contains('rendered to'));
+        expect(source, matches(RegExp(r'len\(\w+\) < 500')));
+      });
+    }
+  });
+
+  test('the rollback generator is not the one the app points at', () {
+    // build_site.py owns qirsh.site. If someone deletes it and leaves only the
+    // Workers generator, the production host stops being regenerable — a state
+    // that looks fine until docs/legal/ changes and the live site does not.
+    expect(File('../tools/build_site.py').existsSync(), isTrue,
+        reason: 'tools/build_site.py generates the canonical production site');
+    expect(File('../tools/build_legal_site.py').existsSync(), isTrue,
+        reason: 'tools/build_legal_site.py still generates the rollback host');
   });
 }
