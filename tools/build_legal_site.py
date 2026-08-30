@@ -33,11 +33,24 @@ from __future__ import annotations
 import html
 import pathlib
 import re
+import shutil
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "docs" / "legal"
 OUT = ROOT / "build" / "legal"
+
+# Brand assets. Pre-scaled from the canonical app art (`app/assets/qirsh/`) and
+# committed, so this script stays standard-library-only: resizing at build time
+# would mean a Pillow dependency for a file that never changes. Regenerate with
+# tools/legal_site_assets/README.md if the app mark ever changes.
+ASSETS = ROOT / "tools" / "legal_site_assets"
+ASSET_FILES = (
+    "qirsh-coin-gold.png",
+    "qirsh-coin-blue.png",
+    "apple-touch-icon.png",
+    "favicon.png",
+)
 
 # Source document -> published path segment. The segments must match the paths
 # `legal_urls.dart` builds; `test/core/legal_urls_test.dart` asserts they do.
@@ -56,50 +69,234 @@ LINK_REWRITES = {
 }
 
 STYLE = """
+/* Qirsh legal surface. Navy + gold, taken from the app's coin mark: deep navy
+   ground, gold as the accent, blue for interaction. Dark is the designed
+   default; light is a full peer, not an afterthought. */
 :root {
-  --bg: #ffffff; --fg: #1a1d23; --muted: #5b6472;
-  --rule: #e3e7ee; --accent: #021B79; --code-bg: #f4f6fa;
+  --bg: #f6f8fc; --bg-2: #eef2f9;
+  --surface: #ffffff; --surface-2: #f9fbff;
+  --border: #dde4f0; --border-soft: #e8edf6;
+  --fg: #101725; --fg-soft: #38445c; --muted: #5f6c85;
+  --gold: #a97b12; --gold-ink: #6d4d05;
+  --blue: #1d5fc4; --blue-soft: #e8f0fd;
+  --code-bg: #eef2f9; --code-fg: #24406e;
+  --shadow: 0 1px 2px rgba(16,23,37,.05), 0 8px 24px -12px rgba(16,23,37,.18);
+  --ring: 0 0 0 3px rgba(29,95,196,.35);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1115; --fg: #e8ebf0; --muted: #9aa4b2;
-    --rule: #262b33; --accent: #8fa8ff; --code-bg: #171b21;
+    --bg: #060a14; --bg-2: #0a1020;
+    --surface: #0d1526; --surface-2: #111b30;
+    --border: #1e2c47; --border-soft: #17233a;
+    --fg: #eaf0fb; --fg-soft: #c3cee2; --muted: #8b9ab6;
+    --gold: #e8be5e; --gold-ink: #f2d290;
+    --blue: #6ea8f5; --blue-soft: #12233f;
+    --code-bg: #101c30; --code-fg: #9fc3f2;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -20px rgba(0,0,0,.75);
+    --ring: 0 0 0 3px rgba(110,168,245,.45);
   }
 }
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0; padding: 2.5rem 1.25rem 5rem;
-  background: var(--bg); color: var(--fg);
-  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        "Helvetica Neue", Arial, sans-serif;
-  -webkit-text-size-adjust: 100%;
+  margin: 0;
+  background: var(--bg);
+  /* Two faint pools of brand colour instead of a flat field. */
+  background-image:
+    radial-gradient(1100px 520px at 82% -12%, rgba(29,95,196,.10), transparent 60%),
+    radial-gradient(760px 420px at 6% 0%, rgba(169,123,18,.08), transparent 62%);
+  background-attachment: fixed;
+  color: var(--fg);
+  font: 16px/1.68 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", "Noto Naskh Arabic", Arial, sans-serif;
+  font-feature-settings: "kern" 1;
+  overflow-wrap: break-word;
 }
-main { max-width: 44rem; margin: 0 auto; }
-h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 1.5rem; }
-h2 { font-size: 1.3rem; margin: 2.5rem 0 .75rem; }
-h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
-h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; color: var(--muted); }
-p, li { margin: 0 0 .85rem; }
-ul, ol { padding-inline-start: 1.35rem; }
-a { color: var(--accent); }
-hr { border: 0; border-top: 1px solid var(--rule); margin: 2.25rem 0; }
+:where(a, button, summary):focus-visible {
+  outline: none; box-shadow: var(--ring); border-radius: 6px;
+}
+
+/* ── brand bar ─────────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--border-soft);
+}
+@supports not (backdrop-filter: blur(1px)) { .topbar { background: var(--bg); } }
+.topbar-in {
+  max-width: 48rem; margin: 0 auto;
+  padding: .6rem 1.1rem;
+  display: flex; align-items: center; gap: .7rem;
+}
+.brand {
+  display: inline-flex; align-items: center; gap: .6rem;
+  text-decoration: none; color: inherit; min-height: 44px;
+}
+.brand img { width: 34px; height: 34px; display: block; flex: none; }
+.brand-name {
+  font-size: 1.06rem; font-weight: 700; letter-spacing: -.01em;
+  line-height: 1.1;
+}
+.brand-ar {
+  font-size: .95rem; color: var(--gold); font-weight: 600;
+  margin-inline-start: .1rem;
+}
+.brand-sub {
+  display: block; font-size: .7rem; font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted); margin-top: .1rem;
+}
+.topnav { margin-inline-start: auto; display: flex; gap: .3rem; }
+.topnav a {
+  display: inline-flex; align-items: center; min-height: 40px;
+  padding: 0 .7rem; border-radius: 8px;
+  font-size: .88rem; font-weight: 600; text-decoration: none;
+  color: var(--fg-soft);
+}
+.topnav a:hover { background: var(--surface-2); color: var(--fg); }
+.topnav a[aria-current="page"] { color: var(--blue); background: var(--blue-soft); }
+
+/* ── layout ────────────────────────────────────────────────────────────── */
+main { max-width: 48rem; margin: 0 auto; padding: 1.6rem 1.1rem 4rem; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 1.6rem 1.3rem 1.9rem;
+}
+
+/* ── typography ────────────────────────────────────────────────────────── */
+h1 {
+  font-size: clamp(1.55rem, 5.2vw, 2.05rem); line-height: 1.2;
+  letter-spacing: -.02em; margin: 0 0 .9rem; font-weight: 700;
+}
+h2 {
+  font-size: clamp(1.12rem, 3.6vw, 1.3rem); line-height: 1.3;
+  letter-spacing: -.01em; font-weight: 700;
+  margin: 2.3rem 0 .7rem; padding-top: 1.3rem;
+  border-top: 1px solid var(--border-soft);
+}
+.card > h2:first-of-type { border-top: 0; padding-top: 0; margin-top: 1.6rem; }
+h3 {
+  font-size: 1.02rem; font-weight: 650; margin: 1.7rem 0 .45rem;
+  color: var(--fg);
+}
+h3::before {
+  content: ""; display: inline-block; vertical-align: .12em;
+  width: 3px; height: .82em; margin-inline-end: .5rem;
+  background: var(--gold); border-radius: 2px;
+}
+h4 { font-size: .95rem; margin: 1.4rem 0 .4rem; color: var(--muted); }
+p, li { margin: 0 0 .8rem; color: var(--fg-soft); }
+li::marker { color: var(--gold); }
+ul, ol { padding-inline-start: 1.25rem; margin: 0 0 .9rem; }
+li { padding-inline-start: .15rem; }
+strong { color: var(--fg); font-weight: 650; }
+a { color: var(--blue); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+hr { border: 0; border-top: 1px solid var(--border-soft); margin: 2rem 0; }
 code {
-  background: var(--code-bg); padding: .12em .35em;
-  border-radius: 4px; font-size: .9em;
+  background: var(--code-bg); color: var(--code-fg);
+  padding: .13em .38em; border-radius: 5px;
+  font-size: .88em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
 }
-/* Wide tables scroll inside their own box; the page never scrolls sideways. */
-.tablewrap { overflow-x: auto; margin: 0 0 1.25rem; }
-table { border-collapse: collapse; width: 100%; font-size: .94rem; }
+
+/* The "Last updated" line each document opens with. Purely presentational —
+   if a document ever stops leading with it, this rule simply stops matching. */
+.card > h1 + p {
+  display: inline-block; margin-bottom: 1.5rem;
+  padding: .3rem .7rem; border-radius: 999px;
+  background: var(--blue-soft); border: 1px solid var(--border);
+  font-size: .82rem; color: var(--muted);
+}
+.card > h1 + p strong { color: var(--fg-soft); font-weight: 600; }
+
+/* ── tables ────────────────────────────────────────────────────────────── */
+.tablewrap {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  margin: 0 0 1.3rem; border: 1px solid var(--border);
+  border-radius: 11px; background: var(--surface-2);
+}
+table { border-collapse: collapse; width: 100%; font-size: .9rem; min-width: 20rem; }
 th, td {
-  text-align: start; padding: .5rem .7rem;
-  border-bottom: 1px solid var(--rule); vertical-align: top;
+  text-align: start; padding: .62rem .8rem; vertical-align: top;
+  border-bottom: 1px solid var(--border-soft);
 }
-th { font-weight: 600; white-space: nowrap; }
+thead th {
+  font-weight: 650; font-size: .76rem; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 60%, var(--bg-2));
+  white-space: nowrap; position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: 0; }
+td { color: var(--fg-soft); }
+
+/* ── landing page cards ────────────────────────────────────────────────── */
+.lede { font-size: 1.02rem; color: var(--muted); margin: 0 0 1.6rem; max-width: 34rem; }
+.doclist { display: grid; gap: .9rem; grid-template-columns: 1fr; }
+@media (min-width: 34rem) { .doclist { grid-template-columns: 1fr 1fr; } }
+.doccard {
+  display: flex; flex-direction: column; gap: .35rem;
+  padding: 1.15rem 1.1rem; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow); text-decoration: none; color: inherit;
+  transition: transform .18s ease, border-color .18s ease;
+}
+.doccard:hover { transform: translateY(-2px); border-color: var(--blue); }
+.doccard h2 {
+  margin: 0; padding: 0; border: 0; font-size: 1.06rem; color: var(--fg);
+}
+.doccard p { margin: 0; font-size: .89rem; color: var(--muted); }
+.doccard .go {
+  margin-top: .5rem; font-size: .83rem; font-weight: 650; color: var(--blue);
+}
+.stamp {
+  font-size: .74rem; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── footer ────────────────────────────────────────────────────────────── */
 footer {
-  margin-top: 3.5rem; padding-top: 1.25rem;
-  border-top: 1px solid var(--rule); color: var(--muted); font-size: .9rem;
+  max-width: 48rem; margin: 0 auto; padding: 1.5rem 1.1rem 3rem;
+  border-top: 1px solid var(--border-soft); color: var(--muted); font-size: .85rem;
 }
-footer a { margin-inline-end: 1rem; }
+.footnav { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; margin-bottom: .7rem; }
+.footnav a { font-weight: 600; text-decoration: none; }
+.footnav a:hover { text-decoration: underline; }
+.footmark { display: flex; align-items: center; gap: .5rem; }
+.footmark img { width: 20px; height: 20px; opacity: .85; }
+
+/* ── motion / a11y ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important;
+      scroll-behavior: auto !important; }
+  .doccard:hover { transform: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --border: currentColor; }
+}
+.skip {
+  position: absolute; left: -9999px; top: 0;
+  background: var(--surface); color: var(--fg);
+  padding: .7rem 1rem; border-radius: 0 0 8px 0; z-index: 40;
+}
+.skip:focus { left: 0; }
+
+/* Very small phones: reclaim horizontal space. The brand subtitle is the first
+   thing to go — at 320px it wraps to two lines and doubles the header height
+   for text that is already implied by the nav next to it. */
+@media (max-width: 23rem) {
+  main { padding-inline: .7rem; }
+  .card { padding: 1.2rem .95rem 1.5rem; border-radius: 14px; }
+  .topbar-in { padding-inline: .7rem; gap: .5rem; }
+  .brand-name { font-size: 1rem; }
+  .brand-sub { display: none; }
+  .brand img { width: 30px; height: 30px; }
+  .topnav a { padding: 0 .55rem; font-size: .85rem; }
+}
 """.strip()
 
 
@@ -218,35 +415,114 @@ def render(md: str) -> str:
     return "\n".join(out)
 
 
-def page(title: str, body: str) -> str:
+def _mark(cls: str = "") -> str:
+    """The coin mark, gold on dark and blue on light, as one <picture>.
+
+    `<picture>` swaps the source without JavaScript and without downloading
+    both files, so the mark matches the theme even with scripting disabled.
+    """
+    c = f' class="{cls}"' if cls else ""
+    return (
+        "<picture>"
+        '<source srcset="/qirsh-coin-gold.png" media="(prefers-color-scheme: dark)">'
+        f'<img src="/qirsh-coin-blue.png" alt="Qirsh" width="34" height="34"{c}>'
+        "</picture>"
+    )
+
+
+def page(title: str, body: str, *, current: str = "", wrap: bool = True) -> str:
+    """Shell every page shares: brand bar, content, footer.
+
+    `current` is the path of the page being rendered, used only to mark the
+    active nav item with aria-current.
+    """
+
+    def nav(href: str, label: str) -> str:
+        cur = ' aria-current="page"' if href == current else ""
+        return f'<a href="{href}"{cur}>{label}</a>'
+
+    content = f'<article class="card">\n{body}\n</article>' if wrap else body
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{html.escape(title)} — Qirsh</title>
+<meta name="description" content="{html.escape(title)} for the Qirsh (قِرش) app.">
 <meta name="robots" content="index, follow">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#060a14" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f8fc" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>{STYLE}</style>
 </head>
 <body>
-<main>
-{body}
-<footer>
-<a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Use</a>
-</footer>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="/">
+      {_mark()}
+      <span>
+        <span class="brand-name">Qirsh <span class="brand-ar" lang="ar" dir="rtl">قِرش</span></span>
+        <span class="brand-sub">Privacy &amp; Terms</span>
+      </span>
+    </a>
+    <nav class="topnav" aria-label="Legal documents">
+      {nav("/privacy", "Privacy")}
+      {nav("/terms", "Terms")}
+    </nav>
+  </div>
+</header>
+<main id="content">
+{content}
 </main>
+<footer>
+  <nav class="footnav" aria-label="Footer">
+    <a href="/">Legal home</a><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Use</a>
+  </nav>
+  <div class="footmark">
+    {_mark()}
+    <span>Qirsh <span lang="ar" dir="rtl">قِرش</span></span>
+  </div>
+</footer>
 </body>
 </html>
 """
 
 
-INDEX_BODY = """<h1>Qirsh — Legal</h1>
-<p>The documents below describe how Qirsh (قِرش) handles your data and the terms
-under which it is offered.</p>
-<ul>
-<li><a href="/privacy">Privacy Policy</a></li>
-<li><a href="/terms">Terms of Use</a></li>
-</ul>"""
+def stamp(md: str) -> str:
+    """The document's own 'Last updated' line, or '' if it has none.
+
+    Read from the source rather than generated, so the landing page can never
+    claim a date the document itself does not carry.
+    """
+    m = re.search(r"^\*\*Last updated:\s*([^*]+)\*\*\s*$", md, flags=re.M)
+    return m.group(1).strip() if m else ""
+
+
+def index_body(stamps: dict[str, str]) -> str:
+    """Landing page. Descriptions are neutral routing text, not legal claims."""
+
+    def card(href: str, title: str, blurb: str) -> str:
+        when = stamps.get(href, "")
+        dated = (
+            f'<p class="stamp">Last updated {html.escape(when)}</p>' if when else ""
+        )
+        return f"""<a class="doccard" href="{href}">
+<h2>{html.escape(title)}</h2>
+<p>{html.escape(blurb)}</p>
+{dated}
+<span class="go" aria-hidden="true">Read &rarr;</span>
+</a>"""
+
+    return f"""<h1>Legal</h1>
+<p class="lede">The documents below describe how Qirsh (<span lang="ar" dir="rtl">قِرش</span>)
+handles your data and the terms under which it is offered.</p>
+<div class="doclist">
+{card("/privacy", "Privacy Policy", "What the app processes on your device, what is sent to the cloud, and how to delete your data.")}
+{card("/terms", "Terms of Use", "The terms you agree to when using Qirsh, including accuracy, responsibilities and availability.")}
+</div>"""
 
 
 def main() -> int:
@@ -255,23 +531,41 @@ def main() -> int:
         return 1
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "index.html").write_text(page("Legal", INDEX_BODY), encoding="utf-8")
-    written = ["index.html"]
+    written: list[str] = []
+    stamps: dict[str, str] = {}
 
     for name, (segment, title) in PAGES.items():
         src = SRC / name
         if not src.is_file():
             print(f"error: {src} missing", file=sys.stderr)
             return 1
-        body = render(src.read_text(encoding="utf-8"))
+        md = src.read_text(encoding="utf-8")
+        body = render(md)
         # A silently-empty legal page is worse than a build failure.
         if len(body) < 500:
             print(f"error: {name} rendered to {len(body)} bytes", file=sys.stderr)
             return 1
+        stamps[f"/{segment}"] = stamp(md)
         dest = OUT / segment
         dest.mkdir(parents=True, exist_ok=True)
-        (dest / "index.html").write_text(page(title, body), encoding="utf-8")
+        (dest / "index.html").write_text(
+            page(title, body, current=f"/{segment}"), encoding="utf-8"
+        )
         written.append(f"{segment}/index.html")
+
+    # Landing page last: it reports each document's own 'Last updated' line.
+    (OUT / "index.html").write_text(
+        page("Legal", index_body(stamps), current="/", wrap=False), encoding="utf-8"
+    )
+    written.insert(0, "index.html")
+
+    for asset in ASSET_FILES:
+        srcfile = ASSETS / asset
+        if not srcfile.is_file():
+            print(f"error: brand asset {srcfile} missing", file=sys.stderr)
+            return 1
+        shutil.copyfile(srcfile, OUT / asset)
+        written.append(asset)
 
     print(f"wrote {len(written)} files to {OUT}:")
     for w in written:
