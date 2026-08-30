@@ -33,7 +33,9 @@ project currently linked on this machine (`bdhqjijscwdzqwqanygv`, "Nbjg") is
 | `07_Cloud_Capabilities/` | the capability model and the PUSH→PULL activation path |
 | `08_Device_QA/` | physical-device QA with pass/fail criteria, including UX-035 |
 | `09_Beta/` + `10_Store_Release/` | TestFlight, Play internal, metadata, rollout, rollback |
-| `11_Rollback_Recovery/` + `12_Archive/` | superseded documents, kept with a pointer to their replacement |
+| `11_Rollback_Recovery/` | emergency procedures and migration recovery |
+| `13_AdMob/` | the report-export interstitial — account, four build-time IDs, safety model, verification |
+| `12_Archive/` | superseded documents, kept with a pointer to their replacement |
 
 ---
 

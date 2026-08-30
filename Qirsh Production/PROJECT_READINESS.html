@@ -538,6 +538,33 @@
   </div>
 </div>
 
+<!-- ══ ADMOB ═════════════════════════════════════════════════ -->
+<h2>AdMob</h2>
+<div class="cards">
+  <div class="card ok">
+    <h3>In the repository <span class="b b-done">COMPLETE</span></h3>
+    <div class="ref">Detail: <a href="13_AdMob/README.md">13_AdMob/</a></div>
+    <ul class="items">
+      <li><span class="b b-done">✓</span><span class="t">Report-export interstitial implemented<span class="n"><code>app/lib/features/report_ads/</code> · 8 test files incl. architecture guards</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Four build-time IDs wired into CI<span class="n">App IDs also reach the native layer — iOS xcconfig + plist, Android manifest via Gradle</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Shape validated against the SDK's own regex<span class="n">Malformed Android App ID <strong>fails the build</strong> — the SDK crashes at process start, before Dart can guard</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Release can never fall back to Google TEST IDs<span class="n">A test publisher value resolves as "unconfigured", not as valid</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Ads are fail-open<span class="n">No ad ⇒ the report still generates. No rewarded ads; UMP is the sole consent authority</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>External / owner <span class="b b-opt">OPTIONAL — NOT BLOCKING</span></h3>
+    <div class="ref">Detail: <a href="13_AdMob/setup_checklist.md">13_AdMob/setup_checklist.md</a></div>
+    <ul class="items">
+      <li><span class="b b-owner">OWNER</span><span class="t">AdMob account, linked to Play + payments/tax complete<span class="n">Without payments set up, ads never serve — silently</span></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Register iOS + Android apps, one interstitial unit each</span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Set the 4 IDs in the Codemagic <code>supabase</code> group</span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Verify the App ID in the built manifest/plist<span class="n">A build with ads unconfigured succeeds and ships silently — "it built" proves nothing</span></span></li>
+      <li><span class="b b-opt">NOTE</span><span class="t">Absent ⇒ app ships with ads off and works normally<span class="n">This does not block release</span></span></li>
+    </ul>
+  </div>
+</div>
+
 <!-- ══ DEVICE QA ═════════════════════════════════════════════ -->
 <h2>Physical-device QA</h2>
 <div class="cards">
