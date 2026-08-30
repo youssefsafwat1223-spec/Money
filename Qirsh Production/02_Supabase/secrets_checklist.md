@@ -40,7 +40,7 @@ supabase secrets list        # names only — values are never echoed
 |---|---|---|---|---|
 | `SUPABASE_URL` | for cloud features | project URL | ships in app, not secret | cloud features unavailable; app still runs |
 | `SUPABASE_ANON_KEY` | for cloud features | anon key | ships in app, **public by design** | as above |
-| `LEGAL_BASE_URL` | **yes, for store submission** | host serving `/privacy`, `/terms` | not secret | falls back to a host that does not resolve |
+| `LEGAL_BASE_URL` | **yes — required for production release config** | host serving `/privacy`, `/terms` | not secret | falls back to the live host, so links still work — but the release host is undeclared, which is a configuration defect to catch before signing |
 | `SENTRY_DSN` | optional | crash reporting | low | reporting disabled, no crash |
 | `APP_VERSION` | set by CI from pubspec | `X-App-Version` targeting | not secret | version-targeted rules cannot match (F-024) |
 

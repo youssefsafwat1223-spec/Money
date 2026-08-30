@@ -10,9 +10,12 @@ Live host: **`https://qirsh-legal.albaraai-dev.workers.dev`** (no trailing slash
 - [x] `legalUrlsArePlaceholder` retired — the default is now the live host, so
       the old "is the default still in use?" question no longer indicates
       anything. Replaced by `legalBaseUrlIsBuildOverride`.
-- [ ] `LEGAL_BASE_URL` set in the Codemagic `supabase` variable group
-      (optional now — the built-in default is the live host, so a build without
-      it still opens working links)
+- [ ] **`LEGAL_BASE_URL` set in the Codemagic `supabase` variable group —
+      REQUIRED for production release configuration.** Not optional. The
+      built-in live default is a safety fallback for users, not a substitute
+      for configuring the release. A missing variable no longer produces broken
+      legal URLs, but it is still a **release-configuration defect** and must be
+      caught before signing.
 - [ ] Release build made with the define
 - [ ] Both links verified from inside the installed app
 - [ ] Privacy URL entered in App Store Connect

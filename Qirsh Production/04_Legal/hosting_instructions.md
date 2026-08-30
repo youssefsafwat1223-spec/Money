@@ -59,7 +59,12 @@ rather than forcing the page sideways.
 ```
 
 Already added to all three `codemagic.yaml` workflows — set `LEGAL_BASE_URL` in
-the Codemagic `supabase` variable group.
+the Codemagic `supabase` variable group. **Required for every production
+build.** `legal_urls.dart` defaults to the live host, so an absent variable no
+longer ships broken links — but that fallback protects *users*, not the
+release. A build whose legal host is implicit cannot be reproduced or repointed
+without a code change, so treat an absent or empty value as a
+release-configuration defect and catch it before signing.
 
 > **Absent or non-empty — never empty.** `String.fromEnvironment` honours
 > `defaultValue` only for an *undefined* key; an empty define wins and would

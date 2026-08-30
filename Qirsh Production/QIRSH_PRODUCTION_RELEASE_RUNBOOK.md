@@ -245,8 +245,31 @@ meant something only while the default was dead. It is replaced by
 The old tripwire assertion is gone; `legal_urls_test.dart` now pins the exact
 default URLs and proves the override and empty-define paths in their own runs.
 
-`LEGAL_BASE_URL` is therefore **no longer a release blocker** — it stays wired
-in all three workflows for staging or a future host change.
+### `LEGAL_BASE_URL` is still REQUIRED for production
+
+The built-in default changes the *consequence* of a missing variable, not the
+requirement. These are complementary controls, not alternatives:
+
+| Control | Protects | Still required? |
+|---|---|---|
+| Built-in live default in `legal_urls.dart` | **users** — links work even if configuration is accidentally absent | n/a — always present |
+| Codemagic `LEGAL_BASE_URL` in the `supabase` group | **release intent** — the shipped host is declared, reproducible and configurable | **YES, for every production build** |
+
+Set it to exactly:
+
+```
+LEGAL_BASE_URL=https://qirsh-legal.albaraai-dev.workers.dev
+```
+
+A missing variable no longer produces broken legal URLs, so it will not be
+caught by tapping the link. That makes it **easier** to miss, not less
+important: the build silently falls back instead of failing visibly. Treat an
+absent or empty `LEGAL_BASE_URL` as a **release-configuration defect** and
+catch it before signing, not after.
+
+Do not read the fallback as permission to skip the variable. A release whose
+host is implicit is a release nobody can reproduce or repoint without a code
+change — which is the whole reason the define exists in all three workflows.
 
 ### PHASE 1 EXIT CRITERIA
 - [ ] `https://<host>/privacy` returns 200 and renders
