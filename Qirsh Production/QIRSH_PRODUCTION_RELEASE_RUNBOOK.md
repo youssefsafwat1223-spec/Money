@@ -228,13 +228,25 @@ curl -sI https://<host>/terms   | head -1   # HTTP/2 200
 `privacy/index.html` for an extensionless path. Use `/privacy/` with the
 trailing slash to confirm, then enable "clean URLs" on the host.
 
-## 1.4 `[~] [ ] [CLAUDE]` Remove the placeholder assertion
+## 1.4 `[x] [CLAUDE]` Placeholder semantics retired — DONE
 
-Once `LEGAL_BASE_URL` is real, `legalUrlsArePlaceholder` becomes `false` and the
-test that asserts it is `true` **will fail — deliberately.** It is written to
-fail as good news. Claude deletes that assertion and updates the status docs.
+The legal site is live at `https://qirsh-legal.albaraai-dev.workers.dev`, and
+that host is now the **built-in default** in `legal_urls.dart`.
 
-**Prerequisite:** §1.3 complete and the URL recorded.
+This inverted the original design deliberately. The default used to be an
+unresolvable host so a missing CI variable would be caught — but it was only
+catchable by tapping the link in a finished build, which in practice means a
+store reviewer finds it after submission. A working default degrades a missing
+variable to *working links* instead of dead ones.
+
+`legalUrlsArePlaceholder` asked whether the default was still in use, which
+meant something only while the default was dead. It is replaced by
+`legalBaseUrlIsBuildOverride`, which reports whether a define was supplied.
+The old tripwire assertion is gone; `legal_urls_test.dart` now pins the exact
+default URLs and proves the override and empty-define paths in their own runs.
+
+`LEGAL_BASE_URL` is therefore **no longer a release blocker** — it stays wired
+in all three workflows for staging or a future host change.
 
 ### PHASE 1 EXIT CRITERIA
 - [ ] `https://<host>/privacy` returns 200 and renders

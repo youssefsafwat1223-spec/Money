@@ -1,12 +1,20 @@
 # Legal Release Checklist
 
-- [ ] `python3 tools/build_legal_site.py` run against current `docs/legal/`
-- [ ] Site uploaded; `/privacy` and `/terms` both return 200
-- [ ] Both pages render on a mobile browser
-- [ ] `LEGAL_BASE_URL` recorded and set in the Codemagic variable group
-- [ ] Release build made **with** the define
+Live host: **`https://qirsh-legal.albaraai-dev.workers.dev`** (no trailing slash).
+
+- [x] `python3 tools/build_legal_site.py` run against current `docs/legal/`
+- [x] Site uploaded; `/privacy` and `/terms` both return 200
+      (via a 307 to the trailing-slash form — Workers Static Assets
+      canonicalisation, accepted; browsers and `url_launcher` follow it)
+- [x] Both pages render on a mobile browser
+- [x] `legalUrlsArePlaceholder` retired — the default is now the live host, so
+      the old "is the default still in use?" question no longer indicates
+      anything. Replaced by `legalBaseUrlIsBuildOverride`.
+- [ ] `LEGAL_BASE_URL` set in the Codemagic `supabase` variable group
+      (optional now — the built-in default is the live host, so a build without
+      it still opens working links)
+- [ ] Release build made with the define
 - [ ] Both links verified from inside the installed app
-- [ ] `legalUrlsArePlaceholder` assertion removed from `legal_urls_test.dart`
 - [ ] Privacy URL entered in App Store Connect
 - [ ] Privacy URL entered in Play Console
 - [ ] Store privacy declarations match `docs/legal/PRIVACY_POLICY.md`

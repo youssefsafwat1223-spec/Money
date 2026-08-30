@@ -52,18 +52,76 @@ void main() {
             'configuration mistake');
   });
 
-  test('the placeholder host is still flagged, not quietly accepted', () {
-    // This is the honest state of C-5: everything inside the repository is
-    // done, and the host does not resolve. When a real host is configured via
-    // --dart-define=LEGAL_BASE_URL, this flips to false and the release
-    // checklist item can close.
+  group('the built-in default is the live production legal host', () {
+    // C-5 is closed: the default is a host that resolves and serves
+    // docs/legal/, so a build that never passes LEGAL_BASE_URL still opens
+    // working documents. These assertions pin that default, because a silent
+    // edit to it would ship wrong links with nothing else failing.
     //
-    // If this assertion ever fails, that is GOOD news — delete it and mark C-5
-    // closed. It is written to fail loudly rather than to pass forever.
-    expect(legalUrlsArePlaceholder, isTrue,
-        reason: 'LEGAL_BASE_URL now points somewhere else — if that host is '
-            'live and serving docs/legal/, C-5 is resolved: update '
-            'Qirsh Production/01_Current_Status/QIRSH_RELEASE_TRACK.md and remove this assertion');
+    // They describe the DEFAULT, so they are meaningful only in a run without
+    // --dart-define=LEGAL_BASE_URL. Guarded on that, rather than asserted
+    // unconditionally, so passing a staging host at test time does not fail a
+    // build for doing exactly what the override exists for.
+    const liveHost = 'https://qirsh-legal.albaraai-dev.workers.dev';
+
+    test('default base URL is the approved live host', () {
+      if (legalBaseUrlIsBuildOverride) return;
+      expect(kLegalBaseUrl, liveHost);
+    });
+
+    test('default privacy and terms URLs are exact', () {
+      if (legalBaseUrlIsBuildOverride) return;
+      expect(kPrivacyPolicyUrl.toString(), '$liveHost/privacy');
+      expect(kTermsUrl.toString(), '$liveHost/terms');
+    });
+
+    test('the base carries https and a non-empty host', () {
+      final base = Uri.parse(kLegalBaseUrl);
+      expect(base.scheme, 'https', reason: 'a legal URL must not be plaintext');
+      expect(base.host, isNotEmpty);
+    });
+
+    test('the base has no trailing slash', () {
+      // The paths are appended directly, so a trailing slash here yields
+      // '//privacy'. Cheap to assert, easy to reintroduce by hand.
+      expect(kLegalBaseUrl.endsWith('/'), isFalse);
+      expect(kPrivacyPolicyUrl.path, '/privacy');
+      expect(kTermsUrl.path, '/terms');
+    });
+
+    test('the dead host it replaced is gone from the config', () {
+      // The previous default did not resolve. If it comes back — by a revert,
+      // a merge, or a copied line — every shipped link breaks silently.
+      final src =
+          File('lib/core/config/legal_urls.dart').readAsStringSync();
+      expect(src.contains('mali.youssefsafwat.com'), isFalse,
+          reason: 'the unresolvable host must not return as a default');
+    });
+
+  });
+
+  group('override resolution', () {
+    // Read the define here as well as in the library, so these assertions
+    // describe whichever run they are in: `flutter test` proves the fallback,
+    // and `flutter test --dart-define=LEGAL_BASE_URL=...` proves the override.
+    // Neither case is skipped silently — each is asserted in its own run.
+    const override = String.fromEnvironment('LEGAL_BASE_URL');
+    const liveHost = 'https://qirsh-legal.albaraai-dev.workers.dev';
+
+    test('an absent or EMPTY define falls back to the live default', () {
+      if (override.isNotEmpty) return;
+      expect(legalBaseUrlIsBuildOverride, isFalse);
+      expect(kLegalBaseUrl, liveHost);
+      expect(kPrivacyPolicyUrl.host, Uri.parse(liveHost).host);
+    });
+
+    test('an explicit non-empty define wins, and both URLs derive from it', () {
+      if (override.isEmpty) return;
+      expect(legalBaseUrlIsBuildOverride, isTrue);
+      expect(kLegalBaseUrl, override);
+      expect(kPrivacyPolicyUrl.toString(), '$override/privacy');
+      expect(kTermsUrl.toString(), '$override/terms');
+    });
   });
 
   test('the screen does not hardcode a URL of its own', () {

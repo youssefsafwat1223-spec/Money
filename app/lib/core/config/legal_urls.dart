@@ -1,34 +1,40 @@
-/// C-5 — the one place the Privacy/Terms URLs are configured.
+/// The one place the Privacy/Terms URLs are configured.
 ///
-/// These were hardcoded in `privacy_screen.dart` pointing at a host that does
-/// not resolve (NXDOMAIN, re-verified 2026-08-27, for both
-/// `mali.youssefsafwat.com` and the apex domain). The in-app Privacy screen
-/// therefore opens a dead link in the shipping build, and both app stores
-/// require a reachable privacy URL.
+/// These were once hardcoded in `privacy_screen.dart`, pointing at a host that
+/// did not resolve. They are centralised here so there is a single canonical
+/// base, one place to change it, and a test that can assert the URLs are
+/// well-formed and consistent.
 ///
-/// Centralising them does not fix that — only owning a host does — but it makes
-/// the fix a one-line change in a file named for the purpose, and it lets a test
-/// assert the URLs are at least well-formed and consistent.
+/// ## The default is the real production host, on purpose
 ///
-/// ## Deliberately NOT defaulted to a plausible-looking URL
+/// [_kLegalBaseUrl] is the live legal site. It is a working default, not a
+/// placeholder: a build that fails to pass `LEGAL_BASE_URL` still opens
+/// reachable documents rather than dead links.
 ///
-/// It would be easy to point these at some real-looking address to make the
-/// release checklist go green. That would be worse than the current state: a
-/// link that resolves to someone else's page, or to a 404 on a domain we do not
-/// control, is a privacy policy the user cannot read while appearing to be one.
-/// The host below is the intended one and is recorded as a RELEASE BLOCKER until
-/// it resolves and serves the documents in `docs/legal/`.
+/// That is a deliberate reversal. The default used to be an unresolvable host,
+/// so that a missing CI variable would be caught. But it was only catchable by
+/// tapping the link in a finished build — which in practice means a store
+/// reviewer finds it, after submission. Degrading to *working* links is the
+/// safer failure mode, and CI still passes the define explicitly in all three
+/// build workflows.
+///
+/// The host must keep serving the documents in `docs/legal/`, published by
+/// `tools/build_legal_site.py`. `legal_urls_test.dart` asserts the generator
+/// and these URLs agree on the exact path segments.
 library;
 
-/// The intended host, used when no override is supplied.
-const String _kDefaultLegalBaseUrl = 'https://mali.youssefsafwat.com';
+/// Live legal site. Serves `/privacy` and `/terms` from `docs/legal/`.
+///
+/// No trailing slash: the paths below are appended directly, so a trailing
+/// slash here would produce `//privacy`.
+const String _kLegalBaseUrl = 'https://qirsh-legal.albaraai-dev.workers.dev';
 
 /// Raw build-time override. May be EMPTY — see [kLegalBaseUrl].
 const String _kLegalBaseUrlOverride = String.fromEnvironment('LEGAL_BASE_URL');
 
 /// Base host for the published legal documents.
 ///
-/// Override at build time once the host is live and serving:
+/// Override at build time to point at a different host:
 ///   --dart-define=LEGAL_BASE_URL=https://your-host.example
 ///
 /// ## Why this is not a plain `defaultValue:`
@@ -48,7 +54,7 @@ const String _kLegalBaseUrlOverride = String.fromEnvironment('LEGAL_BASE_URL');
 /// Comparing against `''` keeps the whole expression const-evaluable, so this
 /// stays a compile-time constant.
 const String kLegalBaseUrl =
-    _kLegalBaseUrlOverride == '' ? _kDefaultLegalBaseUrl : _kLegalBaseUrlOverride;
+    _kLegalBaseUrlOverride == '' ? _kLegalBaseUrl : _kLegalBaseUrlOverride;
 
 /// Published from `docs/legal/PRIVACY_POLICY.md`.
 final Uri kPrivacyPolicyUrl = Uri.parse('$kLegalBaseUrl/privacy');
@@ -56,10 +62,14 @@ final Uri kPrivacyPolicyUrl = Uri.parse('$kLegalBaseUrl/privacy');
 /// Published from `docs/legal/TERMS.md`.
 final Uri kTermsUrl = Uri.parse('$kLegalBaseUrl/terms');
 
-/// Whether the configured host is the unresolved placeholder.
+/// Whether this build carries an explicit `LEGAL_BASE_URL` override.
 ///
-/// Exposed so the release checklist can assert on it mechanically rather than
-/// relying on someone remembering. It is NOT used to hide the links in the UI:
-/// showing a dead link is bad, but silently removing the privacy policy from a
-/// shipping app is worse, and the correct fix is to own the host.
-bool get legalUrlsArePlaceholder => kLegalBaseUrl == _kDefaultLegalBaseUrl;
+/// `false` means the built-in production host is in use, which is a supported
+/// and safe state — not a defect. Exposed so a build can be identified
+/// mechanically (for example, to confirm a staging define actually landed)
+/// rather than by reading URLs out of a binary.
+///
+/// This replaces the former `legalUrlsArePlaceholder`, which asked whether the
+/// default was still in use back when the default was an unresolvable host.
+/// With a working default that question no longer indicates anything.
+bool get legalBaseUrlIsBuildOverride => _kLegalBaseUrlOverride != '';
