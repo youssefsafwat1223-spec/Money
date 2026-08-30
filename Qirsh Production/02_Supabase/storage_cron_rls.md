@@ -17,7 +17,7 @@ create Supabase **platform** settings. Those are manual.
 
 | Dependency | Created by |
 |---|---|
-| All application tables | `0001`…`0091` |
+| All application tables | `0001`…`0092` |
 | RLS policies | migrations |
 | Storage **policies** on `backups` | `0001_init.sql`, hardened by `0086` |
 | Database functions and triggers | migrations |

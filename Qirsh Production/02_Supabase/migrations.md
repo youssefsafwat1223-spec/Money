@@ -1,6 +1,6 @@
-# Migrations 0001 → 0091
+# Migrations 0001 → 0092
 
-Detail for runbook [§3.2](../QIRSH_PRODUCTION_RELEASE_RUNBOOK.md#32---auth--apply-migrations-0001--0091).
+Detail for runbook [§3.2](../QIRSH_PRODUCTION_RELEASE_RUNBOOK.md#32---auth--apply-migrations-0001--0092).
 
 Canonical files: `supabase/migrations/` (do not move — tooling resolves them).
 

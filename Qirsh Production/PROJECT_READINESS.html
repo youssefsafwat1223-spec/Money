@@ -215,7 +215,7 @@
       <dt>Why now</dt>      <dd>Everything backend-shaped waits on it, and it gates the longest chain: secrets → migrations → functions → capability proof.</dd>
       <dt>Where</dt>        <dd>supabase.com/dashboard → New project</dd>
       <dt>Done when</dt>    <dd>Project is Active and you have recorded the Project Ref, URL, anon key, service_role key and DB password.</dd>
-      <dt>Unlocks</dt>      <dd>Claude can then set secrets, apply migrations 0001–0091, and deploy 24 Edge Functions — all with your explicit authorisation.</dd>
+      <dt>Unlocks</dt>      <dd>Claude can then set secrets, apply migrations 0001–0092, and deploy 24 Edge Functions — all with your explicit authorisation.</dd>
       <dt>Steps</dt>        <dd><a href="QIRSH_PRODUCTION_RELEASE_RUNBOOK.md">Runbook §2.1</a></dd>
     </dl>
     <div style="margin-top:1rem; padding-top:.85rem; border-top:1px solid rgba(77,124,255,.28)">
@@ -360,7 +360,7 @@
       <li><span class="b b-claude">AUTH</span><span class="t">Link the CLI and <em>verify the target ref</em></span></li>
       <li><span class="b b-owner">OWNER</span><span class="t">Enable pgcrypto, pg_cron, pg_net · create the private <code>backups</code> bucket</span></li>
       <li><span class="b b-owner">OWNER</span><span class="t">Configure Apple + Google providers<span class="n">Google needs "skip nonce checks" ON, or device sign-in fails</span></span></li>
-      <li><span class="b b-claude">AUTH</span><span class="t">Set Edge secrets, apply 0001–0091, deploy 24 functions</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Set Edge secrets, apply 0001–0092, deploy 24 functions</span></li>
       <li><span class="b b-claude">AUTH</span><span class="t">Backend verification sweep</span></li>
     </ul>
   </div>
@@ -666,7 +666,7 @@
       <li><span class="b b-claude">NOW</span><span class="t">Rebuild the legal static site on demand<span class="n">Purely local · <code>python3 tools/build_legal_site.py</code></span></span></li>
       <li><span class="b b-claude">AUTH</span><span class="t">Link the Supabase CLI + verify the target ref<span class="n">After you supply the ref and authorise</span></span></li>
       <li><span class="b b-claude">AUTH</span><span class="t">Set Edge Function secrets</span></li>
-      <li><span class="b b-claude">AUTH</span><span class="t">Apply migrations 0001–0091</span></li>
+      <li><span class="b b-claude">AUTH</span><span class="t">Apply migrations 0001–0092</span></li>
       <li><span class="b b-claude">AUTH</span><span class="t">Deploy 24 Edge Functions + verification sweep</span></li>
       <li><span class="b b-claude">AUTH</span><span class="t">Build signed release artifacts</span></li>
       <li><span class="b b-claude">AUTH</span><span class="t">Prove and activate exactPush, then exactPull<span class="n">Only after internal beta</span></span></li>
@@ -716,7 +716,7 @@
       <tr><td>Flutter — crypto</td><td>24 passed (serialized, <code>--concurrency=1</code>)</td></tr>
       <tr><td>Admin</td><td>113 / 113 passed</td></tr>
       <tr><td>Deno</td><td>All 24 Edge Functions passed · lint clean · 2 ignored (live-Postgres, declared)</td></tr>
-      <tr><td>Migrations</td><td>0001–0091 · no gaps or duplicates · 41 SECURITY DEFINER locked down · rollback coverage from 0084: 0 missing</td></tr>
+      <tr><td>Migrations</td><td>0001–0092 · no gaps or duplicates · 41 SECURITY DEFINER locked down · rollback coverage from 0084: 0 missing</td></tr>
       <tr><td>TypeScript</td><td>Covered by the admin suite; <code>tsc --noEmit</code> independently clean</td></tr>
       <tr><td>Arch guards</td><td>MALI-034 (6 checks) · MALI-037 deps policy · pristine-tree guard</td></tr>
       <tr><td>Git — tracked diff</td><td><strong>0</strong> files differ from HEAD</td></tr>

@@ -127,7 +127,7 @@ Only these. Everything else is done.
 
 1. Host the legal site and get a public HTTPS URL.
 2. Create the **new** Supabase production project.
-3. Provision that backend: migrations 0001–0091, 24 Edge Functions, secrets, Auth.
+3. Provision that backend: migrations 0001–0092, 24 Edge Functions, secrets, Auth.
 4. Apple: identifiers, capabilities, APNs key, certificates, profiles.
 5. Android: production keystore.
 6. Signed release builds carrying `LEGAL_BASE_URL`.
@@ -378,7 +378,7 @@ add `com.youssefsafwat.mali://login-callback` and your site URL.
 
 | Dependency | Created by | Manual? |
 |---|---|---|
-| All application tables | `0001`…`0091` | no |
+| All application tables | `0001`…`0092` | no |
 | RLS policies | migrations | no |
 | Storage policies on `backups` | `0001`, `0086` | no (bucket is manual) |
 | `supabase_realtime` publication | Supabase default | no |
@@ -426,7 +426,7 @@ must not confer database superpowers.
 
 Full inventory with consequences: [`02_Supabase/secrets_checklist.md`](02_Supabase/secrets_checklist.md).
 
-## 3.2 `[!] [ ] [AUTH]` Apply migrations 0001 → 0091
+## 3.2 `[!] [ ] [AUTH]` Apply migrations 0001 → 0092
 
 The database is empty; the entire chain runs.
 
@@ -911,7 +911,7 @@ Any one of these is true, production release does not proceed.
 | 1 | The privacy policy URL does not resolve, or the in-app link opens the placeholder host |
 | 2 | The Android keystore is not backed up in two independent places |
 | 3 | `cat supabase/.temp/project-ref` does not print the intended production ref |
-| 4 | Any migration 0001–0091 failed and was left partially applied |
+| 4 | Any migration 0001–0092 failed and was left partially applied |
 | 5 | An Edge Function worker responds to an **unauthenticated** request with anything but 401/403 |
 | 6 | `PURGE_WORKER_SECRET` or `NOTIFICATION_RETRY_WORKER_SECRET` equals the service-role key |
 | 7 | The service-role key appears in any build, commit, screenshot or log |

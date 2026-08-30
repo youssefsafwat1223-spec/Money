@@ -6,7 +6,7 @@
 1. Legal site live                        (Phase 1)
 2. Production Supabase project created    (Phase 2)
 3. Secrets set                            (Phase 3.1)
-4. Migrations 0001–0091 applied           (Phase 3.2)
+4. Migrations 0001–0092 applied           (Phase 3.2)
 5. 24 Edge Functions deployed             (Phase 3.3)
 6. Backend verification sweep             (Phase 3.4)
 7. Apple + Android configuration          (Phases 5, 6)

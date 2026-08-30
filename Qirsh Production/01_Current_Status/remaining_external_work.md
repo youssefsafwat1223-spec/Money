@@ -17,7 +17,7 @@ blocks the critical path.
 | # | Item | Owner | Blocked by |
 |---|---|---|---|
 | 5 | Set Edge Function secrets | Claude `[AUTH]` | 1 |
-| 6 | Apply migrations 0001–0091 | Claude `[AUTH]` | 1, 5 |
+| 6 | Apply migrations 0001–0092 | Claude `[AUTH]` | 1, 5 |
 | 7 | Deploy 24 Edge Functions | Claude `[AUTH]` | 1, 5 |
 | 8 | Signed release builds | Youssef + Claude | 1, 2, 3, 4 |
 | 9 | Physical-device QA + UX-035 | Youssef `[DEVICE]` | 8 |

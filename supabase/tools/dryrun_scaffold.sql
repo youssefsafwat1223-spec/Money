@@ -52,6 +52,25 @@ end $$;
 
 grant usage on schema public, auth, storage, extensions to anon, authenticated, service_role;
 
+-- Hosted Supabase ships DEFAULT PRIVILEGES on `public` that grant the full
+-- table privilege set to `anon` and `authenticated` on every newly created
+-- table. Every migration that enables RLS neutralises them; a migration that
+-- forgets to leaves the table reachable over PostgREST by anyone.
+--
+-- Without this line the container cannot express that failure mode at all, so
+-- the harness reported a clean apply for `0087`, whose journal table shipped
+-- RLS-disabled and anon-writable to production. That was found live, after the
+-- fact, and fixed by `0092`. Reproducing the defaults here is what makes the
+-- dry-run capable of catching the next one.
+--
+-- `service_role` is included because the hosted defaults grant it too. Omitting
+-- it makes the container claim a REVOKE stripped service_role access when the
+-- role simply never had any, which reads as a false regression -- note that
+-- BYPASSRLS lets a role skip RLS policies but confers no table privilege of its
+-- own, so a missing grant here is indistinguishable from a revoked one.
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+grant all on all tables in schema public to anon, authenticated, service_role;
+
 -- ─── auth ──────────────────────────────────────────────────────────────────
 create table if not exists auth.users (
   id                  uuid primary key default gen_random_uuid(),

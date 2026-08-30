@@ -1,0 +1,80 @@
+-- ROLLBACK for 0092_lock_down_parser_validation_reset_journal.sql
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- READ THIS FIRST. RUNNING THIS REOPENS A LIVE SECURITY EXPOSURE.
+--
+-- 0092 closed the only anon-writable table in schema `public`. Undoing it
+-- restores exactly that: an unauthenticated caller regains SELECT, INSERT,
+-- UPDATE, DELETE and TRUNCATE on the 0087 rollback journal, over PostgREST,
+-- with no authentication of any kind.
+--
+-- The serious consequence is not disclosure -- the journal holds twelve rows of
+-- parser UUIDs and status strings. It is that an attacker can INSERT forged
+-- `(parser_id, previous_status = 'passed')` rows, so that a later legitimate
+-- execution of the 0087 rollback promotes parsers to `passed` with no golden
+-- test behind them, defeating the parser-evidence gate that 0087 exists to
+-- create. Or they can simply TRUNCATE the journal and destroy 0087's
+-- reversibility.
+--
+-- There is no application reason to run this. Nothing in the mobile client or
+-- the admin UI reads this table; `service_role` and `postgres` retained full
+-- access under 0092, so every legitimate recovery path still works WITHOUT
+-- rolling back. If a recovery procedure appears to need this file, the
+-- procedure is connecting with the wrong role -- fix the role, not the grants.
+--
+-- Run this ONLY to reproduce the pre-0092 state for controlled forensic
+-- comparison, on a project you can afford to leave exposed, and re-apply 0092
+-- immediately afterwards.
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- EVIDENCE BASIS
+-- This restores the observed pre-0092 state, not a guessed one. Captured from
+-- the production project immediately before 0092 was applied:
+--
+--   relrowsecurity      = false
+--   relforcerowsecurity = false
+--   relowner            = postgres
+--   relacl              = {postgres=arwdDxtm/postgres,
+--                          anon=arwdDxtm/postgres,
+--                          authenticated=arwdDxtm/postgres,
+--                          service_role=arwdDxtm/postgres}
+--
+-- `arwdDxtm` is the complete PostgreSQL 17 table privilege set: INSERT(a),
+-- SELECT(r), UPDATE(w), DELETE(d), TRUNCATE(D), REFERENCES(x), TRIGGER(t),
+-- MAINTAIN(m). `GRANT ALL` reproduces it exactly.
+--
+-- NOTE ON `MAINTAIN`: PostgreSQL 17 added the MAINTAIN privilege, and
+-- `information_schema.role_table_grants` does NOT report it. A rollback written
+-- by enumerating that view would restore seven of the eight privileges and look
+-- correct while leaving a real difference behind. `GRANT ALL` is used here
+-- precisely because it is exact; the pre-image above was taken from
+-- `pg_class.relacl`, which does show `m`.
+--
+-- 0092 touched nothing else: no rows, no other table, no policy, no owner. So
+-- restoring RLS and the two revoked grantees is a complete inverse.
+--
+-- Provided for completeness. Uncomment deliberately.
+--
+-- DO $$
+-- BEGIN
+--   IF NOT EXISTS (
+--     SELECT 1 FROM information_schema.tables
+--      WHERE table_schema = 'public'
+--        AND table_name   = 'sms_parsers_validation_reset_0087'
+--   ) THEN
+--     RAISE NOTICE '0092 rollback: journal table absent; nothing to restore.';
+--     RETURN;
+--   END IF;
+--
+--   -- Restore the platform-default grants exactly (arwdDxtm, incl. MAINTAIN).
+--   EXECUTE 'GRANT ALL ON TABLE public.sms_parsers_validation_reset_0087 '
+--        || 'TO anon, authenticated';
+--
+--   -- Restore the pre-0092 RLS state. It was disabled and not forced; 0092
+--   -- enabled it without forcing, so DISABLE alone is the exact inverse.
+--   EXECUTE 'ALTER TABLE public.sms_parsers_validation_reset_0087 '
+--        || 'DISABLE ROW LEVEL SECURITY';
+--
+--   RAISE WARNING '0092 ROLLED BACK: the 0087 journal is once again readable '
+--                 'and WRITABLE by anon and authenticated. Re-apply 0092.';
+-- END $$;

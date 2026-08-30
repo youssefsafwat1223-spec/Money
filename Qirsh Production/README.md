@@ -50,7 +50,7 @@ Canonical locations that stay put:
 | Kind | Path |
 |---|---|
 | Flutter app | `app/` |
-| Migrations | `supabase/migrations/0001…0091` |
+| Migrations | `supabase/migrations/0001…0092` |
 | Migration rollbacks | `supabase/rollback/` |
 | Edge Functions | `supabase/functions/` (24) |
 | Legal source documents | `docs/legal/PRIVACY_POLICY.md`, `docs/legal/TERMS.md` |

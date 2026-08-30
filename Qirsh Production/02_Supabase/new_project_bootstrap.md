@@ -7,7 +7,7 @@ Detail for runbook [§2](../QIRSH_PRODUCTION_RELEASE_RUNBOOK.md#phase-2--new-sup
 The old production ref (`vrombzdgwqjjiijbidqb`) and evidence staging
 (`dpdukyozedajelflkeix`) both carry history from the audit period and are under a
 zero-contact rule. Production starts clean so the schema is exactly the
-0001–0091 chain with no manual drift.
+0001–0092 chain with no manual drift.
 
 ## Wrong-project protection
 
