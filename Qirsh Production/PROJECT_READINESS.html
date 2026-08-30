@@ -198,8 +198,8 @@
     </div>
     <div>
       <div class="stat-label">Release milestones</div>
-      <div class="stat-value">2 of 14 complete</div>
-      <div class="bar"><i style="width:14.3%"></i></div>
+      <div class="stat-value">3 of 14 complete</div>
+      <div class="bar"><i style="width:21.4%"></i></div>
       <div class="bar-note">
         Counted from the 14 milestones in the runbook — see
         <a href="#milestones">the list</a>. Not a guess.
@@ -313,13 +313,12 @@
 <h2>Current blockers</h2>
 <div class="cards">
   <div class="card blocker">
-    <h3>Release blockers <span class="b b-block">4</span></h3>
+    <h3>Release blockers <span class="b b-block">3</span></h3>
     <div class="ref">These genuinely stop production. Nothing else does.</div>
     <ul class="items">
       <li><span class="b b-block">1</span><span class="t">No production Supabase project exists<span class="n">Blocks all backend work · Runbook §2.1</span></span></li>
-      <li><span class="b b-block">2</span><span class="t">Legal site not publicly hosted<span class="n">Both stores require a reachable privacy URL · artifacts ready, hosting pending</span></span></li>
-      <li><span class="b b-block">3</span><span class="t">No Android production keystore<span class="n">No signed AAB without it · irreplaceable once the app ships</span></span></li>
-      <li><span class="b b-block">4</span><span class="t">Apple configuration incomplete<span class="n">App IDs, capabilities, APNs key, profiles · Runbook §5</span></span></li>
+      <li><span class="b b-block">2</span><span class="t">No Android production keystore<span class="n">No signed AAB without it · irreplaceable once the app ships</span></span></li>
+      <li><span class="b b-block">3</span><span class="t">Apple configuration incomplete<span class="n">App IDs, capabilities, APNs key, profiles · Runbook §5</span></span></li>
     </ul>
   </div>
 
@@ -464,15 +463,23 @@
       <li><span class="b b-done">✓</span><span class="t"><code>LEGAL_BASE_URL</code> wired into all 3 CI workflows<span class="n">Plus the empty-define trap fixed in Dart</span></span></li>
     </ul>
   </div>
-  <div class="card">
-    <h3>Live hosting <span class="b b-block">BLOCKER</span></h3>
-    <div class="ref">Runbook §1.3 — a paid domain is <em>not</em> required</div>
+  <div class="card ok">
+    <h3>Live hosting <span class="b b-done">LIVE — TEMPORARY HOST</span></h3>
+    <div class="ref">Detail: <a href="04_Legal/domain_status.md">04_Legal/domain_status.md</a></div>
     <ul class="items">
-      <li><span class="b b-owner">OWNER</span><span class="t">Publish <code>build/legal/</code> to any HTTPS static host<span class="n">Cloudflare Pages, Netlify Drop or GitHub Pages — all free</span></span></li>
-      <li><span class="b b-wait">TODO</span><span class="t"><code>/privacy</code> and <code>/terms</code> return 200</span></li>
-      <li><span class="b b-wait">TODO</span><span class="t">Build with <code>--dart-define=LEGAL_BASE_URL=…</code></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Live at <code>qirsh-legal.albaraai-dev.workers.dev</code><span class="n">Approved temporary production host — HTTPS, production-safe, approved for store submission. Not a placeholder, not staging.</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t"><code>/privacy</code> and <code>/terms</code> return 200<span class="n">Via a 307 to the trailing-slash form — Workers canonicalisation, accepted</span></span></li>
+      <li><span class="b b-done">✓</span><span class="t">Built-in default is the live host<span class="n">A build without the define still opens working links</span></span></li>
+      <li><span class="b b-wait">TODO</span><span class="t">Build with <code>--dart-define=LEGAL_BASE_URL=…</code><span class="n">Still required for production release configuration</span></span></li>
       <li><span class="b b-wait">TODO</span><span class="t">Verify both links from inside the installed app</span></li>
-      <li><span class="b b-claude">CLAUDE</span><span class="t">Remove the placeholder assertion once live<span class="n">The test is written to fail as good news</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Final custom domain <span class="b b-opt">FUTURE — NOT BLOCKING</span></h3>
+    <div class="ref">Migration steps: <a href="04_Legal/domain_status.md">04_Legal/domain_status.md</a></div>
+    <ul class="items">
+      <li><span class="b b-opt">FUTURE</span><span class="t">Migrate legal hosting to the final Qirsh custom domain<span class="n">Not purchased, not configured, not named. A branding/infrastructure task — it does <strong>not</strong> block this release while the temporary host stays healthy.</span></span></li>
+      <li><span class="b b-owner">OWNER</span><span class="t">Purchase and configure the domain<span class="n">Then: republish, verify, update the built-in default, Codemagic, App Store Connect, Play Console, and re-verify from installed builds</span></span></li>
     </ul>
   </div>
 </div>
@@ -686,7 +693,7 @@
       <tr><th>#</th><th>Milestone</th><th>Status</th></tr>
       <tr><td>1</td><td>Source / local work complete</td><td><span class="b b-done">COMPLETE</span></td></tr>
       <tr><td>2</td><td>Release baseline certified (strict gate green)</td><td><span class="b b-done">COMPLETE</span></td></tr>
-      <tr><td>3</td><td>Legal site publicly hosted</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>3</td><td>Legal site publicly hosted <span class="n">(approved temporary host)</span></td><td><span class="b b-done">COMPLETE</span></td></tr>
       <tr><td>4</td><td>New Supabase production project created</td><td><span class="b b-wait">TODO</span></td></tr>
       <tr><td>5</td><td>Backend provisioned (secrets, migrations, functions)</td><td><span class="b b-wait">TODO</span></td></tr>
       <tr><td>6</td><td>Apple configuration complete</td><td><span class="b b-wait">TODO</span></td></tr>

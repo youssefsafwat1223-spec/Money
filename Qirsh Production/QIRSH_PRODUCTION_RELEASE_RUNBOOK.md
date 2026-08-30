@@ -196,7 +196,21 @@ Directory-style, so `/privacy` and `/terms` resolve with no host config.
 No dependencies. An empty render **fails the build** rather than publishing a
 blank policy.
 
-## 1.3 `[!] [ ] [EXTERNAL]` YOUSSEF — publish the site
+## 1.3 `[x] [EXTERNAL]` Publish the site — DONE
+
+**Live at `https://qirsh-legal.albaraai-dev.workers.dev`.**
+
+This is the **approved temporary production legal host**: live, HTTPS,
+production-safe, and approved for current releases including store submission.
+It is *not* a placeholder, *not* staging, *not* development-only, and *not* a
+release blocker.
+
+The final Qirsh branded domain has not been purchased or configured yet. That is
+a future branding/infrastructure task and **does not block this release** while
+the temporary host stays healthy. Status and the ordered migration steps live in
+[`04_Legal/domain_status.md`](04_Legal/domain_status.md).
+
+<details><summary>Original hosting options, kept for the future migration</summary>
 
 **A paid custom domain is not required.** Any reliable public HTTPS static host
 works. Easiest options, cheapest first:
@@ -228,10 +242,13 @@ curl -sI https://<host>/terms   | head -1   # HTTP/2 200
 `privacy/index.html` for an extensionless path. Use `/privacy/` with the
 trailing slash to confirm, then enable "clean URLs" on the host.
 
+</details>
+
 ## 1.4 `[x] [CLAUDE]` Placeholder semantics retired — DONE
 
-The legal site is live at `https://qirsh-legal.albaraai-dev.workers.dev`, and
-that host is now the **built-in default** in `legal_urls.dart`.
+The legal site is live at `https://qirsh-legal.albaraai-dev.workers.dev` — the
+**approved temporary production host** ([`04_Legal/domain_status.md`](04_Legal/domain_status.md))
+— and that host is now the **built-in default** in `legal_urls.dart`.
 
 This inverted the original design deliberately. The default used to be an
 unresolvable host so a missing CI variable would be caught — but it was only

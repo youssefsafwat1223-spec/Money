@@ -2,6 +2,11 @@
 
 Live host: **`https://qirsh-legal.albaraai-dev.workers.dev`** (no trailing slash).
 
+**Approved temporary production host** — live, HTTPS, production-safe, and
+approved for current releases including store submission. It is not the final
+Qirsh branded domain, which is not purchased yet and **does not block this
+release**. See [`domain_status.md`](domain_status.md) for the migration task.
+
 - [x] `python3 tools/build_legal_site.py` run against current `docs/legal/`
 - [x] Site uploaded; `/privacy` and `/terms` both return 200
       (via a 307 to the trailing-slash form — Workers Static Assets
