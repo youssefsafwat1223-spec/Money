@@ -70,20 +70,55 @@ Re-derive at any time (still no password needed):
 > there is no system JDK. Use the Cellar path above. This is what silently
 > defeated the first generation attempt.
 
-## Backups — ⚠️ NOT YET DONE
+## Backups
 
-Two **independent** copies. Two folders on the same disk is one copy.
+Original and two copies, all byte-identical and all proven to hold a usable key.
 
-| # | Location (description — never a live secret) | Encrypted | Test-restored | Date |
-|---|---|---|---|---|
-| 1 | _to be filled_ | | | |
-| 2 | _to be filled_ | | | |
+| # | Destination | Filesystem | Independence | sha256 vs original | cert SHA-1/256 | Mode |
+|---|---|---|---|---|---|---|
+| — | `~/qirsh-upload-keystore.jks` | APFS (`disk1s1`) | original | — | ✓ / ✓ | `600` |
+| 1 | `~/Library/Mobile Documents/com~apple~CloudDocs/Qirsh-Signing/` | APFS → iCloud | **off-machine, different provider** | ✓ match | ✓ / ✓ | `600` |
+| 2 | `/Volumes/shared/Qirsh-Signing/` | exFAT (`disk0s6`) | separate **physical** SSD, **same machine** | ✓ match | ✓ / ✓ | see note |
 
-Store the two passwords in a password manager, **separately** from the keystore
-file. A backup containing both is a single point of compromise.
+File sha256 (the container, not a secret):
+`7b6422f10ea55d752fc9474d03618443e5bbdad2603995797cefdf889fc0441d`, 3,915 bytes.
 
-**Until both backups exist, this key is a single point of failure.** Before Play
-App Signing enrolment it is not yet recoverable by Google.
+Both copies were verified twice over: a byte checksum proves the file copied,
+and `keytool -list -v` against each copy proves the key inside is still usable
+and still the same certificate. A checksum alone would not catch a copy that is
+intact but unreadable.
+
+### ⚠️ Backup requirement is NOT yet complete
+
+**Backup #1 (iCloud) is genuinely independent** — it survives loss, theft or
+failure of this machine.
+
+**Backup #2 is not.** `disk0` reports `Device Location: Internal`,
+`Removable Media: Fixed`. It is a *different physical SSD*, so it survives a
+disk failure — but it is inside the same computer. Theft, fire or loss of the
+machine takes the original and backup #2 together.
+
+Two further caveats on #2:
+
+- exFAT is mounted `noowners`, so POSIX permissions are **not enforced**. The
+  `chmod 600` there is cosmetic; anyone with access to the volume can read it.
+- exFAT has no ownership model at all, so it cannot be relied on for
+  confidentiality.
+
+**What is still required:** one destination that is physically separate from
+this machine — an external USB drive that is *disconnected after copying*, a
+second cloud provider, or an encrypted attachment in a password manager. Until
+that exists, a single event that destroys the laptop destroys two of three
+copies, leaving only iCloud.
+
+The `.jks` is itself a password-protected container, so storing it in iCloud is
+acceptable practice — but the store password must live somewhere else entirely.
+
+### Password storage
+
+Passwords are in a password manager, **never** in this repository, never in
+`key.properties` backups, and never alongside the keystore. A backup containing
+both the key and its password is one compromise, not two.
 
 ## Play App Signing
 
@@ -105,8 +140,11 @@ it turns a lost upload key from fatal into a reset request.
 - [x] SHA-1 and SHA-256 recorded
 - [x] `git check-ignore`: `key.properties`, `*.jks`, `*.keystore` all ignored
 - [x] 0 keystore-shaped files tracked; 0 `.jks` anywhere in the working tree
-- [ ] `app/android/key.properties` written — **owner action**
-- [ ] Two independent backups — **owner action**
+- [ ] `app/android/key.properties` written — **owner action**, run
+      `bash tools/setup_android_key_properties.sh` (hidden password entry)
+- [x] Backup #1 — iCloud Drive, checksum + fingerprint verified
+- [~] Backup #2 — `/Volumes/shared`, verified but **same machine**; an
+      off-machine destination is still required
 - [ ] `./gradlew signingReport` resolves the release config
 
 ## Note: JKS vs PKCS12
