@@ -84,16 +84,82 @@ read messages that arrived before capture was enabled).
 
 ---
 
-## Final per-category answers
+## Final per-category answers — with evidence
 
-| Play category | Collected | Optional | Shared | Purpose | Encrypted in transit | Deletion | Retention |
-|---|---|---|---|---|---|---|---|
-| **SMS or MMS** | **YES** | **Optional** — off by default | No | App functionality | Yes | In-app account deletion (cascade) | **30 days**, automatic |
-| **Purchase history** | YES | Required | No | App functionality | Yes | Account deletion | Until deletion |
-| **Other financial info** | YES | Required | No | App functionality | Yes | Account deletion | Until deletion |
-| **User IDs** | YES | Required | No | App functionality, account management | Yes | Account deletion | Until deletion |
-| **Device or other IDs** | YES | Required | No | App functionality, fraud prevention | Yes | Account deletion | Until deletion |
-| **Diagnostics** | YES | Optional (Sentry) | No | Analytics, app functionality | Yes | Account deletion | Until deletion |
+### The decisive fact
+
+`ConsentAuthority.decide()` makes `cloudProcessingEnabled` the **master gate for
+every egress class carrying user data**:
+
+```dart
+case EgressClass.financialSync:
+case EgressClass.profileAndSettings:
+case EgressClass.backup:
+case EgressClass.senderBankMappings:
+case EgressClass.smartInbox:
+case EgressClass.gamification:
+case EgressClass.telemetry:
+case EgressClass.diagnostics:
+  return cloud;                       // ← all of it
+case EgressClass.aiProcessing:
+  return cloud && settings.aiConsentGranted;
+```
+
+Only `catalog` and `auth` are ungated. And the default is off:
+
+```sql
+cloud_processing_enabled INTEGER NOT NULL DEFAULT 0
+```
+```dart
+bool get cloudProcessingEnabled => cloudConsentState == ConsentState.accepted;
+```
+
+The app is a local-first expense tracker — Drift is the source of truth and the
+app is fully usable with cloud consent never granted. So under Play's test
+(*can all users decline this collection and still use the app?*) almost
+everything is **Optional**.
+
+The earlier draft marked financial data "Required". That was wrong: it confused
+"required once you have enabled cloud sync" with "required to use the app".
+
+| Play category | Collected | Optional/Required | Evidence |
+|---|---|---|---|
+| **SMS or MMS** | YES | **Optional** | `cloudProcessingEnabled` gate + the auto-capture opt-in; two independent offs |
+| **Purchase history** | YES | **Optional** | `EgressClass.financialSync → return cloud`; default 0 |
+| **Other financial info** | YES | **Optional** | same gate |
+| **Device or other IDs** | YES | **Optional** | install id/device secret are only sent on capture calls, which are behind the same gate |
+| **Diagnostics** | YES | **Optional** | `EgressClass.diagnostics → return cloud`, plus Sentry needs its own DSN |
+| **User IDs** | YES | **REQUIRED** | `EgressClass.auth` returns `true` **ungated**, and the router forces a non-guest user to a **mandatory sign-in** screen. No guest option is offered in onboarding. |
+
+**`User IDs` is the only genuinely required category**, and only because sign-in
+is mandatory. Everything else can be declined for the app's lifetime.
+
+### Sharing — per recipient
+
+Play defines *sharing* as transfer to a **third party**, and excludes transfers
+to a **service provider** processing solely on the developer's behalf.
+
+| Recipient | Relationship | Own purposes? | Data Safety |
+|---|---|---|---|
+| Qirsh backend (Supabase) | **first party** — our own infrastructure | no | **not shared** |
+| Sentry | **service provider** — crash diagnostics on our behalf | no | **not shared** |
+| Google / Apple sign-in | authentication provider; the user initiates it | no | **not shared** — user-initiated authentication |
+| **AI provider (Gemini)** | **service provider** — parsing on our behalf | no | **not shared** |
+
+**Not shared for every recipient — but not because "SDK transfers don't count".**
+Each is either our own infrastructure or a processor acting under our
+instructions for our purposes. If any of them were ever permitted to use the data
+for their own purposes — model training, analytics, advertising — the answer for
+that recipient would become **Shared: YES**, and the money-management exception
+would be at risk.
+
+⚠️ The AI provider is the one to watch. `process-ios-sms`, `bank-discovery` and
+`parse-sms` all reference Gemini, gated server-side on `allowAi`, which the
+client forwards from `aiConsentGranted`. **`GEMINI_API_KEY` is not currently set
+on production**, so no call can be made today — but the code path exists, and the
+Data Safety answer must describe the design, not a transient config state. Before
+enabling it, confirm the provider's terms bar training on submitted content;
+if they do not, this row changes.
 
 ## Security practices
 

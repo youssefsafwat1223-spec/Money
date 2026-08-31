@@ -17,8 +17,10 @@ that used to be aspirational are now enforced in code and covered by tests.
   key held in the device keychain.
 - **Cloud sync is OFF by default.** With it off, no financial data leaves your
   device — this is enforced at every network call, not only in the settings UI.
-- **The AI runs entirely on your device.** No message text is sent to any AI
-  provider, ours or anyone else's.
+- **The model that categorises your spending runs entirely on your device**, with
+  no network access at all. Separately, if you turn on both cloud processing and
+  AI assistance — two choices, both off by default — a sanitized copy of a bank
+  message may be sent to an AI provider to help read it.
 - **We do not sell your data.** There is no advertising profile built from your
   transactions.
 
@@ -130,10 +132,16 @@ account and we will action the deletion.
 | Data | Retained |
 |---|---|
 | Local data | Until you delete it or uninstall the app |
-| Cloud financial data | Until you delete it or delete your account |
+| Cloud financial data (transactions, accounts, budgets) | **No fixed expiry** — kept until you delete it or delete your account |
+| Sanitized captured message text on our servers | **Deleted automatically after 30 days** |
+| Duplicate-detection fingerprints | **Deleted automatically after 7 days** |
+| Device identifiers used for capture | **No fixed expiry** — removed when you delete your account |
 | Encrypted backups | Until replaced or deleted by you |
-| Relay records for captured messages | Swept automatically after 30 days |
 | Crash reports (if enabled) | Per the diagnostics provider's retention |
+
+The two automatic deletions run on a daily scheduled job. The rows with no fixed
+expiry are exactly that — they do not expire on their own, and are removed when
+you delete your account.
 
 ---
 
@@ -144,10 +152,17 @@ account and we will action the deletion.
 | Supabase (hosting, database, auth) | Whatever you have consented to sync | Only with consent |
 | Sentry (crash reporting) | Crash diagnostics | Only with consent |
 | Google / Apple sign-in | Authentication only | Only if you sign in |
-| **AI providers** | **Nothing.** There are none. | Never |
+| AI provider (message reading) | Sanitized bank-message text | Only with **both** cloud processing and AI assistance on |
 
-The AI row is stated explicitly because "this app has AI" usually implies a third
-party receives your text. In Qirsh it does not: the model is on your device.
+Each of these processes data **on our behalf**, under our instructions, to run
+the service. None of them receives your data for their own purposes, and we do
+not sell or share it for advertising.
+
+**About the AI row.** The model that categorises your spending is on your device
+and sends nothing (section 2). That is separate from *reading* a bank message: if
+you enable cloud processing **and** AI assistance, a sanitized copy of the
+message may be sent to an AI provider to help parse it. Both settings are off by
+default, and turning off either one stops it.
 
 ---
 
@@ -163,9 +178,13 @@ spending record without you typing them in.
   is accessed and why, and only when you explicitly agree.
 - Granting the permission is **not** enough on its own. Automatic capture stays
   **off** until you separately turn it on in Settings.
-- Messages are filtered **on your device before anything is stored**. Only
-  messages that look financial are kept; personal messages and one-time codes
-  are discarded and never written down.
+- Incoming messages are **screened on your device before anything is stored**.
+  A message that does not look like a financial transaction is discarded at that
+  point and is never saved. The screening is designed to leave ordinary personal
+  messages and verification codes behind, but it is a judgement based on the
+  message's content and sender rather than a guarantee — occasionally a message
+  may be kept that you would not have chosen to keep. Anything kept in error can
+  be deleted in the app.
 - Qirsh requests `RECEIVE_SMS` only. It does **not** request permission to read
   your existing inbox, send messages, or read MMS.
 - You can turn automatic capture off in Qirsh, or revoke the permission in
@@ -187,7 +206,11 @@ Qirsh.
   warnings and reminders.
 - **Biometrics** — to lock the app, if you enable it.
 
-Qirsh does not request location, contacts, photos, or the microphone.
+- **Photos and camera** — only if you choose a profile picture. Qirsh opens the
+  picker when you tap to set one; it cannot browse your library otherwise.
+- **Files** — only when you pick a backup file to restore.
+
+Qirsh does not request location, contacts, or the microphone.
 
 ### Where captured messages are processed
 
